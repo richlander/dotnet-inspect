@@ -538,6 +538,16 @@ public class InspectionResultView
 
 public class SigningSection
 {
+    internal static readonly string[] FieldNames =
+    [
+        "Author Verified",
+        "Publisher",
+        "Repository",
+        "Repository Verified",
+        "Signed",
+        "Status",
+    ];
+
     [MarkoutPropertyName("Author Verified")]
     public string? AuthorVerified { get; init; }
     public string? Publisher { get; init; }
@@ -546,6 +556,21 @@ public class SigningSection
     public string? RepositoryVerified { get; init; }
     public string Signed { get; init; } = "Unknown";
     public string? Status { get; init; }
+
+    internal IEnumerable<MarkoutField> ToMarkoutFields()
+    {
+        if (AuthorVerified is not null)
+            yield return new("Author Verified", AuthorVerified);
+        if (Publisher is not null)
+            yield return new("Publisher", Publisher);
+        if (Repository is not null)
+            yield return new("Repository", Repository);
+        if (RepositoryVerified is not null)
+            yield return new("Repository Verified", RepositoryVerified);
+        yield return new("Signed", Signed);
+        if (Status is not null)
+            yield return new("Status", Status);
+    }
 }
 
 /// <inheritdoc cref="PackageViewText"/>

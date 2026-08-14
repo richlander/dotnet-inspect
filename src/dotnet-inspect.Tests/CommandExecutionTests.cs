@@ -19071,20 +19071,77 @@ public partial class CommandExecutionTests
                 "--count",
                 "--rows",
                 "1");
+            var table = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--table");
+            var tsvRows = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--fields",
+                "Signed",
+                "--columns",
+                "Package;Value",
+                "--tsv");
+            var jsonl = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--fields",
+                "Signed",
+                "--jsonl");
 
             Assert.Equal(0, json.Exit);
             Assert.Equal(0, defaultFormat.Exit);
             Assert.Equal(0, tsv.Exit);
             Assert.Equal(0, windowed.Exit);
+            Assert.Equal(0, table.Exit);
+            Assert.Equal(0, tsvRows.Exit);
+            Assert.Equal(0, jsonl.Exit);
             Assert.Empty(json.Error);
             Assert.Empty(defaultFormat.Error);
             Assert.Empty(tsv.Error);
             Assert.Empty(windowed.Error);
+            Assert.Empty(table.Error);
+            Assert.Empty(tsvRows.Error);
+            Assert.Empty(jsonl.Error);
             Assert.Equal(json.Output, defaultFormat.Output);
             Assert.Equal(json.Output, tsv.Output);
             Assert.True(
                 int.Parse(json.Output, CultureInfo.InvariantCulture) > 1);
             Assert.Equal("1", windowed.Output.Trim());
+            Assert.Contains("Test.Signature.Count.One", table.Output);
+            Assert.Contains("Test.Signature.Count.Two", table.Output);
+            Assert.Equal(
+                [
+                    "package\tvalue",
+                    "Test.Signature.Count.One\tNo",
+                    "Test.Signature.Count.Two\tNo",
+                ],
+                SplitOutputLines(tsvRows.Output));
+            foreach (string row in SplitOutputLines(jsonl.Output))
+            {
+                using var document = JsonDocument.Parse(row);
+                Assert.Equal(
+                    ["package", "field", "value"],
+                    document.RootElement
+                        .EnumerateObject()
+                        .Select(property => property.Name));
+                Assert.Equal(
+                    "Signed",
+                    document.RootElement.GetProperty("field").GetString());
+                Assert.Equal(
+                    "No",
+                    document.RootElement.GetProperty("value").GetString());
+            }
         }
         finally
         {

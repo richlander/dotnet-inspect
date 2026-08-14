@@ -5448,6 +5448,24 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void SigningSection_FieldCatalogMatchesCombinedRows()
+    {
+        var section = new SigningSection
+        {
+            AuthorVerified = "Yes",
+            Publisher = "Publisher",
+            Repository = "Repository",
+            RepositoryVerified = "Yes",
+            Signed = "Yes",
+            Status = "Status",
+        };
+
+        Assert.Equal(
+            SigningSection.FieldNames,
+            section.ToMarkoutFields().Select(field => field.Key));
+    }
+
+    [Fact]
     public void PackagePipeline_Quiet_IncludesSummaryOnly()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();

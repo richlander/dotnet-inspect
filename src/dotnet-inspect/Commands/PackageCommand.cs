@@ -1040,14 +1040,14 @@ public class PackageCommand
         }
 
         section = options.IncludeSections.Single();
-        if (section.Equals(PackageSections.PackageInfo, StringComparison.OrdinalIgnoreCase)
+        if (IsMultiPackageFieldSection(section)
             || IsPackageFileSection(section))
         {
             return true;
         }
 
         CommandError.Write($"Multiple package row output does not support section: {section}.");
-        CommandError.WriteLine("Use --json, or select Package Info, Package files, or a package file section (see -D @Files).");
+        CommandError.WriteLine("Use --json, or select Package Info, Signature, Package files, or a package file section (see -D @Files).");
         return false;
     }
 
@@ -1145,8 +1145,8 @@ public class PackageCommand
             && (options.FixedOverview
                 || options.IncludeSections is not { Count: > 0 }
                 || (options.IncludeSections.Count == 1
-                    && (options.IncludeSections.Contains(
-                            PackageSections.PackageInfo)
+                    && (IsMultiPackageFieldSection(
+                            options.IncludeSections.Single())
                         || IsPackageFileSection(
                             options.IncludeSections.Single()))));
         if (multiPackageRowShape)
@@ -1217,11 +1217,7 @@ public class PackageCommand
         foreach (string name in schema.SectionNames)
         {
             var section = schema.GetSection(name);
-            if (combinedRows
-                && string.Equals(
-                    name,
-                    PackageSections.PackageInfo,
-                    StringComparison.OrdinalIgnoreCase))
+            if (combinedRows && IsMultiPackageFieldSection(name))
             {
                 result.Add(
                     name,
@@ -1271,6 +1267,35 @@ public class PackageCommand
         => patterns is not { Length: > 0 }
             ? null
             : ResolveProjectionNames(PackageInfoFieldNames, patterns);
+
+    private static string[]? ResolvePackageFieldSectionFields(
+        string section,
+        string[]? patterns)
+    {
+        if (patterns is not { Length: > 0 })
+            return null;
+
+        return ResolveProjectionNames(
+            GetMultiPackageFieldNames(section),
+            patterns);
+    }
+
+    private static bool IsMultiPackageFieldSection(string? section)
+        => section is not null
+            && (section.Equals(
+                    PackageSections.PackageInfo,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    PackageSections.Signature,
+                    StringComparison.OrdinalIgnoreCase));
+
+    private static IReadOnlyList<string> GetMultiPackageFieldNames(
+        string section)
+        => section.Equals(
+            PackageSections.PackageInfo,
+            StringComparison.OrdinalIgnoreCase)
+            ? PackageInfoFieldNames
+            : SigningSection.FieldNames;
 
     private static string[] ResolveProjectionNames(
         IReadOnlyList<string> availableNames,
@@ -2686,7 +2711,7 @@ public class PackageCommand
             return;
         }
 
-        WriteMultiPackagePackageInfoTable(results, options);
+        WriteMultiPackageFieldTable(results, section, options);
     }
 
     private static void WriteMultiPackageFilesTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
@@ -2939,12 +2964,18 @@ public class PackageCommand
         return [];
     }
 
-    private static void WriteMultiPackagePackageInfoTable(IReadOnlyList<InspectionResult> results, InspectionOptions options)
+    private static void WriteMultiPackageFieldTable(
+        IReadOnlyList<InspectionResult> results,
+        string section,
+        InspectionOptions options)
     {
         string[]? selectedFields =
-            ResolvePackageInfoFields(options.Fields);
+            ResolvePackageFieldSectionFields(section, options.Fields);
         var rows = results
-            .SelectMany(result => SelectPackageInfoFields(result, selectedFields)
+            .SelectMany(result => SelectPackageFieldSectionFields(
+                    result,
+                    section,
+                    selectedFields)
                 .Select(field => new[]
                 {
                     result.PackageName,
@@ -2969,7 +3000,8 @@ public class PackageCommand
                     rows);
                 markoutWriter.Flush();
             });
-        DiagnoseMissingPackageInfoFields(
+        DiagnoseMissingPackageFieldSectionFields(
+            section,
             options.Fields,
             rows.Select(row => row[1]));
         Console.Out.Write(
@@ -2979,7 +3011,8 @@ public class PackageCommand
                 !options.NoHeader));
     }
 
-    private static void DiagnoseMissingPackageInfoFields(
+    private static void DiagnoseMissingPackageFieldSectionFields(
+        string section,
         string[]? patterns,
         IEnumerable<string> renderedFields)
     {
@@ -2992,7 +3025,7 @@ public class PackageCommand
             .Where(pattern =>
             {
                 string[] resolved = ResolveProjectionNames(
-                    PackageInfoFieldNames,
+                    GetMultiPackageFieldNames(section),
                     [pattern]);
                 return resolved.Length > 0
                     && !resolved.Any(rendered.Contains);
@@ -3017,6 +3050,31 @@ public class PackageCommand
             return metadata;
 
         var byName = metadata.ToDictionary(
+            field => field.Key,
+            StringComparer.OrdinalIgnoreCase);
+        return selectedFields
+            .Where(byName.ContainsKey)
+            .Select(field => byName[field]);
+    }
+
+    private static IEnumerable<MarkoutField> SelectPackageFieldSectionFields(
+        InspectionResult result,
+        string section,
+        IReadOnlyList<string>? selectedFields)
+    {
+        IEnumerable<MarkoutField> fields =
+            section.Equals(
+                PackageSections.PackageInfo,
+                StringComparison.OrdinalIgnoreCase)
+                ? new InspectionResultView(result).Metadata
+                : new InspectionResultView(result)
+                    .SigningSectionData?
+                    .ToMarkoutFields()
+                    ?? [];
+        if (selectedFields == null)
+            return fields;
+
+        var byName = fields.ToDictionary(
             field => field.Key,
             StringComparer.OrdinalIgnoreCase);
         return selectedFields
