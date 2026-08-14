@@ -53,7 +53,14 @@ public sealed record PdbMemberDocumentInfo(
     int StartLine,
     int EndLine,
     bool IsPrimaryDocument = false,
-    bool IsFinalizer = false);
+    bool IsFinalizer = false)
+{
+    /// <summary>
+    /// Sorted distinct 1-based start lines of this method's visible sequence points in this
+    /// document. Points from another document are never mixed into this collection.
+    /// </summary>
+    public ImmutableArray<int> SequencePointStartLines { get; init; } = [];
+}
 
 /// <summary>A method's portable-PDB document and visible source range.</summary>
 public sealed record PdbMethodDocumentInfo(
@@ -61,7 +68,11 @@ public sealed record PdbMethodDocumentInfo(
     int StartLine,
     int EndLine,
     byte[]? Checksum = null,
-    string? ChecksumAlgorithm = null);
+    string? ChecksumAlgorithm = null)
+{
+    /// <summary>Sorted distinct visible sequence-point start lines in <see cref="FilePath"/>.</summary>
+    public ImmutableArray<int> SequencePointStartLines { get; init; } = [];
+}
 
 /// <summary>A source location recovered from portable-PDB sequence points.</summary>
 public sealed record PdbILOffsetLocation(
@@ -796,32 +807,23 @@ public class PdbContext : IDisposable
     {
         try
         {
-            var debugInfo = _pdbReader!.GetMethodDebugInformation(
-                methodHandle.ToDebugInformationHandle());
-            if (debugInfo.Document.IsNil)
+            var ranges = ReadVisibleSequencePointDocuments(methodHandle);
+            var primary = ranges.FirstOrDefault(static range => range.IsPrimaryDocument);
+            if (primary is null)
                 return null;
 
-            int minLine = int.MaxValue;
-            int maxLine = 0;
-            foreach (var point in debugInfo.GetSequencePoints())
-            {
-                if (point.IsHidden)
-                    continue;
-                minLine = Math.Min(minLine, point.StartLine);
-                maxLine = Math.Max(maxLine, point.EndLine);
-            }
-            if (minLine == int.MaxValue)
-                return null;
-
-            var document = _pdbReader.GetDocument(debugInfo.Document);
+            var document = _pdbReader!.GetDocument(primary.Document);
             return new PdbMethodDocumentInfo(
                 _pdbReader.GetString(document.Name),
-                minLine,
-                maxLine,
+                primary.StartLine,
+                primary.EndLine,
                 document.Hash.IsNil ? null : _pdbReader.GetBlobBytes(document.Hash),
                 document.Hash.IsNil
                     ? null
-                    : MapHashAlgorithm(_pdbReader.GetGuid(document.HashAlgorithm)));
+                    : MapHashAlgorithm(_pdbReader.GetGuid(document.HashAlgorithm)))
+            {
+                SequencePointStartLines = primary.StartLines,
+            };
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or InvalidOperationException
@@ -986,33 +988,7 @@ public class PdbContext : IDisposable
         foreach (var methodHandle in EnumerateSelectedMethods(metadata, metadataTokens))
         {
             int metadataToken = MetadataTokens.GetToken(methodHandle);
-            var debugInfo = _pdbReader.GetMethodDebugInformation(methodHandle.ToDebugInformationHandle());
-            var currentDocument = debugInfo.Document;
-            var primaryDocument = debugInfo.Document;
-            Dictionary<DocumentHandle, (int StartLine, int EndLine)> ranges = [];
-
-            foreach (var point in debugInfo.GetSequencePoints())
-            {
-                if (!point.Document.IsNil)
-                    currentDocument = point.Document;
-                if (point.IsHidden || currentDocument.IsNil)
-                    continue;
-                // Multi-document methods may omit the root document; in that case,
-                // the first visible sequence point is the stable presentation choice.
-                if (primaryDocument.IsNil)
-                    primaryDocument = currentDocument;
-
-                if (ranges.TryGetValue(currentDocument, out var range))
-                {
-                    ranges[currentDocument] = (
-                        Math.Min(range.StartLine, point.StartLine),
-                        Math.Max(range.EndLine, point.EndLine));
-                }
-                else
-                {
-                    ranges[currentDocument] = (point.StartLine, point.EndLine);
-                }
-            }
+            var ranges = ReadVisibleSequencePointDocuments(methodHandle);
 
             if (ranges.Count == 0)
                 continue;
@@ -1024,9 +1000,9 @@ public class PdbContext : IDisposable
                 method);
             bool isFinalizer = ApiSurfaceExtractor.IsFinalizerMethod(metadata, methodHandle);
 
-            foreach (var (documentHandle, range) in ranges
-                .OrderBy(static item => MetadataTokens.GetRowNumber(item.Key)))
+            foreach (var range in ranges)
             {
+                var documentHandle = range.Document;
                 var document = _pdbReader.GetDocument(documentHandle);
                 string filePath = _pdbReader.GetString(document.Name);
                 yield return new PdbMemberDocumentInfo(
@@ -1036,11 +1012,78 @@ public class PdbContext : IDisposable
                     filePath,
                     range.StartLine,
                     range.EndLine,
-                    IsPrimaryDocument: documentHandle == primaryDocument,
-                    IsFinalizer: isFinalizer);
+                    IsPrimaryDocument: range.IsPrimaryDocument,
+                    IsFinalizer: isFinalizer)
+                {
+                    SequencePointStartLines = range.StartLines,
+                };
             }
         }
     }
+
+    private IReadOnlyList<SequencePointDocumentRange> ReadVisibleSequencePointDocuments(
+        MethodDefinitionHandle methodHandle)
+    {
+        var debugInfo = _pdbReader!.GetMethodDebugInformation(
+            methodHandle.ToDebugInformationHandle());
+        var currentDocument = debugInfo.Document;
+        var firstVisibleDocument = default(DocumentHandle);
+        Dictionary<DocumentHandle, MutableSequencePointDocumentRange> byDocument = [];
+
+        foreach (var point in debugInfo.GetSequencePoints())
+        {
+            if (!point.Document.IsNil)
+                currentDocument = point.Document;
+            if (point.IsHidden || currentDocument.IsNil)
+                continue;
+
+            if (firstVisibleDocument.IsNil)
+                firstVisibleDocument = currentDocument;
+            if (!byDocument.TryGetValue(currentDocument, out var range))
+            {
+                range = new MutableSequencePointDocumentRange();
+                byDocument.Add(currentDocument, range);
+            }
+
+            range.StartLine = Math.Min(range.StartLine, point.StartLine);
+            range.EndLine = Math.Max(range.EndLine, point.EndLine);
+            range.StartLines.Add(point.StartLine);
+        }
+
+        if (byDocument.Count == 0)
+            return [];
+
+        var primaryDocument = !debugInfo.Document.IsNil
+            && byDocument.ContainsKey(debugInfo.Document)
+                ? debugInfo.Document
+                : firstVisibleDocument;
+
+        return
+        [
+            .. byDocument
+                .OrderBy(static item => MetadataTokens.GetRowNumber(item.Key))
+                .Select(item => new SequencePointDocumentRange(
+                    item.Key,
+                    item.Value.StartLine,
+                    item.Value.EndLine,
+                    [.. item.Value.StartLines.Distinct().Order()],
+                    item.Key == primaryDocument)),
+        ];
+    }
+
+    private sealed class MutableSequencePointDocumentRange
+    {
+        public int StartLine = int.MaxValue;
+        public int EndLine;
+        public List<int> StartLines { get; } = [];
+    }
+
+    private sealed record SequencePointDocumentRange(
+        DocumentHandle Document,
+        int StartLine,
+        int EndLine,
+        ImmutableArray<int> StartLines,
+        bool IsPrimaryDocument);
 
     /// <summary>
     /// Enumerates type-to-document relationships recovered from method debug information.
