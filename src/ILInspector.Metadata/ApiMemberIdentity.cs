@@ -348,8 +348,20 @@ public static class ApiMemberIdentity
     /// </summary>
     sealed class AnchorSignatureWorkBudget
     {
-        int _remaining = MetadataSafetyPolicy.MaxAnchorSignatureWorkChars;
+        int _remaining;
         bool _exhausted;
+
+        internal AnchorSignatureWorkBudget()
+            : this(MetadataSafetyPolicy.MaxAnchorSignatureWorkChars)
+        {
+        }
+
+        internal AnchorSignatureWorkBudget(int remaining)
+        {
+            _remaining = remaining;
+        }
+
+        internal int Remaining => _exhausted ? 0 : _remaining;
 
         internal void Charge(int characters)
         {
@@ -938,6 +950,53 @@ public static class ApiMemberIdentity
         return new MethodAnchorInfo(shape.Anchor, shape.ReturnType);
     }
 
+    /// <summary>
+    /// Creates a method anchor while drawing from a caller-owned cumulative
+    /// work remaining counter (classification scans). Each call is still capped
+    /// by <see cref="MetadataSafetyPolicy.MaxAnchorSignatureWorkChars"/>, and
+    /// spent units are subtracted from <paramref name="scanWorkRemaining"/>.
+    /// </summary>
+    public static MethodAnchorInfo CreateMethodAnchorInfo(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinition method,
+        ref int scanWorkRemaining,
+        bool isExtensionMethod = false)
+    {
+        if (scanWorkRemaining <= 0)
+        {
+            throw new BadImageFormatException(
+                "The assembly exceeds the classification scan work budget.");
+        }
+
+        int anchorAllowance = scanWorkRemaining;
+        if (anchorAllowance > MetadataSafetyPolicy.MaxAnchorSignatureWorkChars)
+            anchorAllowance = MetadataSafetyPolicy.MaxAnchorSignatureWorkChars;
+
+        var workBudget = new AnchorSignatureWorkBudget(anchorAllowance);
+        try
+        {
+            var shape = CreateMethodAnchorShape(
+                reader,
+                typeHandle,
+                method,
+                isExtensionMethod,
+                workBudget);
+            int spent = anchorAllowance - workBudget.Remaining;
+            scanWorkRemaining -= spent;
+            if (scanWorkRemaining < 0)
+                scanWorkRemaining = 0;
+            return new MethodAnchorInfo(shape.Anchor, shape.ReturnType);
+        }
+        catch (BadImageFormatException)
+        {
+            // Budget may be exhausted mid-decode; do not allow retry with the
+            // pre-call remaining on a later method.
+            scanWorkRemaining = workBudget.Remaining;
+            throw;
+        }
+    }
+
     public static ExtensionMemberAnchorInfo CreateExtensionMethodAnchorInfo(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
@@ -1023,7 +1082,8 @@ public static class ApiMemberIdentity
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         MethodDefinition method,
-        bool isExtensionMethod)
+        bool isExtensionMethod,
+        AnchorSignatureWorkBudget? workBudget = null)
     {
         var type = reader.GetTypeDefinition(typeHandle);
         string methodName =
@@ -1032,7 +1092,7 @@ public static class ApiMemberIdentity
                 method.Name);
         GenericContext context =
             GenericContext.ForMethod(reader, type, method);
-        var workBudget = new AnchorSignatureWorkBudget();
+        workBudget ??= new AnchorSignatureWorkBudget();
         var provider = new AnchorSignatureTypeProvider(workBudget);
         var decoded = GuardedProviderDecode.MethodResult(
             reader,

@@ -52,14 +52,15 @@ public class StructuringDiagnosticsTests
     {
         // Near miss for the region-exit diamond: the fallthrough arm exits to the
         // enclosing join, but the taken arm branches to the local sibling block.
-        // That is not the same structured if/else shape, so the pass keeps the
-        // container flat instead of erasing a still-meaningful goto.
+        // It also has only one explicit transfer to the outer merge, so the
+        // retained-label path does not treat fallthrough as proof of sharing.
         var function = BuildForwardBranchNotRegionExit();
 
         var diag = RunWithDiagnostics(function);
 
         Assert.Equal(0, diag.Structured);
         Assert.Equal("forward-branch-not-region-exit", Assert.Single(diag.Stops));
+        Assert.Contains("retained-merge-not-shared", diag.RetainedDeclines);
     }
 
     [Fact]
@@ -67,6 +68,7 @@ public class StructuringDiagnosticsTests
     {
         var siblingDiagnostics = RunStructuringOnly(BuildForwardBranchNotRegionExit());
         Assert.Equal("forward-branch-not-region-exit", Assert.Single(siblingDiagnostics.Stops));
+        Assert.Contains("retained-merge-not-shared", siblingDiagnostics.RetainedDeclines);
 
         var parentDiagnostics = new StructuringDiagnostics();
         var imported = BuildForwardBranchNotRegionExit();
@@ -87,6 +89,8 @@ public class StructuringDiagnosticsTests
             out var body));
         Assert.NotNull(body);
         Assert.Equal(0, parentDiagnostics.Structured);
+        Assert.Equal(0, parentDiagnostics.RetainedRegions);
+        Assert.Empty(parentDiagnostics.RetainedDeclines);
         Assert.Empty(parentDiagnostics.Stops);
     }
 
@@ -193,6 +197,7 @@ public class StructuringDiagnosticsTests
         var diag = RunWithDiagnostics(methodName);
 
         Assert.True(diag.Structured > 0);
+        Assert.Equal(0, diag.RetainedRegions);
         Assert.Empty(diag.Stops);
     }
 
