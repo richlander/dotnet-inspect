@@ -315,6 +315,17 @@ public static class AssemblyContextMemberMatchesQuery
     }
 }
 
+/// <summary>
+/// The one participant loop every group-scoped query runs: deterministic participant order, one
+/// typed entry per participant, and rejection or artifact failure carried beside the results
+/// instead of ending the run.
+/// </summary>
+/// <remarks>
+/// Queries that inspect metadata take the session form; queries that need the image itself — a
+/// Research projection opening its own <c>MetadataSource</c> and Analysis index, for instance —
+/// take the snapshot form. Both keep session and snapshot ownership inside
+/// <c>DotnetInspector.Queries</c> and its companion query assembly, so no consumer reaches one.
+/// </remarks>
 internal static class AssemblyContextQueryExecutor
 {
     internal static AssemblyContextResult<TValue> Execute<TValue>(
@@ -326,8 +337,84 @@ internal static class AssemblyContextQueryExecutor
         AssemblyContextGroup group,
         Func<AssemblyContextSubject, AssemblyInspectionSession, TValue> inspect)
     {
-        ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(inspect);
+        return ExecuteCore(
+            group,
+            (subject, assembly) => group.UseAssemblySession(
+                assembly,
+                session => Guarded(subject, () => inspect(subject, session))));
+    }
+
+    internal static AssemblyContextEntry<TValue> ExecuteParticipant<TValue>(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        Func<AssemblyInspectionSession, TValue> inspect)
+    {
+        ArgumentNullException.ThrowIfNull(inspect);
+        ValidateParticipant(group, participant);
+
+        var subject = new AssemblyContextSubject(participant.Assembly);
+        return Entry(
+            subject,
+            group.UseAssemblySession(
+                participant.Assembly,
+                session => Guarded(subject, () => inspect(session))));
+    }
+
+    internal static AssemblyContextResult<TValue> ExecuteOverSnapshots<TValue>(
+        AssemblyContextGroup group,
+        Func<AssemblyContextSubject, AssemblyImageSnapshot, TValue> inspect)
+    {
+        ArgumentNullException.ThrowIfNull(inspect);
+        return ExecuteCore(
+            group,
+            (subject, assembly) => group.UseSnapshot(
+                assembly,
+                snapshot => Guarded(subject, () => inspect(subject, snapshot))));
+    }
+
+    internal static AssemblyContextEntry<TValue> ExecuteParticipantOverSnapshot<TValue>(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        Func<AssemblyContextSubject, AssemblyImageSnapshot, TValue> inspect)
+    {
+        ArgumentNullException.ThrowIfNull(inspect);
+        ValidateParticipant(group, participant);
+
+        var subject = new AssemblyContextSubject(participant.Assembly);
+        return Entry(
+            subject,
+            group.UseSnapshot(
+                participant.Assembly,
+                snapshot => Guarded(subject, () => inspect(subject, snapshot))));
+    }
+
+    static void ValidateParticipant(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(participant);
+        if (group.Participants.Any(candidate => ReferenceEquals(
+                candidate.Assembly.Registration,
+                participant.Assembly.Registration)))
+        {
+            return;
+        }
+
+        throw new ArgumentException(
+            "The requested participant is not a member of the assembly context group.",
+            nameof(participant));
+    }
+
+    private static AssemblyContextResult<TValue> ExecuteCore<TValue>(
+        AssemblyContextGroup group,
+        Func<
+            AssemblyContextSubject,
+            ResolvedAssemblyReference,
+            AssemblyImageAccessResult<AssemblyContextEntry<TValue>>> access)
+    {
+        ArgumentNullException.ThrowIfNull(group);
 
         var entries =
             ImmutableArray.CreateBuilder<AssemblyContextEntry<TValue>>(
@@ -337,40 +424,40 @@ internal static class AssemblyContextQueryExecutor
         {
             var subject = new AssemblyContextSubject(
                 participant.Assembly);
-            AssemblyImageAccessResult<AssemblyContextEntry<TValue>> access =
-                group.UseAssemblySession(
-                    participant.Assembly,
-                    session => Inspect(subject, session, inspect));
             entries.Add(
-                access switch
-                {
-                    AssemblyImageAccessResult<
-                        AssemblyContextEntry<TValue>>.Available available =>
-                        available.Value,
-                    AssemblyImageAccessResult<
-                        AssemblyContextEntry<TValue>>.Rejected rejected =>
-                        new AssemblyContextEntry<TValue>.Rejected(
-                            subject,
-                            rejected.Failure),
-                    _ => throw new InvalidOperationException(
-                        "Unknown assembly image access result."),
-                });
+                Entry(subject, access(subject, participant.Assembly)));
         }
 
         return new AssemblyContextResult<TValue>(
             entries.MoveToImmutable());
     }
 
-    private static AssemblyContextEntry<TValue> Inspect<TValue>(
+    private static AssemblyContextEntry<TValue> Entry<TValue>(
         AssemblyContextSubject subject,
-        AssemblyInspectionSession session,
-        Func<AssemblyContextSubject, AssemblyInspectionSession, TValue> inspect)
+        AssemblyImageAccessResult<AssemblyContextEntry<TValue>> access)
+        => access switch
+        {
+            AssemblyImageAccessResult<
+                AssemblyContextEntry<TValue>>.Available available =>
+                available.Value,
+            AssemblyImageAccessResult<
+                AssemblyContextEntry<TValue>>.Rejected rejected =>
+                new AssemblyContextEntry<TValue>.Rejected(
+                    subject,
+                    rejected.Failure),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly image access result."),
+        };
+
+    private static AssemblyContextEntry<TValue> Guarded<TValue>(
+        AssemblyContextSubject subject,
+        Func<TValue> inspect)
     {
         try
         {
             return new AssemblyContextEntry<TValue>.Available(
                 subject,
-                inspect(subject, session));
+                inspect());
         }
         catch (Exception ex) when (IsArtifactFailure(ex))
         {

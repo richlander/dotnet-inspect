@@ -75,6 +75,29 @@ public abstract record PackageCoordinateResolution
     }
 }
 
+/// <summary>The result of listing the selectable versions of one package coordinate.</summary>
+public abstract record PackageVersionListingResult
+{
+    private protected PackageVersionListingResult()
+    {
+    }
+
+    /// <summary>An authoritative listed-version set, in ascending semantic-version order.</summary>
+    public sealed record Available : PackageVersionListingResult
+    {
+        internal Available(IEnumerable<string> versions) =>
+            Versions = new ReadOnlyCollection<string>([.. versions]);
+
+        public IReadOnlyList<string> Versions { get; }
+    }
+
+    /// <summary>The package id is outside the coordinate grammar.</summary>
+    public sealed record Invalid(string Message) : PackageVersionListingResult;
+
+    /// <summary>The authorized sources did not produce an authoritative listing.</summary>
+    public sealed record Unavailable(string Message) : PackageVersionListingResult;
+}
+
 /// <summary>
 /// Resolves floating and exact package coordinates through the product's
 /// source, mapping, candidate-listing, and version-normalization policy.
@@ -230,6 +253,60 @@ public static class PackageCoordinateResolver
                 coordinate.RuntimeIdentifier,
                 resolution.ReportingSources,
                 wasFloating: true));
+    }
+
+    /// <summary>
+    /// Lists versions that the shared listing policy admits for a package across an
+    /// already-authorized source set. This overload performs no source discovery, and callers may
+    /// disable the product's persistent candidate cache for filesystem-free hosts.
+    /// </summary>
+    public static async Task<PackageVersionListingResult> ListVersionsAsync(
+        HttpClient client,
+        string packageId,
+        IReadOnlyList<PackageSource> authorizedSources,
+        Action<string>? log = null,
+        bool includePrerelease = true,
+        bool useVersionCache = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(packageId);
+        ArgumentNullException.ThrowIfNull(authorizedSources);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (Validate(new PackageCoordinate(packageId)) is { } invalid)
+            return new PackageVersionListingResult.Invalid(invalid.Message);
+
+        if (authorizedSources.Count == 0)
+        {
+            return new PackageVersionListingResult.Unavailable(
+                $"No source is authorized to provide package '{packageId}'.");
+        }
+
+        (
+            List<PackageVersionResolution>? candidates,
+            bool hasIncompleteMetadata) =
+            await PackageExtractor.GetVersionCandidatesAsync(
+                client,
+                packageId,
+                authorizedSources,
+                includePrerelease,
+                log,
+                useVersionCache,
+                cancellationToken).ConfigureAwait(false);
+        if (hasIncompleteMetadata)
+        {
+            return new PackageVersionListingResult.Unavailable(
+                $"The complete version set for package '{packageId}' could not be resolved from every authorized source.");
+        }
+        if (candidates is null)
+        {
+            return new PackageVersionListingResult.Unavailable(
+                $"No authoritative version listing is available for package '{packageId}'.");
+        }
+
+        return new PackageVersionListingResult.Available(
+            candidates.Select(candidate => candidate.Version));
     }
 
     /// <summary>
