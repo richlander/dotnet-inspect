@@ -3527,8 +3527,8 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain("ambiguous", error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("# Microsoft.AspNetCore.Builder.WebApplication", output);
-        Assert.Contains("Library: Microsoft.AspNetCore", output);
-        Assert.Contains("Source: Platform", output);
+        Assert.Contains("| Library | Microsoft.AspNetCore |", output);
+        Assert.Contains("| Source | Platform |", output);
     }
 
     [Fact]
