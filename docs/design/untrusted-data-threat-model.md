@@ -751,6 +751,34 @@ follow the same physical-line accounting.
 `BodySlicer` consumes that bounded token stream once rather than tokenizing the
 same untrusted file again.
 
+Conditional branch projection remains within those bounds. Metadata partitions
+visible sequence-point start lines by PDB document and sorts and deduplicates
+each set. `BodySlicer` accepts only a positive, ordered PDB range within the
+verified source and positive, strictly increasing point lines within that
+range's physical file, uses binary range queries rather than a group-by-point
+cross product, and refuses PDB correlation when a recognized `#line` directive
+can remap the coordinates. CSharpText applies only caller-selected branch
+objects produced by the same index; it blanks unselected half-open ranges with
+one difference array and rebuilds over the line-preserving projection. Before
+slicing the checksum-verified original text, the slicer refuses a selected
+group that crosses exactly one boundary of the projected declaration. A group
+wholly inside the declaration is removed from a second, boundary-only
+projection; CSharpText must still vouch for the same declaration and slice
+boundaries. Otherwise projected-away braces, terminators, or declarations
+could expose unmatched directives or an unrelated dead-branch member. These
+boundaries are gated by
+`DeclarationIndexTests.ConditionalProjection_RejectsABranchFromAnotherIndex`,
+`DeclarationIndexTests.ConditionalProjection_ManySelectionsAllocateLinearly`,
+`ExtractMethodBodyTests.InvalidSequencePointCoordinates_FailVisibly`,
+`ExtractMethodBodyTests.InvalidSequencePointRange_FailsVisibly`,
+`ExtractMethodBodyTests.UnbalancedConditionalGroupInsideProjectedDeclaration_DoesNotLeakADeadSibling`,
+`ExtractMethodBodyTests.TerminatorConditionalGroupInsideProjectedDeclaration_DoesNotLeakDeadSiblings`,
+`ExtractMethodBodyTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided`,
+and
+`AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupThatMakesTheOriginalSliceUnsafe`.
+The binary-search complexity itself is unverified by a dedicated performance
+gate.
+
 Uncertain transparent scopes record row ranges during the lexical pass and
 apply all overlapping ranges in one linear finalization pass. They do not
 rescan and rewrite the declaration suffix once per scope.

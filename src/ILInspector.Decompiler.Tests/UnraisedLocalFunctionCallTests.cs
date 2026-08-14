@@ -662,6 +662,55 @@ public class UnraisedLocalFunctionCallTests
         Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
     }
 
+    [Theory]
+    [InlineData(nameof(GenericTypeLocalFunctionSamples<int>.NoTypeParameter), "static int Own(int input) => input + 1;")]
+    [InlineData(nameof(GenericTypeLocalFunctionSamples<int>.TypeParameterOnly), "static T Own(T input) => input;")]
+    [InlineData(nameof(GenericTypeLocalFunctionSamples<int>.TypeAndMethodParameters), "static U Own(T _, U value) => value;")]
+    public void LocalFunctionInGenericType_RaisesAndStaysFull(string methodName, string declaration)
+    {
+        var type = typeof(GenericTypeLocalFunctionSamples<>);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(source, type.FullName!, methodName);
+        Assert.NotNull(function);
+
+        var synthesizedCall = Assert.Single(
+            function!.Descendants.OfType<Call>(),
+            call => GeneratedCodeIdentity.IsLocalFunctionMethod(call.Callee));
+        Assert.Equal(TypeRefKind.GenericInstance, synthesizedCall.Callee.DeclaringType.Kind);
+        Assert.Equal(
+            TypeRefKind.GenericParameter,
+            Assert.Single(synthesizedCall.Callee.DeclaringType.TypeArguments).Kind);
+
+        var result = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!;
+
+        Assert.Contains("return Own(", output);
+        Assert.Contains(declaration, output);
+        Assert.DoesNotContain("_g__Own_", output);
+        Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void LocalFunctionInGenericTypeWithOwnMethodParameter_StillDeclines()
+    {
+        var type = typeof(GenericTypeLocalFunctionSamples<>);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(GenericTypeLocalFunctionSamples<int>.OwnMethodParameter));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!;
+
+        Assert.DoesNotContain("int Own(", output);
+        Assert.Contains("_g__Own_", output);
+        Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
+        function.CheckInvariant();
+    }
+
     /// <summary>
     /// A local function with its OWN type parameter cannot be raised even when every
     /// call-site type argument is a method generic parameter, which is what judging

@@ -338,6 +338,7 @@ public sealed class MetadataSourceFindingsTests
             DocumentRowId = 8,
         };
         var movedLine = renumbered with { StartLine = 20, EndLine = 22 };
+        var movedPoint = renumbered with { SequencePointStartLines = [10, 12] };
 
         var exact = Assert.Single(Pairs(SourceLinkFindings.CompareMemberSources(
             [oldMapping],
@@ -347,12 +348,52 @@ public sealed class MetadataSourceFindingsTests
             [oldMapping],
             [movedLine],
             Subject)));
+        var pointChanged = Assert.Single(Pairs(SourceLinkFindings.CompareMemberSources(
+            [oldMapping],
+            [movedPoint],
+            Subject)));
 
         Assert.Equal(
             anchor.CanonicalSignature,
             Assert.IsType<PairFinding<MemberSourceObservation>.Present>(exact.Value).Old.Key.IdentityKey);
         Assert.Equal(PairKind.Present, exact.Kind);
         Assert.Equal(PairKind.Changed, changed.Kind);
+        Assert.Equal(PairKind.Changed, pointChanged.Kind);
+    }
+
+    [Fact]
+    public void MemberSourceComparison_ReorderedDuplicateMappingsPairByComparedPayload()
+    {
+        var anchor = new MemberAnchor(
+            "Run~1234567890",
+            "M:Sample.Widget.Run()",
+            "1234567890",
+            "Sample.Widget",
+            "Run");
+        var first = new MemberSourceInfo(
+            anchor,
+            MetadataToken: 0x06000001,
+            DocumentRowId: 1,
+            "/_/src/Widget.cs",
+            "src/Widget.cs",
+            ResolvedUrl: null,
+            StartLine: 10,
+            EndLine: 12)
+        {
+            SequencePointStartLines = [10, 12],
+        };
+        var second = first with
+        {
+            SequencePointStartLines = [10, 11, 12],
+        };
+
+        var pairs = Pairs(SourceLinkFindings.CompareMemberSources(
+            [first, second],
+            [second, first],
+            Subject));
+
+        Assert.Equal(2, pairs.Length);
+        Assert.All(pairs, static pair => Assert.Equal(PairKind.Present, pair.Kind));
     }
 
     [Fact]
@@ -406,11 +447,27 @@ public sealed class MetadataSourceFindingsTests
                 "tests/ILInspector.Metadata.Tests/MetadataSourceFindingsTests.cs",
                 StringComparison.Ordinal));
         Assert.False(authored.IsPrimaryDocument);
+        Assert.NotEmpty(authored.SequencePointStartLines);
+        Assert.All(authored.SequencePointStartLines, static line => Assert.InRange(line, 1, 99));
         var primary = Assert.Single(mappings, static mapping => mapping.IsPrimaryDocument);
         Assert.EndsWith(
             "Generated/MetadataSourceFindings.g.cs",
             primary.CanonicalPath,
             StringComparison.Ordinal);
+        Assert.NotEmpty(primary.SequencePointStartLines);
+        Assert.All(primary.SequencePointStartLines, static line => Assert.InRange(line, 100, int.MaxValue));
+
+        var direct = Assert.IsType<PdbMethodDocumentInfo>(
+            source.Context.ResolveMethodDocument(
+                typeName: "",
+                methodName: "",
+                overloadIndex: 0,
+                metadataToken: token));
+        Assert.EndsWith(
+            "Generated/MetadataSourceFindings.g.cs",
+            direct.FilePath.Replace('\\', '/'),
+            StringComparison.Ordinal);
+        Assert.Equal(primary.SequencePointStartLines, direct.SequencePointStartLines);
     }
 
     [Fact]
