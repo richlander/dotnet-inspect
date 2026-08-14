@@ -2969,16 +2969,43 @@ public class PackageCommand
                     rows);
                 markoutWriter.Flush();
             });
-        ProjectionDiagnostics.DiagnoseRendered(
+        DiagnoseMissingPackageInfoFields(
             options.Fields,
-            string.Join(
-                '\n',
-                rows.Select(row => row[1])));
+            rows.Select(row => row[1]));
         Console.Out.Write(
             OutputFormatter.LimitRenderedTableRows(
                 rendered,
                 options.Rows,
                 !options.NoHeader));
+    }
+
+    private static void DiagnoseMissingPackageInfoFields(
+        string[]? patterns,
+        IEnumerable<string> renderedFields)
+    {
+        if (patterns is not { Length: > 0 })
+            return;
+
+        var rendered = renderedFields.ToHashSet(
+            StringComparer.OrdinalIgnoreCase);
+        var missing = patterns
+            .Where(pattern =>
+            {
+                string[] resolved = ResolveProjectionNames(
+                    PackageInfoFieldNames,
+                    [pattern]);
+                return resolved.Length > 0
+                    && !resolved.Any(rendered.Contains);
+            })
+            .ToArray();
+        if (missing.Length == 0)
+            return;
+
+        string label = missing.Length == 1
+            ? "field has"
+            : "fields have";
+        CommandError.WriteNote(
+            $"{missing.Length} {label} no data: {string.Join(", ", missing)}");
     }
 
     private static IEnumerable<MarkoutField> SelectPackageInfoFields(

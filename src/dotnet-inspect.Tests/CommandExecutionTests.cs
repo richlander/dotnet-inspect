@@ -19103,12 +19103,20 @@ public partial class CommandExecutionTests
             CreateLocalReadmePackage(
                 "Test.Fields.One",
                 "README.md",
-                "one");
+                "one",
+                extraNuspecMetadata:
+                """
+                <licenseUrl>https://example.test/license</licenseUrl>
+                """);
         var (secondPackage, secondDir) =
             CreateLocalReadmePackage(
                 "Test.Fields.Two",
                 "README.md",
-                "two");
+                "two",
+                extraNuspecMetadata:
+                """
+                <licenseUrl>https://example.test/license</licenseUrl>
+                """);
         try
         {
             var count = await RunAppAsync(
@@ -19172,6 +19180,15 @@ public partial class CommandExecutionTests
                 "--columns",
                 "Value",
                 "--tsv");
+            var overlappingNames = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "License;License URL",
+                "--tsv");
 
             Assert.Equal(0, count.Exit);
             Assert.Equal(0, rendered.Exit);
@@ -19179,16 +19196,27 @@ public partial class CommandExecutionTests
             Assert.Equal(0, ordered.Exit);
             Assert.Equal(0, absent.Exit);
             Assert.Equal(0, valueOnly.Exit);
+            Assert.Equal(0, overlappingNames.Exit);
             Assert.Empty(count.Error);
-            Assert.Contains(
-                "Note: 1 field has no data: Ver*",
-                rendered.Error);
+            Assert.Empty(rendered.Error);
             Assert.Empty(column.Error);
             Assert.Empty(ordered.Error);
             Assert.Contains(
                 "Note: 1 field has no data: Owners",
                 absent.Error);
             Assert.Empty(valueOnly.Error);
+            Assert.Contains(
+                "Note: 1 field has no data: License",
+                overlappingNames.Error);
+            string[] overlappingRows =
+                SplitOutputLines(overlappingNames.Output);
+            Assert.Equal(3, overlappingRows.Length);
+            Assert.All(
+                overlappingRows.Skip(1),
+                row => Assert.Contains(
+                    "\tLicense URL\t",
+                    row,
+                    StringComparison.Ordinal));
             Assert.Equal(
                 ["value", "1.0.0", "1.0.0"],
                 SplitOutputLines(valueOnly.Output));
