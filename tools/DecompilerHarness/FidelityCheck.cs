@@ -3815,7 +3815,7 @@ static class FidelityCheck
                             typeDef,
                             targetProperty,
                             targets,
-                            baseClause.Length != 0,
+                            externalAbstractBase,
                             accessibility,
                             resolver,
                             sb,

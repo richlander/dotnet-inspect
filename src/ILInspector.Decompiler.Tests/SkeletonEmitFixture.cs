@@ -56,3 +56,14 @@ public sealed class SkeletonExplicitEventFixture
         remove { }
     }
 }
+
+public class SkeletonProtectedPropertyBaseFixture
+{
+    protected virtual int Value => 1;
+}
+
+public sealed class SkeletonProtectedPropertyOverrideFixture
+    : SkeletonProtectedPropertyBaseFixture
+{
+    protected override int Value => 2;
+}

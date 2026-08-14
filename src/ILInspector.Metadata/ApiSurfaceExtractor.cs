@@ -624,25 +624,40 @@ public static class ApiSurfaceExtractor
             // members. Raiser and Other semantic methods have no ApiMember token
             // slots, so retain them as methods to keep their bodies addressable.
             var accessorMethods = new HashSet<MethodDefinitionHandle>();
+            var explicitInterfaceAccessorMethods =
+                new HashSet<MethodDefinitionHandle>();
             foreach (var propertyHandle in typeDef.GetProperties())
             {
-                var accessors = reader.GetPropertyDefinition(
-                    propertyHandle).GetAccessors();
-                AddAccessor(accessors.Getter);
-                AddAccessor(accessors.Setter);
+                var property = reader.GetPropertyDefinition(propertyHandle);
+                var accessors = property.GetAccessors();
+                bool isExplicit =
+                    reader.GetString(property.Name).Contains('.');
+                AddAccessor(accessors.Getter, isExplicit);
+                AddAccessor(accessors.Setter, isExplicit);
             }
             foreach (var eventHandle in typeDef.GetEvents())
             {
-                var accessors = reader.GetEventDefinition(
-                    eventHandle).GetAccessors();
-                AddAccessor(accessors.Adder);
-                AddAccessor(accessors.Remover);
+                var @event = reader.GetEventDefinition(eventHandle);
+                var accessors = @event.GetAccessors();
+                bool isExplicit =
+                    reader.GetString(@event.Name).Contains('.');
+                AddAccessor(accessors.Adder, isExplicit);
+                AddAccessor(accessors.Remover, isExplicit);
             }
 
-            void AddAccessor(MethodDefinitionHandle accessor)
+            void AddAccessor(
+                MethodDefinitionHandle accessor,
+                bool isExplicit)
             {
                 if (!accessor.IsNil)
+                {
                     accessorMethods.Add(accessor);
+                    if (isExplicit
+                        && explicitImplementationBodies.ContainsKey(accessor))
+                    {
+                        explicitInterfaceAccessorMethods.Add(accessor);
+                    }
+                }
             }
 
             // Methods
@@ -658,7 +673,7 @@ public static class ApiSurfaceExtractor
 
                 // Skip property accessors and event accessors
                 if (accessorMethods.Contains(methodHandle)
-                    && !isExplicitInterfaceImplementation)
+                    && !explicitInterfaceAccessorMethods.Contains(methodHandle))
                     continue;
 
                 // Skip compiler-generated methods (lambdas, state machines, etc.)

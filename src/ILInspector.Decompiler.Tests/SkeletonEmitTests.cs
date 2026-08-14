@@ -172,6 +172,21 @@ public class SkeletonEmitTests
                 + result.Annotated);
     }
 
+    [Fact]
+    public void SkeletonCompilesSameAssemblyProtectedPropertyOverride()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(SkeletonProtectedPropertyOverrideFixture).Assembly.Location,
+            type => type ==
+                "ILInspector.Decompiler.Tests.SkeletonProtectedPropertyOverrideFixture",
+            method => method.Method == "get_Value"));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Status}: {result.Detail}{Environment.NewLine}"
+                + result.Annotated);
+    }
+
     [Theory]
     [InlineData(
         "ILInspector.Decompiler.Tests.SkeletonExplicitPropertyFixture",

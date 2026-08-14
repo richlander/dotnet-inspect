@@ -463,6 +463,18 @@ public class ApiMemberIdentityTests
             && member.Name.EndsWith(
                 ".get_ExplicitValue",
                 StringComparison.Ordinal));
+
+        var covariant = surface.Types.Single(
+            type => type.Name.EndsWith(
+                nameof(CovariantAccessorFixture),
+                StringComparison.Ordinal));
+        Assert.Contains(
+            covariant.Members,
+            member => member is
+                { Kind: "property", Name: "Value" });
+        Assert.DoesNotContain(
+            covariant.Members,
+            member => member.Name == "get_Value");
     }
 
     [Theory]
@@ -582,5 +594,16 @@ public class ApiMemberIdentityTests
         public void remove_Standalone(Action handler)
         {
         }
+    }
+
+    class CovariantAccessorBaseFixture
+    {
+        public virtual object Value => new();
+    }
+
+    sealed class CovariantAccessorFixture :
+        CovariantAccessorBaseFixture
+    {
+        public override string Value => "";
     }
 }
