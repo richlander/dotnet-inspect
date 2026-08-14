@@ -1005,15 +1005,23 @@ internal static class LibraryMetadataService
         => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)
             || opportunity.Shape == "generic-parameter-object-box"
                 && !IsInGeneratedFrameworkType(
-                    opportunity.Method.DeclaringType,
+                    opportunity,
                     generatedFrameworkTypes)
                 && IsSourceFunctionName(opportunity.Method.Name);
 
     static bool IsInGeneratedFrameworkType(
-        Analysis.TypeRef declaringType,
+        Analysis.OptimizationOpportunity opportunity,
         IReadOnlySet<string> generatedFrameworkTypes)
     {
-        string name = declaringType.ToQualifiedDisplayString();
+        if (opportunity.SourceOwner is { } sourceOwner
+            && generatedFrameworkTypes.Contains(
+                sourceOwner.DeclaringType.ToQualifiedDisplayString()))
+        {
+            return true;
+        }
+
+        string name =
+            opportunity.Method.DeclaringType.ToQualifiedDisplayString();
         if (generatedFrameworkTypes.Contains(name))
             return true;
 

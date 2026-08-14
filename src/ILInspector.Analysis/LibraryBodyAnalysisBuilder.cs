@@ -607,11 +607,23 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             var methodAttributes = methodDef.GetCustomAttributes();
             if (includeOpportunities)
             {
+                bool sourceFunction =
+                    CompilerGeneratedNames.IsLocalFunctionOrLambda(caller.Name);
+                MethodIdentity? sourceOwner = null;
+                bool sourceOwnerGenerated = false;
+                bool hasSourceOwner = sourceFunction
+                    && TryResolveLiftedSourceOwner(
+                        methodHandle,
+                        methodDef,
+                        caller,
+                        out sourceOwner,
+                        out sourceOwnerGenerated);
                 bool sourceGenerated =
                     HasGeneratedCodeAttribute(methodAttributes)
-                    || IsLiftedFromSourceGeneratedMethod(methodDef);
+                    || hasSourceOwner && sourceOwnerGenerated;
                 bool compilerGenerated =
-                    HasCompilerGeneratedAttribute(methodAttributes);
+                    HasCompilerGeneratedAttribute(methodAttributes)
+                    || sourceFunction;
                 if (!typeSourceGenerated
                     && !sourceGenerated
                     && !compilerGenerated
@@ -631,8 +643,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     if (!typeSourceGenerated
                         && !sourceGenerated
                         && compilerGenerated
-                        && CompilerGeneratedNames.IsLocalFunctionOrLambda(
-                            caller.Name))
+                        && hasSourceOwner)
                     {
                         result.Opportunities =
                         [
@@ -643,7 +654,11 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                                 methodAnalysisResolver)
                             .Where(static opportunity =>
                                 opportunity.Shape
-                                    == "generic-parameter-object-box"),
+                                    == "generic-parameter-object-box")
+                            .Select(opportunity => opportunity with
+                            {
+                                SourceOwner = sourceOwner,
+                            }),
                         ];
                     }
                     result.Suppressed = true;
@@ -1053,19 +1068,39 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
 
     bool IsSourceGeneratedTypeOrEnclosing(TypeDefinitionHandle handle)
     {
-        while (!handle.IsNil)
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                _reader,
+                handle,
+                chain,
+                out int count,
+                out _,
+                out _))
         {
-            var definition = _reader.GetTypeDefinition(handle);
-            if (HasGeneratedCodeAttribute(definition.GetCustomAttributes()))
+            return true;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            if (HasGeneratedCodeAttribute(
+                    _reader.GetTypeDefinition(chain[i]).GetCustomAttributes()))
                 return true;
-            handle = definition.GetDeclaringType();
         }
         return false;
     }
 
-    bool IsLiftedFromSourceGeneratedMethod(MethodDefinition method)
+    bool TryResolveLiftedSourceOwner(
+        MethodDefinitionHandle liftedHandle,
+        MethodDefinition liftedMethod,
+        MethodIdentity liftedIdentity,
+        out MethodIdentity? sourceOwner,
+        out bool sourceGenerated)
     {
-        string liftedName = _reader.GetString(method.Name);
+        sourceOwner = null;
+        sourceGenerated = false;
+        string liftedName = _reader.GetString(liftedMethod.Name);
         int close = liftedName.IndexOf('>');
         if (liftedName.Length < 4
             || liftedName[0] != '<'
@@ -1076,20 +1111,103 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             return false;
         }
 
-        string ownerName = liftedName[1..close];
-        TypeDefinitionHandle ownerType = method.GetDeclaringType();
-        TypeDefinition ownerDefinition = _reader.GetTypeDefinition(ownerType);
-        while (!ownerDefinition.GetDeclaringType().IsNil)
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                _reader,
+                liftedMethod.GetDeclaringType(),
+                chain,
+                out int count,
+                out _,
+                out _))
         {
-            ownerType = ownerDefinition.GetDeclaringType();
-            ownerDefinition = _reader.GetTypeDefinition(ownerType);
+            return false;
         }
 
+        int ownerIndex = count - 1;
+        while (ownerIndex > 0
+            && _reader.GetString(
+                    _reader.GetTypeDefinition(chain[ownerIndex]).Name)
+                .StartsWith("<>", StringComparison.Ordinal))
+        {
+            ownerIndex--;
+        }
+
+        TypeDefinitionHandle ownerType = chain[ownerIndex];
+        TypeDefinition ownerDefinition = _reader.GetTypeDefinition(ownerType);
+        string ownerName = liftedName[1..close];
+        MethodDefinitionHandle ownerHandle = default;
         foreach (var ownerMethodHandle in ownerDefinition.GetMethods())
         {
             var ownerMethod = _reader.GetMethodDefinition(ownerMethodHandle);
             if (_reader.StringComparer.Equals(ownerMethod.Name, ownerName)
-                && HasGeneratedCodeAttribute(ownerMethod.GetCustomAttributes()))
+                && MethodReferencesLiftedBody(
+                    ownerDefinition,
+                    ownerMethod,
+                    liftedHandle,
+                    liftedIdentity))
+            {
+                if (!ownerHandle.IsNil)
+                    return false;
+                ownerHandle = ownerMethodHandle;
+            }
+        }
+        if (ownerHandle.IsNil)
+            return false;
+
+        var definition = _reader.GetMethodDefinition(ownerHandle);
+        sourceGenerated =
+            HasGeneratedCodeAttribute(definition.GetCustomAttributes());
+        sourceOwner = CreateMethodIdentity(
+            ownerType,
+            ownerHandle,
+            definition,
+            CreateScope(ownerDefinition, definition));
+        return true;
+    }
+
+    bool MethodReferencesLiftedBody(
+        TypeDefinition ownerType,
+        MethodDefinition ownerMethod,
+        MethodDefinitionHandle liftedHandle,
+        MethodIdentity liftedIdentity)
+    {
+        if (ownerMethod.RelativeVirtualAddress == 0)
+            return false;
+
+        int liftedToken = MetadataTokens.GetToken(liftedHandle);
+        var body = _peReader.GetMethodBody(ownerMethod.RelativeVirtualAddress);
+        foreach (var instruction in DecodeBody(
+            body.GetILBytes() ?? [],
+            body.ExceptionRegions).Instructions)
+        {
+            if (instruction.OpCode is not (
+                ILOpCode.Call
+                or ILOpCode.Callvirt
+                or ILOpCode.Ldftn
+                or ILOpCode.Ldvirtftn))
+            {
+                continue;
+            }
+
+            int operandToken =
+                MethodInstructionFacts.OperandInt32(instruction);
+            if (PeelToDefinitionToken(operandToken) == liftedToken)
+            {
+                return true;
+            }
+
+            var target = MemberResolver.ResolveMethod(
+                _reader,
+                MetadataTokens.EntityHandle(operandToken),
+                CreateScope(ownerType, ownerMethod));
+            TypeRef targetDefinition =
+                target.DeclaringType.Kind == TypeRefKind.GenericInstance
+                    ? target.DeclaringType.ElementType!
+                    : target.DeclaringType;
+            if (target.Name == liftedIdentity.Name
+                && targetDefinition.Equals(liftedIdentity.DeclaringType))
             {
                 return true;
             }

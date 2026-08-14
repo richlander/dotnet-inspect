@@ -4376,6 +4376,9 @@ public class LibraryBodyIndexTests
                 StringComparison.Ordinal)
             && o.Shape == "generic-parameter-object-box"));
         Assert.Contains("value-type instantiations", row.Caveat);
+        Assert.Equal(
+            nameof(OptimizationOpportunityFixtures.GenericObjectEqualsLocalFunction),
+            row.SourceOwner?.Name);
     }
 
     [Fact]
@@ -4393,7 +4396,63 @@ public class LibraryBodyIndexTests
                     StringComparison.Ordinal)
                 || opportunity.Method.Name.Contains(
                     nameof(SourceGeneratedOptimizationFixtures.SourceGeneratedTypeLambda),
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    nameof(GeneratedMethodNestingFixtures.Nested.SourceGeneratedNestedLocal),
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    nameof(GeneratedMethodNestingFixtures.Nested.SourceGeneratedNestedLambda),
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    "GeneratedCore",
                     StringComparison.Ordinal)));
+
+        Assert.Contains(index.OptimizationOpportunities, opportunity =>
+            opportunity.Shape == "generic-parameter-object-box"
+            && opportunity.Method.Name.Contains(
+                "AuthoredCore",
+                StringComparison.Ordinal)
+            && opportunity.SourceOwner?.Name == "Handle");
+    }
+
+    [Fact(Timeout = 10_000)]
+    public void OptimizationOpportunities_CyclicNestedTypes_Terminate()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-cyclic-nesting-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "CyclicNesting.dll");
+        try
+        {
+            File.WriteAllBytes(path, EmitAssembly("CyclicNesting", metadata =>
+            {
+                TypeDefinitionHandle a = metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString("A"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+                TypeDefinitionHandle b = metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString("B"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+                metadata.AddNestedType(a, b);
+                metadata.AddNestedType(b, a);
+            }));
+
+            var index = LibraryBodyIndex.Open(path);
+
+            Assert.Empty(index.OptimizationOpportunities);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Theory]
@@ -6155,6 +6214,42 @@ public class SourceGeneratedOptimizationFixtures
 
     public static Func<T, bool> SourceGeneratedTypeLambda<T>(T right)
         => left => left!.Equals(right);
+}
+
+public class GeneratedMethodNestingFixtures
+{
+    public class Nested
+    {
+        [System.CodeDom.Compiler.GeneratedCode("test", "1.0")]
+        public static bool SourceGeneratedNestedLocal<T>(T left, T right)
+        {
+            return NestedCore(left, right);
+
+            static bool NestedCore(T x, T y) => x!.Equals(y);
+        }
+
+        [System.CodeDom.Compiler.GeneratedCode("test", "1.0")]
+        public static Func<T, bool> SourceGeneratedNestedLambda<T>(T right)
+            => left => left!.Equals(right);
+    }
+}
+
+public class MixedGeneratedOverloadFixtures
+{
+    [System.CodeDom.Compiler.GeneratedCode("test", "1.0")]
+    public static bool Handle<T>(T left, T right, int marker)
+    {
+        return GeneratedCore(left, right);
+
+        static bool GeneratedCore(T x, T y) => x!.Equals(y);
+    }
+
+    public static bool Handle<T>(T left, T right, string marker)
+    {
+        return AuthoredCore(left, right);
+
+        static bool AuthoredCore(T x, T y) => x!.Equals(y);
+    }
 }
 
 public static class OpportunityLeverageFixtures

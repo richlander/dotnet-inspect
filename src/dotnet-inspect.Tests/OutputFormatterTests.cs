@@ -262,6 +262,12 @@ public class OutputFormatterTests
         Assert.Equal("medium", generatedGenericBox.Priority);
         Assert.Null(generatedGenericBox.Finding);
         Assert.Equal("unmatched", generatedGenericBox.Provenance);
+
+        Assert.Contains(rows, row =>
+            row.Shape == "generic-parameter-object-box"
+            && row.Member.Contains(
+                nameof(HasGeneratedGenericObjectBoxLambda),
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -362,6 +368,48 @@ public class OutputFormatterTests
         Assert.DoesNotContain(nameof(CreateTemporaryArray), markdown);
     }
 
+    [Fact]
+    public void RenderTypeSectionsMarkdown_MapsLiftedOpportunityToSelectedSourceMember()
+    {
+        var method = typeof(OutputFormatterTests).GetMethod(
+            nameof(HasGeneratedGenericObjectBoxOpportunity),
+            System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Static)!;
+        var type = new ApiType
+        {
+            Namespace = typeof(OutputFormatterTests).Namespace,
+            Name = nameof(OutputFormatterTests),
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Kind = "method",
+                    Name = nameof(HasGeneratedGenericObjectBoxOpportunity),
+                    MetadataToken = method.MetadataToken,
+                },
+            ],
+        };
+        var options = new MemberOptions
+        {
+            DllPath = typeof(OutputFormatterTests).Assembly.Location,
+            OverloadIndex = 1,
+            MemberFilter = [nameof(HasGeneratedGenericObjectBoxOpportunity)],
+            IncludeSections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.PerformanceTriage,
+            },
+        };
+
+        var markdown = ApiCommand.RenderTypeSectionsMarkdown(type, options);
+
+        Assert.Contains("generic-parameter-object-box", markdown);
+        Assert.Contains(
+            nameof(HasGeneratedGenericObjectBoxOpportunity),
+            markdown);
+    }
+
     private static int[] CreateSmallArrayOpportunity()
     {
         var value = 3;
@@ -398,6 +446,9 @@ public class OutputFormatterTests
         return EqualsCore(left, right);
         static bool EqualsCore(T x, T y) => x!.Equals(y);
     }
+
+    private static Func<T, bool> HasGeneratedGenericObjectBoxLambda<T>(T right)
+        => left => left!.Equals(right);
 
     [Fact]
     public void RenderOptimizationOpportunities_SuppressesGeneratedMethods()
