@@ -721,7 +721,12 @@ Research overlay bridge, and the application layer:
   optimization-shape classification, lazy memoized reaching-definitions use,
   and allocation metadata projection. It reuses allocation discovery and the
   allocation analysis's Layer-1 query methods rather than opening another
-  allocation or decode path. Its separate traversal may repeat member and type
+  allocation or decode path. The collector coordinates the ordered opportunity
+  traversal and delegates focused evidence classification to
+  `ArrayEscapeAnalysis`, `LoopInvariantMaterializerAnalysis`,
+  `StackGuardFallbackAnalysis`, and `StringConcatAccumulationAnalysis`; those
+  recognizers do not emit or reorder opportunities. Its separate traversal may
+  repeat member and type
   resolution, and lazily requests its own reaching-definitions result through
   `IOptimizationOpportunityResolver`; the producer does not own the metadata
   reader, generic scope, or raw IL. The assembly reader retains PE/body
