@@ -233,6 +233,79 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Contains("Blocked request to non-public address", exception.ToString());
     }
 
+    [Fact]
+    public async Task PackageSearch_BlocksPrivateCrossOriginDiscoveredEndpoint()
+    {
+        using var sourceListener = new TcpListener(IPAddress.Loopback, 0);
+        using var targetListener = new TcpListener(IPAddress.Loopback, 0);
+        sourceListener.Start();
+        targetListener.Start();
+        string sourceUrl =
+            $"http://127.0.0.1:{((IPEndPoint)sourceListener.LocalEndpoint).Port}/index.json";
+        string targetUrl =
+            $"http://127.0.0.1:{((IPEndPoint)targetListener.LocalEndpoint).Port}/private";
+        string serviceIndex = $$"""
+            {"resources":[{"@id":"{{targetUrl}}","@type":"SearchQueryService/3.5.0"}]}
+            """;
+
+        Task sourceServer = ServeHttpResponseAsync(
+            sourceListener,
+            serviceIndex,
+            TestContext.Current.CancellationToken);
+        using var targetCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        Task<bool> targetServer = Task.Run(
+            async () =>
+            {
+                try
+                {
+                    await ServeHttpResponseAsync(
+                        targetListener,
+                        """{"data":[{"id":"Private.Package","version":"1.0.0"}]}""",
+                        targetCancellation.Token);
+                    return true;
+                }
+                catch (OperationCanceledException)
+                {
+                    return false;
+                }
+            },
+            CancellationToken.None);
+
+        Exception? error = await Record.ExceptionAsync(
+            () => NuGetSearchService.SearchAsync(
+                HttpClientFactory.Shared,
+                "Private",
+                sourceOptions: new NuGetSourceOptions { Sources = [sourceUrl] }));
+
+        targetCancellation.Cancel();
+        await sourceServer;
+        bool targetReached = await targetServer;
+
+        Assert.IsType<InvalidOperationException>(error);
+        Assert.False(targetReached);
+    }
+
+    private static async Task ServeHttpResponseAsync(
+        TcpListener listener,
+        string body,
+        CancellationToken cancellationToken)
+    {
+        using TcpClient connection =
+            await listener.AcceptTcpClientAsync(cancellationToken);
+        await using NetworkStream stream = connection.GetStream();
+        var request = new byte[4096];
+        _ = await stream.ReadAsync(request, cancellationToken);
+        byte[] content = Encoding.UTF8.GetBytes(body);
+        byte[] headers = Encoding.ASCII.GetBytes(
+            "HTTP/1.1 200 OK\r\n"
+            + "Content-Type: application/json\r\n"
+            + $"Content-Length: {content.Length}\r\n"
+            + "Connection: close\r\n\r\n");
+        await stream.WriteAsync(headers, cancellationToken);
+        await stream.WriteAsync(content, cancellationToken);
+    }
+
     /// <summary>
     /// Initializing with default options has to clear a previously configured timeout. The field is
     /// static, so a leak here would make one test's flag change another test's client.

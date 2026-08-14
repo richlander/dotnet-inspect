@@ -1,12 +1,14 @@
 using System.Globalization;
 using System.Net.Http.Headers;
+using System.Text.RegularExpressions;
+using NuGet.Versioning;
 
 namespace NuGetFetch;
 
 /// <summary>
 /// Searches the NuGet Search API for packages by keyword or prefix.
 /// </summary>
-public class SearchService(HttpClient client, string? searchUrl = null)
+public partial class SearchService(HttpClient client, string? searchUrl = null)
 {
     private const int PrefixSearchPageSize = 100;
     private const int MaxPrefixSearchPages = 32;
@@ -82,8 +84,8 @@ public class SearchService(HttpClient client, string? searchUrl = null)
                 "The search response was not a valid NuGet search document.");
         if (results.Any(result =>
                 result is null
-                || string.IsNullOrWhiteSpace(result.Id)
-                || string.IsNullOrWhiteSpace(result.Version)))
+                || !IsValidPackageId(result.Id)
+                || !IsValidPackageVersion(result.Version)))
         {
             throw new InvalidOperationException(
                 "The search response contained an invalid result identity.");
@@ -91,6 +93,18 @@ public class SearchService(HttpClient client, string? searchUrl = null)
 
         return results;
     }
+
+    private static bool IsValidPackageId(string? packageId) =>
+        packageId is { Length: > 0 and <= 100 }
+        && PackageIdPattern().IsMatch(packageId);
+
+    private static bool IsValidPackageVersion(string? version) =>
+        version is not null
+        && version.AsSpan().Trim().Length == version.Length
+        && NuGetVersion.TryParse(version, out _);
+
+    [GeneratedRegex(@"^\w+(?:[.-]\w+)*$", RegexOptions.CultureInvariant)]
+    private static partial Regex PackageIdPattern();
 
     /// <summary>
     /// Searches NuGet for packages whose ID starts with the given prefix.

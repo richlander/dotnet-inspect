@@ -249,13 +249,21 @@ public static class PackageMetadataService
         var metadata = new PackageMetadata();
 
         List<ServiceResource> registrationResources =
-            CompatibleResources(resources, "RegistrationsBaseUrl");
+            PackageExtractor.GetCompatibleServiceResources(
+                resources,
+                "RegistrationsBaseUrl");
         List<ServiceResource> packageBaseAddresses =
-            CompatibleResources(resources, "PackageBaseAddress");
+            PackageExtractor.GetCompatibleServiceResources(
+                resources,
+                "PackageBaseAddress");
         List<ServiceResource> searchQueryServices =
-            CompatibleResources(resources, "SearchQueryService");
+            PackageExtractor.GetCompatibleServiceResources(
+                resources,
+                "SearchQueryService");
         List<ServiceResource> vulnerabilityInfos =
-            CompatibleResources(resources, "VulnerabilityInfo");
+            PackageExtractor.GetCompatibleServiceResources(
+                resources,
+                "VulnerabilityInfo");
 
         bool found = false;
         bool sawExistenceEndpoint = false;
@@ -465,47 +473,6 @@ public static class PackageMetadataService
                 && searchDataAvailable
                 && vulnerabilityDataAvailable);
     }
-
-    private static List<ServiceResource> CompatibleResources(
-        IReadOnlyList<ServiceResource> resources,
-        string typePrefix)
-    {
-        List<ServiceResource> matching =
-        [
-            .. resources.Where(resource =>
-                IsServiceType(resource.Type, typePrefix)),
-        ];
-        if (matching.Count == 0)
-            return [];
-
-        System.Version bestVersion = ResourceVersion(matching[0].Type);
-        for (int i = 1; i < matching.Count; i++)
-        {
-            System.Version version = ResourceVersion(matching[i].Type);
-            if (version > bestVersion)
-                bestVersion = version;
-        }
-        return
-        [
-            .. matching.Where(resource =>
-                ResourceVersion(resource.Type) == bestVersion),
-        ];
-    }
-
-    private static System.Version ResourceVersion(string resourceType)
-    {
-        int separator = resourceType.IndexOf('/');
-        return separator >= 0
-            && System.Version.TryParse(
-                resourceType[(separator + 1)..],
-                out System.Version? version)
-                ? version
-                : new System.Version();
-    }
-
-    private static bool IsServiceType(string type, string prefix) =>
-        type.Equals(prefix, StringComparison.OrdinalIgnoreCase)
-        || type.StartsWith($"{prefix}/", StringComparison.OrdinalIgnoreCase);
 
     private static async Task<TextFetchResult> FetchTextAsync(
         HttpClient client,

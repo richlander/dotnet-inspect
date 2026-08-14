@@ -1004,20 +1004,47 @@ public static class PackageExtractor
             cancellationToken);
 
     /// <summary>
-    /// Discovers the SearchQueryService endpoint from a V3 service index. Returns null when the
+    /// Discovers the first compatible SearchQueryService endpoint from a V3 service index.
+    /// Returns null when the
     /// source is not an HTTP feed, its service index cannot be read, or it advertises no search
     /// resource (a valid state — flat-container-only feeds exist and simply cannot be searched).
     /// </summary>
-    public static Task<string?> GetSearchQueryServiceAsync(
+    public static async Task<string?> GetSearchQueryServiceAsync(
         HttpClient client,
         NuGetSource source,
         Action<string>? log = null)
-        => GetServiceIndexResourceAsync(
+    {
+        IReadOnlyList<string>? services = await GetSearchQueryServicesAsync(
             client,
             source,
-            "SearchQueryService",
-            log,
-            cancellationToken: default);
+            log).ConfigureAwait(false);
+        return services?.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Discovers every SearchQueryService endpoint at the highest advertised capability version,
+    /// preserving service-index order for failover.
+    /// </summary>
+    public static async Task<IReadOnlyList<string>?> GetSearchQueryServicesAsync(
+        HttpClient client,
+        NuGetSource source,
+        Action<string>? log = null)
+    {
+        IReadOnlyList<ServiceResource>? resources =
+            await GetServiceIndexResourcesAsync(
+                client,
+                source,
+                log).ConfigureAwait(false);
+        if (resources is null)
+            return null;
+
+        return
+        [
+            .. GetCompatibleServiceResources(resources, "SearchQueryService")
+                .Select(resource => resource.Id)
+                .Distinct(StringComparer.Ordinal),
+        ];
+    }
 
     /// <summary>
     /// Reads all resources advertised by a V3 service index.
@@ -1177,6 +1204,48 @@ public static class PackageExtractor
     private static bool IsServiceType(string type, string prefix) =>
         type.Equals(prefix, StringComparison.OrdinalIgnoreCase)
         || type.StartsWith($"{prefix}/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Selects every endpoint at the highest advertised capability version, preserving
+    /// service-index order.
+    /// </summary>
+    public static List<ServiceResource> GetCompatibleServiceResources(
+        IReadOnlyList<ServiceResource> resources,
+        string typePrefix)
+    {
+        List<ServiceResource> matching =
+        [
+            .. resources.Where(resource =>
+                IsServiceType(resource.Type, typePrefix)),
+        ];
+        if (matching.Count == 0)
+            return [];
+
+        System.Version bestVersion = ServiceResourceVersion(matching[0].Type);
+        for (int i = 1; i < matching.Count; i++)
+        {
+            System.Version version = ServiceResourceVersion(matching[i].Type);
+            if (version > bestVersion)
+                bestVersion = version;
+        }
+
+        return
+        [
+            .. matching.Where(resource =>
+                ServiceResourceVersion(resource.Type) == bestVersion),
+        ];
+    }
+
+    private static System.Version ServiceResourceVersion(string resourceType)
+    {
+        int separator = resourceType.IndexOf('/');
+        return separator >= 0
+            && System.Version.TryParse(
+                resourceType[(separator + 1)..],
+                out System.Version? version)
+                ? version
+                : new System.Version();
+    }
 
     /// <summary>
     /// Reads a V3 service index and returns the <c>@id</c> of the first resource whose

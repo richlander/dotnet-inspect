@@ -44,6 +44,67 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchAsync_UsesHighestSearchCapabilityVersion()
+    {
+        const string olderSearch = "https://feed.example/v3/query-old";
+        const string currentSearch = "https://feed.example/v3/query-current";
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = $$"""
+                {"resources":[
+                  {"@id":"{{olderSearch}}","@type":"SearchQueryService/3.0.0"},
+                  {"@id":"{{currentSearch}}","@type":"SearchQueryService/3.5.0"}
+                ]}
+                """,
+            [olderSearch] = """{"data":[{"id":"Wrong.Package","version":"1.0.0"}]}""",
+            [currentSearch] = """{"data":[{"id":"Contoso.Package","version":"1.0.0"}]}""",
+        };
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "Contoso",
+            sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] });
+
+        Assert.Equal("Contoso.Package", Assert.Single(outcome.Results).PackageId);
+        Assert.DoesNotContain(
+            handler.Requested,
+            request => request.StartsWith(olderSearch, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchAsync_MalformedEquivalentEndpoint_TriesNextInIndexOrder()
+    {
+        const string firstSearch = "https://feed.example/v3/query-a";
+        const string secondSearch = "https://feed.example/v3/query-b";
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = $$"""
+                {"resources":[
+                  {"@id":"{{firstSearch}}","@type":"SearchQueryService/3.5.0"},
+                  {"@id":"{{secondSearch}}","@type":"SearchQueryService/3.5.0"}
+                ]}
+                """,
+            [firstSearch] = "<html>sign in</html>",
+            [secondSearch] = """{"data":[{"id":"Contoso.Package","version":"1.0.0"}]}""",
+        };
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "Contoso",
+            sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] });
+
+        Assert.Empty(outcome.Failures);
+        Assert.Equal("Contoso.Package", Assert.Single(outcome.Results).PackageId);
+        Assert.Collection(
+            handler.Requested,
+            request => Assert.Equal(IndexUrl, request),
+            request => Assert.StartsWith(firstSearch + "?", request, StringComparison.Ordinal),
+            request => Assert.StartsWith(secondSearch + "?", request, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task GetSearchQueryServiceAsync_FeedWithoutSearchResource_ReturnsNull()
     {
         const string flatContainerOnly = """
@@ -198,13 +259,15 @@ public class NuGetSearchSourcesTests
             requested => Assert.StartsWith(SearchUrl + "?", requested, StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task SearchAsync_MissingResultIdentity_ReportsSourceFailure()
+    [Theory]
+    [InlineData("""{"data":[{"id":null,"version":"1.0.0"}]}""")]
+    [InlineData("""{"data":[{"id":"Contoso.Package","version":"not-a-version"}]}""")]
+    public async Task SearchAsync_InvalidResultIdentity_ReportsSourceFailure(string body)
     {
         var handler = new RouteHandler
         {
             [IndexUrl] = ServiceIndex(SearchUrl),
-            [SearchUrl] = """{"data":[{"id":null,"version":"1.0.0"}]}"""
+            [SearchUrl] = body,
         };
         using var client = new HttpClient(handler);
         using var config = new TempNuGetConfig([("contoso", IndexUrl)]);

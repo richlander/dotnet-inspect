@@ -110,7 +110,12 @@ public class SearchServiceTests
     [InlineData("""{"data":[{"id":"Contoso.Package","version":null}]}""")]
     [InlineData("""{"data":[{"id":"Contoso.Package"}]}""")]
     [InlineData("""{"data":[{"id":"Contoso.Package","version":""}]}""")]
-    public async Task SearchAsync_MissingResultIdentity_Throws(string body)
+    [InlineData("""{"data":[{"id":" Contoso.Package","version":"1.0.0"}]}""")]
+    [InlineData("""{"data":[{"id":"Contoso..Package","version":"1.0.0"}]}""")]
+    [InlineData("""{"data":[{"id":"Contoso/Package","version":"1.0.0"}]}""")]
+    [InlineData("""{"data":[{"id":"Contoso.Package","version":"not-a-version"}]}""")]
+    [InlineData("""{"data":[{"id":"Contoso.Package","version":" 1.0.0"}]}""")]
+    public async Task SearchAsync_InvalidResultIdentity_Throws(string body)
     {
         var handler = new CapturingHandler(body);
         using var client = new HttpClient(handler);

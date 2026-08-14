@@ -105,14 +105,24 @@ public static class NuGetSearchService
         List<string> failures = [];
         HashSet<(string Id, string Version)> seen = new(SearchResultKeyComparer.Instance);
         int searched = 0;
+        bool useFactoryClients =
+            ReferenceEquals(client, HttpClientFactory.Shared);
 
         foreach (NuGetSource source in sources)
         {
             using var failureScope = FeedFailureTelemetry.Scope();
-            string? searchUrl;
+            HttpClient sourceClient = useFactoryClients
+                && Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? sourceUri)
+                && sourceUri.Scheme is "http" or "https"
+                    ? HttpClientFactory.GetPackageSourceClient(source.Url)
+                    : client;
+            IReadOnlyList<string>? searchUrls;
             try
             {
-                searchUrl = await PackageExtractor.GetSearchQueryServiceAsync(client, source, log);
+                searchUrls = await PackageExtractor.GetSearchQueryServicesAsync(
+                    sourceClient,
+                    source,
+                    log);
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
             {
@@ -123,7 +133,7 @@ public static class NuGetSearchService
                 continue;
             }
 
-            if (searchUrl is null)
+            if (searchUrls is null || searchUrls.Count == 0)
             {
                 IReadOnlyList<FeedFailure> sourceFailures =
                     FeedFailureTelemetry.Current!.Failures;
@@ -134,23 +144,42 @@ public static class NuGetSearchService
                 continue;
             }
 
-            var auth = NuGetCredentialScope.AuthFor(source, searchUrl, log);
-            log?.Invoke(
-                $"Searching {PackageSourceDisplay.ForDiagnostics(source)}: {UrlRedaction.ForDiagnostics(searchUrl)}");
-
-            IReadOnlyList<SearchResult> found;
-            try
+            IReadOnlyList<SearchResult>? found = null;
+            Exception? lastFailure = null;
+            string? lastSearchUrl = null;
+            foreach (string searchUrl in searchUrls)
             {
-                SearchService service = new(client, searchUrl);
-                found = resultFilter is null
-                    ? await service.SearchAsync(query, take, prerelease, auth)
-                    : await service.SearchByPrefixAsync(
-                        query,
-                        take,
-                        prerelease,
-                        auth);
+                lastSearchUrl = searchUrl;
+                var auth = NuGetCredentialScope.AuthFor(source, searchUrl, log);
+                log?.Invoke(
+                    $"Searching {PackageSourceDisplay.ForDiagnostics(source)}: {UrlRedaction.ForDiagnostics(searchUrl)}");
+                HttpClient endpointClient = NuGetCredentialScope.IsSameOrigin(
+                    source.Url,
+                    searchUrl)
+                        ? sourceClient
+                        : useFactoryClients
+                            ? HttpClientFactory.SharedUntrustedFetch
+                            : client;
+
+                try
+                {
+                    SearchService service = new(endpointClient, searchUrl);
+                    found = resultFilter is null
+                        ? await service.SearchAsync(query, take, prerelease, auth)
+                        : await service.SearchByPrefixAsync(
+                            query,
+                            take,
+                            prerelease,
+                            auth);
+                    break;
+                }
+                catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
+                {
+                    lastFailure = ex;
+                }
             }
-            catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
+
+            if (found is null)
             {
                 // The remote controls both the response that produced this
                 // exception and the endpoint URL its message embeds, so the
@@ -158,8 +187,8 @@ public static class NuGetSearchService
                 // category of what went wrong, not the message.
                 failures.Add(
                     $"{PackageSourceDisplay.ForDiagnostics(source)}: search failed "
-                    + $"at {UrlRedaction.ForDiagnostics(searchUrl)} "
-                    + $"({DescribeTransportFailure(ex)})");
+                    + $"at {UrlRedaction.ForDiagnostics(lastSearchUrl)} "
+                    + $"({DescribeTransportFailure(lastFailure!)})");
                 continue;
             }
 
