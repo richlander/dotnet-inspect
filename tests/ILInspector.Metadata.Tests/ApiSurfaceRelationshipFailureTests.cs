@@ -33,6 +33,26 @@ public class ApiSurfaceRelationshipFailureTests
     }
 
     [Fact]
+    public void BoundedApiSurface_RejectedIdentityDoesNotSpendTheTypeBudget()
+    {
+        using var stream = new MemoryStream(BuildImage(
+            cyclicTypeName: "Rejected",
+            validTypeNames: []));
+        using var peReader = new PEReader(stream);
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.IncludeAll,
+            new ApiSurfaceExtractionBounds(0, 0),
+            typesOnly: true);
+
+        ApiSurface surface =
+            Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result).Surface;
+        Assert.Empty(surface.Types);
+        Assert.Equal("Cycle", Assert.Single(surface.InspectionFailures).Kind);
+    }
+
+    [Fact]
     public void ApiDiff_IncompleteNewIdentityDoesNotClaimOldTypeWasRemoved()
     {
         using var oldStream = new MemoryStream(BuildImage(

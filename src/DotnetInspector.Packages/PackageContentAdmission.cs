@@ -39,6 +39,16 @@ internal static class PackageContentAdmission
         PackagePayloadLimits limits,
         CancellationToken cancellationToken)
     {
+        if (content is InMemoryPackageContent inMemory)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return EvaluateArchive(
+                content,
+                inMemory.RetainedArchive,
+                limits,
+                cancellationToken);
+        }
+
         Stream? archiveStream = null;
         bool opened;
         try
@@ -70,29 +80,13 @@ internal static class PackageContentAdmission
                         .ConfigureAwait(false);
                 }
 
-                if (archive is null
-                    || PackageArchiveValidator.Validate(
+                return archive is null
+                    ? Outcome.LimitsExceeded
+                    : EvaluateArchive(
+                        content,
                         archive,
                         limits,
-                        cancellationToken)
-                        is not PackageArchiveValidation.Valid)
-                {
-                    return Outcome.LimitsExceeded;
-                }
-
-                if (content.RootPath is not null
-                    && !AdmitExtractedTreeWithArchive(
-                        content.RootPath,
-                        archive,
-                        content.NupkgPath,
-                        limits,
-                        content.RequiresArchiveTreeMatch,
-                        cancellationToken))
-                {
-                    return Outcome.LimitsExceeded;
-                }
-
-                return Outcome.Admissible;
+                        cancellationToken);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -118,6 +112,36 @@ internal static class PackageContentAdmission
                 limits)
             ? Outcome.Admissible
             : Outcome.LimitsExceeded;
+    }
+
+    static Outcome EvaluateArchive(
+        IPackageContent content,
+        byte[] archive,
+        PackagePayloadLimits limits,
+        CancellationToken cancellationToken)
+    {
+        if (PackageArchiveValidator.Validate(
+                archive,
+                limits,
+                cancellationToken)
+            is not PackageArchiveValidation.Valid)
+        {
+            return Outcome.LimitsExceeded;
+        }
+
+        if (content.RootPath is not null
+            && !AdmitExtractedTreeWithArchive(
+                content.RootPath,
+                archive,
+                content.NupkgPath,
+                limits,
+                content.RequiresArchiveTreeMatch,
+                cancellationToken))
+        {
+            return Outcome.LimitsExceeded;
+        }
+
+        return Outcome.Admissible;
     }
 
     /// <summary>

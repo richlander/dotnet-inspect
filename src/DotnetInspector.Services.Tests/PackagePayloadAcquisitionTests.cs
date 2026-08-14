@@ -2423,6 +2423,32 @@ public sealed class PackagePayloadAcquisitionTests
         }
     }
 
+    [Fact]
+    public async Task InMemoryAdmission_DoesNotDuplicateTheRetainedArchive()
+    {
+        byte[] content = new byte[4 * 1024 * 1024];
+        Random.Shared.NextBytes(content);
+        byte[] nupkg = TestPackageArchive.CreateWithContent(
+            ("lib/net10.0/Sample.dll", content));
+        var package = new InMemoryPackageContent(
+            nupkg,
+            fromCache: true,
+            "test");
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        PackageContentAdmission.Outcome outcome =
+            await PackageContentAdmission.EvaluateAsync(
+                package,
+                PackagePayloadLimits.Default,
+                TestContext.Current.CancellationToken);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(PackageContentAdmission.Outcome.Admissible, outcome);
+        Assert.True(
+            allocated < nupkg.LongLength,
+            $"admission allocated {allocated} bytes for a {nupkg.LongLength}-byte retained archive");
+    }
+
     // A body that stops short of its own declaration is a truncated transfer, not a shorter
     // package: the source fails, nothing is committed, and the reservation is abandoned.
     [Fact]

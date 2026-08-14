@@ -620,6 +620,10 @@ public sealed class AssemblyContextApiSurfaceQueryTests
         Assert.Equal(1, truncation.OmittedParticipants);
         Assert.Single(bounded.Assemblies.Assemblies);
         Assert.False(bounded.IsComplete);
+        AssertWithinBounds(
+            bounded,
+            maxTypes: 1_000_000,
+            maxMembers: 1_000_000);
     }
 
     // Selecting participants is how a host projects one package out of a multi-package workspace

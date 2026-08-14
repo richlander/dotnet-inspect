@@ -33,6 +33,8 @@ public sealed class InMemoryPackageContent : IPackageContent, IPackageContentEnt
     /// <summary>The raw nupkg bytes backing this content.</summary>
     public ReadOnlyMemory<byte> NupkgBytes => _nupkgBytes;
 
+    internal byte[] RetainedArchive => _nupkgBytes;
+
     /// <inheritdoc />
     public string? RootPath => null;
 

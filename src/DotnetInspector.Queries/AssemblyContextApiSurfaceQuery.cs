@@ -384,6 +384,15 @@ public static class AssemblyContextApiSurfaceQuery
             members += surface.Types.Sum(type => type.Members.Count);
         }
 
+        if (truncation is not null)
+        {
+            truncation = truncation with
+            {
+                ProjectedTypes = types,
+                ProjectedMembers = members,
+            };
+        }
+
         var assemblies = new AssemblyContextResult<AssemblyApiSurface>(entries.DrainToImmutable());
         return new AssemblyContextApiSurfaceResult(
             assemblies,
