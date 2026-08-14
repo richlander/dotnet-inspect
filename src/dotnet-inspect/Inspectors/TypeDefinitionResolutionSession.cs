@@ -55,7 +55,11 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
                 ProjectAssetsPath = projectAssetsPath,
                 TargetFramework = targetFramework,
                 IncludeDepsJsonAssets = false,
-                IncludeAspNetCoreSharedFramework = false,
+                IncludeAspNetCoreSharedFramework =
+                    string.Equals(
+                        platformFramework,
+                        "aspnetcore",
+                        StringComparison.OrdinalIgnoreCase),
                 PreferImplementationAssemblies = true,
                 AllowPlatformAssemblyVersionRollForward = true,
             });

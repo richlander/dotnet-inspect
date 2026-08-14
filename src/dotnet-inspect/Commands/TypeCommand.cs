@@ -128,7 +128,10 @@ public static class TypeCommand
                 var listExitCode = ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
                 if (listExitCode != 0)
                     return listExitCode;
-                inspectionIncomplete = api.InspectionFailures.Count > 0;
+                inspectionIncomplete = api.InspectionFailures.Any(
+                    static failure =>
+                        failure.Operation
+                            != ApiSurface.ConstraintResolutionOperation);
 
                 if (!loaded.IsSummary && !options.FormatExplicitlySet && !options.IsRawOutput)
                 {
