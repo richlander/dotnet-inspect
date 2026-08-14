@@ -77,6 +77,13 @@ public class UntrustedMemberSignatureTests
                 [typeof(EventHandler)]);
             adder.GetILGenerator().Emit(OpCodes.Ret);
             @event.SetAddOnMethod(adder);
+            var remover = tb.DefineMethod(
+                "remove_" + hostile,
+                MethodAttributes.Public | MethodAttributes.SpecialName,
+                typeof(void),
+                [typeof(EventHandler)]);
+            remover.GetILGenerator().Emit(OpCodes.Ret);
+            @event.SetRemoveOnMethod(remover);
 
             tb.CreateType();
 
