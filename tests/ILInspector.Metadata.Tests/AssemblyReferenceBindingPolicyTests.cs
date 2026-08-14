@@ -66,6 +66,24 @@ public class AssemblyReferenceBindingPolicyTests
             unavailable.Failure.Kind);
     }
 
+    [Fact]
+    public void NoResolverPolicy_NeverSelectsAnyBindingTarget()
+    {
+        Assert.IsType<AssemblyBindingSelection.Missing>(
+            NoResolverAssemblyBindingPolicy.Instance.Select(
+                Request(AssemblyBindingTarget.Reference(Reference))));
+        var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
+            NoResolverAssemblyBindingPolicy.Instance.Select(
+                Request(AssemblyBindingTarget.CoreLibrary())));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.UnsupportedScope,
+            unavailable.Failure.Kind);
+        Assert.Same(
+            NoResolverAssemblyBindingPolicy.Instance.Version,
+            NoResolverAssemblyBindingPolicy.Instance.Version);
+    }
+
     static AssemblyBindingRequest Request(AssemblyBindingTarget target) =>
         new(
             target,

@@ -208,7 +208,7 @@ public sealed record NetworkRequestObservation(
     string Method,
     InertString? Url,
     string? Scheme,
-    string? Host,
+    InertString? Host,
     string ClientKind,
     NetworkTrafficKind TrafficKind,
     bool IsAllowedByPolicy,
@@ -226,7 +226,14 @@ public sealed record NetworkRequestObservation(
             request.Method.Method,
             RedactUrl(uri),
             uri?.IsAbsoluteUri == true ? uri.Scheme : null,
-            uri?.IsAbsoluteUri == true ? uri.Host : null,
+            // Contained separately from the display URL rather than parsed back
+            // out of it: the typed URI is where the host actually is, and the
+            // display URL is a rendering. It is contained because Uri.Host
+            // preserves Cf text — an IDN host carrying U+2066 survives
+            // normalization intact and would reach `server.address` raw.
+            uri?.IsAbsoluteUri == true
+                ? new InertString(TextPolicy.Field, uri.Host)
+                : null,
             clientKind,
             trafficKind,
             isAllowedByPolicy,
@@ -248,8 +255,8 @@ public sealed record NetworkRequestObservation(
             tags["url.full"] = url.ToString();
         if (Scheme != null)
             tags["url.scheme"] = Scheme;
-        if (Host != null)
-            tags["server.address"] = Host;
+        if (Host is { } host)
+            tags["server.address"] = host.ToString();
         if (RequestWhat != null)
             tags["dotnet_inspect.request.what"] = RequestWhat;
         if (RequestWhy != null)
@@ -259,118 +266,28 @@ public sealed record NetworkRequestObservation(
     }
 
     internal static InertString? RedactUrl(Uri? uri)
+        => UrlRedaction.ForDiagnostics(uri);
+
+    /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
+    /// <remarks>
+    /// Gated by <c>HttpRetryHelperTests.FailureLoggingRedactsTheEffectiveUrlWithoutReparsingIt</c>,
+    /// <c>HttpRetryHelperTests.FailureLoggingAndTelemetryRemoveFragmentsFromEffectiveUrls</c>,
+    /// and <c>FeedFailureTelemetryTests.ARelativeUriRemovesUserInfoAndRedactsCredentialsBeforeStorage</c>.
+    /// </remarks>
+    public static InertString RedactSensitiveUrl(Uri uri)
     {
-        if (uri == null)
-            return null;
-
-        if (!uri.IsAbsoluteUri)
-            return new InertString(TextPolicy.Field, RedactRelativeUrl(uri.ToString()));
-
-        var builder = new UriBuilder(uri)
-        {
-            UserName = "",
-            Password = ""
-        };
-
-        builder.Query = RedactQuery(builder.Query);
-        builder.Path = RedactPath(builder.Path);
-
-        // Redaction removes the secrets; this removes the ability to act on the terminal that
-        // prints them. Uri normalization percent-encodes C0 controls, which makes it look as
-        // though this were already handled, but it passes Cf straight through — so a bidi
-        // override in a source URL survives into a failure message and reorders it.
-        return new InertString(TextPolicy.Field, builder.Uri.ToString());
+        ArgumentNullException.ThrowIfNull(uri);
+        return UrlRedaction.ForDiagnostics(uri) ?? throw new UnreachableException();
     }
 
-    internal static InertString RedactSensitiveUrlText(string value)
-    {
-        if (Uri.TryCreate(value, UriKind.Absolute, out var absolute))
-            return RedactUrl(absolute) ?? new InertString(TextPolicy.Field, value);
-
-        if (Uri.TryCreate(value, UriKind.Relative, out var relative))
-            return new InertString(TextPolicy.Field, RedactRelativeUrl(relative.ToString()));
-
-        return new InertString(TextPolicy.Field, value);
-    }
-
-    private static string RedactRelativeUrl(string url)
-    {
-        var queryIndex = url.IndexOf('?', StringComparison.Ordinal);
-        if (queryIndex < 0)
-            return RedactPath(url);
-
-        var path = url[..queryIndex];
-        var query = url[queryIndex..];
-        return $"{RedactPath(path)}?{RedactQuery(query)}";
-    }
-
-    // Some feeds carry the credential in the path rather than the query. MyGet publishes
-    // service index URLs shaped like https://host/F/<feed>/auth/<token>/api/v3/index.json,
-    // so the segment following an "auth" segment is a secret. Only that segment is removed:
-    // the rest of the path is the feed's identity (an Azure DevOps organization, project and
-    // feed all live in the path) and is exactly what a reader needs to tell sources apart.
-    private static string RedactPath(string path)
-    {
-        if (string.IsNullOrEmpty(path) || !path.Contains("auth", StringComparison.OrdinalIgnoreCase))
-            return path;
-
-        var segments = path.Split('/');
-        for (var i = 1; i < segments.Length; i++)
-        {
-            if (segments[i].Length > 0
-                && segments[i - 1].Equals("auth", StringComparison.OrdinalIgnoreCase))
-            {
-                segments[i] = "REDACTED";
-            }
-        }
-
-        return string.Join('/', segments);
-    }
-
-    private static string RedactQuery(string query)
-    {
-        if (string.IsNullOrEmpty(query))
-            return "";
-
-        var trimmed = query[0] == '?' ? query[1..] : query;
-        if (trimmed.Length == 0)
-            return "";
-
-        var parts = trimmed.Split('&');
-        for (var i = 0; i < parts.Length; i++)
-        {
-            var part = parts[i];
-            var separator = part.IndexOf('=', StringComparison.Ordinal);
-            var name = separator >= 0 ? part[..separator] : part;
-            if (IsSensitiveQueryName(Uri.UnescapeDataString(name)))
-                parts[i] = separator >= 0 ? $"{name}=REDACTED" : $"{name}=REDACTED";
-        }
-
-        return string.Join('&', parts);
-    }
-
-    // Matched on fragments rather than whole names: the same secret travels under
-    // access_token, accessToken, apiKey, x-api-key and personalAccessToken depending on the
-    // feed, and an exact-name list silently passes every spelling it has not met yet.
-    private static readonly string[] SensitiveNameFragments =
-        ["token", "key", "secret", "password", "credential", "auth", "sig"];
-
-    private static bool IsSensitiveQueryName(string name)
-    {
-        if (name.Equals("code", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        var normalized = name.Replace("_", "", StringComparison.Ordinal)
-                             .Replace("-", "", StringComparison.Ordinal);
-
-        foreach (var fragment in SensitiveNameFragments)
-        {
-            if (normalized.Contains(fragment, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
-    }
+    /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
+    /// <remarks>
+    /// Gated by <c>HttpRetryHelperTests.FailureLogsRedactTheUrlOnEveryBranch</c> and
+    /// <c>FeedFailureTelemetryTests.ARawFailureFragmentIsRemovedBeforeStorage</c> and
+    /// <c>FeedFailureTelemetryTests.AnUnparseableRawUrlIsConservativelyRedactedBeforeStorage</c>.
+    /// </remarks>
+    public static InertString RedactSensitiveUrlText(string value)
+        => UrlRedaction.ForDiagnostics(value);
 }
 
 public static class CacheTelemetry
@@ -437,11 +354,39 @@ public sealed record CacheObservation(
         NetworkTrafficKind trafficKind)
         => new(
            category,
-           NetworkRequestObservation.RedactSensitiveUrlText(key),
+           RedactCacheKey(key),
            result,
            trafficKind,
            RequestTelemetry.Current.What,
            RequestTelemetry.Current.Why);
+
+    /// <summary>
+    /// Cache keys are usually package coordinates (<c>id@version</c>), not URLs.
+    /// Route only URL-shaped keys through URL redaction so a bare <c>@</c> in a
+    /// coordinate is not treated as user-info and collapsed to
+    /// <see cref="UrlRedaction.UnparsableMarker"/>.
+    /// </summary>
+    internal static InertString RedactCacheKey(string key)
+    {
+        if (string.IsNullOrEmpty(key))
+            return InertString.Empty;
+
+        // Absolute/scheme-relative locators and Windows UNC-style network paths
+        // may carry credentials or query secrets — full URL redaction.
+        if (key.Contains("://", StringComparison.Ordinal)
+            || key.StartsWith("//", StringComparison.Ordinal)
+            || key.StartsWith("\\\\", StringComparison.Ordinal)
+            || (Uri.TryCreate(key, UriKind.Absolute, out Uri? absolute)
+                && (absolute.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.Ordinal)
+                    || absolute.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.Ordinal))))
+        {
+            return UrlRedaction.ForDiagnostics(key);
+        }
+
+        // Package id@version, category-local names, relative paths: field
+        // containment only (no authority grammar).
+        return new InertString(TextPolicy.Field, key);
+    }
 
     internal ActivityTagsCollection ToActivityTags()
     {

@@ -138,7 +138,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
-| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
+| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, checksum-verified source fetching with final-origin redirect validation, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"`; `body-shape Kind --library path/to.dll` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
@@ -285,6 +285,9 @@ to entry points and outbound calls in one view), and project per-node cost with
 `--rows` selects the same ordered relationships in every rendering. Markdown
 defaults to an edge table; add `--tree` for a standalone tree, `--mermaid` for a
 standalone diagram, or `--markdown --mermaid` for an embedded diagram.
+When `--bin`, `--project`, or `--caller-package` supplies an assembly scope,
+`Call Graph` traverses both callers and callees across that scope; `Callers`
+retains its narrower inbound-only scan.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
 
@@ -379,7 +382,10 @@ override that configuration for one invocation. The original
 `dotnet_inspect_style_readable_local_names = false` spelling remains accepted
 for compatibility. The same config file
 (discovered by walking up from the working directory) selects other class-3
-spellings using `.editorconfig` key names. `--taste` requests the whole
+spellings using `.editorconfig` key names. Named enum labels that share one
+switch body are alphabetical by default; set
+`dotnet_inspect_style_enum_case_label_order = value` to retain recovered numeric
+order. `--taste` requests the whole
 oracle-endorsed set for one invocation without a config file. `Annotated Source`
 names the applied spellings in a trailing comment on the member signature, and
 drops its interleaved IL for any member a byte-divergent lens actually rewrote.
@@ -498,7 +504,7 @@ renders its coverage as a caveat.
 
 ## Output and querying
 
-Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--value` for one scalar, `--urls` for URL lists, `--paths` for path lists, `--print` to materialize one printable selected-section row (`--row N` chooses a printable row), `--json-array` to emit projected rows as one JSON array, `--rows N` to cap rendered table rows (`--rows 2..10` names them), `--count` to reduce a selected section/vector to a single row count, and `--mermaid` for diagrams. On `member -S "Call Graph"`, `--tree` and `--mermaid` are standalone formats; pair `--mermaid` with `--markdown` to embed the diagram in a Markdown document. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
+Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--value` for one scalar, `--urls` for URL lists, `--paths` for path lists, `--print` to materialize one selected-section document (`--row N|first|last` chooses a displayed row), `--json-array` to emit projected rows as one JSON array, `--rows N` to cap rendered table rows (`2..10` is inclusive, `2+10` is start plus count, and `10..` is open-ended), `--count` to reduce a selected section/vector to a row count, and `--mermaid` for diagrams. On `member -S "Call Graph"`, `--tree` and `--mermaid` are standalone formats; pair `--mermaid` with `--markdown` to embed the diagram in a Markdown document. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
 
 Call Graph edge rows use the machine field names `from`, `from_group`,
 `to`, `to_group`, and `label` under `--tsv` and `--jsonl`. Markdown and
@@ -531,7 +537,17 @@ dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files"
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
 
-For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, `member Type -m Name` uses `Methods` overload rows, and a selected `member Type.Member:N` renders `Signature`. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Curated package and library catalogs do not expose a computed `@All`; select relevant authored categories or explicit sections instead. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
+`package X -D` reports effective package sections and fields. `library X -D`
+is a cheap target-aware catalog; add `--effective` for full probes. On either
+command, `-D --schema` reports the complete static graph without inspecting the
+target. Bare `-S` returns high-value, fixed-length, network-free base sections.
+A single `type Type` uses `Type Info`, a type listing uses `API Info`, broad
+`member Type` summaries use `Method Groups`, `member Type -m Name` uses
+`Methods` overload rows, and a selected `member Type.Member:N` uses `Signature`.
+Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons.
+Package and library expose authored categories rather than a computed `@All`;
+workflow categories such as `@Source` and `@Audit` expand to focused section
+groups.
 
 Package uses `@Package` and `@Files` for its ordinary evidence, with focused
 `@Dependencies`, `@Audit`, and `@SourceLink` doors. Library similarly uses
@@ -572,6 +588,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S C
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll --bin ./app/bin/Release/net10.0
+dotnet-inspect member MyApi.Helper Run:1 --library MyLib.dll -S "Call Graph" --bin ./app/bin/Release/net10.0
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph" --tree
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph" --markdown --mermaid

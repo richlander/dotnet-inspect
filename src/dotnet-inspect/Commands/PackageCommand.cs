@@ -567,6 +567,7 @@ public class PackageCommand
             resolution = outcome.Result!;
 
             extractPath = resolution.ExtractPath;
+            packageName = resolution.PackageName ?? packageName;
             // Update version from resolution (may have been auto-discovered)
             version = resolution.Version ?? version;
 
@@ -644,10 +645,10 @@ public class PackageCommand
                 : null;
 
             var result = await PackageInspector.InspectAsync(
-                extractPath, packageName, version, target.IsLocalFile,
+                resolution, packageName, version, target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
-                nuspec, client, logger, options.ForceLatest, options.Verbosity,
-                resolution.NupkgPath,
+                nuspec, client, logger,
+                options.ForceLatest, options.Verbosity,
                 fetchMetadata: wantsSignals,
                 sourceOptions: options.SourceOptions);
 
@@ -1762,7 +1763,10 @@ public class PackageCommand
 
             var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
-            var packageId = nuspec?.PackageName ?? target.PackageName;
+            var packageId =
+                nuspec?.PackageName
+                ?? resolution.PackageName
+                ?? target.PackageName;
             var packageVersion = nuspec?.Version ?? version;
             var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
             return ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, nuspec?.ReadmeFile, options);
@@ -1816,6 +1820,8 @@ public class PackageCommand
             resolution = outcome.Result!;
             extractPath = resolution.ExtractPath;
             version = resolution.Version ?? version;
+            string resolvedPackageName =
+                resolution.PackageName ?? target.PackageName;
 
             var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
@@ -1829,8 +1835,8 @@ public class PackageCommand
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
             var result = await PackageInspector.InspectAsync(
-                extractPath,
-                target.PackageName,
+                resolution,
+                resolvedPackageName,
                 version,
                 target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
@@ -1839,7 +1845,6 @@ public class PackageCommand
                 logger,
                 options.ForceLatest,
                 options.Verbosity,
-                resolution.NupkgPath,
                 fetchMetadata: wantsSignals,
                 sourceOptions: options.SourceOptions);
 
@@ -1869,7 +1874,7 @@ public class PackageCommand
                 await PopulatePackageSourceLinkAsync(
                     result,
                     extractPath,
-                    target.PackageName,
+                    resolvedPackageName,
                     version,
                     options,
                     context,
@@ -1883,7 +1888,7 @@ public class PackageCommand
             if (wantsSignals)
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, target.PackageName, version, context.HttpClient, logger,
+                    extractPath, resolvedPackageName, version, context.HttpClient, logger,
                     acquirePdb: true, options.SourceOptions);
                 await AuditSignalBuilder.PopulatePackageAuditAsync(
                     result, context.HttpClient, logger, options.SourceOptions);

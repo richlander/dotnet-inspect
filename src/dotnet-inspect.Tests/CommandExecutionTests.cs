@@ -5418,6 +5418,7 @@ public partial class CommandExecutionTests
         var root = CommandLineBuilder.CreateRootCommand();
         var outer = root.Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
         var inner = root.Parse(["library", TestAssemblyPath, "-S", "References"]);
+        var diagnostics = new List<string>();
 
         try
         {
@@ -5425,11 +5426,14 @@ public partial class CommandExecutionTests
             {
                 using (ProjectionAudit.BeginRequest(inner))
                 {
-                    Assert.Equal(0, ProjectionAudit.Verify(0));
+                    Assert.Equal(0, ProjectionAudit.Verify(0, diagnostics.Add));
+                    Assert.Empty(diagnostics);
                 }
 
-                Assert.Equal(1, ProjectionAudit.Verify(0));
+                Assert.Equal(1, ProjectionAudit.Verify(0, diagnostics.Add));
             }
+
+            Assert.Contains("--count", Assert.Single(diagnostics));
         }
         finally
         {
@@ -5445,12 +5449,14 @@ public partial class CommandExecutionTests
         // its full payload and exited 0 with the projection silently discarded.
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["package", "--count", "search", "Newtonsoft.Json"]);
+        var diagnostics = new List<string>();
 
         try
         {
             ProjectionAudit.BeginRequest(result);
 
-            Assert.Equal(1, ProjectionAudit.Verify(0));
+            Assert.Equal(1, ProjectionAudit.Verify(0, diagnostics.Add));
+            Assert.Contains("--count", Assert.Single(diagnostics));
         }
         finally
         {
@@ -5463,8 +5469,10 @@ public partial class CommandExecutionTests
     {
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["package", "--count", "--print", "search", "Newtonsoft.Json"]);
+        var diagnostics = new List<string>();
 
-        Assert.False(ProjectionAudit.ValidateExclusive(result));
+        Assert.False(ProjectionAudit.ValidateExclusive(result, diagnostics.Add));
+        Assert.Contains("--count cannot be combined with --print", Assert.Single(diagnostics));
     }
 
     [Fact]
@@ -5474,13 +5482,15 @@ public partial class CommandExecutionTests
         // satisfy an unrelated recorded --count and let that drop escape.
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+        var diagnostics = new List<string>();
 
         try
         {
             ProjectionAudit.BeginRequest(result);
             ProjectionAudit.MarkHonored(ProjectionAudit.Print);
 
-            Assert.Equal(1, ProjectionAudit.Verify(0));
+            Assert.Equal(1, ProjectionAudit.Verify(0, diagnostics.Add));
+            Assert.Contains("--count", Assert.Single(diagnostics));
         }
         finally
         {
@@ -5493,13 +5503,15 @@ public partial class CommandExecutionTests
     {
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+        var diagnostics = new List<string>();
 
         try
         {
             ProjectionAudit.BeginRequest(result);
             ProjectionAudit.MarkHonored(ProjectionAudit.Count);
 
-            Assert.Equal(0, ProjectionAudit.Verify(0));
+            Assert.Equal(0, ProjectionAudit.Verify(0, diagnostics.Add));
+            Assert.Empty(diagnostics);
         }
         finally
         {
@@ -5514,12 +5526,14 @@ public partial class CommandExecutionTests
         // rather than option tokens would silently disable the audit for the invocation.
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["type", "--library", TestAssemblyPath, "-S", "Classes", "--value", "--type", "/h"]);
+        var diagnostics = new List<string>();
 
         try
         {
             ProjectionAudit.BeginRequest(result);
 
-            Assert.Equal(1, ProjectionAudit.Verify(0));
+            Assert.Equal(1, ProjectionAudit.Verify(0, diagnostics.Add));
+            Assert.Contains("--value", Assert.Single(diagnostics));
         }
         finally
         {
@@ -6337,11 +6351,18 @@ public partial class CommandExecutionTests
     {
         // Boundary: the row-oriented formats keep honoring column projection. Only document
         // --json is rejected.
-        var (exit, _, error) = await RunAppAsync(
-            "find", "Cache", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
+        var (exit, output, error) = await RunAppAsync(
+            "find", "ILSampleClass", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("cannot be combined with --json", error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.NotEmpty(lines);
+        foreach (var line in lines)
+        {
+            using var document = JsonDocument.Parse(line);
+            Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        }
     }
 
     [Fact]
@@ -6603,8 +6624,9 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("failed to fetch the document for row 2 from", error);
-            Assert.Contains("/Src/Newtonsoft.Json/JsonReader.Async.cs", error);
+            Assert.Contains("failed to fetch verified source for row 2", error);
+            Assert.Contains("Could not fetch SourceLink source", error);
+            Assert.DoesNotContain("/Src/Newtonsoft.Json/JsonReader.Async.cs", error);
         }
         finally
         {
@@ -6636,7 +6658,68 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("failed to fetch the document for row 2 from", error);
+            Assert.Contains("failed to fetch verified source for row 2", error);
+            Assert.Contains("Could not fetch SourceLink source", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_PrintRow_RejectsCrossOriginResponse()
+    {
+        using var client = new HttpClient(new SourceResponseHandler(
+            "redirected content"u8.ToArray(),
+            "https://spsprodeus27.vssps.visualstudio.com/_signin"));
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-cross-origin-source-{Guid.NewGuid():N}");
+        try
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Could not verify the final SourceLink response origin", error);
+            Assert.DoesNotContain("spsprodeus27", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_PrintRow_RejectsSameOriginChecksumMismatch()
+    {
+        using var client = new HttpClient(new SourceResponseHandler(
+            "same-origin but wrong content"u8.ToArray()));
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-source-checksum-{Guid.NewGuid():N}");
+        try
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("does not match the portable-PDB checksum", error);
         }
         finally
         {
@@ -6655,6 +6738,21 @@ public partial class CommandExecutionTests
             => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
             {
                 RequestMessage = request,
+            });
+    }
+
+    private sealed class SourceResponseHandler(byte[] body, string? finalUrl = null)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(body),
+                RequestMessage = finalUrl is null
+                    ? request
+                    : new HttpRequestMessage(HttpMethod.Get, finalUrl),
             });
     }
 
@@ -6826,6 +6924,50 @@ public partial class CommandExecutionTests
         Assert.Contains("| Line | column |", output);
         Assert.DoesNotContain("Loaded PDB", error);
         Assert.DoesNotContain("MSDL symbol", error);
+    }
+
+    [Fact]
+    public async Task SourceEnrichment_VerboseProgressDoesNotDiscloseArtifactUrlOrPath()
+    {
+        const string Secret = "sup3rs3cret";
+        var sourceInfo = new ILInspector.SourceLink.SourceLinkResolver.TypeSourceInfo(
+            $"/hostile/{Secret}/Source.cs",
+            $"https://user:{Secret}@source.example/F/auth/{Secret}/Source.cs?sig={Secret}#{Secret}",
+            LineNumber: 42,
+            GitHubBrowseUrl: null);
+        var apiType = new ApiType { Name = "Source" };
+
+        var (_, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            await SourceEnricher.ApplySourceInfoAsync(
+                apiType,
+                sourceInfo,
+                new ApiOptions { ShowDocs = true },
+                new VerboseLogger(enabled: true));
+            SourceEnricher.MergePartialTypeDocumentation(
+                apiType,
+                [
+                    (
+                        "/// <summary>Primary.</summary>\npublic partial class Source { }",
+                        $"https://source.example/{Secret}/Primary.cs",
+                        $"/hostile/{Secret}/Primary.cs"),
+                    (
+                        "/// <summary>Additional.</summary>\npublic partial class Source { }",
+                        $"https://source.example/{Secret}/Additional.cs",
+                        $"/hostile/{Secret}/Additional.cs"),
+                ],
+                new CSharpText.DocCommentParser(),
+                new ApiOptions(),
+                new VerboseLogger(enabled: true));
+        });
+
+        Assert.Contains("Source (SourceLink) resolved at line 42.", error);
+        Assert.Contains("Fetching SourceLink source.", error);
+        Assert.Contains("Found type documentation.", error);
+        Assert.Contains("Merged additional type documentation.", error);
+        Assert.DoesNotContain(Secret, error, StringComparison.Ordinal);
+        Assert.DoesNotContain("source.example", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("/hostile/", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -7157,6 +7299,51 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Member_CallGraph_ScopeTraversesCalleesAcrossAssembly()
+    {
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+
+        var scoped = await RunAppAsync(
+            "member",
+            "Shared.Entry",
+            "RunAcrossBoundary:1",
+            "--library",
+            caller,
+            "-S",
+            "Call Graph",
+            "--bin",
+            Path.GetDirectoryName(target)!,
+            "--tips",
+            "q");
+        var unscoped = await RunAppAsync(
+            "member",
+            "Shared.Entry",
+            "RunAcrossBoundary:1",
+            "--library",
+            caller,
+            "-S",
+            "Call Graph",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, scoped.Exit);
+        Assert.Empty(scoped.Error);
+        Assert.Contains("Target.Api.Forward()", scoped.Output);
+        Assert.Contains("Target.Api.Leaf()", scoped.Output);
+        Assert.DoesNotContain("(external)", scoped.Output);
+
+        Assert.Equal(0, unscoped.Exit);
+        Assert.Empty(unscoped.Error);
+        Assert.Contains(
+            "Target.Api.Forward() (external)",
+            unscoped.Output);
+        Assert.DoesNotContain("Target.Api.Leaf()", unscoped.Output);
     }
 
     [Fact]
@@ -9693,8 +9880,14 @@ public partial class CommandExecutionTests
             "find", ".Serialize", "--platform", "System.Text.Json", "--json");
 
         Assert.Equal(0, exit);
-        Assert.Contains("\"member\":\"Serialize\"", output);
-        Assert.Contains("\"declaring_type\":\"System.Text.Json.JsonSerializer\"", output);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Contains(
+            document.RootElement.EnumerateArray(),
+            element =>
+                element.GetProperty("member").GetString() == "Serialize"
+                && element.GetProperty("declaring_type").GetString()
+                    == "System.Text.Json.JsonSerializer");
     }
 
     [Fact]
@@ -10994,6 +11187,68 @@ public partial class CommandExecutionTests
             Assert.Contains("callsite", output);
             Assert.Contains("return-address", output);
             Assert.Contains("return address", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetsFile_PrefersExactOperationIdentity()
+    {
+        static (int Token, int Offset) Coordinate(Type type, string methodName, byte opcode)
+        {
+            var method = type.GetMethod(
+                methodName,
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly)!;
+            var il = method.GetMethodBody()!.GetILAsByteArray()!;
+            var offset = Array.IndexOf(il, opcode);
+            Assert.True(offset >= 0, $"opcode 0x{opcode:X2} not found in {methodName}");
+            return (method.MetadataToken, offset);
+        }
+
+        var (allSignalsToken, virtualCallOffset) = Coordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            0x6F);
+        var (_, allocationOffset) = Coordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            0x8D);
+        var (unsafeToken, unsafeCallOffset) = Coordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.UnsafeAs),
+            0x28);
+
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllLinesAsync(
+            path,
+            [
+                $"hot-virtual-call 0x{allSignalsToken:X8}+0x{virtualCallOffset:X}",
+                $"allocation 0x{allSignalsToken:X8}+0x{allocationOffset:X}",
+                $"unsafe-call 0x{unsafeToken:X8}+0x{unsafeCallOffset:X}"
+            ],
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--json", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            var rows = document.RootElement.GetProperty("rows").EnumerateArray().ToArray();
+
+            var callsite = Assert.Single(rows, row => row.GetProperty("label").GetString() == "hot-virtual-call");
+            Assert.Equal("callsite", callsite.GetProperty("meaning").GetString());
+            Assert.Contains("virtual dispatch", callsite.GetProperty("evidence").GetString());
+
+            var allocation = Assert.Single(rows, row => row.GetProperty("label").GetString() == "allocation");
+            Assert.Equal("allocation", allocation.GetProperty("meaning").GetString());
+
+            var safety = Assert.Single(rows, row => row.GetProperty("label").GetString() == "unsafe-call");
+            Assert.Equal("safety", safety.GetProperty("meaning").GetString());
         }
         finally
         {
@@ -18127,7 +18382,7 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain("Dependency groups", output);
             Assert.Contains("Direct dependencies", output);
             Assert.DoesNotContain("| Signals | Scope |", output);
-            Assert.Contains("Known vulnerabilities", output);
+            Assert.DoesNotContain("Known vulnerabilities", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -18246,7 +18501,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_Signals_RendersRegistryBackedRows()
+    public async Task Package_Signals_RendersAvailableRegistryBackedRows()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
@@ -18255,7 +18510,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("## Signals", output);
-            Assert.Contains("Known vulnerabilities", output);
+            Assert.DoesNotContain("Known vulnerabilities", output);
             Assert.Contains("Dependencies with vulnerabilities", output);
             Assert.Contains("Deprecated dependencies", output);
             Assert.DoesNotContain("| Signals | Scope |", output);
