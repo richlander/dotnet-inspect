@@ -80,11 +80,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Inspection graph document](design/inspection-graph-document.md): typed
   multi-subject graph projection for calls, metadata relationships,
   integrations, Findings, characteristics, and package/type lenses.
+- [Inspection graph modes](design/inspection-graph-modes.md): single-seed,
+  peer-seed, and induced-set requests over member, type, assembly, and package
+  subjects.
 - [Call graph characteristics](design/call-graph-characteristics.md):
   call-specific mapping from current topology, signals, loop state, and
   physical occurrences into the inspection-graph descriptor model.
-- [Call graph modes](design/call-graph-modes.md): seed-centric and ad hoc
-  construction of member call subgraphs.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
 - [Structured type-forwarding resolution](design/type-forwarding-resolution.md): typed reference-to-definition resolution, forwarding evidence, binding policy, outcomes, and consumer migration.
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.

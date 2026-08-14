@@ -22,8 +22,8 @@ Related:
 
 - [Call-graph projection](call-graph-projection.md) owns the current call
   topology.
-- [Call-graph modes](call-graph-modes.md) owns seed-centric and ad hoc call
-  construction.
+- [Inspection-graph modes](inspection-graph-modes.md) owns member, type,
+  assembly, and package seeds plus peer-seed and induced-set requests.
 - [Graph signal annotations](graph-signal-annotations.md) owns the current
   node `--fields` vocabulary.
 - [Inspection layers](inspection-layers.md) owns L1/L2/L3 boundaries.
@@ -65,6 +65,7 @@ a call, it remains a separate logical edge with its own occurrences.
 | Descriptor family | Existing source | Aggregation |
 | --- | --- | --- |
 | Scale | `CallTreePerf` fan-in, fan-out, and depth | Preserve each source unit; no generic numeric merge |
+| Node loop context | `CallTreePerf.InLoop` | Preserve current `Loop`/`InLoop`/`Looping` node-field semantics |
 | Body work | `MethodSignals` allocation, copy, unsafe, reflection, and exception facts | Descriptor-specific |
 | Boundary context | node kind, source assembly, workspace group, package ownership | Direct or declared roll-up |
 | Findings | producer-owned Finding references | No implicit severity merge |
@@ -73,6 +74,11 @@ The current field aliases and value meanings remain owned by
 [Graph signal annotations](graph-signal-annotations.md). Migration registers
 semantic descriptors and binds existing `--fields` names to them; it does not
 silently rename fields or change defaults.
+
+The node loop descriptor is distinct from physical call-site loop state and the
+edge-level `any in loop` aggregate. Existing `--fields Loop` aliases continue
+to bind `CallTreePerf.InLoop` and preserve their selected node-label output.
+Migrating `CallGraphEdge.LoopLabel` cannot replace or derive that node field.
 
 ### Occurrence descriptors
 
@@ -96,11 +102,15 @@ occurrences.
 | Any in loop | `any` over occurrence loop state |
 | Call kinds | Ordered distinct set |
 | Dispatch kinds | Ordered distinct set |
-| Cross-group or cross-package boundary | Derived from typed endpoint ownership |
+| Cross-library or cross-package boundary | Derived from typed endpoint ownership within one assembly context group |
 
 `LoopLabel` migrates to the `any in loop` aggregate. Hosts may continue to
 render the same label, but no consumer may parse that label to recover the
 value.
+
+A call edge never crosses assembly context groups. An explicit cross-group
+comparison produces a separately typed comparison relationship with
+correspondence provenance; it is not a call boundary characteristic.
 
 ## Selection and discovery
 
@@ -118,10 +128,12 @@ Mermaid labels, tree suffixes, table columns, JSON properties, and browser
 annotations are projections of the same selected typed values. Hosts may choose
 different layouts, but they must not invent different semantic catalogs.
 
-## Relationship to call modes and mixed graphs
+## Relationship to inspection-graph modes and mixed graphs
 
-Seed-centric and ad hoc modes use the same call adapter. Mode chooses which
-member call evidence enters the graph; it does not choose characteristics.
+Every graph mode uses the same call adapter when calls are admitted. A member
+seed enters directly. A type, assembly, or package seed admits owned members
+through a typed request before contributing member call evidence. Peer-seed and
+induced-set requests use the same rule. Mode does not choose characteristics.
 
 Package and type ownership can appear as groups, endpoint roll-ups, or boundary
 characteristics according to the selected inspection-graph lens. A package
@@ -144,12 +156,16 @@ Only its actual caller-to-callee edges use this call-specific catalog.
 ## Required gates
 
 - existing node fields preserve values, aliases, and disclosure;
+- existing `Loop`/`InLoop`/`Looping` node fields preserve
+  `CallTreePerf.InLoop` independently of edge loop aggregation;
 - two call sites between the same members produce one call edge and two
   occurrences;
 - loop presentation is unchanged after the typed-value migration;
 - selecting no optional fields preserves topology, limits, and failures;
 - structural discovery does not execute call or analysis producers;
-- edge and occurrence rows retain separate count units; and
+- edge and occurrence rows retain separate count units;
+- no call edge or call boundary characteristic joins assembly context groups;
+- an explicit cross-group comparison remains a non-call relationship; and
 - an integration or metadata-reference occurrence cannot attach directly to a
   call edge.
 

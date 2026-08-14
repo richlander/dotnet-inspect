@@ -11,8 +11,8 @@ Related docs:
   Finding, and other relationship evidence
 - [Call-graph characteristics](call-graph-characteristics.md) — the
   call-specific adapter from current nodes, edges, occurrences, and signals
-- [Call-graph modes](call-graph-modes.md) — seed-centric and ad hoc call
-  subgraph construction
+- [Inspection-graph modes](inspection-graph-modes.md) — member, type, assembly,
+  and package seeds plus peer-seed and induced-set requests
 - [Graph signal annotations](graph-signal-annotations.md) — the per-node
   perf/kind-of-work cues the CLI projects onto the same call trees
 - [Output shapes](output-shapes.md) — the projection/shape model the CLI uses

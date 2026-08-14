@@ -17,7 +17,7 @@ status: locked-demo
 > product experience is target
 > ([inspection graph](../../design/inspection-graph-document.md),
 > [call characteristics](../../design/call-graph-characteristics.md) #4139,
-> [ad hoc mode](../../design/call-graph-modes.md) #4133).
+> [graph modes](../../design/inspection-graph-modes.md) #4133).
 
 ## Why this demo
 
@@ -56,20 +56,31 @@ What we want the product to emit (normative Mermaid — not an expect block yet)
 
 ```mermaid
 flowchart TB
-  T["IChatClient · type lens<br/>MEAI.Abstractions"]
-  P_oai["Microsoft.Extensions.AI.OpenAI"]
-  P_br["AWSSDK.Extensions.Bedrock.MEAI"]
-  P_az["Azure.AI.OpenAI"]
-  S_oai["OpenAI · SDK"]
-  S_br["AWSSDK.BedrockRuntime"]
-  T ---|package group| P_oai
-  T ---|package group| P_br
-  S_oai -->|AsIChatClient · Integration: AI| T
-  S_br -->|AsIChatClient · Integration: AI| T
-  P_oai -.->|owns adapter| S_oai
-  P_br -.->|owns adapter| S_br
-  P_az -->|references| S_oai
-  P_az -.->|Integration opportunity · MEAI| T
+  subgraph G_abs["Microsoft.Extensions.AI.Abstractions"]
+    T["IChatClient"]
+  end
+  subgraph G_oai_adapter["Microsoft.Extensions.AI.OpenAI"]
+    A_oai["OpenAIClientExtensions.AsIChatClient"]
+  end
+  subgraph G_oai_sdk["OpenAI"]
+    OAI["OpenAI assembly"]
+    S_oai["ChatClient"]
+  end
+  subgraph G_br_adapter["AWSSDK.Extensions.Bedrock.MEAI"]
+    A_br["AmazonBedrockRuntimeExtensions.AsIChatClient"]
+  end
+  subgraph G_br_sdk["AWSSDK.BedrockRuntime"]
+    S_br["IAmazonBedrockRuntime"]
+  end
+  subgraph G_az["Azure.AI.OpenAI"]
+    AZ["Azure.AI.OpenAI assembly"]
+  end
+  A_oai -->|"api.extension · extends"| S_oai
+  A_oai -->|"integration.observed · AsIChatClient"| T
+  A_br -->|"api.extension · extends"| S_br
+  A_br -->|"integration.observed · AsIChatClient"| T
+  AZ -->|"metadata.reference"| OAI
+  AZ -.->|"integration.opportunity · MEAI"| T
 ```
 
 **Read both ways:**
@@ -77,10 +88,15 @@ flowchart TB
 - **Type outward** — from `IChatClient`, packages and providers that adapt into it.  
 - **Package inward** — from OpenAI/Bedrock/Azure packages, the type that unifies clients.
 
-Arcs retain typed relationship semantics plus selected characteristics.
-Member identities remain members when shown; a realized package may be a group
-or a typed endpoint, with the original member occurrences retained behind any
-roll-up.
+Subgraphs are structured package groups, not membership edges. Adapter methods
+remain members of their actual packages, extension edges point to the extended
+SDK types, and integration edges point from the observed adapter API to the hub
+type. A type-outward query may traverse those incoming integration edges
+without reversing their stored direction.
+
+Arcs retain typed relationship semantics plus selected characteristics. A
+realized package may instead be a typed endpoint in a package lens, with the
+original member occurrences retained behind any roll-up.
 
 ## Works now (rehearsal path)
 
@@ -219,7 +235,7 @@ Call Graph
 | Gap | Design / issue |
 | --- | --- |
 | Typed mixed-relation graph and package/type lenses | [Inspection graph](../../design/inspection-graph-document.md) |
-| One multi-input / multi-seed call layer | [Call modes](../../design/call-graph-modes.md) · #4133 |
+| Type/package seeds, peer seeds, and induced pin-set requests | [Graph modes](../../design/inspection-graph-modes.md) · #4133 |
 | Call occurrence and characteristic migration | [Call characteristics](../../design/call-graph-characteristics.md) · #4139 |
 | Deeper external body resolution | #3632 |
 | Workspace integrations roll-up across the pin set | #3629 |

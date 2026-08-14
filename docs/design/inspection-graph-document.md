@@ -11,8 +11,9 @@ Related documents:
 - [Call-graph characteristics](call-graph-characteristics.md) maps the current
   call-specific node fields and loop label into this document's descriptor
   model.
-- [Call-graph modes](call-graph-modes.md) owns seed-centric and ad hoc call
-  subgraph construction.
+- [Inspection-graph modes](inspection-graph-modes.md) owns single-seed,
+  peer-seed, and induced-set requests across member, type, assembly, and package
+  subjects.
 - [Member body substrate](member-body-substrate.md) owns
   `AnnotatedSourceDocument` and the fact-to-target join that motivates this
   design.
@@ -101,7 +102,7 @@ integration opportunity, structural clone, or narrative link as a call.
   investments without moving their algorithms into graph rendering.
 - Preserve lean defaults, explicit expensive work, typed failures, deterministic
   ordering, and browser/Wasm compatibility.
-- Keep seed-centric and ad hoc graph modes orthogonal to subject lens,
+- Keep seeded and induced graph modes orthogonal to subject lens,
   characteristic selection, and output format.
 
 ## Non-goals
@@ -188,7 +189,11 @@ InspectionGraphDocument
     Value
     Derivation
 
-  FocusNodeIds[]
+  Seeds[]
+    Subject
+    Target
+    Role
+
   Limits[]
   Failures[]
 ```
@@ -198,13 +203,15 @@ The shape has five important properties:
 1. Document-local ids are joins, not display values or portable subject
    identities.
 2. Every node and group carries an owner-issued typed subject.
-3. Every edge carries a typed relationship descriptor even when its renderer
+3. Every seed role binds an owner-issued subject to a node or group carrying
+   that same subject; an induced-set document has no seed roles.
+4. Every edge carries a typed relationship descriptor even when its renderer
    chooses not to print the descriptor.
-4. Every occurrence bound to an edge has the same relationship as that edge,
+5. Every occurrence bound to an edge has the same relationship as that edge,
    and its source and target project to the edge endpoints without reversing
    semantic direction.
-5. Every logical edge can retain zero or more physical or derived occurrences.
-6. Limits and failures remain separate from optional characteristics.
+6. Every logical edge can retain zero or more physical or derived occurrences.
+7. Limits and failures remain separate from optional characteristics.
 
 An edge with no occurrence is permitted only for an explicitly synthetic
 relationship whose producer and derivation are part of the edge contract. It
@@ -290,6 +297,9 @@ Illustrative relationship families include:
 | Relationship | Typical endpoints | Owner |
 | --- | --- | --- |
 | `call` | member -> member | CallGraph |
+| `package.dependency` | realized package -> realized package | Packages |
+| `package.contains-artifact` | realized package -> assembly | Packages |
+| `metadata.contains` | assembly or type -> type or member | Metadata |
 | `metadata.reference` | assembly, type, or member -> assembly, type, or member | Metadata |
 | `api.extension` | extension member or provider -> extended type | Metadata |
 | `api.implements` | type -> interface type | Metadata |
@@ -545,16 +555,24 @@ available roll-ups, required producers, and supported lenses. Discovery exposes
 only valid combinations, and an unsupported combination fails with guidance
 rather than dropping an axis.
 
-### Seed-centric and ad hoc modes
+### Seeded and induced modes
 
-[Call-graph modes](call-graph-modes.md) and issue #4133 own call-mode semantics:
+[Inspection-graph modes](inspection-graph-modes.md) and issue #4133 own mode
+semantics:
 
-- seed-centric mode asks what surrounds one member or type;
-- ad hoc mode asks what graph a set of inputs induces.
+- single-seed mode asks what surrounds one member, type, assembly, or realized
+  package;
+- peer-seed mode asks how several named anchors connect; and
+- induced-set mode asks what admitted graph an input set contains without
+  inventing a focus.
 
-Neither mode chooses a package or type lens automatically. Neither mode
-authorizes all characteristics. The same relationship and identity contracts
-apply in both.
+A seed is not merely workspace scope. A package seed may remain the focus
+package endpoint in a package lens, while a call contribution expands through
+typed package-owned members and retains member-to-member call semantics.
+
+No mode chooses a subject lens, relationship set, or characteristic selection
+automatically. The same relationship, identity, direction, limit, and failure
+contracts apply in every mode.
 
 ### Type outward
 
@@ -700,6 +718,7 @@ fields or labels.
 
 | Layer | Responsibility |
 | --- | --- |
+| Packages / Services | Realized package identity, dependency edges, acquisition provenance, and package-to-artifact ownership |
 | Metadata | Metadata references, extension/implementation facts, integration observations, metadata-native identities and coordinates |
 | Analysis | Call occurrences, IL/body characteristics, performance evidence, structural comparisons |
 | CallGraph | Member call topology, logical call-edge collapse, call boundaries, cycles, deterministic call rows |
@@ -832,8 +851,9 @@ subject lenses it advances.
 5. **Findings and analysis adoption.** Add explicit adapters for #4091, #4121,
    and #4114 after their contracts land, without changing their native producer
    semantics.
-6. **Ad hoc composition.** Apply the same envelope to #4133 multi-input mode;
-   preserve seed-centric defaults and bounds.
+6. **Seed and set composition.** Apply the same envelope to #4133 package/type
+   seeds, peer seeds, and induced input sets; preserve current member-seeded
+   defaults and bounds.
 
 ## Required implementation gates
 
