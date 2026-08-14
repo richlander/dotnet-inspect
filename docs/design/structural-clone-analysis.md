@@ -42,8 +42,8 @@ It preserves as exact discriminators:
 - normalized operation order, constants, and metadata operands;
 - argument positions;
 - local types, including complete recursive metadata resolution scope,
-  multidimensional array sizes and lower bounds, and `InitLocals` when locals
-  exist;
+  class/value-type signature kind, multidimensional array sizes and lower
+  bounds, and `InitLocals` when locals exist;
 - branch roles, switch target order, and duplicate switch targets;
 - method-definition calling convention, instance/static shape, generic arity,
   argument count, and void/value return shape, including through custom

@@ -62,6 +62,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     // TypeRef equality and display remain rank-based.
     internal ImmutableArray<int> ArraySizes { get; private init; } = [];
     internal ImmutableArray<int> ArrayLowerBounds { get; private init; } = [];
+    internal byte RawTypeKind { get; set; }
 
     /// <summary>
     /// Decoder-retained origin and exact metadata name. It is excluded from
@@ -101,7 +102,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
         string name,
         ResolvableTypeReference? resolution,
         bool trustedFrameworkAssembly = true,
-        bool trustedProtobufAssembly = true)
+        bool trustedProtobufAssembly = true,
+        byte rawTypeKind = 0)
         => new(TypeRefKind.Definition)
         {
             Assembly = CanonicalAssembly(assembly),
@@ -110,6 +112,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
             Resolution = resolution,
             TrustedFrameworkAssembly = trustedFrameworkAssembly,
             TrustedProtobufAssembly = trustedProtobufAssembly,
+            RawTypeKind = rawTypeKind,
         };
 
     public static TypeRef CoreLib(string ns, string name) => Definition(CoreLibrary, ns, name);

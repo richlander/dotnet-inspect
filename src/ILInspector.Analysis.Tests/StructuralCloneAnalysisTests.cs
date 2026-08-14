@@ -268,6 +268,10 @@ public class StructuralCloneAnalysisTests
             BuildCalliTwinAssembly(
                 calli,
                 signature: [0x00, 0x00, 0x1B, 0x08, 0x00, 0x01]));
+        using PEReader voidParameterImage = OpenImage(
+            BuildCalliTwinAssembly(
+                calli,
+                signature: [0x00, 0x01, 0x01, 0x01]));
 
         StructuralCloneComparison invalid =
             StructuralCloneAnalysis.Compare(
@@ -307,6 +311,7 @@ public class StructuralCloneAnalysisTests
         AssertFailedMetadataOperand(propertyImage);
         AssertFailedMetadataOperand(trailingImage);
         AssertFailedMetadataOperand(nestedPropertyImage);
+        AssertFailedMetadataOperand(voidParameterImage);
         Assert.Equal(
             StructuralCloneRelation.Exact,
             StructuralCloneAnalysis.Compare(
@@ -428,6 +433,15 @@ public class StructuralCloneAnalysisTests
             { new byte[] { 0x03, 0x00, 0x01 } },
             { new byte[] { 0x04, 0x00, 0x01 } },
             { new byte[] { 0x09, 0x00, 0x01 } },
+            { new byte[] { 0x00, 0x01, 0x01, 0x01 } },
+            { new byte[] { 0x00, 0x00, 0x10, 0x01 } },
+            { new byte[] { 0x00, 0x00, 0x1D, 0x01 } },
+            {
+                new byte[]
+                {
+                    0x00, 0x00, 0x1B, 0x00, 0x01, 0x01, 0x01,
+                }
+            },
             {
                 new byte[]
                 {
@@ -442,6 +456,7 @@ public class StructuralCloneAnalysisTests
         new()
         {
             { new byte[] { 0x05, 0x00, 0x01 } },
+            { new byte[] { 0x00, 0x00, 0x0F, 0x01 } },
             { new byte[] { 0x00, 0x00, 0x1B, 0x00, 0x00, 0x01 } },
             { new byte[] { 0x00, 0x00, 0x1F, 0x05, 0x01 } },
         };
@@ -673,6 +688,23 @@ public class StructuralCloneAnalysisTests
             static blocker =>
                 blocker.Kind
                     == StructuralCloneBlockerKind.UnsupportedLocalSignature);
+    }
+
+    [Fact]
+    public void Compare_LocalClassAndValueTypeKindsRemainDistinct()
+    {
+        using PEReader image = OpenImage(
+            BuildLocalTypeKindPairAssembly());
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneRelation.Different,
+            comparison.Relation);
     }
 
     public static TheoryData<byte[]> InvalidLocalSignatures =>
@@ -1303,6 +1335,41 @@ public class StructuralCloneAnalysisTests
         int secondBody = AddBody(bodyEncoder, il, secondLocals);
         AddMethod(metadata, "Left", firstBody);
         AddMethod(metadata, "Right", secondBody);
+        return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildLocalTypeKindPairAssembly()
+    {
+        MetadataBuilder metadata = AssemblyMetadata();
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("External"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("T"));
+        StandaloneSignatureHandle classLocals =
+            AddLocalSignature(metadata, [0x07, 0x01, 0x12, 0x05]);
+        StandaloneSignatureHandle valueTypeLocals =
+            AddLocalSignature(metadata, [0x07, 0x01, 0x11, 0x05]);
+        AddFixtureType(metadata);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        byte[] il = [0x14, 0x0A, 0x06, 0x26, 0x2A];
+        AddMethod(
+            metadata,
+            "Left",
+            AddBody(bodyEncoder, il, classLocals));
+        AddMethod(
+            metadata,
+            "Right",
+            AddBody(bodyEncoder, il, valueTypeLocals));
         return Serialize(metadata, bodies);
     }
 

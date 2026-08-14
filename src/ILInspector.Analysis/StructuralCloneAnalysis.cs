@@ -609,6 +609,15 @@ public static class StructuralCloneAnalysis
                         side,
                         "The method signature is incomplete or has trailing data."));
             }
+            if (HasVoidParameter(decodedSignature))
+            {
+                return BodyProduction.NotCompleted(
+                    StructuralCloneDisposition.Failed,
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.MetadataReadFailure,
+                        side,
+                        "A method signature parameter cannot be void."));
+            }
             if (!ValidSignatureTypes(decodedSignature))
             {
                 return BodyProduction.NotCompleted(
@@ -1103,6 +1112,8 @@ public static class StructuralCloneAnalysis
             {
                 return MetadataOperandValidity.Invalid;
             }
+            if (HasVoidParameter(decoded))
+                return MetadataOperandValidity.Invalid;
             return ValidSignatureTypes(decoded)
                 ? MetadataOperandValidity.Valid
                 : MetadataOperandValidity.Unsupported;
@@ -1939,6 +1950,10 @@ public static class StructuralCloneAnalysis
         => signature.ReturnType.IsValid
             && signature.ParameterTypes.All(static type => type.IsValid);
 
+    static bool HasVoidParameter(
+        MethodSignature<StructuralCloneSignatureType> signature)
+        => signature.ParameterTypes.Any(static type => type.IsVoid);
+
     internal static bool IsMalformedUnsafeSignature(
         MetadataReader reader,
         BlobHandle signature,
@@ -2366,16 +2381,16 @@ sealed class StructuralCloneSignatureTypeProvider
 
     public StructuralCloneSignatureType GetSZArrayType(
         StructuralCloneSignatureType elementType)
-        => StructuralCloneSignatureType.Combine(elementType);
+        => RequireNonVoid(elementType, "An array element cannot be void.");
 
     public StructuralCloneSignatureType GetArrayType(
         StructuralCloneSignatureType elementType,
         ArrayShape shape)
-        => StructuralCloneSignatureType.Combine(elementType);
+        => RequireNonVoid(elementType, "An array element cannot be void.");
 
     public StructuralCloneSignatureType GetByReferenceType(
         StructuralCloneSignatureType elementType)
-        => StructuralCloneSignatureType.Combine(elementType);
+        => RequireNonVoid(elementType, "A by-reference element cannot be void.");
 
     public StructuralCloneSignatureType GetPointerType(
         StructuralCloneSignatureType elementType)
@@ -2383,15 +2398,24 @@ sealed class StructuralCloneSignatureTypeProvider
 
     public StructuralCloneSignatureType GetPinnedType(
         StructuralCloneSignatureType elementType)
-        => StructuralCloneSignatureType.Combine(elementType);
+        => throw new BadImageFormatException(
+            "Pinned types are not valid in a method signature.");
 
     public StructuralCloneSignatureType GetGenericInstantiation(
         StructuralCloneSignatureType genericType,
         ImmutableArray<StructuralCloneSignatureType> typeArguments)
-        => new(
+    {
+        if (genericType.IsVoid
+            || typeArguments.Any(static type => type.IsVoid))
+        {
+            throw new BadImageFormatException(
+                "A generic instantiation type cannot be void.");
+        }
+        return new(
             genericType.IsValid
                 && typeArguments.All(static type => type.IsValid),
             false);
+    }
 
     public StructuralCloneSignatureType GetGenericTypeParameter(
         GenericScope genericContext,
@@ -2411,6 +2435,11 @@ sealed class StructuralCloneSignatureTypeProvider
             throw new BadImageFormatException(
                 "A function pointer does not have a method signature.");
         }
+        if (signature.ParameterTypes.Any(static type => type.IsVoid))
+        {
+            throw new BadImageFormatException(
+                "A function-pointer parameter cannot be void.");
+        }
         return new(
             signature.ReturnType.IsValid
                 && signature.ParameterTypes.All(
@@ -2425,6 +2454,15 @@ sealed class StructuralCloneSignatureTypeProvider
         => new(
             modifier.IsValid && unmodifiedType.IsValid,
             unmodifiedType.IsVoid);
+
+    static StructuralCloneSignatureType RequireNonVoid(
+        StructuralCloneSignatureType type,
+        string message)
+    {
+        if (type.IsVoid)
+            throw new BadImageFormatException(message);
+        return StructuralCloneSignatureType.Combine(type);
+    }
 }
 
 sealed class InvalidLocalSlotException(string message)
@@ -2447,7 +2485,8 @@ internal sealed class StructuralCloneTypeIdentity
         int rank,
         ImmutableArray<int> arraySizes,
         ImmutableArray<int> arrayLowerBounds,
-        int genericParameterIndex)
+        int genericParameterIndex,
+        byte rawTypeKind)
     {
         Kind = kind;
         Assembly = assembly;
@@ -2460,6 +2499,7 @@ internal sealed class StructuralCloneTypeIdentity
         ArraySizes = arraySizes;
         ArrayLowerBounds = arrayLowerBounds;
         GenericParameterIndex = genericParameterIndex;
+        RawTypeKind = rawTypeKind;
     }
 
     public TypeRefKind Kind { get; }
@@ -2473,6 +2513,7 @@ internal sealed class StructuralCloneTypeIdentity
     public ImmutableArray<int> ArraySizes { get; }
     public ImmutableArray<int> ArrayLowerBounds { get; }
     public int GenericParameterIndex { get; }
+    public byte RawTypeKind { get; }
 
     public static StructuralCloneTypeIdentity Create(TypeRef type)
     {
@@ -2488,7 +2529,8 @@ internal sealed class StructuralCloneTypeIdentity
             type.Rank,
             type.ArraySizes,
             type.ArrayLowerBounds,
-            type.GenericParameterIndex);
+            type.GenericParameterIndex,
+            type.RawTypeKind);
     }
 
     public bool Equals(StructuralCloneTypeIdentity? other)
@@ -2508,6 +2550,7 @@ internal sealed class StructuralCloneTypeIdentity
             || !ArrayLowerBounds.AsSpan().SequenceEqual(
                 other.ArrayLowerBounds.AsSpan())
             || GenericParameterIndex != other.GenericParameterIndex
+            || RawTypeKind != other.RawTypeKind
             || TypeArguments.Length != other.TypeArguments.Length)
         {
             return false;
@@ -2539,6 +2582,7 @@ internal sealed class StructuralCloneTypeIdentity
         foreach (int lowerBound in ArrayLowerBounds)
             hash.Add(lowerBound);
         hash.Add(GenericParameterIndex);
+        hash.Add(RawTypeKind);
         foreach (StructuralCloneTypeIdentity argument in TypeArguments)
             hash.Add(argument);
         return hash.ToHashCode();
