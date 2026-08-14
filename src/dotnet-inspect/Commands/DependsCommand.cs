@@ -292,9 +292,7 @@ public class DependsCommand
         while (index < nodes.Count && nodes[index].Depth == currentDepth)
         {
             var node = nodes[index];
-            var label = !string.IsNullOrEmpty(node.Company)
-                ? $"{node.Name} {node.Version} [{node.Company}]"
-                : $"{node.Name} {node.Version}";
+            var label = LibraryInspectionView.ReferenceTreeText(node);
             label = ContainLabel(label);
             index++;
 

@@ -101,6 +101,8 @@ static class Program
         bool historyCard = false;
         string? historyCardPath = null;
         int historyCardWindow = 3;
+        string? appendAuthoredCorpusHistory = null;
+        bool verifyAuthoredCorpusHistory = false;
         bool verifyAuthoredCorpus = false;
         string? verifyCorpusPath = null;
         bool failOnDrift = false;
@@ -240,6 +242,12 @@ static class Program
                     case "--history-card": historyCard = true; break;
                     case "--history-path": historyCardPath = NextArg(args, ref i, flag); break;
                     case "--history-window": historyCardWindow = NextIntArg(args, ref i, flag); break;
+                    case "--append-authored-corpus-history":
+                        appendAuthoredCorpusHistory = NextArg(args, ref i, flag);
+                        break;
+                    case "--verify-authored-corpus-history":
+                        verifyAuthoredCorpusHistory = true;
+                        break;
                     case "--verify-authored-corpus":
                         verifyAuthoredCorpus = true;
                         verifyCorpusPath = NextArg(args, ref i, flag);
@@ -367,7 +375,13 @@ static class Program
         // file cannot be linked into the test project, and an unreachable rule is one
         // nothing notices the deletion of — see JudgeGateFlags.
         var flags = AuthoredCorpusExitContract.JudgeGateFlags(
-            showHelp, benchmarkAuthoredCorpus, verifyAuthoredCorpus, ratchetBaselinePath is not null, integrityOnly);
+            showHelp,
+            benchmarkAuthoredCorpus,
+            verifyAuthoredCorpus,
+            appendAuthoredCorpusHistory is not null,
+            verifyAuthoredCorpusHistory,
+            ratchetBaselinePath is not null,
+            integrityOnly);
         switch (flags.Disposition)
         {
             case AuthoredCorpusExitContract.FlagDisposition.PrintUsage:
@@ -424,6 +438,8 @@ static class Program
             ("--harvest-evil-corpus", harvestEvilCorpus),
             ("--benchmark-authored-corpus", benchmarkAuthoredCorpus),
             ("--verify-authored-corpus", verifyAuthoredCorpus),
+            ("--append-authored-corpus-history", appendAuthoredCorpusHistory is not null),
+            ("--verify-authored-corpus-history", verifyAuthoredCorpusHistory),
         ];
 
         if (AuthoredCorpusExitContract.PreemptedGateRefusal(
@@ -613,6 +629,17 @@ static class Program
             return benchmarkAuthoredCorpus
                 ? AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json, ratchetBaselinePath, integrityOnly)
                 : AuthoredCorpusDrift.Run(assemblies, verifyCorpusPath!, json, failOnDrift, sourceRepositories);
+        }
+
+        if (appendAuthoredCorpusHistory is not null || verifyAuthoredCorpusHistory)
+        {
+            if (inputs.Count > 0)
+                return Fail("Authored-corpus history commands do not accept assembly paths.");
+
+            s_protectedGateDispatched = true;
+            return appendAuthoredCorpusHistory is not null
+                ? AuthoredCorpusHistoryStore.Append(appendAuthoredCorpusHistory, historyCardPath)
+                : AuthoredCorpusHistoryStore.Verify(historyCardPath);
         }
 
         if (returnToSenderAb)
@@ -2243,12 +2270,24 @@ static class Program
                                 metrics are attributed invalid/frontier product
                                 defects (#3079), not their raw populations. Reads
                                 no assemblies and runs no decompiler.
-          --history-path <file>  with --history-card: read a specific history.jsonl
+          --history-path <file>  with a history command: use a specific history.jsonl
                                 instead of the committed default
                                 (tools/DecompilerHarness/corpus/evil-runs/history.jsonl).
           --history-window <n>   with --history-card: bound the movement pivot to the
                                 last n runs (default 3; <= 0 uses every run). The
                                 Runs trend table always lists every run.
+          --append-authored-corpus-history <run.json>
+                                derive and append one canonical EVIL history row
+                                from a complete --benchmark-authored-corpus --json
+                                artifact. The artifact supplies every measured
+                                field, run date, and build commit; the command
+                                refuses dirty/non-main source, incomplete
+                                partitions, or methodology mismatches.
+          --verify-authored-corpus-history
+                                verify the complete EVIL history store through
+                                the same typed schema, partition, methodology,
+                                and Git-provenance rules used by append.
+                                Reads no assemblies and runs no decompiler.
           --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
                                 skeleton emit, parse, compilation create, emit, and opcode compare
           --fidelity-zero-signal-guard <n>

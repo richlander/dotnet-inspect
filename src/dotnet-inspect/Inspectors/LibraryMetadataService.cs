@@ -312,8 +312,12 @@ internal static class LibraryMetadataService
                         inspection,
                         logger,
                         TypeForwardersQuery.Execute(session));
+                    ApplyUnionTypesResult(
+                        path,
+                        inspection,
+                        logger,
+                        UnionTypesQuery.Execute(session));
                     inspection.Apply(ScanClassifiedMethods(session, path, logger));
-                    inspection.UnionTypeInspection = ScanUnionTypes(session, path, logger);
                 }
 
                 catch (Exception ex)
@@ -346,17 +350,17 @@ internal static class LibraryMetadataService
 
             // The query produces the flat direct-reference currency. Tree traversal remains a
             // path-owning CLI projection over that result.
-            if (collectReferenceTree && inspection.AssemblyInfo?.References is { } references)
+            if (collectReferenceTree
+                && inspection.AssemblyReferenceIdentities is { Count: > 0 } referenceIdentities)
             {
-                var sourceDir = Path.GetDirectoryName(path);
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 visited.Add(
                     inspection.AssemblyInfo.AssemblyName
                     ?? Path.GetFileNameWithoutExtension(path));
 
                 inspection.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
-                    references,
-                    sourceDir,
+                    referenceIdentities,
+                    path,
                     visited,
                     logger,
                     deduplicate: true,
@@ -683,14 +687,72 @@ internal static class LibraryMetadataService
     /// Builds a recursive tree of assembly references with resolution.
     /// </summary>
     public static List<AssemblyReferenceNode> BuildTransitiveReferences(
-        List<AssemblyReference> references,
-        string? sourceDir,
+        IReadOnlyList<AssemblyReferenceIdentity> references,
+        string assemblyPath,
         HashSet<string> visited,
         VerboseLogger logger,
         int depth = 0,
         bool deduplicate = false,
         Dictionary<string, int>? globalSeen = null,
         int? maxDepth = null)
+    {
+        var bindingPolicies = new Dictionary<string, IAssemblyBindingPolicy>(
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal);
+        IAssemblyBindingPolicy bindingPolicy =
+            ReferenceTreeBindingPolicyFor(assemblyPath, bindingPolicies);
+        return BuildTransitiveReferences(
+            references,
+            bindingPolicy,
+            bindingPolicies,
+            visited,
+            logger,
+            depth,
+            deduplicate,
+            globalSeen,
+            maxDepth);
+    }
+
+    private static IAssemblyBindingPolicy ReferenceTreeBindingPolicyFor(
+        string assemblyPath,
+        Dictionary<string, IAssemblyBindingPolicy> bindingPolicies)
+    {
+        string fullPath = Path.GetFullPath(assemblyPath);
+        string directory = Path.GetDirectoryName(fullPath)
+            ?? throw new InvalidOperationException(
+                "The assembly path has no containing directory.");
+        if (bindingPolicies.TryGetValue(directory, out var existing))
+            return existing;
+
+        var created = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                // Preserve the tree's existing local-sibling and platform scope.
+                // Package/deps.json graph expansion belongs to the package resolver.
+                PackageRoots = [],
+                IncludeTrustedPlatformAssemblies = false,
+                IncludeAspNetCoreSharedFramework = false,
+                IncludeDepsJsonAssets = false,
+                IncludeInstalledPlatformFallback = true,
+                // The tree describes the available sibling or installed platform
+                // assembly, as it did before typed binding owned selection.
+                IgnoreAssemblyVersion = true,
+            });
+        bindingPolicies.Add(directory, created);
+        return created;
+    }
+
+    private static List<AssemblyReferenceNode> BuildTransitiveReferences(
+        IReadOnlyList<AssemblyReferenceIdentity> references,
+        IAssemblyBindingPolicy bindingPolicy,
+        Dictionary<string, IAssemblyBindingPolicy> bindingPolicies,
+        HashSet<string> visited,
+        VerboseLogger logger,
+        int depth,
+        bool deduplicate,
+        Dictionary<string, int>? globalSeen,
+        int? maxDepth)
     {
         globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<AssemblyReferenceNode> nodes = [];
@@ -705,7 +767,7 @@ internal static class LibraryMetadataService
             var node = new AssemblyReferenceNode
             {
                 Name = reference.Name,
-                Version = reference.Version,
+                Version = reference.Version?.ToString() ?? "",
                 PublicKeyToken = reference.PublicKeyToken,
                 Depth = depth
             };
@@ -727,46 +789,57 @@ internal static class LibraryMetadataService
 
             visited.Add(reference.Name);
 
-            string? resolvedPath = null;
-            string? resolvedFrom = null;
-
-            if (!string.IsNullOrEmpty(sourceDir))
+            AssemblyBindingSelection selection = bindingPolicy.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(reference),
+                    AssemblyBindingOrigin.Global(),
+                    AssemblyResolutionScope.Any));
+            ResolvedAssemblyReference? resolved =
+                (selection as AssemblyBindingSelection.Selected)?.Assembly;
+            if (selection is AssemblyBindingSelection.Unavailable)
             {
-                var localPath = Path.Combine(sourceDir, reference.Name + ".dll");
-                if (File.Exists(localPath))
-                {
-                    resolvedPath = localPath;
-                    resolvedFrom = "local";
-                }
+                node.ResolutionFailure =
+                    AssemblyReferenceResolutionFailure.Unavailable;
+                logger.LogWarning(
+                    "An assembly reference could not be resolved because a candidate was unavailable.");
+            }
+            else if (selection is AssemblyBindingSelection.Rejected)
+            {
+                node.ResolutionFailure =
+                    AssemblyReferenceResolutionFailure.Rejected;
+                logger.LogWarning(
+                    "An assembly reference could not be resolved because binding was rejected.");
             }
 
-            if (resolvedPath == null)
-            {
-                var (platformPath, _, _, error) = PlatformResolver.ResolveAssembly(reference.Name);
-                if (error == null && platformPath != null)
-                {
-                    resolvedPath = platformPath;
-                    resolvedFrom = "platform";
-                }
-            }
-
-            node.Path = resolvedPath;
-            node.ResolvedFrom = resolvedFrom;
+            node.Path = resolved?.Path;
+            node.ResolvedFrom = resolved?.Provenance is AssemblyResolutionProvenance.PlatformAsset
+                ? "platform"
+                : resolved is null
+                    ? null
+                    : "local";
             nodes.Add(node);
 
-            if (resolvedPath != null)
+            if (resolved != null)
             {
                 try
                 {
-                    var (childRefs, company) = AssemblyInspector.ExtractReferencesAndCompany(resolvedPath);
+                    var (childRefs, company) =
+                        AssemblyInspector.ExtractReferenceIdentitiesAndCompany(resolved);
                     node.Company = company;
                     if (childRefs.Count > 0
                         && (maxDepth is null || depth + 1 < maxDepth.Value))
                     {
                         var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
+                        IAssemblyBindingPolicy childBindingPolicy =
+                            resolved.Path is { } resolvedPath
+                                ? ReferenceTreeBindingPolicyFor(
+                                    resolvedPath,
+                                    bindingPolicies)
+                                : bindingPolicy;
                         var childNodes = BuildTransitiveReferences(
                             childRefs,
-                            Path.GetDirectoryName(resolvedPath),
+                            childBindingPolicy,
+                            bindingPolicies,
                             branchVisited,
                             logger,
                             depth + 1,
@@ -776,9 +849,13 @@ internal static class LibraryMetadataService
                         nodes.AddRange(childNodes);
                     }
                 }
-                catch
+                catch (Exception ex) when (
+                    ex is IOException
+                        or UnauthorizedAccessException
+                        or BadImageFormatException)
                 {
-                    // Couldn't read the assembly - just skip children
+                    logger.LogWarning(
+                        "A resolved assembly reference could not be read; its children were omitted.");
                 }
             }
         }
@@ -1657,42 +1734,6 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static FindingInspection<UnionTypeInfo> ScanUnionTypes(
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanUnionTypes(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning union types in {path}: {ex.Message}");
-            return FailedInspection<UnionTypeInfo>(
-                path, MetadataFindings.UnionTypeDescriptor, ex);
-        }
-    }
-
-    internal static FindingInspection<UnionTypeInfo> ScanUnionTypes(
-        AssemblyInspectionSession session,
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            return MetadataFindings.InspectUnionTypes(
-                session.UnionTypes(),
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning union types in {path}: {ex.Message}");
-            return FailedInspection<UnionTypeInfo>(
-                path, MetadataFindings.UnionTypeDescriptor, ex);
-        }
-    }
-
     private static void ApplyQueryResults(
         string path,
         LibraryInspection inspection,
@@ -1745,6 +1786,13 @@ internal static class LibraryMetadataService
                 out TypeForwardersResult? typeForwarders))
         {
             ApplyTypeForwardersResult(path, inspection, logger, typeForwarders);
+        }
+
+        if (results.TryGet(
+                UnionTypesQuery.Definition,
+                out UnionTypesResult? unionTypes))
+        {
+            ApplyUnionTypesResult(path, inspection, logger, unionTypes);
         }
 
         if (results.TryGet(
@@ -1847,6 +1895,7 @@ internal static class LibraryMetadataService
         switch (result)
         {
             case AssemblyReferencesResult.Available available:
+                inspection.AssemblyReferenceIdentities = available.Identities;
                 if (inspection.AssemblyInfo is not null)
                 {
                     inspection.AssemblyInfo.References = available.References.IsEmpty
@@ -2000,6 +2049,37 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown type-forwarders result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyUnionTypesResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        UnionTypesResult result)
+    {
+        switch (result)
+        {
+            case UnionTypesResult.Available available:
+                inspection.UnionTypeInspection =
+                    MetadataFindings.InspectUnionTypes(
+                        available.Unions,
+                        FindingSubjectFor(path));
+                break;
+
+            case UnionTypesResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning union types in {path}: {failed.Error.Message}");
+                inspection.UnionTypeInspection =
+                    FailedInspection<UnionTypeInfo>(
+                        path,
+                        MetadataFindings.UnionTypeDescriptor,
+                        failed.Error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown union-types result '{result.GetType().Name}'.");
         }
     }
 

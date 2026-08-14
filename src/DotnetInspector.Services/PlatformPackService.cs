@@ -382,6 +382,12 @@ public static class PlatformPackService
             return targetPath;
         if (Directory.Exists(targetPath))
         {
+            // A concurrent winner may have just published an already-valid
+            // tree via Directory.Move between the check above and this
+            // Exists probe. Re-check before treating the slot as corrupt.
+            if (IsPackValid(targetPath))
+                return targetPath;
+
             throw new InvalidDataException(
                 $"Pack cache entry '{targetPath}' is incomplete or corrupt. Clear the cache before retrying.");
         }
