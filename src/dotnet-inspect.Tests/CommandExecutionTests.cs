@@ -4023,6 +4023,62 @@ public partial class CommandExecutionTests
         Assert.Contains("System.IO.File", output);
     }
 
+    [Fact]
+    public async Task BareQualifiedAspNetCoreType_RoutesAcrossPlatformFrameworks()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            "Microsoft.AspNetCore.Builder.WebApplication", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("ambiguous", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("# Microsoft.AspNetCore.Builder.WebApplication", output);
+        Assert.Contains("Library: Microsoft.AspNetCore", output);
+        Assert.Contains("Source: Platform", output);
+    }
+
+    [Fact]
+    public async Task BareQualifiedAspNetCoreMember_RoutesAcrossPlatformFrameworks()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            "Microsoft.AspNetCore.Builder.WebApplication.Run", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("public void Run(", output);
+    }
+
+    [Fact]
+    public async Task BareQualifiedPlatformType_TrueAmbiguityStillFails()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Numerics.Enumerator", "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Platform type lookup is ambiguous", error);
+    }
+
+    [Fact]
+    public async Task BareQualifiedPlatformMember_TrueAmbiguityStillFails()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Numerics.Enumerator.X", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Platform type lookup is ambiguous", error);
+    }
+
+    private static void SkipUnlessAspNetCoreAvailable()
+    {
+        var (referencePath, _, _) = PlatformResolver.ResolveFramework("aspnetcore");
+        Assert.SkipUnless(referencePath is not null, "ASP.NET Core reference pack is not available.");
+    }
+
     private static bool IsFacadeAssembly(string assemblyPath) =>
         PlatformResolver.ClassifyAssemblySurface(assemblyPath)
             is AssemblySurfaceClassificationOutcome.Classified classified
