@@ -1649,8 +1649,7 @@ public static class CompileBackSourceComposer
             CompileBackStubBodyKind.Throw,
             null,
             [new CompileBackFact("metadata", "external-interface-stub", explicitName)],
-            ExplicitInterfaceMemberName: explicitName,
-            DeclarationSignature: declarationSignature);
+            ExplicitInterfaceMemberName: explicitName);
     }
 
     // A decoded signature type is unspellable when it carries a metadata artifact that
@@ -2835,14 +2834,6 @@ public static class CompileBackSourceComposer
         string? explicitInterfaceMemberName =
             sameAssemblyExplicitInterfaceMemberName
             ?? externalExplicitInterfaceMethod?.ExplicitInterfaceMemberName;
-        string? explicitInterfaceDeclarationSignature = explicitInterfaceMemberName is null
-            ? null
-            : ExplicitInterfaceMethodDeclarationSignature(
-                explicitInterfaceMemberName,
-                targetReturnType!,
-                targetTypeParameters,
-                targetParameters);
-
         var targetMembers = isConstructor && primaryConstructor is not null
             ? primaryConstructor.FieldInitializers.ToList()
             :
@@ -2868,7 +2859,6 @@ public static class CompileBackSourceComposer
                         || function.IsRuntimeAsync == MetadataFactState.Yes),
                 ConstructorInitializer: targetConstructorInitializer,
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName,
-                DeclarationSignature: explicitInterfaceDeclarationSignature,
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function))
         ];
         if (externalExplicitInterfaceMethod is { AdditionalInterfaceStubs.Count: > 0 })

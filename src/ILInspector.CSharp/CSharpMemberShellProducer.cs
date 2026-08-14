@@ -95,6 +95,7 @@ public static class CSharpMemberShellProducer
         if (primaryConstructorParameterCount < 0)
             throw new ArgumentOutOfRangeException(nameof(primaryConstructorParameterCount));
 
+        ValidateBodyKind(spec);
         var member = BuildMember(spec);
         return spec.BodyKind switch
         {
@@ -246,7 +247,7 @@ public static class CSharpMemberShellProducer
                         $"Unsupported C# shell member kind '{spec.Kind}'."),
                 },
             ReturnType = spec.ReturnType,
-            Signature = spec.DeclarationSignature,
+            Signature = DeclarationSignature(spec),
             IsStatic = spec.IsStatic,
             IsAbstract = spec.IsAbstract,
             IsVirtual = spec.IsVirtual,
@@ -312,6 +313,64 @@ public static class CSharpMemberShellProducer
         }
 
         return member;
+    }
+
+    static string? DeclarationSignature(CSharpMemberShellSpec spec)
+    {
+        if (spec.Kind != CSharpShellMemberKind.Method
+            || spec.ExplicitInterfaceMemberName is null)
+        {
+            return spec.DeclarationSignature;
+        }
+
+        if (string.IsNullOrWhiteSpace(spec.ReturnType))
+        {
+            throw new ArgumentException(
+                "Explicit-interface method shells require a return type.",
+                nameof(spec));
+        }
+
+        string typeParameters = spec.TypeParameters.Count == 0
+            ? ""
+            : $"<{string.Join(", ", spec.TypeParameters.Select(parameter => parameter.Name))}>";
+        string parameters = string.Join(
+            ", ",
+            spec.Parameters.Select(parameter =>
+                CSharpDeclarationWriter.FormatParameter(BuildParameter(parameter))));
+        return $"{spec.ReturnType} {spec.ExplicitInterfaceMemberName}{typeParameters}({parameters})";
+    }
+
+    static void ValidateBodyKind(CSharpMemberShellSpec spec)
+    {
+        bool isProperty = spec.Kind is CSharpShellMemberKind.PropertyGet
+            or CSharpShellMemberKind.PropertySet;
+        bool isEvent = spec.Kind is CSharpShellMemberKind.EventAdd
+            or CSharpShellMemberKind.EventRemove;
+        bool isValid = spec.BodyKind switch
+        {
+            CSharpShellBodyKind.ThrowGetSet
+                or CSharpShellBodyKind.ThrowGetInit
+                or CSharpShellBodyKind.AutoProperty
+                or CSharpShellBodyKind.AutoPropertyGetSet
+                or CSharpShellBodyKind.AutoPropertyGetInit
+                => isProperty,
+            CSharpShellBodyKind.TargetGetterWithSetter
+                or CSharpShellBodyKind.TargetGetterWithInitSetter
+                => spec.Kind == CSharpShellMemberKind.PropertyGet,
+            CSharpShellBodyKind.TargetSetterWithGetter
+                or CSharpShellBodyKind.TargetInitSetterWithGetter
+                or CSharpShellBodyKind.TargetInitBody
+                => spec.Kind == CSharpShellMemberKind.PropertySet,
+            CSharpShellBodyKind.TargetEventAccessorWithSibling => isEvent,
+            CSharpShellBodyKind.FieldInitializer => spec.Kind == CSharpShellMemberKind.Field,
+            _ => true,
+        };
+        if (!isValid)
+        {
+            throw new ArgumentException(
+                $"C# shell body shape '{spec.BodyKind}' is not valid for member kind '{spec.Kind}'.",
+                nameof(spec));
+        }
     }
 
     static List<ApiAccessor> PropertyAccessors(CSharpMemberShellSpec spec)

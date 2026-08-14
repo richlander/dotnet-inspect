@@ -225,6 +225,72 @@ public sealed class TypeShellProducerTests
     }
 
     [Fact]
+    public void MemberShellProducer_ComposesExplicitInterfaceMethodDeclaration()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Run",
+            Kind: CSharpShellMemberKind.Method,
+            IsStatic: false,
+            Parameters: [new CSharpShellParameter("value", "ref int")],
+            ReturnType: "int",
+            TypeParameters: [new CSharpShellTypeParameter("T", ["class"])],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return value;",
+            ExplicitInterfaceMemberName: "Samples.IRunner.Run",
+            DeclarationSignature: "this harness text must not be used"));
+
+        Assert.Equal(
+            "int Samples.IRunner.Run<T>(ref int value)",
+            policy.Member.Signature);
+
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Runner",
+            Kind = "class",
+            Interfaces = ["Samples.IRunner"],
+            Members = [policy.Member],
+        };
+        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides: [policy]));
+
+        Assert.Contains(
+            "int Samples.IRunner.Run<T>(ref int value)",
+            Assert.Single(result.Units).Source,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(CSharpShellMemberKind.PropertyGet, CSharpShellBodyKind.TargetSetterWithGetter)]
+    [InlineData(CSharpShellMemberKind.PropertySet, CSharpShellBodyKind.TargetGetterWithSetter)]
+    [InlineData(CSharpShellMemberKind.Method, CSharpShellBodyKind.TargetInitBody)]
+    [InlineData(CSharpShellMemberKind.Method, CSharpShellBodyKind.TargetEventAccessorWithSibling)]
+    [InlineData(CSharpShellMemberKind.EventAdd, CSharpShellBodyKind.AutoProperty)]
+    [InlineData(CSharpShellMemberKind.Method, CSharpShellBodyKind.FieldInitializer)]
+    public void MemberShellProducer_RejectsBodyKindForDifferentMemberShape(
+        CSharpShellMemberKind memberKind,
+        CSharpShellBodyKind bodyKind)
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+                Name: "Member",
+                Kind: memberKind,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: "int",
+                TypeParameters: [],
+                BodyKind: bodyKind,
+                Body: "return 0;",
+                SiblingBody: "return;")));
+
+        Assert.Contains(
+            $"body shape '{bodyKind}' is not valid for member kind '{memberKind}'",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void MemberShellProducer_ComposesPrimaryConstructorStubInitializer()
     {
         var policy = CSharpMemberShellProducer.BuildPolicy(
