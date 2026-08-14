@@ -281,6 +281,10 @@ while IFS= read -r -d '' file; do
     tests/*) CODE=true ;;
     tools/DecompilerHarness/*.md|tools/DecompilerHarness/*.txt) ;;
     tools/DecompilerHarness/*) CODE=true ;;
+    # This file is the owning executable gate for this classifier and
+    # its pinned prerequisites. Editing the gate must run the product
+    # test lane as well as executing the gate here in `changes`.
+    eng/test-ci-change-detection.cs) CODE=true ;;
     eng/prepare-decompiler-assertion-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-opt-in-corpus.sh) CODE=true ;;

@@ -20,6 +20,15 @@ public static class MetadataSafetyPolicy
     public const int MaxStructuralSignatureWorkChars = 4 * 1024 * 1024;
 
     /// <summary>
+    /// Maximum encoded characters charged while constructing one member-anchor
+    /// signature tree. Each occurrence of a type name is charged, so repeated
+    /// references cannot amplify past this ceiling before rejection. Gated by
+    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>.
+    /// </summary>
+    public const int MaxAnchorSignatureWorkChars =
+        MaxStructuralSignatureWorkChars;
+
+    /// <summary>
     /// Maximum type nodes examined before decoding one metadata signature.
     /// This bounds the iterative guard stack and SRM's decoded parameter/type
     /// materialization for structurally shallow but hostile signatures. Gated by

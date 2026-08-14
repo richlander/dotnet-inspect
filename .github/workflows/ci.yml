@@ -80,12 +80,22 @@ jobs:
         with:
           dotnet-version: '11.0.x'
 
+      - name: Self-test change detection
+        shell: bash
+        run: dotnet run eng/test-ci-change-detection.cs
+        env:
+          BASH_ENV: ""
+
       # Trend rows are reproducible evidence only when their recorded commit
       # landed on main and its source declared the recorded methodology. This
       # job already has the full history needed to prove both, so keep the gate
       # here rather than making test jobs deepen otherwise-shallow checkouts.
       - name: Check EVIL history provenance
         shell: bash
+        env:
+          # After editing `run`, refresh this colocated acknowledgement with:
+          # dotnet run eng/test-ci-change-detection.cs -- --refresh-evil-provenance-pin
+          EVIL_PROVENANCE_RUN_SHA256: AFD8804F209E05792867D7776A950AE6B0EA459F32F896782F0C6B794F5A4B76
         run: >
           dotnet run --project tools/DecompilerHarness -c Release --
           --verify-authored-corpus-history
@@ -104,12 +114,6 @@ jobs:
           CI_BEFORE_SHA: ${{ github.event.before }}
           CI_PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}
-
-      - name: Self-test change detection
-        shell: bash
-        run: dotnet run eng/test-ci-change-detection.cs
-        env:
-          BASH_ENV: ""
 
   # Lint markdown files
   markdownlint:
