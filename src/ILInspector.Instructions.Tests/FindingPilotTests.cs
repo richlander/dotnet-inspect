@@ -426,7 +426,7 @@ public class FindingPilotTests
     }
 
     [Fact]
-    public void EquivalenceFolds_MoveIsExactDiffButMultisetEquivalent()
+    public void ExactEquivalence_RejectsMoves()
     {
         var old = Atoms("A", "B", "C", "m1", "m2", "D", "E");
         var @new = Atoms("m1", "m2", "A", "B", "C", "D", "E");
@@ -434,7 +434,6 @@ public class FindingPilotTests
         var pairs = FindingFold.ToPairs(match, old, @new);
 
         Assert.False(FindingEquivalence.Exact.IsEquivalent(pairs));
-        Assert.True(FindingEquivalence.Multiset.IsEquivalent(pairs));
     }
 
     [Fact]
@@ -881,23 +880,21 @@ public class FindingPilotTests
     }
 
     [Fact]
-    public void IdentitySet_FoldsThroughToSummary_EndToEnd()
+    public void IdentitySet_FoldsToPairs_EndToEnd()
     {
-        // Locks the full set pipeline the Metadata/Analysis producers will build on:
-        // match -> FindingFold.ToPairs -> FindingSummary.
+        // Locks the full set pipeline the Metadata/Analysis producers build on:
+        // match -> FindingFold.ToPairs.
         var old = Atoms("a", "b", "c", "d");
         var permuted = Atoms("d", "a", "c", "b");
         var permutedPairs = FindingFold.ToPairs(FindingMatcher.Match(old.Keys(), permuted.Keys(), IdentitySet), old, permuted);
         Assert.All(permutedPairs, p => Assert.Equal(PairKind.Present, p.Kind));
-        // A permuted set is a non-event: the summary reads Identical (no moves, no add/remove).
-        Assert.Equal(DiffShape.Identical, FindingSummary.Summarize(permutedPairs).Shape);
+        Assert.DoesNotContain(permutedPairs, p => p.Difference == FindingDifferenceKind.Moved);
 
         var changedNew = Atoms("a", "c");
         var oldSmall = Atoms("a", "b");
         var changedPairs = FindingFold.ToPairs(FindingMatcher.Match(oldSmall.Keys(), changedNew.Keys(), IdentitySet), oldSmall, changedNew);
-        var summary = FindingSummary.Summarize(changedPairs);
-        Assert.Equal(1, summary.Added);
-        Assert.Equal(1, summary.Removed);
+        Assert.Equal(1, changedPairs.Count(p => p.Kind == PairKind.Added));
+        Assert.Equal(1, changedPairs.Count(p => p.Kind == PairKind.Removed));
     }
 
     [Fact]
@@ -962,51 +959,6 @@ public class FindingPilotTests
 
         // The union wrapper likewise never holds a null case.
         Assert.Throws<ArgumentNullException>(() => new PairFinding<string>((PairFinding<string>.Added)null!));
-    }
-
-    [Fact]
-    public void SkeletonConsumer_ClassifiesFromPolarityAndDifferenceAlone()
-    {
-        // A stream-agnostic consumer: it reads only the pair skeleton, so the same pairs could have
-        // come from IL, C#, or a fact producer. Here we drive it from the IL adapter.
-        var identical = Body(Ldc0, Ldc1, Ret);
-        var identicalPairs = CompleteComparison(
-            IlFindings.Compare(identical, null, identical, null, IlSubject)).Pairs;
-        Assert.Equal(DiffShape.Identical, FindingSummary.Summarize(identicalPairs).Shape);
-
-        var old = Body(Ldc0, Ldc1, Ldc2, Ldc3, Ldc4, Ldc5, Ldc6, Ret);
-        var reordered = Body(Ldc3, Ldc4, Ldc0, Ldc1, Ldc2, Ldc5, Ldc6, Ret);
-        var reorderPairs = CompleteComparison(
-            IlFindings.Compare(old, null, reordered, null, IlSubject)).Pairs;
-        var reorderSummary = FindingSummary.Summarize(reorderPairs);
-        Assert.Equal(DiffShape.ReorderOnly, reorderSummary.Shape);
-        Assert.Equal(2, reorderSummary.Moved);
-
-        var changed = Body(Ldc0, Ldc2, Ldc3, Ret);
-        var changedPairs = CompleteComparison(
-            IlFindings.Compare(old, null, changed, null, IlSubject)).Pairs;
-        Assert.Equal(DiffShape.Structural, FindingSummary.Summarize(changedPairs).Shape);
-    }
-
-    [Fact]
-    public void SkeletonConsumer_IsStreamAgnostic_OverHandBuiltPairs()
-    {
-        // Pairs fabricated as if from an arbitrary (non-IL) stream: the consumer does not care.
-        var subject = new FindingSubject("s", "s");
-        var descriptor = new FindingDescriptor("any.kind", "any");
-        Finding<string> Atom(string key, int ordinal) =>
-            new(subject, descriptor, new FindingKey(key), key, Ordinal: ordinal);
-
-        IPairFinding[] pairs =
-        [
-            new PairFinding<string>.Present(Atom("k0", 0), Atom("k0", 0)),
-            new PairFinding<string>.Added(Atom("k1", 1)),
-        ];
-
-        var summary = FindingSummary.Summarize(pairs);
-        Assert.Equal(DiffShape.Structural, summary.Shape);
-        Assert.Equal(1, summary.Added);
-        Assert.Equal(1, summary.Present);
     }
 
     static int ReferenceLcsLength(IReadOnlyList<string> a, IReadOnlyList<string> b)
@@ -1175,7 +1127,6 @@ public class FindingPilotTests
 
         Assert.DoesNotContain(result.Pairs, p => p.Kind == PairKind.Changed);
         Assert.Equal(2, result.Pairs.Count(p => p.Difference == FindingDifferenceKind.Moved));
-        Assert.True(FindingEquivalence.Multiset.IsEquivalent(result.Pairs));
     }
 
     [Fact]
@@ -1247,7 +1198,6 @@ public class FindingPilotTests
         Assert.Equal(2, result.Pairs.Count(p => p.Difference == FindingDifferenceKind.Moved));
         Assert.Equal(0, result.Pairs.Count(p => p.Kind is PairKind.Added or PairKind.Removed));
         Assert.False(result.IsExact);
-        Assert.True(FindingEquivalence.Multiset.IsEquivalent(result.Pairs));
     }
 
     [Fact]

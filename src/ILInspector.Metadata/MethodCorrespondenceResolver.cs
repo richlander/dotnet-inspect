@@ -15,9 +15,9 @@ public enum MethodCorrespondenceStatus
 
 /// <summary>
 /// Total cross-reader correspondence for one metadata method definition.
-/// Exact correspondence requires exactly one target method with the same
-/// structural cross-module identity (see <see cref="MethodStructuralSignature"/>);
-/// display names and metadata row numbers are never used as cross-module
+/// Exact correspondence requires exactly one target method with the same strict
+/// cross-module definition key (see <see cref="MethodStructuralSignature"/>);
+/// display signatures and metadata row numbers are never used as cross-module
 /// identity.
 /// </summary>
 public sealed record MethodCorrespondenceResult(
@@ -43,31 +43,79 @@ public static class MethodCorrespondenceResolver
                 return Failed("source method address belongs to a different metadata module");
             if (!IsValid(sourceReader, source.Handle))
                 return Failed("source method handle is outside its metadata module");
+            if (targetReader.MethodDefinitions.Count
+                > MetadataSafetyPolicy.MaxCorrespondenceMethodRows)
+            {
+                return Failed(
+                    "target method table exceeds the correspondence safety limit");
+            }
 
             var sourceMethod = sourceReader.GetMethodDefinition(source.Handle);
             var sourceTypeHandle = sourceMethod.GetDeclaringType();
             var sourceType = sourceReader.GetTypeDefinition(sourceTypeHandle);
+
+            // This is definition correspondence, not ECMA MemberRef lookup: the key
+            // carries generic constraints in addition to the structural signature,
+            // while representing generic parameters positionally so renaming one
+            // cannot break a real cross-build match.
+            var sourceSignatures =
+                new StructuralSignatureBuilder(sourceReader);
+            StructuralMethodKey sourceKey =
+                sourceSignatures.BuildMethodKey(sourceMethod);
             var anchor = ApiMemberIdentity.CreateMethodAnchor(
                 sourceReader,
                 sourceTypeHandle,
                 sourceMethod,
                 IsExtensionMethod(sourceReader, sourceType, sourceMethod));
 
-            // Correspondence is decided by a structural cross-module identity, not
-            // the display-oriented canonical signature: the structural key carries
-            // return type, calling convention, generic arity (positionally), custom
-            // modifiers, and the nested-versus-namespace boundary, so genuinely
-            // distinct CLR methods cannot collide and a renamed generic parameter
-            // cannot break a real match.
-            string sourceKey = MethodStructuralSignature.Build(sourceReader, sourceMethod);
-
             List<MetadataMethodAddress> candidates = [];
+            var targetSignatures =
+                new StructuralSignatureBuilder(targetReader);
+            var matchingDeclaringTypes =
+                new Dictionary<TypeDefinitionHandle, bool>();
+            var matchingSignatures =
+                new Dictionary<StructuralEncodedSignature, bool>(
+                    ReferenceEqualityComparer.Instance);
             foreach (var targetHandle in targetReader.MethodDefinitions)
             {
                 var targetMethod = targetReader.GetMethodDefinition(targetHandle);
-                string targetKey = MethodStructuralSignature.Build(targetReader, targetMethod);
-                if (string.Equals(sourceKey, targetKey, StringComparison.Ordinal))
+                TypeDefinitionHandle declaringType =
+                    targetMethod.GetDeclaringType();
+                if (!matchingDeclaringTypes.TryGetValue(
+                        declaringType,
+                        out bool declaringTypeMatches))
                 {
+                    declaringTypeMatches = sourceKey.DeclaringType.Equals(
+                        targetSignatures.BuildTypeKey(declaringType));
+                    matchingDeclaringTypes.Add(
+                        declaringType,
+                        declaringTypeMatches);
+                }
+                if (!declaringTypeMatches)
+                    continue;
+
+                StructuralMethodKey targetKey =
+                    targetSignatures.BuildMethodKey(targetMethod);
+                if (!matchingSignatures.TryGetValue(
+                        targetKey.Component.Signature,
+                        out bool signatureMatches))
+                {
+                    signatureMatches = sourceKey.Component.Signature.Equals(
+                        targetKey.Component.Signature);
+                    matchingSignatures.Add(
+                        targetKey.Component.Signature,
+                        signatureMatches);
+                }
+                if (signatureMatches
+                    && sourceKey.Component.LocalKey.Equals(
+                        targetKey.Component.LocalKey))
+                {
+                    if (candidates.Count
+                        == MetadataSafetyPolicy.MaxCorrespondenceCandidates)
+                    {
+                        return Failed(
+                            "matching target methods exceed the correspondence safety limit");
+                    }
                     candidates.Add(MetadataMethodAddress.Create(targetReader, targetHandle));
                 }
             }
