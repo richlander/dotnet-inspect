@@ -663,10 +663,20 @@ public class ConstraintResolutionHardeningTests
             catalog,
             new MappingPolicy(dependency));
 
+        Assert.Empty(surface.Types);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal("type name", failure.Operation);
         Assert.Equal(
-            TypeParameterTypeKind.Undetermined,
-            Assert.Single(Assert.Single(surface.Types).TypeParameters)
-                .TypeKind);
+            MetadataTypeNameFailureMechanism.Signature,
+            failure.Mechanism);
+        Assert.Equal(
+            SignatureDecodeRejectionKind.UnsafeStructure.ToString(),
+            failure.Kind);
+        Assert.Contains(
+            "TypeSpec exceeds the structural safety limit",
+            failure.Detail,
+            StringComparison.Ordinal);
     }
 
     [Fact]
