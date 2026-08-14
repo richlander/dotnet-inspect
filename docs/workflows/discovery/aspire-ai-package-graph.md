@@ -13,7 +13,9 @@ status: locked-demo
 > integration richness the way AnnotatedSource carets carry facts.
 >
 > Status: **locked narrative + pins + works-now path.** Full single-diagram
-> product experience is target (characteristics #4139, ad hoc mode #4133).
+> product experience is target
+> ([characteristics](../../design/call-graph-characteristics.md) #4139,
+> [ad hoc mode](../../design/call-graph-modes.md) #4133).
 
 ## Why this demo
 
@@ -210,10 +212,10 @@ Call Graph
 
 ## Product gaps (this demo only)
 
-| Gap | Issue |
-| --- | ----- |
-| One multi-input / multi-seed graph | #4133 |
-| Arc + node characteristics (integration, package on edges) | #4139 |
+| Gap | Design / issue |
+| --- | -------------- |
+| One multi-input / multi-seed graph | [call-graph-modes.md](../../design/call-graph-modes.md) · #4133 |
+| Arc + node characteristics (integration, package on edges) | [call-graph-characteristics.md](../../design/call-graph-characteristics.md) · #4139 |
 | Deeper external body resolution | #3632 |
 | Workspace integrations roll-up across the pin set | #3629 |
 | Reference edge Azure→OpenAI as first-class arc | #3630 |

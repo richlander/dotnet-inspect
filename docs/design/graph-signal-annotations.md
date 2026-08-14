@@ -3,8 +3,18 @@
 How analysis **signals** are projected onto call-graph nodes, and how the same
 mechanism extends to exception-risk triage.
 
+This document is the **node body-cost / scale** slice of the broader
+[call graph characteristics](call-graph-characteristics.md) model (#4139). New
+descriptive work — especially **edge** fields, package boundary, and integration
+on arcs — extends that catalog rather than adding a second `--fields` grammar
+here. Identity and topology remain in
+[call-graph projection](call-graph-projection.md).
+
 Related docs:
 
+- [Call graph characteristics](call-graph-characteristics.md) — full node/edge
+  characteristic plane; fold signals into that catalog
+- [Call-graph projection](call-graph-projection.md) — topology and identity
 - [Output shapes](output-shapes.md) — the projection/shape model these fields plug into
 - [Hidden-fact annotations](hidden-fact-annotations.md) — the per-method evidence model
 

@@ -8,6 +8,10 @@ Related docs:
 
 - [Graph signal annotations](graph-signal-annotations.md) — the per-node
   perf/kind-of-work cues the CLI projects onto the same call trees
+- [Call graph characteristics](call-graph-characteristics.md) — descriptive
+  layers on nodes and edges (topology stays here; description generalizes
+  signals and edge labels)
+- [Call graph modes](call-graph-modes.md) — seed-centric vs ad hoc graph build
 - [Output shapes](output-shapes.md) — the projection/shape model the CLI uses
 
 ## Layering
