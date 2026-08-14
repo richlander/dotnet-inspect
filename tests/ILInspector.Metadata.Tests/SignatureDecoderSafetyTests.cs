@@ -420,6 +420,54 @@ public class SignatureDecoderSafetyTests
     }
 
     [Fact]
+    public void ExtensionPropertyAnchor_RejectsDegradedPropertySignature()
+    {
+        TypeDefinitionHandle typeHandle = default;
+        MethodDefinitionHandle markerHandle = default;
+        PropertyDefinitionHandle propertyHandle = default;
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            var markerSignature = new BlobBuilder();
+            markerSignature.WriteByte(0x00);
+            markerSignature.WriteByte(0x01);
+            markerSignature.WriteByte(0x01);
+            markerSignature.WriteByte(0x08);
+            markerHandle = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("get_P"),
+                metadata.GetOrAddBlob(markerSignature),
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+
+            var propertySignature = new BlobBuilder();
+            propertySignature.WriteByte(0x08);
+            propertySignature.WriteByte(0x00);
+            WriteDeepType(propertySignature);
+            propertyHandle = metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("P"),
+                metadata.GetOrAddBlob(propertySignature));
+
+            typeHandle = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Extensions"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                markerHandle);
+        });
+
+        Assert.Throws<BadImageFormatException>(
+            () => ApiMemberIdentity.CreateExtensionPropertyDeclarationAnchorInfo(
+                reader,
+                typeHandle,
+                reader.GetTypeDefinition(typeHandle),
+                reader.GetMethodDefinition(markerHandle),
+                reader.GetPropertyDefinition(propertyHandle)));
+    }
+
+    [Fact]
     public void NestedTypeSpecRejection_RejectsContainingMethod()
     {
         MethodDefinitionHandle methodHandle = default;
@@ -552,8 +600,11 @@ public class SignatureDecoderSafetyTests
             return;
 
         var (reader, typeHandle, methodHandle) = BuildTypeWithMethod(DeepMethodSignature());
-        _ = ApiMemberIdentity.CreateMethodAnchorInfo(
-            reader, typeHandle, reader.GetMethodDefinition(methodHandle));
+        Assert.Throws<BadImageFormatException>(
+            () => ApiMemberIdentity.CreateMethodAnchorInfo(
+                reader,
+                typeHandle,
+                reader.GetMethodDefinition(methodHandle)));
     }
 
     [Fact]
