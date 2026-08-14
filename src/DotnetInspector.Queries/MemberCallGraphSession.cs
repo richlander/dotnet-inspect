@@ -83,6 +83,16 @@ public sealed record MemberCallGraphView(
     public ImmutableArray<Analysis.DirectCall> FocusCallSites { get; init; } =
         [];
 
+    /// <summary>
+    /// Compact ownership evidence retained from the same body indexes that
+    /// produced this graph layer.
+    /// </summary>
+    public ImmutableArray<Analysis.ArrayPoolOwnershipMethodEvidence>
+        OwnershipEvidence { get; init; } = [];
+
+    /// <summary>Whether ownership-flow production was requested.</summary>
+    public bool OwnershipFlowAvailable { get; init; }
+
     public Analysis.CatalogCallGraphDiagnostics Diagnostics { get; init; } =
         Analysis.CatalogCallGraphDiagnostics.Empty;
 }
@@ -332,6 +342,10 @@ public sealed class MemberCallGraphSession : IDisposable
         Analysis.CatalogCallGraphDiagnostics? diagnostics = null)
     {
         Analysis.LibraryBodyIndex index = source.Index;
+        IEnumerable<IndexBuildResult.Available> evidenceSources =
+            tier == CallGraphTier.CrossLibrary
+                ? _fullIndexesByImage.Values
+                : [source];
         return new(tier, calleeRoot, callerRoot)
         {
             FocusModuleVersionId =
@@ -345,6 +359,16 @@ public sealed class MemberCallGraphSession : IDisposable
                     .OrderBy(call => call.ILOffset)
                     .ThenBy(call => call.OperandToken),
             ],
+            OwnershipEvidence =
+            [
+                .. evidenceSources
+                    .SelectMany(item =>
+                        item.Index.ArrayPoolOwnership),
+            ],
+            OwnershipFlowAvailable =
+                (_options.Features
+                    & Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow)
+                != 0,
             Diagnostics =
                 diagnostics
                 ?? Analysis.CatalogCallGraphDiagnostics.Empty,

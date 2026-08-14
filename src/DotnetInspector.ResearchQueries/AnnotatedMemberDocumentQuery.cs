@@ -19,7 +19,8 @@ public sealed record AnnotatedMemberDocumentInput(
     MemberCallGraphView CallGraph,
     AnnotationStage Stage = AnnotationStage.Raised,
     PrinterOptions? PrinterOptions = null,
-    CallGraphCycleSearchOptions? CycleSearchOptions = null);
+    CallGraphCycleSearchOptions? CycleSearchOptions = null,
+    ArrayPoolOwnershipSearchOptions? OwnershipSearchOptions = null);
 
 /// <summary>
 /// One physical call occurrence joined to both a stable graph edge row and a
@@ -68,6 +69,7 @@ public sealed record AnnotatedCallGraphOverlay(
     CallGraphProjection Projection,
     ImmutableArray<AnnotatedCallGraphOccurrence> Occurrences,
     AnnotatedCallGraphCycleInspection Cycles,
+    AnnotatedCallGraphOwnershipInspection Ownership,
     CatalogCallGraphDiagnostics Diagnostics);
 
 /// <summary>
@@ -136,6 +138,11 @@ public static class AnnotatedMemberDocumentQuery
                 graphView,
                 projection,
                 input.CycleSearchOptions);
+        AnnotatedCallGraphOwnershipInspection ownership =
+            ArrayPoolOwnershipPathFindings.Inspect(
+                graphView,
+                projection,
+                input.OwnershipSearchOptions);
         var mappedCalls =
             ImmutableArray.CreateBuilder<(
                 DirectCall Call,
@@ -234,6 +241,7 @@ public static class AnnotatedMemberDocumentQuery
                     projection,
                     occurrences.MoveToImmutable(),
                     cycles,
+                    ownership,
                     graphView.Diagnostics)));
     }
 
