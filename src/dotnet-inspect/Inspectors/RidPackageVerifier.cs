@@ -34,29 +34,28 @@ public static class RidPackageVerifier
             }
             else
             {
-                try
-                {
-                    string? nuspec = await PackageExtractor.TryGetNuspecXmlAsync(
+                NuspecProbeResult probe =
+                    await PackageExtractor.ProbeNuspecXmlAsync(
                         client,
                         ridPkg.PackageId,
                         version,
                         logger.Log,
                         sourceOptions);
-                    ridPkg.Exists = nuspec is not null;
+                ridPkg.Exists = probe.Status switch
+                {
+                    NuspecProbeStatus.Present => true,
+                    NuspecProbeStatus.Absent => false,
+                    _ => null
+                };
 
-                    string status = ridPkg.Exists == true ? "available" : "NOT FOUND";
-                    logger.Log($"  {ridPkg.RuntimeIdentifier}: {status} ({ridPkg.PackageId} {version})");
-                }
-                catch (PackageSourceMappingException)
+                string status = ridPkg.Exists switch
                 {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    ridPkg.Exists = false;
-                    logger.Log(
-                        $"  {ridPkg.RuntimeIdentifier}: ERROR checking ({ridPkg.PackageId} {version}): {ex.Message}");
-                }
+                    true => "available",
+                    false => "NOT FOUND",
+                    null => "availability unknown"
+                };
+                logger.Log(
+                    $"  {ridPkg.RuntimeIdentifier}: {status} ({ridPkg.PackageId} {version})");
             }
         }
     }

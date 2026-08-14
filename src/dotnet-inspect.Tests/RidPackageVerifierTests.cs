@@ -11,10 +11,14 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class RidPackageVerifierTests
 {
+    public RidPackageVerifierTests()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+    }
+
     [Fact]
     public async Task VerifyAsync_UsesConfiguredV3Source()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
         var handler = new StubHandler();
         handler.Add(
             "feed.example.test/v3/index.json",
@@ -102,6 +106,62 @@ public class RidPackageVerifierTests
         }
     }
 
+    [Fact]
+    public async Task VerifyAsync_NotFoundSetsAvailabilityFalse()
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        using var client = new HttpClient(handler);
+        var result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"]
+            });
+
+        Assert.False(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_OfflineLeavesAvailabilityUnknown()
+    {
+        using var client = new HttpClient(new OfflineHandler());
+        var result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://api.nuget.org/v3/index.json"]
+            });
+
+        Assert.Null(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+    }
+
+    private static InspectionResult CreateResult() => new()
+    {
+        RuntimeIdentifierPackages =
+        [
+            new RidPackageReference
+            {
+                RuntimeIdentifier = "linux-x64",
+                PackageId = "TestPackage.linux-x64"
+            }
+        ]
+    };
+
     sealed class StubHandler : HttpMessageHandler
     {
         readonly List<(string Match, string Body)> _routes = [];
@@ -124,5 +184,13 @@ public class RidPackageVerifierTests
                     Content = new StringContent(route.Body, Encoding.UTF8, "application/xml")
                 });
         }
+    }
+
+    sealed class OfflineHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new OfflineException("Network access is disabled for this test.");
     }
 }

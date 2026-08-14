@@ -54,6 +54,17 @@ public sealed record ToolWrapperPackage(
     string? Version,
     string? ProducerKey);
 
+public enum NuspecProbeStatus
+{
+    Present,
+    Absent,
+    Indeterminate
+}
+
+public readonly record struct NuspecProbeResult(
+    string? Xml,
+    NuspecProbeStatus Status);
+
 /// <summary>
 /// Outcome of a package extraction operation, carrying either a successful result or an error message.
 /// </summary>
@@ -901,6 +912,23 @@ public static class PackageExtractor
         string version,
         Action<string>? log = null,
         NuGetSourceOptions? sourceOptions = null)
+        => (await ProbeNuspecXmlAsync(
+            client,
+            packageId,
+            version,
+            log,
+            sourceOptions).ConfigureAwait(false)).Xml;
+
+    /// <summary>
+    /// Probes a package's nuspec while preserving whether a missing document was
+    /// authoritatively absent or could not be checked.
+    /// </summary>
+    public static async Task<NuspecProbeResult> ProbeNuspecXmlAsync(
+        HttpClient client,
+        string packageId,
+        string version,
+        Action<string>? log = null,
+        NuGetSourceOptions? sourceOptions = null)
     {
         string normalizedName = packageId.ToLowerInvariant();
         string normalizedVersion = version.ToLowerInvariant();
@@ -924,17 +952,26 @@ public static class PackageExtractor
                 string? cachedXml = await TryReadNuspecFileAsync(cachedNuspec)
                     .ConfigureAwait(false);
                 if (cachedXml != null)
-                    return cachedXml;
+                {
+                    return new NuspecProbeResult(
+                        cachedXml,
+                        NuspecProbeStatus.Present);
+                }
             }
         }
 
+        bool sawAuthoritativeAbsence = false;
+        bool sawIndeterminateSource = false;
         foreach (var source in NuGetSourceResolver.ResolveSourcesForPackage(
             sourceOptions,
             packageId))
         {
             var url = await GetNuspecUrlAsync(client, source, normalizedName, normalizedVersion, log).ConfigureAwait(false);
             if (url == null)
+            {
+                sawIndeterminateSource = true;
                 continue;
+            }
 
             try
             {
@@ -950,9 +987,18 @@ public static class PackageExtractor
                 if (body.Status == HttpRetryHelper.HttpBodyFetchStatus.Success
                     && body.Bytes is { Length: > 0 })
                 {
-                    return Encoding.UTF8.GetString(body.Bytes);
+                    return new NuspecProbeResult(
+                        Encoding.UTF8.GetString(body.Bytes),
+                        NuspecProbeStatus.Present);
                 }
 
+                if (body.StatusCode == HttpStatusCode.NotFound)
+                {
+                    sawAuthoritativeAbsence = true;
+                    continue;
+                }
+
+                sawIndeterminateSource = true;
                 if (body.Status == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
                 {
                     log?.Invoke(
@@ -965,10 +1011,15 @@ public static class PackageExtractor
                 log?.Invoke(
                     $"Nuspec fetch from {PackageSourceDisplay.ForDiagnostics(source)} failed: "
                     + $"{ex.GetType().Name}");
+                sawIndeterminateSource = true;
             }
         }
 
-        return null;
+        return new NuspecProbeResult(
+            null,
+            sawAuthoritativeAbsence && !sawIndeterminateSource
+                ? NuspecProbeStatus.Absent
+                : NuspecProbeStatus.Indeterminate);
     }
 
     /// <summary>
