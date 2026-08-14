@@ -178,7 +178,7 @@ public class ProjectCommand
                 focusedDependencies,
                 options,
                 commandContext,
-                deferDocumentContent,
+                deferContent: true,
                 contentStore,
                 token));
         InspectionQueryResults queryResults = await catalog.QueryRegistry.RunAsync(
@@ -831,7 +831,8 @@ public class ProjectCommand
                 options.SourceOptions,
                 context,
                 deferContent,
-                contentStore);
+                contentStore,
+                cancellationToken);
             if (acquired.Document is not null)
                 documents.Add(acquired.Document);
             if (acquired.Failure is not null)
@@ -848,7 +849,8 @@ public class ProjectCommand
         NuGetSourceOptions? sourceOptions,
         CommandContext context,
         bool deferContent,
-        ProjectDocumentContentStore contentStore)
+        ProjectDocumentContentStore contentStore,
+        CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(dependency.PackagePath)
             && Directory.Exists(dependency.PackagePath))
@@ -877,12 +879,17 @@ public class ProjectCommand
         bool retainTemporaryDirectory = false;
         try
         {
-            PackageExtractionOutcome outcome = await PackageExtractor.ExtractPackageAsync(
-                context.HttpClient,
-                dependency.PackageName,
-                context.Logger.Log,
-                sourceOptions: sourceOptions,
-                version: dependency.Version);
+            // Package acquisition is single-flight. Cancel this caller's wait
+            // without cancelling the shared acquisition for other callers.
+            PackageExtractionOutcome outcome =
+                await PackageExtractor.ExtractPackageAsync(
+                        context.HttpClient,
+                        dependency.PackageName,
+                        context.Logger.Log,
+                        sourceOptions: sourceOptions,
+                        version: dependency.Version)
+                    .WaitAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (!outcome.IsSuccess)
             {
                 return (

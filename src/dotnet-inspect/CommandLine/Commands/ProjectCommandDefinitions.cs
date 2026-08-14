@@ -115,7 +115,7 @@ public static class ProjectCommandDefinitions
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
-            return await ProjectCommand.ExecuteAsync(options);
+            return await ProjectCommand.ExecuteAsync(options, ct);
         });
 
         return projectCommand;

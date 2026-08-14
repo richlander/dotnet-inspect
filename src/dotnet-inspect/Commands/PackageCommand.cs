@@ -55,7 +55,10 @@ public class PackageCommand
                 // without --schema keeps the curated top-level view.
                 catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
                 listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                projection: options);
+                projection: options,
+                rows: options.Rows,
+                outputPath: options.OutputPath,
+                applyLineWindow: options.Rows is null);
         }
 
         // Bare -S selects the network-free "fixed" overview: only sections whose declared growth
@@ -701,7 +704,8 @@ public class PackageCommand
             {
                 CountOutput.WriteCountResult(
                     OutputFormatter.FormatResult(result, options, pipeline),
-                    options.OutputPath);
+                    options.OutputPath,
+                    applyLineWindow: options.Rows is null);
                 return PackageIntegrityExitCode(result);
             }
 
@@ -782,7 +786,10 @@ public class PackageCommand
                     sectionCategories: pipeline.GetCategoryMap(),
                     catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
                     listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                    projection: options);
+                    projection: options,
+                    rows: options.Rows,
+                    outputPath: options.OutputPath,
+                    applyLineWindow: options.Rows is null);
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
@@ -829,7 +836,10 @@ public class PackageCommand
                     ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, output);
                 if (!string.IsNullOrEmpty(options.OutputPath))
                 {
-                    File.WriteAllText(options.OutputPath, output);
+                    OutputPathWriter.Write(
+                        options.OutputPath,
+                        output,
+                        applyLineWindow: options.Rows is null);
                 }
                 else
                 {
@@ -988,7 +998,8 @@ public class PackageCommand
         {
             CountOutput.WriteCount(
                 CountMultiPackageRows(results, rowSection, options),
-                options.OutputPath);
+                options.OutputPath,
+                applyLineWindow: options.Rows is null);
         }
         return PackageIntegrityExitCode([.. results]);
     }
@@ -1266,7 +1277,13 @@ public class PackageCommand
         }
 
         return ShapeProjectionOutput.Write(rows,
-            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl, options.JsonArray));
+            new ShapeProjectionOptions(
+                kind,
+                options.PrintRow,
+                options.JsonOutput,
+                options.Jsonl,
+                options.JsonArray,
+                options.OutputPath));
     }
 
     /// <summary>
@@ -2156,7 +2173,7 @@ public class PackageCommand
             : RenderPackageFileContentBlocks(rows);
 
         if (!string.IsNullOrEmpty(options.OutputPath))
-            File.WriteAllText(options.OutputPath, output);
+            OutputPathWriter.Write(options.OutputPath, output);
         else
             Console.Write(output);
 
@@ -2404,7 +2421,7 @@ public class PackageCommand
     {
         var output = content.EndsWith('\n') ? content : content + '\n';
         if (!string.IsNullOrEmpty(outputPath))
-            File.WriteAllText(outputPath, output);
+            OutputPathWriter.Write(outputPath, output);
         else
             Console.Write(output);
         return 0;
@@ -2702,7 +2719,12 @@ public class PackageCommand
             // An empty match is still an answer to --count, and returning without projecting
             // would report the absence as unprojected output.
             if (libraryOptions.Count)
-                CountOutput.WriteCount(0, options.OutputPath);
+            {
+                CountOutput.WriteCount(
+                    0,
+                    options.OutputPath,
+                    applyLineWindow: options.Rows is null);
+            }
             return completionExitCode;
         }
 
@@ -2715,7 +2737,12 @@ public class PackageCommand
 
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
         if (libraryOptions.Count)
-            CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
+        {
+            CountOutput.WriteCountFromMarkdown(
+                markdown,
+                options.OutputPath,
+                applyLineWindow: options.Rows is null);
+        }
         else
             OutputFormatter.WriteLfLine(Console.Out, markdown);
         return completionExitCode;

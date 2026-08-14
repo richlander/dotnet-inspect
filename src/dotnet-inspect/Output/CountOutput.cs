@@ -112,9 +112,15 @@ public static class CountOutput
             OutputPathWriter.Write(outputPath, text, applyLineWindow);
     }
 
-    public static void WriteCountFromMarkdown(string markdown, string? outputPath = null)
+    public static void WriteCountFromMarkdown(
+        string markdown,
+        string? outputPath = null,
+        bool applyLineWindow = false)
     {
-        WriteCount(CountMarkdownTableRows(markdown), outputPath);
+        WriteCount(
+            CountMarkdownTableRows(markdown),
+            outputPath,
+            applyLineWindow);
     }
 
     /// <summary>

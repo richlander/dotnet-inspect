@@ -27,4 +27,20 @@ public class LineLimitingTextWriterTests
 
         Assert.Equal("first\nsecond\n", output.ToString());
     }
+
+    [Theory]
+    [InlineData("first\nsecond\nthird\n", "second\nthird\n")]
+    [InlineData("first\r\nsecond\r\nthird\r\n", "second\r\nthird\r\n")]
+    public void Tail_PreservesSelectedLineFramingWithoutDuplicatingCarriageReturns(
+        string input,
+        string expected)
+    {
+        var output = new StringWriter();
+        var writer = new TailLineLimitingTextWriter(output, maxLines: 2);
+
+        writer.Write(input);
+        writer.FlushTail();
+
+        Assert.Equal(expected, output.ToString());
+    }
 }

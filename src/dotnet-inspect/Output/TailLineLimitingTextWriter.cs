@@ -59,7 +59,8 @@ internal sealed class TailLineLimitingTextWriter : TextWriter
         int skip = Math.Max(0, lineCount - _maxLines);
         for (int i = skip; i < lineCount; i++)
         {
-            _inner.WriteLine(lines[i]);
+            _inner.Write(lines[i]);
+            _inner.Write('\n');
         }
 
         _inner.Flush();

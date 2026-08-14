@@ -2,6 +2,8 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Globalization;
 using System.IO.Compression;
+using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -16762,6 +16764,81 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_OutputPath_HonorsRenderedLineWindowsAcrossOutputRoutes()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.OutputWindow",
+            "README.md",
+            "first\nsecond\nthird",
+            "agent one\nagent two\nagent three");
+        string ordinaryPath = Path.Combine(tempDir, "ordinary.txt");
+        string contentPath = Path.Combine(tempDir, "content.txt");
+        string barePath = Path.Combine(tempDir, "bare.txt");
+        string shapePath = Path.Combine(tempDir, "shape.txt");
+        string discoveryPath = Path.Combine(tempDir, "discovery.txt");
+
+        try
+        {
+            var ordinary = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package README file",
+                "-n", "1",
+                "--out", ordinaryPath);
+            var content = await RunAppAsync(
+                "package", packagePath,
+                "--path", "@agents",
+                "--content",
+                "-n", "1",
+                "--out", contentPath);
+            var bare = await RunAppAsync(
+                "package", packagePath,
+                "--path", "@agents",
+                "--content",
+                "--bare",
+                "-n", "1",
+                "--tail",
+                "--out", barePath);
+            var shape = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package files",
+                "--paths",
+                "-n", "1",
+                "--out", shapePath);
+            var discovery = await RunAppAsync(
+                "package",
+                "-D",
+                "--count",
+                "-n", "0",
+                "--tail",
+                "--out", discoveryPath);
+
+            Assert.All(
+                new[] { ordinary, content, bare, shape, discovery },
+                result =>
+                {
+                    Assert.Equal(0, result.Exit);
+                    Assert.Empty(result.Output);
+                    Assert.Empty(result.Error);
+                });
+            Assert.Single(
+                File.ReadAllText(ordinaryPath)
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.Single(
+                File.ReadAllText(contentPath)
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.Equal("agent three\n", File.ReadAllText(barePath));
+            Assert.Single(
+                File.ReadAllText(shapePath)
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.Empty(File.ReadAllText(discoveryPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_Count_WritesEmbeddedLibraryAndMultiPackageRoutesToOutputFiles()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
@@ -18341,6 +18418,142 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("--fields", "Package", "--value")]
+    [InlineData("--table")]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    public async Task Project_PackageDocsMetadataOutputs_DoNotReadDocumentContent(
+        params string[] projection)
+    {
+        const string id = "Test.Project.Readme.MetadataOnly";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                id,
+                "1.0.0",
+                "README.md",
+                "locked"));
+        string lockedPath = Path.Combine(
+            tempDir,
+            "packages",
+            id.ToLowerInvariant(),
+            "1.0.0",
+            "README.md");
+
+        try
+        {
+            using var locked = new FileStream(
+                lockedPath,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None);
+            var arguments = new List<string>
+            {
+                "--package", id,
+                "-S", "Package Docs",
+            };
+            arguments.AddRange(projection);
+
+            var (exit, output, error) =
+                await RunProjectFixtureAsync(projectPath, [.. arguments]);
+
+            Assert.Equal(0, exit);
+            Assert.NotEmpty(output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_PackageDocs_CancellationInterruptsInFlightAcquisition()
+    {
+        string id = $"Test.Project.Cancel.{Guid.NewGuid():N}";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                id,
+                "1.0.0",
+                "README.md",
+                "content"));
+        Directory.Delete(Path.Combine(tempDir, "packages"), recursive: true);
+
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var requestAccepted =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseResponse =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task server = Task.Run(
+            async () =>
+            {
+                using TcpClient connection =
+                    await listener.AcceptTcpClientAsync(TestContext.Current.CancellationToken);
+                await using NetworkStream stream = connection.GetStream();
+                using var reader = new StreamReader(
+                    stream,
+                    Encoding.ASCII,
+                    detectEncodingFromByteOrderMarks: false,
+                    leaveOpen: true);
+                while (!string.IsNullOrEmpty(
+                    await reader.ReadLineAsync(TestContext.Current.CancellationToken)))
+                {
+                }
+
+                requestAccepted.SetResult();
+                await releaseResponse.Task.WaitAsync(
+                    TestContext.Current.CancellationToken);
+                byte[] response = Encoding.ASCII.GetBytes(
+                    "HTTP/1.1 503 Service Unavailable\r\n"
+                    + "Content-Length: 0\r\n"
+                    + "Connection: close\r\n\r\n");
+                await stream.WriteAsync(
+                    response,
+                    TestContext.Current.CancellationToken);
+            },
+            TestContext.Current.CancellationToken);
+
+        try
+        {
+            using var cancellation =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    TestContext.Current.CancellationToken);
+            Task<int> execution = ProjectCommand.ExecuteAsync(
+                new ProjectOptions
+                {
+                    ProjectPath = projectPath,
+                    PackageFilter = id,
+                    Select = ["Package Docs"],
+                    Count = true,
+                    SourceOptions = new NuGetSourceOptions
+                    {
+                        Sources = [$"http://127.0.0.1:{port}/v3/index.json"],
+                    },
+                },
+                cancellation.Token);
+
+            await requestAccepted.Task.WaitAsync(
+                TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken);
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => execution.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            releaseResponse.TrySetResult();
+            await server.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Project_AlternateOutputs_HonorOutputPath()
     {
@@ -19778,6 +19991,36 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Equal(expected, output);
+    }
+
+    [Fact]
+    public async Task Project_DiscoverCount_OutputPathAppliesRenderedLineWindow()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"project-discover-count-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string outputPath = Path.Combine(tempDir, "count.txt");
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", "missing-project",
+                "-D",
+                "--count",
+                "-n", "0",
+                "--tail",
+                "--out", outputPath);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            Assert.Equal("", File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

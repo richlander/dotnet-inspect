@@ -74,7 +74,8 @@ public static class LensProjection
         IProjectionOptions? options,
         string lens,
         int rowCount,
-        out int exitCode)
+        out int exitCode,
+        bool applyLineWindow = true)
     {
         exitCode = 0;
         if (!IsRequested(options))
@@ -88,7 +89,10 @@ public static class LensProjection
 
         if (options!.Count)
         {
-            CountOutput.WriteCount(rowCount, options.OutputPath);
+            CountOutput.WriteCount(
+                rowCount,
+                options.OutputPath,
+                applyLineWindow);
             return true;
         }
         return false;

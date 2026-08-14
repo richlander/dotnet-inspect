@@ -46,7 +46,12 @@ public static class DiscoverOutput
             if (discoveryRows == null)
                 return 1;
             int rowCount = RowWindow.Apply(rows, discoveryRows).Count;
-            return LensProjection.TryProject(projection, "-D/--discover", rowCount, out var projectionExitCode)
+            return LensProjection.TryProject(
+                projection,
+                "-D/--discover",
+                rowCount,
+                out var projectionExitCode,
+                applyLineWindow)
                 ? projectionExitCode
                 : 0;
         }
@@ -176,7 +181,12 @@ public static class DiscoverOutput
                 // zero. Returning here without projecting would drop the request.
                 if (LensProjection.IsRequested(projection))
                 {
-                    return LensProjection.TryProject(projection, "-D/--discover", 0, out var emptyProjectionExitCode)
+                    return LensProjection.TryProject(
+                        projection,
+                        "-D/--discover",
+                        0,
+                        out var emptyProjectionExitCode,
+                        applyLineWindow)
                         ? emptyProjectionExitCode
                         : 0;
                 }
