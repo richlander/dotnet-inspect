@@ -280,7 +280,9 @@ empty snapshot is a cache miss rather than authoritative candidate metadata.
 | Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v5/` | 1 hour | dotnet-inspect; one entry per producer, cache kind, package id, and latest flavor where applicable |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
-| SourceLink availability markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit/` | Permanent for hits, 1 day for misses | dotnet-inspect |
+| Verified SourceLink bytes | `$LOCAL_APP_DATA/dotnet-inspect/source-bytes-v2/` | Permanent when the caller's checksum validator accepts the bytes | dotnet-inspect |
+| SourceLink availability markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit-v2/` | Permanent for immutable hits, 1 day for mutable hits and misses | dotnet-inspect |
+| SourceLink integrity markers | `$LOCAL_APP_DATA/dotnet-inspect/source-integrity-v2/` | Permanent for immutable checksum-verified results | dotnet-inspect |
 
 The app package cache carries a `{source}` segment because cached content is
 scoped to the source that supplied it; see
@@ -354,6 +356,14 @@ An added private or nightly feed can therefore raise the latest-version answer
 even when NuGet.org also carries the package. Source declaration order cannot
 make one feed shadow another. Use package source mapping, or select a single
 source, when only one feed may answer for an id.
+
+Workspace floating-coordinate realization requires a complete authoritative
+answer from every authorized source. A transport failure or malformed
+candidate response therefore produces typed unavailability instead of
+successfully selecting from a partial source set. The legacy CLI aggregation
+paths retain their long-standing source fall-through behavior. This boundary
+is gated by
+`PackageCoordinateResolverTests.FloatingCoordinate_RequiresEveryAuthorizedSourceToAnswer`.
 
 `--versions-with-feed` keeps provenance that the merged views discard. It shows
 which feeds carry each coordinate, including a coordinate published by more than

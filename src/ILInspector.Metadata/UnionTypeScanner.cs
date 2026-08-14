@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -8,7 +9,7 @@ public record UnionTypeInfo(
     string TypeName,
     string Kind,
     bool ImplementsIUnion,
-    List<string> CaseTypes);
+    ImmutableArray<string> CaseTypes);
 
 /// <summary>
 /// Scans assemblies for C# union-shaped types.
@@ -36,7 +37,7 @@ public static class UnionTypeScanner
                 reader.GetFullTypeName(typeDef),
                 GetTypeKind(reader, typeDef),
                 ImplementsIUnion(reader, typeDef, context),
-                GetUnionCaseTypes(reader, typeDef).ToList()));
+                GetUnionCaseTypes(reader, typeDef).ToImmutableArray()));
         }
 
         return results;

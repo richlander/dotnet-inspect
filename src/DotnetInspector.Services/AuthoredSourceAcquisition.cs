@@ -29,6 +29,11 @@ public sealed record AuthoredMemberSourceInspection(
     public bool IsComplete => Lines.Value is FindingInspection<string>.Complete;
 }
 
+public sealed record VerifiedSourceTextResult(string? Text, string? Failure)
+{
+    public bool IsVerified => Text is not null;
+}
+
 /// <summary>
 /// Acquires one authored member from SourceLink and verifies the portable-PDB checksum before
 /// exposing its text as evidence.
@@ -79,12 +84,9 @@ public static class AuthoredSourceAcquisition
 
         var documentComplete = (FindingInspection<SourceDocumentObservation>.Complete)
             documentInspection.Value;
-        var document = documentComplete.Findings
-            .Select(static finding => finding.Payload)
-            .FirstOrDefault(candidate => string.Equals(
-                candidate.CanonicalPath,
-                mapping.CanonicalPath,
-                StringComparison.OrdinalIgnoreCase));
+        var document = SelectMappedDocument(
+            mapping,
+            documentComplete.Findings.Select(static finding => finding.Payload));
         if (document is null)
             return Absent("The selected member's source document is not in the portable PDB.");
         if (document.ChecksumAlgorithm is not { Length: > 0 }
@@ -124,20 +126,108 @@ public static class AuthoredSourceAcquisition
                 : "The selected source document has no fetchable SourceLink URL.");
         }
 
-        var bytes = await fetcher.FetchValidatedSourceBytesAsync(
+        var fetch = await fetcher.FetchVerifiedSourceBytesResultAsync(
             url,
             content => VerifyChecksum(document, content.Span)
                 is SourceChecksumVerification.Exact
                     or SourceChecksumVerification.LineEndingNormalized,
             cancellationToken).ConfigureAwait(false);
-        if (bytes is null)
+        if (fetch.Bytes is null)
         {
+            if (fetch.Failure == SourceFetchFailureKind.ValidationFailed)
+            {
+                return Failed(
+                    subject,
+                    "Fetched authored source does not match the portable-PDB checksum.",
+                    mapping,
+                    document,
+                    SourceChecksumVerification.Mismatch);
+            }
+
             return Failed(
                 subject,
-                $"Could not fetch authored source from '{url}'.");
+                fetch.Failure == SourceFetchFailureKind.AttributedOriginUnverified
+                    ? "Could not verify the final SourceLink response origin."
+                    : "Could not fetch authored source.");
         }
 
-        return FromContent(mapping, document, bytes, methodName, subject);
+        return FromContent(mapping, document, fetch.Bytes, methodName, subject);
+    }
+
+    internal static SourceDocumentObservation? SelectMappedDocument(
+        MemberSourceObservation mapping,
+        IEnumerable<SourceDocumentObservation> documents)
+    {
+        SourceDocumentObservation? match = null;
+        foreach (SourceDocumentObservation candidate in documents)
+        {
+            if (candidate.DocumentRowId != mapping.DocumentRowId
+                || !string.Equals(
+                    candidate.OriginalPath,
+                    mapping.OriginalPath,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (match is not null)
+                return null;
+
+            match = candidate;
+        }
+
+        return match;
+    }
+
+    public static async Task<VerifiedSourceTextResult> FetchVerifiedSourceTextAsync(
+        SourceFetcher fetcher,
+        string url,
+        string? checksumAlgorithm,
+        byte[]? checksum,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(fetcher);
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        if (string.IsNullOrEmpty(checksumAlgorithm) || checksum is not { Length: > 0 })
+        {
+            return new VerifiedSourceTextResult(
+                null,
+                "The portable PDB does not provide a usable source checksum.");
+        }
+
+        var fetch = await fetcher.FetchVerifiedSourceBytesResultAsync(
+            url,
+            content => VerifyChecksum(checksumAlgorithm, checksum, content.Span)
+                is SourceChecksumVerification.Exact
+                    or SourceChecksumVerification.LineEndingNormalized,
+            cancellationToken).ConfigureAwait(false);
+        if (fetch.Bytes is null)
+        {
+            return new VerifiedSourceTextResult(
+                null,
+                fetch.Failure switch
+                {
+                    SourceFetchFailureKind.AttributedOriginUnverified =>
+                        "Could not verify the final SourceLink response origin.",
+                    SourceFetchFailureKind.ValidationFailed =>
+                        "Fetched source does not match the portable-PDB checksum.",
+                    _ => "Could not fetch SourceLink source.",
+                });
+        }
+
+        var verification = VerifyChecksum(checksumAlgorithm, checksum, fetch.Bytes);
+        if (verification is not (SourceChecksumVerification.Exact
+            or SourceChecksumVerification.LineEndingNormalized))
+        {
+            return new VerifiedSourceTextResult(
+                null,
+                verification == SourceChecksumVerification.Unsupported
+                    ? "The portable-PDB source checksum algorithm is unsupported."
+                    : "Fetched source does not match the portable-PDB checksum.");
+        }
+
+        return new VerifiedSourceTextResult(DecodeSourceText(fetch.Bytes), null);
     }
 
     public static AuthoredMemberSourceInspection FromContent(
@@ -181,28 +271,18 @@ public static class AuthoredSourceAcquisition
         try
         {
             string sourceText = DecodeSourceText(content);
-            // A C# destructor's source line is "~Type()", which carries no
-            // accessibility keyword and whose metadata name ("Finalize") does not
-            // appear in the text; without an explicit signal the backward signature
-            // scan would walk past it into the preceding member. Use the mapping's
-            // authoritative object.Finalize-override identity (computed from metadata
-            // by the source-mapping producer), NOT a "Finalize" name match, so an
-            // ordinary parameterized method named "Finalize" is never truncated.
-            bool isDestructor = mapping.IsFinalizer;
             string? memberText = BodySlicer.ExtractMethodBody(
                 sourceText,
                 mapping.StartLine,
                 mapping.EndLine,
-                methodName,
-                isDestructor,
-                isDestructor ? mapping.Anchor.TypeFullName : null);
+                methodName);
             if (memberText is null)
             {
-                // The member's sequence points map to its type's header, not to a declaration
-                // of its own. Absent is the honest answer; the header is not this member's
-                // source.
+                // The source range does not identify a vouched declaration for this member.
+                // Absent is the honest answer; a type header, initializer, or guessed span is
+                // not a substitute.
                 return Absent(
-                    "The selected member has no authored declaration of its own; its source range is the declaring type's header.",
+                    "The selected member's source range does not identify one authored declaration that can be shown.",
                     mapping,
                     document,
                     verification);

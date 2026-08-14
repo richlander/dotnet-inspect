@@ -520,21 +520,28 @@ public static class PackageMetadataService
             url)
                 ? client
                 : untrustedClient;
-        HttpRetryHelper.HttpRetryResult result =
-            await HttpRetryHelper.GetWithRetryResultAsync(
+        // Bound like GetStringWithRetryAsync: hostile registration/search/index
+        // documents must not force an unbounded string allocation. Preserve
+        // StatusCode so 404 stays Present/Absent (not Indeterminate).
+        HttpRetryHelper.HttpBodyFetchResult body =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
                 endpointClient,
                 url,
+                static _ => true,
                 log: log,
                 auth: NuGetCredentialScope.AuthFor(source, url, log),
-                trafficKind: trafficKind).ConfigureAwait(false);
-        using HttpResponseMessage? response = result.Response;
-        if (response is null)
+                trafficKind: trafficKind,
+                maxDownloadSize: HttpRetryHelper.DefaultMaxTextResponseBytes)
+                .ConfigureAwait(false);
+        if (body.Status != HttpRetryHelper.HttpBodyFetchStatus.Success
+            || body.Bytes is null)
         {
-            return new TextFetchResult(null, result.StatusCode);
+            return new TextFetchResult(null, body.StatusCode);
         }
 
-        string content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-        return new TextFetchResult(content, result.StatusCode);
+        return new TextFetchResult(
+            System.Text.Encoding.UTF8.GetString(body.Bytes),
+            body.StatusCode ?? HttpStatusCode.OK);
     }
 
     private static async Task<PackageProbeResult> ProbePackageAsync(
@@ -1111,21 +1118,29 @@ public static class PackageMetadataService
         try
         {
             string apiUrl = $"https://api.github.com/advisories/{ghsaId}";
-            log?.Invoke($"Fetching GitHub advisory: {apiUrl}");
+            log?.Invoke($"Fetching GitHub advisory: {InertText.UrlRedaction.ForDiagnostics(apiUrl)}");
 
-            var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
-            request.Headers.Add("User-Agent", "dotnet-inspect");
-            request.Headers.Add("Accept", "application/vnd.github+json");
-
-            using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.AdvisoryData);
-            var response = await client.SendAsync(request).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
+            // Bound like discovery JSON GETs — advisory documents must not force
+            // an unbounded ReadAsStringAsync allocation.
+            string? json = await HttpRetryHelper.GetStringWithRetryAsync(
+                client,
+                apiUrl,
+                log: log,
+                trafficKind: NetworkTrafficKind.AdvisoryData,
+                maxDownloadSize: HttpRetryHelper.DefaultMaxTextResponseBytes,
+                configureRequest: static request =>
+                {
+                    request.Headers.TryAddWithoutValidation("User-Agent", "dotnet-inspect");
+                    request.Headers.TryAddWithoutValidation(
+                        "Accept",
+                        "application/vnd.github+json");
+                }).ConfigureAwait(false);
+            if (json is null)
             {
-                log?.Invoke($"GitHub API returned {response.StatusCode}");
+                log?.Invoke("GitHub advisory fetch failed or exceeded size cap.");
                 return;
             }
 
-            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             using var doc = HardenedJson.Parse(json);
             var root = doc.RootElement;
 

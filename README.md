@@ -138,7 +138,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
-| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
+| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, checksum-verified source fetching with final-origin redirect validation, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"`; `body-shape Kind --library path/to.dll` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
@@ -339,9 +339,11 @@ Address them through the overload-index selector: `Name:1` is the getter/adder
 accessor name (`get_Name`, `set_Name`, `add_Name`, `remove_Name`). Fields have
 no accessor and stay body-less. The SourceLink source-file sections
 (`Original Source`, `Source Diff`, `Source Locations`) follow the same
-addressing: they resolve through the accessor's PDB sequence points, so an
-auto-property maps to its declaration line and a hand-written accessor maps to
-its own authored lines.
+addressing and resolve through the accessor's PDB sequence points.
+`Source Locations` reports that accessor-specific range; `Original Source` and
+`Source Diff` use its first line to select the enclosing authored declaration,
+so a getter and setter both render the whole property rather than invalid
+accessor fragments.
 
 `allocation-fanout` is an opt-in aggregate view for construction-heavy
 registries, pipelines, and object graphs that do not match a local rewrite
@@ -382,7 +384,10 @@ override that configuration for one invocation. The original
 `dotnet_inspect_style_readable_local_names = false` spelling remains accepted
 for compatibility. The same config file
 (discovered by walking up from the working directory) selects other class-3
-spellings using `.editorconfig` key names. `--taste` requests the whole
+spellings using `.editorconfig` key names. Named enum labels that share one
+switch body are alphabetical by default; set
+`dotnet_inspect_style_enum_case_label_order = value` to retain recovered numeric
+order. `--taste` requests the whole
 oracle-endorsed set for one invocation without a config file. `Annotated Source`
 names the applied spellings in a trailing comment on the member signature, and
 drops its interleaved IL for any member a byte-divergent lens actually rewrote.

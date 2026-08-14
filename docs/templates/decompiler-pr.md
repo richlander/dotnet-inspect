@@ -5,9 +5,10 @@ Use this for decompiler PRs that affect raising, structuring, validity,
 fidelity, or corpus behavior. Delete sections that do not apply. Keep generated
 tables generated; do not re-key metric rows by hand.
 
-Every raise PR must keep Before, After, and Fully raised. Before and After must
-each show a concrete C# example. After records this PR's output; Fully raised
-records the intended endpoint.
+Every behavior-changing raise PR must keep Raise contract, Structural review
+status, Before, After, and Fully raised. Before and After must each show a
+concrete C# example. After records this PR's output; Fully raised records the
+intended endpoint.
 
 Under Before and After, record independent verdicts on the shown C# so the
 assessment sits next to the code it judges:
@@ -70,12 +71,47 @@ For focused invalid-Full / burndown row fixes, prefer
 
 **Conclusion:** **PASS/REVIEW/BLOCKED** — {one sentence with the decisive reason}.
 
+### Raise contract
+
+<!--
+Required for behavior-changing raises. State the proof before presenting the
+output. "The tests pass" is not a lowering or ownership proof.
+
+- Source construct: the C# construct being recovered.
+- Compiler lowering: compiler/version, Release/Debug, target framework, and the
+  exact IL/IR shell recognized. Cite the compiler-produced fixture or pinned
+  real witness.
+- Consumed ownership: blocks, nodes, labels, temporaries, and storage removed
+  or reinterpreted, plus the proof that no outside edge/use reaches them.
+- Control flow: when the raise consumes or alters control flow, successor
+  identity and multiplicity, exits/EH boundaries, and ownership of
+  Break/Continue/Leave. Otherwise state why it is not applicable.
+- Replacement: independent binding, observable-behavior, and compile-back
+  evidence for the emitted C#.
+- Decline boundary: the closest plausible shapes that remain flat and the
+  adversarial tests that pin them.
+- Falsifier: the concrete observation that would disprove this raise's claim.
+-->
+
+| Obligation | Contract |
+| --- | --- |
+| Lowering shell | {source construct, compiler/configuration, and exact recognized shell} |
+| Consumed ownership | {consumed region/storage and exclusivity proof} |
+| Control flow | {successors, exits, EH, and structured-transfer ownership / not applicable and why} |
+| Replacement | {binding, observable behavior, and compile-back evidence} |
+| Decline boundary | {near misses that remain flat and their tests} |
+| Falsifier | {evidence that would make the raise unsound} |
+
 ### Structural review
 
 <!--
-For a changed rendered body, this generated artifact is the preferred review
-shape. Produce it from two C# AnnotatedSourceDocument revisions plus
-owner-issued node correspondence:
+For a changed rendered body, first acquire both exact revisions with:
+
+dotnet-inspect member {Type} {MethodSelector} {scope} \
+  -S "Annotated Source Document"
+
+When a product owner can issue real cross-document node correspondence, produce
+the generated artifact from those two C# AnnotatedSourceDocument revisions:
 
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --structural-review /tmp/comparison.json
@@ -83,16 +119,26 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 Paste the output verbatim. Its complete Before/After blocks and rich structural
 diff consume one CSharpStructuralComparison; do not manually place carets or
 reconstruct rows. Node ids are document-local. Correspondence must come from
-the owner that produced the revisions, never equal ids, coordinates, selected
-text, or labels. Fidelity and retained IL notes are independent evidence, not
+an explicit product owner, never equal ids, coordinates, selected text, labels,
+or display order. Fidelity and retained IL notes are independent evidence, not
 claims inferred from the C# transition.
+
+#4092 currently consumes comparison input but no product component maps
+base-render C# node ids to head-render C# node ids. When no correspondence
+issuer exists, write exactly:
+
+Not generated — no product correspondence issuer
+
+Do not fabricate comparison JSON. This current presentation gap does not by
+itself change the raise verdict; independent validity, correctness, fidelity,
+and corpus evidence still decide it.
 
 When this artifact is present, delete the duplicate code fences in the
 standalone Before and After sections below, but retain their validity,
 correctness, fidelity, taste, and commit verdicts.
 -->
 
-{generated full-body Before/After carets and rich structural diff}
+Structural review status: {generated artifact / Not generated — no product correspondence issuer}
 
 ### Benchmark target
 
@@ -206,13 +252,20 @@ counts can rise even while some previously-passing test starts failing.
 | --- | --- | --- |
 | Product build | Pass | Pass |
 | Focused tests | `{test class}`: {n} passed | `{test class}`: {n} passed |
+| Compiler-produced positive | `{fixture}` remains flat | `{fixture}` raises |
+| Adversarial declines | `{negative fixtures}` remain flat | `{negative fixtures}` remain flat |
 | Decompiler fast suite | {total}, {failed} failed | {total}, {failed} failed |
 | Reduced fixture validity | Pass / not applicable | Pass / not applicable |
 | Reduced fixture fidelity | Pass / not currently checkable | Pass / not currently checkable |
+| Structural review | Base document acquired | Generated comparison attached / Not generated — no product correspondence issuer |
 | Real witness | `{Type::Method}` broken / not applicable | `{Type::Method}` fixed / not applicable |
 
 If Baseline shows any failures, name them and confirm they are unchanged by
 this PR (same tests, same reason) rather than omitting them.
+
+For render A/B or corpus deltas, list stable changed-method identities and
+classify every loss/gain. Do not use a net count to offset a newly invalid,
+behavior-changing, or unexplained method.
 
 ## Decompiler quality
 

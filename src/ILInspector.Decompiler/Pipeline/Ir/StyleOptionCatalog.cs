@@ -186,6 +186,14 @@ public sealed record StyleOptionDescriptor
     /// <summary>Stable, kebab-case identifier for programmatic reference (never localized).</summary>
     public required string Id { get; init; }
 
+    /// <summary>
+    /// Optional config key whose value is one token from <see cref="Values"/>.
+    /// This is the persistent spelling for a mutually-exclusive multi-value axis;
+    /// boolean axes continue to put their key on the selected
+    /// <see cref="StyleOptionValue"/>.
+    /// </summary>
+    public string? ValueConfigKey { get; init; }
+
     /// <summary>Short human-facing label for a picker (e.g. a checkbox or dropdown caption).</summary>
     public required string Title { get; init; }
 
@@ -250,8 +258,9 @@ public sealed record StyleOptionDescriptor
 
     /// <summary>
     /// The config key that turns a two-state (boolean) knob on, or
-    /// <see langword="null"/> for an API-only or multi-value knob (whose per-value
-    /// keys live on <see cref="Values"/>). Convenience for the common boolean case
+    /// <see langword="null"/> for an API-only or multi-value knob. Multi-value
+    /// axes may use either per-value keys or <see cref="ValueConfigKey"/>.
+    /// Convenience for the common boolean case
     /// so a host recording a two-state taste choice can name the key without
     /// walking <see cref="Values"/>.
     /// </summary>
@@ -318,6 +327,10 @@ public static class StyleOptionCatalog
     private const string VarStyleBuiltInTypes = "var-for-built-in-types";
     private const string VarStyleWhenApparent = "var-when-type-apparent";
     private const string VarStyleElsewhere = "var-elsewhere";
+
+    // Value tokens for shared-body enum case-label ordering.
+    private const string EnumLabelAlphabetical = "alphabetical";
+    private const string EnumLabelValue = "value";
 
     /// <summary>
     /// Every <see cref="StyleOptionTier"/> as a presentation descriptor, in
@@ -473,6 +486,7 @@ public static class StyleOptionCatalog
             with: static (o, v) => o with { QualifyEventAccess = v }),
         GuardedBooleanReturnStyle(),
         VarSpellingStyle(),
+        EnumCaseLabelOrderStyle(),
         Boolean(
             id: "prefer-long-literal-suffix",
             title: "Long literal suffix (10L)",
@@ -709,6 +723,39 @@ public static class StyleOptionCatalog
                     ConfigKey = "csharp_style_var_elsewhere",
                     IsSelected = static o => o.PreferVarElsewhere,
                     SetSelected = static (o, on) => o with { PreferVarElsewhere = on },
+                },
+            ],
+        };
+
+    private static StyleOptionDescriptor EnumCaseLabelOrderStyle()
+        => new()
+        {
+            Id = "enum-case-label-order",
+            ValueConfigKey = "dotnet_inspect_style_enum_case_label_order",
+            Title = "Shared enum case-label order",
+            Summary = "Order named enum labels that share one switch body alphabetically (default) or by recovered numeric value. Byte-neutral; mixed or unnamed labels keep value order.",
+            Tier = StyleOptionTier.Spelling,
+            ByteDivergent = false,
+            DefaultValue = EnumLabelAlphabetical,
+            Values =
+            [
+                new StyleOptionValue
+                {
+                    Token = EnumLabelAlphabetical,
+                    Title = "Alphabetical by member name",
+                    IsSelected = static o => o.EnumCaseLabelOrder == EnumCaseLabelOrder.Alphabetical,
+                    SetSelected = static (o, on) => on
+                        ? o with { EnumCaseLabelOrder = EnumCaseLabelOrder.Alphabetical }
+                        : o,
+                },
+                new StyleOptionValue
+                {
+                    Token = EnumLabelValue,
+                    Title = "Recovered numeric value order",
+                    IsSelected = static o => o.EnumCaseLabelOrder == EnumCaseLabelOrder.Value,
+                    SetSelected = static (o, on) => on
+                        ? o with { EnumCaseLabelOrder = EnumCaseLabelOrder.Value }
+                        : o,
                 },
             ],
         };
