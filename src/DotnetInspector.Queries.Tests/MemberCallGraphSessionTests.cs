@@ -456,6 +456,40 @@ public sealed class MemberCallGraphSessionTests
                 AnnotatedCallGraphOwnershipLimit.TraversalBoundary));
     }
 
+    [Theory]
+    [InlineData("RentWithMethodGroup")]
+    [InlineData("RentWithFunctionPointer")]
+    public void OwnershipIndirectCallShapesDoNotProduceSafeFindings(
+        string methodName)
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int root = MemberToken(CallerPath, "Entry", methodName);
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+            });
+        MemberCallGraphView view = graph.Callers();
+
+        AnnotatedCallGraphOwnershipInspection result =
+            ArrayPoolOwnershipPathFindings.Inspect(
+                view,
+                CallGraphProjection.Create(
+                    view.CallerRoot,
+                    view.CalleeRoot));
+
+        Assert.Empty(result.Findings);
+        Assert.True(
+            result.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.AnalysisFailure));
+    }
+
     [Fact]
     public void AnnotatedMemberDocument_ReportsOneCycleForRepeatedRecursiveCalls()
     {

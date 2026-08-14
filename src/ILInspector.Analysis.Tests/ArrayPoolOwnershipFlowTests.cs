@@ -88,6 +88,41 @@ public sealed class ArrayPoolOwnershipFlowTests
         Assert.Empty(rent.Uses);
     }
 
+    [Theory]
+    [InlineData("RentWithMethodGroup")]
+    [InlineData("RentWithFunctionPointer")]
+    public void IndirectCallShapesAreRetainedAsIncomplete(
+        string methodName)
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            CallerPath,
+            LibraryBodyAnalysisFeatures.OwnershipFlow);
+
+        ArrayPoolOwnershipMethodEvidence evidence =
+            index.ArrayPoolOwnership.Single(candidate =>
+                candidate.Method.Name == methodName);
+        ArrayPoolRentOwnership rent = Assert.Single(evidence.Rents);
+        Assert.False(rent.IsComplete);
+        Assert.Empty(rent.Uses);
+    }
+
+    [Fact]
+    public void ReturnedValueBeforeForwardingPreservesParameterIndex()
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            CallerPath,
+            LibraryBodyAnalysisFeatures.OwnershipFlow);
+
+        ArrayPoolOwnershipMethodEvidence evidence =
+            index.ArrayPoolOwnership.Single(candidate =>
+                candidate.Method.Name == "RentWithReturnedValue");
+        ArrayPoolOwnershipUse use =
+            Assert.Single(Assert.Single(evidence.Rents).Uses);
+        Assert.True(evidence.IsComplete);
+        Assert.Equal(ArrayPoolOwnershipUseKind.Forwarded, use.Kind);
+        Assert.Equal(0, use.CalleeParameterIndex);
+    }
+
     static int MethodToken(string methodName) =>
         LibraryBodyIndex.Open(
                 CallerPath,

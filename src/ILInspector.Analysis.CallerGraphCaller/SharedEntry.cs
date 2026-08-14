@@ -204,6 +204,53 @@ namespace Shared
             return buffer.Length;
         }
 
+        public static int RentWithMethodGroup(
+            int first,
+            byte[] other,
+            int second)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+            try
+            {
+                OwnershipSinkWithCallback(
+                    buffer,
+                    first,
+                    other,
+                    second,
+                    new OwnershipWorker().Work);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+            return buffer.Length;
+        }
+
+        public static unsafe void RentWithFunctionPointer(
+            delegate*<byte[], void> callback)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+            OwnershipBarrier();
+            callback(buffer);
+        }
+
+        public static int RentWithReturnedValue(byte[] other)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+            try
+            {
+                OwnershipSinkWithReturnedValue(
+                    buffer,
+                    OwnershipMarker(),
+                    other);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+            return buffer.Length;
+        }
+
         static void ForwardRentedArray(byte[] buffer) =>
             ReturnRentedArray(buffer);
 
@@ -221,6 +268,39 @@ namespace Shared
 
         static void StoreRentedArray(byte[] buffer) =>
             s_rentedArray = buffer;
+
+        static void OwnershipSinkWithCallback(
+            byte[] leaked,
+            int first,
+            byte[] returned,
+            int second,
+            Action callback)
+        {
+            s_rentedArray = leaked;
+            ArrayPool<byte>.Shared.Return(returned);
+        }
+
+        static void OwnershipSinkWithReturnedValue(
+            byte[] leaked,
+            int marker,
+            byte[] returned)
+        {
+            s_rentedArray = leaked;
+            ArrayPool<byte>.Shared.Return(returned);
+        }
+
+        static int OwnershipMarker() => 7;
+
+        static void OwnershipBarrier()
+        {
+        }
+
+        sealed class OwnershipWorker
+        {
+            internal void Work()
+            {
+            }
+        }
 
         sealed class OwnershipSink
         {

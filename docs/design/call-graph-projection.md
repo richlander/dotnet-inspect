@@ -372,7 +372,10 @@ constructor forwarding; `OwnershipWitnessBudgetPreservesPhysicalCallIdentity`
 and `OwnershipPathBudgetLeavesForwardedPathIncomplete` gate the two budgets.
 `AddressTakenRentIsRetainedAsIncomplete` and
 `OwnershipForwardedToABodilessCalleeIsIncomplete` gate the close negative
-cases.
+cases. `IndirectCallShapesAreRetainedAsIncomplete` and
+`OwnershipIndirectCallShapesDoNotProduceSafeFindings` gate that `ldftn`,
+`ldvirtftn`, and `calli` remain unsupported/incomplete rather than entering the
+direct-call stack model.
 
 The query declares no graph or Analysis acquisition.
 `AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite` test

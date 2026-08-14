@@ -60,7 +60,8 @@ static class ArrayPoolOwnershipFlow
             method.ParameterTypes.Any(static parameter =>
                 parameter.Kind == TypeRefKind.SzArray);
         bool hasRent = directCalls.Any(static call =>
-            LeakTriageAnalyzer.IsArrayPoolRent(call.Callee));
+            IsDirectInvocation(call)
+            && LeakTriageAnalyzer.IsArrayPoolRent(call.Callee));
         if (!hasArrayParameter && !hasRent)
             return new(method, member, [], [], IsComplete: true);
 
@@ -76,8 +77,10 @@ static class ArrayPoolOwnershipFlow
             return new(method, member, [], [], IsComplete: false);
 
         IReadOnlyDictionary<int, DirectCall> calls =
-            directCalls.ToDictionary(
-                static call => call.ILOffset);
+            directCalls
+                .Where(IsDirectInvocation)
+                .ToDictionary(
+                    static call => call.ILOffset);
         IReadOnlyDictionary<int, MemberRef> members =
             calls.ToDictionary(
                 static pair => pair.Key,
@@ -160,6 +163,11 @@ static class ArrayPoolOwnershipFlow
             parameters.ToImmutable(),
             IsComplete: ignoredCandidates.Count == 0);
     }
+
+    static bool IsDirectInvocation(DirectCall call) =>
+        call.Kind is CallKind.Call
+            or CallKind.CallVirtual
+            or CallKind.NewObject;
 
     static ArrayPoolRentOwnership AnalyzeDefinition(
         int rentOffset,
