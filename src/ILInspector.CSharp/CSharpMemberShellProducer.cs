@@ -343,6 +343,9 @@ public static class CSharpMemberShellProducer
 
     static string? DeclarationSignature(CSharpMemberShellSpec spec)
     {
+        if (spec.Kind == CSharpShellMemberKind.Finalizer)
+            return $"{spec.ReturnType ?? "void"} {spec.Name}()";
+
         if (spec.Kind != CSharpShellMemberKind.Method
             || spec.ExplicitInterfaceMemberName is null)
         {

@@ -2972,6 +2972,24 @@ public static class CompileBackSourceComposer
             : CompileBackTypeSignature.Display(MethodReturnType(reader, targetTypeDef, method));
         var targetParameters = MethodParameters(reader, method, signature);
         var targetTypeParameters = MethodTypeParameters(reader, method);
+        bool targetHasOperatorIdentity = !isConstructor
+            && IsMetadataOperator(method, methodName);
+        bool targetOperatorIsRepresentable = targetHasOperatorIdentity
+            && IsRepresentableOperator(
+                reader,
+                targetTypeDef,
+                method,
+                methodName,
+                signature,
+                targetParameters,
+                targetReturnType?.DisplayName);
+        if (targetHasOperatorIdentity && !targetOperatorIsRepresentable)
+        {
+            diagnostics.Add(new CompileBackPlanningDiagnostic(
+                "member surface",
+                "operator-not-representable",
+                MethodSignatureText(methodName, signature)));
+        }
         bool isFinalizer = !isConstructor
             && memberSurfaceByDefinitionName.TryGetValue(
                 TypeProducer.DefinitionName(reader, targetType),
@@ -3030,7 +3048,7 @@ public static class CompileBackSourceComposer
                 IsAsync: !isConstructor
                     && (function.RequiresAsyncBodyModifier
                         || function.IsRuntimeAsync == MetadataFactState.Yes),
-                IsOperator: !isConstructor && IsMetadataOperator(method, methodName),
+                IsOperator: targetOperatorIsRepresentable,
                 IsFinalizer: isFinalizer,
                 ConstructorInitializer: targetConstructorInitializer,
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName,
@@ -3424,14 +3442,27 @@ public static class CompileBackSourceComposer
 
             if (!OperatorSignaturesMatch(reader, targetMethod, methodHandle))
                 continue;
+            var parameters = MethodParameters(reader, method, signature);
+            var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
+            if (!IsRepresentableOperator(
+                    reader,
+                    typeDef,
+                    method,
+                    siblingName,
+                    signature,
+                    parameters,
+                    returnType.DisplayName))
+            {
+                continue;
+            }
 
             var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
                 CompileBackMemberKind.Operator,
                 method.Attributes.HasFlag(MethodAttributes.Static),
-                MethodParameters(reader, method, signature),
-                CompileBackTypeSignature.Display(signature.ReturnType),
+                parameters,
+                returnType,
                 MethodTypeParameters(reader, method),
                 CompileBackStubBodyKind.Throw,
                 TargetBody: null,
@@ -3463,6 +3494,159 @@ public static class CompileBackSourceComposer
         => method.Attributes.HasFlag(MethodAttributes.SpecialName)
             && method.GetGenericParameters().Count == 0
             && OperatorNames.IsOperatorMethodName(name);
+
+    static bool IsRepresentableOperator(
+        MetadataReader reader,
+        TypeDefinition declaringType,
+        MethodDefinition method,
+        string name,
+        MethodSignature<string> signature,
+        IReadOnlyList<CompileBackParameter> parameters,
+        string? returnType)
+    {
+        if (!IsMetadataOperator(method, name) || returnType is null)
+            return false;
+
+        bool isStatic = method.Attributes.HasFlag(MethodAttributes.Static);
+        bool isPublic = (method.Attributes & MethodAttributes.MemberAccessMask)
+            == MethodAttributes.Public;
+        if (OperatorNames.IsAssignmentOperatorMethodName(name))
+        {
+            return OperatorNames.IsCSharpInstanceAssignmentOperator(
+                    name,
+                    isStatic,
+                    isPublic,
+                    returnType,
+                    parameters.Count)
+                && parameters.All(parameter => parameter.Modifier is null);
+        }
+
+        int? expectedParameterCount = CSharpOperatorParameterCount(name);
+        if (!isStatic
+            || !isPublic
+            || returnType is "void" or "System.Void"
+            || expectedParameterCount is null
+            || parameters.Count != expectedParameterCount
+            || parameters.Any(parameter => parameter.Modifier is "ref" or "out"))
+        {
+            return false;
+        }
+
+        var declaringIdentity = CompileBackTypeIdentity.FromDefinition(reader, declaringType);
+        bool hasDeclaringOperand = parameters.Any(parameter =>
+            IsDeclaringTypeSpelling(parameter.Type.DisplayName, declaringIdentity));
+        if (IsConversionOperator(name))
+        {
+            if (!hasDeclaringOperand
+                && !IsDeclaringTypeSpelling(returnType, declaringIdentity))
+            {
+                return false;
+            }
+        }
+        else if (!hasDeclaringOperand)
+        {
+            return false;
+        }
+
+        if (name is "op_True" or "op_False"
+            && returnType is not ("bool" or "System.Boolean"))
+        {
+            return false;
+        }
+        if (name is "op_Increment" or "op_Decrement"
+            && !IsDeclaringTypeSpelling(returnType, declaringIdentity))
+        {
+            return false;
+        }
+
+        return RequiredOperatorPair(name) is not { } pairName
+            || HasOperatorPair(reader, declaringType, pairName, signature);
+    }
+
+    static int? CSharpOperatorParameterCount(string name)
+    {
+        if (IsConversionOperator(name))
+            return 1;
+
+        string uncheckedName = name.StartsWith("op_Checked", StringComparison.Ordinal)
+            ? $"op_{name["op_Checked".Length..]}"
+            : name;
+        return uncheckedName switch
+        {
+            "op_UnaryPlus" or "op_UnaryNegation" or "op_Increment" or "op_Decrement"
+                or "op_OnesComplement" or "op_True" or "op_False" or "op_LogicalNot" => 1,
+            "op_Addition" or "op_Subtraction" or "op_Multiply" or "op_Division"
+                or "op_Modulus" or "op_BitwiseAnd" or "op_BitwiseOr" or "op_ExclusiveOr"
+                or "op_LeftShift" or "op_RightShift" or "op_UnsignedRightShift"
+                or "op_Equality" or "op_Inequality" or "op_LessThan" or "op_GreaterThan"
+                or "op_LessThanOrEqual" or "op_GreaterThanOrEqual" => 2,
+            _ => null,
+        };
+    }
+
+    static bool IsConversionOperator(string name)
+        => name is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
+
+    static bool IsDeclaringTypeSpelling(
+        string type,
+        CompileBackTypeIdentity declaringType)
+    {
+        string normalized = type.EndsWith('?')
+            ? type[..^1]
+            : type;
+        return normalized == declaringType.DisplayName
+            || normalized == declaringType.FullName
+            || normalized == declaringType.MetadataFullName
+            || normalized.StartsWith($"{declaringType.DisplayName}<", StringComparison.Ordinal)
+            || normalized.StartsWith($"{declaringType.FullName}<", StringComparison.Ordinal);
+    }
+
+    static string? RequiredOperatorPair(string name)
+        => name switch
+        {
+            "op_Equality" => "op_Inequality",
+            "op_Inequality" => "op_Equality",
+            "op_LessThan" => "op_GreaterThan",
+            "op_GreaterThan" => "op_LessThan",
+            "op_LessThanOrEqual" => "op_GreaterThanOrEqual",
+            "op_GreaterThanOrEqual" => "op_LessThanOrEqual",
+            "op_True" => "op_False",
+            "op_False" => "op_True",
+            _ => OperatorNames.UncheckedOperator(name),
+        };
+
+    static bool HasOperatorPair(
+        MetadataReader reader,
+        TypeDefinition declaringType,
+        string pairName,
+        MethodSignature<string> signature)
+    {
+        foreach (var methodHandle in declaringType.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != pairName
+                || !IsMetadataOperator(method, pairName))
+            {
+                continue;
+            }
+
+            try
+            {
+                var pairSignature = GuardedSignatureText.MethodText(
+                    reader,
+                    method,
+                    GenericContext.ForMethod(reader, declaringType, method));
+                if (OperatorSignaturesMatch(signature, pairSignature))
+                    return true;
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
 
     static bool IsRecordGeneratedFieldReadHelper(
         MetadataReader reader,
@@ -4880,6 +5064,19 @@ public static class CompileBackSourceComposer
             {
                 return null;
             }
+            bool hasOperatorIdentity = !isConstructor
+                && IsMetadataOperator(method, name);
+            bool operatorIsRepresentable = hasOperatorIdentity
+                && IsRepresentableOperator(
+                    reader,
+                    typeDef,
+                    method,
+                    name,
+                    signature,
+                    parameters,
+                    CompileBackTypeSignature.Display(methodReturnType).DisplayName);
+            if (hasOperatorIdentity && !operatorIsRepresentable)
+                return null;
 
             string identifierName = MemberIdentifierName(name, isConstructor);
             return new CompileBackMemberRequirement(
@@ -4905,7 +5102,7 @@ public static class CompileBackSourceComposer
                 IsOverride: false,
                 IsSealed: false,
                 IsExtension: IsExtensionMethod(reader, typeDef, method),
-                IsOperator: !isConstructor && IsMetadataOperator(method, name));
+                IsOperator: operatorIsRepresentable);
         }
 
         static bool IsExtensionMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
@@ -5781,7 +5978,24 @@ public static class CompileBackSourceComposer
                     continue;
                 }
                 bool methodIsStatic = method.Attributes.HasFlag(MethodAttributes.Static);
-                bool methodIsOperator = memberKind == CompileBackMemberKind.Operator;
+                bool methodHasOperatorIdentity = memberKind == CompileBackMemberKind.Operator;
+                bool methodIsOperator = methodHasOperatorIdentity
+                    && IsRepresentableOperator(
+                        reader,
+                        typeDef,
+                        method,
+                        name,
+                        signature,
+                        parameters,
+                        CompileBackTypeSignature.Display(methodReturnType).DisplayName);
+                if (methodHasOperatorIdentity && !methodIsOperator)
+                {
+                    diagnostics.Add(new CompileBackPlanningDiagnostic(
+                        "member surface",
+                        "operator-not-representable",
+                        signatureIdentity));
+                    continue;
+                }
                 string? returnTypeIdentity = isConstructor
                     ? null
                     : CompileBackTypeSignature.Display(methodReturnType).DisplayName;
@@ -6045,14 +6259,23 @@ public static class CompileBackSourceComposer
             MetadataReader reader,
             CompileBackTypeIdentity identity)
         {
+            TypeDefinitionHandle? match = null;
             foreach (var handle in reader.TypeDefinitions)
             {
                 var typeDef = reader.GetTypeDefinition(handle);
                 if (CompileBackTypeIdentity.FromDefinition(reader, typeDef) == identity)
-                    return handle;
+                {
+                    if (match is not null)
+                    {
+                        throw new AmbiguousMatchException(
+                            $"Product type identity '{identity.MetadataFullName}' matches multiple TypeDef rows.");
+                    }
+
+                    match = handle;
+                }
             }
 
-            return null;
+            return match;
         }
 
         static bool HasParameterlessInstanceConstructor(MetadataReader reader, TypeDefinition typeDef)

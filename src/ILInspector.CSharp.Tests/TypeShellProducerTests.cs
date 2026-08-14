@@ -415,6 +415,36 @@ public sealed class TypeShellProducerTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void MemberShellProducer_PreservesFinalizerDeclaratorWhenDestructorSyntaxIsSuppressed()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Finalize",
+            Kind: CSharpShellMemberKind.Finalizer,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "void",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return;",
+            SuppressDestructorSyntax: true));
+
+        Assert.Equal("void Finalize()", policy.Member.Signature);
+        var type = new ApiType
+        {
+            Name = "Target",
+            Kind = "class",
+            Members = [policy.Member],
+        };
+        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides: [policy]));
+        string source = Assert.Single(result.Units).Source;
+
+        Assert.Contains("void Finalize()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("~Target()", source, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(CSharpShellMemberKind.Method, "Run")]
     [InlineData(CSharpShellMemberKind.Method, " IRunner.Run")]

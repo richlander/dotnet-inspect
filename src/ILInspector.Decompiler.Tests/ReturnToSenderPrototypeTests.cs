@@ -605,6 +605,39 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CompileBackTargets_UnrepresentableOperatorDoesNotBreakUnrelatedTarget(
+        bool staticZeroParameter)
+    {
+        var assemblyPath = EmitUnrepresentableOperatorFixture(staticZeroParameter);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.DoesNotContain("operator +", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.FullBodies,
+                body => body.Member == "Poison.op_Addition"
+                    && body.Status != MemberBodyProductionStatus.Complete);
+            Assert.False(result.BodyComplete);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "operator-not-representable"
+                    && diagnostic.Detail.Contains("op_Addition", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     [Fact]
     public void CompileBackTargets_FinalizerTargetPreservesFinalizerIdentity()
     {
@@ -631,6 +664,29 @@ public class ReturnToSenderPrototypeTests
             Assert.True(result.BodyComplete, result.Detail);
             Assert.Contains("~Target()", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain("void Finalize()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_SuppressedFinalizerKeepsItsDeclarator()
+    {
+        var assemblyPath = EmitNonDestructorFinalizerFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Finalize", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("void Finalize()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("void\n", result.Source, StringComparison.Ordinal);
         }
         finally
         {
@@ -872,6 +928,27 @@ public class ReturnToSenderPrototypeTests
                     [new ReturnToSender.RequestedTarget("N.C", "Shared", 0)]));
 
             Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RejectsDuplicatePhysicalTypeDefinitions()
+    {
+        var assemblyPath = EmitDuplicateTypeDefinitionFixture();
+        try
+        {
+            var exception = Assert.Throws<AmbiguousMatchException>(() =>
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget("N.C", ".ctor", 0)],
+                    RoundTripScope.Cluster,
+                    RoundTripBodyPolicy.Selected));
+
+            Assert.Contains("multiple TypeDef rows", exception.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -11780,6 +11857,197 @@ public class ReturnToSenderPrototypeTests
         int bodyOffset = section.PointerToRawData + rva - section.VirtualAddress;
         image[bodyOffset] = 0;
         File.WriteAllBytes(assemblyPath, image);
+    }
+
+    static string EmitDuplicateTypeDefinitionFixture()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-duplicate-typedef-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+
+        var metadata = new MetadataBuilder();
+        metadata.AddAssembly(
+            metadata.GetOrAddString("fixture"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.Sha1);
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("fixture.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        var corlib = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(
+                new byte[] { 0xB0, 0x3F, 0x5F, 0x7F, 0x11, 0xD5, 0x0A, 0x3A }),
+            default,
+            default);
+        var systemObject = metadata.AddTypeReference(
+            corlib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(0, returnType => returnType.Void(), _ => { });
+        var constructorSignatureHandle = metadata.GetOrAddBlob(constructorSignature);
+        var objectConstructor = metadata.AddMemberReference(
+            systemObject,
+            metadata.GetOrAddString(".ctor"),
+            constructorSignatureHandle);
+        var intSignature = new BlobBuilder();
+        new BlobEncoder(intSignature)
+            .MethodSignature()
+            .Parameters(0, returnType => returnType.Type().Int32(), _ => { });
+        var intSignatureHandle = metadata.GetOrAddBlob(intSignature);
+
+        var methodBodies = new BlobBuilder();
+        var bodies = new MethodBodyStreamEncoder(methodBodies);
+        var decoyBody = new InstructionEncoder(new BlobBuilder());
+        decoyBody.LoadConstantI4(7);
+        decoyBody.OpCode(ILOpCode.Ret);
+        var decoy = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Decoy"),
+            intSignatureHandle,
+            bodies.AddMethodBody(decoyBody),
+            default);
+        var constructorBody = new InstructionEncoder(new BlobBuilder());
+        constructorBody.OpCode(ILOpCode.Ldarg_0);
+        constructorBody.Call(objectConstructor);
+        constructorBody.OpCode(ILOpCode.Ret);
+        var constructor = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(".ctor"),
+            constructorSignatureHandle,
+            bodies.AddMethodBody(constructorBody),
+            default);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            decoy);
+        var first = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.BeforeFieldInit,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            systemObject,
+            MetadataTokens.FieldDefinitionHandle(1),
+            decoy);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.BeforeFieldInit,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            systemObject,
+            MetadataTokens.FieldDefinitionHandle(1),
+            constructor);
+        var marker = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.BeforeFieldInit,
+            default,
+            metadata.GetOrAddString("MarkerFromRowA"),
+            systemObject,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(3));
+        metadata.AddNestedType(marker, first);
+
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            methodBodies);
+        var image = new BlobBuilder();
+        peBuilder.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+        return path;
+    }
+
+    static string EmitUnrepresentableOperatorFixture(bool staticZeroParameter)
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-unrepresentable-operator-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("fixture"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("fixture");
+
+        var target = module.DefineType(
+            "Target",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        var run = target.DefineMethod(
+            "Run",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            Type.EmptyTypes);
+        var runIl = run.GetILGenerator();
+        runIl.Emit(System.Reflection.Emit.OpCodes.Ldc_I4, 42);
+        runIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        target.CreateType();
+
+        var poison = module.DefineType("Poison", TypeAttributes.Public | TypeAttributes.Class);
+        var op = poison.DefineMethod(
+            "op_Addition",
+            staticZeroParameter
+                ? MethodAttributes.Public | MethodAttributes.Static
+                    | MethodAttributes.SpecialName | MethodAttributes.HideBySig
+                : MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(int),
+            staticZeroParameter ? Type.EmptyTypes : [typeof(int), typeof(int)]);
+        var opIl = op.GetILGenerator();
+        opIl.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_0);
+        opIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        poison.CreateType();
+
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitNonDestructorFinalizerFixture()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-suppressed-finalizer-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("fixture"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("fixture");
+
+        var type = module.DefineType("Target", TypeAttributes.Public | TypeAttributes.Class);
+        var cleanup = type.DefineMethod(
+            "Cleanup",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            Type.EmptyTypes);
+        cleanup.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        var finalizer = type.DefineMethod(
+            "Finalize",
+            MethodAttributes.Family | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            typeof(void),
+            Type.EmptyTypes);
+        var finalizerIl = finalizer.GetILGenerator();
+        finalizerIl.Emit(System.Reflection.Emit.OpCodes.Call, cleanup);
+        finalizerIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        type.CreateType();
+
+        assembly.Save(path);
+        return path;
     }
 
     static void DeleteFixture(string assemblyPath)
