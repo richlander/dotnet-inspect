@@ -542,6 +542,8 @@ public class ApiCommand
         if (!options.HasCallerScope
             || options.Tree
             || IsStandaloneMermaid(options)
+            || options.JsonOutput
+            && options.IncludeSections is not { Count: > 0 }
             || HasAuthoredMemberSectionRequest(options)
             || !pipeline.SelectableSectionNames.Contains(
                 SectionNames.Callers,
