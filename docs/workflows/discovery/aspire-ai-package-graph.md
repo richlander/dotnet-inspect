@@ -9,11 +9,15 @@ status: locked-demo
 # Locked demo: `IChatClient` dual lens
 
 > **One demo.** Start from a **type** and read **packages**; start from
-> **packages** and land on the **type**. Same member-centric world; arcs carry
-> integration richness the way AnnotatedSource carets carry facts.
+> **packages** and land on the **type**. Same evidence-backed inspection world;
+> arcs retain relationship semantics and carry optional richness the way
+> AnnotatedSource carets carry facts.
 >
 > Status: **locked narrative + pins + works-now path.** Full single-diagram
-> product experience is target (characteristics #4139, ad hoc mode #4133).
+> product experience is target
+> ([inspection graph](../../design/inspection-graph-document.md),
+> [call characteristics](../../design/call-graph-characteristics.md) #4139,
+> [graph modes](../../design/inspection-graph-modes.md) #4133).
 
 ## Why this demo
 
@@ -52,20 +56,31 @@ What we want the product to emit (normative Mermaid — not an expect block yet)
 
 ```mermaid
 flowchart TB
-  T["IChatClient · type lens<br/>MEAI.Abstractions"]
-  P_oai["Microsoft.Extensions.AI.OpenAI"]
-  P_br["AWSSDK.Extensions.Bedrock.MEAI"]
-  P_az["Azure.AI.OpenAI"]
-  S_oai["OpenAI · SDK"]
-  S_br["AWSSDK.BedrockRuntime"]
-  T ---|package group| P_oai
-  T ---|package group| P_br
-  S_oai -->|AsIChatClient · Integration: AI| T
-  S_br -->|AsIChatClient · Integration: AI| T
-  P_oai -.->|owns adapter| S_oai
-  P_br -.->|owns adapter| S_br
-  P_az -->|references| S_oai
-  P_az -.->|Integration opportunity · MEAI| T
+  subgraph G_abs["Microsoft.Extensions.AI.Abstractions"]
+    T["IChatClient"]
+  end
+  subgraph G_oai_adapter["Microsoft.Extensions.AI.OpenAI"]
+    A_oai["OpenAIClientExtensions.AsIChatClient"]
+  end
+  subgraph G_oai_sdk["OpenAI"]
+    OAI["OpenAI assembly"]
+    S_oai["ChatClient"]
+  end
+  subgraph G_br_adapter["AWSSDK.Extensions.Bedrock.MEAI"]
+    A_br["AmazonBedrockRuntimeExtensions.AsIChatClient"]
+  end
+  subgraph G_br_sdk["AWSSDK.BedrockRuntime"]
+    S_br["IAmazonBedrockRuntime"]
+  end
+  subgraph G_az["Azure.AI.OpenAI"]
+    AZ["Azure.AI.OpenAI assembly"]
+  end
+  A_oai -->|"api.extension · extends"| S_oai
+  A_oai -->|"integration.observed · AsIChatClient"| T
+  A_br -->|"api.extension · extends"| S_br
+  A_br -->|"integration.observed · AsIChatClient"| T
+  AZ -->|"metadata.reference"| OAI
+  AZ -.->|"integration.opportunity · MEAI"| T
 ```
 
 **Read both ways:**
@@ -73,8 +88,15 @@ flowchart TB
 - **Type outward** — from `IChatClient`, packages and providers that adapt into it.  
 - **Package inward** — from OpenAI/Bedrock/Azure packages, the type that unifies clients.
 
-Arcs hold tool richness (integration kind, relationship, boundary). Nodes stay
-member/type identity; package is group + characteristic (#4139).
+Subgraphs are structured package groups, not membership edges. Adapter methods
+remain members of their actual packages, extension edges point to the extended
+SDK types, and integration edges point from the observed adapter API to the hub
+type. A type-outward query may traverse those incoming integration edges
+without reversing their stored direction.
+
+Arcs retain typed relationship semantics plus selected characteristics. A
+realized package may instead be a typed endpoint in a package lens, with the
+original member occurrences retained behind any roll-up.
 
 ## Works now (rehearsal path)
 
@@ -210,10 +232,11 @@ Call Graph
 
 ## Product gaps (this demo only)
 
-| Gap | Issue |
-| --- | ----- |
-| One multi-input / multi-seed graph | #4133 |
-| Arc + node characteristics (integration, package on edges) | #4139 |
+| Gap | Design / issue |
+| --- | --- |
+| Typed mixed-relation graph and package/type lenses | [Inspection graph](../../design/inspection-graph-document.md) |
+| Type/package seeds, peer seeds, and induced pin-set requests | [Graph modes](../../design/inspection-graph-modes.md) · #4133 |
+| Call occurrence and characteristic migration | [Call characteristics](../../design/call-graph-characteristics.md) · #4139 |
 | Deeper external body resolution | #3632 |
 | Workspace integrations roll-up across the pin set | #3629 |
 | Reference edge Azure→OpenAI as first-class arc | #3630 |
@@ -229,7 +252,7 @@ Call Graph
 
 - Aspire hosting package web + `AddOpenAI` seed CG (AppHost plane).  
 - Two-plane “provision vs consume” once this demo and hosting demo both exist.  
-- Type CG rollup / package CG aggregation lenses generally (#4139).
+- Type/package aggregation lenses generally.
 
 ## Validation posture
 
