@@ -61,6 +61,16 @@ public static class MetadataSafetyPolicy
     public const int MaxCorrespondenceCandidates = 1024;
 
     /// <summary>
+    /// Maximum <see cref="BadImageFormatException"/> failures while decoding
+    /// method anchors during one classified-method scan. Each failure is
+    /// already bounded per anchor, but catch-and-continue would otherwise
+    /// multiply that cost by method count on hostile multi-method images.
+    /// Gated by
+    /// <c>Scan_MultiMethodHostileIdentitiesFailClosedBeforeLargeAllocation</c>.
+    /// </summary>
+    public const int MaxClassificationIdentityDecodeFailures = 3;
+
+    /// <summary>
     /// Maximum unique handles in one TypeDef, TypeRef, or ExportedType
     /// relationship chain.
     /// </summary>

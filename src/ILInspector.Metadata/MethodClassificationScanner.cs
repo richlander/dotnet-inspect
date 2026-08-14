@@ -92,6 +92,7 @@ public static class MethodClassificationScanner
             return results;
 
         var reader = peReader.GetMetadataReader();
+        int identityDecodeFailures = 0;
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -119,7 +120,11 @@ public static class MethodClassificationScanner
                 {
                     if (!identityAttempted)
                     {
-                        methodIdentity = TryCreateMethodIdentity(reader, typeDefHandle, method);
+                        methodIdentity = TryCreateMethodIdentity(
+                            reader,
+                            typeDefHandle,
+                            method,
+                            ref identityDecodeFailures);
                         identityAttempted = true;
                     }
 
@@ -137,13 +142,17 @@ public static class MethodClassificationScanner
                 if ((method.Attributes & MethodAttributes.PinvokeImpl) != 0)
                 {
                     string? moduleName = GetPInvokeModuleName(reader, methodHandle);
-                    var signature = FormatSignature(reader, typeDef, method);
+                    // Identity first: a hostile signature must not also pay
+                    // FormatSignature after CreateMethodAnchorInfo already rejected.
+                    MethodAnchorInfo? identity = GetMethodIdentity();
+                    string signature = FormatSignatureOrFallback(
+                        reader, typeDef, method, methodName, identity);
                     results.Add(new ClassifiedMethodInfo(
                         methodName, fullTypeName, ns, signature,
                         MethodClassification.PInvoke, moduleName)
                     {
-                        Anchor = GetMethodIdentity()?.Anchor,
-                        ReturnType = GetMethodIdentity()?.ReturnType,
+                        Anchor = identity?.Anchor,
+                        ReturnType = identity?.ReturnType,
                     });
                     continue; // P/Invoke methods are also "unsafe" but classify as P/Invoke
                 }
@@ -152,12 +161,14 @@ public static class MethodClassificationScanner
                 var asyncClassification = ClassifyAsyncMethod(reader, method);
                 if (asyncClassification is { } asyncKind)
                 {
-                    var signature = FormatSignature(reader, typeDef, method);
+                    MethodAnchorInfo? identity = GetMethodIdentity();
+                    string signature = FormatSignatureOrFallback(
+                        reader, typeDef, method, methodName, identity);
                     results.Add(new ClassifiedMethodInfo(
                         methodName, fullTypeName, ns, signature, asyncKind)
                     {
-                        Anchor = GetMethodIdentity()?.Anchor,
-                        ReturnType = GetMethodIdentity()?.ReturnType,
+                        Anchor = identity?.Anchor,
+                        ReturnType = identity?.ReturnType,
                     });
                 }
 
@@ -170,14 +181,22 @@ public static class MethodClassificationScanner
                     if (HasPointerType(sig))
                     {
                         var signature = SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
+                        MethodAnchorInfo? identity = GetMethodIdentity();
                         results.Add(new ClassifiedMethodInfo(
                             methodName, fullTypeName, ns, signature,
                             MethodClassification.Unsafe)
                         {
-                            Anchor = GetMethodIdentity()?.Anchor,
-                            ReturnType = GetMethodIdentity()?.ReturnType,
+                            Anchor = identity?.Anchor,
+                            ReturnType = identity?.ReturnType,
                         });
                     }
+                }
+                catch (BadImageFormatException ex)
+                {
+                    // Pointer-shape probes share the scan failure budget so a
+                    // multi-method hostile image cannot decode forever here
+                    // either.
+                    NoteDecodeFailure(ref identityDecodeFailures, ex);
                 }
                 catch
                 {
@@ -236,34 +255,69 @@ public static class MethodClassificationScanner
     private static MethodAnchorInfo? TryCreateMethodIdentity(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
-        MethodDefinition method)
+        MethodDefinition method,
+        ref int identityDecodeFailures)
     {
         try
         {
             return ApiMemberIdentity.CreateMethodAnchorInfo(reader, typeHandle, method);
         }
-        catch (BadImageFormatException)
+        catch (BadImageFormatException ex)
         {
+            // One malformed anchor is skippable (null identity on that row). Many
+            // hostile methods each paying the per-anchor reject cost is not —
+            // fail the scan after the policy cap. Gated by
+            // MaxClassificationIdentityDecodeFailures.
+            NoteDecodeFailure(ref identityDecodeFailures, ex);
             return null;
         }
+    }
+
+    static void NoteDecodeFailure(
+        ref int identityDecodeFailures,
+        BadImageFormatException ex)
+    {
+        identityDecodeFailures++;
+        if (identityDecodeFailures
+            >= MetadataSafetyPolicy.MaxClassificationIdentityDecodeFailures)
+        {
+            throw new BadImageFormatException(
+                "The assembly exceeds the method-identity decode failure budget during classification scan.",
+                ex);
+        }
+    }
+
+    static string FormatSignatureOrFallback(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method,
+        string methodName,
+        MethodAnchorInfo? identity)
+    {
+        // When identity decode already failed, the blob is hostile or malformed —
+        // do not decode it again for display text.
+        if (identity is null)
+            return methodName + "(...)";
+
+        return FormatSignature(reader, typeDef, method, methodName);
     }
 
     private static string FormatSignature(
         MetadataReader reader,
         TypeDefinition typeDef,
-        MethodDefinition method)
+        MethodDefinition method,
+        string methodName)
     {
         try
         {
             var context = GenericContext.ForMethod(reader, typeDef, method);
             var sig = GuardedSignatureText.MethodText(reader, method, context)
                 .GetValueOrThrow();
-            string methodName = reader.GetString(method.Name);
             return SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
         }
         catch
         {
-            return reader.GetString(method.Name) + "(...)";
+            return methodName + "(...)";
         }
     }
 }
