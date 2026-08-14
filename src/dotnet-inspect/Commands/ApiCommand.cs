@@ -1017,12 +1017,16 @@ public class ApiCommand
     /// <param name="MemberSourceTooComplex">
     /// True when verified source exceeded the bounded lexical-complexity limit.
     /// </param>
+    /// <param name="MemberSourceCoordinatesInvalid">
+    /// True when portable-PDB sequence-point coordinates cannot address the verified source.
+    /// </param>
     internal sealed record ResolvedMethodSource(
         MethodSourceContext? Source,
         string? PdbPath,
         bool MemberHasNoBody = false,
         bool MemberHasNoAuthoredDeclaration = false,
-        bool MemberSourceTooComplex = false);
+        bool MemberSourceTooComplex = false,
+        bool MemberSourceCoordinatesInvalid = false);
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
@@ -1162,6 +1166,13 @@ public class ApiCommand
                 null,
                 pdbPath,
                 MemberSourceTooComplex: true);
+        }
+        catch (InvalidSequencePointCoordinatesException)
+        {
+            return new ResolvedMethodSource(
+                null,
+                pdbPath,
+                MemberSourceCoordinatesInvalid: true);
         }
     }
 
@@ -1431,7 +1442,8 @@ public class ApiCommand
             PopulateSourceDiff(
                 view,
                 GetRequestedMemberSections(type, options),
-                options is MemberOptions { MemberSourceTooComplex: true });
+                options is MemberOptions { MemberSourceTooComplex: true },
+                options is MemberOptions { MemberSourceCoordinatesInvalid: true });
 
         }
 
@@ -2227,7 +2239,8 @@ public class ApiCommand
                 PopulateSourceDiff(
                     view,
                     requestedSections,
-                    memberOptions.MemberSourceTooComplex);
+                    memberOptions.MemberSourceTooComplex,
+                    memberOptions.MemberSourceCoordinatesInvalid);
             }
 
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
@@ -2339,19 +2352,26 @@ public class ApiCommand
     internal const string SourceTooComplexNote =
         "// Authored source extraction stopped because the source exceeds the lexical complexity limit.";
 
+    internal const string SourceCoordinatesInvalidNote =
+        "// Authored source extraction stopped because the portable-PDB sequence-point coordinates "
+        + "cannot address the verified source.";
+
     internal static string? OriginalSourceUnavailableNote(MemberOptions options) =>
         options.MemberHasNoBody
             ? BodylessMemberNote
             : options.MemberSourceTooComplex
                 ? SourceTooComplexNote
-                : options.MemberHasNoAuthoredDeclaration
-                    ? NoAuthoredDeclarationNote
-                    : null;
+                : options.MemberSourceCoordinatesInvalid
+                    ? SourceCoordinatesInvalidNote
+                    : options.MemberHasNoAuthoredDeclaration
+                        ? NoAuthoredDeclarationNote
+                        : null;
 
     private static void PopulateSourceDiff(
         TypeView view,
         IReadOnlySet<string> requestedSections,
-        bool sourceTooComplex)
+        bool sourceTooComplex,
+        bool sourceCoordinatesInvalid)
     {
         if (!requestedSections.Contains(SectionNames.SourceDiff))
             return;
@@ -2363,6 +2383,14 @@ public class ApiCommand
                 "diff",
                 "# Original Source unavailable because authored source extraction exceeded "
                 + "the lexical complexity limit.");
+            return;
+        }
+        if (sourceCoordinatesInvalid)
+        {
+            view.MemberCode.SourceDiffCode = new Markout.CodeSection(
+                "diff",
+                "# Original Source unavailable because portable-PDB sequence-point coordinates "
+                + "cannot address the verified source.");
             return;
         }
 

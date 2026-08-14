@@ -5205,6 +5205,76 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void OriginalSource_InvalidSequencePointCoordinatesCarryAVisibleFailureState()
+    {
+        const string source = "class C\n{\n    void M() { }\n}";
+
+        var resolved = ApiCommand.SliceResolvedMethodSource(
+            source,
+            startLine: 3,
+            endLine: 3,
+            methodName: "M",
+            sourceLocation: "fixture.cs",
+            pdbPath: "fixture.pdb",
+            visibleSequencePointStartLines: [6]);
+
+        Assert.True(resolved.MemberSourceCoordinatesInvalid);
+        Assert.Null(resolved.Source);
+        Assert.Equal("fixture.pdb", resolved.PdbPath);
+        Assert.Contains(
+            "sequence-point coordinates",
+            ApiCommand.OriginalSourceUnavailableNote(
+                new MemberOptions { MemberSourceCoordinatesInvalid = true }),
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.OriginalSource, "## Original Source")]
+    [InlineData(SectionNames.SourceDiff, "## Source Diff")]
+    public async Task Member_InvalidSourceCoordinatesReportVisibleSectionFailure(
+        string section,
+        string heading)
+    {
+        using var stream = File.OpenRead(TestAssemblyPath);
+        using var peReader = new PEReader(stream);
+        var api = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var type = Assert.Single(
+            api.Types,
+            candidate => candidate.FullName == typeof(CommandExecutionSourceDiffFixture).FullName);
+        var member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == nameof(CommandExecutionSourceDiffFixture.AddOne));
+        type.Members = [member];
+
+        var options = new MemberOptions
+        {
+            AssemblyPath = TestAssemblyPath,
+            DllPath = TestAssemblyPath,
+            TypeName = type.FullName,
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { nameof(CommandExecutionSourceDiffFixture.AddOne) },
+            OverloadIndex = member.DeclaringOverloadIndex ?? 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section },
+            MemberSourceCoordinatesInvalid = true,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: "dotnet-inspect.Tests",
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(heading, output);
+        Assert.Contains("sequence-point coordinates", output);
+    }
+
+    [Fact]
     public async Task Member_SourceDiff_ComplexSourceReportsTheLimit()
     {
         using var stream = File.OpenRead(TestAssemblyPath);

@@ -59,6 +59,12 @@ relationship. Otherwise the first visible sequence point is primary.
 Presentation consumers prefer that relationship and use document-row order
 only as a deterministic fallback.
 
+Member-source comparison treats the exact point-line set as a changeable
+payload facet. Its occurrence sort key includes every compared identity and
+coordinate facet, including the point set, so reversing duplicate mappings
+cannot pair unlike observations and manufacture changes. This is gated by
+`MetadataSourceFindingsTests.MemberSourceComparison_ReorderedDuplicateMappingsPairByComparedPayload`.
+
 Compilation-option identity is the option name. Compilation-reference identity
 is its normalized reference name; aliases, image kind, embedding, timestamp,
 image size, MVID, and reserved flag bits are changeable payload facets.

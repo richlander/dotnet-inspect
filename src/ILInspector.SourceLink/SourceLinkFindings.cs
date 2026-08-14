@@ -293,12 +293,21 @@ public static class SourceLinkFindings
             subject,
             MemberSourceDescriptor,
             static mapping => mapping.Anchor.CanonicalSignature,
-            static mapping => JoinSortKey(
-                mapping.Anchor.CanonicalSignature,
-                mapping.CanonicalPath,
-                $"{mapping.StartLine:D10}:{mapping.EndLine:D10}"),
+            MemberSourceSortKey,
             parameterName);
     }
+
+    static string MemberSourceSortKey(MemberSourceObservation mapping) =>
+        JoinSortKey(
+            mapping.Anchor.StableSelector,
+            mapping.Anchor.CanonicalSignature,
+            mapping.Anchor.Fingerprint,
+            mapping.Anchor.TypeFullName,
+            mapping.Anchor.MemberName,
+            mapping.CanonicalPath,
+            $"{mapping.StartLine:D10}:{mapping.EndLine:D10}",
+            mapping.IsPrimaryDocument ? "1" : "0",
+            string.Join(",", mapping.SequencePointStartLines));
 
     static FindingInspection<T> InspectInventory<T>(
         IEnumerable<T> observations,

@@ -734,14 +734,17 @@ group-by-point cross product, and refuses PDB correlation when a recognized
 `#line` directive can remap the coordinates. CSharpText applies only
 caller-selected branch objects produced by the same index; it blanks
 unselected half-open ranges with one difference array and rebuilds over the
-line-preserving projection. The source returned to the user is still sliced
-from the checksum-verified original text. These boundaries are gated by
+line-preserving projection. Before slicing the checksum-verified original
+text, the slicer refuses a selected group that crosses exactly one boundary of
+the projected declaration; otherwise projected-away text could expose
+unmatched directives or an unrelated dead-branch member. These boundaries are
+gated by
 `DeclarationIndexTests.ConditionalProjection_RejectsABranchFromAnotherIndex`,
 `DeclarationIndexTests.ConditionalProjection_ManySelectionsAllocateLinearly`,
 `ExtractMethodBodyTests.InvalidSequencePointCoordinates_FailVisibly`,
 `ExtractMethodBodyTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided`,
 and
-`AuthoredSourceValidityTests.RealPortablePdb_SelectsTheCompiledConditionalBranch`.
+`AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupStraddlingTheDeclaration`.
 The binary-search complexity itself is unverified by a dedicated performance
 gate.
 

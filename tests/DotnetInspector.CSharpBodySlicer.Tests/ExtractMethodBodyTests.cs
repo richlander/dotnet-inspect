@@ -1993,6 +1993,46 @@ public class ExtractMethodBodyTests
     }
 
     [Fact]
+    public void ConditionalGroupStraddlingTheProjectedSignature_StaysAbsent()
+    {
+        var source = Lines(
+            "class C",                            // 1
+            "{",                                  // 2
+            "#if A",                              // 3
+            "    public void M(int x)",           // 4
+            "    {",                              // 5
+            "        System.Console.WriteLine(x);",// 6
+            "#else",                              // 7
+            "    public void M()",                // 8
+            "    {",                              // 9
+            "        System.Console.WriteLine();",// 10
+            "#endif",                             // 11
+            "    }",                              // 12
+            "}");                                 // 13
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 6, 12, "M", [6, 12]));
+    }
+
+    [Fact]
+    public void ConditionalGroupStraddlingTheProjectedEnd_DoesNotLeakADeadSibling()
+    {
+        var source = Lines(
+            "class C",                                          // 1
+            "{",                                                // 2
+            "    public void M() {",                            // 3
+            "        System.Console.WriteLine(1);",             // 4
+            "#if A",                                            // 5
+            "    }",                                            // 6
+            "    public void N() { System.Console.WriteLine(2); }",// 7
+            "#else",                                            // 8
+            "    }",                                            // 9
+            "#endif",                                           // 10
+            "}");                                               // 11
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 9, "M", [3, 9]));
+    }
+
+    [Fact]
     public void LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided()
     {
         var source = Lines(

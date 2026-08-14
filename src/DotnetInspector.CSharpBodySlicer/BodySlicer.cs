@@ -3,6 +3,14 @@ using CSharpText;
 namespace DotnetInspector.CSharpBodySlicer;
 
 /// <summary>
+/// A visible portable-PDB sequence-point line cannot address the verified physical source.
+/// </summary>
+public sealed class InvalidSequencePointCoordinatesException(
+    string message,
+    string parameterName)
+    : ArgumentException(message, parameterName);
+
+/// <summary>
 /// Isolates one member's text from a C# source file, given the line range a portable PDB
 /// reports for that member.
 /// </summary>
@@ -36,9 +44,13 @@ public static class BodySlicer
     /// When <paramref name="visibleSequencePointStartLines"/> is supplied, each complete
     /// conditional group with points in exactly one branch is projected to that branch before
     /// selecting the declaration. Zero or multiple matching branches retain the lexical fallback.
+    /// A selected group that crosses exactly one declaration boundary is refused: projected-away
+    /// text could otherwise make a span look valid while slicing the original returns unmatched
+    /// directives or an unrelated dead-branch member.
     /// The lines must be positive, sorted, distinct, and within the physical source; a recognized
     /// <c>#line</c> directive refuses correlation because PDB coordinates may then be remapped.
     /// Gated by <c>AuthoredSourceValidityTests.RealPortablePdb_SelectsTheCompiledConditionalBranch</c>,
+    /// <c>AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupStraddlingTheDeclaration</c>,
     /// <c>ExtractMethodBodyTests.PointsInMultipleBranches_DoNotGuessWhichBranchIsLive</c>, and
     /// <c>ExtractMethodBodyTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided</c>.
     /// </para>
@@ -51,15 +63,19 @@ public static class BodySlicer
         IReadOnlyList<int>? visibleSequencePointStartLines = null)
     {
         var index = DeclarationIndex.Build(sourceText);
+        IReadOnlyList<ConditionalSelection> conditionalSelections = [];
         if (visibleSequencePointStartLines is { Count: > 0 } points)
         {
             if (index.HasLineDirectives)
                 return null;
 
             ValidateSequencePointLines(points, index.LineCount);
-            var selectedBranches = SelectUniquelyEvidencedBranches(index, points);
-            if (selectedBranches.Count > 0)
-                index = index.WithSelectedConditionalBranches(selectedBranches);
+            conditionalSelections = SelectUniquelyEvidencedBranches(index, points);
+            if (conditionalSelections.Count > 0)
+            {
+                index = index.WithSelectedConditionalBranches(
+                    [.. conditionalSelections.Select(static selection => selection.Branch)]);
+            }
         }
 
         bool constructorRequest = IsConstructorRequest(methodName);
@@ -76,6 +92,12 @@ public static class BodySlicer
             || SharesBoundaryWithParentType(index, row)
             || SharesBoundaryWithSibling(index, row)
             || SharesBoundaryWithTransparentScope(index, row))
+        {
+            return null;
+        }
+
+        if (conditionalSelections.Any(selection =>
+            StraddlesDeclarationBoundary(selection.Group, row)))
         {
             return null;
         }
@@ -124,26 +146,25 @@ public static class BodySlicer
             int line = points[i];
             if (line <= previous)
             {
-                throw new ArgumentException(
+                throw new InvalidSequencePointCoordinatesException(
                     "Visible sequence-point start lines must be positive, sorted, and distinct.",
                     nameof(points));
             }
             if (line > lineCount)
             {
-                throw new ArgumentOutOfRangeException(
-                    nameof(points),
-                    line,
-                    "A visible sequence-point start line lies beyond the verified source text.");
+                throw new InvalidSequencePointCoordinatesException(
+                    "A visible sequence-point start line lies beyond the verified source text.",
+                    nameof(points));
             }
             previous = line;
         }
     }
 
-    private static IReadOnlyCollection<ConditionalBranchSpan> SelectUniquelyEvidencedBranches(
+    private static IReadOnlyList<ConditionalSelection> SelectUniquelyEvidencedBranches(
         DeclarationIndex index,
         IReadOnlyList<int> points)
     {
-        var selected = new List<ConditionalBranchSpan>();
+        var selected = new List<ConditionalSelection>();
         foreach (var group in index.ConditionalGroups)
         {
             ConditionalBranchSpan? match = null;
@@ -161,9 +182,20 @@ public static class BodySlicer
             }
 
             if (!ambiguous && match is not null)
-                selected.Add(match);
+                selected.Add(new ConditionalSelection(group, match));
         }
         return selected;
+    }
+
+    private static bool StraddlesDeclarationBoundary(
+        ConditionalGroupSpan group,
+        DeclarationSpan declaration)
+    {
+        bool openingInside = group.IfDirectiveLine >= declaration.SignatureStartLine
+            && group.IfDirectiveLine <= declaration.EndLine;
+        bool closingInside = group.EndIfDirectiveLine >= declaration.SignatureStartLine
+            && group.EndIfDirectiveLine <= declaration.EndLine;
+        return openingInside != closingInside;
     }
 
     private static bool ContainsPoint(
@@ -183,6 +215,10 @@ public static class BodySlicer
 
         return low < points.Count && points[low] < branch.ContentEndLineExclusive;
     }
+
+    private readonly record struct ConditionalSelection(
+        ConditionalGroupSpan Group,
+        ConditionalBranchSpan Branch);
 
     private static bool IsTypeOrNamespace(DeclarationKind kind) =>
         kind is DeclarationKind.Class or DeclarationKind.Struct or DeclarationKind.Record

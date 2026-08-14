@@ -769,6 +769,108 @@ public class AuthoredSourceValidityTests
     }
 
     [Fact]
+    public void RealPortablePdb_RefusesAConditionalGroupStraddlingTheDeclaration()
+    {
+        const string SignatureStraddle = """
+            class C
+            {
+            #if A
+                public void M(int x)
+                {
+                    System.Console.WriteLine(x);
+            #else
+                public void M()
+                {
+                    System.Console.WriteLine();
+            #endif
+                }
+            }
+            """;
+        const string EndStraddle = """
+            class C
+            {
+                public void M() {
+                    System.Console.WriteLine(1);
+            #if A
+                }
+                public void N() { System.Console.WriteLine(2); }
+            #else
+                }
+            #endif
+            }
+            """;
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-conditional-straddle-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            AssertRefused(SignatureStraddle, "SignatureDefined", ["A"]);
+            AssertRefused(SignatureStraddle, "SignatureDefault", []);
+            AssertRefused(EndStraddle, "EndDefined", ["A"]);
+            AssertRefused(EndStraddle, "EndDefault", []);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+
+        void AssertRefused(string source, string suffix, string[] symbols)
+        {
+            string sourcePath = Path.Combine(directory, $"{suffix}.cs");
+            string assemblyPath = Path.Combine(directory, $"{suffix}.dll");
+            string pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+            File.WriteAllText(sourcePath, source, Encoding.UTF8);
+
+            var cancellationToken = TestContext.Current.CancellationToken;
+            var tree = CSharpSyntaxTree.ParseText(
+                source,
+                new CSharpParseOptions(
+                    LanguageVersion.Preview,
+                    preprocessorSymbols: symbols),
+                path: sourcePath,
+                encoding: Encoding.UTF8,
+                cancellationToken: cancellationToken);
+            var references = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+                .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+                .Where(File.Exists)
+                .Select(path => MetadataReference.CreateFromFile(path));
+            var compilation = CSharpCompilation.Create(
+                suffix,
+                [tree],
+                references,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    optimizationLevel: OptimizationLevel.Release,
+                    deterministic: true));
+
+            using (var assembly = File.Create(assemblyPath))
+            using (var pdb = File.Create(pdbPath))
+            {
+                var result = compilation.Emit(
+                    assembly,
+                    pdb,
+                    options: new EmitOptions(
+                        debugInformationFormat: DebugInformationFormat.PortablePdb,
+                        pdbFilePath: pdbPath),
+                    cancellationToken: cancellationToken);
+                Assert.True(result.Success, string.Join("\n", result.Diagnostics));
+            }
+
+            using var context = PdbContext.Open(assemblyPath);
+            var method = Assert.Single(
+                context.EnumerateMemberDocuments(),
+                member => member.Anchor.MemberName == "M");
+            Assert.Null(BodySlicer.ExtractMethodBody(
+                source,
+                method.StartLine,
+                method.EndLine,
+                method.Anchor.MemberName,
+                method.SequencePointStartLines));
+        }
+    }
+
+    [Fact]
     public void SameLineSiblings_RealPdbRangesReportAbsent()
     {
         var slices = SliceCorpus()

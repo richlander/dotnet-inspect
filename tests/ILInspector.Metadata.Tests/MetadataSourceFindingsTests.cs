@@ -362,6 +362,41 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void MemberSourceComparison_ReorderedDuplicateMappingsPairByComparedPayload()
+    {
+        var anchor = new MemberAnchor(
+            "Run~1234567890",
+            "M:Sample.Widget.Run()",
+            "1234567890",
+            "Sample.Widget",
+            "Run");
+        var first = new MemberSourceInfo(
+            anchor,
+            MetadataToken: 0x06000001,
+            DocumentRowId: 1,
+            "/_/src/Widget.cs",
+            "src/Widget.cs",
+            ResolvedUrl: null,
+            StartLine: 10,
+            EndLine: 12)
+        {
+            SequencePointStartLines = [10, 12],
+        };
+        var second = first with
+        {
+            SequencePointStartLines = [10, 11, 12],
+        };
+
+        var pairs = Pairs(SourceLinkFindings.CompareMemberSources(
+            [first, second],
+            [second, first],
+            Subject));
+
+        Assert.Equal(2, pairs.Length);
+        Assert.All(pairs, static pair => Assert.Equal(PairKind.Present, pair.Kind));
+    }
+
+    [Fact]
     public void MemberSourceQuery_FiltersByMetadataToken()
     {
         var anchor = new MemberAnchor(
