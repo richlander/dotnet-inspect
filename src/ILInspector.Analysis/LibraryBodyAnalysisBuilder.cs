@@ -332,7 +332,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             // actionable source-shape opportunities, so skip optimization-opportunity
             // collection for them (they are still indexed for calls/leverage/signals).
             bool typeSourceGenerated = includeOpportunities
-                && HasGeneratedCodeAttribute(typeDef.GetCustomAttributes());
+                && IsSourceGeneratedTypeOrEnclosing(typeHandle);
             foreach (var methodHandle in typeDef.GetMethods())
                 workItems.Add((typeHandle, typeDef, typeSourceGenerated, methodHandle));
         }
@@ -608,7 +608,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             if (includeOpportunities)
             {
                 bool sourceGenerated =
-                    HasGeneratedCodeAttribute(methodAttributes);
+                    HasGeneratedCodeAttribute(methodAttributes)
+                    || IsLiftedFromSourceGeneratedMethod(methodDef);
                 bool compilerGenerated =
                     HasCompilerGeneratedAttribute(methodAttributes);
                 if (!typeSourceGenerated
@@ -1049,6 +1050,52 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     // an actionable source-shape optimization target.
     bool HasGeneratedCodeAttribute(CustomAttributeHandleCollection attributes)
         => HasAttributeNamed(attributes, "GeneratedCodeAttribute", "System.CodeDom.Compiler");
+
+    bool IsSourceGeneratedTypeOrEnclosing(TypeDefinitionHandle handle)
+    {
+        while (!handle.IsNil)
+        {
+            var definition = _reader.GetTypeDefinition(handle);
+            if (HasGeneratedCodeAttribute(definition.GetCustomAttributes()))
+                return true;
+            handle = definition.GetDeclaringType();
+        }
+        return false;
+    }
+
+    bool IsLiftedFromSourceGeneratedMethod(MethodDefinition method)
+    {
+        string liftedName = _reader.GetString(method.Name);
+        int close = liftedName.IndexOf('>');
+        if (liftedName.Length < 4
+            || liftedName[0] != '<'
+            || close <= 1
+            || !(liftedName.AsSpan(close + 1).StartsWith("g__", StringComparison.Ordinal)
+                || liftedName.AsSpan(close + 1).StartsWith("b__", StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        string ownerName = liftedName[1..close];
+        TypeDefinitionHandle ownerType = method.GetDeclaringType();
+        TypeDefinition ownerDefinition = _reader.GetTypeDefinition(ownerType);
+        while (!ownerDefinition.GetDeclaringType().IsNil)
+        {
+            ownerType = ownerDefinition.GetDeclaringType();
+            ownerDefinition = _reader.GetTypeDefinition(ownerType);
+        }
+
+        foreach (var ownerMethodHandle in ownerDefinition.GetMethods())
+        {
+            var ownerMethod = _reader.GetMethodDefinition(ownerMethodHandle);
+            if (_reader.StringComparer.Equals(ownerMethod.Name, ownerName)
+                && HasGeneratedCodeAttribute(ownerMethod.GetCustomAttributes()))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     // True when the method is marked [System.Runtime.CompilerServices.CompilerGenerated]
     // — record synthesized members (EqualityContract/PrintMembers/Equals/GetHashCode/
@@ -1491,7 +1538,13 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
 
             var method = _reader.GetMethodDefinition(
                 (MethodDefinitionHandle)methodHandle);
+            bool overridableVirtualCall = instruction.OpCode == ILOpCode.Callvirt
+                && (method.Attributes & MethodAttributes.Virtual) != 0
+                && (method.Attributes & MethodAttributes.Final) == 0
+                && (_reader.GetTypeDefinition(method.GetDeclaringType()).Attributes
+                    & TypeAttributes.Sealed) == 0;
             if (method.RelativeVirtualAddress == 0
+                || overridableVirtualCall
                 || !_reader.GetString(method.Name).StartsWith(
                     "get_",
                     StringComparison.Ordinal))

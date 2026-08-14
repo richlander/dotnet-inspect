@@ -3354,6 +3354,11 @@ public class LibraryBodyIndexTests
             o.Method.Name == nameof(OptimizationOpportunityFixtures.ConcurrentDictionaryFreshReceiverFactory)
             && o.Shape == "instance-method-group-delegate"));
         Assert.DoesNotContain("cache hits", freshReceiver.SafeFixDirection, StringComparison.Ordinal);
+
+        var virtualReceiver = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ConcurrentDictionaryVirtualGetterFactory)
+            && o.Shape == "instance-method-group-delegate"));
+        Assert.DoesNotContain("cache hits", virtualReceiver.SafeFixDirection, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -4371,6 +4376,24 @@ public class LibraryBodyIndexTests
                 StringComparison.Ordinal)
             && o.Shape == "generic-parameter-object-box"));
         Assert.Contains("value-type instantiations", row.Caveat);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_SourceGeneratedLiftedMethods_AreNotReported()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+            opportunity.Shape == "generic-parameter-object-box"
+            && (opportunity.Method.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures.SourceGeneratedLocalFunction),
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures.SourceGeneratedLambda),
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    nameof(SourceGeneratedOptimizationFixtures.SourceGeneratedTypeLambda),
+                    StringComparison.Ordinal)));
     }
 
     [Theory]
@@ -5458,6 +5481,13 @@ public class OptimizationOpportunityFixtures
 
     private FreshFactory StableFactory => _stableFactory;
 
+    public int ConcurrentDictionaryVirtualGetterFactory(string key)
+        => _concurrentCache.GetOrAdd(
+            key,
+            VirtualFactory.Create);
+
+    protected virtual FreshFactory VirtualFactory => _stableFactory;
+
     public int UserGetOrAddInstanceFactory(string key)
         => _userCache.GetOrAdd(key, InstanceParseLength);
 
@@ -5576,7 +5606,7 @@ public class OptimizationOpportunityFixtures
             => valueFactory(key);
     }
 
-    private sealed class FreshFactory
+    protected sealed class FreshFactory
     {
         public int Create(string value) => value.Length;
     }
@@ -5664,6 +5694,18 @@ public class OptimizationOpportunityFixtures
 
         static bool EqualsCore(T x, T y) => x!.Equals(y);
     }
+
+    [System.CodeDom.Compiler.GeneratedCode("test", "1.0")]
+    public static bool SourceGeneratedLocalFunction<T>(T left, T right)
+    {
+        return EqualsCore(left, right);
+
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("test", "1.0")]
+    public static Func<T, bool> SourceGeneratedLambda<T>(T right)
+        => left => left!.Equals(right);
 
     public static bool ReferenceGenericObjectEquals<T>(T left, T right)
         where T : class
@@ -6110,6 +6152,9 @@ public struct BoxFixtureStruct<T>
 public class SourceGeneratedOptimizationFixtures
 {
     public static int[] MakesSmallArray() => new int[4];
+
+    public static Func<T, bool> SourceGeneratedTypeLambda<T>(T right)
+        => left => left!.Equals(right);
 }
 
 public static class OpportunityLeverageFixtures
