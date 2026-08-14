@@ -879,7 +879,7 @@ public static class ApiSurfaceExtractor
                             reader,
                             method.GetCustomAttributes(),
                             observeDecodeWork),
-                    Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
+                    Accessibility = GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     Attributes = RenderMemberAttributes(
@@ -913,6 +913,17 @@ public static class ApiSurfaceExtractor
             {
                 var prop = reader.GetPropertyDefinition(propHandle);
                 var accessors = prop.GetAccessors();
+                if (accessors.Getter.IsNil && accessors.Setter.IsNil)
+                {
+                    AddInspectionFailure(
+                        surface,
+                        "property accessors",
+                        propHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            propHandle,
+                            "The property has no getter or setter."));
+                    continue;
+                }
 
                 // Determine best accessor visibility
                 MethodAttributes bestAccess = 0;
@@ -2572,6 +2583,7 @@ public static class ApiSurfaceExtractor
                     IsOverride = extension.IsOverride,
                     IsSealed = extension.IsSealed,
                     IsUnsafe = extension.IsUnsafe,
+                    Accessibility = extension.Accessibility,
                     IsExtension = true,
                     ExtendedType = extension.ExtendedType,
                     DeclaringType = declaringType.FullName,

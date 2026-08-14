@@ -143,6 +143,27 @@ public class ApiInventoryQueryTests
             type,
             new ApiMemberInventoryRequest([extension.Id], allAccessibilityIds));
         Assert.Contains(extensions.Members, member => member.Name == nameof(InventoryExtensions.Extend));
+        Assert.Equal(
+            "internal",
+            Assert.Single(
+                type.Members,
+                member => member.Name == "InternalExtend"
+                    && member.Kind == "extension-method").Accessibility);
+        Assert.Equal(
+            "private",
+            Assert.Single(
+                type.Members,
+                member => member.Name == "PrivateExtend"
+                    && member.Kind == "extension-method").Accessibility);
+
+        ApiMember finalizer = Assert.Single(type.Members, member => member.Kind == "finalizer");
+        ApiMember explicitImplementation = Assert.Single(
+            type.Members,
+            member => member.Kind == "explicit-interface-implementation");
+        Assert.Equal("protected", finalizer.Accessibility);
+        Assert.Equal("private", explicitImplementation.Accessibility);
+        Assert.DoesNotContain(finalizer, catalog.Members);
+        Assert.DoesNotContain(explicitImplementation, catalog.Members);
 
         var privateFacet = Assert.Single(
             catalog.AccessibilityFacets,
@@ -416,6 +437,22 @@ public class ApiInventoryQueryTests
     }
 
     [Fact]
+    public void Extract_AccessorlessPropertyRecordsVisibleFailure()
+    {
+        using var peReader = new PEReader(new MemoryStream(BuildAccessorlessPropertyImage()));
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == "AccessorlessHost");
+        Assert.Empty(type.Members);
+        ApiSurfaceInspectionFailure failure = Assert.Single(surface.InspectionFailures);
+        Assert.Equal("property accessors", failure.Operation);
+        Assert.Contains("no getter or setter", failure.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Selection_RejectsUnknownFacetIds()
     {
         var surface = new ApiSurface
@@ -540,6 +577,57 @@ public class ApiInventoryQueryTests
         pe.Serialize(image);
         return image.ToArray();
     }
+
+    private static byte[] BuildAccessorlessPropertyImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Accessorless.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Accessorless"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("AccessorlessHost"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var propertySignature = new BlobBuilder();
+        propertySignature.WriteByte(0x08); // PROPERTY
+        propertySignature.WriteByte(0x00); // parameter count
+        propertySignature.WriteByte(0x08); // ELEMENT_TYPE_I4
+        PropertyDefinitionHandle property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(propertySignature));
+        metadata.AddPropertyMap(type, property);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
 }
 
 public interface IInventoryFixture
@@ -583,6 +671,10 @@ public class InventoryFixture : IInventoryFixture
 public static class InventoryExtensions
 {
     public static void Extend(this InventoryFixture fixture) => fixture.Method();
+
+    internal static void InternalExtend(this InventoryFixture fixture) => fixture.Method();
+
+    private static void PrivateExtend(this InventoryFixture fixture) => fixture.Method();
 
     public static void op_Addition(this InventoryFixture fixture) => fixture.Method();
 }
