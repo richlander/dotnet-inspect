@@ -263,7 +263,13 @@ and `OptimizationOpportunityAnalysis` reuses the former plus the query methods
 That service owns the per-method optimization instruction walk, shape
 classification, lazy memoized reaching-definitions use, and allocation metadata
 projection without opening another allocation or decode path. Its traversal may
-repeat member and type resolution, and its reaching-definitions result is
+repeat member and type resolution. It retains opportunity ordering and deferred
+state while delegating array/span/materializer flow,
+StackGuard-fallback classification, and string-concat accumulation evidence to
+focused recognizers. Those recognizers consume the canonical context and
+factual resolver but do not emit opportunities or own another top-level body
+traversal. They may perform focused sub-scans around one candidate. The
+reaching-definitions result is
 memoized within one collection rather than shared with allocation analysis.
 Those reader- and raw-IL-dependent facts arrive through
 `IOptimizationOpportunityResolver`; the producer does not own the metadata

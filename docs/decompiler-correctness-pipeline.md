@@ -273,7 +273,7 @@ dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-co
 | `fast` | `-trait- "Speed=Slow"` | the fast lane the PR CI test job runs |
 | `slow` | `-trait "Speed=Slow"` | only the slow gates |
 | `no-corpus` | `-trait- "Area=Corpus"` | everything except the multi-hour corpus sweep |
-| `pre-merge` | ten `-class` filters | the tractable fidelity gates the PR CI `decompiler-gates` job runs |
+| `pre-merge` | explicit `-class` filters | the tractable fidelity gates the PR CI `decompiler-gates` job runs |
 | `corpus` | `-trait "Area=Corpus"` | only the corpus sweep |
 | `roundtrip` | `-trait "Area=RoundTrip"` | the compile-back / ReturnToSender seam |
 | `fidelity` | `-trait "Area=Fidelity"` | the changed-method fidelity gates |
@@ -299,9 +299,16 @@ does not satisfy Deep Inspect's `if: ... && failure()` notifier, so no
 notification was ever sent. Detection latency was unbounded, not weekly
 (#3432), and five regressions (#3489–#3493) accumulated unseen.
 
-The `decompiler-gates` CI job closes that hole. It is path-gated on the
-decompiler and its substrate, runs as its own job so it never serializes with
-the hot `test` lane, and runs `--gate pre-merge`:
+The `decompiler-gates` CI job closes that hole. Source, test, and tool projects
+run it by default, except for measured false positives in
+`eng/decompiler-gate-skip-projects.txt`. The initial exemptions are the CLI and
+its tests, which do not feed the gate. `test-ci-change-detection.cs` asserts
+that no exempted project appears in MSBuild's evaluated project-reference
+closure rooted at `ILInspector.Decompiler.Tests`. New projects therefore run
+the gate without a list update; an unreadable or invalid skip list exempts
+nothing. Global build inputs and the gate's own scripts and pins remain
+explicit triggers. The job runs separately so it never serializes with the hot
+`test` lane, and executes `--gate pre-merge`.
 
 ```bash
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
@@ -452,11 +459,12 @@ truncated report.
 > `cancelled` one, so this gate skipping on a docs-only PR is fine while this
 > gate hitting its timeout is not (#3523).
 
-`pre-merge` deliberately selects ten workload classes rather than the whole
-`Fidelity` area, plus `GateExpectedClassesTests`, the plumbing guard that rides
-along in the preset it guards.
+`pre-merge` deliberately selects the workload classes named by its fail-closed
+inventory rather than the whole `Fidelity` area, plus
+`GateExpectedClassesTests`, the plumbing guard that rides along in the preset
+it guards.
 
-The ten workload classes share `FidelityGateCollection` and therefore run
+Those workload classes share `FidelityGateCollection` and therefore run
 serially even though this test assembly allows two parallel collections. That
 boundary is intentional: run 30885078644 overlapped the newly gated Printer
 compile-back with Cluster capture for 7m01s and the lowered gate for another
@@ -486,10 +494,10 @@ shape as `NON-ENUMERATED OR REPEATED CASES`.
 Its focused `FidelityCheck.Evaluate` calls select a typed
 `(Type, Method, Overload)` identity before method import, rendering,
 disassembly, and compile-back, reducing the class from 374.25 seconds to 13.31
-seconds locally. The resulting 94-case serialized `pre-merge` preset completes
-in 729.56 seconds locally. A supplied method filter that produces no processable
-row throws rather than returning a vacuous green result; selecting by name
-admits all overloads, while the overload ordinal can select one.
+seconds locally. The serialized `pre-merge` preset completed in 729.56 seconds
+locally at that point. A supplied method filter that produces no processable row
+throws rather than returning a vacuous green result; selecting by name admits
+all overloads, while the overload ordinal can select one.
 
 Method selection does **not** narrow reconstruction. Each selected body still
 compiles against the whole-module skeleton, preserving the class's declaration

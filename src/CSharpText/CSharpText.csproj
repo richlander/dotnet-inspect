@@ -15,7 +15,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="CSharpText.Tests" />
-    <InternalsVisibleTo Include="DotnetInspector.CSharpBodySlicer" />
     <InternalsVisibleTo Include="ILInspector.CSharp" />
     <InternalsVisibleTo Include="ILInspector.Metadata" />
   </ItemGroup>
