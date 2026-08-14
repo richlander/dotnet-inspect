@@ -17,7 +17,7 @@ public class AnnotatedSourceJsonTests
             document,
             AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument);
 
-        Assert.Equal(
+        string expectedIndented =
             """
             {
               "text": "return;",
@@ -62,8 +62,8 @@ public class AnnotatedSourceJsonTests
                 }
               ]
             }
-            """,
-            indented);
+            """;
+        Assert.Equal(expectedIndented.ReplaceLineEndings(Environment.NewLine), indented);
         Assert.Equal(
             """{"text":"return;","nodes":[{"id":0,"kind":"ReturnStatement","medium":"CSharp","spans":[{"start":0,"length":7}]}],"regions":[{"role":"Case","spans":[{"start":0,"length":7}]}],"facts":[{"id":0,"descriptor":"test.fact","category":"Semantics","conditionality":"Always","source_offset":-1,"origin":"Body"}],"targets":[{"fact_id":0,"node_id":0}]}""",
             compact);
