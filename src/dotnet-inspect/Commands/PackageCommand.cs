@@ -2704,6 +2704,7 @@ public class PackageCommand
                     });
             })
             .ToArray();
+        var windowedRows = RowWindow.Apply(options.Rows, rows).ToArray();
 
         OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
         {
@@ -2718,9 +2719,9 @@ public class PackageCommand
             markoutWriter.WriteTable(
                 ["Package", "Version", "Path", "Size"],
                 ["package", "version", "path", "size"],
-                rows);
+                windowedRows);
             markoutWriter.Flush();
-        }, options.Rows);
+        });
     }
 
     private static void WritePackageFilesJsonl(InspectionResult result, string section)
@@ -2942,8 +2943,7 @@ public class PackageCommand
                 }))
             .ToArray();
 
-        OutputFormatter.WriteProjectedTable(
-            Console.Out,
+        string rendered = OutputFormatter.RenderProjectedTable(
             !options.NoHeader,
             options.Tsv,
             options.Jsonl,
@@ -2958,8 +2958,15 @@ public class PackageCommand
                     ["package", "field", "value"],
                     rows);
                 markoutWriter.Flush();
-            },
-            options.Rows);
+            });
+        ProjectionDiagnostics.DiagnoseRendered(
+            options.Fields,
+            rendered);
+        Console.Out.Write(
+            OutputFormatter.LimitRenderedTableRows(
+                rendered,
+                options.Rows,
+                !options.NoHeader));
     }
 
     private static IEnumerable<MarkoutField> SelectPackageInfoFields(

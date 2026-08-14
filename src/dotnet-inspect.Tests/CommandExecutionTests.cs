@@ -18185,17 +18185,52 @@ public partial class CommandExecutionTests
                 "Package README file,Signature",
                 "--count",
                 "--skip-empty");
+            var tail = await RunAppAsync(
+                "package",
+                withReadme,
+                withoutReadme,
+                "-S",
+                "Package README file",
+                "--columns",
+                "Path",
+                "--rows",
+                "1",
+                "--tail",
+                "--tsv");
+            var tailWithoutHeader = await RunAppAsync(
+                "package",
+                withReadme,
+                withoutReadme,
+                "-S",
+                "Package README file",
+                "--columns",
+                "Path",
+                "--rows",
+                "1",
+                "--tail",
+                "--tsv",
+                "--no-header");
 
             Assert.Equal(0, count.Exit);
             Assert.Equal(0, skipEmpty.Exit);
+            Assert.Equal(0, tail.Exit);
+            Assert.Equal(0, tailWithoutHeader.Exit);
             Assert.Empty(count.Error);
             Assert.Empty(skipEmpty.Error);
+            Assert.Empty(tail.Error);
+            Assert.Empty(tailWithoutHeader.Error);
             Assert.Contains(
                 "| Package README file | 2 |",
                 count.Output);
             Assert.Contains(
                 "| Package README file | 1 |",
                 skipEmpty.Output);
+            Assert.Equal(
+                "path\n\n",
+                tail.Output.ReplaceLineEndings("\n"));
+            Assert.Equal(
+                "\n",
+                tailWithoutHeader.Output.ReplaceLineEndings("\n"));
         }
         finally
         {
@@ -18481,15 +18516,30 @@ public partial class CommandExecutionTests
                 "--fields",
                 "Authors;Version",
                 "--tsv");
+            var absent = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Owners;Version",
+                "--tsv");
 
             Assert.Equal(0, count.Exit);
             Assert.Equal(0, rendered.Exit);
             Assert.Equal(0, column.Exit);
             Assert.Equal(0, ordered.Exit);
+            Assert.Equal(0, absent.Exit);
             Assert.Empty(count.Error);
-            Assert.Empty(rendered.Error);
+            Assert.Contains(
+                "Note: 1 field has no data: Ver*",
+                rendered.Error);
             Assert.Empty(column.Error);
             Assert.Empty(ordered.Error);
+            Assert.Contains(
+                "Note: 1 field has no data: Owners",
+                absent.Error);
             Assert.Equal("2", count.Output.Trim());
             string[] rows = rendered.Output.Split(
                 '\n',
