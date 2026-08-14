@@ -15,7 +15,7 @@ shared contracts, not dynamically loaded plugins.
 
 This document describes the target core architecture and the principles that
 govern its migration. Library metadata, direct-reference, extension-method,
-custom-attribute, manifest-resource, type-forwarder, SourceLink, and
+custom-attribute, manifest-resource, type-forwarder, union-type, SourceLink, and
 API-comparison inspection plus implementation-relationship and type/member
 search inspection are the first typed-query canaries: commands and section
 catalogs plan typed demand while queries remain independent of acquisition and
@@ -559,8 +559,9 @@ The existing `ScannerRegistry` remains an assembly-local predecessor: its
 explicit prerequisites, once-per-run resources, deterministic ordering, and
 tracing are useful foundations. `DotnetInspector.Queries` and its optional
 Research-backed companion now own typed metadata, direct-reference,
-extension-method, custom-attribute, manifest-resource, type-forwarder, SourceLink,
-API-comparison, and Analysis body-signal comparison plans. The Analysis query
+extension-method, custom-attribute, manifest-resource, type-forwarder,
+union-type, SourceLink, API-comparison, and Analysis body-signal comparison
+plans. The Analysis query
 consumes old/new `LibraryBodyIndex` collections and returns
 `ResearchComparison`; the diff CLI still owns lazy path-to-index acquisition as
 a transitional adapter. String keys, mutable CLI models, path-shaped residual

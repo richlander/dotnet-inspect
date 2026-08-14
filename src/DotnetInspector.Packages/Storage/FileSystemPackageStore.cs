@@ -19,31 +19,50 @@ public sealed class FileSystemPackageStore : IPackageStore
         IReadOnlyList<string>? allowedSourceKeys,
         Action<string>? log = null)
     {
+        foreach (IPackageContent content in EnumerateCached(
+                     packageName,
+                     version,
+                     allowedSourceKeys,
+                     log))
+        {
+            return content;
+        }
+
+        return null;
+    }
+
+    /// <inheritdoc />
+    public IEnumerable<IPackageContent> EnumerateCached(
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys,
+        Action<string>? log = null)
+    {
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
 
-        CachedPackage? cached;
-        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
+        // Lazy tiers: do not materialize global-packages until the caller
+        // advances past earlier candidates (typically after admission reject).
+        foreach (CachedPackage cached in NuGetCache.EnumerateCachedPackageContent(
+                     normalizedName,
+                     normalizedVersion,
+                     allowedSourceKeys))
         {
-            cached = NuGetCache.TryGetCachedPackageContent(
-                normalizedName,
-                normalizedVersion,
-                allowedSourceKeys);
+            using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
+            {
+                log?.Invoke($"Using cached package: {cached.ExtractPath}");
+                var cachedNupkg = FindNupkgInDirectory(
+                    cached.ExtractPath,
+                    normalizedName,
+                    normalizedVersion);
+                yield return new FileSystemPackageContent(
+                    cached.ExtractPath,
+                    cachedNupkg,
+                    fromCache: true,
+                    cached.ProducerKey,
+                    requiresArchiveTreeMatch: cached.RequiresArchiveTreeMatch);
+            }
         }
-
-        if (cached == null || !NuGetCache.IsCachedPackageValid(cached.ExtractPath))
-            return null;
-
-        log?.Invoke($"Using cached package: {cached.ExtractPath}");
-        var cachedNupkg = FindNupkgInDirectory(
-            cached.ExtractPath,
-            normalizedName,
-            normalizedVersion);
-        return new FileSystemPackageContent(
-            cached.ExtractPath,
-            cachedNupkg,
-            fromCache: true,
-            cached.ProducerKey);
     }
 
     /// <inheritdoc />
@@ -87,7 +106,8 @@ public sealed class FileSystemPackageStore : IPackageStore
                 committed.ExtractPath,
                 committed.NupkgPath,
                 fromCache: true,
-                committed.ProducerKey);
+                committed.ProducerKey,
+                requiresArchiveTreeMatch: true);
         }
         finally
         {
@@ -111,22 +131,10 @@ public sealed class FileSystemPackageStore : IPackageStore
     private static string? FindNupkgInDirectory(string cacheDir, string packageName, string version)
     {
         // Standard NuGet cache layout: {package}/{version}/{package}.{version}.nupkg
+        // Only the expected retained archive name is admissible. Scanning for
+        // any *.nupkg would let extracted package content (a decoy nupkg in the
+        // tree) stand in for the archive PackageContentAdmission re-validates.
         var expectedPath = Path.Combine(cacheDir, $"{packageName}.{version}.nupkg");
-        if (File.Exists(expectedPath))
-            return expectedPath;
-
-        try
-        {
-            var nupkgFiles = Directory.GetFiles(cacheDir, "*.nupkg");
-            return nupkgFiles.Length > 0 ? nupkgFiles[0] : null;
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return null;
-        }
+        return File.Exists(expectedPath) ? expectedPath : null;
     }
 }

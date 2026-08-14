@@ -9,6 +9,7 @@ using System.Buffers;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Text;
 using DotnetInspector.Core;
 
 namespace DotnetInspector.Packages;
@@ -29,9 +30,25 @@ public static class HttpRetryHelper
         TooLarge,
     }
 
+    /// <summary>
+    /// Outcome of streaming a response body to a local file.
+    /// </summary>
+    public enum DownloadToFileResult
+    {
+        /// <summary>The destination contains the complete response body.</summary>
+        Succeeded,
+
+        /// <summary>The source gave no usable answer (missing, transport failure).</summary>
+        Unavailable,
+
+        /// <summary>The source answered with a payload above the configured cap.</summary>
+        RejectedPayload,
+    }
+
     public readonly record struct HttpBodyFetchResult(
         byte[]? Bytes,
-        HttpBodyFetchStatus Status);
+        HttpBodyFetchStatus Status,
+        HttpStatusCode? StatusCode = null);
 
     public readonly record struct HttpRetryResult(HttpResponseMessage? Response, HttpStatusCode? StatusCode)
     {
@@ -43,6 +60,20 @@ public static class HttpRetryHelper
     /// Default number of retries for transient failures.
     /// </summary>
     public const int DefaultRetryCount = 3;
+
+    /// <summary>
+    /// Largest advertised response body accepted by a downloading helper.
+    /// </summary>
+    private const long MaxDownloadSize = 500_000_000; // 500 MB
+
+    /// <summary>
+    /// Default ceiling for text/JSON feed documents fetched via
+    /// <see cref="GetStringWithRetryAsync"/> (service index, version lists,
+    /// registration pages, search). Hostile feeds must not be able to force a
+    /// multi‑GiB string allocation on discovery paths that precede package
+    /// download admission.
+    /// </summary>
+    public const long DefaultMaxTextResponseBytes = 16 * 1024 * 1024;
 
     /// <summary>
     /// HTTP status codes that indicate a transient failure worth retrying.
@@ -341,7 +372,8 @@ public static class HttpRetryHelper
         CancellationToken cancellationToken = default,
         AuthenticationHeaderValue? auth = null,
         NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
-        long maxDownloadSize = 500_000_000)
+        long maxDownloadSize = 500_000_000,
+        Action<HttpRequestMessage>? configureRequest = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
@@ -368,6 +400,7 @@ public static class HttpRetryHelper
                     using var request = new HttpRequestMessage(HttpMethod.Get, url);
                     if (auth != null)
                         request.Headers.Authorization = auth;
+                    configureRequest?.Invoke(request);
                     request.Options.Set(BrowserStreamingResponse, true);
 
                     using var response = await client.SendAsync(
@@ -381,7 +414,8 @@ public static class HttpRetryHelper
                         {
                             return new HttpBodyFetchResult(
                                 null,
-                                HttpBodyFetchStatus.ResponseRejected);
+                                HttpBodyFetchStatus.ResponseRejected,
+                                response.StatusCode);
                         }
 
                         readingBody = true;
@@ -391,7 +425,8 @@ public static class HttpRetryHelper
                             timeout.Token).ConfigureAwait(false);
                         return new HttpBodyFetchResult(
                             bytes,
-                            HttpBodyFetchStatus.Success);
+                            HttpBodyFetchStatus.Success,
+                            response.StatusCode);
                     }
 
                     HttpStatusCode statusCode = response.StatusCode;
@@ -399,7 +434,8 @@ public static class HttpRetryHelper
                     {
                         return new HttpBodyFetchResult(
                             null,
-                            HttpBodyFetchStatus.Unavailable);
+                            HttpBodyFetchStatus.Unavailable,
+                            statusCode);
                     }
 
                     if (!IsRetryableStatus(statusCode))
@@ -408,7 +444,8 @@ public static class HttpRetryHelper
                         FeedFailureTelemetry.Record(url, statusCode);
                         return new HttpBodyFetchResult(
                             null,
-                            HttpBodyFetchStatus.Unavailable);
+                            HttpBodyFetchStatus.Unavailable,
+                            statusCode);
                     }
 
                     log?.Invoke($"HTTP GET {(int)statusCode} (retryable).");
@@ -525,7 +562,11 @@ public static class HttpRetryHelper
     private sealed class ResponseBodyTooLargeException : InvalidOperationException;
 
     /// <summary>
-    /// Executes an HTTP GET and returns the response body as a string, with retry logic.
+    /// Executes an HTTP GET and returns the response body as a string, with
+    /// retry logic and a hard body ceiling
+    /// (<see cref="DefaultMaxTextResponseBytes"/> unless overridden).
+    /// Oversized bodies return null (fail closed) rather than materializing an
+    /// unbounded string.
     /// </summary>
     /// <param name="client">HTTP client to use</param>
     /// <param name="url">URL to fetch</param>
@@ -533,7 +574,12 @@ public static class HttpRetryHelper
     /// <param name="log">Optional logging callback</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <param name="auth">Optional authentication header for authenticated feeds</param>
-    /// <returns>Response body as string, or null if failed</returns>
+    /// <param name="trafficKind">Telemetry classification for the request</param>
+    /// <param name="maxDownloadSize">
+    /// Maximum accepted body bytes. Defaults to
+    /// <see cref="DefaultMaxTextResponseBytes"/>.
+    /// </param>
+    /// <returns>Response body as string, or null if failed or oversize</returns>
     public static async Task<string?> GetStringWithRetryAsync(
         HttpClient client,
         string url,
@@ -541,63 +587,138 @@ public static class HttpRetryHelper
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
         AuthenticationHeaderValue? auth = null,
-        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
+        long maxDownloadSize = DefaultMaxTextResponseBytes,
+        Action<HttpRequestMessage>? configureRequest = null)
     {
-        using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken, auth, trafficKind).ConfigureAwait(false);
-        if (response == null)
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDownloadSize);
+
+        // Headers-first via the shared retry loop so relative-URL resolution,
+        // redacted failure logs, and FeedFailureTelemetry stay identical to
+        // other package GETs — then bound the body before decoding text.
+        HttpRetryResult result = await ExecuteWithRetryAsync(
+            client,
+            () =>
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                if (auth != null)
+                    request.Headers.Authorization = auth;
+                configureRequest?.Invoke(request);
+                return request;
+            },
+            HttpCompletionOption.ResponseHeadersRead,
+            url,
+            "GET",
+            retryCount,
+            log,
+            cancellationToken,
+            trafficKind).ConfigureAwait(false);
+
+        using HttpResponseMessage? response = result.Response;
+        if (response is null)
             return null;
 
-        return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        // Body work sits outside ExecuteWithRetryAsync's NetworkTelemetry.Scope.
+        // Re-enter the caller trafficKind so FeedFailureTelemetry.Record stamps
+        // PackageVersionList / PackageManifest / etc., not Unknown or an outer
+        // ambient scope.
+        using (NetworkTelemetry.Scope(trafficKind))
+        {
+            // Oversize / body timeout must mark FeedFailureTelemetry so callers that
+            // distinguish Absent vs Failure via failure deltas (version index) do not
+            // treat a hostile oversize 200 as a clean 404.
+            void RecordBodyFailure()
+            {
+                Uri? effective = response.RequestMessage?.RequestUri;
+                if (effective is not null)
+                    FeedFailureTelemetry.Record(effective, response.StatusCode);
+                else
+                    FeedFailureTelemetry.Record(url, response.StatusCode);
+            }
+
+            if (response.Content.Headers.ContentLength is long advertised
+                && advertised > maxDownloadSize)
+            {
+                log?.Invoke($"HTTP GET body exceeded {maxDownloadSize} byte cap.");
+                RecordBodyFailure();
+                return null;
+            }
+
+            // Headers-first means HttpClient.Timeout no longer covers the body.
+            // Match GetBytesAfterHeadersWithRetryAsync: linked CTS + CancelAfter so
+            // a stalled feed cannot hang service-index / version-list discovery.
+            TimeSpan requestTimeout = client.Timeout == Timeout.InfiniteTimeSpan
+                || client.Timeout > HttpClientFactoryOptions.BaselineTimeout
+                    ? HttpClientFactoryOptions.BaselineTimeout
+                    : client.Timeout;
+            using var bodyTimeout = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+            bodyTimeout.CancelAfter(requestTimeout);
+
+            try
+            {
+                byte[] bytes = await ReadBoundedBodyAsync(
+                    response.Content,
+                    maxDownloadSize,
+                    bodyTimeout.Token).ConfigureAwait(false);
+                return Encoding.UTF8.GetString(bytes);
+            }
+            catch (ResponseBodyTooLargeException)
+            {
+                log?.Invoke($"HTTP GET body exceeded {maxDownloadSize} byte cap.");
+                RecordBodyFailure();
+                return null;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                log?.Invoke("GET body timeout.");
+                RecordBodyFailure();
+                return null;
+            }
+            catch (Exception ex) when (ex is IOException or HttpRequestException)
+            {
+                // Mid-body transport failure after headers must not escape as an
+                // unhandled fault: discovery loops classify sources via null +
+                // FeedFailureTelemetry deltas, not exceptions.
+                log?.Invoke("GET body failed.");
+                RecordBodyFailure();
+                return null;
+            }
+        }
     }
 
     /// <summary>
-    /// Executes an HTTP GET and returns the response body as a byte array, with retry logic.
-    /// </summary>
-    /// <param name="client">HTTP client to use</param>
-    /// <param name="url">URL to fetch</param>
-    /// <param name="retryCount">Maximum number of retries (default: 3)</param>
-    /// <param name="log">Optional logging callback</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <param name="auth">Optional authentication header for authenticated feeds</param>
-    /// <returns>Response body as byte array, or null if failed</returns>
-    public static async Task<byte[]?> GetBytesWithRetryAsync(
-        HttpClient client,
-        string url,
-        int retryCount = DefaultRetryCount,
-        Action<string>? log = null,
-        CancellationToken cancellationToken = default,
-        AuthenticationHeaderValue? auth = null,
-        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
-    {
-        using var response = await GetWithRetryAsync(client, url, retryCount, log, cancellationToken, auth, trafficKind).ConfigureAwait(false);
-        if (response == null)
-            return null;
-
-        const long MaxDownloadSize = 500_000_000; // 500 MB
-
-        if (response.Content.Headers.ContentLength is > MaxDownloadSize)
-            throw new InvalidOperationException(
-                $"Download size ({response.Content.Headers.ContentLength / 1_000_000} MB) exceeds limit.");
-
-        return await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Executes an HTTP GET and streams the response body directly to <paramref name="destinationPath"/>,
-    /// with retry on the initial request. Uses <see cref="HttpCompletionOption.ResponseHeadersRead"/> so
-    /// the payload is never fully buffered in memory — important for large packages. Returns true on
-    /// success, false if the request ultimately failed. Throws if the advertised size exceeds the cap.
+    /// Executes an HTTP GET with retry on the initial request and returns the
+    /// successful response with its body unread, so a caller can stream the
+    /// payload without buffering it. Uses
+    /// <see cref="HttpCompletionOption.ResponseHeadersRead"/>. The caller owns
+    /// the returned response and must dispose it. Returns null if the request
+    /// ultimately failed. Returns null if the advertised size exceeds
+    /// <paramref name="maxAdvertisedContentLength"/> so a multi-source caller
+    /// can fail over instead of aborting the remaining producers.
     /// Note: a failure that occurs mid-body (after headers) is not retried.
     /// </summary>
-    public static async Task<bool> DownloadToFileWithRetryAsync(
+    /// <param name="maxAdvertisedContentLength">
+    /// The advertised body size above which this helper returns null. A caller
+    /// that bounds the payload itself — and must keep an oversized payload a
+    /// typed failure rather than an exception — raises this so the decision
+    /// stays where the typed result is produced. The advertised length is a
+    /// claim by the remote, so raising this never removes a bound from a caller
+    /// that counts the bytes it actually received.
+    /// </param>
+    public static async Task<HttpResponseMessage?> GetStreamedWithRetryAsync(
         HttpClient client,
         string url,
-        string destinationPath,
         int retryCount = DefaultRetryCount,
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
         AuthenticationHeaderValue? auth = null,
-        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown)
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
+        long maxAdvertisedContentLength = MaxDownloadSize)
     {
         var result = await ExecuteWithRetryAsync(
             client,
@@ -616,18 +737,145 @@ public static class HttpRetryHelper
             cancellationToken,
             trafficKind).ConfigureAwait(false);
 
-        using var response = result.Response;
+        var response = result.Response;
         if (response == null)
-            return false;
+            return null;
 
-        const long MaxDownloadSize = 500_000_000; // 500 MB
-        if (response.Content.Headers.ContentLength is > MaxDownloadSize)
-            throw new InvalidOperationException(
-                $"Download size ({response.Content.Headers.ContentLength / 1_000_000} MB) exceeds limit.");
+        if (response.Content.Headers.ContentLength > maxAdvertisedContentLength)
+        {
+            // Oversized advertised length is a failed source answer. Returning
+            // null keeps source failover intact; throwing would abort the loop
+            // that is still trying every other authorized producer.
+            long advertised = response.Content.Headers.ContentLength.Value;
+            response.Dispose();
+            log?.Invoke(
+                $"Download size ({advertised / 1_000_000} MB) exceeds limit.");
+            return null;
+        }
 
-        await using var fs = File.Create(destinationPath);
-        await response.Content.CopyToAsync(fs, cancellationToken).ConfigureAwait(false);
-        return true;
+        return response;
+    }
+
+    /// <summary>
+    /// Executes an HTTP GET and streams the response body directly to <paramref name="destinationPath"/>,
+    /// with retry on the initial request. Uses <see cref="HttpCompletionOption.ResponseHeadersRead"/> so
+    /// the payload is never fully buffered in memory — important for large packages. Returns true on
+    /// <see cref="DownloadToFileResult.Succeeded"/> on success,
+    /// <see cref="DownloadToFileResult.Unavailable"/> when the source gave no
+    /// usable answer, or <see cref="DownloadToFileResult.RejectedPayload"/> when
+    /// the source advertised or streamed a body above the cap.
+    /// Bytes actually received are counted against the same cap, so a chunked
+    /// or under-reported response cannot grow the destination without bound.
+    /// The body read is bounded by the same request timeout used for headers so
+    /// a stalled source cannot pin the caller past failover.
+    /// Note: a failure that occurs mid-body (after headers) is not retried.
+    /// </summary>
+    /// <remarks>
+    /// Gated by
+    /// <c>HttpRetryHelperTests.DownloadToFile_BoundsActualBytesWhenLengthIsMissingOrUnderReported</c>
+    /// and
+    /// <c>HttpRetryHelperTests.DownloadToFile_RejectsAdvertisedOversizeAsTypedResult</c>.
+    /// </remarks>
+    public static async Task<DownloadToFileResult> DownloadToFileWithRetryAsync(
+        HttpClient client,
+        string url,
+        string destinationPath,
+        int retryCount = DefaultRetryCount,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default,
+        AuthenticationHeaderValue? auth = null,
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
+        long maxDownloadedBytes = MaxDownloadSize)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDownloadedBytes);
+
+        // Keep advertised-oversize as a typed RejectedPayload here rather than
+        // collapsing it into GetStreamedWithRetryAsync's null (Unavailable).
+        using var response = await GetStreamedWithRetryAsync(
+            client,
+            url,
+            retryCount,
+            log,
+            cancellationToken,
+            auth,
+            trafficKind,
+            maxAdvertisedContentLength: long.MaxValue)
+            .ConfigureAwait(false);
+        if (response == null)
+            return DownloadToFileResult.Unavailable;
+
+        if (response.Content.Headers.ContentLength > maxDownloadedBytes)
+        {
+            long advertised = response.Content.Headers.ContentLength.Value;
+            log?.Invoke(
+                $"Download size ({advertised / 1_000_000} MB) exceeds limit.");
+            return DownloadToFileResult.RejectedPayload;
+        }
+
+        bool destinationCreated = false;
+        bool completed = false;
+        try
+        {
+            using var bodyTimeout = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+            TimeSpan requestTimeout =
+                client.Timeout == Timeout.InfiniteTimeSpan
+                || client.Timeout > HttpClientFactoryOptions.BaselineTimeout
+                    ? HttpClientFactoryOptions.BaselineTimeout
+                    : client.Timeout;
+            bodyTimeout.CancelAfter(requestTimeout);
+
+            await using Stream source = await response.Content
+                .ReadAsStreamAsync(bodyTimeout.Token)
+                .ConfigureAwait(false);
+            await using FileStream destination = File.Create(destinationPath);
+            destinationCreated = true;
+            byte[] buffer = new byte[81920];
+            long received = 0;
+            while (true)
+            {
+                int read = await source.ReadAsync(
+                        buffer,
+                        bodyTimeout.Token)
+                    .ConfigureAwait(false);
+                if (read == 0)
+                    break;
+
+                if (read > maxDownloadedBytes - received)
+                {
+                    log?.Invoke(
+                        $"Download size exceeds the {maxDownloadedBytes}-byte limit.");
+                    return DownloadToFileResult.RejectedPayload;
+                }
+
+                await destination.WriteAsync(
+                        buffer.AsMemory(0, read),
+                        bodyTimeout.Token)
+                    .ConfigureAwait(false);
+                received += read;
+            }
+
+            completed = true;
+            return DownloadToFileResult.Succeeded;
+        }
+        finally
+        {
+            if (destinationCreated && !completed)
+            {
+                try
+                {
+                    File.Delete(destinationPath);
+                }
+                catch (IOException)
+                {
+                    // Prefer the download failure over a cleanup failure.
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // Prefer the download failure over a cleanup failure.
+                }
+            }
+        }
     }
 
     /// <summary>
