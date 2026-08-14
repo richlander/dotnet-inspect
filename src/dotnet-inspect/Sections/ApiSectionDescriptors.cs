@@ -178,7 +178,10 @@ public static class ApiMemberSectionDescriptors
         Add<CostFacts>(pipeline, queryBacked);
         Add<TopLeverage>(pipeline, queryBacked);
         Add<OptimizationOpportunities>(pipeline, queryBacked);
-        Add<SourceFiles>(pipeline, queryBacked);
+        if (queryBacked)
+            Add<TypeSourceFiles>(pipeline, queryBacked, static _ => true);
+        else
+            Add<SourceFiles>(pipeline, queryBacked);
         Add<DecompiledSource>(pipeline, queryBacked);
 
         if (!queryBacked)
@@ -606,6 +609,23 @@ public static class ApiMemberSectionDescriptors
             => model.Members.Any(IsMethodLike)
                || !string.IsNullOrWhiteSpace(model.SourceUrl)
                || model.AdditionalSourceFiles.Count > 0;
+    }
+
+    // The curated type path can attempt PDB acquisition for every type shape, including enums
+    // with no visible methods. Its post-acquisition effectiveness is the source rows themselves;
+    // the legacy member pipeline keeps the historical method-based descriptor above.
+    private sealed class TypeSourceFiles : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.SourceFiles;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => !string.IsNullOrWhiteSpace(model.SourceUrl)
+               || model.AdditionalSourceFiles.Any(
+                   file => !string.IsNullOrWhiteSpace(file.SourceUrl));
     }
 
     // ===== Expensive sections (decompiler output) =====

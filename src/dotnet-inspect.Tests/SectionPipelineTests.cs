@@ -5748,6 +5748,33 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void TypePipeline_SourceFilesSeparatesApplicabilityFromProducedRows()
+    {
+        var pipeline = ApiMemberSectionPipelines.Create(new TypeOptions());
+        var sourceFiles = new HashSet<string>(
+            [SectionNames.SourceFiles],
+            StringComparer.OrdinalIgnoreCase);
+        var type = new ApiType
+        {
+            Name = "Status",
+            Kind = "enum",
+        };
+
+        Assert.Contains(
+            SectionNames.SourceFiles,
+            pipeline.GetDiscoverableSections(type, sourceFiles));
+        Assert.DoesNotContain(
+            SectionNames.SourceFiles,
+            pipeline.GetEffectiveSections(type, Verbosity.Detailed, sourceFiles));
+
+        type.SourceUrl = "https://example.test/Status.cs";
+
+        Assert.Contains(
+            SectionNames.SourceFiles,
+            pipeline.GetEffectiveSections(type, Verbosity.Detailed, sourceFiles));
+    }
+
+    [Fact]
     public void TypePipeline_DomainSectionsStayOutsideAutomaticVerbosity()
     {
         var pipeline = ApiMemberSectionPipelines.Create(new TypeOptions());

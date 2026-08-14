@@ -4560,6 +4560,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void Type_Listing_JsonSectionProjectionPreservesDocumentEvidence()
+    {
+        List<TypeForwarder> forwarders =
+        [
+            new() { TypeName = "Example.Forwarded", TargetAssembly = "Example.Target" }
+        ];
+        List<ApiSurfaceInspectionFailure> failures =
+        [
+            new(
+                "type",
+                0x02000001,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "TypeDefinition",
+                "invalid name")
+        ];
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                new() { Name = "Widget", Kind = "class" },
+                new() { Name = "Status", Kind = "enum" },
+            ],
+            TypeForwarders = forwarders,
+            InspectionFailures = failures,
+        };
+
+        var projected = ApiCommand.ProjectSurfaceToSections(
+            surface,
+            new HashSet<string>([SectionNames.Classes], StringComparer.OrdinalIgnoreCase));
+
+        Assert.Same(forwarders, projected.TypeForwarders);
+        Assert.Same(failures, projected.InspectionFailures);
+        Assert.Single(projected.Types);
+        Assert.Equal("class", projected.Types[0].Kind);
+    }
+
+    [Fact]
     public async Task Type_SingleType_JsonRejectsSectionProducedAnalysisRows()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -4573,6 +4610,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleType_JsonAllowsPrintAndCountToOwnOutputShape()
+    {
+        var (printExit, printOutput, printError) = await RunAppAsync(
+            "type", "System.DayOfWeek",
+            "-S", "Decompiled Source", "--print", "--json", "--raw", "--tips", "q");
+
+        Assert.Equal(0, printExit);
+        Assert.Empty(printError);
+        using var _ = JsonDocument.Parse(printOutput);
+
+        var (plainCountExit, plainCount, plainCountError) = await RunAppAsync(
+            "type", "System.DayOfWeek",
+            "-S", "Decompiled Source", "--count", "--tips", "q");
+        var (jsonCountExit, jsonCount, jsonCountError) = await RunAppAsync(
+            "type", "System.DayOfWeek",
+            "-S", "Decompiled Source", "--count", "--json", "--tips", "q");
+
+        Assert.Equal(0, plainCountExit);
+        Assert.Equal(0, jsonCountExit);
+        Assert.Empty(plainCountError);
+        Assert.Empty(jsonCountError);
+        Assert.Equal(plainCount.Trim(), jsonCount.Trim());
+    }
+
+    [Fact]
     public async Task Type_Listing_MarkdownColumnsWithoutSelectTargetTypeRows()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -4581,6 +4643,20 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
+        Assert.Contains("## Classes", output);
+        Assert.Contains("| Kind | Type |", output);
+        Assert.DoesNotContain("## API Info", output);
+    }
+
+    [Fact]
+    public async Task Type_PrefixFallback_MarkdownColumnsTargetTypeRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json", "--platform", "System.Text.Json",
+            "--columns", "Kind,Type", "--tips", "q", "-n", "12");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("best-effort prefix matches", error);
         Assert.Contains("## Classes", output);
         Assert.Contains("| Kind | Type |", output);
         Assert.DoesNotContain("## API Info", output);
@@ -5074,6 +5150,55 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## Source Files", output);
         Assert.Contains("DayOfWeek.cs", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_DiscoverSourceLinkCategory_ListsSourceFilesForEnum()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.DayOfWeek",
+            "-D", "@SourceLink", "--tips", "q");
+
+        Assert.True(exit == 0, error);
+        Assert.Empty(error);
+        Assert.Contains("| Source Files | section |", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_SourceFilesJsonFailsWhenNoSourceRowsExist()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+            Members = [new() { Name = "Run", Kind = "method", Signature = "void Run()" }],
+        };
+        var options = new TypeOptions
+        {
+            TypeName = "Example.Widget",
+            JsonOutput = true,
+            Select = [SectionNames.SourceFiles],
+            IncludeSections = new HashSet<string>(
+                [SectionNames.SourceFiles],
+                StringComparer.OrdinalIgnoreCase),
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"This section ({SectionNames.SourceFiles}) produced no output.",
+            error);
     }
 
     [Fact]

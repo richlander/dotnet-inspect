@@ -109,6 +109,7 @@ public class ApiCommand
         var listingOptions = selectResult.Sections != null
             ? options with { IncludeSections = selectResult.Sections, SelectDeferredToListing = false }
             : options with { SelectDeferredToListing = false };
+        listingOptions = ApplyImplicitTypeListingColumnScope(listingOptions);
 
         // The preamble skips the selection-arity checks for a deferred select because it cannot yet
         // know which pipeline will render. Now it is known, so they run here against the sections
@@ -126,6 +127,29 @@ public class ApiCommand
         }
 
         return listingOptions;
+    }
+
+    private static TypeOptions ApplyImplicitTypeListingColumnScope(TypeOptions options)
+    {
+        if (options.IncludeSections is not null
+            || options.Columns is not { Length: > 0 }
+            || options.Tabular
+            || options.JsonOutput)
+        {
+            return options;
+        }
+
+        return options with
+        {
+            IncludeSections =
+            [
+                SectionNames.Classes,
+                SectionNames.Structs,
+                SectionNames.Interfaces,
+                SectionNames.Enums,
+                SectionNames.Delegates,
+            ]
+        };
     }
 
     // ===== Shared Preamble =====
@@ -317,25 +341,8 @@ public class ApiCommand
         // A Markdown column projection without -S historically targets the listing's type rows.
         // The curated minimal preset is API Info, whose fact-table columns cannot satisfy that
         // projection, so make the implicit row scope explicit without changing tabular formats.
-        if (!singleTypeMode
-            && options is TypeOptions
-            && options.IncludeSections is null
-            && options.Columns is { Length: > 0 }
-            && !options.Tabular
-            && !options.JsonOutput)
-        {
-            options = options with
-            {
-                IncludeSections =
-                [
-                    SectionNames.Classes,
-                    SectionNames.Structs,
-                    SectionNames.Interfaces,
-                    SectionNames.Enums,
-                    SectionNames.Delegates,
-                ]
-            };
-        }
+        if (!singleTypeMode && options is TypeOptions listingOptions)
+            options = ApplyImplicitTypeListingColumnScope(listingOptions);
 
         // A deferred select has no IncludeSections yet, and the preamble cannot know whether a
         // listing or the single-type view will render, so every selection check below has to stand
@@ -344,7 +351,8 @@ public class ApiCommand
         // accurate rejection. ReresolveSectionsForListing re-runs them once the pipeline is known.
         var selectionSections = options.SelectDeferredToListing ? null : options.IncludeSections;
         if (singleTypeMode
-            && options is TypeOptions { JsonOutput: true }
+            && options is TypeOptions { JsonOutput: true, Count: false }
+            && !IsProjectionRequested(options)
             && selectionSections is { Count: > 0 }
             && !ValidateTypeJsonSections(selectionSections))
         {
@@ -621,7 +629,7 @@ public class ApiCommand
             type => type.Members.Count(member => member.Kind == "event"));
     }
 
-    private static ApiSurface ProjectSurfaceToSections(
+    internal static ApiSurface ProjectSurfaceToSections(
         ApiSurface api,
         HashSet<string>? sections)
     {
@@ -646,9 +654,11 @@ public class ApiCommand
             Version = api.Version,
             Source = api.Source,
             Types = api.Types.Where(type => selectedKinds.Contains(type.Kind)).ToList(),
+            InspectionFailures = api.InspectionFailures,
             Library = api.Library,
             Tfm = api.Tfm,
             RepositoryUrl = api.RepositoryUrl,
+            TypeForwarders = api.TypeForwarders,
             IsTypeForwardingAssembly = api.IsTypeForwardingAssembly,
             SurfaceClassification = api.SurfaceClassification,
             SurfaceClassificationInspection = api.SurfaceClassificationInspection,
