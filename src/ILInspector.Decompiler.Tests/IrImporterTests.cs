@@ -3578,9 +3578,20 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void ExternalEntryIntoMultiBlockDoWhile_StaysFlat()
+    public void ExternalEntryToMultiBlockDoWhileHeader_Raises()
     {
-        var function = ExternalEntryIntoMultiBlockLoop();
+        var function = ExternalEntryIntoMultiBlockLoop(entryTarget: 10);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ExternalEntryIntoMultiBlockDoWhileBody_StaysFlat()
+    {
+        var function = ExternalEntryIntoMultiBlockLoop(entryTarget: 20);
 
         new DoWhileLoopPass().Run(function, PassContext.None);
 
@@ -3589,14 +3600,52 @@ public class RaisingPassTests
         function.CheckInvariant();
     }
 
-    static IrFunction ExternalEntryIntoMultiBlockLoop()
+    [Fact]
+    public void DecimalExternalHeaderEntry_RaisesOnEarlyPass()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(source, "System.Decimal.DecCalc", "VarDecCmpSub");
+        Assert.NotNull(function);
+
+        var stages = IrPasses.RunWithStages(function);
+        var doWhileStages = stages.Where(stage => stage.PassName == "do-while").ToArray();
+
+        Assert.Equal(2, doWhileStages.Length);
+        Assert.Contains("DoWhileLoop", doWhileStages[0].Projection);
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void Dragon4DoWhileNormalizedAfterEarlyPass_RaisesOnLatePass()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(source, "System.Number", "Dragon4", overloadIndex: 2);
+        Assert.NotNull(function);
+
+        var stages = IrPasses.RunWithStages(function);
+        var doWhileStages = stages.Where(stage => stage.PassName == "do-while").ToArray();
+
+        Assert.Equal(2, doWhileStages.Length);
+        Assert.DoesNotContain("DoWhileLoop", doWhileStages[0].Projection);
+        Assert.Contains("DoWhileLoop", doWhileStages[1].Projection);
+        Assert.NotEmpty(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    static IrFunction ExternalEntryIntoMultiBlockLoop(int entryTarget)
     {
         var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
         var body = new BlockContainer();
 
         var entry = new Block(0);
-        entry.Add(new Branch(20));
+        entry.Add(new ConditionalBranch(new LoadArgument(0, "enterAtTarget", boolType), entryTarget));
         body.Add(entry);
+
+        var preheader = new Block(5);
+        preheader.Add(new Branch(10));
+        body.Add(preheader);
 
         var head = new Block(10);
         head.Add(new StoreLocal(0, intType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(0, intType), new Constant(1, intType))));
@@ -3614,7 +3663,11 @@ public class RaisingPassTests
         return new IrFunction(
             "M",
             TypeRef.Definition("Synthetic", "Samples", "Loops"),
-            new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0),
+            new MethodSignature(
+                intType,
+                [new Parameter("enterAtTarget", boolType)],
+                HasThis: false,
+                GenericParameterCount: 0),
             [intType],
             body);
     }

@@ -103,8 +103,8 @@ public sealed class DoWhileLoopPass : IIrPass
                     }
                     if (!sourceInside && targetInside)
                     {
-                        if (header == bottom && target == header)
-                            continue;   // external branch to a single-block loop header
+                        if (target == header)
+                            continue;   // the region remains single-entry
                         return false;   // an external jump into the loop body
                     }
                     if (sourceInside && !ReferenceEquals(node, backEdge) && target <= source)
