@@ -700,7 +700,10 @@ public class LibraryBodyIndexTests
                 && opportunity.Method.Name
                     == nameof(
                         ClassicStateMachineCollision<int>
-                            .AnalyzeAsync));
+                            .AnalyzeAsync)
+                && opportunity.Method.DeclaringType
+                    .Resolution?.Type.Segments[0]
+                    == "ClassicStateMachineCollision`1");
         Assert.Equal(
             "ClassicStateMachineCollision`1",
             collision.Method.DeclaringType
@@ -738,6 +741,119 @@ public class LibraryBodyIndexTests
                     == nameof(
                         ClassicSelfCacheFixture
                             .AaaAsync));
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        ClassicProtectedSiblingDerivedFixture)
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicProtectedSiblingDerivedFixture
+                            .AnalyzeAsync));
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        ClassicPrivateProtectedSiblingDerivedFixture)
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicPrivateProtectedSiblingDerivedFixture
+                            .AnalyzeAsync));
+    }
+
+    [Fact]
+    public void AsyncSiblingSelection_ExactCandidateWinsRegardlessOfOrder()
+    {
+        TypeRef declaring = TypeRef.Definition(
+            "Sample",
+            "Sample",
+            "Api");
+        TypeRef int32 = TypeRef.CoreLib(
+            "System",
+            "Int32");
+        MemberRef exact = new(
+            declaring,
+            "ReadAsync",
+            [int32],
+            int32,
+            MemberKind.Method);
+        MemberRef optionalOne = exact with
+        {
+            ParameterTypes =
+            [
+                int32,
+                TypeRef.CoreLib(
+                    "System.Threading",
+                    "CancellationToken"),
+            ],
+        };
+        MemberRef optionalTwo = optionalOne with
+        {
+            ReturnType = TypeRef.CoreLib(
+                "System.Threading.Tasks",
+                "ValueTask"),
+        };
+
+        AssertSelection(
+            [optionalOne, optionalTwo, exact],
+            exact);
+        AssertSelection(
+            [exact, optionalOne, optionalTwo],
+            exact);
+
+        static void AssertSelection(
+            MemberRef[] candidates,
+            MemberRef expected)
+        {
+            MemberRef? best = null;
+            bool ambiguous = false;
+            foreach (MemberRef candidate in candidates)
+            {
+                LibraryBodyAnalysisBuilder
+                    .ConsiderAsyncSibling(
+                        candidate,
+                        ref best,
+                        ref ambiguous);
+            }
+            Assert.Same(expected, best);
+            Assert.False(ambiguous);
+        }
+    }
+
+    [Fact]
+    public void ConstructedInterfaceIdentity_RequiresMatchingArguments()
+    {
+        TypeRef interfaceDefinition = TypeRef.Definition(
+            "Sample",
+            "Sample",
+            "IReader`1");
+        TypeRef int32 = TypeRef.CoreLib(
+            "System",
+            "Int32");
+        TypeRef text = TypeRef.CoreLib(
+            "System",
+            "String");
+        TypeRef intReader = TypeRef.GenericInstance(
+            interfaceDefinition,
+            [int32]);
+        TypeRef stringReader = TypeRef.GenericInstance(
+            interfaceDefinition,
+            [text]);
+
+        Assert.True(
+            LibraryBodyAnalysisBuilder
+                .ConstructedTypeArgumentsMatch(
+                    intReader,
+                    intReader));
+        Assert.False(
+            LibraryBodyAnalysisBuilder
+                .ConstructedTypeArgumentsMatch(
+                    intReader,
+                    stringReader));
     }
 
     [Fact]
@@ -835,6 +951,84 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void AsyncStateMachineAttribute_RequiresFrameworkOrigin()
+    {
+        Assert.True(IsTrustedAttributeConstructor(
+            typeof(ClassicAsyncSiblingFixture)
+                .Assembly.Location,
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .CallsSyncSiblingFromAsync)));
+        Assert.False(IsTrustedAttributeConstructor(
+            FixtureCatalog.AnalysisSpoofSystemRuntime
+                .AssemblyPath(),
+            ".ctor"));
+        var spoof = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisSpoofSystemRuntime
+                .AssemblyPath());
+        Assert.DoesNotContain(
+            spoof.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == "Analyze");
+
+        static bool IsTrustedAttributeConstructor(
+            string path,
+            string methodName)
+        {
+            using var stream = File.OpenRead(path);
+            using var pe = new PEReader(stream);
+            MetadataReader reader =
+                pe.GetMetadataReader();
+            foreach (MethodDefinitionHandle handle
+                in reader.MethodDefinitions)
+            {
+                MethodDefinition method =
+                    reader.GetMethodDefinition(handle);
+                if (!reader.StringComparer.Equals(
+                        method.Name,
+                        methodName))
+                {
+                    continue;
+                }
+                if (methodName == ".ctor"
+                    && reader.GetString(
+                        reader.GetTypeDefinition(
+                                method.GetDeclaringType())
+                            .Namespace)
+                        != "System.Runtime.CompilerServices")
+                {
+                    continue;
+                }
+
+                EntityHandle constructor = handle;
+                if (methodName != ".ctor")
+                {
+                    constructor = method.GetCustomAttributes()
+                        .Select(reader.GetCustomAttribute)
+                        .Single(attribute =>
+                            AttributeDecoder
+                                .GetAttributeTypeName(
+                                    reader,
+                                    attribute.Constructor)
+                            == KnownAttributeNames
+                                .AsyncStateMachineAttribute)
+                        .Constructor;
+                }
+                return LibraryBodyAnalysisBuilder
+                    .IsTrustedAsyncStateMachineAttribute(
+                        reader,
+                        constructor,
+                        KnownAttributeNames
+                            .AsyncStateMachineAttribute);
+            }
+            throw new InvalidOperationException(
+                "Attribute constructor was not found.");
+        }
+    }
+
+    [Fact]
     public void OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed()
     {
         string path = Path.Combine(
@@ -886,6 +1080,22 @@ public class LibraryBodyIndexTests
                         == "sync-call-in-async"
                     && opportunity.Method.Name
                         == "AnalyzeAsync");
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: false,
+                    finalInterfaceSibling: true,
+                    sourceMethodName: "ReadAsync"));
+            var finalInterfaceSibling =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                finalInterfaceSibling
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "ReadAsync");
 
             foreach (byte unsupportedHeader
                 in new byte[] { 0x25, 0x60, 0xA0 })
@@ -1097,7 +1307,9 @@ public class LibraryBodyIndexTests
     static byte[] BuildMethodImplAsyncSourceAssembly(
         bool includeMethodImpl,
         byte siblingSignatureHeader = 0x20,
-        bool methodImplBodyAsMemberReference = false)
+        bool methodImplBodyAsMemberReference = false,
+        bool finalInterfaceSibling = false,
+        string sourceMethodName = "AnalyzeAsync")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1231,7 +1443,10 @@ public class LibraryBodyIndexTests
                 MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle readAsync =
             metadata.AddMethodDefinition(
-                interfaceMethod,
+                interfaceMethod
+                    | (finalInterfaceSibling
+                        ? MethodAttributes.Final
+                        : 0),
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("ReadAsync"),
                 taskSignature,
@@ -1253,7 +1468,7 @@ public class LibraryBodyIndexTests
                     | MethodAttributes.Final
                     | MethodAttributes.NewSlot,
                 MethodImplAttributes.IL,
-                metadata.GetOrAddString("AnalyzeAsync"),
+                metadata.GetOrAddString(sourceMethodName),
                 taskSignature,
                 sourceBody,
                 MetadataTokens.ParameterHandle(1));

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Text;
 
 using ILInspector.Metadata;
 
@@ -146,6 +147,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         }
 
         MemberRef? best = null;
+        bool bestIsAmbiguous = false;
         foreach (var methodHandle
             in declaringDefinition.GetMethods())
         {
@@ -165,7 +167,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     methodDefinition,
                     sameAssembly,
                     callee.DeclaringType,
-                    asyncSource))
+                    asyncSource,
+                    resolved.DefiningReader,
+                    resolved.Definition))
             {
                 continue;
             }
@@ -200,21 +204,32 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 continue;
             }
 
-            if (best is not null
-                && candidate.ParameterTypes.Length
-                    == best.ParameterTypes.Length)
-            {
-                // Two equally specific Async siblings cannot be distinguished
-                // from call-site metadata alone (for example, return-only or
-                // custom-modifier variants). Do not guess.
-                return null;
-            }
-            if (best is null
-                || candidate.ParameterTypes.Length
-                    < best.ParameterTypes.Length)
-                best = candidate;
+            ConsiderAsyncSibling(
+                candidate,
+                ref best,
+                ref bestIsAmbiguous);
         }
-        return best;
+        return bestIsAmbiguous ? null : best;
+    }
+
+    internal static void ConsiderAsyncSibling(
+        MemberRef candidate,
+        ref MemberRef? best,
+        ref bool bestIsAmbiguous)
+    {
+        if (best is null
+            || candidate.ParameterTypes.Length
+                < best.ParameterTypes.Length)
+        {
+            best = candidate;
+            bestIsAmbiguous = false;
+        }
+        else if (candidate.ParameterTypes.Length
+            == best.ParameterTypes.Length)
+        {
+            // Decide ambiguity only among the final most-specific arity.
+            bestIsAmbiguous = true;
+        }
     }
 
     static MemberRef ResolveParameterDirections(
@@ -356,28 +371,112 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         return definitions;
     }
 
-    static bool IsCallableAsyncSibling(
+    bool IsCallableAsyncSibling(
         MethodDefinition method,
         bool sameAssembly,
         TypeRef declaringType,
-        MethodIdentity asyncSource)
+        MethodIdentity asyncSource,
+        MetadataReader candidateReader,
+        TypeDefinitionHandle candidateType)
     {
         var access =
             method.Attributes & MethodAttributes.MemberAccessMask;
         bool sameType = SameTypeDefinition(
             declaringType,
             asyncSource.DeclaringType);
+        TypeRelation derived = TypeRelation.No;
+        if (access is MethodAttributes.Family
+            or MethodAttributes.FamANDAssem
+            or MethodAttributes.FamORAssem)
+        {
+            derived = SourceDerivesFrom(
+                asyncSource.MetadataToken,
+                candidateReader,
+                candidateType);
+        }
         return access switch
         {
             MethodAttributes.Public => true,
-            MethodAttributes.Assembly
-                or MethodAttributes.FamORAssem => sameAssembly,
-            MethodAttributes.Private
-                or MethodAttributes.Family
-                or MethodAttributes.FamANDAssem => sameAssembly
-                    && sameType,
+            MethodAttributes.Assembly => sameAssembly,
+            MethodAttributes.Family =>
+                derived == TypeRelation.Yes,
+            MethodAttributes.FamORAssem =>
+                sameAssembly || derived == TypeRelation.Yes,
+            MethodAttributes.Private => sameAssembly
+                && sameType,
+            MethodAttributes.FamANDAssem =>
+                sameAssembly
+                && derived == TypeRelation.Yes,
             _ => false,
         };
+    }
+
+    TypeRelation SourceDerivesFrom(
+        int sourceMethodToken,
+        MetadataReader candidateReader,
+        TypeDefinitionHandle candidateType)
+    {
+        EntityHandle sourceHandle =
+            MetadataTokens.EntityHandle(sourceMethodToken);
+        if (sourceHandle.Kind
+            != HandleKind.MethodDefinition)
+        {
+            return TypeRelation.Unknown;
+        }
+
+        MetadataReader currentReader = _reader;
+        TypeDefinitionHandle current =
+            _reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)sourceHandle)
+                .GetDeclaringType();
+        var visited =
+            new Dictionary<MetadataReader, HashSet<int>>(
+                ReferenceEqualityComparer.Instance);
+        int visitedCount = 0;
+        while (visitedCount
+            < MetadataSafetyPolicy.MaxRelationshipNodes)
+        {
+            TypeRelation relation = TypeDefinitionRelation(
+                currentReader,
+                current,
+                candidateReader,
+                candidateType);
+            if (relation != TypeRelation.No)
+                return relation;
+            if (!TryVisitTypeDefinition(
+                    visited,
+                    currentReader,
+                    current,
+                    ref visitedCount))
+            {
+                return TypeRelation.Unknown;
+            }
+
+            EntityHandle baseHandle =
+                currentReader.GetTypeDefinition(current).BaseType;
+            if (baseHandle.IsNil)
+                return TypeRelation.No;
+            TypeRef baseType = DecodeType(
+                currentReader,
+                baseHandle);
+            if (FrameworkIdentity.IsCoreLibraryType(
+                    DefinitionType(baseType),
+                    "System",
+                    "Object"))
+            {
+                return TypeRelation.No;
+            }
+            if (TryResolveTypeDefinition(
+                    currentReader,
+                    baseType)
+                is not { } resolvedBase)
+            {
+                return TypeRelation.Unknown;
+            }
+            currentReader = resolvedBase.DefiningReader;
+            current = resolvedBase.Definition;
+        }
+        return TypeRelation.Unknown;
     }
 
     bool IsPotentialVirtualSelfDispatch(
@@ -390,7 +489,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         bool candidateDeclaringTypeIsInterface)
     {
         if ((method.Attributes & MethodAttributes.Virtual) == 0
-            || (method.Attributes & MethodAttributes.Final) != 0)
+            || !candidateDeclaringTypeIsInterface
+                && (method.Attributes
+                    & MethodAttributes.Final) != 0)
             return false;
 
         int separator = asyncSource.Name.LastIndexOf('.');
@@ -435,7 +536,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             return SourceTypeRelation(
                     sourceMethod.GetDeclaringType(),
                     candidateReader,
-                    candidateType)
+                    candidateType,
+                    candidate.DeclaringType)
                 is not TypeRelation.No;
         }
         if ((sourceMethod.Attributes
@@ -636,28 +738,32 @@ internal sealed partial class LibraryBodyAnalysisBuilder
     TypeRelation SourceTypeRelation(
         TypeDefinitionHandle sourceType,
         MetadataReader candidateReader,
-        TypeDefinitionHandle candidateType)
+        TypeDefinitionHandle candidateType,
+        TypeRef candidateDeclaringType)
     {
         var pending = new Stack<(
             MetadataReader Reader,
-            TypeDefinitionHandle Definition)>();
+            TypeDefinitionHandle Definition,
+            ImmutableArray<TypeRef> TypeArguments)>();
         var visited =
-            new Dictionary<MetadataReader, HashSet<int>>(
+            new Dictionary<MetadataReader, HashSet<string>>(
                 ReferenceEqualityComparer.Instance);
         int visitedCount = 0;
         bool incomplete = false;
-        pending.Push((_reader, sourceType));
+        pending.Push((_reader, sourceType, []));
         while (pending.Count > 0
             && visitedCount
                 < MetadataSafetyPolicy.MaxRelationshipNodes)
         {
             (MetadataReader reader,
-                TypeDefinitionHandle current) =
+                TypeDefinitionHandle current,
+                ImmutableArray<TypeRef> currentTypeArguments) =
                 pending.Pop();
-            if (!TryVisitTypeDefinition(
+            if (!TryVisitConstructedTypeDefinition(
                     visited,
                     reader,
                     current,
+                    currentTypeArguments,
                     ref visitedCount))
             {
                 continue;
@@ -671,7 +777,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 TypeRef interfaceType = DecodeType(
                     reader,
                     reader.GetInterfaceImplementation(
-                        handle).Interface);
+                        handle).Interface)
+                    .Instantiate(
+                        currentTypeArguments,
+                        []);
                 if (TryResolveTypeDefinition(
                         reader,
                         interfaceType)
@@ -688,11 +797,19 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                         candidateType);
                 if (relation == TypeRelation.Yes)
                 {
-                    return TypeRelation.Yes;
+                    if (ConstructedTypeArgumentsMatch(
+                            interfaceType,
+                            candidateDeclaringType))
+                    {
+                        return TypeRelation.Yes;
+                    }
                 }
                 if (relation == TypeRelation.Unknown)
                     incomplete = true;
-                pending.Push(resolvedInterface);
+                pending.Push((
+                    resolvedInterface.DefiningReader,
+                    resolvedInterface.Definition,
+                    interfaceType.TypeArguments));
             }
 
             EntityHandle baseHandle = definition.BaseType;
@@ -700,7 +817,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 continue;
             TypeRef baseType = DecodeType(
                 reader,
-                baseHandle);
+                baseHandle)
+                .Instantiate(
+                    currentTypeArguments,
+                    []);
             if (FrameworkIdentity.IsCoreLibraryType(
                     DefinitionType(baseType),
                     "System",
@@ -716,13 +836,69 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 incomplete = true;
                 continue;
             }
-            pending.Push(resolvedBase);
+            pending.Push((
+                resolvedBase.DefiningReader,
+                resolvedBase.Definition,
+                baseType.TypeArguments));
         }
         if (pending.Count > 0)
             incomplete = true;
         return incomplete
             ? TypeRelation.Unknown
             : TypeRelation.No;
+    }
+
+    internal static bool ConstructedTypeArgumentsMatch(
+        TypeRef left,
+        TypeRef right)
+    {
+        if (left.TypeArguments.Length
+            != right.TypeArguments.Length)
+        {
+            return false;
+        }
+        for (int i = 0;
+            i < left.TypeArguments.Length;
+            i++)
+        {
+            if (!AsyncSiblingTypesMatch(
+                    left.TypeArguments[i],
+                    right.TypeArguments[i]))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool TryVisitConstructedTypeDefinition(
+        Dictionary<MetadataReader, HashSet<string>> visited,
+        MetadataReader reader,
+        TypeDefinitionHandle definition,
+        ImmutableArray<TypeRef> typeArguments,
+        ref int visitedCount)
+    {
+        if (!visited.TryGetValue(
+                    reader,
+                    out HashSet<string>? definitions))
+        {
+            definitions = [];
+            visited.Add(reader, definitions);
+        }
+
+        var key = new StringBuilder();
+        key.Append(MetadataTokens.GetToken(definition));
+        foreach (TypeRef argument in typeArguments)
+        {
+            key.Append('|');
+            AppendAsyncSiblingTypeIdentity(
+                key,
+                argument);
+        }
+        if (!definitions.Add(key.ToString()))
+            return false;
+        visitedCount++;
+        return true;
     }
 
     static bool TryVisitTypeDefinition(

@@ -206,3 +206,39 @@ public sealed class ClassicSelfCacheFixture
         return Aaa();
     }
 }
+
+public class ClassicProtectedSiblingBaseFixture
+{
+    protected int Read(int value) => value;
+
+    protected Task<int> ReadAsync(int value)
+        => Task.FromResult(value);
+}
+
+public sealed class ClassicProtectedSiblingDerivedFixture
+    : ClassicProtectedSiblingBaseFixture
+{
+    public async Task<int> AnalyzeAsync(int value)
+    {
+        await Task.Yield();
+        return Read(value);
+    }
+}
+
+public class ClassicPrivateProtectedSiblingBaseFixture
+{
+    private protected int Read(int value) => value;
+
+    private protected Task<int> ReadAsync(int value)
+        => Task.FromResult(value);
+}
+
+public sealed class ClassicPrivateProtectedSiblingDerivedFixture
+    : ClassicPrivateProtectedSiblingBaseFixture
+{
+    public async Task<int> AnalyzeAsync(int value)
+    {
+        await Task.Yield();
+        return Read(value);
+    }
+}

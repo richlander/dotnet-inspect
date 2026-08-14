@@ -1482,9 +1482,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
         if (stateMachineAttribute.Ignored)
             return null;
 
-        if (MethodClassificationScanner.ClassifyAsyncMethod(
+        MethodClassification? classification =
+            MethodClassificationScanner.ClassifyAsyncMethod(
                 _reader,
-                methodDefinition) is not null)
+                methodDefinition);
+        if (classification
+                == MethodClassification.RuntimeAsync
+            || stateMachineAttribute.Present
+                && classification
+                    == MethodClassification.StateMachineAsync)
         {
             return !typeSourceGenerated
                 && !HasGeneratedCodeAttribute(
@@ -1767,6 +1773,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
                 "Void");
 
     readonly record struct AsyncStateMachineAttributeInfo(
+        bool Present,
         bool Rejected,
         bool Ignored,
         string? SerializedType);
@@ -1788,10 +1795,18 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
             {
                 continue;
             }
+            if (!IsTrustedAsyncStateMachineAttribute(
+                    _reader,
+                    attribute.Constructor,
+                    name))
+            {
+                continue;
+            }
 
             if (sawAttribute)
             {
                 return new(
+                    Present: true,
                     Rejected: true,
                     Ignored: false,
                     SerializedType: null);
@@ -1808,15 +1823,51 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
             }
 
             return new(
+                Present: true,
                 Rejected: true,
                 Ignored: false,
                 SerializedType: null);
         }
         return new(
+            Present: sawAttribute,
             Rejected: false,
             Ignored: sawAttribute
                 && serializedType is null,
             serializedType);
+    }
+
+    internal static bool IsTrustedAsyncStateMachineAttribute(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string attributeName)
+    {
+        MemberRef member = MemberResolver.ResolveMethod(
+            reader,
+            constructor,
+            GenericScope.Empty);
+        int separator = attributeName.LastIndexOf('.');
+        string ns = separator < 0
+            ? ""
+            : attributeName[..separator];
+        string name = separator < 0
+            ? attributeName
+            : attributeName[(separator + 1)..];
+        return member.Name == ".ctor"
+            && member.HasThis
+            && member.GenericArity == 0
+            && member.ParameterTypes.Length == 1
+            && FrameworkIdentity.IsCoreLibraryType(
+                DefinitionType(member.DeclaringType),
+                ns,
+                name)
+            && FrameworkIdentity.IsCoreLibraryType(
+                member.ParameterTypes[0],
+                "System",
+                "Type")
+            && FrameworkIdentity.IsCoreLibraryType(
+                member.ReturnType,
+                "System",
+                "Void");
     }
 
     bool TryReadSerializedStateMachineType(

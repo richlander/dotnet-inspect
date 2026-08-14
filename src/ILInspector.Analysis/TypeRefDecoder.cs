@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Runtime.CompilerServices;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -13,6 +14,15 @@ internal sealed record GenericScope(ImmutableArray<string> TypeParameters, Immut
 internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericScope>
 {
     public static readonly TypeRefDecoder Instance = new();
+    static readonly ConditionalWeakTable<
+        MetadataReader,
+        CurrentAssemblyInfo> s_currentAssemblies = new();
+
+    sealed record CurrentAssemblyInfo(
+        string Name,
+        AssemblyReferenceIdentity? Identity,
+        bool TrustedFramework,
+        bool AuthenticProtobuf);
 
     // TypeSpecification decoding can re-enter through custom modifiers. Relationship
     // chains use MetadataRelationshipTraversal instead and never consume native stack.
@@ -91,22 +101,18 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         {
             var chain = handles[..consumedNodes];
             var root = reader.GetTypeDefinition(chain[0]);
-            string assembly = reader.IsAssembly
-                ? reader.GetString(reader.GetAssemblyDefinition().Name)
-                : "";
+            CurrentAssemblyInfo currentAssembly =
+                CurrentAssembly(reader);
             string ns = reader.GetString(root.Namespace);
             string name = TypeDefinitionName(reader, chain);
             return Definition(
-                assembly,
+                currentAssembly.Name,
                 ns,
                 name,
                 new TypeReferenceOrigin.CurrentAssembly(
-                    reader.IsAssembly
-                        ? AssemblyReferenceIdentity
-                            .FromAssemblyDefinition(reader)
-                        : null),
-                FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
-                FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
+                    currentAssembly.Identity),
+                currentAssembly.TrustedFramework,
+                currentAssembly.AuthenticProtobuf);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
         {
@@ -155,13 +161,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             }
 
             TypeReferenceOrigin origin;
+            CurrentAssemblyInfo currentAssembly =
+                CurrentAssembly(reader);
             if (terminal.IsNil || terminal.Kind == HandleKind.ModuleDefinition)
             {
                 origin = new TypeReferenceOrigin.CurrentAssembly(
-                    reader.IsAssembly
-                        ? AssemblyReferenceIdentity
-                            .FromAssemblyDefinition(reader)
-                        : null);
+                    currentAssembly.Identity);
             }
             else if (terminal.Kind == HandleKind.ModuleReference)
             {
@@ -179,13 +184,14 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             }
 
             return Definition(
-                reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "",
+                currentAssembly.Name,
                 ns,
                 name,
                 origin,
-                FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
-                FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
+                currentAssembly.TrustedFramework,
+                currentAssembly.AuthenticProtobuf);
         }
+
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
         {
             return TypeRef.Unsupported(
@@ -193,6 +199,26 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 RelationshipProjectionFailure(handle, ex));
         }
     }
+
+    static CurrentAssemblyInfo CurrentAssembly(
+        MetadataReader reader)
+        => s_currentAssemblies.GetValue(
+            reader,
+            static current => current.IsAssembly
+                ? new CurrentAssemblyInfo(
+                    current.GetString(
+                        current.GetAssemblyDefinition().Name),
+                    AssemblyReferenceIdentity
+                        .FromAssemblyDefinition(current),
+                    FrameworkAssemblyKeys
+                        .IsFrameworkDefinition(current),
+                    FrameworkAssemblyKeys
+                        .IsAuthenticProtobufDefinition(current))
+                : new CurrentAssemblyInfo(
+                    "",
+                    null,
+                    TrustedFramework: false,
+                    AuthenticProtobuf: true));
 
     static string TypeDefinitionName(
         MetadataReader reader,
