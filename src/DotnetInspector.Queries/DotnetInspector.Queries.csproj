@@ -24,5 +24,12 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />
+    <!--
+      The companion query assembly reuses the participant loop and the group's snapshot access so
+      Research projections keep session and snapshot ownership inside the query layer. Keeping
+      Research and Decompiler dependencies out of core query consumers is why it is a separate
+      assembly rather than a namespace here.
+    -->
+    <InternalsVisibleTo Include="DotnetInspector.ResearchQueries" />
   </ItemGroup>
 </Project>

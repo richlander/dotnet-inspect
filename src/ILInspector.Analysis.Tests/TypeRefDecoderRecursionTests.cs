@@ -198,6 +198,119 @@ public class TypeRefDecoderRecursionTests
         Assert.NotNull(result);
     }
 
+    // The node budget bounds nesting depth, not size: 64 segments of 512 characters is a legal
+    // chain by every count-based rule and still a 32 KB name. Rejecting it keeps a decoder from
+    // materializing an artifact-sized string, and the rejection stays visible rather than
+    // degrading into a shortened name.
+    [Fact]
+    public void OverBudgetAggregateTypeName_IsRejectedVisibly()
+    {
+        const int levels = 64;
+        var reader = BuildMetadata(metadata =>
+        {
+            for (int row = 1; row <= levels; row++)
+            {
+                metadata.AddTypeReference(
+                    row == levels ? default : MetadataTokens.TypeReferenceHandle(row + 1),
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString(new string('x', 512)));
+            }
+
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            MetadataTokens.TypeReferenceHandle(1),
+            0);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+        Assert.Contains(
+            "metadata name is invalid (SegmentsTooLong)",
+            result.UnsupportedReason,
+            StringComparison.Ordinal);
+    }
+
+    // The close negative: the same shape one level shy of the budget still decodes, and its
+    // flattened name and structured identity are exact.
+    [Fact]
+    public void DeepNestedTypeNameWithinBudget_PreservesTheExactIdentity()
+    {
+        const int levels = 32;
+        var reader = BuildMetadata(metadata =>
+        {
+            for (int row = 1; row <= levels; row++)
+            {
+                metadata.AddTypeReference(
+                    row == levels ? default : MetadataTokens.TypeReferenceHandle(row + 1),
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString($"Level{row}`1"));
+            }
+
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            MetadataTokens.TypeReferenceHandle(1),
+            0);
+
+        Assert.Equal(TypeRefKind.Definition, result.Kind);
+        string[] rootToLeaf =
+        [
+            .. Enumerable.Range(1, levels).Reverse().Select(row => $"Level{row}`1"),
+        ];
+        Assert.Equal(string.Join('+', rootToLeaf), result.Name);
+        Assert.Equal(rootToLeaf, result.Resolution!.Type.Segments);
+        Assert.Equal(
+            $"N.{string.Join('+', rootToLeaf)}",
+            result.Resolution.Type.ToEscapedFullName());
+    }
+
+    // A segment whose own metadata name contains the nesting delimiter keeps its escaped
+    // identity distinct from a genuinely nested chain with the same flattened spelling.
+    [Fact]
+    public void LiteralDelimiterInASegment_StaysDistinctFromNesting()
+    {
+        var literal = BuildMetadata(metadata =>
+        {
+            metadata.AddTypeReference(
+                default,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Outer+Inner"));
+            return default(EntityHandle);
+        });
+        var nested = BuildMetadata(metadata =>
+        {
+            metadata.AddTypeReference(
+                MetadataTokens.TypeReferenceHandle(2),
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Inner"));
+            metadata.AddTypeReference(
+                default,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Outer"));
+            return default(EntityHandle);
+        });
+
+        var literalResult = TypeRefDecoder.Instance.GetTypeFromReference(
+            literal,
+            MetadataTokens.TypeReferenceHandle(1),
+            0);
+        var nestedResult = TypeRefDecoder.Instance.GetTypeFromReference(
+            nested,
+            MetadataTokens.TypeReferenceHandle(1),
+            0);
+
+        Assert.Equal("Outer+Inner", literalResult.Name);
+        Assert.Equal("Outer+Inner", nestedResult.Name);
+        Assert.NotEqual(
+            literalResult.Resolution!.Type.ToEscapedFullName(),
+            nestedResult.Resolution!.Type.ToEscapedFullName());
+        Assert.Equal(@"N.Outer\+Inner", literalResult.Resolution.Type.ToEscapedFullName());
+        Assert.Equal("N.Outer+Inner", nestedResult.Resolution.Type.ToEscapedFullName());
+    }
+
     static MetadataReader BuildMetadata(Func<MetadataBuilder, EntityHandle> addMalformedRow)
     {
         var metadata = new MetadataBuilder();
