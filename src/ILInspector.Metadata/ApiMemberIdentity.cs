@@ -279,10 +279,43 @@ public static class ApiMemberIdentity
         }
     }
 
+    /// <summary>
+    /// Cumulative work budget for one member-anchor signature construction.
+    /// Mirrors <c>StructuralSignatureWorkBudget</c>: charge every materialized
+    /// type-name occurrence so repeated long names cannot amplify past
+    /// <see cref="MetadataSafetyPolicy.MaxAnchorSignatureWorkChars"/> before
+    /// rejection. Gated by
+    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>.
+    /// </summary>
+    sealed class AnchorSignatureWorkBudget
+    {
+        int _remaining = MetadataSafetyPolicy.MaxAnchorSignatureWorkChars;
+        bool _exhausted;
+
+        internal void Charge(int characters)
+        {
+            if (_exhausted || characters < 0 || characters > _remaining)
+            {
+                _exhausted = true;
+                throw new BadImageFormatException(
+                    "The member anchor signature exceeds the cumulative work budget.");
+            }
+            _remaining -= characters;
+        }
+    }
+
     sealed class AnchorSignatureTypeProvider
         : ISignatureTypeProvider<AnchorSignatureType, GenericContext?>
     {
-        public static readonly AnchorSignatureTypeProvider Instance = new();
+        readonly AnchorSignatureWorkBudget _workBudget;
+        Dictionary<TypeDefinitionHandle, AnchorSignatureType>? _definitionCache;
+        Dictionary<TypeReferenceHandle, AnchorSignatureType>? _referenceCache;
+
+        internal AnchorSignatureTypeProvider(
+            AnchorSignatureWorkBudget workBudget)
+        {
+            _workBudget = workBudget;
+        }
 
         public AnchorSignatureType GetPrimitiveType(PrimitiveTypeCode typeCode)
             => Encoded(typeCode switch
@@ -312,13 +345,39 @@ public static class ApiMemberIdentity
             MetadataReader reader,
             TypeDefinitionHandle handle,
             byte rawTypeKind)
-            => Encoded(FormatDefinitionTypeName(reader, handle));
+        {
+            _definitionCache ??= [];
+            if (_definitionCache.TryGetValue(handle, out AnchorSignatureType? cached))
+            {
+                // Reuse the composed name, but still charge this occurrence so
+                // repeated references cannot bypass the cumulative work budget.
+                _workBudget.Charge(cached.Length);
+                return cached;
+            }
+
+            AnchorSignatureType encoded =
+                Encoded(FormatDefinitionTypeName(reader, handle));
+            _definitionCache.Add(handle, encoded);
+            return encoded;
+        }
 
         public AnchorSignatureType GetTypeFromReference(
             MetadataReader reader,
             TypeReferenceHandle handle,
             byte rawTypeKind)
-            => Encoded(FormatReferenceTypeName(reader, handle));
+        {
+            _referenceCache ??= [];
+            if (_referenceCache.TryGetValue(handle, out AnchorSignatureType? cached))
+            {
+                _workBudget.Charge(cached.Length);
+                return cached;
+            }
+
+            AnchorSignatureType encoded =
+                Encoded(FormatReferenceTypeName(reader, handle));
+            _referenceCache.Add(handle, encoded);
+            return encoded;
+        }
 
         public AnchorSignatureType GetTypeFromSpecification(
             MetadataReader reader,
@@ -396,7 +455,7 @@ public static class ApiMemberIdentity
             bool isRequired)
             => unmodifiedType;
 
-        static string FormatDefinitionTypeName(
+        string FormatDefinitionTypeName(
             MetadataReader reader,
             TypeDefinitionHandle handle)
         {
@@ -438,7 +497,7 @@ public static class ApiMemberIdentity
             return builder.ToString();
         }
 
-        static string FormatReferenceTypeName(
+        string FormatReferenceTypeName(
             MetadataReader reader,
             TypeReferenceHandle handle)
         {
@@ -493,8 +552,14 @@ public static class ApiMemberIdentity
             builder.Append(value);
         }
 
-        static AnchorSignatureType Encoded(string text)
-            => new EncodedAnchorSignatureType(text);
+        AnchorSignatureType Encoded(string text)
+        {
+            // Charge every occurrence, including repeated references to the same
+            // long name, so the cumulative work budget gates amplification during
+            // tree construction rather than after EnsureAnchorSignatureBudget.
+            _workBudget.Charge(text.Length);
+            return new EncodedAnchorSignatureType(text);
+        }
     }
 
     public static string GetMemberDigest(string canonicalSignature)
@@ -665,10 +730,12 @@ public static class ApiMemberIdentity
         PropertyDefinition property)
     {
         var context = GenericContext.ForType(reader, markerType);
+        var workBudget = new AnchorSignatureWorkBudget();
+        var provider = new AnchorSignatureTypeProvider(workBudget);
         var decodedMarker = GuardedProviderDecode.MethodResult(
             reader,
             markerMethod,
-            AnchorSignatureTypeProvider.Instance,
+            provider,
             context,
             new EncodedAnchorSignatureType("System.Object"));
         if (decodedMarker.IsDegraded)
@@ -684,7 +751,7 @@ public static class ApiMemberIdentity
         var decodedProperty = GuardedProviderDecode.PropertyResult(
             reader,
             property,
-            AnchorSignatureTypeProvider.Instance,
+            provider,
             context,
             new EncodedAnchorSignatureType("System.Object"));
         if (decodedProperty.IsDegraded)
@@ -734,10 +801,12 @@ public static class ApiMemberIdentity
                 method.Name);
         GenericContext context =
             GenericContext.ForMethod(reader, type, method);
+        var workBudget = new AnchorSignatureWorkBudget();
+        var provider = new AnchorSignatureTypeProvider(workBudget);
         var decoded = GuardedProviderDecode.MethodResult(
             reader,
             method,
-            AnchorSignatureTypeProvider.Instance,
+            provider,
             context,
             new EncodedAnchorSignatureType("System.Object"));
         if (decoded.IsDegraded)
