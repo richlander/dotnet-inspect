@@ -262,6 +262,21 @@ internal static class PackageInspector
         result.RuntimeIdentifierPackages = wrapperTool.RuntimeIdentifierPackages;
         result.SupportedRids = wrapperTool.SupportedRids;
 
+        if (result.PackageName is { } payloadPackage
+            && result.RuntimeIdentifierPackages is { Count: > 0 })
+        {
+            foreach (RidPackageReference package in result.RuntimeIdentifierPackages)
+            {
+                if (string.Equals(
+                    package.PackageId,
+                    payloadPackage,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    package.Exists = true;
+                }
+            }
+        }
+
         if (verifyRidPackageAvailability
             && result.IsRidSpecificPointerPackage
             && result.RuntimeIdentifierPackages is { Count: > 0 })

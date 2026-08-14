@@ -22,6 +22,9 @@ public static class RidPackageVerifier
 
         foreach (var ridPkg in result.RuntimeIdentifierPackages)
         {
+            if (ridPkg.Exists is not null)
+                continue;
+
             if (localDir != null)
             {
                 // Local verification: check if sibling .nupkg file exists

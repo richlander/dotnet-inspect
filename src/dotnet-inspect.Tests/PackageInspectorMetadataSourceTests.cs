@@ -136,6 +136,22 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         };
 
         using var client = new HttpClient();
+        InspectionResult unverified = await PackageInspector.InspectAsync(
+            resolution,
+            "Wrapper.Package.any",
+            "1.0.0",
+            isLocalFile: true,
+            localFilePath: localPackagePath,
+            nuspec: null,
+            client,
+            new VerboseLogger(enabled: false));
+        Assert.True(Assert.Single(
+            unverified.RuntimeIdentifierPackages!,
+            package => package.RuntimeIdentifier == "any").Exists);
+        Assert.Null(Assert.Single(
+            unverified.RuntimeIdentifierPackages!,
+            package => package.RuntimeIdentifier == "linux-x64").Exists);
+
         InspectionResult result = await PackageInspector.InspectAsync(
             resolution,
             "Wrapper.Package.any",

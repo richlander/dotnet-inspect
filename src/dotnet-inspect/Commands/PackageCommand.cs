@@ -639,12 +639,8 @@ public class PackageCommand
 
             bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
                 || DiscoverRequestsSection(options.Discover, PackageSections.Signals, pipeline);
-            bool wantsRidPackageAvailability = pipeline
-                .GetCandidateSections(
-                    options.Verbosity,
-                    options.IncludeSections,
-                    options.FixedOverview)
-                .Contains(PackageSections.Manifest)
+            bool wantsRidPackageAvailability =
+                options.IncludeSections?.Contains(PackageSections.Manifest) == true
                 || DiscoverRequestsSection(
                     options.Discover,
                     PackageSections.Manifest,
@@ -1629,12 +1625,8 @@ public class PackageCommand
 
             bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
                 || DiscoverRequestsSection(options.Discover, PackageSections.Signals, PackageSectionDescriptors.CreatePipeline());
-            bool wantsRidPackageAvailability = pipeline
-                .GetCandidateSections(
-                    options.Verbosity,
-                    options.IncludeSections,
-                    options.FixedOverview)
-                .Contains(PackageSections.Manifest)
+            bool wantsRidPackageAvailability =
+                options.IncludeSections?.Contains(PackageSections.Manifest) == true
                 || DiscoverRequestsSection(
                     options.Discover,
                     PackageSections.Manifest,
