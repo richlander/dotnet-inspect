@@ -103,7 +103,7 @@ public partial class SearchService(HttpClient client, string? searchUrl = null)
         && version.AsSpan().Trim().Length == version.Length
         && NuGetVersion.TryParse(version, out _);
 
-    [GeneratedRegex(@"^\w+(?:[.-]\w+)*$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^\w+(?:[.-]\w+)*\z", RegexOptions.CultureInvariant)]
     private static partial Regex PackageIdPattern();
 
     /// <summary>

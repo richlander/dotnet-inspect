@@ -5,6 +5,7 @@ using System.Text.Json;
 using NuGetFetch;
 using DotnetInspector.Core;
 using InertText;
+using NuGet.Versioning;
 using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;
@@ -103,7 +104,8 @@ public static class NuGetSearchService
     {
         List<NuGetSearchResult> results = [];
         List<string> failures = [];
-        HashSet<(string Id, string Version)> seen = new(SearchResultKeyComparer.Instance);
+        HashSet<(string Id, NuGetVersion Version)> seen =
+            new(SearchResultKeyComparer.Instance);
         int searched = 0;
         bool useFactoryClients =
             ReferenceEquals(client, HttpClientFactory.Shared);
@@ -201,7 +203,9 @@ public static class NuGetSearchService
                         sources,
                         mapping,
                         result.Id)
-                    && seen.Add((result.Id, result.Version)))
+                    && seen.Add((
+                        result.Id,
+                        NuGetVersion.Parse(result.Version))))
                 {
                     results.Add(NuGetSearchResult.From(result));
                 }
@@ -294,17 +298,20 @@ public static class NuGetSearchService
         return [.. outcome.Results];
     }
 
-    private sealed class SearchResultKeyComparer : IEqualityComparer<(string Id, string Version)>
+    private sealed class SearchResultKeyComparer
+        : IEqualityComparer<(string Id, NuGetVersion Version)>
     {
         public static readonly SearchResultKeyComparer Instance = new();
 
-        public bool Equals((string Id, string Version) x, (string Id, string Version) y) =>
+        public bool Equals(
+            (string Id, NuGetVersion Version) x,
+            (string Id, NuGetVersion Version) y) =>
             string.Equals(x.Id, y.Id, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(x.Version, y.Version, StringComparison.OrdinalIgnoreCase);
+            && x.Version.Equals(y.Version);
 
-        public int GetHashCode((string Id, string Version) obj) =>
+        public int GetHashCode((string Id, NuGetVersion Version) obj) =>
             HashCode.Combine(
                 StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Id),
-                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Version));
+                obj.Version.GetHashCode());
     }
 }

@@ -311,29 +311,38 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
-    public async Task SearchAsync_DuplicateAcrossSources_ReturnedOnce()
+    public async Task SearchAsync_SemanticallyEquivalentVersionsAcrossSources_ReturnedOnce()
     {
         const string indexA = "https://a.example/v3/index.json";
         const string indexB = "https://b.example/v3/index.json";
         const string searchA = "https://a.example/v3/query";
         const string searchB = "https://b.example/v3/query";
-        const string body = """{"data":[{"id":"Shared.Package","version":"1.0.0"}]}""";
 
         var handler = new RouteHandler
         {
             [indexA] = $$"""{"resources":[{"@id":"{{searchA}}","@type":"SearchQueryService"}]}""",
             [indexB] = $$"""{"resources":[{"@id":"{{searchB}}","@type":"SearchQueryService"}]}""",
-            [searchA] = body,
-            [searchB] = body
+            [searchA] = """{"data":[{"id":"Shared.Package","version":"1.0.0"}]}""",
+            [searchB] = """
+                {"data":[
+                  {"id":"shared.package","version":"1.0.0.0"},
+                  {"id":"Unique.Package","version":"2.0.0"}
+                ]}
+                """
         };
         using var client = new HttpClient(handler);
         using var config = new TempNuGetConfig([("a", indexA), ("b", indexB)]);
 
         NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
-            client, "Shared", sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path });
+            client,
+            "Package",
+            take: 2,
+            sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path });
 
         Assert.Empty(outcome.Failures);
-        Assert.Single(outcome.Results);
+        Assert.Equal(
+            ["Shared.Package", "Unique.Package"],
+            outcome.Results.Select(result => result.PackageId));
     }
 
     [Fact]

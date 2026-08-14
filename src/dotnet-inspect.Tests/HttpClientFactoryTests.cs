@@ -233,6 +233,69 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Contains("Blocked request to non-public address", exception.ToString());
     }
 
+    [Theory]
+    [InlineData("8.8.8.8", false)]
+    [InlineData("192.0.0.9", false)]
+    [InlineData("192.0.0.10", false)]
+    [InlineData("0.0.0.1", true)]
+    [InlineData("10.0.0.1", true)]
+    [InlineData("100.64.0.1", true)]
+    [InlineData("127.0.0.1", true)]
+    [InlineData("169.254.0.1", true)]
+    [InlineData("172.16.0.1", true)]
+    [InlineData("192.0.0.8", true)]
+    [InlineData("192.0.2.1", true)]
+    [InlineData("192.88.99.1", true)]
+    [InlineData("192.168.0.1", true)]
+    [InlineData("198.18.0.1", true)]
+    [InlineData("198.19.255.254", true)]
+    [InlineData("198.51.100.1", true)]
+    [InlineData("203.0.113.1", true)]
+    [InlineData("224.0.0.1", true)]
+    [InlineData("240.0.0.1", true)]
+    [InlineData("2606:4700:4700::1111", false)]
+    [InlineData("64:ff9b::808:808", false)]
+    [InlineData("2001:1::1", false)]
+    [InlineData("2001:1::2", false)]
+    [InlineData("2001:1::3", false)]
+    [InlineData("2001:3::1", false)]
+    [InlineData("2001:4:112::1", false)]
+    [InlineData("2001:20::1", false)]
+    [InlineData("2001:30::1", false)]
+    [InlineData("2002:808:808::", false)]
+    [InlineData("2620:4f:8000::1", false)]
+    [InlineData("::", true)]
+    [InlineData("::1", true)]
+    [InlineData("::ffff:127.0.0.1", true)]
+    [InlineData("64:ff9b::7f00:1", true)]
+    [InlineData("64:ff9b:1::1", true)]
+    [InlineData("100::1", true)]
+    [InlineData("100:0:0:1::1", true)]
+    [InlineData("2001::1", true)]
+    [InlineData("2001:1::4", true)]
+    [InlineData("2001:2::1", true)]
+    [InlineData("2001:10::1", true)]
+    [InlineData("2001:db8::1", true)]
+    [InlineData("2002:7f00:1::", true)]
+    [InlineData("3fff::1", true)]
+    [InlineData("5f00::1", true)]
+    [InlineData("fc00::1", true)]
+    [InlineData("fe80::1", true)]
+    [InlineData("ff00::1", true)]
+    public void UntrustedFetchAddressClassification_MatchesNonPublicContract(
+        string address,
+        bool expected)
+    {
+        var classify = typeof(DotnetInspector.Core.HttpClientFactory).GetMethod(
+            "IsNonPublic",
+            System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(classify);
+        Assert.Equal(
+            expected,
+            classify.Invoke(null, [IPAddress.Parse(address)]));
+    }
+
     [Fact]
     public async Task PackageSearch_BlocksPrivateCrossOriginDiscoveredEndpoint()
     {

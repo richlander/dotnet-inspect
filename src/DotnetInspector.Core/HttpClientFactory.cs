@@ -28,6 +28,9 @@ public static class HttpClientFactory
     private static HttpClient? _shared;
     private static HttpClient? _sharedUntrustedFetch;
     private static HttpClient? _untrustedFetchOverride;
+    private static readonly IPAddress PcpAnycastV6 = IPAddress.Parse("2001:1::1");
+    private static readonly IPAddress TurnAnycastV6 = IPAddress.Parse("2001:1::2");
+    private static readonly IPAddress DnssdAnycastV6 = IPAddress.Parse("2001:1::3");
     private static readonly ConcurrentDictionary<string, Lazy<HttpClient>>
         _packageSourceClients = new(StringComparer.Ordinal);
     private static IDisposable? _networkTrafficLoggingSubscription;
@@ -357,7 +360,11 @@ public static class HttpClientFactory
         }
     }
 
-    /// <summary>Returns true for loopback, link-local, private, CGNAT, multicast, and unspecified addresses.</summary>
+    /// <summary>
+    /// Returns true for destinations that are not globally reachable, including embedded
+    /// non-public IPv4 destinations in IPv6 translation and transition addresses. Pinned by
+    /// <c>HttpClientFactoryTests.UntrustedFetchAddressClassification_MatchesNonPublicContract</c>.
+    /// </summary>
     private static bool IsNonPublic(IPAddress ip)
     {
         if (IPAddress.IsLoopback(ip) || ip.Equals(IPAddress.Any) || ip.Equals(IPAddress.IPv6Any))
@@ -365,10 +372,67 @@ public static class HttpClientFactory
 
         if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
         {
-            if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast || ip.IsIPv6UniqueLocal)
-                return true;
             if (ip.IsIPv4MappedToIPv6)
                 return IsNonPublic(ip.MapToIPv4());
+
+            if (ip.IsIPv6LinkLocal
+                || ip.IsIPv6SiteLocal
+                || ip.IsIPv6Multicast
+                || ip.IsIPv6UniqueLocal)
+            {
+                return true;
+            }
+
+            byte[] address = ip.GetAddressBytes();
+
+            // Deprecated IPv4-compatible addresses have an all-zero /96 prefix.
+            if (HasPrefix(address, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 96))
+                return true;
+
+            // The globally reachable NAT64 prefix carries an IPv4 destination in its final
+            // 32 bits. Apply the same policy to that destination rather than letting the
+            // translation hide it.
+            if (HasPrefix(
+                    address,
+                    [0x00, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0],
+                    96))
+            {
+                return IsNonPublic(new IPAddress(address.AsSpan(12, 4)));
+            }
+
+            if (HasPrefix(address, [0x00, 0x64, 0xff, 0x9b, 0x00, 0x01], 48)
+                || HasPrefix(address, [0x01, 0x00, 0, 0, 0, 0, 0, 0], 64)
+                || HasPrefix(address, [0x01, 0x00, 0, 0, 0, 0, 0, 0x01], 64))
+            {
+                return true;
+            }
+
+            // 2001::/23 is reserved for IETF protocols. Only the registry entries explicitly
+            // marked globally reachable are usable as ordinary public destinations.
+            if (HasPrefix(address, [0x20, 0x01, 0x00], 23))
+            {
+                bool globallyReachable =
+                    ip.Equals(PcpAnycastV6)
+                    || ip.Equals(TurnAnycastV6)
+                    || ip.Equals(DnssdAnycastV6)
+                    || HasPrefix(address, [0x20, 0x01, 0x00, 0x03], 32)
+                    || HasPrefix(address, [0x20, 0x01, 0x00, 0x04, 0x01, 0x12], 48)
+                    || HasPrefix(address, [0x20, 0x01, 0x00, 0x20], 28)
+                    || HasPrefix(address, [0x20, 0x01, 0x00, 0x30], 28);
+                return !globallyReachable;
+            }
+
+            if (HasPrefix(address, [0x20, 0x01, 0x0d, 0xb8], 32)
+                || HasPrefix(address, [0x3f, 0xff, 0x00], 20)
+                || HasPrefix(address, [0x5f, 0x00], 16))
+            {
+                return true;
+            }
+
+            // 6to4 also embeds the routed IPv4 destination.
+            if (HasPrefix(address, [0x20, 0x02], 16))
+                return IsNonPublic(new IPAddress(address.AsSpan(2, 4)));
+
             return false;
         }
 
@@ -380,11 +444,35 @@ public static class HttpClientFactory
             127 => true,                            // loopback
             169 when b[1] == 254 => true,           // link-local
             172 when b[1] >= 16 && b[1] <= 31 => true, // 172.16.0.0/12
+            192 when b[1] == 0 && b[2] == 0
+                && b[3] is not (9 or 10) => true,   // IETF protocol assignments
+            192 when b[1] == 0 && b[2] == 2 => true, // TEST-NET-1
+            192 when b[1] == 88 && b[2] == 99 => true, // deprecated 6to4 relay
             192 when b[1] == 168 => true,           // 192.168.0.0/16
             100 when b[1] >= 64 && b[1] <= 127 => true, // CGNAT 100.64.0.0/10
+            198 when b[1] is 18 or 19 => true,      // benchmarking 198.18.0.0/15
+            198 when b[1] == 51 && b[2] == 100 => true, // TEST-NET-2
+            203 when b[1] == 0 && b[2] == 113 => true, // TEST-NET-3
             >= 224 => true,                         // multicast / reserved
             _ => false,
         };
+    }
+
+    private static bool HasPrefix(
+        ReadOnlySpan<byte> address,
+        ReadOnlySpan<byte> prefix,
+        int prefixLength)
+    {
+        int wholeBytes = prefixLength / 8;
+        if (!address[..wholeBytes].SequenceEqual(prefix[..wholeBytes]))
+            return false;
+
+        int remainingBits = prefixLength % 8;
+        if (remainingBits == 0)
+            return true;
+
+        byte mask = (byte)(0xff << (8 - remainingBits));
+        return (address[wholeBytes] & mask) == (prefix[wholeBytes] & mask);
     }
 }
 
