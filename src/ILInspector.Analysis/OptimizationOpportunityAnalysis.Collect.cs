@@ -34,16 +34,16 @@ internal interface IOptimizationOpportunityResolver
 internal static partial class OptimizationOpportunityAnalysis
 {
     internal static ImmutableArray<OptimizationOpportunity> Collect(
-        MethodBodyAnalysisContext context,
-        ImmutableArray<AllocationOccurrence> discoveredAllocations,
-        MethodAllocationAnalysis allocationAnalysis,
+        MethodAllocationFacts allocationFacts,
         IOptimizationOpportunityResolver resolver)
     {
+        var context = allocationFacts.Context;
         var caller = context.Method;
         var opportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
         // Discovered allocation occurrences for this method, scanned once by the caller
         // and shared here to avoid a redundant second allocation scan. Escape state is not read.
-        var allocationByOffset = discoveredAllocations.ToDictionary(occurrence => occurrence.ILOffset);
+        var allocationByOffset = allocationFacts.DiscoveredOccurrences
+            .ToDictionary(occurrence => occurrence.ILOffset);
         ReachingDefinitionsResult? reachingDefinitions = null;
         ReachingDefinitionsResult GetReachingDefinitions()
             => reachingDefinitions ??= resolver.AnalyzeReachingDefinitions();
@@ -179,7 +179,7 @@ internal static partial class OptimizationOpportunityAnalysis
                             // including a loop early-exit that runs once — is low, especially
                             // since .NET 10+ partially stack-allocates non-escaping ones.
                             var inLoop = context.IsInLoopRegion(offset);
-                            bool iteratesInLoop = allocationAnalysis.MultiplicityAt(offset) == AllocationMultiplicity.Loop;
+                            bool iteratesInLoop = allocationFacts.MultiplicityAt(offset) == AllocationMultiplicity.Loop;
                             pendingDelegateOpportunityIndex = opportunities.Count;
                             opportunities.Add(new OptimizationOpportunity(
                                 caller,
@@ -194,7 +194,7 @@ internal static partial class OptimizationOpportunityAnalysis
                         else if (!cachedOnce && pendingDelegateInstanceGroup)
                         {
                             var inLoop = context.IsInLoopRegion(offset);
-                            bool iteratesInLoop = allocationAnalysis.MultiplicityAt(offset) == AllocationMultiplicity.Loop;
+                            bool iteratesInLoop = allocationFacts.MultiplicityAt(offset) == AllocationMultiplicity.Loop;
                             bool stackGuardFallback = StackGuardFallbackAnalysis.IsFallbackAllocation(
                                 context,
                                 offset,
@@ -604,14 +604,14 @@ internal static partial class OptimizationOpportunityAnalysis
                 annotated = annotated with
                 {
                     RuntimeAllocationType = runtimeAllocation,
-                    PathContext = opportunity.PathContext ?? OptimizationOpportunityAnalysis.FormatPathContext(allocationAnalysis.PathContextAt(opportunityOffset)),
-                    PathConfidence = opportunity.PathConfidence ?? OptimizationOpportunityAnalysis.FormatPathConfidence(allocationAnalysis.PathConfidenceAt(opportunityOffset)),
-                    PostDominance = opportunity.PostDominance ?? OptimizationOpportunityAnalysis.FormatPostDominance(allocationAnalysis.PostDominanceAt(opportunityOffset)),
+                    PathContext = opportunity.PathContext ?? OptimizationOpportunityAnalysis.FormatPathContext(allocationFacts.PathContextAt(opportunityOffset)),
+                    PathConfidence = opportunity.PathConfidence ?? OptimizationOpportunityAnalysis.FormatPathConfidence(allocationFacts.PathConfidenceAt(opportunityOffset)),
+                    PostDominance = opportunity.PostDominance ?? OptimizationOpportunityAnalysis.FormatPostDominance(allocationFacts.PostDominanceAt(opportunityOffset)),
                     Multiplicity = opportunity.Multiplicity ?? OptimizationOpportunityAnalysis.FormatMultiplicity(
                         allocation?.Multiplicity is { } allocationMultiplicity
                             && allocationMultiplicity != AllocationMultiplicity.Unknown
                                 ? allocationMultiplicity
-                                : allocationAnalysis.MultiplicityAt(opportunityOffset)),
+                                : allocationFacts.MultiplicityAt(opportunityOffset)),
                     EstimatedSizeBytes = opportunity.EstimatedSizeBytes ?? allocation?.EstimatedSizeBytes,
                 };
             }
