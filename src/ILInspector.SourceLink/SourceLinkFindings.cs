@@ -42,7 +42,10 @@ public sealed record MemberSourceInfo(
     int StartLine,
     int EndLine,
     bool IsPrimaryDocument = false,
-    bool IsFinalizer = false);
+    bool IsFinalizer = false)
+{
+    public ImmutableArray<int> SequencePointStartLines { get; init; } = [];
+}
 
 public sealed record MemberSourceObservation(
     MemberAnchor Anchor,
@@ -54,7 +57,10 @@ public sealed record MemberSourceObservation(
     int StartLine,
     int EndLine,
     bool IsPrimaryDocument,
-    bool IsFinalizer = false);
+    bool IsFinalizer = false)
+{
+    public ImmutableArray<int> SequencePointStartLines { get; init; } = [];
+}
 
 public static class SourceLinkFindings
 {
@@ -157,7 +163,10 @@ public static class SourceLinkFindings
                         mapping.StartLine,
                         mapping.EndLine,
                         mapping.IsPrimaryDocument,
-                        mapping.IsFinalizer);
+                        mapping.IsFinalizer)
+                    {
+                        SequencePointStartLines = mapping.SequencePointStartLines,
+                    };
                 });
             return InspectMemberSourcesCore(
                 mappings,
@@ -277,16 +286,28 @@ public static class SourceLinkFindings
                 mapping.StartLine,
                 mapping.EndLine,
                 mapping.IsPrimaryDocument,
-                mapping.IsFinalizer)),
+                mapping.IsFinalizer)
+            {
+                SequencePointStartLines = mapping.SequencePointStartLines,
+            }),
             subject,
             MemberSourceDescriptor,
             static mapping => mapping.Anchor.CanonicalSignature,
-            static mapping => JoinSortKey(
-                mapping.Anchor.CanonicalSignature,
-                mapping.CanonicalPath,
-                $"{mapping.StartLine:D10}:{mapping.EndLine:D10}"),
+            MemberSourceSortKey,
             parameterName);
     }
+
+    static string MemberSourceSortKey(MemberSourceObservation mapping) =>
+        JoinSortKey(
+            mapping.Anchor.StableSelector,
+            mapping.Anchor.CanonicalSignature,
+            mapping.Anchor.Fingerprint,
+            mapping.Anchor.TypeFullName,
+            mapping.Anchor.MemberName,
+            mapping.CanonicalPath,
+            $"{mapping.StartLine:D10}:{mapping.EndLine:D10}",
+            mapping.IsPrimaryDocument ? "1" : "0",
+            string.Join(",", mapping.SequencePointStartLines));
 
     static FindingInspection<T> InspectInventory<T>(
         IEnumerable<T> observations,
@@ -358,7 +379,9 @@ public static class SourceLinkFindings
             && oldMapping.CanonicalPath == newMapping.CanonicalPath
             && oldMapping.StartLine == newMapping.StartLine
             && oldMapping.EndLine == newMapping.EndLine
-            && oldMapping.IsPrimaryDocument == newMapping.IsPrimaryDocument;
+            && oldMapping.IsPrimaryDocument == newMapping.IsPrimaryDocument
+            && oldMapping.SequencePointStartLines.SequenceEqual(
+                newMapping.SequencePointStartLines);
 
     static bool IsPdbInspectionFailure(Exception exception)
         => exception is BadImageFormatException
