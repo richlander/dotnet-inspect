@@ -238,7 +238,15 @@ public class ApiInventoryQueryTests
         {
             Name = "Future",
             Kind = "class",
-            Members = [new ApiMember { Name = "Future", Kind = "future-kind" }]
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Future",
+                    Kind = "future-kind",
+                    IsConst = true
+                }
+            ]
         };
 
         Assert.Throws<InvalidOperationException>(() => ApiInventoryQuery.Types(surface));

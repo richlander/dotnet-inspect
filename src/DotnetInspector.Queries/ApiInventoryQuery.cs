@@ -82,7 +82,7 @@ public static class ApiInventoryQuery
         new("api.member-kind.finalizer", "finalizer", "finalizers", 200, true,
             member => member.Kind == "finalizer"),
         new("api.member-kind.constant", "constant", "constants", 300, true,
-            member => member.IsConst),
+            member => member.Kind == "field" && member.IsConst),
         new("api.member-kind.field", "field", "fields", 400, true,
             member => member.Kind == "field" && !member.IsConst),
         new("api.member-kind.property", "property", "properties", 500, true,
