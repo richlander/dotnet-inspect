@@ -277,6 +277,40 @@ public class JsonSectionFormatterTests
     }
 
     [Fact]
+    public void SingleFieldThroughWriter_FailsRatherThanDroppingItsValue()
+    {
+        var error = Assert.Throws<NotSupportedException>(() =>
+            OutputFormatter.RenderProjectedJson(
+                columns: null,
+                fields: null,
+                (output, formatter, options) =>
+                {
+                    var writer = new MarkoutWriter(output, formatter, options);
+                    writer.WriteField("Name", "Value");
+                    writer.Flush();
+                }));
+
+        Assert.Contains("without its value", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StreamingTreeNodeThroughWriter_FailsRatherThanSerializingItsPrefixAsData()
+    {
+        var error = Assert.Throws<NotSupportedException>(() =>
+            OutputFormatter.RenderProjectedJson(
+                columns: null,
+                fields: null,
+                (output, formatter, options) =>
+                {
+                    var writer = new MarkoutWriter(output, formatter, options);
+                    writer.WriteTreeNode("child", "|- ");
+                    writer.Flush();
+                }));
+
+        Assert.Contains("rendered hierarchy prefix", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void OverwideBatchRow_FailsRatherThanDroppingCells()
     {
         var formatter = new JsonSectionFormatter();

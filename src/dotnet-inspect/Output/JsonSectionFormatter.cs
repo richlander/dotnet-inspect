@@ -197,8 +197,12 @@ internal sealed class JsonSectionFormatter :
     {
         RequireNoActiveStreamingTable("format a field name");
 
-        // A bare field name carries no value; it is a label Markdown renders before a value block.
-        // The value arrives through FormatFields, so nothing is recorded here.
+        // Markout writes the associated value directly to the text stream after this callback.
+        // RenderProjectedJson uses TextWriter.Null because this formatter owns the JSON document,
+        // so accepting the callback would silently discard the value.
+        throw new NotSupportedException(
+            $"Field '{key}' was emitted without its value at the formatter seam. " +
+            "Use grouped field formatting or extend the seam to carry both key and value.");
     }
 
     public void FormatFields(TextWriter writer, MarkoutField[] fields, bool bold)
@@ -287,12 +291,16 @@ internal sealed class JsonSectionFormatter :
             section.Tree.Add(node);
     }
 
-    public void FormatTreeNode(TextWriter writer, string text, string badge)
+    public void FormatTreeNode(TextWriter writer, string text, string prefix)
     {
         RequireNoActiveStreamingTable("format a tree node");
 
-        var section = RequireSection(SectionKind.Tree);
-        section.Tree.Add(new TreeNode(text) { Badge = badge });
+        // The streaming callback carries only a rendered hierarchy prefix, not the typed parent/
+        // child relationship FormatTree receives. Storing that prefix as data would flatten the
+        // tree and mislabel presentation glyphs as a badge.
+        throw new NotSupportedException(
+            $"Tree node '{text}' was emitted with a rendered hierarchy prefix that the JSON view " +
+            "cannot reconstruct. Use typed tree formatting or extend the formatter seam.");
     }
 
     /// <summary>
