@@ -59,6 +59,7 @@ public static class TypeCommand
         var packageVersion = source.PackageVersion;
         var apiSource = source.ApiSource;
         var apiVersion = source.ApiVersion;
+        var platformFramework = source.PlatformFramework;
         var selectedTfm = source.SelectedTfm;
         var projectAssetsPath = source.ProjectAssetsPath;
         var tempDir = source.TempDir;
@@ -80,9 +81,21 @@ public static class TypeCommand
             if (string.IsNullOrEmpty(typeName))
             {
                 // No type specified - list all types
-                var loaded = ApiServices.LoadFullApi(
-                    searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                    apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
+                var loaded = CanUsePlatformSummary(
+                    options,
+                    searchPath,
+                    runtimeAssemblyPath,
+                    platformFramework)
+                    ? ApiServices.LoadPlatformApiSummary(
+                        searchPath,
+                        runtimeAssemblyPath!,
+                        apiSource,
+                        apiVersion,
+                        selectedTfm,
+                        logger)
+                    : ApiServices.LoadFullApi(
+                        searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
+                        apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -118,7 +131,7 @@ public static class TypeCommand
                     return listExitCode;
                 inspectionIncomplete = api.InspectionFailures.Count > 0;
 
-                if (!options.FormatExplicitlySet && !options.IsRawOutput)
+                if (!loaded.IsSummary && !options.FormatExplicitlySet && !options.IsRawOutput)
                 {
                     var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                         : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
@@ -144,6 +157,7 @@ public static class TypeCommand
                         Hints.WriteTips(options.TipLevel, [.. tips]);
                     }
                 }
+
             }
             else
             {
@@ -443,6 +457,38 @@ public static class TypeCommand
             }
         }
     }
+
+    private static bool CanUsePlatformSummary(
+        TypeOptions options,
+        string searchPath,
+        string? runtimeAssemblyPath,
+        string? platformFramework) =>
+        runtimeAssemblyPath is not null
+        && string.Equals(searchPath, runtimeAssemblyPath, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(platformFramework, "runtime", StringComparison.OrdinalIgnoreCase)
+        && options.Verbosity == Verbosity.Quiet
+        && !options.IsRawOutput
+        && !options.PlainText
+        && !options.Print
+        && !options.Value
+        && !options.Urls
+        && !options.Paths
+        && !options.JsonArray
+        && !options.Tree
+        && !options.MermaidOutput
+        && !options.EmbeddedMermaid
+        && !options.IncludeAll
+        && !options.EffectiveDiscovery
+        && !options.HasSectionQuery
+        && !options.Count
+        && !options.UnsafeOnly
+        && !options.ShowDocs
+        && options.TypeFilter is null
+        && options.MemberFilter.Count == 0
+        && options.KindFilter.Count == 0
+        && options.Rows is null
+        && !options.PerformanceTriage.HasFilters
+        && !options.Limit.HasValue;
 
     private static Task<int?> TryExecuteWidePlatformPrefixFallbackAsync(
         TypeOptions options,
