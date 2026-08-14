@@ -123,33 +123,99 @@ integration opportunity, structural clone, or narrative link as a call.
 - Representing a narrative or synthetic relationship unless a producer owns
   evidence and semantics for it.
 
-## Carrier and overlays
+## Comparison with `AnnotatedSourceDocument`
 
-`AnnotatedSourceDocument` is a text carrier plus structural and fact overlays:
+`AnnotatedSourceDocument` is the design oracle for separating a carrier,
+structure, observations, targeting, and presentation. The inspection graph
+adopts that separation, not its text-specific shape.
+
+### Where the designs overlap
+
+| Concern | `AnnotatedSourceDocument` | Inspection graph |
+| --- | --- | --- |
+| Carrier | Canonical rendered `Text` | Typed subject and relationship topology |
+| Structure | Nodes and regions over text | Nodes, groups, logical edges, and seed roles |
+| Observation plane | Facts stated independently of text | Characteristics stated independently of labels |
+| Targeting | `Fact -> Target -> Node` | `Characteristic -> GraphTarget` |
+| Physical receipt | Fact source offset and targeted source structure | Producer-native relationship occurrence and evidence |
+| Local joins | Contiguous document-local fact/node ids | Deterministic document-local node/group/edge/occurrence ids |
+| Presentation | Carets, side comments, and filters derive from facts and targets | Labels, fields, tables, and interaction derive from typed relationships and characteristics |
+
+Both designs preserve these rules:
+
+1. Structure exists independently of observations. Most source nodes have no
+   fact; a graph node or edge likewise need not have an optional
+   characteristic.
+2. An observation is stated as data and joined to a stable document target.
+   Neither consumer reparses rendered text or labels to recover the join.
+3. Display gestures are projections. A source fact does not contain a caret,
+   and a graph characteristic does not contain Mermaid or Markdown text.
+4. Document-local ids are joins only. They are deterministic within the
+   document and carry no portable identity claim.
+5. Producer vocabulary is typed and additive. Producers emit registered
+   descriptor/target combinations; older consumers tolerate unknown additive
+   kinds or descriptors.
+6. One semantic observation is not duplicated merely because it has several
+   visible hooks. `AnnotatedSourceDocument` uses one fact with several targets;
+   a graph retains one physical occurrence when several walks observe it.
+
+The useful shorthand remains "arcs are to graphs what carets are to annotated
+source." Both are reader-visible hooks over typed data. In neither design is
+the visible hook the semantic storage.
+
+### Where the designs diverge
+
+| Boundary | `AnnotatedSourceDocument` | Inspection graph |
+| --- | --- | --- |
+| Authoritative artifact | One exact rendered UTF-16 text buffer | Semantic topology; no canonical rendered graph string |
+| Coordinate system | One absolute span currency over `Text` | Producer-native coordinates retained separately; no universal coordinate |
+| Scope | One member and its C#/IL rendering | Many subjects and artifacts across one or more workspace groups |
+| Node meaning | Rendered syntax or IL text structure | Owner-issued member, type, assembly, or package subject |
+| Region/group meaning | Named syntactic parts over text; not fact targets | Typed subject containment or presentation grouping; valid characteristic targets |
+| Primary semantics | Positive descriptive facts | Typed relationships, evidence occurrences, optional characteristics, limits, and failures |
+| Join shape | Exactly one non-polymorphic fact-to-node target relation | Distinct typed joins for edge endpoints, occurrence support, characteristics, groups, and seeds |
+| Completeness | Positive facts make no all-clear claim; an unanchored fact remains visible | Absence claims depend on traversal limits, producer failures, and completeness |
+| Aggregation | One fact may target several source nodes | One logical edge may aggregate several distinct physical occurrences |
+| Failure model | Malformed coordinates invalidate construction; projection failure is outside the document | Scoped acquisition and producer failures remain visible beside healthy graph evidence |
+| Execution | Immutable projection of already-rendered member evidence | Workspace-planned producer demand with costs, capabilities, bounds, and sequential orchestration |
+
+Those differences are constraints, not missing generalization:
+
+- Graph nodes must not reuse `AnnotatedSourceNode`; source nodes identify
+  rendered characters, while graph nodes identify semantic subjects.
+- Graph targets must not reuse `AnnotatedSourceTarget`. The source document's
+  one target shape is valuable precisely because every target is a text node;
+  graph targets legitimately include node, group, edge, and occurrence.
+- Graph evidence must not be normalized into UTF-16 spans or one invented
+  coordinate. IL offsets, metadata rows, package coordinates, Findings, and
+  comparison witnesses keep their producer-native currencies.
+- Relationship kind is not the graph equivalent of a source fact. It is
+  mandatory topology. Optional characteristics are the closer analogue to
+  facts.
+- Logical-edge aggregation must not copy source-fact deduplication blindly.
+  Two C#/IL targets can describe one source observation, while two physical
+  call sites remain two graph occurrences even when they share one edge.
+
+### The composition boundary
+
+The existing `AnnotatedMemberDocument` demonstrates how the models compose
+without merging. Its call overlay keeps the source document unchanged:
 
 ```text
-fact -> target -> node -> spans -> text
+graph edge row -> physical occurrence -> fact -> target -> node -> spans -> text
 ```
 
-The graph-shaped analogue is:
+The occurrence carries the stable graph edge row and an ordinary source fact
+id. Placement continues through `AnnotatedSourceDocument.Targets`; the graph
+does not add an edge-to-source-node join or duplicate source spans. The
+`AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite` gate
+pins the current focus-call-site form.
 
-```text
-characteristic -> target -> node | group | edge | occurrence
-                                      |
-                                      v
-                            subject and evidence
-```
-
-The topology is the carrier. Nodes and logical edges are stable targets within
-one document. Occurrences retain the physical evidence that supported a
-logical edge. Characteristics describe those targets without becoming their
-identity or being flattened into their display labels.
-
-This refines the useful shorthand "arcs are to graphs what carets are to
-annotated source." The visible arc is the reader's hook. The semantic analogue
-of the source target is the stable edge or occurrence target behind that arc.
-That distinction matters when two physical call sites collapse onto one
-logical edge: there is one visible arc but two evidence-bearing occurrences.
+The expanded inspection graph should preserve that boundary. A graph
+occurrence may cite an `AnnotatedSourceDocument` fact or other producer receipt
+as evidence, but source placement remains source-owned. Conversely, an
+annotated-source viewer does not need workspace traversal, package identity, or
+graph aggregation merely because a fact also participates in a graph.
 
 ## Conceptual document
 
