@@ -83,6 +83,15 @@ internal static class Program
                 .GetAwaiter().GetResult();
         }
 
+        string? filterError = ExplicitFilterGuard
+            .ValidateAsync(runArgs, typeof(Program).Assembly)
+            .GetAwaiter().GetResult();
+        if (filterError is not null)
+        {
+            Console.Error.WriteLine(filterError);
+            return 2;
+        }
+
         return global::Xunit.Runner.InProc.SystemConsole.ConsoleRunner
             .Run(runArgs)
             .GetAwaiter().GetResult();
