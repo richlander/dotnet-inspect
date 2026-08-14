@@ -18426,7 +18426,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiplePackages_FixedOverviewCountRejectsUnknownFields()
+    public async Task Package_FixedOverviewCountValidatesFieldsAndRenderedColumns()
     {
         var (firstPackage, firstDir) =
             CreateLocalReadmePackage(
@@ -18448,12 +18448,27 @@ public partial class CommandExecutionTests
                 "--count",
                 "--fields",
                 "Bogus");
+            var renderedColumn = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "--count",
+                "--columns",
+                "Field");
 
             Assert.Equal(1, count.Exit);
+            Assert.Equal(0, renderedColumn.Exit);
             Assert.Empty(count.Output);
+            Assert.Empty(renderedColumn.Error);
             Assert.Contains(
                 "No fields matched projection: Bogus",
                 count.Error);
+            Assert.DoesNotContain(
+                "| Package Info | 0 |",
+                renderedColumn.Output);
+            Assert.DoesNotContain(
+                "| Signature | 0 |",
+                renderedColumn.Output);
         }
         finally
         {

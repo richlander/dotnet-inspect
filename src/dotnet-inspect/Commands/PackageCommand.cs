@@ -1129,10 +1129,11 @@ public class PackageCommand
                     : options.IncludeSections is { Count: > 0 } includeSections
                         ? includeSections
                         : [PackageSections.PackageInfo];
-            return ValidateMultiPackageCountProjection(
+            return ValidatePackageCountProjection(
                 schema,
                 countSections,
-                options);
+                options,
+                combinedRows: true);
         }
 
         bool multiPackageRowShape =
@@ -1154,14 +1155,24 @@ public class PackageCommand
                 options.IncludeSections is { Count: 1 } includeSections
                     ? includeSections.Single()
                     : PackageSections.PackageInfo;
-            return ValidateMultiPackageCountProjection(
+            return ValidatePackageCountProjection(
                 schema,
                 [section],
-                options);
+                options,
+                combinedRows: true);
         }
 
         if (options.FixedOverview)
         {
+            if (options.Count)
+            {
+                return ValidatePackageCountProjection(
+                    schema,
+                    pipeline.BareSelectSectionNames,
+                    options,
+                    combinedRows: false);
+            }
+
             return ProjectionDiagnostics.ValidateProjection(
                 schema,
                 pipeline.BareSelectSectionNames,
@@ -1179,10 +1190,11 @@ public class PackageCommand
             options.Columns);
     }
 
-    private static bool ValidateMultiPackageCountProjection(
+    private static bool ValidatePackageCountProjection(
         DocumentSchema schema,
         IReadOnlyCollection<string> sections,
-        InspectionOptions options)
+        InspectionOptions options,
+        bool combinedRows)
     {
         bool valid = true;
         if (options.Fields is { Length: > 0 })
@@ -1197,7 +1209,7 @@ public class PackageCommand
         if (options.Columns is { Length: > 0 })
         {
             valid &= ProjectionDiagnostics.ValidateProjection(
-                MultiPackageCountColumnSchema(schema),
+                PackageCountColumnSchema(schema, combinedRows),
                 sections,
                 fields: null,
                 options.Columns);
@@ -1206,14 +1218,16 @@ public class PackageCommand
         return valid;
     }
 
-    private static DocumentSchema MultiPackageCountColumnSchema(
-        DocumentSchema schema)
+    private static DocumentSchema PackageCountColumnSchema(
+        DocumentSchema schema,
+        bool combinedRows)
     {
         var result = new DocumentSchema();
         foreach (string name in schema.SectionNames)
         {
             var section = schema.GetSection(name);
-            if (string.Equals(
+            if (combinedRows
+                && string.Equals(
                     name,
                     PackageSections.PackageInfo,
                     StringComparison.OrdinalIgnoreCase))
@@ -1223,7 +1237,7 @@ public class PackageCommand
                     "column",
                     MultiPackageInfoColumnNames);
             }
-            else if (IsPackageFileSection(name))
+            else if (combinedRows && IsPackageFileSection(name))
             {
                 result.Add(
                     name,
@@ -2491,7 +2505,9 @@ public class PackageCommand
         DocumentSchema packageSchema = PackageDiscoverySchema();
         DocumentSchema? countColumnSchema =
             options.Columns is { Length: > 0 }
-                ? MultiPackageCountColumnSchema(packageSchema)
+                ? PackageCountColumnSchema(
+                    packageSchema,
+                    combinedRows: true)
                 : null;
         bool SelectedColumnsMatch(string section)
             => countColumnSchema == null
