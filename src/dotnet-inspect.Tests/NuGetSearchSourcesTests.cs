@@ -195,6 +195,57 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchAsync_MetadataLimitFailures_AreAttributedPerSource()
+    {
+        const string goodIndex = "https://good.example/v3/index.json";
+        const string goodSearch = "https://good.example/v3/query";
+        const string oversizeIndex = "https://oversize.example/v3/index.json";
+        const string oversizeSearch = "https://oversize.example/v3/query";
+        const string timeoutIndex = "https://timeout.example/v3/index.json";
+        const string timeoutSearch = "https://timeout.example/v3/query";
+
+        var handler = new RouteHandler
+        {
+            [goodIndex] = ServiceIndex(goodSearch),
+            [goodSearch] = """{"data":[{"id":"Good.Package","version":"1.0.0"}]}""",
+            [oversizeIndex] = ServiceIndex(oversizeSearch),
+            [timeoutIndex] = ServiceIndex(timeoutSearch),
+        };
+        handler.RespondWithContent(
+            oversizeSearch,
+            () => new AdvertisedLengthContent(
+                NuGetFetchOptions.DefaultMaxMetadataResponseBytes + 1));
+        handler.Throw(
+            timeoutSearch,
+            new TimeoutException("test transport timeout"));
+        using var client = new HttpClient(handler);
+        using var config = new TempNuGetConfig(
+            [
+                ("good", goodIndex),
+                ("oversize", oversizeIndex),
+                ("timeout", timeoutIndex),
+            ]);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "q",
+            sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path });
+
+        Assert.Equal("Good.Package", Assert.Single(outcome.Results).PackageId);
+        Assert.Equal(2, outcome.Failures.Count);
+        Assert.Contains(
+            outcome.Failures,
+            failure => failure.Contains(
+                nameof(NuGetMetadataResponseTooLargeException),
+                StringComparison.Ordinal));
+        Assert.Contains(
+            outcome.Failures,
+            failure => failure.Contains(
+                nameof(TimeoutException),
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task SearchAsync_DuplicateAcrossSources_ReturnedOnce()
     {
         const string indexA = "https://a.example/v3/index.json";
@@ -1403,6 +1454,10 @@ public class NuGetSearchSourcesTests
     {
         private readonly Dictionary<string, (HttpStatusCode Status, string Body)> _routes =
             new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Func<HttpContent>> _contentRoutes =
+            new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Exception> _exceptions =
+            new(StringComparer.OrdinalIgnoreCase);
         private readonly List<(string Url, AuthenticationHeaderValue? Auth)> _requests = [];
 
         public string this[string url] { set => _routes[url] = (HttpStatusCode.OK, value); }
@@ -1412,6 +1467,12 @@ public class NuGetSearchSourcesTests
         public void RespondWith(string url, HttpStatusCode status, string body = "") =>
             _routes[url] = (status, body);
 
+        public void RespondWithContent(string url, Func<HttpContent> content) =>
+            _contentRoutes[url] = content;
+
+        public void Throw(string url, Exception exception) =>
+            _exceptions[url] = exception;
+
         public AuthenticationHeaderValue? AuthFor(string url) =>
             _requests.FirstOrDefault(r => WithoutQuery(r.Url).Equals(url, StringComparison.OrdinalIgnoreCase)).Auth;
 
@@ -1420,6 +1481,10 @@ public class NuGetSearchSourcesTests
         {
             string url = request.RequestUri!.ToString();
             _requests.Add((url, request.Headers.Authorization));
+            string routeUrl = WithoutQuery(url);
+
+            if (_exceptions.TryGetValue(routeUrl, out Exception? exception))
+                return Task.FromException<HttpResponseMessage>(exception);
 
             bool laterSearchPage = request.RequestUri.Query
                 .TrimStart('?')
@@ -1432,8 +1497,15 @@ public class NuGetSearchSourcesTests
                 {
                     Content = new StringContent("""{"data":[]}""")
                 }
+                : _contentRoutes.TryGetValue(
+                    routeUrl,
+                    out Func<HttpContent>? content)
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = content()
+                }
                 : _routes.TryGetValue(
-                    WithoutQuery(url),
+                    routeUrl,
                     out (HttpStatusCode Status, string Body) route)
                 ? new HttpResponseMessage(route.Status) { Content = new StringContent(route.Body) }
                 : new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("") };
@@ -1446,6 +1518,26 @@ public class NuGetSearchSourcesTests
         {
             int q = url.IndexOf('?', StringComparison.Ordinal);
             return q < 0 ? url : url[..q];
+        }
+    }
+
+    private sealed class AdvertisedLengthContent : HttpContent
+    {
+        public AdvertisedLengthContent(long length)
+        {
+            Headers.ContentLength = length;
+        }
+
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context) =>
+            Task.FromException(
+                new InvalidOperationException("Oversized content must not be read."));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = Headers.ContentLength!.Value;
+            return true;
         }
     }
 

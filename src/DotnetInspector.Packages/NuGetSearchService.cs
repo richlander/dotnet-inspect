@@ -187,7 +187,9 @@ public static class NuGetSearchService
                         prerelease,
                         auth);
             }
-            catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
+            catch (Exception ex) when (ex is HttpRequestException or JsonException
+                or InvalidOperationException or TaskCanceledException
+                or NuGetMetadataResponseTooLargeException or TimeoutException)
             {
                 // The remote controls both the response that produced this
                 // exception and the endpoint URL its message embeds, so the
