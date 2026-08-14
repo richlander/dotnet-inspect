@@ -635,6 +635,49 @@ public class CommandLineTests
         Assert.Equal(["member", "Foo", "--columns", "Select;Signature"], result);
     }
 
+    [Theory]
+    [InlineData("--columns=")]
+    [InlineData("--fields=")]
+    public void PreprocessArgs_ExpandsInlineEmptyProjectionValue(string option)
+    {
+        var result = CommandLineBuilder.PreprocessArgs(["find", "Foo", option]);
+
+        Assert.Equal(["find", "Foo", option[..^1], ""], result);
+    }
+
+    [Theory]
+    [InlineData("--columns=", "--columns", "--columns")]
+    [InlineData("--columns", "--columns=", "--columns")]
+    [InlineData("--fields=", "--fields", "--fields")]
+    public void PreprocessArgs_MixedInlineEmptyAndBareProjectionPreservesExplicitEmpty(
+        string first,
+        string second,
+        string canonical)
+    {
+        var result = CommandLineBuilder.PreprocessArgs(["find", "Foo", first, second, "--json"]);
+
+        Assert.Equal(["find", "Foo", canonical, "", "--json"], result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_RepeatedBareProjectionRemainsBare()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            ["find", "Foo", "--columns", "--columns", "--json"]);
+
+        Assert.Equal(["find", "Foo", "--columns", "--json"], result);
+    }
+
+    [Theory]
+    [InlineData("--columns=")]
+    [InlineData("--fields=")]
+    public void PreprocessArgs_DoesNotRewriteProjectionAfterOptionTerminator(string literal)
+    {
+        var args = new[] { "find", "--", literal, literal };
+
+        Assert.Same(args, CommandLineBuilder.PreprocessArgs(args));
+    }
+
     [Fact]
     public void PreprocessArgs_SingleSelect_Unchanged()
     {
