@@ -1375,7 +1375,10 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             if (handle.Kind != HandleKind.StandaloneSignature)
                 return null;
             var standalone = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle);
-            if (!SignatureBlobGuard.IsSafeToDecode(_reader, standalone.Signature, SignatureBlobGuard.Kind.Method))
+            if (!SignatureBlobGuard.IsSafeToDecode(
+                    _reader,
+                    standalone.Signature,
+                    SignatureBlobGuard.Kind.StandaloneMethod))
                 return null;
             var signature = standalone.DecodeMethodSignature(TypeRefDecoder.Instance, scope);
             return signature.ReturnType.ToDisplayString();
@@ -1720,7 +1723,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             if (!SignatureBlobGuard.IsSafeToDecode(
                     _reader,
                     standalone.Signature,
-                    SignatureBlobGuard.Kind.Method))
+                    SignatureBlobGuard.Kind.StandaloneMethod))
             {
                 return MemberRef.Unsupported("calli signature unavailable");
             }

@@ -75,12 +75,35 @@ public class GenericContext
         MetadataReader reader,
         GenericParameterHandleCollection handles)
     {
-        List<string> names = [];
-        List<bool> valueTypeConstraints = [];
+        if (handles.Count > MetadataSafetyPolicy.MaxSignatureTypeNodes)
+        {
+            throw new BadImageFormatException(
+                "The generic-parameter count exceeds the metadata safety limit.");
+        }
+
+        var names = new List<string>(handles.Count);
+        var valueTypeConstraints = new List<bool>(handles.Count);
+        int totalNameLength = 0;
         foreach (var handle in handles)
         {
             var parameter = reader.GetGenericParameter(handle);
-            names.Add(reader.GetString(parameter.Name));
+            int remainingNameLength =
+                MetadataSafetyPolicy.MaxStructuralSignatureChars
+                - totalNameLength;
+            if (reader.GetBlobReader(parameter.Name).Length
+                > remainingNameLength)
+            {
+                throw new BadImageFormatException(
+                    "The generic-parameter names exceed the metadata safety limit.");
+            }
+            string name = reader.GetString(parameter.Name);
+            if (name.Length > remainingNameLength)
+            {
+                throw new BadImageFormatException(
+                    "The generic-parameter names exceed the metadata safety limit.");
+            }
+            totalNameLength += name.Length;
+            names.Add(name);
             valueTypeConstraints.Add(
                 (parameter.Attributes & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0);
         }

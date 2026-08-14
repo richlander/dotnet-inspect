@@ -8,73 +8,93 @@ public sealed class MethodStructuralSignatureTests
     [Fact]
     public void Build_EncodesGenericParametersPositionally_NotByName()
     {
-        string key = BuildFor(nameof(StructuralSignatureFixture), nameof(StructuralSignatureFixture.Generic));
+        string first = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.Generic),
+            methodNameOverride: "Generic");
+        string renamed = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.GenericRenamed),
+            methodNameOverride: "Generic");
 
-        // A renamed generic parameter must not change the key, so the parameter
-        // is encoded positionally (!!0), never by its source name.
-        Assert.Contains("!!0", key);
-        Assert.DoesNotContain("TItem", key);
-        Assert.Contains("`1", key);
+        Assert.Equal(first, renamed);
     }
 
     [Fact]
     public void Build_IncludesReturnType()
     {
-        string key = BuildFor(nameof(StructuralSignatureFixture), nameof(StructuralSignatureFixture.Transform));
+        string integer = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.Transform),
+            methodNameOverride: "Transform");
+        string text = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.TransformText),
+            methodNameOverride: "Transform");
 
-        Assert.EndsWith(":System.Int32", key);
-        Assert.Contains("System.String", key);
+        Assert.NotEqual(integer, text);
     }
 
     [Fact]
     public void Build_PreservesByReferenceParameters()
     {
-        string key = BuildFor(nameof(StructuralSignatureFixture), nameof(StructuralSignatureFixture.ByRef));
+        string byReference = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.ByRef),
+            methodNameOverride: "Parameter");
+        string byValue = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.ByValue),
+            methodNameOverride: "Parameter");
 
-        Assert.Contains("System.Int32&", key);
+        Assert.NotEqual(byReference, byValue);
     }
 
     [Fact]
     public void Build_PreservesCustomModifiersOnInParameters()
     {
-        string key = BuildFor(nameof(IStructuralSignatureFixture), nameof(IStructuralSignatureFixture.Consume));
+        string modified = BuildFor(
+            nameof(IStructuralSignatureFixture),
+            nameof(IStructuralSignatureFixture.Consume),
+            methodNameOverride: "Consume");
+        string unmodified = BuildFor(
+            nameof(IStructuralSignatureFixture),
+            nameof(IStructuralSignatureFixture.ConsumeRef),
+            methodNameOverride: "Consume");
 
-        // Interface/virtual 'in' parameters carry modreq(InAttribute); dropping
-        // the modifier would erase a real signature distinction.
-        Assert.Contains("modreq(", key);
-        Assert.Contains("InAttribute", key);
-    }
-
-    [Fact]
-    public void Build_PreservesNestedVersusNamespaceBoundary()
-    {
-        string key = BuildFor(nameof(StructuralSignatureFixture), nameof(StructuralSignatureFixture.Nested));
-
-        // Nested types are joined with '+', so a nested 'Inner' never collapses
-        // onto a same-named namespace member.
-        Assert.Contains("StructuralSignatureFixture+Inner", key);
+        Assert.NotEqual(modified, unmodified);
     }
 
     [Fact]
     public void Build_DistinguishesInstanceFromStatic()
     {
-        string instance = BuildFor(nameof(StructuralSignatureFixture), nameof(StructuralSignatureFixture.Transform));
-        string @static = BuildFor(nameof(StructuralSignatureFixture), nameof(StructuralSignatureFixture.StaticNoArgs));
+        string instance = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.InstanceNoArgs),
+            methodNameOverride: "NoArgs");
+        string @static = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.StaticNoArgs),
+            methodNameOverride: "NoArgs");
 
-        Assert.Contains("instance", instance);
-        Assert.Contains("static", @static);
+        Assert.NotEqual(instance, @static);
     }
 
     [Fact]
     public void Build_PreservesFunctionPointerCallingConvention()
     {
-        string managed = BuildFor(nameof(StructuralSignatureFixture), nameof(StructuralSignatureFixture.FnPtrManaged));
-        string unmanaged = BuildFor(nameof(StructuralSignatureFixture), nameof(StructuralSignatureFixture.FnPtrUnmanaged));
+        string managed = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.FnPtrManaged),
+            methodNameOverride: "FnPtr");
+        string unmanaged = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.FnPtrUnmanaged),
+            methodNameOverride: "FnPtr");
 
         // Managed and unmanaged function pointers with the same parameters and
         // return type are distinct CLR types and must not share a key.
         Assert.NotEqual(managed, unmanaged);
-        Assert.Contains("Unmanaged", unmanaged);
     }
 
     [Fact]
@@ -93,33 +113,362 @@ public sealed class MethodStructuralSignatureTests
         string second = MethodStructuralSignature.Build(image.Reader, image.Reader.GetMethodDefinition(pings[1]));
 
         Assert.NotEqual(first, second);
-        Assert.Contains("Shared.Token", first);
-        Assert.Contains("DiffAsmLibA", first + second);
-        Assert.Contains("DiffAsmLibB", first + second);
     }
 
-    static string BuildFor(string typeName, string methodName)
+    [Fact]
+    public void Build_PreservesNestedVersusNamespaceBoundary()
+    {
+        using var nestedImage = new MetadataImage(
+            Path.Combine(AppContext.BaseDirectory, "DiffAsmLibA.dll"));
+        using var namespaceImage = new MetadataImage(
+            Path.Combine(AppContext.BaseDirectory, "DiffAsmLibB.dll"));
+
+        string nested = BuildFor(
+            nestedImage.Reader,
+            FindType(nestedImage.Reader, "Api"),
+            "Accept",
+            methodNameOverride: "Accept",
+            typeNameOverrides: null);
+        string namespaced = BuildFor(
+            namespaceImage.Reader,
+            FindType(namespaceImage.Reader, "Api"),
+            "Accept",
+            methodNameOverride: "Accept",
+            typeNameOverrides: null);
+
+        Assert.NotEqual(nested, namespaced);
+    }
+
+    [Fact]
+    public void Build_PreservesTwoParameterBinarySignature()
+    {
+        var method = typeof(MethodStructuralSignature).GetMethod(
+            nameof(MethodStructuralSignature.Build),
+            [typeof(MetadataReader), typeof(MethodDefinition)]);
+
+        Assert.NotNull(method);
+        Assert.Equal(typeof(string), method.ReturnType);
+    }
+
+    [Fact]
+    public void Build_DistinguishesMethodConstraintAttributes()
+    {
+        string reference = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.ReferenceConstrained),
+            methodNameOverride: "Constrained");
+        string value = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.ValueConstrained),
+            methodNameOverride: "Constrained");
+        string equivalent = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.ReferenceConstrainedAgain),
+            methodNameOverride: "Constrained");
+
+        Assert.NotEqual(reference, value);
+        Assert.Equal(reference, equivalent);
+    }
+
+    [Fact]
+    public void Build_DistinguishesMethodConstraintTypes()
+    {
+        string disposable = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.DisposableConstrained),
+            methodNameOverride: "Constrained");
+        string comparable = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.ComparableConstrained),
+            methodNameOverride: "Constrained");
+        string equivalent = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.DisposableConstrainedAgain),
+            methodNameOverride: "Constrained");
+
+        Assert.NotEqual(disposable, comparable);
+        Assert.Equal(disposable, equivalent);
+    }
+
+    [Fact]
+    public void Build_CanonicalizesConstraintRowOrder()
+    {
+        string first = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.ConstraintsOrderOne),
+            methodNameOverride: "Constrained");
+        string reordered = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.ConstraintsOrderTwo),
+            methodNameOverride: "Constrained");
+
+        Assert.Equal(first, reordered);
+    }
+
+    [Fact]
+    public void Build_PreservesConstraintParameterPosition()
+    {
+        string first = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.ConstraintsByPositionOne),
+            methodNameOverride: "Constrained");
+        string swapped = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.ConstraintsByPositionTwo),
+            methodNameOverride: "Constrained");
+
+        Assert.NotEqual(first, swapped);
+    }
+
+    [Fact]
+    public void Build_DistinguishesDeclaringTypeConstraints()
+    {
+        using var image = new MetadataImage(
+            typeof(MethodStructuralSignatureTests).Assembly.Location);
+        var referenceType = FindType(
+            image.Reader,
+            typeof(ReferenceConstrainedFixture<object>).Name);
+        var valueType = FindType(
+            image.Reader,
+            typeof(ValueConstrainedFixture<int>).Name);
+        var equivalentType = FindType(
+            image.Reader,
+            typeof(ReferenceConstrainedFixtureAgain<object>).Name);
+        var overrides = new Dictionary<TypeDefinitionHandle, string>
+        {
+            [referenceType] = "Constrained`1",
+            [valueType] = "Constrained`1",
+            [equivalentType] = "Constrained`1",
+        };
+
+        string reference = BuildFor(
+            image.Reader,
+            referenceType,
+            nameof(ReferenceConstrainedFixture<object>.M),
+            methodNameOverride: "M",
+            typeNameOverrides: overrides);
+        string value = BuildFor(
+            image.Reader,
+            valueType,
+            nameof(ValueConstrainedFixture<int>.M),
+            methodNameOverride: "M",
+            typeNameOverrides: overrides);
+        string equivalent = BuildFor(
+            image.Reader,
+            equivalentType,
+            nameof(ReferenceConstrainedFixtureAgain<object>.M),
+            methodNameOverride: "M",
+            typeNameOverrides: overrides);
+
+        Assert.NotEqual(reference, value);
+        Assert.Equal(reference, equivalent);
+    }
+
+    [Fact]
+    public void Build_NameOverrideChangesOnlyTheRequestedName()
+    {
+        string first = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.ByValue),
+            methodNameOverride: "Same");
+        string second = BuildFor(
+            nameof(StructuralSignatureFixture),
+            nameof(StructuralSignatureFixture.ByValueAgain),
+            methodNameOverride: "Same");
+
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void BuildMethodKey_SharesDeclaringTypeKeyAcrossMethods()
+    {
+        using var image = new MetadataImage(
+            typeof(MethodStructuralSignatureTests).Assembly.Location);
+        var type = FindType(
+            image.Reader,
+            nameof(StructuralSignatureFixture));
+        var overrides = new CountingReadOnlyDictionary<TypeDefinitionHandle, string>(
+            new Dictionary<TypeDefinitionHandle, string>
+            {
+                [type] = "Fixture",
+            });
+        var builder = new StructuralSignatureBuilder(
+            image.Reader,
+            overrides);
+
+        var firstMethod = image.Reader.GetMethodDefinition(
+            FindMethod(
+                image.Reader,
+                type,
+                nameof(StructuralSignatureFixture.ByValue)));
+        var secondMethod = image.Reader.GetMethodDefinition(
+            FindMethod(
+                image.Reader,
+                type,
+                nameof(StructuralSignatureFixture.ByValueAgain)));
+        Assert.Equal(firstMethod.Signature, secondMethod.Signature);
+
+        StructuralMethodKey first = builder.BuildMethodKey(firstMethod);
+        int lookupsAfterFirstMethod = overrides.LookupCount;
+        StructuralMethodKey second = builder.BuildMethodKey(secondMethod);
+
+        Assert.True(lookupsAfterFirstMethod > 0);
+        Assert.Equal(lookupsAfterFirstMethod, overrides.LookupCount);
+        Assert.Same(first.DeclaringType, second.DeclaringType);
+        Assert.Same(first.Component.Signature, second.Component.Signature);
+    }
+
+    [Fact]
+    public void BuildTypeKey_SharesAncestorAcrossNestedTypes()
+    {
+        using var image = new MetadataImage(
+            typeof(MethodStructuralSignatureTests).Assembly.Location);
+        var outer = FindType(
+            image.Reader,
+            nameof(StructuralSignatureFixture));
+        var inner = FindNestedType(
+            image.Reader,
+            outer,
+            nameof(StructuralSignatureFixture.Inner));
+        var builder = new StructuralSignatureBuilder(image.Reader);
+
+        StructuralTypeKey innerKey = builder.BuildTypeKey(inner);
+        StructuralTypeKey outerKey = builder.BuildTypeKey(outer);
+
+        Assert.Same(outerKey, innerKey.DeclaringType);
+    }
+
+    [Fact]
+    public void Build_TypeNameOverridesApplyOnlyToTheDeclaringChain()
+    {
+        using var image = new MetadataImage(
+            typeof(MethodStructuralSignatureTests).Assembly.Location);
+        var referenceType = FindType(
+            image.Reader,
+            typeof(ReferenceConstrainedFixture<object>).Name);
+        var valueType = FindType(
+            image.Reader,
+            typeof(ValueConstrainedFixture<int>).Name);
+        var overrides = new Dictionary<TypeDefinitionHandle, string>
+        {
+            [referenceType] = "Generated`1",
+            [valueType] = "Generated`1",
+        };
+        var fixture = FindType(
+            image.Reader,
+            nameof(StructuralSignatureFixture));
+
+        string reference = BuildFor(
+            image.Reader,
+            fixture,
+            nameof(StructuralSignatureFixture.ReferenceParameter),
+            methodNameOverride: "Parameter",
+            typeNameOverrides: overrides);
+        string value = BuildFor(
+            image.Reader,
+            fixture,
+            nameof(StructuralSignatureFixture.ValueParameter),
+            methodNameOverride: "Parameter",
+            typeNameOverrides: overrides);
+
+        Assert.NotEqual(reference, value);
+    }
+
+    [Fact]
+    public void Build_LengthPrefixesEveryNameSegmentation()
+    {
+        using var image = new MetadataImage(
+            typeof(MethodStructuralSignatureTests).Assembly.Location);
+        var firstType = FindType(image.Reader, nameof(StructuralKeyFixtureA));
+        const string combined = "ABCD";
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        for (int split = 0; split <= combined.Length; split++)
+        {
+            string key = BuildFor(
+                image.Reader,
+                firstType,
+                nameof(StructuralKeyFixtureA.M),
+                methodNameOverride: combined[split..],
+                typeNameOverrides: new Dictionary<TypeDefinitionHandle, string>
+                {
+                    [firstType] = combined[..split],
+                });
+            Assert.True(keys.Add(key), $"Split point {split} produced a duplicate key.");
+        }
+    }
+
+    static string BuildFor(
+        string typeName,
+        string methodName,
+        string? methodNameOverride = null)
     {
         using var image = new MetadataImage(typeof(MethodStructuralSignatureTests).Assembly.Location);
-        var handle = FindMethod(image.Reader, typeName, methodName);
-        return MethodStructuralSignature.Build(image.Reader, image.Reader.GetMethodDefinition(handle));
+        var typeHandle = FindType(image.Reader, typeName);
+        return BuildFor(
+            image.Reader,
+            typeHandle,
+            methodName,
+            methodNameOverride,
+            typeNameOverrides: null);
     }
 
-    static MethodDefinitionHandle FindMethod(MetadataReader reader, string typeName, string methodName)
+    static string BuildFor(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        string methodName,
+        string? methodNameOverride,
+        IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides)
+    {
+        var handle = FindMethod(reader, typeHandle, methodName);
+        return MethodStructuralSignature.Build(
+            reader,
+            reader.GetMethodDefinition(handle),
+            methodNameOverride,
+            typeNameOverrides);
+    }
+
+    static TypeDefinitionHandle FindType(MetadataReader reader, string typeName)
     {
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var type = reader.GetTypeDefinition(typeHandle);
-            if (reader.GetString(type.Name) != typeName)
-                continue;
-            foreach (var methodHandle in type.GetMethods())
-            {
-                if (reader.GetString(reader.GetMethodDefinition(methodHandle).Name) == methodName)
-                    return methodHandle;
-            }
+            if (reader.GetString(type.Name) == typeName)
+                return typeHandle;
         }
 
-        throw new InvalidOperationException($"Method '{typeName}::{methodName}' was not found.");
+        throw new InvalidOperationException($"Type '{typeName}' was not found.");
+    }
+
+    static MethodDefinitionHandle FindMethod(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        string methodName)
+    {
+        var type = reader.GetTypeDefinition(typeHandle);
+        foreach (var methodHandle in type.GetMethods())
+        {
+            if (reader.GetString(reader.GetMethodDefinition(methodHandle).Name) == methodName)
+                return methodHandle;
+        }
+
+        throw new InvalidOperationException(
+            $"Method '{reader.GetString(type.Name)}::{methodName}' was not found.");
+    }
+
+    static TypeDefinitionHandle FindNestedType(
+        MetadataReader reader,
+        TypeDefinitionHandle declaringTypeHandle,
+        string typeName)
+    {
+        var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
+        foreach (var typeHandle in declaringType.GetNestedTypes())
+        {
+            if (reader.GetString(reader.GetTypeDefinition(typeHandle).Name) == typeName)
+                return typeHandle;
+        }
+
+        throw new InvalidOperationException(
+            $"Nested type '{reader.GetString(declaringType.Name)}+{typeName}' was not found.");
     }
 
     static List<MethodDefinitionHandle> FindMethods(MetadataReader reader, string typeName, string methodName)
@@ -160,6 +509,34 @@ public sealed class MethodStructuralSignatureTests
             _stream.Dispose();
         }
     }
+
+    sealed class CountingReadOnlyDictionary<TKey, TValue>(
+        IReadOnlyDictionary<TKey, TValue> inner)
+        : IReadOnlyDictionary<TKey, TValue>
+        where TKey : notnull
+    {
+        public int LookupCount { get; private set; }
+
+        public TValue this[TKey key] => inner[key];
+        public IEnumerable<TKey> Keys => inner.Keys;
+        public IEnumerable<TValue> Values => inner.Values;
+        public int Count => inner.Count;
+
+        public bool ContainsKey(TKey key)
+            => inner.ContainsKey(key);
+
+        public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
+            => inner.GetEnumerator();
+
+        public bool TryGetValue(TKey key, out TValue value)
+        {
+            LookupCount++;
+            return inner.TryGetValue(key, out value!);
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+            => GetEnumerator();
+    }
 }
 
 public sealed class StructuralSignatureFixture
@@ -170,7 +547,15 @@ public sealed class StructuralSignatureFixture
 
     public void Generic<TItem>(TItem item) => _ = item;
 
+    public void GenericRenamed<TOther>(TOther item) => _ = item;
+
+    public string TransformText(string value) => value;
+
     public void ByRef(ref int value) => value++;
+
+    public void ByValue(int value) => _ = value;
+
+    public void ByValueAgain(int value) => _ = value;
 
     public void In(in int value) => _ = value;
 
@@ -178,12 +563,73 @@ public sealed class StructuralSignatureFixture
 
     public static int StaticNoArgs() => 0;
 
+    public int InstanceNoArgs() => 0;
+
     public unsafe void FnPtrManaged(delegate*<int, void> callback) => _ = (nint)callback;
 
     public unsafe void FnPtrUnmanaged(delegate* unmanaged<int, void> callback) => _ = (nint)callback;
+
+    public void ReferenceConstrained<T>() where T : class { }
+
+    public void ReferenceConstrainedAgain<T>() where T : class { }
+
+    public void ValueConstrained<T>() where T : struct { }
+
+    public void DisposableConstrained<T>() where T : IDisposable { }
+
+    public void DisposableConstrainedAgain<T>() where T : IDisposable { }
+
+    public void ComparableConstrained<T>() where T : IComparable<T> { }
+
+    public void ConstraintsOrderOne<T>()
+        where T : IDisposable, IComparable<T> { }
+
+    public void ConstraintsOrderTwo<T>()
+        where T : IComparable<T>, IDisposable { }
+
+    public void ConstraintsByPositionOne<T, U>()
+        where T : IDisposable
+        where U : ICloneable { }
+
+    public void ConstraintsByPositionTwo<T, U>()
+        where T : ICloneable
+        where U : IDisposable { }
+
+    public void ReferenceParameter(ReferenceConstrainedFixture<object> value)
+        => _ = value;
+
+    public void ValueParameter(ValueConstrainedFixture<int> value)
+        => _ = value;
 }
 
 public interface IStructuralSignatureFixture
 {
     void Consume(in int value);
+
+    void ConsumeRef(ref int value);
+
+    void ConsumeValue(int value);
+}
+
+public sealed class ReferenceConstrainedFixture<T>
+    where T : class
+{
+    public void M() { }
+}
+
+public sealed class ReferenceConstrainedFixtureAgain<T>
+    where T : class
+{
+    public void M() { }
+}
+
+public sealed class ValueConstrainedFixture<T>
+    where T : struct
+{
+    public void M() { }
+}
+
+public sealed class StructuralKeyFixtureA
+{
+    public void M() { }
 }
