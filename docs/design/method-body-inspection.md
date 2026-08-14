@@ -292,12 +292,13 @@ and the existing allocation/optimization/call metadata resolvers. Topic
 producers still receive only their narrow contracts.
 `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gates calls, safety
 evidence, and diagnostics surviving a later recoverable failure;
-`LibraryBodyIndex_PrefetchedImageHonorsBodyScope` gates scoped body acquisition.
-The assembly builder retains the metadata-ordered work list, parallel
-scheduling, primary-image metadata judgments, assembly-level projections, and
-result aggregation. `LibraryBodyReferenceMetadataResolver` separately owns
-cross-assembly type-definition binding, referenced-image metadata lifetime, and
-its registration-keyed cache for that acquisition. It builds on
+`LibraryBodyIndex_PrefetchedImageScopeSkipsMalformedUnselectedBody` gates
+scoped decode with an excluded malformed-body close negative. The assembly
+builder retains the metadata-ordered work list, parallel scheduling,
+primary-image metadata judgments, assembly-level projections, and result
+aggregation. `LibraryBodyReferenceMetadataResolver` separately owns
+cross-assembly type-definition binding, referenced-image metadata lifetime,
+and its registration-keyed cache for that acquisition. It builds on
 `AssemblyReferenceBindingPolicy` and `TypeResolutionCatalog` rather than adding
 another binding engine. Topic producers may each traverse the canonical decoded
 instructions for their own policy; this ownership split does not claim one

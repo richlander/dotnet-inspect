@@ -740,8 +740,9 @@ Research overlay bridge, and the application layer:
   method identity and generic scope, and the existing narrow metadata
   resolvers without exposing them to topic producers.
   `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gates partial failure
-  publication, and `LibraryBodyIndex_PrefetchedImageHonorsBodyScope` gates
-  scoped body acquisition through the runner. The assembly builder retains the
+  publication, and
+  `LibraryBodyIndex_PrefetchedImageScopeSkipsMalformedUnselectedBody` gates
+  scoped decode through the runner. The assembly builder retains the
   metadata-ordered work list, parallel scheduling, primary-image metadata
   judgments, and result aggregation. Cross-assembly type-definition binding,
   referenced-image metadata lifetime, and the registration-keyed cache belong
