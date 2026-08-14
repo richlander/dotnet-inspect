@@ -69,6 +69,7 @@ public static class FixtureIds
     public const string AnalysisExceptionBase = "analysis.exception-base";
     public const string AnalysisFacade = "analysis.facade";
     public const string AnalysisLookalike = "analysis.lookalike";
+    public const string AnalysisOwnershipFlow = "analysis.ownership-flow";
     public const string AnalysisProtobuf = "analysis.protobuf";
     public const string AnalysisRender = "analysis.render";
     public const string AnalysisSpoofSystemLinq = "analysis.spoof.system-linq";
@@ -187,6 +188,13 @@ public static class FixtureCatalog
         "ILInspector.Analysis.CallerGraphCaller.dll",
         Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "caller-graph", "caller");
+
+    public static readonly FixtureDefinition AnalysisOwnershipFlow = Fixture(
+        FixtureIds.AnalysisOwnershipFlow,
+        "ILInspector.Analysis.OwnershipFlowFixtures",
+        "ILInspector.Analysis.OwnershipFlowFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "analysis", "ownership-flow");
 
     public static readonly FixtureDefinition AnalysisCallerGraphCallerTwin = Fixture(
         FixtureIds.AnalysisCallerGraphCallerTwin,
@@ -429,6 +437,7 @@ public static class FixtureCatalog
         DiffAsmLibB,
         DiffAsmTarget,
         AnalysisCallerGraphCaller,
+        AnalysisOwnershipFlow,
         AnalysisCallerGraphCallerTwin,
         AnalysisCallerGraphIndirectCaller,
         AnalysisCallerGraphLookalikeCaller,
@@ -477,6 +486,7 @@ public static class FixtureCatalog
             AnalysisCallerGraphTarget,
             AnalysisCallerGraphTargetV2,
             AnalysisCallerGraphCaller,
+            AnalysisOwnershipFlow,
             AnalysisCallerGraphCallerTwin,
             AnalysisCallerGraphIndirectCaller,
             AnalysisCallerGraphLookalikeCaller,

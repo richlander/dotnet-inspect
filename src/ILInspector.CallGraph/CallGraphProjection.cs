@@ -189,14 +189,28 @@ public sealed partial class CallGraphProjection
     /// </summary>
     public CallGraphRowMatch FindFocusCalleeRow(
         DirectCall call,
+        out CallGraphRow row) =>
+        FindCalleeRow(Focus.Id, call, out row);
+
+    /// <summary>
+    /// Resolves one physical call site from a projected caller node to its
+    /// stable logical edge row.
+    /// </summary>
+    public CallGraphRowMatch FindCalleeRow(
+        int callerNodeId,
+        DirectCall call,
         out CallGraphRow row)
     {
         ArgumentNullException.ThrowIfNull(call);
+        ArgumentOutOfRangeException.ThrowIfNegative(callerNodeId);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+            callerNodeId,
+            Nodes.Length);
 
         CallGraphRow[] exact =
         [
             .. Rows.Where(candidate =>
-                candidate.Edge.From == Focus.Id
+                candidate.Edge.From == callerNodeId
                 && Nodes[candidate.Edge.To].GraphEvidence.Any(evidence =>
                     evidence.Storage.Kind
                         == GraphNodeStorageKind.CallSite
@@ -224,7 +238,7 @@ public sealed partial class CallGraphProjection
         CallGraphRow[] structural =
         [
             .. Rows.Where(candidate =>
-                candidate.Edge.From == Focus.Id
+                candidate.Edge.From == callerNodeId
                 && GraphNodeIdentity.FromMember(
                     Nodes[candidate.Edge.To].Member) == callee),
         ];
