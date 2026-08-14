@@ -201,6 +201,9 @@ public class CatalogCallGraphScopeTests
             });
 
         Assert.Equal(2, projection.Nodes.Length);
+        Assert.NotEqual(
+            projection.Nodes[0].Identity,
+            projection.Nodes[1].Identity);
         CallGraphEdge edge = Assert.Single(projection.Edges);
         Assert.Equal(0, edge.From);
         Assert.Equal(1, edge.To);
