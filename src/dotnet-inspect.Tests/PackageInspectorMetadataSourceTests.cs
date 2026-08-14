@@ -144,7 +144,8 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             localFilePath: localPackagePath,
             nuspec: null,
             client,
-            new VerboseLogger(enabled: false));
+            new VerboseLogger(enabled: false),
+            verifyRidPackageAvailability: true);
 
         Assert.Equal("Wrapper.Package.any", result.PackageName);
         Assert.Equal("Tool v2", new InspectionResultView(result).PackageType);
@@ -163,6 +164,86 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.False(linuxPackage.Exists);
     }
 
+    [Fact]
+    public async Task InspectAsync_CachedUnknownRidAvailabilityIsRechecked()
+    {
+        string packageName = $"Pointer.Package.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        const string source = "https://feed.example/v3/index.json";
+        string producerKey = NuGetCache.GetSourceKey(source);
+        PackageIndexCache.Set(
+            packageName,
+            version,
+            producerKey,
+            new InspectionResult
+            {
+                PackageName = packageName,
+                Version = version,
+                IsRidSpecificPointerPackage = true,
+                RuntimeIdentifierPackages =
+                [
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "linux-x64",
+                        PackageId = $"{packageName}.linux-x64",
+                    }
+                ],
+            });
+
+        using var client = new HttpClient(new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json(
+                    """
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://feed.example/flat/", "@type": "PackageBaseAddress/3.0.0" }
+                      ]
+                    }
+                    """),
+                _ when request.RequestUri.AbsolutePath.EndsWith(
+                    ".nuspec",
+                    StringComparison.Ordinal) => Xml(
+                    $"""
+                    <package>
+                      <metadata>
+                        <id>{packageName}.linux-x64</id>
+                        <version>{version}</version>
+                      </metadata>
+                    </package>
+                    """),
+                _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+            }));
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            PackageName: packageName,
+            Version: version,
+            ProducerKey: producerKey);
+
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            packageName,
+            version,
+            isLocalFile: false,
+            localFilePath: null,
+            nuspec: null,
+            client,
+            new VerboseLogger(enabled: false),
+            verifyRidPackageAvailability: true,
+            sourceOptions: new NuGetSourceOptions { Sources = [source] });
+
+        Assert.True(
+            Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        Assert.True(
+            Assert.Single(
+                PackageIndexCache.TryGet(
+                    packageName,
+                    version,
+                    producerKey)!.RuntimeIdentifierPackages!).Exists);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))
@@ -175,6 +256,12 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         new(HttpStatusCode.OK)
         {
             Content = new StringContent(content, Encoding.UTF8, "application/json"),
+        };
+
+    private static HttpResponseMessage Xml(string content) =>
+        new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(content, Encoding.UTF8, "application/xml"),
         };
 
     private sealed class RoutingHandler(

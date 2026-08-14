@@ -8,9 +8,12 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Xml;
+using System.Xml.Linq;
 using DotnetInspector.Core;
 using InertText;
 using NuGetFetch;
+using NuGet.Versioning;
 using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;
@@ -932,6 +935,8 @@ public static class PackageExtractor
     {
         string normalizedName = packageId.ToLowerInvariant();
         string normalizedVersion = version.ToLowerInvariant();
+        bool sawAuthoritativeAbsence = false;
+        bool sawIndeterminateSource = false;
 
         // Cache hit: read the nuspec straight from the already-extracted package,
         // under the same byte ceiling as the remote path. Marker presence alone
@@ -951,17 +956,18 @@ public static class PackageExtractor
             {
                 string? cachedXml = await TryReadNuspecFileAsync(cachedNuspec)
                     .ConfigureAwait(false);
-                if (cachedXml != null)
+                if (cachedXml != null
+                    && IsExpectedNuspec(cachedXml, packageId, version))
                 {
                     return new NuspecProbeResult(
                         cachedXml,
                         NuspecProbeStatus.Present);
                 }
             }
+
+            sawIndeterminateSource = true;
         }
 
-        bool sawAuthoritativeAbsence = false;
-        bool sawIndeterminateSource = false;
         foreach (var source in NuGetSourceResolver.ResolveSourcesForPackage(
             sourceOptions,
             packageId))
@@ -987,9 +993,19 @@ public static class PackageExtractor
                 if (body.Status == HttpRetryHelper.HttpBodyFetchStatus.Success
                     && body.Bytes is { Length: > 0 })
                 {
-                    return new NuspecProbeResult(
-                        Encoding.UTF8.GetString(body.Bytes),
-                        NuspecProbeStatus.Present);
+                    string xml = Encoding.UTF8.GetString(body.Bytes);
+                    if (IsExpectedNuspec(xml, packageId, version))
+                    {
+                        return new NuspecProbeResult(
+                            xml,
+                            NuspecProbeStatus.Present);
+                    }
+
+                    log?.Invoke(
+                        $"Nuspec from {PackageSourceDisplay.ForDiagnostics(source)} "
+                        + "was malformed or did not match the requested package.");
+                    sawIndeterminateSource = true;
+                    continue;
                 }
 
                 if (body.StatusCode == HttpStatusCode.NotFound)
@@ -1020,6 +1036,62 @@ public static class PackageExtractor
             sawAuthoritativeAbsence && !sawIndeterminateSource
                 ? NuspecProbeStatus.Absent
                 : NuspecProbeStatus.Indeterminate);
+    }
+
+    private static bool IsExpectedNuspec(
+        string xml,
+        string packageId,
+        string version)
+    {
+        try
+        {
+            using var textReader = new StringReader(xml);
+            using XmlReader reader = XmlReader.Create(
+                textReader,
+                new XmlReaderSettings
+                {
+                    DtdProcessing = DtdProcessing.Prohibit,
+                    XmlResolver = null,
+                    MaxCharactersInDocument = MaxNuspecBytes,
+                });
+            XDocument document = XDocument.Load(reader, LoadOptions.None);
+            XElement? metadata = document.Root?
+                .Elements()
+                .FirstOrDefault(element =>
+                    element.Name.LocalName.Equals(
+                        "metadata",
+                        StringComparison.OrdinalIgnoreCase));
+            string? actualId = metadata?
+                .Elements()
+                .FirstOrDefault(element =>
+                    element.Name.LocalName.Equals(
+                        "id",
+                        StringComparison.OrdinalIgnoreCase))
+                ?.Value;
+            string? actualVersion = metadata?
+                .Elements()
+                .FirstOrDefault(element =>
+                    element.Name.LocalName.Equals(
+                        "version",
+                        StringComparison.OrdinalIgnoreCase))
+                ?.Value;
+
+            return string.Equals(
+                       actualId?.Trim(),
+                       packageId,
+                       StringComparison.OrdinalIgnoreCase)
+                   && NuGetVersion.TryParse(version, out NuGetVersion? expected)
+                   && NuGetVersion.TryParse(
+                       actualVersion?.Trim(),
+                       out NuGetVersion? actual)
+                   && VersionComparer.VersionReleaseMetadata.Equals(
+                       expected,
+                       actual);
+        }
+        catch (XmlException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

@@ -639,6 +639,16 @@ public class PackageCommand
 
             bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
                 || DiscoverRequestsSection(options.Discover, PackageSections.Signals, pipeline);
+            bool wantsRidPackageAvailability = pipeline
+                .GetCandidateSections(
+                    options.Verbosity,
+                    options.IncludeSections,
+                    options.FixedOverview)
+                .Contains(PackageSections.Manifest)
+                || DiscoverRequestsSection(
+                    options.Discover,
+                    PackageSections.Manifest,
+                    pipeline);
             using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(options)
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
@@ -649,6 +659,7 @@ public class PackageCommand
                 nuspec, client, logger,
                 options.ForceLatest, options.Verbosity,
                 fetchMetadata: wantsSignals,
+                verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
             // Apply package size (not cached in index — comes from nupkg file)
@@ -1618,6 +1629,16 @@ public class PackageCommand
 
             bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
                 || DiscoverRequestsSection(options.Discover, PackageSections.Signals, PackageSectionDescriptors.CreatePipeline());
+            bool wantsRidPackageAvailability = pipeline
+                .GetCandidateSections(
+                    options.Verbosity,
+                    options.IncludeSections,
+                    options.FixedOverview)
+                .Contains(PackageSections.Manifest)
+                || DiscoverRequestsSection(
+                    options.Discover,
+                    PackageSections.Manifest,
+                    pipeline);
             using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(options)
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
@@ -1633,6 +1654,7 @@ public class PackageCommand
                 options.ForceLatest,
                 options.Verbosity,
                 fetchMetadata: wantsSignals,
+                verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
             if (packageSize.HasValue)

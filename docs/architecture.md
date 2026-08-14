@@ -306,7 +306,9 @@ and inspects its managed assemblies. The redirect benefits every package-consumi
 The extraction result retains the ordered wrapper chain separately from the final payload
 coordinate. Package inspection uses the requested wrapper's tool manifest for classification
 and commands while keeping the payload package identity and producer as the provenance of the
-managed assemblies being inspected.
+managed assemblies being inspected. RID companion availability is verified only when the
+manifest view requests it: a coordinate-matching nuspec proves presence, authoritative absence
+renders `no`, and malformed or otherwise inconclusive probes remain `unknown`.
 
 ### Signature decoding
 

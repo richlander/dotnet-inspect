@@ -27,6 +27,7 @@ internal static class PackageInspector
         bool forceLatest = false,
         Verbosity verbosity = Verbosity.Minimal,
         bool fetchMetadata = false,
+        bool verifyRidPackageAvailability = false,
         NuGetSourceOptions? sourceOptions = null)
     {
         string extractPath = resolution.ExtractPath;
@@ -53,6 +54,25 @@ internal static class PackageInspector
             }
             if (cached != null)
             {
+                if (verifyRidPackageAvailability
+                    && cached.IsRidSpecificPointerPackage
+                    && cached.RuntimeIdentifierPackages?.Any(
+                        package => package.Exists is null) == true)
+                {
+                    await RidPackageVerifier.VerifyAsync(
+                        httpClient,
+                        cached,
+                        cached.Version ?? version,
+                        localDir: null,
+                        logger,
+                        sourceOptions);
+                    PackageIndexCache.Set(
+                        packageName,
+                        version,
+                        producerKey,
+                        cached);
+                }
+
                 if (fetchMetadata)
                 {
                     var metadata = await PackageMetadataService.FetchAllMetadataAsync(
@@ -71,6 +91,7 @@ internal static class PackageInspector
                     localFilePath,
                     httpClient,
                     logger,
+                    verifyRidPackageAvailability,
                     sourceOptions);
                 return cached;
             }
@@ -154,7 +175,9 @@ internal static class PackageInspector
         }
 
         // Verify RID-specific packages exist (always do this for RID pointer packages)
-        if (result.IsRidSpecificPointerPackage && result.RuntimeIdentifierPackages is { Count: > 0 })
+        if (verifyRidPackageAvailability
+            && result.IsRidSpecificPointerPackage
+            && result.RuntimeIdentifierPackages is { Count: > 0 })
         {
             string? localDir = isLocalFile ? Path.GetDirectoryName(Path.GetFullPath(localFilePath!)) : null;
             await RidPackageVerifier.VerifyAsync(
@@ -198,6 +221,7 @@ internal static class PackageInspector
             localFilePath,
             httpClient,
             logger,
+            verifyRidPackageAvailability,
             sourceOptions);
         return result;
     }
@@ -209,6 +233,7 @@ internal static class PackageInspector
         string? localFilePath,
         HttpClient httpClient,
         VerboseLogger logger,
+        bool verifyRidPackageAvailability,
         NuGetSourceOptions? sourceOptions)
     {
         ToolWrapperPackage? wrapper = resolution.ToolWrapperChain.FirstOrDefault();
@@ -237,7 +262,8 @@ internal static class PackageInspector
         result.RuntimeIdentifierPackages = wrapperTool.RuntimeIdentifierPackages;
         result.SupportedRids = wrapperTool.SupportedRids;
 
-        if (result.IsRidSpecificPointerPackage
+        if (verifyRidPackageAvailability
+            && result.IsRidSpecificPointerPackage
             && result.RuntimeIdentifierPackages is { Count: > 0 })
         {
             string? localDir = isLocalFile

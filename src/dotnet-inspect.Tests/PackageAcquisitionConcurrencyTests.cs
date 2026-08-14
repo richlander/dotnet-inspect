@@ -583,7 +583,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     /// (dependency-resolution hot path).
     /// </summary>
     [Fact]
-    public async Task TryGetNuspecXmlAsync_OversizedCachedNuspec_ReturnsNull()
+    public async Task ProbeNuspecXmlAsync_OversizedCachedNuspec_IsIndeterminate()
     {
         const string PackageName = "Nuspec.Bound.Test";
         const string Version = "1.0.0";
@@ -613,12 +613,14 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
 
         // Cache path is present but unusable; network fallthrough must not throw.
         using var client = new HttpClient(new NotFoundHandler());
-        Assert.Null(
-            await PackageExtractor.TryGetNuspecXmlAsync(
+        NuspecProbeResult probe =
+            await PackageExtractor.ProbeNuspecXmlAsync(
                 client,
                 PackageName,
                 Version,
-                sourceOptions: s_nugetOrgSource));
+                sourceOptions: s_nugetOrgSource);
+        Assert.Equal(NuspecProbeStatus.Indeterminate, probe.Status);
+        Assert.Null(probe.Xml);
     }
 
     /// <summary>
