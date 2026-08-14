@@ -592,17 +592,13 @@ public class IlToolsActivationTests
         }
     }
 
-    [Theory]
-    [InlineData("deep-inspect.yml", "test")]
-    [InlineData("release.yml", "deep-inspect-test")]
-    public void SlowWorkflows_FailAfterOracleRestoreFailure(
-        string workflowName,
-        string jobName)
+    [Fact]
+    public void SlowWorkflows_FailAfterOracleRestoreFailure()
     {
         string workflow = File.ReadAllText(
-            Path.Combine(RepoRoot, ".github", "workflows", workflowName));
+            Path.Combine(RepoRoot, ".github", "workflows", "deep-inspect.yml"));
         int jobStart = workflow.IndexOf(
-            $"\n  {jobName}:\n",
+            "\n  test:\n",
             StringComparison.Ordinal);
         Assert.True(jobStart >= 0);
         int nextJob = workflow.IndexOf(
@@ -687,22 +683,56 @@ public class IlToolsActivationTests
     }
 
     [Fact]
-    public void ReleaseWorkflow_BuildsFixtureGraphBeforeCliTests()
+    public void DeepInspectWorkflow_CertifiesDailyAndOnDemand()
     {
         string workflow = File.ReadAllText(
-            Path.Combine(RepoRoot, ".github", "workflows", "release.yml"));
-        int build = workflow.IndexOf(
-            "- name: Build product, tests, and fixtures",
+            Path.Combine(RepoRoot, ".github", "workflows", "deep-inspect.yml"));
+        int certification = workflow.IndexOf(
+            "\n  release-certification:\n",
             StringComparison.Ordinal);
-        int cliTests = workflow.IndexOf(
-            "- name: Run CLI tests (including slow integration)",
+        int nextJob = workflow.IndexOf(
+            "\n  census:\n",
+            certification,
             StringComparison.Ordinal);
 
-        Assert.True(build >= 0);
-        Assert.True(build < cliTests);
+        Assert.Contains("- cron: '0 6 * * *'", workflow);
+        Assert.True(certification >= 0);
+        Assert.True(certification < nextJob);
+        string job = workflow[certification..nextJob];
+        Assert.Contains("needs: [test, decompiler-corpus]", job);
+        Assert.Contains("inputs.lane == 'test'", job);
+        Assert.Contains("inputs.lane == 'all'", job);
+        Assert.Contains("TEST_RESULT: ${{ needs.test.result }}", job);
+        Assert.Contains("CORPUS_RESULT: ${{ needs.decompiler-corpus.result }}", job);
         Assert.Contains(
-            "run: dotnet build dotnet-inspect.slnx -c Release",
-            workflow[build..cliTests]);
+            "if [ \"$TEST_RESULT\" != success ] || [ \"$CORPUS_RESULT\" != success ]",
+            job);
+    }
+
+    [Fact]
+    public void ReleaseCertificationValidator_SelfTest()
+    {
+        var info = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = RepoRoot,
+        };
+        info.ArgumentList.Add("run");
+        info.ArgumentList.Add(Path.Combine("eng", "validate-release-certification.cs"));
+        info.ArgumentList.Add("--");
+        info.ArgumentList.Add("--self-test");
+
+        using var process = Process.Start(info)!;
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        Assert.True(
+            process.ExitCode == 0,
+            $"Certification validator self-test failed.\nstdout:\n{stdout}\nstderr:\n{stderr}");
+        Assert.Contains("self-test passed", stdout);
     }
 
     [Fact]
@@ -721,48 +751,26 @@ public class IlToolsActivationTests
     }
 
     [Fact]
-    public void ReleaseWorkflow_OracleTestLaneBlocksAllPackageJobs()
+    public void ReleaseWorkflow_RequiresFreshCertificationBeforePackageBuilds()
     {
         string workflow = File.ReadAllText(
             Path.Combine(RepoRoot, ".github", "workflows", "release.yml"));
 
-        foreach (string jobName in new[] { "build-native", "build-portable", "publish" })
-        {
-            int jobStart = workflow.IndexOf(
-                $"\n  {jobName}:\n",
-                StringComparison.Ordinal);
-            Assert.True(jobStart >= 0);
-            int stepsStart = workflow.IndexOf(
-                "\n    steps:\n",
-                jobStart,
-                StringComparison.Ordinal);
-            Assert.True(jobStart < stepsStart);
-            string jobHeader = workflow[jobStart..stepsStart];
-            string needsLine = Assert.Single(
-                jobHeader.Split('\n').Select(line => line.Trim()),
-                line => line.StartsWith("needs:", StringComparison.Ordinal));
-            string[] needs = needsLine["needs:".Length..]
-                .Trim()
-                .Trim('[', ']')
-                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            string[] conditions = jobHeader.Split('\n')
-                .Select(line => line.Trim())
-                .Where(line => line.StartsWith("if:", StringComparison.Ordinal))
-                .ToArray();
-
-            Assert.Contains("deep-inspect-test", needs);
-            Assert.DoesNotContain("continue-on-error:", jobHeader);
-            if (jobName == "publish")
-            {
-                Assert.Equal(
-                    ["if: github.event.inputs.confirm == 'publish'"],
-                    conditions);
-            }
-            else
-            {
-                Assert.Empty(conditions);
-            }
-        }
+        Assert.Contains("certification_run_id:", workflow);
+        Assert.Contains("allow_later_commit:", workflow);
+        Assert.Contains("--max-age-hours 36", workflow);
+        Assert.Contains(
+            "--allow-later-commit \"${{ inputs.allow_later_commit }}\"",
+            workflow);
+        Assert.Contains("dotnet run eng/validate-release-certification.cs", workflow);
+        Assert.Contains("\n  build-native:\n    needs: resolve\n", workflow);
+        Assert.Contains("\n  build-portable:\n    needs: resolve\n", workflow);
+        Assert.Contains(
+            "\n  publish:\n    needs: [resolve, build-native, build-portable]\n",
+            workflow);
+        Assert.DoesNotContain("\n  deep-inspect-test:\n", workflow);
+        Assert.DoesNotContain("\n  decompiler-corpus:\n", workflow);
+        Assert.DoesNotContain("restore-iltools.sh", workflow);
     }
 
     static IEnumerable<string> FencedBashBlocks(string markdown)

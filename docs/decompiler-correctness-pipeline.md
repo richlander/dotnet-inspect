@@ -137,8 +137,8 @@ Notes:
   facts, identity, and classification regressions without the broad integration
   and sweep costs. The slow CLI integration, compile-back/recompile,
   corpus-sweep, bind, scorecard, fidelity, and broad differential tests are
-  tagged `[Trait("Speed", "Slow")]` and run only in Deep Inspect / publish /
-  full local runs. **Mark any new Roslyn-heavy / recompile / corpus-sweeping or
+  tagged `[Trait("Speed", "Slow")]` and run only in Deep Inspect / full local
+  runs. **Mark any new Roslyn-heavy / recompile / corpus-sweeping or
   broad integration test `[Trait("Speed", "Slow")]`** — at the class level for a
   wholly-slow class, or the method level for one slow case in an otherwise fast
   class — so it stays out of the PR gate. A green PR CI run therefore does *not*
@@ -147,7 +147,7 @@ Notes:
   `dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release --
   -trait- "Speed=Slow"` when IL round-trip inputs change, while the unfiltered
   `DotnetInspector.ILRoundtrip.Tests` command keeps the assembly-wide sweep in
-  Deep Inspect / publish / full local coverage. Mark new broad/corpus-style
+  Deep Inspect / full local coverage. Mark new broad/corpus-style
   round-trip checks `[Trait("Speed", "Slow")]`.
 - A green entry gate is necessary, never sufficient: it says nothing about
   validity, fidelity, or corpus health. Do not report it as if it did.
@@ -249,9 +249,9 @@ Which area to run while iterating on a change:
 structuring, typing, or printer change can shift any corpus row, so it is not
 covered by its `Area=Pass` unit tests alone: before requesting review still run
 the full slow suite locally (unfiltered `ILInspector.Decompiler.Tests`, which
-Deep Inspect and release also run). `Area` does not change what CI runs — PR CI
-keys on `Speed` (`-trait- "Speed=Slow"`) and Deep Inspect/release run the whole
-slow set — so every area's slow gates already run before merge without any
+Deep Inspect also runs). `Area` does not change what CI runs — PR CI keys on
+`Speed` (`-trait- "Speed=Slow"`) and Deep Inspect runs the whole slow set — so
+every area's slow gates already run before release certification without any
 per-area CI wiring.
 
 ### `--gate` preset flag: discoverable trait bundles

@@ -8,16 +8,30 @@ workflow changes.
 
 ## Release boundary
 
-CI and publishing have separate responsibilities:
+PR validation, release certification, and publishing have separate
+responsibilities:
 
 | Workflow | Trigger | Responsibility |
 | --- | --- | --- |
 | `ci.yml` | Pull requests and pushes to `main` | Validate the changed commit |
-| `release.yml` | Manual dispatch | Rebuild, verify, and publish one selected commit |
+| `deep-inspect.yml` | Daily schedule or manual `lane=test` dispatch | Certify one `main` commit with the full slow test and corpus gates |
+| `release.yml` | Manual dispatch | Verify certification, rebuild packages, and publish one selected commit |
 
-The publish workflow accepts a CI run ID only to resolve the exact commit SHA.
-It does not publish or otherwise trust packages produced by that CI run. Every
-release package is built fresh from the resolved commit in `release.yml`.
+The publish workflow accepts a successful `main` CI run ID to resolve the exact
+commit SHA and a Deep Inspect run ID as its heavy-validation evidence. It does
+not publish or otherwise trust packages produced by either run. Every release
+package is built fresh from the resolved commit in `release.yml`.
+
+Deep Inspect certifies `main` daily at 06:00 UTC. Dispatch
+`deep-inspect.yml` with `lane=test` when a fresh result is needed during the
+day. Certification remains valid for 36 hours.
+
+By default, the certified and published commits must be identical. An operator
+may explicitly enable `allow_later_commit` to publish a later `main` commit
+with successful CI. The workflow proves that the target descends from the
+certified commit, but the operator owns the decision that the intervening
+changes do not require another slow run. Divergent and older commits are never
+accepted.
 
 ## Packages
 
@@ -59,10 +73,14 @@ outputs. `PackagingSurfaceTests` pins both defaults and the tool census.
 Before dispatching a release:
 
 1. Select a successful CI run for the exact commit to publish.
-2. Confirm that the commit contains the intended `VersionPrefix` and release
+2. Select a successful Deep Inspect `test` run completed within the last 36
+   hours. Prefer an exact-SHA match.
+3. If publishing a later commit, review every intervening commit and decide
+   whether carrying the ancestor's certification is justified.
+4. Confirm that the commit contains the intended `VersionPrefix` and release
    notes.
-3. Confirm that the version has not already been published.
-4. Reconcile the shipped documentation with what the release actually does —
+5. Confirm that the version has not already been published.
+6. Reconcile the shipped documentation with what the release actually does —
    see [Shipped documentation](#shipped-documentation).
 
 ## Shipped documentation
@@ -104,16 +122,20 @@ both before dispatching, and expect to update them:
 
 ## Dispatching
 
-1. Open the selected run in GitHub Actions and copy its run ID.
-2. Open the **Publish** workflow and choose **Run workflow**.
-3. Enter the run ID and type `publish` in the confirmation field.
-4. Confirm that the resolve job reports the expected commit SHA before the
-   package jobs proceed.
+1. Open the selected successful `main` CI run and copy its run ID.
+2. Open the daily or manually dispatched Deep Inspect `test` run and copy its
+   run ID.
+3. Open the **Publish** workflow and choose **Run workflow**.
+4. Enter both run IDs and type `publish` in the confirmation field.
+5. Leave `allow_later_commit` disabled for an exact certification. Enable it
+   only after reviewing the commits between the certified and target SHAs.
+6. Confirm that the resolve job reports both expected SHAs before the package
+   jobs proceed.
 
 The workflow then:
 
-1. Runs the full publish-time product, CLI, decompiler, Analysis, and IL
-   round-trip checks against the resolved commit.
+1. Verifies the normal CI run, the fresh Deep Inspect certification, and their
+   commit relationship.
 2. Builds each Native AOT package on its supported host.
 3. Builds the TFM-agnostic pointer without inner RID packages, then builds the
    managed fallback. Dedicated native jobs own RID-specific packages; the
@@ -132,11 +154,13 @@ runtime-specific packages.
 - **Run resolution fails:** verify the run ID belongs to this repository and
   still exists.
 - **Resolved SHA is wrong:** cancel the workflow; do not publish a nearby run.
-- **Publish-time tests fail:** fix the product on a new commit, obtain a new
-  successful CI run, and dispatch again with that run ID.
-- **`ilasm`/`ildasm` restoration fails:** the remaining test suites still
-  report, but the terminal oracle check fails the test lane and blocks every
-  package job. Restore the pinned tools successfully before retrying.
+- **Certification is stale or red:** use a newer successful daily run or
+  dispatch Deep Inspect with `lane=test`.
+- **The target is later than the certification:** review the intervening
+  commits, then either obtain exact-SHA certification or explicitly enable
+  `allow_later_commit`.
+- **The target is older or divergent:** select a certification that is the
+  target or its ancestor; this relationship cannot be overridden.
 - **Reach validation fails:** fix the package shape rather than bypassing the
   guard.
 - **The release tag targets another commit:** move it to the resolved CI commit

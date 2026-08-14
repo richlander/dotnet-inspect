@@ -104,7 +104,7 @@ public class FidelityGateTests
         // CharConditionalElementStore (#1784): the char ternary element store
         // spills to temps and recompiles to a different (valid) stream. Honest
         // over-render. Pre-existing slow-docket gap surfaced by running the gate
-        // locally — the lowered/sugared gates are Speed=Slow (Deep Inspect / publish only).
+        // locally — the lowered/sugared gates are Speed=Slow (Deep Inspect only).
         "CharConditionalElementStore",
         // PointerStoreUsesOriginalAddress (#2644): the raised source preserves
         // the original pointer address across the argument reassignment

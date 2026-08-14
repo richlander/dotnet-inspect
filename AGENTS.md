@@ -279,16 +279,16 @@ wrapper is the one tested copy of that logic; `IlToolsActivationTests` in
 goes back to hand-rolling the assembly.
 
 The script pins the `ilasm`/`ildasm` version for CI and local runs alike;
-`ci.yml`, `deep-inspect.yml`, and `release.yml` invoke `eng/restore-iltools.sh`
-directly, appending its output to `$GITHUB_PATH` so the runner does the joining.
-Only `ci.yml` passes `--mdv`, because it is the only workflow that runs the
-metadata oracle suite. Each install step is `continue-on-error` so that a feed
-outage does not cost every other result in the lane, but a terminal
+`ci.yml` and `deep-inspect.yml` invoke `eng/restore-iltools.sh` directly,
+appending its output to `$GITHUB_PATH` so the runner does the joining. Only
+`ci.yml` passes `--mdv`, because it is the only workflow that runs the metadata
+oracle suite. Each install step is `continue-on-error` so that a feed outage
+does not cost every other result in the lane, but a terminal
 `Check ilasm/ildasm[/mdv] result` step fails the lane if acquisition failed:
-losing oracle coverage is red, not a quietly shorter skip list. In
-`release.yml`, that failed test lane blocks every package build and publish
-job. `IlToolsActivationTests.SlowWorkflows_FailAfterOracleRestoreFailure`
-gates the Deep Inspect and publish wiring.
+losing oracle coverage is red, not a quietly shorter skip list. Deep Inspect
+cannot certify that commit, so `release.yml` rejects the run before building
+packages. `IlToolsActivationTests.SlowWorkflows_FailAfterOracleRestoreFailure`
+gates the Deep Inspect wiring.
 
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.

@@ -16,6 +16,9 @@ on:
           - nightly
           - all
   schedule:
+    # Daily release certification: full slow tests plus the decompiler corpus.
+    - cron: '0 6 * * *'
+    # Weekly discovery: current packages and the authored-corpus ratchet.
     - cron: '0 9 * * 1'
 
 env:
@@ -30,7 +33,9 @@ concurrency:
 jobs:
   package-sweep:
     name: NuGet package discovery sweep
-    if: github.event_name == 'schedule' || inputs.lane == 'package-sweep'
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 9 * * 1') ||
+      inputs.lane == 'package-sweep'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
@@ -89,9 +94,11 @@ jobs:
 
   test:
     name: Test lane
-    # Runs on the weekly schedule (automated slow-gate coverage) and on manual
-    # dispatch (lane test/all).
-    if: github.event_name == 'schedule' || inputs.lane == 'test' || inputs.lane == 'all'
+    # Runs daily to certify a releasable main commit, and on manual dispatch.
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      inputs.lane == 'test' ||
+      inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
@@ -149,8 +156,11 @@ jobs:
     # Split out of the test lane so the multi-hour corpus sweep gets its own
     # 6h job budget instead of sharing the test job's budget with the other
     # slow gates (which previously pushed the combined job past its timeout).
-    # Runs alongside the test lane on the weekly schedule and on dispatch.
-    if: github.event_name == 'schedule' || inputs.lane == 'test' || inputs.lane == 'all'
+    # Runs alongside the test lane for daily and on-demand certification.
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      inputs.lane == 'test' ||
+      inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
@@ -174,6 +184,32 @@ jobs:
 
       - name: Run decompiler corpus sweep
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate corpus
+
+  release-certification:
+    name: Release certification
+    needs: [test, decompiler-corpus]
+    if: >-
+      always() &&
+      (
+        (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+        inputs.lane == 'test' ||
+        inputs.lane == 'all'
+      )
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Certify slow validation
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+          CORPUS_RESULT: ${{ needs.decompiler-corpus.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$TEST_RESULT" != success ] || [ "$CORPUS_RESULT" != success ]; then
+            echo "::error::Release certification requires successful test and decompiler-corpus jobs."
+            echo "test=$TEST_RESULT decompiler-corpus=$CORPUS_RESULT"
+            exit 1
+          fi
+          echo "Release certification passed for $GITHUB_SHA"
 
   census:
     name: Census lane
@@ -513,7 +549,10 @@ jobs:
     # outcomes all fail regardless of movement, because they mean the run measured less
     # than it claimed and a quality metric on such a run is meaningless. It also archives
     # the run JSON, which is the input to appending a trend-store row.
-    if: github.event_name == 'schedule' || inputs.lane == 'authored-corpus' || inputs.lane == 'all'
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 9 * * 1') ||
+      inputs.lane == 'authored-corpus' ||
+      inputs.lane == 'all'
     runs-on: ubuntu-26.04
     # Extrapolated, not measured: a 60-row run takes ~16s locally, so 12,000 rows is
     # roughly 45-60 minutes, plus the package sweep. The budget is deliberately loose
@@ -571,7 +610,12 @@ jobs:
     # otherwise go unnoticed. Open (or comment on) a tracking issue when any
     # scheduled slow lane fails. Manual dispatches are watched by the dispatcher
     # and are intentionally excluded.
-    needs: [package-sweep, test, decompiler-corpus, authored-corpus-ratchet]
+    needs:
+      - package-sweep
+      - test
+      - decompiler-corpus
+      - release-certification
+      - authored-corpus-ratchet
     if: ${{ github.event_name == 'schedule' && failure() }}
     runs-on: ubuntu-26.04
     permissions:
@@ -595,5 +639,5 @@ jobs:
           else
             gh issue create --repo "${{ github.repository }}" \
               --title "$title" \
-              --body $'The weekly Deep Inspect scheduled run failed.\n\nRun: '"$RUN_URL"$'\n\nThe failed lane(s) are visible on the run. This issue was opened automatically; it will not auto-close, so close it once the failure is triaged.'
+              --body $'A scheduled Deep Inspect run failed.\n\nRun: '"$RUN_URL"$'\n\nThe failed lane(s) are visible on the run. This issue was opened automatically; it will not auto-close, so close it once the failure is triaged.'
           fi
