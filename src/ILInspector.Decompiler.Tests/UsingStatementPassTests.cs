@@ -55,6 +55,7 @@ public class UsingStatementPassTests
 
         var usingStatement = Assert.Single(function.Descendants.OfType<UsingStatement>());
         Assert.False(usingStatement.DeclaresResourceVariable);
+        Assert.Contains(usingStatement.LocalIndex, function.EliminatedLocalSlots);
         function.CheckInvariant();
     }
 
@@ -69,6 +70,34 @@ public class UsingStatementPassTests
         Assert.NotNull(output);
         Assert.Contains("using (null)", output);
         Assert.DoesNotContain("IDisposable", output);
+    }
+
+    [Fact]
+    public void NamedDisposedOnlyResource_PreservesPdbVariableDeclaration()
+    {
+        var function = Raised(nameof(CfgSampleClass.NamedDisposedOnlyUsingResource));
+
+        var usingStatement = Assert.Single(function.Descendants.OfType<UsingStatement>());
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.True(usingStatement.DeclaresResourceVariable);
+        Assert.DoesNotContain(usingStatement.LocalIndex, function.EliminatedLocalSlots);
+        Assert.Contains("using (IDisposable scope = new SpanScope(0))", output);
+    }
+
+    [Fact]
+    public void BoxedDisposedOnlyResource_PreservesResourceConversion()
+    {
+        var function = Raised(nameof(CfgSampleClass.BoxedDisposedOnlyUsingResource));
+
+        var usingStatement = Assert.Single(function.Descendants.OfType<UsingStatement>());
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.False(usingStatement.DeclaresResourceVariable);
+        Assert.Contains(usingStatement.LocalIndex, function.EliminatedLocalSlots);
+        Assert.Contains("using ((IDisposable)", output);
+        Assert.Contains("CancellationTokenRegistration", output);
+        Assert.DoesNotContain("IDisposable V_", output);
     }
 
     [Fact]

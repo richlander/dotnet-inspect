@@ -5118,6 +5118,26 @@ public class CfgSampleClass
         return n;
     }
 
+    // The body does not read `scope`, but the portable PDB records it as an
+    // authored local. The using raise must retain that positive source identity
+    // instead of canonicalizing this to the expression form (#4113 review).
+    public static int NamedDisposedOnlyUsingResource()
+    {
+        int n = 0;
+        using (System.IDisposable scope = new SpanScope(0)) { n = 1; }
+        return n;
+    }
+
+    // The expression form deliberately converts a value type to IDisposable.
+    // Eliding the compiler temp must preserve that boxing conversion rather than
+    // changing the resource to value-type constrained disposal (#4113 review).
+    public static int BoxedDisposedOnlyUsingResource()
+    {
+        int n = 0;
+        using ((System.IDisposable)default(System.Threading.CancellationTokenRegistration)) { n = 1; }
+        return n;
+    }
+
     // #3336 stage 1: a struct-typed member assigned `default` in an object
     // initializer. Roslyn spills `default(InitFlag)` to a local via `initobj`
     // (a struct has no `ldnull` default), then reads it back as the member value
