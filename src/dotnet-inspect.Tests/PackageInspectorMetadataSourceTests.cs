@@ -107,6 +107,17 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         File.Copy(
             typeof(PackageInspectorMetadataSourceTests).Assembly.Location,
             Path.Combine(payloadTools, "Payload.dll"));
+        string localPackagePath = Path.Combine(
+            _root,
+            "Wrapper.Package.1.0.0.nupkg");
+        await File.WriteAllTextAsync(
+            localPackagePath,
+            "",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(_root, "Wrapper.Package.any.1.0.0.nupkg"),
+            "",
+            TestContext.Current.CancellationToken);
 
         var resolution = new PackageExtractionResult(
             payloadRoot,
@@ -130,7 +141,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             "Wrapper.Package.any",
             "1.0.0",
             isLocalFile: true,
-            localFilePath: null,
+            localFilePath: localPackagePath,
             nuspec: null,
             client,
             new VerboseLogger(enabled: false));
@@ -139,10 +150,17 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.Equal("Tool v2", new InspectionResultView(result).PackageType);
         Assert.Equal(["wrapper-command"], result.ToolCommands);
         Assert.True(result.IsRidSpecificPointerPackage);
-        Assert.Contains(
+        Assert.True(result.IsFrameworkDependent);
+        Assert.False(result.HasRidSpecificAssets);
+        RidPackageReference anyPackage = Assert.Single(
             result.RuntimeIdentifierPackages!,
             package => package.RuntimeIdentifier == "any"
                 && package.PackageId == "Wrapper.Package.any");
+        Assert.True(anyPackage.Exists);
+        RidPackageReference linuxPackage = Assert.Single(
+            result.RuntimeIdentifierPackages!,
+            package => package.RuntimeIdentifier == "linux-x64");
+        Assert.False(linuxPackage.Exists);
     }
 
     public void Dispose()

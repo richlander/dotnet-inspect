@@ -64,7 +64,14 @@ internal static class PackageInspector
                         metadataSourceOptions);
                     ApplyMetadata(cached, metadata);
                 }
-                ApplyToolWrapperClassification(cached, resolution);
+                await ApplyToolWrapperClassificationAsync(
+                    cached,
+                    resolution,
+                    isLocalFile,
+                    localFilePath,
+                    httpClient,
+                    logger,
+                    sourceOptions);
                 return cached;
             }
         }
@@ -184,13 +191,25 @@ internal static class PackageInspector
             ApplyMetadata(result, metadata);
         }
 
-        ApplyToolWrapperClassification(result, resolution);
+        await ApplyToolWrapperClassificationAsync(
+            result,
+            resolution,
+            isLocalFile,
+            localFilePath,
+            httpClient,
+            logger,
+            sourceOptions);
         return result;
     }
 
-    private static void ApplyToolWrapperClassification(
+    private static async Task ApplyToolWrapperClassificationAsync(
         InspectionResult result,
-        PackageExtractionResult resolution)
+        PackageExtractionResult resolution,
+        bool isLocalFile,
+        string? localFilePath,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        NuGetSourceOptions? sourceOptions)
     {
         ToolWrapperPackage? wrapper = resolution.ToolWrapperChain.FirstOrDefault();
         if (wrapper is null)
@@ -215,10 +234,23 @@ internal static class PackageInspector
         result.ToolFormat = wrapperTool.ToolFormat;
         result.ToolCommands = wrapperTool.ToolCommands;
         result.IsRidSpecificPointerPackage = wrapperTool.IsRidSpecificPointerPackage;
-        result.IsFrameworkDependent = wrapperTool.IsFrameworkDependent;
-        result.HasRidSpecificAssets |= wrapperTool.HasRidSpecificAssets;
         result.RuntimeIdentifierPackages = wrapperTool.RuntimeIdentifierPackages;
         result.SupportedRids = wrapperTool.SupportedRids;
+
+        if (result.IsRidSpecificPointerPackage
+            && result.RuntimeIdentifierPackages is { Count: > 0 })
+        {
+            string? localDir = isLocalFile
+                ? Path.GetDirectoryName(Path.GetFullPath(localFilePath!))
+                : null;
+            await RidPackageVerifier.VerifyAsync(
+                httpClient,
+                result,
+                wrapper.Version ?? result.Version,
+                localDir,
+                logger,
+                sourceOptions);
+        }
     }
 
     private static void ApplyDepsJson(DepsJsonData depsJson, InspectionResult result)
