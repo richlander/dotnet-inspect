@@ -2,8 +2,9 @@ namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Host-neutral persistence for resolved Portable PDB payloads, keyed by a
-/// store-relative identity (for example <c>{package}/{version}/{symbolKey}/{assembly}.pdb</c>
-/// or <c>servers/{providerHost}/{pdbName}/{symbolKey}/{pdbName}</c>).
+/// store-relative identity (for example
+/// <c>{package}/{version}/{contentIdentity}/{assembly}.pdb</c> or
+/// <c>servers/{providerHost}/{pdbName}/{contentIdentity}/{pdbName}</c>).
 /// </summary>
 /// <remarks>
 /// The filesystem implementation (<see cref="FileSystemPdbStore"/>) maps keys to

@@ -295,16 +295,23 @@ bytes are then persisted through `IPdbStore`; the filesystem implementation
 disk, so no archive-entry name is ever used as an output path. It publishes
 through a unique sibling staging file and atomically replaces the final entry,
 so a concurrent reader never accepts a partially written PDB. Symbol-server
-keys include the canonical provider host, preserving the provider identity on
-cache reuse. A pathless host reads the same validated store entry through
-`AcquiredPortablePdb`; the host-neutral downloader constructor disables the
-separate filesystem-backed negative-result cache by default and takes an
-already authorized package-source policy instead of discovering ambient NuGet
-configuration. These properties are gated by
+keys include the canonical provider host and complete Portable PDB content
+identity, preserving both provider and payload identity on cache reuse. A
+pathless host reads the same validated store entry through
+`AcquiredPortablePdb`; its explicit-capability service overload requires both
+the store and an already authorized package-source policy, while the legacy
+desktop overload remains path-bound instead of permitting a pathless caller to
+discover ambient NuGet configuration. Store failures while opening or reading
+that acquired entry propagate rather than becoming ordinary symbol absence.
+These properties are gated by
 `PdbIdentityTests.LoadPdbFromStream_RejectsMatchingGuidWithDifferentStamp`,
 `PdbIdentityTests.PortablePdbIdentity_WindowsCodeViewCannotAuthorizePortablePdb`,
 `SymbolPackageDownloaderTests.AcquirePdbAsync_MsdlCachePreservesProvider`,
+`SymbolPackageDownloaderTests.AcquiredPortablePdb_DifferentStampsRemainRepeatable`,
 `SymbolPackageDownloaderTests.AcquirePdbAsync_ExplicitStore_DoesNotUseAmbientCaches`,
+`PdbAcquisitionServiceTests.DescriptorAcquisition_RequiresExplicitHostCapabilities`,
+`PdbAcquisitionServiceTests.PathlessParticipant_DesktopOverloadDoesNotAcquire`,
+`PdbAcquisitionServiceTests.PathlessParticipant_StoreReadFailureIsVisible`,
 and
 `PdbStoreTests.FileSystemPdbStore_FailedReplacementPreservesPublishedContent`.
 

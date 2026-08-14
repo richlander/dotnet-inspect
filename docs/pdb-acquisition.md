@@ -45,9 +45,13 @@ the desktop compatibility projection.
 name from the CodeView record, uses the assembly identity only as a validated
 fallback, and asks Metadata to validate the Portable PDB identity against the
 already-open assembly image. That comparison uses the complete Portable PDB
-content id (GUID plus stamp), not the symbol-server GUID alone. This is the
-content-shaped symbol capability for assembly-context participants; a
-group-scoped source query remains separate.
+content id (GUID plus stamp), not the symbol-server GUID alone. The
+explicit-capability descriptor overload requires both its `IPdbStore` and
+`IPackageSourceAuthorization`; the legacy desktop descriptor overload remains
+path-bound and cannot make a pathless participant silently select the desktop
+filesystem or ambient NuGet policy. This is the content-shaped symbol
+capability for assembly-context participants; a group-scoped source query
+remains separate.
 `PdbIdentityTests.LoadPdbFromStream_RejectsMatchingGuidWithDifferentStamp`,
 `PdbIdentityTests.PortablePdbIdentity_WindowsCodeViewCannotAuthorizePortablePdb`,
 and
@@ -153,9 +157,15 @@ Downloaded PDBs are cached locally to avoid repeated downloads:
 
 The store may instead be in-memory, in which case the same keys have no
 filesystem projection. Symbol-server entries are scoped by provider host, so a
-warm hit reports the same server that supplied the content. Package-associated
-PDB entries remain NuGet.org-specific and package/version-keyed; extending them
-to custom producers requires source-scoped provenance and is part of
+warm hit reports the same server that supplied the content. Portable PDB store
+keys use the full content identity (GUID plus stamp), even though the remote
+symbol-server request retains its protocol-defined `GUID + FFFFFFFF` lookup
+key. A reference to one acquired payload therefore remains repeatable if
+another PDB shares its GUID but has a different stamp.
+`SymbolPackageDownloaderTests.AcquiredPortablePdb_DifferentStampsRemainRepeatable`
+gates that invariant. Package-associated PDB entries remain NuGet.org-specific
+and package/version-keyed; extending them to custom producers requires
+source-scoped provenance and is part of
 [#3738](https://github.com/richlander/dotnet-inspect/issues/3738).
 `SymbolPackageDownloaderTests.AcquirePdbAsync_MsdlCachePreservesProvider` gates
 provider preservation when the supplying server is not the first one probed.
@@ -171,12 +181,17 @@ The host-neutral downloader overload pairs an explicit store with explicit
 package-source authorization and disables the filesystem negative-result cache
 by default.
 `SymbolPackageDownloaderTests.AcquirePdbAsync_ExplicitStore_DoesNotUseAmbientCaches`
-gates both defaults. Store read/write failures remain visible rather than being
-reported as symbol unavailability;
-`SymbolPackageDownloaderTests.AcquirePdbAsync_StoreFailureIsVisible` is that
-gate. Cached and downloaded Portable PDBs are parsed and identity-checked before
-an acquired result is returned, so an invalid entry cannot suppress later
-providers;
+gates both defaults, and
+`PdbAcquisitionServiceTests.DescriptorAcquisition_RequiresExplicitHostCapabilities`
+and
+`PdbAcquisitionServiceTests.PathlessParticipant_DesktopOverloadDoesNotAcquire`
+gate the descriptor API shape and compatibility overload. Store read/write
+failures remain visible rather than being reported as symbol unavailability;
+`SymbolPackageDownloaderTests.AcquirePdbAsync_StoreFailureIsVisible` and
+`PdbAcquisitionServiceTests.PathlessParticipant_StoreReadFailureIsVisible` gate
+the write and post-acquisition read paths. Cached and downloaded Portable PDBs
+are parsed and identity-checked before an acquired result is returned, so an
+invalid entry cannot suppress later providers;
 `SymbolPackageDownloaderTests.AcquirePdbAsync_InvalidCachedPdbContinuesToNextProvider`
 gates the fallback.
 

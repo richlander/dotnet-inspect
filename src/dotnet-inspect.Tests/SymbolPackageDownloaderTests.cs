@@ -302,6 +302,88 @@ public class SymbolPackageDownloaderTests : IDisposable
     }
 
     [Fact]
+    public async Task AcquiredPortablePdb_DifferentStampsRemainRepeatable()
+    {
+        var guid =
+            Guid.Parse(
+                "32112222-3333-4444-5555-666677778888");
+        const uint FirstStamp = 0x01020304;
+        const uint SecondStamp = 0x05060708;
+        var (firstBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(
+                guid,
+                FirstStamp);
+        var (secondBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(
+                guid,
+                SecondStamp);
+        int requestCount = 0;
+        var handler = new CountingHandler(request =>
+        {
+            if (request.RequestUri?.Host == "msdl.microsoft.com")
+            {
+                byte[] content =
+                    Interlocked.Increment(ref requestCount) == 1
+                        ? firstBytes
+                        : secondBytes;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(content),
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new InMemoryPdbStore());
+
+        var first =
+            Assert.IsType<PortablePdbAcquisitionResult.Acquired>(
+                await downloader.AcquirePdbAsync(
+                    guid,
+                    pdbAge: 1,
+                    pdbFileName: "Repeatable.pdb",
+                    isPortable: true,
+                    isPlatformAssembly: true,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    portablePdbStamp: FirstStamp));
+        var second =
+            Assert.IsType<PortablePdbAcquisitionResult.Acquired>(
+                await downloader.AcquirePdbAsync(
+                    guid,
+                    pdbAge: 1,
+                    pdbFileName: "Repeatable.pdb",
+                    isPortable: true,
+                    isPlatformAssembly: true,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    portablePdbStamp: SecondStamp));
+
+        await using Stream firstContent =
+            await first.Pdb.OpenReadAsync(
+                TestContext.Current.CancellationToken);
+        await using Stream secondContent =
+            await second.Pdb.OpenReadAsync(
+                TestContext.Current.CancellationToken);
+        using var firstBuffer = new MemoryStream();
+        using var secondBuffer = new MemoryStream();
+        await firstContent.CopyToAsync(
+            firstBuffer,
+            TestContext.Current.CancellationToken);
+        await secondContent.CopyToAsync(
+            secondBuffer,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(firstBytes, firstBuffer.ToArray());
+        Assert.Equal(secondBytes, secondBuffer.ToArray());
+        Assert.Equal(2, requestCount);
+    }
+
+    [Fact]
     public async Task AcquirePdbAsync_InvalidCachedPdbContinuesToNextProvider()
     {
         var guid =
@@ -315,7 +397,7 @@ public class SymbolPackageDownloaderTests : IDisposable
         var store = new InMemoryPdbStore();
         string symbolKey =
             guid.ToString("N").ToUpperInvariant()
-            + "FFFFFFFF";
+            + Stamp.ToString("X8");
         string poisonedKey =
             "servers/symbols.nuget.org/Provider.pdb/"
             + $"{symbolKey}/Provider.pdb";

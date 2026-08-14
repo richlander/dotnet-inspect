@@ -227,6 +227,10 @@ public class SymbolPackageDownloader
         var symbolKey = isPortable
             ? $"{guid}FFFFFFFF"
             : $"{guid}{pdbAge:x}";
+        var storeIdentity =
+            isPortable && portablePdbStamp is { } stamp
+                ? $"{guid}{stamp:X8}"
+                : symbolKey;
 
         // For Microsoft packages or platform assemblies, try MSDL first
         bool isMicrosoftPackage = isPlatformAssembly || IsMicrosoftPackage(packageName);
@@ -234,7 +238,7 @@ public class SymbolPackageDownloader
         {
             log?.Invoke(isPlatformAssembly ? "Platform library, trying MSDL symbol server" : "Microsoft package detected, trying MSDL symbol server first");
             var msdlResult = await TryLocateFromMsdlAsync(
-                pdbFileName, symbolKey, pdbGuid, portablePdbStamp,
+                pdbFileName, symbolKey, storeIdentity, pdbGuid, portablePdbStamp,
                 isPortable, log, cacheOnly, cancellationToken).ConfigureAwait(false);
             if (msdlResult.Pdb is not null)
             {
@@ -254,6 +258,7 @@ public class SymbolPackageDownloader
         {
             var snupkgResult = await TryLocateFromSymbolPackageAsync(
                 packageName, packageVersion, snupkgAssemblyName, symbolKey,
+                storeIdentity,
                 pdbGuid, portablePdbStamp, isPortable, log, cacheOnly,
                 cancellationToken).ConfigureAwait(false);
             if (snupkgResult.Pdb is not null)
@@ -270,7 +275,7 @@ public class SymbolPackageDownloader
         if (!isMicrosoftPackage && pdbFileNameUsable)
         {
             var symbolResult = await TryLocateFromSymbolServerAsync(
-                pdbFileName, symbolKey, pdbGuid, portablePdbStamp,
+                pdbFileName, symbolKey, storeIdentity, pdbGuid, portablePdbStamp,
                 isPortable, log, cacheOnly, cancellationToken).ConfigureAwait(false);
             if (symbolResult.Pdb is not null)
             {
@@ -388,6 +393,7 @@ public class SymbolPackageDownloader
     private async Task<PdbProbeResult> TryLocateFromMsdlAsync(
         string pdbFileName,
         string symbolKey,
+        string storeIdentity,
         Guid pdbGuid,
         uint? portablePdbStamp,
         bool isPortable,
@@ -403,7 +409,7 @@ public class SymbolPackageDownloader
             GetSymbolServerCacheKey(
                 ServerHost,
                 pdbFileName,
-                symbolKey);
+                storeIdentity);
         var cached = await ClassifyStoredPdbAsync(
             cacheKey,
             pdbGuid,
@@ -492,6 +498,7 @@ public class SymbolPackageDownloader
         string packageVersion,
         string assemblyName,
         string symbolKey,
+        string storeIdentity,
         Guid pdbGuid,
         uint? portablePdbStamp,
         bool isPortable,
@@ -510,7 +517,7 @@ public class SymbolPackageDownloader
                 normalizedName,
                 normalizedVersion,
                 assemblyName,
-                symbolKey);
+                storeIdentity);
         var cached = await ClassifyStoredPdbAsync(
             cacheKey,
             pdbGuid,
@@ -680,6 +687,7 @@ public class SymbolPackageDownloader
     private async Task<PdbProbeResult> TryLocateFromSymbolServerAsync(
         string pdbFileName,
         string symbolKey,
+        string storeIdentity,
         Guid pdbGuid,
         uint? portablePdbStamp,
         bool isPortable,
@@ -703,7 +711,7 @@ public class SymbolPackageDownloader
                 GetSymbolServerCacheKey(
                     serverHost,
                     pdbFileName,
-                    symbolKey);
+                    storeIdentity);
             var cached =
                 await ClassifyStoredPdbAsync(
                     cacheKey,

@@ -98,7 +98,8 @@ public static class PdbAcquisitionService
                 stream,
                 "Symbol Package",
                 acquired.Pdb.SymbolServer,
-                acquired.Pdb.LocalPath);
+                acquired.Pdb.LocalPath,
+                throwOnReadFailure: true);
         }
         else if (result.WindowsPdbDetected)
         {
@@ -113,31 +114,48 @@ public static class PdbAcquisitionService
         Action<string>? log,
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
-        CancellationToken cancellationToken = default,
-        IPdbStore? pdbStore = null,
-        IPackageSourceAuthorization? sourceAuthorization = null)
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(httpClient);
 
+        var (packageName, packageVersion, isPlatformAssembly) =
+            GetAcquisitionCoordinates(assembly);
+        return AcquireAsync(
+            context,
+            httpClient,
+            packageName,
+            packageVersion,
+            isPlatformAssembly,
+            log,
+            cacheOnly,
+            sourceOptions,
+            cancellationToken);
+    }
+
+    public static Task AcquireAsync(
+        PdbContext context,
+        ResolvedAssemblyReference assembly,
+        HttpClient httpClient,
+        IPdbStore pdbStore,
+        IPackageSourceAuthorization sourceAuthorization,
+        Action<string>? log,
+        bool cacheOnly = false,
+        NuGetSourceOptions? sourceOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(pdbStore);
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
+
         if (!context.NeedsPdb)
             return Task.CompletedTask;
 
-        string? packageName = null;
-        string? packageVersion = null;
-        bool isPlatformAssembly = false;
-
-        switch (assembly.Provenance)
-        {
-            case AssemblyResolutionProvenance.PackageAsset package:
-                packageName = package.PackageId;
-                packageVersion = package.PackageVersion;
-                break;
-            case AssemblyResolutionProvenance.PlatformAsset:
-                isPlatformAssembly = true;
-                break;
-        }
+        var (packageName, packageVersion, isPlatformAssembly) =
+            GetAcquisitionCoordinates(assembly);
 
         return AcquireCoreAsync(
             context,
@@ -153,4 +171,19 @@ public static class PdbAcquisitionService
             pdbStore,
             sourceAuthorization);
     }
+
+    private static (
+        string? PackageName,
+        string? PackageVersion,
+        bool IsPlatformAssembly)
+        GetAcquisitionCoordinates(
+            ResolvedAssemblyReference assembly)
+        => assembly.Provenance switch
+        {
+            AssemblyResolutionProvenance.PackageAsset package =>
+                (package.PackageId, package.PackageVersion, false),
+            AssemblyResolutionProvenance.PlatformAsset =>
+                (null, null, true),
+            _ => (null, null, false),
+        };
 }

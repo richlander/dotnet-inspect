@@ -465,13 +465,17 @@ public class PdbContext : IDisposable
     /// <remarks>
     /// <c>PdbIdentityTests.LoadPdbFromStream_WindowsHeaderDisposesContentBeforeSrm</c>
     /// gates ownership on the early-return path before SRM can dispose the
-    /// stream itself.
+    /// stream itself. <paramref name="throwOnReadFailure"/> lets an acquisition
+    /// boundary keep store read failures visible after the content has already
+    /// been accepted; malformed-content failures retain the existing logged
+    /// outcome.
     /// </remarks>
     public void LoadPdbFromStream(
         Stream pdbStream,
         string? pdbLocation = null,
         string? symbolServer = null,
-        string? portablePdbPath = null)
+        string? portablePdbPath = null,
+        bool throwOnReadFailure = false)
     {
         ArgumentNullException.ThrowIfNull(pdbStream);
 
@@ -532,10 +536,10 @@ public class PdbContext : IDisposable
             _log?.Invoke($"Loaded PDB: {PdbFormat}, {PdbLocation}");
         }
         catch (Exception ex)
-            when (ex is IOException
-                or BadImageFormatException
-                or InvalidOperationException
-                or ArgumentException)
+            when ((!throwOnReadFailure && ex is IOException)
+                || ex is BadImageFormatException
+                || ex is InvalidOperationException
+                || ex is ArgumentException)
         {
             _log?.Invoke($"Error loading PDB: {ex.Message}");
         }
