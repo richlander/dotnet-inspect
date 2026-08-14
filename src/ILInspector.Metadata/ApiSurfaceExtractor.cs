@@ -37,6 +37,7 @@ public static class ApiSurfaceExtractor
                 if (!typeDef.IsPublic)
                     continue;
 
+                var typeAttributes = typeDef.Attributes;
                 string metadataName = reader.GetString(typeDef.Name);
                 if (TypeFilters.IsCompilerGenerated(metadataName))
                     continue;
@@ -59,7 +60,18 @@ public static class ApiSurfaceExtractor
                     Members = []
                 };
 
-                CountSummaryMembers(reader, typeDef, apiType, surface);
+                bool isExtensionClass =
+                    (typeAttributes & (TypeAttributes.Sealed | TypeAttributes.Abstract))
+                        == (TypeAttributes.Sealed | TypeAttributes.Abstract)
+                    && AttributeReader.HasExtensionAttribute(
+                        reader,
+                        typeDef.GetCustomAttributes());
+                CountSummaryMembers(
+                    reader,
+                    typeDef,
+                    apiType,
+                    surface,
+                    isExtensionClass);
                 surface.Types.Add(apiType);
                 surface.PublicTypeCount++;
             }
@@ -85,6 +97,7 @@ public static class ApiSurfaceExtractor
             }
         }
 
+        AttachLocalExtensionMethods(surface);
         ExtractTypeForwarders(reader, surface);
         return surface;
     }
@@ -677,7 +690,8 @@ public static class ApiSurfaceExtractor
         MetadataReader reader,
         TypeDefinition typeDef,
         ApiType apiType,
-        ApiSurface surface)
+        ApiSurface surface,
+        bool isExtensionClass)
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
 
@@ -705,7 +719,27 @@ public static class ApiSurfaceExtractor
                 continue;
             }
 
-            apiType.Members.Add(new ApiMember { Name = methodName, Kind = "method" });
+            var member = new ApiMember
+            {
+                Name = methodName,
+                Kind = "method",
+                IsStatic = (method.Attributes & MethodAttributes.Static) != 0
+            };
+            if (isExtensionClass
+                && member.IsStatic
+                && AttributeReader.HasExtensionAttribute(
+                    reader,
+                    method.GetCustomAttributes()))
+            {
+                int token = MetadataTokens.GetToken(methodHandle);
+                member.IsExtension = true;
+                member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
+                member.DeclaringType = apiType.FullName;
+                member.MetadataToken = token;
+                member.Signature = token.ToString("X8", CultureInfo.InvariantCulture);
+            }
+
+            apiType.Members.Add(member);
             surface.PublicMethodCount++;
         }
 

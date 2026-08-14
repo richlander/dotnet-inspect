@@ -4193,6 +4193,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, fieldsExit);
         Assert.Contains("# System.Text.Json", fieldsOutput, StringComparison.Ordinal);
+
         // Structured resolution reaches ParamCollectionAttribute through the
         // platform policy instead of dropping it with the sibling-only probe.
         Assert.Contains("Types: 90", fieldsOutput, StringComparison.Ordinal);
@@ -4214,6 +4215,26 @@ public partial class CommandExecutionTests
         Assert.Equal(0, bothExit);
         Assert.Contains("| Types | 90 |", bothOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Library: System.Text.Json.dll |", bothOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_QuietPlatformForwarderCounts_MatchFullSurface()
+    {
+        var (quietExit, quietOutput, _) = await RunAppAsync(
+            "type", "System.Runtime", "-v:q", "--tips", "q");
+        Assert.Equal(0, quietExit);
+        var line = quietOutput.Split('\n')
+            .Single(value => value.StartsWith("Library:", StringComparison.Ordinal));
+
+        var (jsonExit, jsonOutput, _) = await RunAppAsync(
+            "type", "System.Runtime", "--json", "--tips", "q");
+        Assert.Equal(0, jsonExit);
+        using var fullDocument = JsonDocument.Parse(jsonOutput);
+        var root = fullDocument.RootElement;
+
+        Assert.Contains($"Types: {root.GetProperty("public_type_count").GetInt32()}", line);
+        Assert.Contains($"Methods: {root.GetProperty("public_method_count").GetInt32()}", line);
+        Assert.Contains($"Properties: {root.GetProperty("public_property_count").GetInt32()}", line);
     }
 
     /// <summary>
