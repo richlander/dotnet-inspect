@@ -14,6 +14,7 @@
 ILInspector.Decompiler.Tests.FidelityGateTests
 ILInspector.Decompiler.Tests.LoweredFidelityGateTests
 ILInspector.Decompiler.Tests.ByteNeutralityGateTests
+ILInspector.Decompiler.Tests.ByteDivergentGateTests
 ILInspector.Decompiler.Tests.ClusterCaptureTests
 ILInspector.Decompiler.Tests.PrinterPrecedenceTests
 ILInspector.Decompiler.Tests.SkeletonEmitTests

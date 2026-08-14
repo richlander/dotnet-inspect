@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Text;
 using ILInspector.Metadata;
@@ -51,6 +52,47 @@ public class ScanTokenTests
         ScanTokenKind.Directive => 'D',
         _ => throw new InvalidOperationException($"Unhandled kind {kind}."),
     };
+
+    [Fact]
+    public void TokenLimit_StopsTokenDenseInputDuringEmission()
+    {
+        var error = Assert.Throws<CSharpTextComplexityException>(
+            () => CSharpLexer.ScanTokens(["; ; ; ;"], maxTokenCount: 3));
+
+        Assert.Equal(3, error.Limit);
+        Assert.Equal("tokens", error.Unit);
+        Assert.Contains("3 tokens", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeepMultilineInterpolation_DoesNotMultiplyFrameDepthByPhysicalLines()
+    {
+        const int depth = 40_000;
+        const int lineCount = 250_000;
+        var firstLine = new StringBuilder("var value = ");
+        for (int i = 0; i < depth; i++)
+            firstLine.Append("$@\"{");
+        firstLine.Append('0');
+
+        var baseline = new string[lineCount + 1];
+        baseline[0] = "var value = $@\"{0";
+        Array.Fill(baseline, "", 1, lineCount);
+        var baselineTimer = Stopwatch.StartNew();
+        _ = CSharpLexer.ScanTokens(baseline);
+        baselineTimer.Stop();
+
+        var source = new string[lineCount + 1];
+        source[0] = firstLine.ToString();
+        Array.Fill(source, "", 1, lineCount);
+        var timer = Stopwatch.StartNew();
+        var tokens = CSharpLexer.ScanTokens(source);
+        timer.Stop();
+
+        Assert.True(tokens.Count < 16, $"nested input retained {tokens.Count:N0} tokens");
+        Assert.True(
+            timer.Elapsed < baselineTimer.Elapsed * 8 + TimeSpan.FromMilliseconds(500),
+            $"deep carried state took {timer.Elapsed} against baseline {baselineTimer.Elapsed}");
+    }
 
     [Fact]
     public void Declaration_SeparatesWordsFromPunctuation()
