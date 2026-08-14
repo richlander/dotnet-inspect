@@ -266,6 +266,21 @@ public static class SourceLinkProvenance
     }
 
     /// <summary>
+    /// Reports whether a resolved source URL names content at an immutable commit origin.
+    /// </summary>
+    /// <remarks>
+    /// This is the cache-policy view of the provenance grammar. A URL is immutable only when the
+    /// same host-specific reader that attributes its repository and revision establishes a full
+    /// commit selector. Unknown hosts, moving refs, ambiguous selectors, and malformed URLs remain
+    /// mutable. Gated by <c>SourceLinkUrlsTests</c>.
+    /// </remarks>
+    public static bool IsImmutableContentUrl(string url)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+        return TryReadOrigin(url, out _, out _);
+    }
+
+    /// <summary>
     /// Converts a resolved GitHub raw-content URL into a browsable URL for the same content.
     /// </summary>
     /// <returns>
