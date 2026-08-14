@@ -168,7 +168,8 @@ public static class ApiSurfaceExtractor
 
     /// <summary>
     /// Extracts the public type identities and member-kind counts needed by the compact platform
-    /// API view without decoding signatures or materializing rich member models.
+    /// API view without decoding ordinary member signatures or materializing rich member models.
+    /// Extension-property association signatures are decoded only to keep method counts exact.
     /// </summary>
     public static ApiSurface ExtractSummary(PEReader peReader)
     {
@@ -180,6 +181,11 @@ public static class ApiSurfaceExtractor
         surface.AssemblyIdentity = currentAssemblyIdentity;
         var extensionReceiverDefinitions =
             new Dictionary<ApiMember, MetadataTypeDefinitionName>();
+        var currentScope = ReadCurrentScope(reader, surface, budget: null);
+        var localTypes = currentScope is null
+            ? []
+            : LocalTypes(reader, currentScope, surface, budget: null);
+        var accessorMethods = AccessorMethods(reader, surface, budget: null);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -228,11 +234,15 @@ public static class ApiSurfaceExtractor
                         typeDef.GetCustomAttributes());
                 CountSummaryMembers(
                     reader,
+                    typeDefHandle,
                     typeDef,
                     apiType,
                     surface,
                     isExtensionClass,
-                    extensionReceiverDefinitions);
+                    extensionReceiverDefinitions,
+                    accessorMethods,
+                    currentScope,
+                    localTypes);
                 surface.Types.Add(apiType);
                 surface.PublicTypeCount++;
             }
@@ -277,6 +287,21 @@ public static class ApiSurfaceExtractor
                 : ApiSurfaceExtractionScope.Public,
             typesOnly,
             includeCompilerGenerated);
+
+    public static ApiSurface Extract(
+        MetadataReader reader,
+        bool includeAll = false,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => Extract(
+            reader,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly,
+            includeCompilerGenerated,
+            budget: null,
+            constraintResolution: null);
 
     /// <summary>
     /// Extracts one API surface at an explicit scope.
@@ -468,12 +493,26 @@ public static class ApiSurfaceExtractor
         bool includeCompilerGenerated,
         ExtractionBudget? budget,
         TypeParameterConstraintResolution? constraintResolution)
+        => Extract(
+            peReader.GetMetadataReader(),
+            scope,
+            typesOnly,
+            includeCompilerGenerated,
+            budget,
+            constraintResolution);
+
+    static ApiSurface Extract(
+        MetadataReader reader,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly,
+        bool includeCompilerGenerated,
+        ExtractionBudget? budget,
+        TypeParameterConstraintResolution? constraintResolution)
     {
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
 
         var surface = new ApiSurface();
-        var reader = peReader.GetMetadataReader();
         Guid moduleVersionId = reader.GetGuid(
             reader.GetModuleDefinition().Mvid);
         var extensionReceiverDefinitions =
@@ -627,11 +666,11 @@ public static class ApiSurfaceExtractor
                 }
             }
         }
-        var currentScope = ReadCurrentScope(reader, surface);
+        var currentScope = ReadCurrentScope(reader, surface, budget);
         var localTypes = currentScope is null
             ? []
-            : LocalTypes(reader, currentScope, surface);
-        var accessorMethods = AccessorMethods(reader, surface);
+            : LocalTypes(reader, currentScope, surface, budget);
+        var accessorMethods = AccessorMethods(reader, surface, budget);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -1921,33 +1960,46 @@ public static class ApiSurfaceExtractor
 
     private static void CountSummaryMembers(
         MetadataReader reader,
+        TypeDefinitionHandle typeDefHandle,
         TypeDefinition typeDef,
         ApiType apiType,
         ApiSurface surface,
         bool isExtensionClass,
-        Dictionary<ApiMember, MetadataTypeDefinitionName> extensionReceiverDefinitions)
+        Dictionary<ApiMember, MetadataTypeDefinitionName> extensionReceiverDefinitions,
+        IReadOnlySet<MethodDefinitionHandle> accessorMethods,
+        MetadataTypeScope? currentScope,
+        IReadOnlyDictionary<MetadataNamedTypeIdentity, TypeDefinitionHandle?> localTypes)
     {
-        var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
-        var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
+        var explicitImplementationBodies = GetExplicitImplementationBodies(
+            reader,
+            typeDef,
+            currentScope,
+            localTypes);
+        var objectFinalizeOverrides = GetObjectFinalizeOverrides(reader, typeDef);
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
             bool isExplicitImplementation = explicitImplementationBodies.Contains(methodHandle);
-            if (methodAccess != MethodAttributes.Public && !isExplicitImplementation)
-                continue;
-
             string methodName = reader.GetString(method.Name);
-            if ((accessorMethods.Contains(methodHandle)
-                    && !(isExplicitImplementation
-                        && methodAccess == MethodAttributes.Private))
+            bool isFinalizer = method.GetGenericParameters().Count == 0
+                && (objectFinalizeOverrides.Contains(methodHandle)
+                    || IsImplicitObjectFinalizeOverride(reader, typeDefHandle, method));
+            if (methodAccess != MethodAttributes.Public
+                && !isExplicitImplementation
+                && !isFinalizer)
+            {
+                continue;
+            }
+            if ((accessorMethods.Contains(methodHandle) && !isExplicitImplementation)
                 || methodName.StartsWith('<'))
             {
                 continue;
             }
 
             if (!isExplicitImplementation
+                && !isFinalizer
                 && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
             {
                 continue;
@@ -2160,7 +2212,8 @@ public static class ApiSurfaceExtractor
 
     static HashSet<MethodDefinitionHandle> AccessorMethods(
         MetadataReader reader,
-        ApiSurface surface)
+        ApiSurface surface,
+        ExtractionBudget? budget)
     {
         var methods = new HashSet<MethodDefinitionHandle>();
         foreach (var typeHandle in reader.TypeDefinitions)
@@ -2176,6 +2229,7 @@ public static class ApiSurfaceExtractor
                         AddOwnedAccessor(
                             reader,
                             surface,
+                            budget,
                             methods,
                             typeHandle,
                             propertyHandle,
@@ -2184,6 +2238,7 @@ public static class ApiSurfaceExtractor
                         AddOwnedAccessor(
                             reader,
                             surface,
+                            budget,
                             methods,
                             typeHandle,
                             propertyHandle,
@@ -2194,6 +2249,7 @@ public static class ApiSurfaceExtractor
                     {
                         AddInspectionFailure(
                             surface,
+                            budget,
                             "property accessors",
                             propertyHandle,
                             MetadataTypeNameFailure.Malformed(propertyHandle, ex.Message));
@@ -2207,6 +2263,7 @@ public static class ApiSurfaceExtractor
                         AddOwnedAccessor(
                             reader,
                             surface,
+                            budget,
                             methods,
                             typeHandle,
                             eventHandle,
@@ -2215,6 +2272,7 @@ public static class ApiSurfaceExtractor
                         AddOwnedAccessor(
                             reader,
                             surface,
+                            budget,
                             methods,
                             typeHandle,
                             eventHandle,
@@ -2225,6 +2283,7 @@ public static class ApiSurfaceExtractor
                     {
                         AddInspectionFailure(
                             surface,
+                            budget,
                             "event accessors",
                             eventHandle,
                             MetadataTypeNameFailure.Malformed(eventHandle, ex.Message));
@@ -2235,19 +2294,21 @@ public static class ApiSurfaceExtractor
             {
                 AddInspectionFailure(
                     surface,
+                    budget,
                     "accessor owner",
                     typeHandle,
                     MetadataTypeNameFailure.Malformed(typeHandle, ex.Message));
             }
         }
 
-        methods.UnionWith(ExtensionPropertyImplementationMethods(reader, surface));
+        methods.UnionWith(ExtensionPropertyImplementationMethods(reader, surface, budget));
         return methods;
     }
 
     private static void AddOwnedAccessor(
         MetadataReader reader,
         ApiSurface surface,
+        ExtractionBudget? budget,
         HashSet<MethodDefinitionHandle> methods,
         TypeDefinitionHandle owningType,
         EntityHandle association,
@@ -2268,6 +2329,7 @@ public static class ApiSurfaceExtractor
 
             AddInspectionFailure(
                 surface,
+                budget,
                 operation,
                 association,
                 MetadataTypeNameFailure.Malformed(
@@ -2280,6 +2342,7 @@ public static class ApiSurfaceExtractor
         {
             AddInspectionFailure(
                 surface,
+                budget,
                 operation,
                 association,
                 MetadataTypeNameFailure.Malformed(association, ex.Message));
@@ -2288,7 +2351,8 @@ public static class ApiSurfaceExtractor
 
     static HashSet<MethodDefinitionHandle> ExtensionPropertyImplementationMethods(
         MetadataReader reader,
-        ApiSurface surface)
+        ApiSurface surface,
+        ExtractionBudget? budget)
     {
         HashSet<MethodDefinitionHandle> methods = [];
         foreach (var extensionClassHandle in reader.TypeDefinitions)
@@ -2408,6 +2472,7 @@ public static class ApiSurfaceExtractor
             {
                 AddInspectionFailure(
                     surface,
+                    budget,
                     "extension property accessors",
                     extensionClassHandle,
                     MetadataTypeNameFailure.Malformed(extensionClassHandle, ex.Message));
@@ -2728,20 +2793,6 @@ public static class ApiSurfaceExtractor
     }
 
     private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
-        MetadataReader reader, TypeDefinition typeDef)
-    {
-        HashSet<MethodDefinitionHandle> handles = [];
-        foreach (var implementationHandle in typeDef.GetMethodImplementations())
-        {
-            var implementation = reader.GetMethodImplementation(implementationHandle);
-            if (implementation.MethodBody.Kind == HandleKind.MethodDefinition)
-                handles.Add((MethodDefinitionHandle)implementation.MethodBody);
-        }
-
-        return handles;
-    }
-
-    private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
         MetadataReader reader,
         TypeDefinition typeDef,
         MetadataTypeScope? currentScope,
@@ -2951,7 +3002,8 @@ public static class ApiSurfaceExtractor
     private static Dictionary<MetadataNamedTypeIdentity, TypeDefinitionHandle?> LocalTypes(
         MetadataReader reader,
         MetadataTypeScope currentScope,
-        ApiSurface surface)
+        ApiSurface surface,
+        ExtractionBudget? budget)
     {
         Dictionary<MetadataNamedTypeIdentity, TypeDefinitionHandle?> types = [];
         foreach (var handle in reader.TypeDefinitions)
@@ -2963,6 +3015,7 @@ public static class ApiSurfaceExtractor
                     types[identity] = null;
                     AddInspectionFailure(
                         surface,
+                        budget,
                         "type identity",
                         handle,
                         MetadataTypeNameFailure.Malformed(
@@ -3115,7 +3168,8 @@ public static class ApiSurfaceExtractor
 
     private static MetadataTypeScope? ReadCurrentScope(
         MetadataReader reader,
-        ApiSurface surface)
+        ApiSurface surface,
+        ExtractionBudget? budget)
     {
         try
         {
@@ -3127,6 +3181,7 @@ public static class ApiSurfaceExtractor
                 reader.IsAssembly ? 0x20000001 : 0x00000001);
             AddInspectionFailure(
                 surface,
+                budget,
                 "module identity",
                 subject,
                 MetadataTypeNameFailure.Malformed(subject, ex.Message));
