@@ -8052,10 +8052,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        var replayed = JsonSerializer.Deserialize(
-            output,
-            AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument);
-        Assert.NotNull(replayed);
+        var replayed = ILInspector.Decompiler.AnnotatedSourceJson.DeserializeDocument(output);
 
         using var document = JsonDocument.Parse(output);
         var root = document.RootElement;
@@ -8063,6 +8060,7 @@ public partial class CommandExecutionTests
         // The document is a text buffer plus overlays: one canonical rendering,
         // and absolute spans into it. Lines and line ids are derived, not stored.
         string text = root.GetProperty("text").GetString()!;
+        Assert.Equal(text, replayed.Text);
         Assert.NotEmpty(text);
         Assert.False(root.TryGetProperty("lines", out _));
         Assert.False(root.TryGetProperty("placements", out _));

@@ -424,6 +424,22 @@ of rows that happen to be lines.
   AnnotatedSourceFactOrigin Origin)`. A fact carries **no coordinates**.
 - **`Targets`** — `AnnotatedSourceTarget(int FactId, int NodeId)`.
 
+The JSON wire contract lives beside this model in `ILInspector.Decompiler`.
+`AnnotatedSourceDocumentJsonContext` and
+`AnnotatedSourceDocumentCompactJsonContext` are the source-generated indented
+and compact writer contracts used by the CLI. Their snake-case property names,
+string enum names, property order, and null omission are pinned by
+`AnnotatedSourceJsonTests.WriterContexts_PreserveAnnotatedSourceDocumentWireBytes`.
+`AnnotatedSourceJson` is the separate strict input boundary for documents and
+structural comparisons. It rejects missing required value fields, duplicate
+and unknown properties, non-exact enum names, malformed UTF-16, and invalid
+document topology rather than making writer convenience the input policy. Its
+enum allow lists are explicit and NativeAOT-safe; they do not use runtime enum
+reflection. `AnnotatedSourceJsonTests` gates those rejection rules, and
+`CommandExecutionTests.Member_SelectedOverload_AnnotatedSourceDocument_UsesStructuredJsonContract`
+gates real CLI output through the strict reader. Nullable fields that writers
+omit, such as a null fact detail, remain valid and replay as null.
+
 **Node kinds are rendered-syntax vocabulary, not IR class names.**
 `AnnotatedSourceNodeKinds` is the catalog emitted by this producer. The mapping
 is explicit and exhaustively gated over every concrete `IrNode`, so adding an IR
