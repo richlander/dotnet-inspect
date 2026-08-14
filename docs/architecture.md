@@ -83,7 +83,9 @@ The CLI host owns restored-assets parsing, filesystem access, and package
 acquisition. Typed project queries consume already-acquired documents, and the
 section pipeline requests only the producer needed by the selected section.
 `Package Docs` is explicit-only and unbounded; the network-free default does
-not authorize package acquisition.
+not authorize package acquisition. Effective discovery probes only the bounded
+Skills and Agent Guidance providers, dropping sections with no documents;
+Package Docs remains structural so discovery never acquires it.
 
 ### library
 

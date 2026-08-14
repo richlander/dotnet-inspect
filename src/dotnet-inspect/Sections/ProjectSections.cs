@@ -97,10 +97,15 @@ public static class ProjectSections
             .UseCuratedCatalog()
             .UseQueryCosts(queryCost)
             .WithoutComputedPoles()
-            .Add<Skills>(ProjectSkillsQuery.Definition, static _ => true)
+            .Add<Skills>(
+                ProjectSkillsQuery.Definition,
+                static model => model.Skills is { Skills.Length: > 0 })
             .Add<AgentGuidance>(
                 ProjectAgentGuidanceQuery.Definition,
-                static _ => true)
+                static model =>
+                    model.AgentGuidance?.Guidance.Any(
+                        static item => !string.IsNullOrWhiteSpace(item.Path))
+                    == true)
             .Add<PackageDocs>(
                 ProjectPackageDocumentsQuery.Definition,
                 static _ => true)

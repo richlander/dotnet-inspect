@@ -59,7 +59,8 @@ public class DiffCommand
             return DiscoverOutput.ExecuteEffective(options.Discover, discoverable, schemaMap,
                 tree: options.Tree, json: false, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular,
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                sectionCategories: pipeline.GetCategoryMap());
+                sectionCategories: pipeline.GetCategoryMap(),
+                tabularExplicitlySet: options.TabularExplicitlySet);
         }
 
         if (!OutputFormatResolver.ValidateSingleSectionForTabular(

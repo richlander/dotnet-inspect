@@ -78,6 +78,8 @@ public record ImplementsOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public bool Tabular { get; init; }
 
+    public bool TabularExplicitlySet { get; init; }
+
     /// <summary>
     /// Emit tabular output as normalized TSV instead of a pretty table.
     /// </summary>

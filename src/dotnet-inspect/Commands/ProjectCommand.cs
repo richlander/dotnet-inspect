@@ -565,9 +565,11 @@ public class ProjectCommand
         List<string> discoverableSections =
             candidateSections.Count == 0
                 ? []
-                : pipeline.GetDiscoverableSections(
-                    inspection,
-                    candidateSections);
+                : structural
+                    ? [.. schema.SectionNames.Where(candidateSections.Contains)]
+                    : pipeline.GetDiscoverableSections(
+                        inspection,
+                        candidateSections);
         return DiscoverOutput.ExecuteEffective(
             options.Discover!,
             discoverableSections,
@@ -590,7 +592,8 @@ public class ProjectCommand
             fields: options.Fields,
             rows: options.Rows,
             outputPath: options.OutputPath,
-            applyLineWindow: options.Rows is null);
+            applyLineWindow: options.Rows is null,
+            tabularExplicitlySet: options.Tabular);
     }
 
     static bool TryResolveValueField(

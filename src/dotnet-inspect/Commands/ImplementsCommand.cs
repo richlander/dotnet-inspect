@@ -32,7 +32,9 @@ public class ImplementsCommand
                     .Add("Implementers", "column", "Type", "Kind", "Relationship", "Library", "Source");
                 return DiscoverOutput.Execute(options.Discover, schema,
                     tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl,
-                    projection: options);
+                    projection: options,
+                    tabularExplicitlySet:
+                        options.TabularExplicitlySet);
             }
 
             // Safety fallback — default to all platform frameworks

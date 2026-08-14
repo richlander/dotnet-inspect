@@ -148,7 +148,8 @@ public class LibraryCommand
                     // keeps the curated top-level scope when no target inspection is requested.
                     catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
                     listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                    projection: options);
+                    projection: options,
+                    tabularExplicitlySet: options.Tabular);
             }
         }
 
@@ -2051,7 +2052,8 @@ public class LibraryCommand
             sectionCategories: pipeline.GetCategoryMap(),
             catalogHiddenSections: EffectiveCatalogHidden(pipeline),
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-            projection: options);
+            projection: options,
+            tabularExplicitlySet: options.Tabular);
     }
 
     // ── Effective sections cache ──
@@ -2207,7 +2209,8 @@ public class LibraryCommand
             sectionCategories: pipeline.GetCategoryMap(),
             catalogHiddenSections: EffectiveCatalogHidden(pipeline),
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-            projection: options);
+            projection: options,
+            tabularExplicitlySet: options.Tabular);
     }
 
     /// <summary>

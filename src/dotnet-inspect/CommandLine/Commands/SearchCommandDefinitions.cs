@@ -102,6 +102,8 @@ public static class SearchCommandDefinitions
                     JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                     CompactJson = parseResult.GetValue(compactOption),
                     Tabular = opts.ResolveTabular(parseResult),
+                    TabularExplicitlySet =
+                        opts.IsTableExplicitlySet(parseResult),
                     Tsv = opts.ResolveTsv(parseResult),
                     Jsonl = opts.ResolveJsonl(parseResult),
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
@@ -344,6 +346,8 @@ public static class SearchCommandDefinitions
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
                 Tabular = opts.ResolveTabular(parseResult),
+                TabularExplicitlySet =
+                    opts.IsTableExplicitlySet(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),

@@ -16838,6 +16838,38 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public async Task Package_TabularOutputPath_HonorsRenderedLineWindows(
+        string format)
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        string outputPath = Path.Combine(tempDir, "tabular.txt");
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package Info",
+                format,
+                "-n", "1",
+                "--out", outputPath);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            Assert.Single(
+                File.ReadAllText(outputPath)
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Package_Count_WritesEmbeddedLibraryAndMultiPackageRoutesToOutputFiles()
     {
@@ -20076,6 +20108,32 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("type", "Classes,Structs")]
+    [InlineData("member", "Methods,Fields")]
+    public async Task ApiDiscovery_DefaultTableMultiSection_AutoPromotesToTree(
+        string command,
+        string sections)
+    {
+        var implicitFormat = await RunAppAsync(
+            command,
+            "-D", sections);
+        var explicitTable = await RunAppAsync(
+            command,
+            "-D", sections,
+            "--table");
+
+        Assert.Equal(0, implicitFormat.Exit);
+        Assert.Empty(implicitFormat.Error);
+        Assert.Contains("├", implicitFormat.Output);
+        Assert.DoesNotContain("| Name |", implicitFormat.Output);
+
+        Assert.Equal(0, explicitTable.Exit);
+        Assert.Empty(explicitTable.Error);
+        Assert.Contains("column", explicitTable.Output);
+        Assert.DoesNotContain("├", explicitTable.Output);
+    }
+
+    [Theory]
     [InlineData("--table")]
     [InlineData("--tsv")]
     [InlineData("--json")]
@@ -20149,6 +20207,45 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains("Package Docs", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_EffectiveDiscovery_NarrowsAbsentBoundedSections()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Discovery.Narrow",
+                "1.0.0",
+                "README.md",
+                "readme"));
+
+        try
+        {
+            var structural = await RunAppAsync(
+                "project", projectPath,
+                "-D",
+                "--jsonl");
+            var effective = await RunAppAsync(
+                "project", projectPath,
+                "-D", "--effective",
+                "--jsonl");
+
+            Assert.Equal(0, structural.Exit);
+            Assert.Empty(structural.Error);
+            Assert.Contains("Skills", structural.Output);
+            Assert.Contains("Agent Guidance", structural.Output);
+            Assert.Contains("Package Docs", structural.Output);
+
+            Assert.Equal(0, effective.Exit);
+            Assert.Empty(effective.Error);
+            Assert.DoesNotContain("Skills", effective.Output);
+            Assert.DoesNotContain("Agent Guidance", effective.Output);
+            Assert.Contains("Package Docs", effective.Output);
         }
         finally
         {
@@ -20305,7 +20402,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Contains("Skills", output);
+            Assert.Contains("Package Docs", output);
         }
         finally
         {
@@ -20333,7 +20430,8 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains("Package (column)", output);
-            Assert.Contains("Description (column)", output);
+            Assert.Contains("Size (column)", output);
+            Assert.DoesNotContain("Description (column)", output);
         }
         finally
         {
@@ -20794,6 +20892,7 @@ public partial class CommandExecutionTests
     {
         var (firstPackagePath, firstTempDir) = CreateLocalRefPackage("System.Runtime");
         var (secondPackagePath, secondTempDir) = CreateLocalRefPackage("System.Collections");
+        string windowedOutput = Path.Combine(firstTempDir, "signals-count.txt");
         try
         {
             var (firstExit, firstOutput, firstError) = await RunAppAsync(
@@ -20803,19 +20902,28 @@ public partial class CommandExecutionTests
             var (combinedExit, combinedOutput, combinedError) = await RunAppAsync(
                 "package", firstPackagePath, secondPackagePath,
                 "-S", "Signals", "--count", "--json");
+            var windowed = await RunAppAsync(
+                "package", firstPackagePath, secondPackagePath,
+                "-S", "Signals", "--count", "--json",
+                "-n", "0", "--tail",
+                "--out", windowedOutput);
 
             Assert.Equal(0, firstExit);
             Assert.Equal(0, secondExit);
             Assert.Equal(0, combinedExit);
+            Assert.Equal(0, windowed.Exit);
             Assert.Empty(firstError);
             Assert.Empty(secondError);
             Assert.Empty(combinedError);
+            Assert.Empty(windowed.Output);
+            Assert.Empty(windowed.Error);
             var expected = int.Parse(firstOutput, CultureInfo.InvariantCulture)
                 + int.Parse(secondOutput, CultureInfo.InvariantCulture);
             Assert.True(expected > 0);
             Assert.Equal(
                 expected.ToString(CultureInfo.InvariantCulture),
                 combinedOutput.Trim());
+            Assert.Empty(File.ReadAllText(windowedOutput));
         }
         finally
         {

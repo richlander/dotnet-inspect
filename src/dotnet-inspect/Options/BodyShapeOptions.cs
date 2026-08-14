@@ -17,6 +17,7 @@ public sealed record BodyShapeOptions : IProjectionOptions
     public bool JsonOutput { get; init; }
     public bool CompactJson { get; init; }
     public bool Tabular { get; init; }
+    public bool TabularExplicitlySet { get; init; }
     public bool Tsv { get; init; }
     public bool Jsonl { get; init; }
     public bool NoHeader { get; init; }

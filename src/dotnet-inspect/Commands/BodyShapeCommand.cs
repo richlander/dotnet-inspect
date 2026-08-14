@@ -64,7 +64,9 @@ public static class BodyShapeCommand
                     json: options.JsonOutput,
                     tsv: options.Tsv,
                     jsonl: options.Jsonl,
-                    projection: options);
+                    projection: options,
+                    tabularExplicitlySet:
+                        options.TabularExplicitlySet);
             }
 
             if (options.JsonOutput && !options.Count

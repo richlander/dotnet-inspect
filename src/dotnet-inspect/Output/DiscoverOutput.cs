@@ -30,7 +30,8 @@ public static class DiscoverOutput
         string[]? fields = null,
         RowWindow? rows = null,
         string? outputPath = null,
-        bool applyLineWindow = false)
+        bool applyLineWindow = false,
+        bool tabularExplicitlySet = false)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
 
@@ -58,7 +59,8 @@ public static class DiscoverOutput
 
         bool hasTabularProjection =
             columns is { Length: > 0 } || fields is { Length: > 0 };
-        bool structuredOutput = json || tsv || jsonl || !markdown;
+        bool structuredOutput =
+            json || tsv || jsonl || tabularExplicitlySet;
 
         // Auto-promote to tree when discovering items from multiple sections
         if (!tree && !structuredOutput && !hasTabularProjection && rows is null
@@ -155,7 +157,8 @@ public static class DiscoverOutput
         string[]? fields = null,
         RowWindow? rows = null,
         string? outputPath = null,
-        bool applyLineWindow = false)
+        bool applyLineWindow = false,
+        bool tabularExplicitlySet = false)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -215,7 +218,8 @@ public static class DiscoverOutput
             fields,
             rows,
             outputPath,
-            applyLineWindow);
+            applyLineWindow,
+            tabularExplicitlySet);
     }
 
     /// <summary>
