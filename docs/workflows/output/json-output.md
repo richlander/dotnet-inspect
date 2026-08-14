@@ -54,10 +54,6 @@ dotnet-inspect package System.CommandLine@2.0.3 -v:q --json -n 10
 dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --json --compact
 ```
 
-Known issue: #3916 — `find --json` emits JSONL instead of one valid JSON
-document. Preserve the intended JSON array assertions in scenarios 1b, 3, and
-4.
-
 ```expect
 [
 "type":"Command"

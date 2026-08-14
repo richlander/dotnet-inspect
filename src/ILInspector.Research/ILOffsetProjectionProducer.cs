@@ -189,6 +189,8 @@ public static class ILOffsetProjectionProducer
             File = source?.FilePath,
             Line = source?.Line,
             Url = url,
+            SourceChecksum = source?.Checksum,
+            SourceChecksumAlgorithm = source?.ChecksumAlgorithm,
             MemberContext = new ILOffsetMemberContext
             {
                 Assembly = memberContext.Assembly,

@@ -64,14 +64,18 @@ change ready to merge.
 - Use one development worktree per PR, plus temporary worktrees for independent
   reviews. Do not reuse a worktree across unrelated changes.
 - Never amend commits; create follow-up commits.
-- Integrate `origin/main` into the feature branch before **every** review round,
-  not only the first — see [Adversarial review](#adversarial-review). Rebase
-  only before the branch's first push. Once a branch is public or under review,
-  merge `origin/main`; never amend, rebase, or force-push reviewed history. A
-  slice in a stack is the standing exception: restacking rebases and
-  force-pushes a public branch by design — see
-  [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues) for
-  the discipline that replaces this rule there.
+- Form one frozen candidate for each review round. Immediately before local
+  validation, fetch and integrate the effective base, record that base tip, and
+  then keep the resulting head fixed through validation, push, CI, and review.
+  Do not fetch or integrate the base again merely because it advances while
+  those steps run. A conflict, author change, or review fix ends that candidate;
+  integrate the then-current effective base when forming its replacement. See
+  [Adversarial review](#adversarial-review). Rebase only before the branch's
+  first push. Once a branch is public or under review, merge `origin/main`;
+  never amend, rebase, or force-push reviewed history. A slice in a stack is the
+  standing exception: restacking rebases and force-pushes a public branch by
+  design — see [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues)
+  for the discipline that replaces this rule there.
 - After updating from main or resolving conflicts, re-read `AGENTS.md` and
   task-relevant docs before continuing.
 - Do not mix unrelated changes into one commit or sweep another contributor's
@@ -105,7 +109,8 @@ change ready to merge.
 | Call-graph projection | `docs/design/call-graph-projection.md` |
 | Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
 | IL round-trip tests | `tests/DotnetInspector.ILRoundtrip.Tests/README.md` |
-| Decompiler behavior or harnesses | `docs/decompiler-correctness-pipeline.md` |
+| Decompiler raising, structuring, typing, or printer behavior | `docs/decompiler-correctness-pipeline.md`, then `docs/decompiler-raise-discipline.md` |
+| Decompiler harness-only behavior | `docs/decompiler-correctness-pipeline.md`, then the owning harness README |
 | Skills | `taste/skill-guidance.md` |
 | Stacked PRs and restacking | `docs/stacked-prs.md` |
 | Release and publishing | `docs/release-workflow.md` |
@@ -457,20 +462,27 @@ may start while linting is pending; lint must still pass before merge.
 
 Adversarial review is the scarcest resource in this workflow — several models, a
 self-contained prompt, isolated worktrees, real runs. A branch whose head is
-unpushed or still moving, whose base is stale, whose required review-gating CI
-is red, or whose PR reports a conflict has no single answer to "what am I
-reviewing?", so every finding it produces is provisional and every clean result
-is worthless. Reach this state before the first round, and reach it again before
-every subsequent round:
+unpushed or still moving, whose candidate was formed without integrating its
+effective base, whose required review-gating CI is red, or whose PR reports a
+conflict has no single answer to "what am I reviewing?", so every finding it
+produces is provisional and every clean result is worthless. Form and freeze
+one candidate before the first round, and do so again before every subsequent
+round:
 
 - **The head is pushed, named, and settled.** Reviewers get an exact base and
   head, not a branch that moves under them. Finish your own edits first.
-- **`origin/main` is integrated.** Fetch and merge it, resolve any conflicts,
-  and re-run the validation the change claims; the resulting head is what you
-  hand out. Reviewing a stale head spends the review on code that is not what
-  will merge, and defers conflict resolution to *after* the reviews are clean —
-  where the resolution is itself unreviewed. Once the reviews *are* clean, this
-  reverses: see [Clean reviews are not spent by main
+- **The candidate includes its effective base.** Immediately before local
+  validation, fetch and integrate the effective base and record the integrated
+  tip. The resulting head is the candidate: keep it fixed through local
+  validation, push, CI, and review. Do **not** refetch or integrate the base
+  merely because it advances during those steps; doing so creates an
+  integrate-validate-integrate loop without making the eventual review more
+  useful. Base movement alone does not invalidate a candidate. It remains
+  eligible while its exact pushed head is mergeable and green. If it becomes
+  conflicting, or an author change or review finding moves the head, end that
+  candidate and integrate the then-current effective base while forming the
+  replacement. Once the reviews are clean, see
+  [Clean reviews are not spent by main
   moving](#clean-reviews-are-not-spent-by-main-moving).
 - **For changes other than documentation-only PRs, the PR is mergeable and
   green** — two questions, one consolidated status query. Use a single
@@ -527,9 +539,11 @@ every subsequent round:
   workflow leaves `ci-required` nothing to block on and displays as MERGEABLE
   and CLEAN (#3706).
 
-Do not integrate main under a reviewer mid-read. When integration is what moved
-the head, say so on the PR and name the merge commit, so the re-review reads as
-a confirmation rather than a second full pass.
+Do not fetch or integrate the base after the candidate is formed, including
+while validation or CI runs or while a reviewer is mid-read. When an author
+change, review fix, or conflict requires a replacement candidate, say so on the
+PR and name the base tip and merge commit, so the next review reads as a
+confirmation rather than an unexplained second full pass.
 
 ### Clean reviews are not spent by main moving
 

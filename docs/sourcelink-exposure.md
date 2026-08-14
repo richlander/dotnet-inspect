@@ -77,14 +77,17 @@ Selected member output already exposes source evidence:
 
 | Section | Purpose |
 | --- | --- |
-| `Original Source` | SourceLink-backed original source text for one selected overload |
+| `Original Source` | SourceLink-backed, portable-PDB-checksum-verified source text for one selected overload |
 | `Source Locations` | file/URL/line rows for a member group or selected signature |
 | `Decompiled Source` | readable C# reconstructed from IL |
 | `Annotated Source` | C# plus hidden-fact comments and IL evidence |
 | `IL` | raw IL disassembly |
 
 Single-type `Source Files` is the natural section home for type-to-URL rows when
-a user is already in a `type` flow.
+a user is already in a `type` flow. Printing a source body from `Source Files`
+or `Source Locations` requires a usable portable-PDB checksum. A missing or
+unsupported checksum is a visible failure rather than permission to render
+unverified network content.
 
 Member source locations should not be added to `Member Index`. That section must
 stay focused on the query pattern: terse selectors, stable selectors, and
@@ -203,6 +206,19 @@ use the network only when the selected section justifies it.
 | Fetch one original member source body | explicit selected-member `Original Source` / `@Source` |
 | Resolve member file/line locations | explicit member `Source Locations` section; may acquire one missing PDB but should not fetch source bodies |
 
+Every source-body fetch checks the final response URL after redirects. If the
+requested URL has an attributable SourceLink origin, the final URL must name the
+same host, repository, and revision. The response body is then used only when it
+matches the portable-PDB checksum. Availability and integrity audits apply the
+same final-origin rule before recording reachability or reading content.
+Browser/Wasm cannot report the final URL after an automatic redirect, so
+attributed SourceLink fetches fail closed on that platform; checksum-verified
+URLs outside the known provenance grammars remain available. Header-first body
+reads retain the untrusted-fetch timeout and enforce the download cap against
+decoded bytes even when the server omits `Content-Length`. Each source body is
+capped at 16 MB. Browser/Wasm fetches require streaming-response support so the
+transport cannot buffer the full body before that cap is enforced.
+
 The section pipeline lowers selected SourceLink sections to typed query demand:
 
 - `SourceLinkDocumentsQuery` declares moderated cost and may acquire one matching
@@ -226,6 +242,10 @@ network requests.
 - Symbol-package PDB caches are identity-keyed to avoid multi-TFM collisions.
 - Source availability and integrity queries accept an optional host cache;
   filesystem-free hosts may run without one.
+- Positive availability and integrity results are cached permanently only when
+  the provenance grammar establishes an immutable commit-pinned GitHub or Azure
+  DevOps URL. Other availability results retain a TTL; integrity results for
+  unknown hosts and moving or ambiguous selectors are not cached.
 - Effective-section caches may summarize what sections are renderable, but must
   be invalidated when section semantics change.
 

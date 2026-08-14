@@ -225,7 +225,7 @@ Areas and their member classes:
 | --- | --- |
 | `RoundTrip` | the compile-back / MemberBodyProducer seam: `ReturnToSender*`, `MemberBodyProducer*`, `CompileBackTypeIdentityTests`, `TypeBindGateTests`, `GeneratedFixtureCatalogTests`, `CompilerFeatureOptionsTests` |
 | `Fidelity` | the changed-method fidelity gates: `FidelityGateTests`, `LoweredFidelityGateTests`, `ByteNeutralityGateTests`, `DiffFixtureFidelityTests`, `AuthoredRebuildFidelityTests`, `AnnotatedCompileBackFailureTests`, `SkeletonEmitTests`, `ClusterCaptureTests`, `NestedTargetLookupTests`, plus the compile-back gate method in `PrinterPrecedenceTests` |
-| `Corpus` | corpus-wide sweeps: `CorpusSweepGateTests`, `CorpusSensorComparisonTests`, `SubstrateLeaderDifferentialTests` |
+| `Corpus` | corpus-wide sweeps: `CorpusSweepGateTests`, `CorpusSensorComparisonTests`, `SubstrateLeaderDifferentialTests`, `ControlFlowModelDifferentialTests` |
 | `Validity` | validity / ladder gates: `ValidityCoverageReportingTests`, `LadderIteratorGateTests`, `LadderRung*GateTests` |
 | `Pass` | the per-pass unit tests (`*PassTests`) |
 
@@ -273,7 +273,7 @@ dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-co
 | `fast` | `-trait- "Speed=Slow"` | the fast lane the PR CI test job runs |
 | `slow` | `-trait "Speed=Slow"` | only the slow gates |
 | `no-corpus` | `-trait- "Area=Corpus"` | everything except the multi-hour corpus sweep |
-| `pre-merge` | ten `-class` filters | the tractable fidelity gates the PR CI `decompiler-gates` job runs |
+| `pre-merge` | explicit `-class` filters | the tractable fidelity gates the PR CI `decompiler-gates` job runs |
 | `corpus` | `-trait "Area=Corpus"` | only the corpus sweep |
 | `roundtrip` | `-trait "Area=RoundTrip"` | the compile-back / ReturnToSender seam |
 | `fidelity` | `-trait "Area=Fidelity"` | the changed-method fidelity gates |
@@ -452,11 +452,12 @@ truncated report.
 > `cancelled` one, so this gate skipping on a docs-only PR is fine while this
 > gate hitting its timeout is not (#3523).
 
-`pre-merge` deliberately selects ten workload classes rather than the whole
-`Fidelity` area, plus `GateExpectedClassesTests`, the plumbing guard that rides
-along in the preset it guards.
+`pre-merge` deliberately selects the workload classes named by its fail-closed
+inventory rather than the whole `Fidelity` area, plus
+`GateExpectedClassesTests`, the plumbing guard that rides along in the preset
+it guards.
 
-The ten workload classes share `FidelityGateCollection` and therefore run
+Those workload classes share `FidelityGateCollection` and therefore run
 serially even though this test assembly allows two parallel collections. That
 boundary is intentional: run 30885078644 overlapped the newly gated Printer
 compile-back with Cluster capture for 7m01s and the lowered gate for another
@@ -486,10 +487,10 @@ shape as `NON-ENUMERATED OR REPEATED CASES`.
 Its focused `FidelityCheck.Evaluate` calls select a typed
 `(Type, Method, Overload)` identity before method import, rendering,
 disassembly, and compile-back, reducing the class from 374.25 seconds to 13.31
-seconds locally. The resulting 94-case serialized `pre-merge` preset completes
-in 729.56 seconds locally. A supplied method filter that produces no processable
-row throws rather than returning a vacuous green result; selecting by name
-admits all overloads, while the overload ordinal can select one.
+seconds locally. The serialized `pre-merge` preset completed in 729.56 seconds
+locally at that point. A supplied method filter that produces no processable row
+throws rather than returning a vacuous green result; selecting by name admits
+all overloads, while the overload ordinal can select one.
 
 Method selection does **not** narrow reconstruction. Each selected body still
 compiles against the whole-module skeleton, preserving the class's declaration

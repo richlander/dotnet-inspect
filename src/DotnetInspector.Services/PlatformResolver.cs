@@ -863,25 +863,20 @@ public static class PlatformResolver
     /// <summary>
     /// Finds a DLL in a directory using case-insensitive matching.
     /// Returns the actual path if found, null otherwise.
-    /// Tries exact match first for performance, then falls back to directory scan on Linux.
+    /// The requested assembly name is matched against enumerated file names and is
+    /// never interpreted as a path beneath <paramref name="directory"/>.
     /// </summary>
     private static string? FindAssemblyCaseInsensitive(string directory, string assemblyFileName)
     {
-        var exactPath = Path.Combine(directory, assemblyFileName);
-        if (File.Exists(exactPath))
-            return exactPath;
-
-        // On case-sensitive filesystems, try a directory scan
         if (!Directory.Exists(directory))
             return null;
 
         try
         {
-            var match = Directory.EnumerateFiles(directory, "*.dll")
+            return Directory.EnumerateFiles(directory, "*.dll")
                 .FirstOrDefault(f => Path.GetFileName(f).Equals(assemblyFileName, StringComparison.OrdinalIgnoreCase));
-            return match;
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return null;
         }

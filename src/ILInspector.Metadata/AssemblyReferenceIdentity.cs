@@ -14,6 +14,54 @@ public sealed record AssemblyReferenceIdentity(
     string? Culture,
     string? PublicKeyToken)
 {
+    public AssemblyReference ToReference()
+        => new(
+            Name,
+            Version?.ToString() ?? "",
+            Culture ?? "neutral",
+            PublicKeyToken);
+
+    /// <summary>
+    /// Matches this requested metadata identity against an acquired candidate.
+    /// Omitted culture and public-key-token values are wildcards.
+    /// </summary>
+    public bool MatchesCandidate(
+        AssemblyReferenceIdentity candidate,
+        bool allowVersionRollForward = false,
+        bool ignoreVersion = false)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+
+        if (!candidate.Name.Equals(Name, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (Version is null
+            && string.IsNullOrEmpty(Culture)
+            && string.IsNullOrEmpty(PublicKeyToken))
+        {
+            return true;
+        }
+
+        if (!ignoreVersion
+            && Version is not null
+            && candidate.Version != Version
+            && (!allowVersionRollForward || candidate.Version < Version))
+        {
+            return false;
+        }
+        if (!CultureMatches(Culture, candidate.Culture))
+            return false;
+        if (PublicKeyToken is { Length: > 0 }
+            && !string.Equals(
+                candidate.PublicKeyToken,
+                PublicKeyToken,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     public static AssemblyReferenceIdentity From(MetadataReader reader, AssemblyReferenceHandle handle)
     {
         var reference = reader.GetAssemblyReference(handle);
@@ -39,6 +87,22 @@ public sealed record AssemblyReferenceIdentity(
 
     static string? StringOrNull(MetadataReader reader, StringHandle handle)
         => handle.IsNil ? null : reader.GetString(handle);
+
+    static bool CultureMatches(string? expected, string? actual)
+    {
+        if (string.IsNullOrEmpty(expected))
+            return true;
+
+        static string Normalize(string? culture)
+            => string.IsNullOrEmpty(culture)
+                || culture.Equals("neutral", StringComparison.OrdinalIgnoreCase)
+                    ? ""
+                    : culture;
+
+        return Normalize(expected).Equals(
+            Normalize(actual),
+            StringComparison.OrdinalIgnoreCase);
+    }
 
     static string? TokenOrNull(MetadataReader reader, BlobHandle handle, bool isPublicKey)
     {

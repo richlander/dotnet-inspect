@@ -1081,6 +1081,205 @@ public class NuGetSearchSourcesTests
     }
 
     /// <summary>
+    /// The desktop authorization adapter answers per package id: it composes
+    /// the same mapping and credential policy the CLI uses, rather than handing
+    /// one union of every configured source to a caller that would then let any
+    /// of them serve any package. A mapping failure keeps its own message
+    /// instead of degrading to an unexplained empty set.
+    /// </summary>
+    [Fact]
+    public void SourcePolicyAuthorization_AnswersOneProducerSetPerPackageId()
+    {
+        const string sourceA = "https://a.example/v3/index.json";
+        const string sourceB = "https://b.example/v3/index.json";
+        using var config = new TempNuGetConfig(
+            [("a", sourceA), ("b", sourceB)],
+            mappings: [("a", "Contoso.*"), ("b", "Other.*")]);
+        var authorization = new SourcePolicyPackageSourceAuthorization(
+            new NuGetSourceOptions { ConfigFile = config.Path });
+
+        Assert.Equal(
+            ["a"],
+            authorization.AuthorizeSourcesFor("contoso.package")
+                .Sources.Select(source => source.Name));
+        Assert.Equal(
+            ["b"],
+            authorization.AuthorizeSourcesFor("other.package")
+                .Sources.Select(source => source.Name));
+
+        PackageSourceAuthorization denied =
+            authorization.AuthorizeSourcesFor("unmapped.package");
+        Assert.Empty(denied.Sources);
+        Assert.Contains(
+            "no pattern",
+            denied.DenialReason!,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A malformed <c>packageSourceMapping</c> reaches the adapter as an
+    /// exception from the configuration reader. The seam's contract is a typed
+    /// answer, so it becomes a denial rather than escaping into a caller — and
+    /// the reader's message quotes the offending config text and path, so the
+    /// denial states the rule instead of reproducing it.
+    /// </summary>
+    [Theory]
+    [InlineData("""    <packageSource key="feed" />""")]
+    [InlineData("""    <packageSource><package pattern="Contoso.*" /></packageSource>""")]
+    [InlineData("""    <packageSource key="feed"><package /></packageSource>""")]
+    [InlineData("""    <packageSource key="feed"><package pattern="Con*oso" /></packageSource>""")]
+    public void SourcePolicyAuthorization_WithMalformedMapping_DeniesTyped(
+        string mappingBody)
+    {
+        using var config = new TempNuGetConfig(
+            [("feed", IndexUrl)],
+            rawMapping: mappingBody);
+        var authorization = new SourcePolicyPackageSourceAuthorization(
+            new NuGetSourceOptions { ConfigFile = config.Path });
+
+        PackageSourceAuthorization denied =
+            authorization.AuthorizeSourcesFor("contoso.package");
+
+        Assert.Empty(denied.Sources);
+        Assert.NotNull(denied.DenialReason);
+        Assert.Contains(
+            "malformed",
+            denied.DenialReason,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            config.Path,
+            denied.DenialReason,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Contoso",
+            denied.DenialReason,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same malformed configuration reaches the coordinate resolver as a
+    /// typed unavailable rather than an unhandled exception.
+    /// </summary>
+    [Fact]
+    public async Task SourcePolicyResolution_WithMalformedMapping_IsUnavailable()
+    {
+        using var config = new TempNuGetConfig(
+            [("feed", IndexUrl)],
+            rawMapping: """    <packageSource key="feed" />""");
+        using var client = new HttpClient(new ThrowingHandler());
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveUsingSourcePolicyAsync(
+                client,
+                new PackageCoordinate("contoso.package", "1.0.0"),
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<PackageCoordinateResolution.Unavailable>(resolution);
+        Assert.Contains(
+            "malformed",
+            unavailable.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class ThrowingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                $"Malformed configuration reached the network: {request.RequestUri}");
+    }
+
+    /// <summary>
+    /// A search endpoint is feed-declared metadata that can carry a signature,
+    /// and the exception raised for a malformed response embedded it. Both the
+    /// endpoint and the remote's own message stay out of the failure a caller
+    /// prints — and the request that carried the signature is structurally
+    /// correct, which retaining the secret alone does not show.
+    /// </summary>
+    [Theory]
+    [InlineData("https://feed.example/v3/query")]
+    [InlineData("https://feed.example/v3/query?sig=SECRETVALUE")]
+    [InlineData("https://feed.example/v3/query?sig=SECRETVALUE&api-version=2")]
+    [InlineData("https://feed.example/v3/query?")]
+    [InlineData("https://feed.example/v3/query#anchor")]
+    public async Task SearchAsync_SignedEndpointWithInvalidDocument_ComposesTheQueryAndHidesTheEndpoint(
+        string declaredSearchUrl)
+    {
+        const string secret = "SECRETVALUE";
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = ServiceIndex(declaredSearchUrl),
+            // A syntactically valid document of the wrong shape: no "data".
+            ["https://feed.example/v3/query"] = """{"totalHits":0}""",
+        };
+        using var client = new HttpClient(handler);
+        List<string> logs = [];
+
+        // Every configured source failed, so the search surfaces the failure
+        // list rather than an empty result. That message is what a user sees.
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await NuGetSearchService.SearchAsync(
+                client,
+                "Contoso",
+                log: logs.Add,
+                sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] }));
+
+        string requested = Assert.Single(
+            handler.Requested,
+            url => url.Contains("/v3/query", StringComparison.Ordinal));
+        var outbound = new Uri(requested, UriKind.Absolute);
+
+        // The path is untouched, the query has one boundary, and the fragment
+        // is gone: the parameters joined the query rather than extending an
+        // existing value.
+        Assert.Equal("/v3/query", outbound.AbsolutePath);
+        Assert.Equal(1, requested.Count(character => character == '?'));
+        Assert.Equal(string.Empty, outbound.Fragment);
+
+        Dictionary<string, string> parameters = QueryParameters(outbound);
+        Assert.Equal("Contoso", parameters["q"]);
+        Assert.Equal("0", parameters["skip"]);
+        Assert.Equal("20", parameters["take"]);
+        Assert.Equal("false", parameters["prerelease"]);
+
+        // A signature the endpoint declared survives as its own parameter,
+        // with its own value.
+        bool signed = declaredSearchUrl.Contains("sig=", StringComparison.Ordinal);
+        Assert.Equal(signed, parameters.ContainsKey("sig"));
+        if (signed)
+            Assert.Equal(secret, parameters["sig"]);
+        Assert.Equal(
+            declaredSearchUrl.Contains("api-version=", StringComparison.Ordinal),
+            parameters.ContainsKey("api-version"));
+
+        // And nothing that prints carries it.
+        Assert.DoesNotContain(secret, thrown.Message, StringComparison.Ordinal);
+        Assert.Contains("search failed", thrown.Message, StringComparison.Ordinal);
+        Assert.All(
+            logs,
+            line => Assert.DoesNotContain(secret, line, StringComparison.Ordinal));
+    }
+
+    static Dictionary<string, string> QueryParameters(Uri uri)
+    {
+        var parameters = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (string pair in uri.Query.TrimStart('?')
+            .Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            int separator = pair.IndexOf('=', StringComparison.Ordinal);
+            string name = separator < 0 ? pair : pair[..separator];
+            string value = separator < 0 ? string.Empty : pair[(separator + 1)..];
+            parameters[Uri.UnescapeDataString(name)] =
+                Uri.UnescapeDataString(value);
+        }
+
+        return parameters;
+    }
+
+    /// <summary>
     /// The nuget.org shortcut answers from the well-known search endpoint without reading a
     /// service index. It must therefore key on the canonical service index URL and not merely on a
     /// nuget.org host: another path on that host is a different endpoint the user named
@@ -1124,7 +1323,8 @@ public class NuGetSearchSourcesTests
             IReadOnlyList<(string Name, string Url)> sources,
             string? credentialedSource = null,
             IReadOnlyList<(string Source, string Pattern)>? mappings = null,
-            IReadOnlyList<string>? disabledSources = null)
+            IReadOnlyList<string>? disabledSources = null,
+            string? rawMapping = null)
         {
             string adds = string.Join(
                 Environment.NewLine,
@@ -1138,7 +1338,12 @@ public class NuGetSearchSourcesTests
                     </{credentialedSource}>
                   </packageSourceCredentials>
                 """;
-            string mapping = mappings is null ? "" : $"""
+            string mapping = rawMapping is not null ? $"""
+                  <packageSourceMapping>
+                {rawMapping}
+                  </packageSourceMapping>
+                """
+                : mappings is null ? "" : $"""
                   <packageSourceMapping>
                 {string.Join(
                     Environment.NewLine,

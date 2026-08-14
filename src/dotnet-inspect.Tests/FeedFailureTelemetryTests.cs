@@ -175,6 +175,60 @@ public class FeedFailureTelemetryTests
     }
 
     /// <summary>
+    /// Nested scopes isolate <see cref="FeedFailureTelemetry.Current"/> while
+    /// they run (so a per-source Failed/Absent decision is not poisoned by a
+    /// sibling source) but must still merge into the parent on dispose so a
+    /// 401 is not reported as "package not found".
+    /// </summary>
+    [Fact]
+    public void NestedScope_IsolatesCurrentThenMergesIntoParentOnDispose()
+    {
+        using var outer = FeedFailureTelemetry.Scope();
+        FeedFailureTelemetry.Record(
+            "https://outer.example/v3/index.json",
+            HttpStatusCode.Forbidden);
+
+        using (FeedFailureTelemetry.Scope())
+        {
+            FeedFailureTelemetry.Record(
+                "https://inner.example/v3/index.json",
+                HttpStatusCode.Unauthorized);
+            Assert.True(FeedFailureTelemetry.Current!.HasFailures);
+            Assert.Contains(
+                "inner.",
+                Assert.Single(FeedFailureTelemetry.Current.Failures)
+                    .Url
+                    .ToString(),
+                StringComparison.Ordinal);
+        }
+
+        Assert.Equal(2, FeedFailureTelemetry.Current!.Failures.Count);
+        string described = FeedFailureTelemetry.Current
+            .DescribeFailure("markout")!
+            .Value
+            .ToString();
+        Assert.Contains("requires credentials", described, StringComparison.Ordinal);
+        Assert.Contains("inner.", described, StringComparison.Ordinal);
+        Assert.Contains("outer.", described, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NestedScope_CanDiscardFailuresWhenMergeDisabled()
+    {
+        using var outer = FeedFailureTelemetry.Scope();
+        using (FeedFailureTelemetry.Scope(mergeIntoParent: false))
+        {
+            FeedFailureTelemetry.Record(
+                "https://search.example/query",
+                HttpStatusCode.InternalServerError);
+            Assert.True(FeedFailureTelemetry.Current!.HasFailures);
+        }
+
+        Assert.False(FeedFailureTelemetry.Current!.HasFailures);
+        Assert.Null(FeedFailureTelemetry.Current.DescribeFailure("markout"));
+    }
+
+    /// <summary>
     /// The failure text is printed to the console, and a source URL can carry a secret: operators
     /// do try userinfo in the URL (the auth design doc calls it out), and feeds hand out tokens as
     /// query parameters. A URL recorded verbatim would print that secret. Redaction happens on the
@@ -186,10 +240,20 @@ public class FeedFailureTelemetryTests
     [InlineData("https://private.example/v3/index.json?sig=sup3rs3cret", "sup3rs3cret")]
     [InlineData("https://private.example/v3/index.json?accessToken=sup3rs3cret", "sup3rs3cret")]
     [InlineData("https://private.example/F/feed/auth/sup3rs3cret/api/v3/index.json", "sup3rs3cret")]
-    public async Task ASecretInTheSourceUrlIsNeverStoredOrPrinted(string url, string secret)
+    [InlineData(" //user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
+    [InlineData("\t//user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
+    [InlineData("\r//user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
+    [InlineData("\n//user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
+    [InlineData("\\/user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
+    [InlineData(" \\/user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
+    [InlineData("https://private.example/F/auth/auth/sup3rs3cret/api/v3/index.json", "sup3rs3cret")]
+    public async Task ASecretInTheSourceUrlIsNeverStoredOrRendered(string url, string secret)
     {
         using var scope = FeedFailureTelemetry.Scope();
-        using var client = new HttpClient(new FixedStatusHandler(HttpStatusCode.Unauthorized));
+        using var client = new HttpClient(new FixedStatusHandler(HttpStatusCode.Unauthorized))
+        {
+            BaseAddress = new Uri("https://base.example/")
+        };
 
         await HttpRetryHelper.GetStringWithRetryAsync(
             client,
@@ -210,6 +274,128 @@ public class FeedFailureTelemetryTests
 
         // Redaction must not blank the whole URL; the operator still needs to know which source.
         Assert.Contains("private.example", failure.Url.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ARawFailureFragmentIsRemovedBeforeStorage()
+    {
+        using var scope = FeedFailureTelemetry.Scope();
+
+        FeedFailureTelemetry.Record(
+            "relative/feed#opaque-sup3rs3cret",
+            HttpStatusCode.Unauthorized);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal("relative/feed", failure.Url.ToString());
+    }
+
+    [Fact]
+    public void ARelativeUriRemovesUserInfoAndRedactsCredentialsBeforeStorage()
+    {
+        const string Secret = "sup3rs3cret";
+        using var scope = FeedFailureTelemetry.Scope();
+        var uri = new Uri(
+            $"//user:{Secret}@private.example/F/auth/{Secret}/api?access_token={Secret}#fragment",
+            UriKind.Relative);
+
+        FeedFailureTelemetry.Record(uri, HttpStatusCode.Unauthorized);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(
+            "//private.example/F/auth/REDACTED/api?REDACTED",
+            failure.Url.ToString());
+    }
+
+    [Fact]
+    public void AnUnparseableRawUrlIsConservativelyRedactedBeforeStorage()
+    {
+        const string Secret = "sup3rs3cret";
+        string url =
+            $"https://user:{Secret}@[invalid.example/F/auth/{Secret}/api?access_token={Secret}#fragment";
+        Assert.False(Uri.TryCreate(url, UriKind.RelativeOrAbsolute, out _));
+        using var scope = FeedFailureTelemetry.Scope();
+
+        FeedFailureTelemetry.Record(url, HttpStatusCode.Unauthorized);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(
+            "<unparsable-url>?REDACTED",
+            failure.Url.ToString());
+    }
+
+    [Fact]
+    public async Task AnEffectiveUrlThatCannotBeReparsedIsStillRedactedBeforeStorage()
+    {
+        const string Secret = "sup3rs3cret";
+        using var scope = FeedFailureTelemetry.Scope();
+        using var client = new HttpClient(new FixedStatusHandler(HttpStatusCode.Unauthorized));
+
+        await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            $"https://user:{Secret}@\u202E/F/feed/auth/{Secret}/api?access_token={Secret}",
+            retryCount: 0,
+            cancellationToken: TestContext.Current.CancellationToken,
+            trafficKind: NetworkTrafficKind.PackageSourceDiscovery);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.DoesNotContain(Secret, failure.Url.ToString(), StringComparison.Ordinal);
+        Assert.Equal(
+            "https:///F/feed/auth/REDACTED/api?REDACTED",
+            failure.Url.ToString());
+    }
+
+    [Theory]
+    [InlineData("F\\feed\\auth\\sup3rs3cret\\api", "https://base.example/root/F/feed/auth/REDACTED/api")]
+    [InlineData("F\\auth\\auth\\sup3rs3cret\\api", "https://base.example/root/F/auth/REDACTED/REDACTED/api")]
+    [InlineData("auth/./sup3rs3cret/api", "https://base.example/root/auth/REDACTED/api")]
+    [InlineData("auth/x/../sup3rs3cret/api", "https://base.example/root/auth/REDACTED/api")]
+    [InlineData("auth\\.\\sup3rs3cret\\api", "https://base.example/root/auth/REDACTED/api")]
+    [InlineData("auth\\x\\..\\sup3rs3cret\\api", "https://base.example/root/auth/REDACTED/api")]
+    public async Task AResolvedRelativePathTokenIsNeverStoredOrRendered(
+        string url,
+        string expectedUrl)
+    {
+        using var scope = FeedFailureTelemetry.Scope();
+        using var client = new HttpClient(new FixedStatusHandler(HttpStatusCode.Unauthorized))
+        {
+            BaseAddress = new Uri("https://base.example/root/")
+        };
+
+        await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            url,
+            retryCount: 0,
+            cancellationToken: TestContext.Current.CancellationToken,
+            trafficKind: NetworkTrafficKind.PackageSourceDiscovery);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(expectedUrl, failure.Url.ToString());
+
+        var described = FeedFailureTelemetry.Current.DescribeFailure("markout");
+        Assert.NotNull(described);
+        Assert.DoesNotContain("sup3rs3cret", described.Value.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AConnectionFailureRecordsTheResolvedRequestUrl()
+    {
+        using var scope = FeedFailureTelemetry.Scope();
+        using var client = new HttpClient(new ThrowingHandler(SocketError.HostNotFound))
+        {
+            BaseAddress = new Uri("https://base.example/root/")
+        };
+
+        await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "auth/./sup3rs3cret/api",
+            retryCount: 0,
+            cancellationToken: TestContext.Current.CancellationToken,
+            trafficKind: NetworkTrafficKind.PackageSourceDiscovery);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(
+            "https://base.example/root/auth/REDACTED/api",
+            failure.Url.ToString());
     }
 
     [Fact]
