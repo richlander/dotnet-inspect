@@ -18105,13 +18105,23 @@ public partial class CommandExecutionTests
                 "--count",
                 "--columns",
                 "Package");
+            var valueColumn = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "--count",
+                "--columns",
+                "Value");
 
             Assert.Equal(0, bothSections.Exit);
             Assert.Equal(0, packageInfoOnly.Exit);
             Assert.Equal(0, fixedOverview.Exit);
+            Assert.Equal(0, valueColumn.Exit);
             Assert.Empty(bothSections.Error);
             Assert.Empty(packageInfoOnly.Error);
             Assert.Empty(fixedOverview.Error);
+            Assert.Empty(valueColumn.Error);
             string packageInfoRow = Assert.Single(
                 bothSections.Output.Split(
                     '\n',
@@ -18136,6 +18146,9 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "| Signature | 0 |",
                 fixedOverview.Output);
+            Assert.DoesNotContain(
+                "| Signature | 0 |",
+                valueColumn.Output);
         }
         finally
         {
@@ -18223,7 +18236,7 @@ public partial class CommandExecutionTests
                 "Package README file",
                 "--jsonl",
                 "--columns",
-                "Path");
+                "p*;SIZE;p*");
 
             Assert.Equal(0, exit);
             Assert.Equal(0, projected.Exit);
@@ -18239,9 +18252,14 @@ public partial class CommandExecutionTests
                 StringSplitOptions.RemoveEmptyEntries))
             {
                 using var document = JsonDocument.Parse(projectedRow);
-                JsonProperty property = Assert.Single(
-                    document.RootElement.EnumerateObject());
-                Assert.Equal("path", property.Name);
+                JsonProperty[] properties =
+                    [.. document.RootElement.EnumerateObject()];
+                Assert.Equal(
+                    ["package", "path", "size"],
+                    properties.Select(property => property.Name));
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    properties[2].Value.ValueKind);
             }
         }
         finally
@@ -18368,6 +18386,46 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiplePackages_LibraryModesAreRejected()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiLibraryMode",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var library = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "--library",
+                "Test.Package.MultiLibraryMode.dll",
+                "--tsv");
+            var allLibraries = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "--all-libraries",
+                "--tsv");
+
+            Assert.Equal(1, library.Exit);
+            Assert.Equal(1, allLibraries.Exit);
+            Assert.Empty(library.Output);
+            Assert.Empty(allLibraries.Output);
+            Assert.Contains(
+                "Multiple package inspection cannot be combined with --library.",
+                library.Error);
+            Assert.Contains(
+                "Multiple package inspection cannot be combined with --all-libraries.",
+                allLibraries.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_MultiplePackages_PackageInfoFieldsAgreeWithCount()
     {
         var (firstPackage, firstDir) =
@@ -18414,13 +18472,24 @@ public partial class CommandExecutionTests
                 "--tsv",
                 "--rows",
                 "1");
+            var ordered = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Authors;Version",
+                "--tsv");
 
             Assert.Equal(0, count.Exit);
             Assert.Equal(0, rendered.Exit);
             Assert.Equal(0, column.Exit);
+            Assert.Equal(0, ordered.Exit);
             Assert.Empty(count.Error);
             Assert.Empty(rendered.Error);
             Assert.Empty(column.Error);
+            Assert.Empty(ordered.Error);
             Assert.Equal("2", count.Output.Trim());
             string[] rows = rendered.Output.Split(
                 '\n',
@@ -18437,6 +18506,13 @@ public partial class CommandExecutionTests
                 column.Output.Split(
                     '\n',
                     StringSplitOptions.RemoveEmptyEntries));
+            Assert.Equal(
+                ["Authors", "Version", "Authors", "Version"],
+                ordered.Output.Split(
+                        '\n',
+                        StringSplitOptions.RemoveEmptyEntries)
+                    .Skip(1)
+                    .Select(row => row.Split('\t')[1]));
         }
         finally
         {

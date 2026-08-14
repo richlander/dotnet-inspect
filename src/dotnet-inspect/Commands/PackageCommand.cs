@@ -38,6 +38,12 @@ public class PackageCommand
         var sectionNames = pipeline.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
 
+        if (packageArgs.Length > 1
+            && !ValidateMultiPackageMode(options))
+        {
+            return 1;
+        }
+
         // @Hidden is a discovery-only pole. For the embedded-library render modes (which resolve
         // -S against the curated LibrarySections pipeline), reject it up front — before extracting
         // or fetching the package — so an invalid render selector never pays acquisition cost and
@@ -180,12 +186,6 @@ public class PackageCommand
                 var requiredVerbosity = pipeline.GetRequiredVerbosity(options.IncludeSections);
                 if (requiredVerbosity > options.Verbosity)
                     options = options with { Verbosity = requiredVerbosity };
-            }
-
-            if (packageArgs.Length > 1
-                && !ValidateMultiPackageMode(options))
-            {
-                return 1;
             }
 
             if (!ValidatePackageProjection(
@@ -1238,6 +1238,17 @@ public class PackageCommand
                     section.ItemKind,
                     section.Items.Select(item => item.Name).ToArray());
             }
+            else if (section is { Items.Length: > 0 }
+                && string.Equals(
+                    section.ItemKind,
+                    "field",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                result.Add(
+                    name,
+                    "column",
+                    ["Field", "Value"]);
+            }
             else
             {
                 result.AddSection(name);
@@ -1247,21 +1258,42 @@ public class PackageCommand
         return result;
     }
 
-    private static HashSet<string>? ResolvePackageInfoFields(
+    private static string[]? ResolvePackageInfoFields(
         string[]? patterns)
-    {
-        if (patterns is not { Length: > 0 })
-            return null;
+        => patterns is not { Length: > 0 }
+            ? null
+            : ResolveProjectionNames(PackageInfoFieldNames, patterns);
 
+    private static string[] ResolveProjectionNames(
+        IReadOnlyList<string> availableNames,
+        IReadOnlyList<string> patterns)
+    {
         const string ProbeSection = "probe";
-        return PackageInfoFieldNames
-            .Where(
-                field => new DocumentSchema()
-                    .Add(ProbeSection, "field", [field])
-                    .ValidateProjection(ProbeSection, patterns)
-                    .Resolved
-                    .Length > 0)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var resolved = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string pattern in patterns)
+        {
+            foreach (string availableName in availableNames)
+            {
+                if (!seen.Contains(availableName)
+                    && new DocumentSchema()
+                        .Add(
+                            ProbeSection,
+                            "column",
+                            [availableName])
+                        .ValidateProjection(
+                            ProbeSection,
+                            [pattern])
+                        .Resolved
+                        .Length > 0)
+                {
+                    seen.Add(availableName);
+                    resolved.Add(availableName);
+                }
+            }
+        }
+
+        return [.. resolved];
     }
 
     private static DocumentSchema AddPackageDynamicDiscoveryItems(DocumentSchema schema)
@@ -2464,17 +2496,6 @@ public class PackageCommand
                     .ValidateProjection(section, options.Columns!)
                     .Resolved
                     .Length > 0;
-        bool SelectedSinglePackageColumnsMatch(string section)
-            => options.Columns is not { Length: > 0 }
-                || (string.Equals(
-                        packageSchema.GetSection(section)?.ItemKind,
-                        "column",
-                        StringComparison.OrdinalIgnoreCase)
-                    && packageSchema
-                        .ValidateProjection(section, options.Columns)
-                        .Resolved
-                        .Length > 0);
-
         if (IsPackageFileSection(selectedSection))
         {
             int count = SelectedColumnsMatch(selectedSection!)
@@ -2502,7 +2523,7 @@ public class PackageCommand
                     && !options.FixedOverview);
         if (countPackageInfoRows)
         {
-            HashSet<string>? selectedFields =
+            string[]? selectedFields =
                 ResolvePackageInfoFields(options.Fields);
             int count = SelectedColumnsMatch(PackageSections.PackageInfo)
                 ? results.Sum(
@@ -2555,7 +2576,7 @@ public class PackageCommand
                         PackageSections.PackageInfo,
                         StringComparison.OrdinalIgnoreCase))
                 {
-                    HashSet<string>? selectedFields =
+                    string[]? selectedFields =
                         ResolvePackageInfoFields(options.Fields);
                     counts[section] =
                         SelectedColumnsMatch(section)
@@ -2582,7 +2603,7 @@ public class PackageCommand
                                                 section).Count))
                             : 0;
                 }
-                else if (!SelectedSinglePackageColumnsMatch(section))
+                else if (!SelectedColumnsMatch(section))
                 {
                     counts[section] = 0;
                 }
@@ -2762,10 +2783,9 @@ public class PackageCommand
         if (columns is not { Length: > 0 })
             return MultiPackageFileColumnNames;
 
-        return new DocumentSchema()
-            .Add(section, "column", MultiPackageFileColumnNames)
-            .ValidateProjection(section, columns)
-            .Resolved;
+        return ResolveProjectionNames(
+            MultiPackageFileColumnNames,
+            columns);
     }
 
     private static void WriteMultiPackageFileJsonRow(
@@ -2910,7 +2930,7 @@ public class PackageCommand
 
     private static void WriteMultiPackagePackageInfoTable(IReadOnlyList<InspectionResult> results, InspectionOptions options)
     {
-        HashSet<string>? selectedFields =
+        string[]? selectedFields =
             ResolvePackageInfoFields(options.Fields);
         var rows = results
             .SelectMany(result => SelectPackageInfoFields(result, selectedFields)
@@ -2944,10 +2964,19 @@ public class PackageCommand
 
     private static IEnumerable<MarkoutField> SelectPackageInfoFields(
         InspectionResult result,
-        HashSet<string>? selectedFields)
-        => new InspectionResultView(result).Metadata.Where(
-            field => selectedFields == null
-                || selectedFields.Contains(field.Key));
+        IReadOnlyList<string>? selectedFields)
+    {
+        var metadata = new InspectionResultView(result).Metadata;
+        if (selectedFields == null)
+            return metadata;
+
+        var byName = metadata.ToDictionary(
+            field => field.Key,
+            StringComparer.OrdinalIgnoreCase);
+        return selectedFields
+            .Where(byName.ContainsKey)
+            .Select(field => byName[field]);
+    }
 
     private static void ApplyNuspec(NuspecData nuspec, InspectionResult result)
     {
