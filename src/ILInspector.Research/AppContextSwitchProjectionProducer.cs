@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -61,4 +62,24 @@ public static class AppContextSwitchProjectionProducer
 
         return switches;
     }
+
+    /// <summary>
+    /// Projects raw occurrences into the distinct AppContext switches reported
+    /// by library inspection.
+    /// </summary>
+    public static ImmutableArray<AppContextSwitchOccurrence> ProduceInventory(
+        MethodBodySource source)
+        => Produce(source)
+            .Where(static occurrence => IsReportable(occurrence.Switch))
+            .Distinct()
+            .OrderBy(static occurrence => occurrence.Switch, StringComparer.Ordinal)
+            .ThenBy(static occurrence => occurrence.Api, StringComparer.Ordinal)
+            .ToImmutableArray();
+
+    private static bool IsReportable(string switchName)
+        => !switchName.StartsWith(
+                "System.Resources.UseSystemResourceKeys",
+                StringComparison.Ordinal)
+            && !switchName.StartsWith("TestSwitch.", StringComparison.Ordinal)
+            && !switchName.StartsWith("Switch.", StringComparison.Ordinal);
 }
