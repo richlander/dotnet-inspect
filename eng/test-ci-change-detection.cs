@@ -696,7 +696,7 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
     RequireScalarSha256(
         provenanceStep,
         "run",
-        "F11C4A162CF21AC57E0BAAE405672EB0AA305896A34F293BE1C27248721B9B77",
+        "AFD8804F209E05792867D7776A950AE6B0EA459F32F896782F0C6B794F5A4B76",
         "jobs.changes EVIL provenance step");
     RequireAbsent(
         provenanceStep,
