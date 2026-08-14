@@ -327,6 +327,7 @@ public static class ApiSurfaceExtractor
             {
                 AddInspectionFailure(
                     surface,
+                    budget: null,
                     "resolve external base type",
                     default,
                     budgetFailure.Failure,
@@ -351,6 +352,7 @@ public static class ApiSurfaceExtractor
             {
                 AddInspectionFailure(
                     surface,
+                    budget: null,
                     "resolve external base type",
                     default,
                     resolutionFailure.Failure,
@@ -423,7 +425,7 @@ public static class ApiSurfaceExtractor
                 typesOnly,
                 includeCompilerGenerated,
                 budget,
-                constraintResolution: null);
+                resolution: null);
             return new ApiSurfaceExtractionResult.Extracted(
                 surface,
                 budget.MetadataRows);
