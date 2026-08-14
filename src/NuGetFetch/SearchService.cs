@@ -6,12 +6,36 @@ namespace NuGetFetch;
 /// <summary>
 /// Searches the NuGet Search API for packages by keyword or prefix.
 /// </summary>
-public class SearchService(HttpClient client, string? searchUrl = null)
+public class SearchService
 {
     private const int PrefixSearchPageSize = 100;
     private const int MaxPrefixSearchPages = 32;
     private static readonly TimeSpan PrefixSearchTimeout = TimeSpan.FromSeconds(30);
-    private readonly string _searchUrl = searchUrl ?? NuGetClient.NuGetOrgSearchUrl;
+    private readonly HttpClient _client;
+    private readonly NuGetFetchOptions _options;
+    private readonly string _searchUrl;
+
+    /// <summary>
+    /// Creates a NuGet search client with default metadata response limits.
+    /// </summary>
+    public SearchService(HttpClient client, string? searchUrl = null)
+        : this(client, searchUrl, new NuGetFetchOptions())
+    {
+    }
+
+    /// <summary>
+    /// Creates a NuGet search client with configured metadata response limits.
+    /// </summary>
+    public SearchService(
+        HttpClient client,
+        string? searchUrl,
+        NuGetFetchOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        _client = client;
+        _searchUrl = searchUrl ?? NuGetClient.NuGetOrgSearchUrl;
+        _options = NuGetFetchOptions.ForClient(options, client.Timeout);
+    }
 
     /// <summary>
     /// Searches NuGet for packages matching the given query.
@@ -67,11 +91,17 @@ public class SearchService(HttpClient client, string? searchUrl = null)
             request.Headers.Authorization = auth;
         }
 
-        using HttpResponseMessage response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await _client.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        SearchResponse? parsed = await NuGetApi.GetSearchResponseAsync(stream, cancellationToken).ConfigureAwait(false);
+        SearchResponse? parsed = await NuGetMetadataReader.ReadResponseAsync(
+            response,
+            NuGetApi.DeserializeSearchResponseAsync,
+            _options,
+            cancellationToken).ConfigureAwait(false);
 
         // A null document is not an empty result set. Reporting it as one would
         // hide the failure behind a successful-looking zero-result search. The

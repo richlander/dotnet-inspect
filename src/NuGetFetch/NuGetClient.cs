@@ -13,7 +13,18 @@ public class NuGetClient(HttpClient client)
     internal const string NuGetOrgServiceIndex = "https://api.nuget.org/v3/index.json";
     internal const string NuGetOrgSearchUrl = "https://azuresearch-usnc.nuget.org/query";
 
+    private readonly NuGetFetchOptions _options =
+        NuGetFetchOptions.ForClient(new(), client.Timeout);
     private readonly ConcurrentDictionary<string, string> _baseAddressCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Creates a NuGet client with configured metadata response limits.
+    /// </summary>
+    public NuGetClient(HttpClient client, NuGetFetchOptions options)
+        : this(client)
+    {
+        _options = NuGetFetchOptions.ForClient(options, client.Timeout);
+    }
 
     /// <summary>
     /// Gets all available versions for a package from a NuGet source.
@@ -36,8 +47,11 @@ public class NuGetClient(HttpClient client)
             }
 
             response.EnsureSuccessStatusCode();
-            using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            VersionIndex? index = await NuGetApi.GetVersionIndexAsync(stream, cancellationToken).ConfigureAwait(false);
+            VersionIndex? index = await NuGetMetadataReader.ReadResponseAsync(
+                response,
+                NuGetApi.DeserializeVersionIndexAsync,
+                _options,
+                cancellationToken).ConfigureAwait(false);
             return (IReadOnlyList<string>?)index?.Versions ?? [];
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -131,8 +145,18 @@ public class NuGetClient(HttpClient client)
     /// </summary>
     public async Task<string?> GetPackageBaseAddressAsync(string serviceIndexUrl, CancellationToken cancellationToken = default)
     {
-        using Stream stream = await client.GetStreamAsync(serviceIndexUrl, cancellationToken).ConfigureAwait(false);
-        ServiceIndex? index = await NuGetApi.GetServiceIndexAsync(stream, cancellationToken).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, serviceIndexUrl);
+        using HttpResponseMessage response = await client.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        ServiceIndex? index = await NuGetMetadataReader.ReadResponseAsync(
+            response,
+            NuGetApi.DeserializeServiceIndexAsync,
+            _options,
+            cancellationToken).ConfigureAwait(false);
 
         string? baseAddress = index?.Resources
             .Where(r => r.Type.StartsWith("PackageBaseAddress", StringComparison.OrdinalIgnoreCase))
@@ -176,8 +200,18 @@ public class NuGetClient(HttpClient client)
     {
         string prerelease = includePrerelease ? "true" : "false";
         string url = $"{NuGetOrgSearchUrl}?q=packageid:{Uri.EscapeDataString(packageId)}&take=1&prerelease={prerelease}";
-        using Stream stream = await client.GetStreamAsync(url, cancellationToken).ConfigureAwait(false);
-        SearchResponse? response = await NuGetApi.GetSearchResponseAsync(stream, cancellationToken).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using HttpResponseMessage httpResponse = await client.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
+        httpResponse.EnsureSuccessStatusCode();
+
+        SearchResponse? response = await NuGetMetadataReader.ReadResponseAsync(
+            httpResponse,
+            NuGetApi.DeserializeSearchResponseAsync,
+            _options,
+            cancellationToken).ConfigureAwait(false);
         return response?.Data.FirstOrDefault()?.Version;
     }
 
