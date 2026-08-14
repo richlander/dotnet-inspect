@@ -126,7 +126,10 @@ public sealed class AssemblyInspectionSession : IDisposable
 
     /// <summary>Classified methods (unsafe / P-Invoke / async).</summary>
     public List<ClassifiedMethodInfo> ClassifiedMethods()
-        => MethodClassificationScanner.Scan(_image.PEReader);
+    {
+        _image.EnsureAlive();
+        return MethodClassificationScanner.Scan(_image.PEReader);
+    }
 
     /// <summary>OpenTelemetry integration signals.</summary>
     public List<OpenTelemetrySignalInfo> OpenTelemetrySignals()

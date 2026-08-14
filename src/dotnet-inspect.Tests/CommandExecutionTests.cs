@@ -18455,6 +18455,34 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PInvokeMethods_LocalFixture_RendersMarkdownMachineRowAndCount()
+    {
+        var (markdownExit, markdown, markdownError) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--section", "P/Invoke Methods", "--tips", "q");
+        var (jsonlExit, jsonl, jsonlError) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--section", "P/Invoke Methods", "--jsonl", "--tips", "q");
+        var (countExit, count, countError) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--section", "P/Invoke Methods", "--count", "--tips", "q");
+
+        Assert.Equal(0, markdownExit);
+        Assert.Equal(0, jsonlExit);
+        Assert.Equal(0, countExit);
+        Assert.Empty(markdownError);
+        Assert.Empty(jsonlError);
+        Assert.Empty(countError);
+        Assert.Contains(
+            "| GetCurrentProcessId | `DotnetInspector.Tests.SamplePInvokeClass` | kernel32.dll | `int GetCurrentProcessId()` |",
+            markdown);
+        Assert.Equal(
+            "{\"name\":\"GetCurrentProcessId\",\"declaring_type\":\"DotnetInspector.Tests.SamplePInvokeClass\",\"module\":\"kernel32.dll\",\"signature\":\"int GetCurrentProcessId()\"}",
+            jsonl.Trim());
+        Assert.Equal("1", count.Trim());
+    }
+
+    [Fact]
     public async Task PInvokeMethods_DeclaringTypeAndSignature_RenderAsCodeSpansWithFunctionPointerPunctuation()
     {
         Assert.SkipUnless(

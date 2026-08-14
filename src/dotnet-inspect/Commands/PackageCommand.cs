@@ -2595,8 +2595,6 @@ public class PackageCommand
         List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
         if (libraryOptions.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
-        if (scanners.Contains(LibrarySections.ScannerAuditSignals))
-            commandQueryDemand.Add(("Signals scanner", AssemblyReferencesQuery.Definition));
         var queries = pipeline.GetRequiredQueries(
             libraryOptions.Verbosity,
             libraryOptions.IncludeSections,
