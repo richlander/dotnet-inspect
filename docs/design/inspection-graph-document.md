@@ -8,6 +8,11 @@ Related documents:
 
 - [Call-graph projection](call-graph-projection.md) owns the current
   member-to-member call topology, identity, boundaries, and stable edge rows.
+- [Call-graph characteristics](call-graph-characteristics.md) maps the current
+  call-specific node fields and loop label into this document's descriptor
+  model.
+- [Call-graph modes](call-graph-modes.md) owns seed-centric and ad hoc call
+  subgraph construction.
 - [Member body substrate](member-body-substrate.md) owns
   `AnnotatedSourceDocument` and the fact-to-target join that motivates this
   design.
@@ -19,6 +24,8 @@ Related documents:
   projection.
 - [Progressive disclosure](progressive-disclosure.md) owns selection,
   capabilities, and cost backpressure.
+- [Section model](section-model.md) owns structural versus effective discovery,
+  including producer budgets.
 - [Graph signal annotations](graph-signal-annotations.md) describes the current
   node-only `--fields` mechanism this design generalizes.
 - [IChatClient dual-lens demo](../workflows/discovery/aspire-ai-package-graph.md)
@@ -26,10 +33,13 @@ Related documents:
 
 ## Status
 
-This document is a proposed architecture for issue #4139. Requirements in this
-document are design targets and are unverified until an implementation slice
-names and adds its gates. Existing behavior is identified explicitly and names
-its current owner or gate.
+This document is the proposed parent architecture for the expanded graph
+requirements that emerged from issue #4139 and the locked #4127 demo. The
+call-specific #4139 migration is detailed in
+[Call-graph characteristics](call-graph-characteristics.md). Requirements in
+this document are design targets and are unverified until an implementation
+slice names and adds its gates. Existing behavior is identified explicitly and
+names its current owner or gate.
 
 The design does not freeze a public CLR API, command spelling, or serialized
 schema. It freezes the separation of identity, topology, physical occurrences,
@@ -170,6 +180,7 @@ InspectionGraphDocument
     SourceSubject
     TargetSubject
     Evidence
+    DerivedFromOccurrenceIds[]
 
   Characteristics[]
     Descriptor
@@ -189,8 +200,11 @@ The shape has five important properties:
 2. Every node and group carries an owner-issued typed subject.
 3. Every edge carries a typed relationship descriptor even when its renderer
    chooses not to print the descriptor.
-4. Every logical edge can retain zero or more physical or derived occurrences.
-5. Limits and failures remain separate from optional characteristics.
+4. Every occurrence bound to an edge has the same relationship as that edge,
+   and its source and target project to the edge endpoints without reversing
+   semantic direction.
+5. Every logical edge can retain zero or more physical or derived occurrences.
+6. Limits and failures remain separate from optional characteristics.
 
 An edge with no occurrence is permitted only for an explicitly synthetic
 relationship whose producer and derivation are part of the edge contract. It
@@ -343,6 +357,14 @@ type, assembly, or package subjects that supplied the evidence. Several member
 pairs may therefore collapse onto one type-to-package edge without losing which
 members established it.
 
+An edge may bind only occurrences whose `Relationship` equals the edge
+relationship. The relationship descriptor owns a typed endpoint-projection
+rule: the occurrence source must equal or project to the `FromNodeId` subject,
+and the occurrence target must equal or project to the `ToNodeId` subject.
+Traversal direction never changes that support relation. A package-inward lens
+may walk an incoming edge, but it cannot bind a source occurrence to the edge's
+target.
+
 Each relationship descriptor owns an occurrence-identity projection within one
 document. Projection deduplicates repeated observations by that key before
 assigning deterministic document-local occurrence ids. For `call`, the key is
@@ -352,11 +374,18 @@ operand token. Observing that call site from caller and callee walks cannot
 create two occurrences. Two distinct IL offsets remain two occurrences even
 when every other field and the logical edge are equal.
 
-`AnnotatedCallGraphOccurrence` is the current worked example: two call sites
-can share one stable edge row while retaining two IL offsets, operand tokens,
-call kinds, loop flags, and source facts. The
+Composition does not weaken the relationship invariant. A composed edge gets a
+derived occurrence of the composed relationship, with its own source and target
+subjects and explicit `DerivedFromOccurrenceIds` receipts for the native
+evidence. It must not directly attach a call, metadata-reference, or extension
+occurrence to an `integration.composed` edge.
+
+`AnnotatedCallGraphOccurrence` is the current focus-member seam: retained focus
+call sites can share one stable edge row while preserving IL offsets, operand
+tokens, call kinds, loop flags, and source facts. It does not retain
+occurrences for every projected edge and does not carry dispatch kind. The
 `AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite` gate
-pins that behavior.
+pins the current focus-call-site behavior.
 
 ## Characteristics
 
@@ -439,13 +468,22 @@ cannot appear on an aggregate type or package node.
 
 ### Calls as the first occurrence-backed catalog
 
-The first edge-characteristic slice should use call evidence because the
-current graph already exposes the required distinction:
+The first edge-characteristic slice should use call evidence. The current
+projection and focus overlay expose part of the required distinction:
 
 - logical edge: caller member -> callee member;
-- physical occurrences: every retained call site;
-- direct occurrence values: call kind, IL offset, loop state, dispatch kind;
-- edge aggregates: call-site multiplicity, any-in-loop, distinct call kinds,
+- current focus occurrences: retained focus call sites with call kind, IL
+  offset, operand token, and loop state;
+- current edge aggregate: `LoopLabel`, without retained document-wide call-site
+  receipts.
+
+The target catalog adds:
+
+- physical occurrences for every retained call site behind every projected
+  edge;
+- direct occurrence values for call kind, IL offset, loop state, and derived
+  dispatch kind; and
+- edge aggregates for call-site multiplicity, any-in-loop, distinct call kinds,
   and distinct dispatch kinds.
 
 Loop is currently merged directly into `CallGraphEdge.LoopLabel`. Moving it
@@ -509,7 +547,7 @@ rather than dropping an axis.
 
 ### Seed-centric and ad hoc modes
 
-Issue #4133 owns mode semantics:
+[Call-graph modes](call-graph-modes.md) and issue #4133 own call-mode semantics:
 
 - seed-centric mode asks what surrounds one member or type;
 - ad hoc mode asks what graph a set of inputs induces.
@@ -712,14 +750,21 @@ same change so it remains the authoritative owner of graph row and count units.
 ### Discovery and field selection
 
 Node, group, edge, and occurrence characteristics require subject-qualified
-discovery. A field catalog must say:
+discovery. Structural field discovery must say:
 
 - target kind;
 - descriptor id and aliases;
 - value shape;
 - the bound producer query whose L1 definition declares cost and capabilities;
-- aggregation availability for the active lens; and
-- whether the field has data in the effective target.
+- and the descriptor's declared aggregation support for the requested lens.
+
+Structural discovery does not run the bound producer and does not claim that
+the field has data. Effective field discovery, requested explicitly through
+`--effective` or an equivalent host gesture, may additionally report whether
+the field has data for the effective target. It spends the bound producer's
+declared probe budget and follows the cache rules in
+[Section model](section-model.md). L2 does not establish effectiveness on the
+query's behalf.
 
 The command syntax may use separate selectors such as `--edge-fields`, or a
 unified qualified grammar such as `edge.kind,node.alloc`. The syntax is not
@@ -800,6 +845,10 @@ Implementation is not complete until focused gates prove:
   edge while every occurrence retains its original source and target subjects;
 - a call and another relationship between the same subjects remain distinct
   edges;
+- an edge rejects an occurrence with a different relationship, a reversed
+  endpoint projection, or an endpoint that does not project to its node;
+- a composed relationship uses a derived occurrence that cites native
+  occurrence receipts rather than attaching foreign-relation occurrences;
 - type-to-package and package-to-type projections retain the same evidence
   occurrence and semantic relationship direction;
 - two versions or acquisition contexts of the same package never join by
@@ -811,6 +860,8 @@ Implementation is not complete until focused gates prove:
 - a failed workspace participant remains visible beside healthy graph evidence;
 - field selection controls producer demand and an unselected expensive producer
   does not execute;
+- structural field discovery does not execute bound producers, while explicit
+  effective discovery observes their declared probe budget;
 - sequential and any future concurrent executor produce structurally identical
   deterministic documents;
 - edge rows and occurrence rows retain their distinct count and filtering

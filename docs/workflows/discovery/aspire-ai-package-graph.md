@@ -13,7 +13,10 @@ status: locked-demo
 > integration richness the way AnnotatedSource carets carry facts.
 >
 > Status: **locked narrative + pins + works-now path.** Full single-diagram
-> product experience is target (characteristics #4139, ad hoc mode #4133).
+> product experience is target
+> ([inspection graph](../../design/inspection-graph-document.md),
+> [call characteristics](../../design/call-graph-characteristics.md) #4139,
+> [ad hoc mode](../../design/call-graph-modes.md) #4133).
 
 ## Why this demo
 
@@ -73,8 +76,10 @@ flowchart TB
 - **Type outward** — from `IChatClient`, packages and providers that adapt into it.  
 - **Package inward** — from OpenAI/Bedrock/Azure packages, the type that unifies clients.
 
-Arcs hold tool richness (integration kind, relationship, boundary). Nodes stay
-member/type identity; package is group + characteristic (#4139).
+Arcs retain typed relationship semantics plus selected characteristics.
+Member identities remain members when shown; a realized package may be a group
+or a typed endpoint, with the original member occurrences retained behind any
+roll-up.
 
 ## Works now (rehearsal path)
 
@@ -210,10 +215,11 @@ Call Graph
 
 ## Product gaps (this demo only)
 
-| Gap | Issue |
-| --- | ----- |
-| One multi-input / multi-seed graph | #4133 |
-| Arc + node characteristics (integration, package on edges) | #4139 |
+| Gap | Design / issue |
+| --- | --- |
+| Typed mixed-relation graph and package/type lenses | [Inspection graph](../../design/inspection-graph-document.md) |
+| One multi-input / multi-seed call layer | [Call modes](../../design/call-graph-modes.md) · #4133 |
+| Call occurrence and characteristic migration | [Call characteristics](../../design/call-graph-characteristics.md) · #4139 |
 | Deeper external body resolution | #3632 |
 | Workspace integrations roll-up across the pin set | #3629 |
 | Reference edge Azure→OpenAI as first-class arc | #3630 |
@@ -229,7 +235,7 @@ Call Graph
 
 - Aspire hosting package web + `AddOpenAI` seed CG (AppHost plane).  
 - Two-plane “provision vs consume” once this demo and hosting demo both exist.  
-- Type CG rollup / package CG aggregation lenses generally (#4139).
+- Type/package aggregation lenses generally.
 
 ## Validation posture
 
