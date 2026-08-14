@@ -18,6 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Using Include="ILInspector.Instructions" />
     <Using Include="Xunit" />
   </ItemGroup>
 
