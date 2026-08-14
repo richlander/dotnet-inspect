@@ -82,9 +82,39 @@ public class StructuringJoinAnalysisTests
         Assert.True(loop.IsNonCrossing);
 
         Assert.Contains(plan.ForwardRegions, region =>
-            region.Start == 1 && region.Merge == 3);
+            region.Start == 1
+            && region.Merge == 3
+            && region.IsNonCrossing
+            && region.IsBackEdgeEntangled);
+        Assert.True(loop.IsBackEdgeEntangled);
         Assert.Equal(StructuringJoinRegionKind.Forward, plan.Regions[0].Kind);
         Assert.Equal(StructuringJoinRegionKind.BackEdge, plan.Regions[1].Kind);
+    }
+
+    [Fact]
+    public void CrossingForwardRegionsAreClassified()
+    {
+        var blocks = new List<Block>
+        {
+            Term(0, Cond(5)),
+            Term(1, new Branch(3)),
+            Term(2, Cond(6)),
+            Term(3, Cond(4)),
+            Term(4, new Branch(5)),
+            Term(5, Cond(6)),
+            Term(6, new Return(null)),
+        };
+
+        var plan = StructuringJoinAnalysis.Analyze(blocks);
+
+        var first = Assert.Single(plan.ForwardRegions, region => region.Start == 0);
+        var second = Assert.Single(plan.ForwardRegions, region => region.Start == 2);
+        Assert.Equal(5, first.Merge);
+        Assert.Equal(6, second.Merge);
+        Assert.False(first.IsNonCrossing);
+        Assert.False(second.IsNonCrossing);
+        Assert.False(first.IsBackEdgeEntangled);
+        Assert.False(second.IsBackEdgeEntangled);
     }
 
     [Fact]

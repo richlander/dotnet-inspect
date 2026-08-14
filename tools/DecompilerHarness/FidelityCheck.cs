@@ -959,7 +959,13 @@ static class FidelityCheck
                         if (!rootDef.GetDeclaringType().IsNil)
                             continue; // each top-level root walks its own nested tree once
 
-                        foreach (var (fullType, entries, treeHandle) in EnumerateTypeTree(reader, pe, source, typeHandle, render))
+                        foreach (var (fullType, entries, treeHandle) in EnumerateTypeTree(
+                            reader,
+                            pe,
+                            source,
+                            typeHandle,
+                            render,
+                            assemblyTargets.ContainsKey))
                         {
                             if (pending.Count == 0)
                                 break;
@@ -3101,7 +3107,7 @@ static class FidelityCheck
             foreach (var propertyHandle in current.GetProperties())
                 if (reader.GetString(reader.GetPropertyDefinition(propertyHandle).Name) == propertyName)
                     return true;
-            if (current.BaseType.Kind != HandleKind.TypeDefinition)
+            if (current.BaseType.IsNil || current.BaseType.Kind != HandleKind.TypeDefinition)
                 return false;
             current = reader.GetTypeDefinition((TypeDefinitionHandle)current.BaseType);
         }
@@ -3114,7 +3120,7 @@ static class FidelityCheck
             foreach (var methodHandle in current.GetMethods())
                 if (reader.GetString(reader.GetMethodDefinition(methodHandle).Name) == methodName)
                     return true;
-            if (current.BaseType.Kind != HandleKind.TypeDefinition)
+            if (current.BaseType.IsNil || current.BaseType.Kind != HandleKind.TypeDefinition)
                 return false;
             current = reader.GetTypeDefinition((TypeDefinitionHandle)current.BaseType);
         }
@@ -4104,12 +4110,18 @@ static class FidelityCheck
         };
     }
 
-    static string BaseTypeName(MetadataReader reader, EntityHandle handle) => handle.Kind switch
+    static string BaseTypeName(MetadataReader reader, EntityHandle handle)
     {
-        HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)handle)),
-        HandleKind.TypeDefinition => FullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)handle)),
-        _ => "",
-    };
+        if (handle.IsNil)
+            return "";
+
+        return handle.Kind switch
+        {
+            HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)handle)),
+            HandleKind.TypeDefinition => FullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)handle)),
+            _ => "",
+        };
+    }
 
     static string FullName(MetadataReader reader, TypeReference t)
     {

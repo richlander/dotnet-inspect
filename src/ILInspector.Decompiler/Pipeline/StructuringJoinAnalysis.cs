@@ -15,7 +15,8 @@ internal readonly record struct StructuringJoinRegion(
     int End,
     int Merge,
     ImmutableArray<int> BackEdgeSources,
-    bool IsNonCrossing);
+    bool IsNonCrossing,
+    bool IsBackEdgeEntangled);
 
 internal sealed record StructuringJoinPlan(
     ImmutableArray<StructuringJoinRegion> Regions,
@@ -77,7 +78,8 @@ internal static class StructuringJoinAnalysis
                     merge,
                     merge,
                     [],
-                    IsNonCrossing: true));
+                    IsNonCrossing: true,
+                    IsBackEdgeEntangled: false));
             }
         }
 
@@ -110,22 +112,42 @@ internal static class StructuringJoinAnalysis
                 end,
                 merge,
                 [.. sourceList.Distinct().Order()],
-                IsNonCrossing: true));
+                IsNonCrossing: true,
+                IsBackEdgeEntangled: false));
         }
 
+        var classifiedForwardRegions = forwardRegions.ToArray();
         var classifiedBackEdgeRegions = backEdgeRegions.ToArray();
+        for (int index = 0; index < classifiedForwardRegions.Length; index++)
+        {
+            bool crossesAnotherRegion = classifiedForwardRegions
+                .Where((_, otherIndex) => otherIndex != index)
+                .Any(other => Crosses(classifiedForwardRegions[index], other))
+                || classifiedBackEdgeRegions.Any(other => Crosses(classifiedForwardRegions[index], other));
+            bool backEdgeEntangled = classifiedBackEdgeRegions
+                .Any(other => Overlaps(classifiedForwardRegions[index], other));
+            classifiedForwardRegions[index] = classifiedForwardRegions[index] with
+            {
+                IsNonCrossing = !crossesAnotherRegion,
+                IsBackEdgeEntangled = backEdgeEntangled,
+            };
+        }
+
         for (int index = 0; index < classifiedBackEdgeRegions.Length; index++)
         {
             bool crossesAnotherRegion = classifiedBackEdgeRegions
                 .Where((_, otherIndex) => otherIndex != index)
-                .Any(other => Crosses(classifiedBackEdgeRegions[index], other));
+                .Any(other => Crosses(classifiedBackEdgeRegions[index], other))
+                || classifiedForwardRegions.Any(other => Crosses(classifiedBackEdgeRegions[index], other));
             classifiedBackEdgeRegions[index] = classifiedBackEdgeRegions[index] with
             {
                 IsNonCrossing = !crossesAnotherRegion,
+                IsBackEdgeEntangled = classifiedForwardRegions
+                    .Any(other => Overlaps(classifiedBackEdgeRegions[index], other)),
             };
         }
 
-        var sortedForwardRegions = forwardRegions
+        var sortedForwardRegions = classifiedForwardRegions
             .OrderBy(region => region.End - region.Start)
             .ThenByDescending(region => region.Start)
             .ToImmutableArray();
@@ -157,4 +179,7 @@ internal static class StructuringJoinAnalysis
             && later.Start < earlier.End
             && earlier.End < later.End;
     }
+
+    static bool Overlaps(StructuringJoinRegion first, StructuringJoinRegion second)
+        => first.Start < second.End && second.Start < first.End;
 }

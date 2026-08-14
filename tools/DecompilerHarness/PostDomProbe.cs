@@ -180,8 +180,6 @@ static class PostDomProbe
     {
         var blocks = container.Blocks;
         var plan = StructuringJoinAnalysis.Analyze(blocks);
-        if (!plan.BackEdgeRegions.IsEmpty)
-            return MergeShape.Loop;
         if (!plan.UnrootedDecisions.IsEmpty)
             return MergeShape.Unrooted;
 
@@ -189,10 +187,16 @@ static class PostDomProbe
         // from the branch block to its immediate post-dominator. Crossing spans are
         // the interleaved/irreducible shape; nested or sequential (disjoint, or
         // sharing only a boundary) spans are the safe SingleMerge-x-N case.
-        var regions = plan.ForwardRegions
+        var eligibleForwardRegions = plan.ForwardRegions
+            .Where(region => !region.IsBackEdgeEntangled)
+            .ToList();
+        if (eligibleForwardRegions.Count == 0 && !plan.BackEdgeRegions.IsEmpty)
+            return MergeShape.Loop;
+
+        var regions = eligibleForwardRegions
             .Select(region => (region.Start, region.End))
             .ToList();
-        var merges = plan.ForwardRegions
+        var merges = eligibleForwardRegions
             .Select(region => region.Merge)
             .ToHashSet();
         bool anyExit = !plan.VirtualExitDecisions.IsEmpty;
@@ -207,7 +211,10 @@ static class PostDomProbe
             // [decision, exit) that spans to the container end.
             if (anyExit)
                 regions.AddRange(plan.VirtualExitDecisions.Select(index => (index, blocks.Count)));
-            return AnyCrossing(regions) ? MergeShape.MultiMergeCrossing : MergeShape.MultiMergeNested;
+            return eligibleForwardRegions.Any(region => !region.IsNonCrossing)
+                || AnyCrossing(regions)
+                ? MergeShape.MultiMergeCrossing
+                : MergeShape.MultiMergeNested;
         }
 
         int merge = merges.Single();
