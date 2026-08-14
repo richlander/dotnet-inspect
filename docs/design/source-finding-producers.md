@@ -120,9 +120,10 @@ branch ranges, and the body slicer selects a branch only when exactly one range
 contains point evidence. It validates both the PDB range endpoints and every
 point line against the verified physical source. Because output remains a slice
 of the original authored text rather than projected text, a selected group
-wholly inside that slice must preserve brace depth in every branch; otherwise
-the slicer refuses the result rather than include a sibling from an inactive
-branch.
+wholly inside that slice is omitted from a second, boundary-only projection.
+The resulting declaration must remain sliceable with identical boundaries;
+otherwise the slicer refuses the result rather than include a sibling from an
+inactive branch.
 
 The same checksum evidence is carried through type, member-location, and
 IL-offset projections when those views can print or derive output from source

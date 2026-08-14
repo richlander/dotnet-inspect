@@ -254,8 +254,6 @@ internal static class CSharpLexer
             var group = conditionals[^1];
             conditionals.RemoveAt(conditionals.Count - 1);
             group.CloseCurrentBranch(directiveLine);
-            bool branchesPreserveBraceDepth =
-                !group.Unbalanced && depth == group.BaseDepth;
 
             if (group.TopologyKnown)
             {
@@ -264,7 +262,6 @@ internal static class CSharpLexer
                     group.ParentGroupId,
                     group.IfDirectiveLine,
                     directiveLine,
-                    branchesPreserveBraceDepth,
                     [.. group.Branches.Select(branch => new ConditionalBranchSpan(
                         branch.Id,
                         group.Id,

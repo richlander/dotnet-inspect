@@ -124,45 +124,6 @@ public class DeclarationIndexTests
     }
 
     [Fact]
-    public void ConditionalGroups_ReportBraceDepthPreservation()
-    {
-        const string source = """
-            class C
-            {
-                void M()
-                {
-            #if UNBALANCED
-                }
-                void N() { }
-            #else
-                    Use();
-            #endif
-                }
-            #if BALANCED
-                void A() { }
-            #else
-                void B() { }
-            #endif
-            }
-            #if NESTED_OUTER
-            #if NESTED_INNER
-            {
-            #else
-            #endif
-            #else
-            #endif
-            """;
-
-        var groups = DeclarationIndex.Build(source).ConditionalGroups;
-
-        Assert.Equal(4, groups.Length);
-        Assert.False(groups[0].BranchesPreserveBraceDepth);
-        Assert.True(groups[1].BranchesPreserveBraceDepth);
-        Assert.False(groups[2].BranchesPreserveBraceDepth);
-        Assert.False(groups[3].BranchesPreserveBraceDepth);
-    }
-
-    [Fact]
     public void AmbiguousConditionalTopology_WithholdsItsOpenAndLaterGroups()
     {
         const string source = """

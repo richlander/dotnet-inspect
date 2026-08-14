@@ -737,16 +737,17 @@ objects produced by the same index; it blanks unselected half-open ranges with
 one difference array and rebuilds over the line-preserving projection. Before
 slicing the checksum-verified original text, the slicer refuses a selected
 group that crosses exactly one boundary of the projected declaration. A group
-wholly inside the declaration is also refused unless CSharpText can vouch that
-every branch preserves brace depth; otherwise projected-away text could expose
-unmatched directives or an unrelated dead-branch member. These boundaries are
-gated by
+wholly inside the declaration is removed from a second, boundary-only
+projection; CSharpText must still vouch for the same declaration and slice
+boundaries. Otherwise projected-away braces, terminators, or declarations
+could expose unmatched directives or an unrelated dead-branch member. These
+boundaries are gated by
 `DeclarationIndexTests.ConditionalProjection_RejectsABranchFromAnotherIndex`,
 `DeclarationIndexTests.ConditionalProjection_ManySelectionsAllocateLinearly`,
-`DeclarationIndexTests.ConditionalGroups_ReportBraceDepthPreservation`,
 `ExtractMethodBodyTests.InvalidSequencePointCoordinates_FailVisibly`,
 `ExtractMethodBodyTests.InvalidSequencePointRange_FailsVisibly`,
 `ExtractMethodBodyTests.UnbalancedConditionalGroupInsideProjectedDeclaration_DoesNotLeakADeadSibling`,
+`ExtractMethodBodyTests.TerminatorConditionalGroupInsideProjectedDeclaration_DoesNotLeakDeadSiblings`,
 `ExtractMethodBodyTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided`,
 and
 `AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupThatMakesTheOriginalSliceUnsafe`.

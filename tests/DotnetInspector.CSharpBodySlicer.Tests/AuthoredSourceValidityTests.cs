@@ -814,6 +814,20 @@ public class AuthoredSourceValidityTests
                 }
             }
             """;
+        const string ContainedTerminatorGroup = """
+            class C
+            {
+                public int M()
+            #if A
+                    => 1 +
+            #else
+                    => 2;
+                public void N() { }
+                public int X =
+            #endif
+                    3;
+            }
+            """;
         string directory = Path.Combine(
             Path.GetTempPath(),
             "dotnet-inspect-conditional-straddle-" + Guid.NewGuid().ToString("N"));
@@ -826,6 +840,8 @@ public class AuthoredSourceValidityTests
             AssertRefused(EndStraddle, "EndDefault", []);
             AssertRefused(ContainedUnbalancedGroup, "ContainedDefined", ["A"]);
             AssertRefused(ContainedUnbalancedGroup, "ContainedDefault", []);
+            AssertRefused(ContainedTerminatorGroup, "TerminatorDefined", ["A"]);
+            AssertRefused(ContainedTerminatorGroup, "TerminatorDefault", []);
         }
         finally
         {

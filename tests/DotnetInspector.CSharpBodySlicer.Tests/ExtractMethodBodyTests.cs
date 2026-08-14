@@ -1944,6 +1944,39 @@ public class ExtractMethodBodyTests
     }
 
     [Fact]
+    public void NestedInternalConditionalThatPreservesTheDeclaration_ReturnsOriginalSource()
+    {
+        var source = Lines(
+            "class C",                  // 1
+            "{",                        // 2
+            "#if OUTER",                // 3
+            "    void M()",             // 4
+            "    {",                    // 5
+            "#if INNER",                // 6
+            "        Use(1);",          // 7
+            "#else",                    // 8
+            "        Use(2);",          // 9
+            "#endif",                   // 10
+            "    }",                    // 11
+            "#else",                    // 12
+            "    void N() { }",         // 13
+            "#endif",                   // 14
+            "}");                       // 15
+
+        Assert.Equal(
+            Lines(
+                "    void M()",
+                "    {",
+                "#if INNER",
+                "        Use(1);",
+                "#else",
+                "        Use(2);",
+                "#endif",
+                "    }"),
+            BodySlicer.ExtractMethodBody(source, 7, 11, "M", [7, 11]));
+    }
+
+    [Fact]
     public void PointsInMultipleBranches_DoNotGuessWhichBranchIsLive()
     {
         var source = Lines(
@@ -2050,6 +2083,26 @@ public class ExtractMethodBodyTests
             "}");                               // 12
 
         Assert.Null(BodySlicer.ExtractMethodBody(source, 9, 11, "M", [9, 11]));
+    }
+
+    [Fact]
+    public void TerminatorConditionalGroupInsideProjectedDeclaration_DoesNotLeakDeadSiblings()
+    {
+        var source = Lines(
+            "class C",                  // 1
+            "{",                        // 2
+            "    public int M()",       // 3
+            "#if A",                    // 4
+            "        => 1 +",           // 5
+            "#else",                    // 6
+            "        => 2;",            // 7
+            "    public void N() { }",  // 8
+            "    public int X =",       // 9
+            "#endif",                   // 10
+            "        3;",               // 11
+            "}");                       // 12
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 11, "M", [5]));
     }
 
     [Fact]

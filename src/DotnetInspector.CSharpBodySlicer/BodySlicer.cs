@@ -44,13 +44,14 @@ public static class BodySlicer
     /// When <paramref name="visibleSequencePointStartLines"/> is supplied, each complete
     /// conditional group with points in exactly one branch is projected to that branch before
     /// selecting the declaration. Zero or multiple matching branches retain the lexical fallback.
-    /// A selected group that crosses exactly one declaration boundary is refused. A selected group
-    /// wholly inside the declaration is also refused unless every branch preserves brace depth:
-    /// projected-away text could otherwise make a span look valid while slicing the original
-    /// returns unmatched directives or an unrelated dead-branch member. The PDB range endpoints
-    /// and point lines must be positive, ordered, and within the physical source; point lines must
-    /// also be distinct. A recognized <c>#line</c> directive refuses correlation because PDB
-    /// coordinates may then be remapped.
+    /// A selected group that crosses exactly one declaration boundary is refused. When selected
+    /// groups lie wholly inside the declaration, the slicer rebuilds an index without those
+    /// selections and requires it to vouch for the same declaration boundaries. Projected-away
+    /// text cannot therefore make a span look valid while slicing the original returns unmatched
+    /// directives or an unrelated dead-branch member. The PDB range endpoints and point lines must
+    /// be positive, ordered, and within the physical source; point lines must also be distinct. A
+    /// recognized <c>#line</c> directive refuses correlation because PDB coordinates may then be
+    /// remapped.
     /// Gated by <c>AuthoredSourceValidityTests.RealPortablePdb_SelectsTheCompiledConditionalBranch</c>,
     /// <c>AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupThatMakesTheOriginalSliceUnsafe</c>,
     /// <c>ExtractMethodBodyTests.PointsInMultipleBranches_DoNotGuessWhichBranchIsLive</c>, and
@@ -64,7 +65,8 @@ public static class BodySlicer
         string methodName,
         IReadOnlyList<int>? visibleSequencePointStartLines = null)
     {
-        var index = DeclarationIndex.Build(sourceText);
+        var sourceIndex = DeclarationIndex.Build(sourceText);
+        var index = sourceIndex;
         IReadOnlyList<ConditionalSelection> conditionalSelections = [];
         if (visibleSequencePointStartLines is { Count: > 0 } points)
         {
@@ -80,32 +82,43 @@ public static class BodySlicer
             }
         }
 
-        bool constructorRequest = IsConstructorRequest(methodName);
-        var row = constructorRequest
-            ? FindConstructorAtRangeBoundary(
-                index,
-                startLine,
-                endLine,
-                staticConstructor: IsStaticConstructorRequest(methodName))
-            : index.FindByLine(startLine);
+        var row = FindRequestedDeclaration(index, startLine, endLine, methodName);
 
-        if (row is null
-            || IsTypeOrNamespace(row.Kind)
-            || SharesBoundaryWithParentType(index, row)
-            || SharesBoundaryWithSibling(index, row)
-            || SharesBoundaryWithTransparentScope(index, row))
+        if (!IsSliceableDeclaration(index, row))
         {
             return null;
         }
+        var declaration = row!;
 
         if (conditionalSelections.Any(selection =>
-            MakesOriginalSliceUnsafe(selection.Group, row)))
+            StraddlesDeclarationBoundary(selection.Group, declaration)))
         {
             return null;
         }
 
-        int from = row.SignatureStartLine - 1;
-        int to = row.EndLine;
+        var boundaryBranches = conditionalSelections
+            .Where(selection => !IsWhollyInside(selection.Group, declaration))
+            .Select(static selection => selection.Branch)
+            .ToArray();
+        if (boundaryBranches.Length != conditionalSelections.Count)
+        {
+            var boundaryIndex = boundaryBranches.Length == 0
+                ? sourceIndex
+                : sourceIndex.WithSelectedConditionalBranches(boundaryBranches);
+            var boundaryRow = FindRequestedDeclaration(
+                boundaryIndex,
+                startLine,
+                endLine,
+                methodName);
+            if (!IsSliceableDeclaration(boundaryIndex, boundaryRow)
+                || !HasSameSliceBoundaries(declaration, boundaryRow!))
+            {
+                return null;
+            }
+        }
+
+        int from = declaration.SignatureStartLine - 1;
+        int to = declaration.EndLine;
         if (from < 0)
             from = 0;
         if (from >= to)
@@ -117,7 +130,7 @@ public static class BodySlicer
 
         // A declaration can begin after a block comment closes on its first line. The index carries
         // the first code column so slicing does not tokenize the entire untrusted file a second time.
-        int firstCodeColumn = row.FirstCodeColumn;
+        int firstCodeColumn = declaration.FirstCodeColumn;
         if (firstCodeColumn > 0)
         {
             var head = methodLines[0];
@@ -204,7 +217,29 @@ public static class BodySlicer
         return selected;
     }
 
-    private static bool MakesOriginalSliceUnsafe(
+    private static DeclarationSpan? FindRequestedDeclaration(
+        DeclarationIndex index,
+        int startLine,
+        int endLine,
+        string methodName) =>
+        IsConstructorRequest(methodName)
+            ? FindConstructorAtRangeBoundary(
+                index,
+                startLine,
+                endLine,
+                staticConstructor: IsStaticConstructorRequest(methodName))
+            : index.FindByLine(startLine);
+
+    private static bool IsSliceableDeclaration(
+        DeclarationIndex index,
+        DeclarationSpan? declaration) =>
+        declaration is not null
+            && !IsTypeOrNamespace(declaration.Kind)
+            && !SharesBoundaryWithParentType(index, declaration)
+            && !SharesBoundaryWithSibling(index, declaration)
+            && !SharesBoundaryWithTransparentScope(index, declaration);
+
+    private static bool StraddlesDeclarationBoundary(
         ConditionalGroupSpan group,
         DeclarationSpan declaration)
     {
@@ -212,9 +247,24 @@ public static class BodySlicer
             && group.IfDirectiveLine <= declaration.EndLine;
         bool closingInside = group.EndIfDirectiveLine >= declaration.SignatureStartLine
             && group.EndIfDirectiveLine <= declaration.EndLine;
-        return openingInside != closingInside
-            || (openingInside && !group.BranchesPreserveBraceDepth);
+        return openingInside != closingInside;
     }
+
+    private static bool IsWhollyInside(
+        ConditionalGroupSpan group,
+        DeclarationSpan declaration) =>
+        group.IfDirectiveLine >= declaration.SignatureStartLine
+            && group.EndIfDirectiveLine <= declaration.EndLine;
+
+    private static bool HasSameSliceBoundaries(
+        DeclarationSpan projected,
+        DeclarationSpan boundary) =>
+        projected.Kind == boundary.Kind
+            && projected.Name == boundary.Name
+            && projected.IsStatic == boundary.IsStatic
+            && projected.SignatureStartLine == boundary.SignatureStartLine
+            && projected.FirstCodeColumn == boundary.FirstCodeColumn
+            && projected.EndLine == boundary.EndLine;
 
     private static bool ContainsPoint(
         ConditionalBranchSpan branch,
