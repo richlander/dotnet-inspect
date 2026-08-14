@@ -28,7 +28,8 @@ public class JsonSectionFormatterTests
         OutputFormatter.ConfigureTableWriterOptions(options, tsv: false, jsonl: true);
         var formatter = new JsonSectionFormatter();
         formatter.BeginDocument(options);
-        MarkoutSerializer.Serialize(BuildView(), TextWriter.Null, formatter, SearchViewContext.Default, options);
+        MarkoutSerializer.Serialize(
+            BuildView(), formatter.ContentWriter, formatter, SearchViewContext.Default, options);
         return formatter.Finish();
     }
 
@@ -151,6 +152,57 @@ public class JsonSectionFormatterTests
         formatter.FormatHeading(TextWriter.Null, 2, "Overview", null);
 
         Assert.Equal("{}", formatter.Finish());
+    }
+
+    [Fact]
+    public void DirectSectionContent_FailsRatherThanDisappearing()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+        formatter.FormatHeading(formatter.ContentWriter, 2, "IL", null);
+
+        var error = Assert.Throws<NotSupportedException>(
+            () => formatter.ContentWriter.Write("IL_0000: ret"));
+
+        Assert.Contains("Section 'IL' emitted text directly", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DocumentPreambleParagraph_DoesNotBlockProjectedSections()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+        formatter.FormatHeading(TextWriter.Null, 1, "System.String", null);
+        formatter.FormatParagraph(TextWriter.Null, "Represents text.");
+        formatter.FormatHeading(TextWriter.Null, 2, "Methods", null);
+        formatter.FormatTable(TextWriter.Null, ["name"], [["Clone"]], 0, new MarkoutWriterOptions());
+
+        using var document = JsonDocument.Parse(formatter.Finish());
+        Assert.Equal(
+            "Clone",
+            document.RootElement.GetProperty("methods")[0].GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public void PlainEntitiesRemainLiteralWhileCodeMarkupIsDecoded()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+        formatter.FormatHeading(TextWriter.Null, 2, "Overview", null);
+        formatter.FormatFields(
+            TextWriter.Null,
+            [
+                new MarkoutField("Library", "Probe&#65;.dll"),
+                new MarkoutField("Type", "<code>List&lt;T&gt;</code>"),
+                new MarkoutField("LiteralMarkup", "<CODE>List&lt;T&gt;</CODE>"),
+            ],
+            false);
+
+        using var document = JsonDocument.Parse(formatter.Finish());
+        var overview = document.RootElement.GetProperty("overview");
+        Assert.Equal("Probe&#65;.dll", overview.GetProperty("library").GetString());
+        Assert.Equal("List<T>", overview.GetProperty("type").GetString());
+        Assert.Equal("<CODE>List&lt;T&gt;</CODE>", overview.GetProperty("literal_markup").GetString());
     }
 
     [Fact]

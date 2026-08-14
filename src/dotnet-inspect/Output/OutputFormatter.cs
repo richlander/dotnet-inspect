@@ -157,8 +157,9 @@ public static class OutputFormatter
     /// name failing closed instead of silently yielding an empty document.
     /// </para>
     /// <para>
-    /// The serialize callback is handed <see cref="TextWriter.Null"/> because JSON is assembled by
-    /// the formatter rather than written linearly; the rendered text stream carries no content.
+    /// JSON is assembled by the formatter rather than written linearly. The serialize callback is
+    /// handed a writer that accepts structural whitespace but rejects direct content, because direct
+    /// writes identify a Markout shape this formatter cannot otherwise observe or preserve.
     /// </para>
     /// <para>
     /// A supplied <paramref name="writerOptions"/> retains the caller's section selection and
@@ -184,7 +185,7 @@ public static class OutputFormatter
         ConfigureTableWriterOptions(writerOptions, tsv: false, jsonl: true);
         var formatter = new JsonSectionFormatter();
         formatter.BeginDocument(writerOptions);
-        serialize(TextWriter.Null, formatter, writerOptions);
+        serialize(formatter.ContentWriter, formatter, writerOptions);
         return formatter.Finish(indented);
     }
 

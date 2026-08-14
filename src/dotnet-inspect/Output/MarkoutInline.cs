@@ -30,15 +30,12 @@ internal static class MarkoutInline
     /// </summary>
     public static string ToPlainText(string value)
     {
-        if (value is { Length: > 1 } && value[0] == '`' && value[^1] == '`')
-            return WebUtility.HtmlDecode(value[1..^1]);
-
         const string open = "<code>";
         const string close = "</code>";
-        return value.StartsWith(open, StringComparison.OrdinalIgnoreCase)
-            && value.EndsWith(close, StringComparison.OrdinalIgnoreCase)
+        return value.StartsWith(open, StringComparison.Ordinal)
+            && value.EndsWith(close, StringComparison.Ordinal)
                 ? WebUtility.HtmlDecode(value[open.Length..^close.Length])
-                : WebUtility.HtmlDecode(value);
+                : value;
     }
 
     private static string EscapeXmlText(string value)

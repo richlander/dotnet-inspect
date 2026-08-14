@@ -30,6 +30,25 @@ public class ApiOutputFormatterTests
     static ApiType Type(string? ns, string name, string? metadataName)
         => new() { Namespace = ns, Name = name, MetadataName = metadataName };
 
+    [Fact]
+    public void SurfaceTableRowsUseOrdinalTypeOrdering()
+    {
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType { Namespace = "N", Name = "A_B", Kind = "class" },
+                new ApiType { Namespace = "N", Name = "AB", Kind = "class" },
+            ],
+        };
+
+        var (view, _) = ApiOutputFormatter.BuildSurfaceTableView(surface, new TypeOptions());
+
+        Assert.Equal(
+            ["N.AB", "N.A_B"],
+            view.Rows!.Select(row => MarkoutInline.ToPlainText(row.Type)).ToArray());
+    }
+
     // --- SameType: deterministic unit coverage (no external tooling) ---
 
     [Fact]

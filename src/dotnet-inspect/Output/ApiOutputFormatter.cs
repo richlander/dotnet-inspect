@@ -189,6 +189,16 @@ public static class ApiOutputFormatter
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var includeSections = pipeline.ComputeIncludeSections(
             api, options.Verbosity, options.IncludeSections);
+        if (options.JsonOutput
+            && options.Fields is { Length: > 0 }
+            && includeSections is { } selected
+            && !selected.Contains(SectionNames.ApiInfo))
+        {
+            // Markdown carries assembly identity as inline root fields. Lowered JSON cannot
+            // associate Markout's value-less single-field callback, so promote the equivalent
+            // projectable fact table instead of dropping the field or failing the whole document.
+            includeSections = [SectionNames.ApiInfo, .. selected];
+        }
 
         return new MarkoutWriterOptions
         {
@@ -2901,7 +2911,7 @@ public static class ApiOutputFormatter
 
         var rows = types
             .OrderBy(t => GetTypeKindSortOrder(t.Kind))
-            .ThenBy(t => t.FullName)
+            .ThenBy(t => t.FullName, StringComparer.Ordinal)
             .Select(t =>
             {
                 string? desc = null;

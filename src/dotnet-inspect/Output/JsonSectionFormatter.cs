@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Text;
 using System.Text.Json;
 using Markout;
 using Markout.Formatting;
@@ -37,11 +38,19 @@ namespace DotnetInspector.Output;
 /// <see cref="MarkoutWriter"/> and then calls <see cref="Finish"/>. Leaves are written as JSON
 /// strings through <see cref="Utf8JsonWriter"/>, which keeps the path NativeAOT-safe.
 /// </para>
+/// <para>
+/// Markout shapes with no formatter callback write directly to the supplied text stream. This
+/// formatter exposes <see cref="ContentWriter"/>, which ignores structural whitespace but rejects
+/// content so code blocks, graphs, prose, and other unsupported shapes cannot disappear.
+/// </para>
 /// </remarks>
 internal sealed class JsonSectionFormatter :
     IMarkoutFormatter,
     IHeadingFormatter,
     IFieldFormatter,
+    IBlockFormatter,
+    ICodeBlockFormatter,
+    IGraphFormatter,
     ITableFormatter,
     IStreamingTableFormatter,
     IListFormatter,
@@ -79,7 +88,7 @@ internal sealed class JsonSectionFormatter :
         /// final kind would vanish from the document without a word.
         ///
         /// That case is a gap in this projection, not a caller error, and the repository rule is to
-        /// keep failure visible rather than emit success-shaped output that quietly lost data. It is
+        /// keep failure visible rather than emit success-shaped output that quietly lost data.
         /// Throwing forces each newly wired multi-section view to account for the shape instead of
         /// shipping silent truncation.
         /// </remarks>
@@ -157,11 +166,53 @@ internal sealed class JsonSectionFormatter :
         }
     }
 
+    private sealed class UnsupportedContentWriter(JsonSectionFormatter formatter) : TextWriter
+    {
+        public override Encoding Encoding => Encoding.UTF8;
+
+        public override void Write(char value)
+        {
+            if (!char.IsWhiteSpace(value))
+                ThrowUnsupportedContent(formatter.CurrentSectionName);
+        }
+
+        public override void Write(string? value)
+        {
+            if (value is not null)
+                RejectNonWhitespace(value.AsSpan());
+        }
+
+        public override void Write(ReadOnlySpan<char> buffer) => RejectNonWhitespace(buffer);
+
+        private void RejectNonWhitespace(ReadOnlySpan<char> value)
+        {
+            foreach (var character in value)
+            {
+                if (!char.IsWhiteSpace(character))
+                    ThrowUnsupportedContent(formatter.CurrentSectionName);
+            }
+        }
+
+        private static void ThrowUnsupportedContent(string section)
+            => throw new NotSupportedException(
+                $"Section '{section}' emitted text directly to the formatter stream, which the " +
+                "lowered JSON view cannot represent. Select a table or field-set section, use " +
+                "typed JSON, or extend JsonSectionFormatter for this shape.");
+    }
+
     private readonly List<MarkoutField> _rootFields = [];
     private readonly List<Section> _sections = [];
+    private readonly TextWriter _contentWriter;
     private Section? _current;
     private Section? _streamingTable;
     private int _sectionLevel = 2;
+
+    public JsonSectionFormatter() => _contentWriter = new UnsupportedContentWriter(this);
+
+    internal TextWriter ContentWriter => _contentWriter;
+
+    private string CurrentSectionName =>
+        _current?.Name is { Length: > 0 } name ? name : "<document>";
 
     /// <summary>
     /// Resets heading tracking for a new document. <paramref name="options"/> supplies the same
@@ -198,8 +249,7 @@ internal sealed class JsonSectionFormatter :
         RequireNoActiveStreamingTable("format a field name");
 
         // Markout writes the associated value directly to the text stream after this callback.
-        // RenderProjectedJson uses TextWriter.Null because this formatter owns the JSON document,
-        // so accepting the callback would silently discard the value.
+        // Accepting the callback would lose the association between the key and that value.
         throw new NotSupportedException(
             $"Field '{key}' was emitted without its value at the formatter seam. " +
             "Use grouped field formatting or extend the seam to carry both key and value.");
@@ -224,6 +274,34 @@ internal sealed class JsonSectionFormatter :
         foreach (var field in fields)
             _current.Fields.Add(field with { Value = MarkoutInline.ToPlainText(field.Value) });
     }
+
+    public void FormatParagraph(TextWriter writer, string text)
+    {
+        // Type/member views emit their typed-document summary between the title and the selected
+        // sections. Named field/column projection deliberately selects the lowered sections, not
+        // that preamble; plain --json remains the path that carries the typed summary.
+        if (_current is null)
+            return;
+
+        ThrowUnsupportedBlock("paragraph");
+    }
+
+    public void FormatCallout(TextWriter writer, CalloutSeverity severity, string message)
+        => ThrowUnsupportedBlock("callout");
+
+    public void FormatQuotation(TextWriter writer, string text) => ThrowUnsupportedBlock("quotation");
+
+    public void FormatRule(TextWriter writer) => ThrowUnsupportedBlock("rule");
+
+    public void FormatDescription(TextWriter writer, Description item)
+        => ThrowUnsupportedBlock("description");
+
+    public void FormatCodeStart(TextWriter writer, string? language) => ThrowUnsupportedBlock("code block");
+
+    public void FormatCodeEnd(TextWriter writer) => ThrowUnsupportedBlock("code block");
+
+    public void FormatGraph(TextWriter writer, Graph graph, MarkoutWriterOptions options)
+        => ThrowUnsupportedBlock("graph");
 
     public void FormatTable(
         TextWriter writer,
@@ -444,6 +522,12 @@ internal sealed class JsonSectionFormatter :
         if (_streamingTable is not null)
             throw new InvalidOperationException($"Cannot {operation} while a streaming table is active.");
     }
+
+    private void ThrowUnsupportedBlock(string kind)
+        => throw new NotSupportedException(
+            $"Section '{CurrentSectionName}' emitted a {kind}, which the lowered JSON view cannot " +
+            "represent. Select a table or field-set section, use typed JSON, or extend " +
+            "JsonSectionFormatter for this shape.");
 
     private Section GetOrAddSection(string name, SectionKind kind)
     {

@@ -6000,6 +6000,36 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task TypeListing_QuietFieldUnderProjectedJsonUsesApiInfo()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath,
+            "-v:q", "--fields", "Types", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var row = Assert.Single(document.RootElement.GetProperty("api_info").EnumerateArray());
+        Assert.Equal("Types", row.GetProperty("field").GetString());
+        Assert.True(int.TryParse(row.GetProperty("value").GetString(), out var typeCount));
+        Assert.True(typeCount > 0);
+    }
+
+    [Fact]
+    public async Task TypeListing_PartiallyUnmatchedProjectedJsonReportsMissingName()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes",
+            "--columns", "Type,Bogus", "--json", "--rows", "1");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Bogus", error, StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(output);
+        var row = Assert.Single(document.RootElement.GetProperty("classes").EnumerateArray());
+        Assert.Equal(["type"], row.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
+    [Fact]
     public async Task SingleType_ProjectedJsonFieldsUseLoweredFactTable()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -6065,6 +6095,43 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("without its value at the formatter seam", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UnsupportedCodeSectionUnderProjectedJsonFailsAtomically()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String.Clone:1", "--platform", "System.Runtime",
+            "-S", "Signature,IL", "--columns", "Signature", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Section 'IL' emitted a code block", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UnsupportedEmptyTextSectionUnderProjectedJsonFailsAtomically()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String.Clone:1", "--platform", "System.Runtime",
+            "-S", "Calls", "--columns", "Callee", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Section 'Calls' emitted a paragraph", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UnsupportedCallGraphUnderProjectedJsonFailsAtomically()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph",
+            "--fields", "Fanout", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Section 'Call Graph' emitted a graph", error, StringComparison.Ordinal);
     }
 
     [Fact]

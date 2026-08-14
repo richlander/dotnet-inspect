@@ -845,6 +845,7 @@ public class ApiCommand
                 indented: !options.CompactJson,
                 maxRows: options.Rows,
                 writerOptions);
+            ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, json);
             if (!TryReportEmptyProjection(json == "{}" ? string.Empty : json, options))
                 return 1;
             Console.WriteLine(json);
