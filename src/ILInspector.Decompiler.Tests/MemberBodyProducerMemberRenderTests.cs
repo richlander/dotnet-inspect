@@ -69,6 +69,204 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Fact]
+    public void ProduceMembers_DelegatesMapEveryMemberToAbsent()
+    {
+        var constructor = new ApiMember { Name = ".ctor", Kind = "constructor" };
+        var invoke = new ApiMember { Name = "Invoke", Kind = "method" };
+        var type = new ApiType
+        {
+            Name = "Callback",
+            Kind = "delegate",
+            Members = [constructor, invoke]
+        };
+
+        var batch = MemberBodyProducer.ProduceMembers(
+            type,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(type.Members.Count, batch.Count);
+        foreach (var member in type.Members)
+        {
+            var single = MemberBodyProducer.ProduceMember(
+                type,
+                member,
+                AssemblyPath,
+                pdbPath: null);
+            var batched = batch[member];
+            Assert.Equal(single.Status, batched.Status);
+            Assert.Equal(single.Text, batched.Text);
+            Assert.Equal(single.Namespaces, batched.Namespaces);
+            Assert.Equal(MemberBodyProductionStatus.Absent, batched.Status);
+        }
+    }
+
+    [Fact]
+    public void ProduceMembers_UnresolvedTypeMapsEveryMemberToAbsent()
+    {
+        var constructor = new ApiMember { Name = ".ctor", Kind = "constructor" };
+        var method = new ApiMember { Name = "M", Kind = "method" };
+        var type = new ApiType
+        {
+            Name = "Missing",
+            Namespace = "Canary",
+            Kind = "class",
+            Members = [constructor, method]
+        };
+
+        var batch = MemberBodyProducer.ProduceMembers(
+            type,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(type.Members.Count, batch.Count);
+        foreach (var member in type.Members)
+        {
+            var single = MemberBodyProducer.ProduceMember(
+                type,
+                member,
+                AssemblyPath,
+                pdbPath: null);
+            var batched = batch[member];
+            Assert.Equal(single.Status, batched.Status);
+            Assert.Equal(single.Text, batched.Text);
+            Assert.Equal(single.Namespaces, batched.Namespaces);
+            Assert.Equal(MemberBodyProductionStatus.Absent, batched.Status);
+        }
+    }
+
+    [Fact]
+    public void ProduceMembers_SharedSetupFailureMapsEveryMemberToFailed()
+    {
+        string assemblyPath = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(assemblyPath, "not a PE image");
+            var constructor = new ApiMember { Name = ".ctor", Kind = "constructor" };
+            var method = new ApiMember { Name = "M", Kind = "method" };
+            var type = new ApiType
+            {
+                Name = "Missing",
+                Namespace = "Canary",
+                Kind = "class",
+                Members = [constructor, method]
+            };
+
+            var batch = MemberBodyProducer.ProduceMembers(
+                type,
+                assemblyPath,
+                pdbPath: null);
+
+            Assert.Equal(type.Members.Count, batch.Count);
+            foreach (var member in type.Members)
+            {
+                var single = MemberBodyProducer.ProduceMember(
+                    type,
+                    member,
+                    assemblyPath,
+                    pdbPath: null);
+                var batched = batch[member];
+                Assert.Equal(single.Status, batched.Status);
+                Assert.Equal(single.Text, batched.Text);
+                Assert.Equal(single.Namespaces, batched.Namespaces);
+                Assert.Equal(MemberBodyProductionStatus.Failed, batched.Status);
+            }
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ProduceMember_CanOmitCustomAttributesAndTheirImports()
+    {
+        var type = Specimen();
+        var constructor = Assert.Single(type.Members, member => member.Kind == "constructor");
+        Assert.Contains(
+            constructor.SignatureModel!.Parameters[0].Attributes,
+            attribute => attribute.Contains("ParameterMarker", StringComparison.Ordinal));
+
+        var withAttributes = MemberBodyProducer.ProduceMember(
+            type,
+            constructor,
+            AssemblyPath,
+            pdbPath: null);
+        var withoutAttributes = MemberBodyProducer.ProduceMember(
+            type,
+            constructor,
+            AssemblyPath,
+            pdbPath: null,
+            attributeMode: MemberRenderAttributeMode.CompilationRequired);
+        var batch = MemberBodyProducer.ProduceMembers(
+            type,
+            AssemblyPath,
+            pdbPath: null,
+            attributeMode: MemberRenderAttributeMode.CompilationRequired);
+
+        Assert.Contains("[Description(\"marker\")]", withAttributes.Text);
+        Assert.Contains("ParameterMarker", withAttributes.Text);
+        Assert.Contains("[SkipLocalsInit]", withAttributes.Text);
+        Assert.DoesNotContain("[Description(\"marker\")]", withoutAttributes.Text);
+        Assert.DoesNotContain("ParameterMarker", withoutAttributes.Text);
+        Assert.Contains(
+            "[global::System.Runtime.CompilerServices.SkipLocalsInit]",
+            withoutAttributes.Text);
+        Assert.Contains("System.ComponentModel", withAttributes.Namespaces);
+        Assert.DoesNotContain("System.ComponentModel", withoutAttributes.Namespaces);
+        Assert.Equal(withoutAttributes.Status, batch[constructor].Status);
+        Assert.Equal(withoutAttributes.Text, batch[constructor].Text);
+        Assert.Equal(withoutAttributes.Namespaces, batch[constructor].Namespaces);
+    }
+
+    [Fact]
+    public void CompilationRequiredMode_DeclinesUnstructuredCompatibilitySignature()
+    {
+        var type = Specimen();
+        var constructor = Assert.Single(type.Members, member => member.Kind == "constructor");
+        constructor.Signature =
+            "void .ctor([System.Runtime.InteropServices.Optional, "
+            + "System.Runtime.CompilerServices.DateTimeConstant(42L)] "
+            + "System.DateTime when)";
+        constructor.SignatureModel = new ApiSignature
+        {
+            MemberName = ".ctor",
+            ReturnType = "void",
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Type = "System.DateTime",
+                    Name = "when",
+                    HasDefault = true,
+                    Attributes =
+                    [
+                        "System.Runtime.InteropServices.Optional",
+                        "System.Runtime.CompilerServices.DateTimeConstant(42L)"
+                    ]
+                }
+            ]
+        };
+
+        var single = MemberBodyProducer.ProduceMember(
+            type,
+            constructor,
+            AssemblyPath,
+            pdbPath: null,
+            attributeMode: MemberRenderAttributeMode.CompilationRequired);
+        var batch = MemberBodyProducer.ProduceMembers(
+            type,
+            AssemblyPath,
+            pdbPath: null,
+            attributeMode: MemberRenderAttributeMode.CompilationRequired);
+
+        Assert.Equal(MemberBodyProductionStatus.Failed, single.Status);
+        Assert.DoesNotContain("DateTimeConstant", single.Text);
+        Assert.Equal(type.Members.Count, batch.Count);
+        Assert.Equal(single, batch[constructor]);
+    }
+
+    [Fact]
     public void ProduceMember_RendersExpressionBodiedArrow()
     {
         var type = Specimen();
@@ -226,7 +424,11 @@ public sealed class MemberBodyProducerMemberRenderTests
 #pragma warning disable CA1822 // members are instance to exercise real signatures
 public sealed class MemberRenderSpecimen
 {
-    public MemberRenderSpecimen(int seed) => Value = seed;
+    [System.ComponentModel.Description("marker")]
+    [System.Runtime.CompilerServices.SkipLocalsInit]
+    public MemberRenderSpecimen(
+        [ParameterMarker] int seed)
+        => Value = seed;
 
     public int Value { get; }
 
@@ -298,4 +500,8 @@ public sealed class MemberRenderSpecimen
     public static int EscapedPlain(int n)
         => @event.Models.TypeNameShadow.M(n);
 }
+
+[AttributeUsage(AttributeTargets.Parameter)]
+public sealed class ParameterMarkerAttribute : Attribute;
+
 #pragma warning restore CA1822
