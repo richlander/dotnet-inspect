@@ -355,7 +355,8 @@ public class ApiCommand
         => options.HasCallerScope
            && options.IncludeSections is { } sections
            && (sections.Contains(SectionNames.Callers, StringComparer.OrdinalIgnoreCase)
-               && ApiMemberDetailSectionDescriptors.Callers.CanRender(type)
+               && (ApiMemberSectionPipelines.ShouldAggregateImplicitCallers(type, options)
+                   || ApiMemberDetailSectionDescriptors.Callers.CanRender(type))
                || sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase)
                && ApiMemberDetailSectionDescriptors.CallGraph.CanRender(type));
 
