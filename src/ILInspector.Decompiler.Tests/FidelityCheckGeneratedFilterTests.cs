@@ -1004,22 +1004,50 @@ public class FidelityCheckGeneratedFilterTests
     [Fact]
     public void Evaluate_ReportsProductWholeMemberWhenConstructorRecompileFails()
     {
-        var assemblyPath = CompileFixture("""
-            using System.ComponentModel;
+        string dependencyPath = CompileFixture(
+            """
+            namespace ConstructorDependency;
 
-            internal sealed class DerivedDescriptionAttribute : DescriptionAttribute
+            public class RequiresArgumentBase
             {
-                public DerivedDescriptionAttribute(string text) : base(text)
+                protected RequiresArgumentBase(string text)
                 {
                 }
             }
-            """);
+            """,
+            assemblyName: "ConstructorDependency");
+        string assemblyPath = "";
         try
         {
+            assemblyPath = CompileFixture(
+                """
+                using ConstructorDependency;
+
+                internal sealed class DerivedRequiresArgumentBase
+                    : RequiresArgumentBase
+                {
+                    public DerivedRequiresArgumentBase(string text)
+                        : base(text)
+                    {
+                    }
+                }
+                """,
+                references:
+                [
+                    .. RoslynTestReferences.TrustedPlatform,
+                    MetadataReference.CreateFromFile(dependencyPath),
+                ],
+                assemblyName: "ConstructorTarget");
+            File.Copy(
+                dependencyPath,
+                Path.Combine(
+                    Path.GetDirectoryName(assemblyPath)!,
+                    Path.GetFileName(dependencyPath)));
+
             var result = Assert.Single(
                 FidelityCheck.Evaluate(
                     assemblyPath,
-                    type => type == "DerivedDescriptionAttribute",
+                    type => type == "DerivedRequiresArgumentBase",
                     method => method.Method == ".ctor"));
 
             Assert.True(result.UsedProductWholeMember);
@@ -1028,7 +1056,9 @@ public class FidelityCheckGeneratedFilterTests
         }
         finally
         {
-            DeleteFixture(assemblyPath);
+            if (assemblyPath.Length != 0)
+                DeleteFixture(assemblyPath);
+            DeleteFixture(dependencyPath);
         }
     }
 
