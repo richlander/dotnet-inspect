@@ -11,13 +11,14 @@ using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 namespace DotnetInspector.Tests;
 
 /// <summary>
-/// Tests for searching non-nuget.org feeds: SearchQueryService discovery from a V3 service index,
-/// the origin scope that keeps feed credentials from following a feed-supplied URL, and the
-/// refusal to render an unsearchable feed set as "no packages found". Issue #3417.
+/// Tests for searching configured NuGet feeds: SearchQueryService discovery from a V3 service
+/// index, the origin scope that keeps feed credentials from following a feed-supplied URL, and
+/// the refusal to render an unsearchable feed set as "no packages found". Issue #3417.
 /// </summary>
 public class NuGetSearchSourcesTests
 {
     private const string IndexUrl = "https://feed.example/v3/index.json";
+    private const string NuGetOrgIndexUrl = "https://api.nuget.org/v3/index.json";
     private const string SearchUrl = "https://feed.example/v3/query";
 
     private static string ServiceIndex(string searchId) => $$"""
@@ -165,6 +166,33 @@ public class NuGetSearchSourcesTests
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await NuGetSearchService.SearchAsync(
                 client, "Contoso", sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] }));
+    }
+
+    [Fact]
+    public async Task SearchAsync_NuGetOrgMalformedBody_UsesStandardDiscoveryAndFailure()
+    {
+        var handler = new RouteHandler
+        {
+            [NuGetOrgIndexUrl] = ServiceIndex(SearchUrl),
+            [SearchUrl] = "<html>sign in</html>"
+        };
+        using var client = new HttpClient(handler);
+        using var config = new TempNuGetConfig([("nuget.org", NuGetOrgIndexUrl)]);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await NuGetSearchService.SearchAsync(
+                client,
+                "Contoso",
+                sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path }));
+
+        Assert.Contains("No configured NuGet source could be searched", exception.Message);
+        Assert.Contains("nuget.org: search failed", exception.Message);
+        Assert.Contains(nameof(System.Text.Json.JsonException), exception.Message);
+        Assert.DoesNotContain("<html>", exception.Message);
+        Assert.Collection(
+            handler.Requested,
+            requested => Assert.Equal(NuGetOrgIndexUrl, requested),
+            requested => Assert.StartsWith(SearchUrl + "?", requested, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1280,18 +1308,15 @@ public class NuGetSearchSourcesTests
     }
 
     /// <summary>
-    /// The nuget.org shortcut answers from the well-known search endpoint without reading a
-    /// service index. It must therefore key on the canonical service index URL and not merely on a
-    /// nuget.org host: another path on that host is a different endpoint the user named
-    /// deliberately, and answering it from the well-known endpoint would report results the
-    /// requested URL never served — the same "searched the wrong feed" failure this change exists
-    /// to remove.
+    /// A nuget.org URL that is not the canonical service index is still the exact source the user
+    /// named. Standard discovery must consult that source rather than substituting another
+    /// nuget.org endpoint.
     /// </summary>
     [Theory]
     [InlineData("https://api.nuget.org/definitely-not-a-service-index")]
     [InlineData("https://api.nuget.org/v3/index.json//")]
     [InlineData("https://api.nuget.org/v3/index.json#custom")]
-    public async Task SearchAsync_NoncanonicalNuGetOrgSource_DoesNotUseWellKnownEndpoint(
+    public async Task SearchAsync_NoncanonicalNuGetOrgSource_UsesNamedServiceIndex(
         string odd)
     {
         var handler = new RouteHandler();
@@ -1300,8 +1325,7 @@ public class NuGetSearchSourcesTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => NuGetSearchService.SearchAsync(
             client, "Newtonsoft.Json", sourceOptions: new NuGetSourceOptions { Sources = [odd] }));
 
-        // The source was consulted through ordinary service-index discovery; nuget.org's
-        // well-known search endpoint was not substituted for it.
+        // The named source was consulted through ordinary service-index discovery.
         Assert.NotEmpty(handler.Requested);
         Assert.DoesNotContain(
             handler.Requested,

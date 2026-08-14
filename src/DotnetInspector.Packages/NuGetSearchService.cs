@@ -80,43 +80,6 @@ public static class NuGetSearchService
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
 
-        // nuget.org's search endpoint is well known, so searching it needs no service-index
-        // request. That shortcut is keyed on where resolution actually landed, not on whether a
-        // source option was passed: a discovered NuGet.config can name an entirely different feed,
-        // and gating on the flags alone sent those users to nuget.org anyway (issue #3417, bug 2).
-        //
-        // The match is against the canonical service index, not merely a nuget.org host. Any other
-        // path on that host is a different endpoint the user named deliberately, and answering it
-        // from the well-known search endpoint would report results the requested URL never served.
-        if (sources is [{ Credential: null } only]
-            && only.IsNuGetOrg)
-        {
-            log?.Invoke($"Searching NuGet: {query}");
-            SearchService service = new(client);
-            IReadOnlyList<SearchResult> results = resultFilter is null
-                ? await service.SearchAsync(query, take, prerelease)
-                : await service.SearchByPrefixAsync(query, take, prerelease);
-            IEnumerable<NuGetSearchResult> projected = results
-                .Where(result =>
-                    (resultFilter?.Invoke(result) ?? true)
-                    && NuGetSourceResolver.IsAliasEligibleForPackage(
-                        only,
-                        sources,
-                        mapping,
-                        result.Id))
-                .Select(NuGetSearchResult.From);
-            if (resultFilter is not null)
-            {
-                projected = projected.DistinctBy(
-                    result => result.PackageId,
-                    StringComparer.OrdinalIgnoreCase);
-            }
-
-            return new NuGetSearchOutcome(
-                projected.Take(take).ToList(),
-                []);
-        }
-
         return await SearchSourcesAsync(
             client,
             sources,
