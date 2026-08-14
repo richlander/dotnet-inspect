@@ -862,7 +862,7 @@ public static class ApiSurfaceExtractor
                         // so it also lands in `explicitImplementationBodies`. Classify
                         // it as its own kind before the explicit-interface arm so it
                         // is not filed under Explicit Interface Implementations; the
-                        // MethodImpl still (correctly) suppresses its accessibility.
+                        // renderer suppresses its raw metadata accessibility.
                         _ when isFinalizer => "finalizer",
                         _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
                         _ => "method"

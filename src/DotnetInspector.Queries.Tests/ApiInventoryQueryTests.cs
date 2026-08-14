@@ -588,6 +588,21 @@ public class ApiInventoryQueryTests
         };
         Assert.Throws<InvalidOperationException>(
             () => ApiInventoryQuery.Types(unknownAccessibility));
+
+        var emptyAccessibility = new ApiSurface
+        {
+            Types = [new ApiType { Name = "Future", Kind = "class", Accessibility = "" }]
+        };
+        var emptyMemberAccessibility = new ApiType
+        {
+            Name = "Future",
+            Kind = "class",
+            Members = [new ApiMember { Name = "Run", Kind = "method", Accessibility = "" }]
+        };
+        Assert.Throws<InvalidOperationException>(
+            () => ApiInventoryQuery.Types(emptyAccessibility));
+        Assert.Throws<InvalidOperationException>(
+            () => ApiInventoryQuery.Members(emptyMemberAccessibility));
     }
 
     private static byte[] BuildPrivateScopeImage()

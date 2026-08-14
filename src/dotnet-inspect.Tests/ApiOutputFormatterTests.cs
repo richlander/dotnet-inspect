@@ -893,12 +893,21 @@ public class ApiOutputFormatterTests
             Kind = "class",
             Members =
             [
-                new ApiMember { Name = "Finalize", Kind = "finalizer", Signature = "void Finalize()", ReturnType = "void", IsFinalizer = true },
+                new ApiMember
+                {
+                    Name = "Finalize",
+                    Kind = "finalizer",
+                    Signature = "void Finalize()",
+                    ReturnType = "void",
+                    IsFinalizer = true,
+                    Accessibility = "protected"
+                },
             ]
         };
 
         var (view, _) = ApiOutputFormatter.BuildTypeTableView(type, new ApiOptions());
         var row = Assert.Single(view.Rows!, r => r.Kind.Contains("finalizer", System.StringComparison.Ordinal));
+        Assert.Equal("finalizer", row.Kind);
         Assert.Equal("", row.ReturnType);
     }
 
@@ -918,13 +927,24 @@ public class ApiOutputFormatterTests
                     Signature = "void IFoo.Run()",
                     Accessibility = "private"
                 },
+                new ApiMember
+                {
+                    Name = "IFoo.Stop",
+                    Kind = "explicit-interface-implementation",
+                    Signature = "void IFoo.Stop()",
+                    Accessibility = "internal"
+                },
             ]
         };
 
         var (view, _) = ApiOutputFormatter.BuildTypeTableView(type, new ApiOptions());
 
-        var row = Assert.Single(view.Rows!);
-        Assert.Equal("explicit-interface-implementation", row.Kind);
+        Assert.Equal(
+            "explicit-interface-implementation",
+            Assert.Single(view.Rows!, row => row.Name == "IFoo.Run").Kind);
+        Assert.Equal(
+            "internal explicit-interface-implementation",
+            Assert.Single(view.Rows!, row => row.Name == "IFoo.Stop").Kind);
     }
 
     [Fact]

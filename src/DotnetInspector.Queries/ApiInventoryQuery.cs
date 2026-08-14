@@ -114,7 +114,7 @@ public static class ApiInventoryQuery
     static readonly IReadOnlyList<FacetDefinition<string?>> AccessibilityFacets =
     [
         new("api.accessibility.public", "public", "public", 100, true,
-            accessibility => string.IsNullOrEmpty(accessibility) || accessibility == "public"),
+            accessibility => accessibility is null || accessibility == "public"),
         new("api.accessibility.protected", "protected", "protected", 200, false,
             accessibility => accessibility == "protected"),
         new("api.accessibility.protected-internal", "protected internal", "protected internal", 300, false,
