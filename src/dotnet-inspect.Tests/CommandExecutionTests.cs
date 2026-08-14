@@ -4123,6 +4123,27 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("unprojected output", error, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Type_Discovery_ColumnsDoNotNarrowListingSections()
+    {
+        string[][] targets =
+        [
+            ["type", "--library", TestAssemblyPath],
+            ["type", "Command", "--library", TestAssemblyPath],
+        ];
+
+        foreach (var target in targets)
+        {
+            var (exit, output, error) = await RunAppAsync(
+                [.. target, "-D", "--columns", "Name", "--tips", "q"]);
+
+            Assert.Equal(0, exit);
+            Assert.Contains(SectionNames.ApiInfo, output, StringComparison.Ordinal);
+            Assert.DoesNotContain("├─", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     /// <summary>
     /// Section arity for <c>--count</c> is still judged against what the listing will actually
     /// render, so a deferred select naming two sections fails the same way a direct one does.
@@ -5224,6 +5245,57 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Equal("This section (Performance Triage) produced no output.", error.Trim());
+    }
+
+    [Theory]
+    [InlineData("Values,Values", "Values")]
+    [InlineData("Values,ZzzNoSuchSection", "Values")]
+    [InlineData("Optimization Opportunities,Optimization Opportunities", "Performance Triage")]
+    public async Task Type_SingleType_MultiValueExactEmptySection_FailsWithoutDocument(
+        string selector,
+        string canonicalSection)
+    {
+        string[][] formats = canonicalSection == "Performance Triage"
+            ?
+            [
+                [],
+                ["--tsv"],
+            ]
+            :
+            [
+                [],
+                ["--tsv"],
+                ["--json"],
+            ];
+
+        foreach (var format in formats)
+        {
+            var typeName = canonicalSection == "Performance Triage"
+                ? "System.DayOfWeek"
+                : "System.String";
+            var (exit, output, error) = await RunAppAsync(
+                [
+                    "type", typeName, "--platform", "System.Runtime",
+                    "-S", selector, "--tips", "q",
+                    .. format,
+                ]);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains($"This section ({canonicalSection}) produced no output.", error);
+        }
+    }
+
+    [Fact]
+    public async Task Type_SingleType_ExactEmptySectionWithCategory_RendersTheCategory()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-S", "Values,@Analysis", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.DoesNotContain("This section (Values) produced no output.", error);
     }
 
     [Fact]

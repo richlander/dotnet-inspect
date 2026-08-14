@@ -128,7 +128,8 @@ public class ApiCommand
 
     private static TypeOptions ApplyImplicitTypeListingColumnScope(TypeOptions options)
     {
-        if (options.IncludeSections is not null
+        if (options.Discover is not null
+            || options.IncludeSections is not null
             || options.Columns is not { Length: > 0 }
             || options.Tabular
             || options.JsonOutput)
@@ -728,18 +729,21 @@ public class ApiCommand
         return projected;
     }
 
-    private static string? GetExactSelectedSection(
+    private static string? GetExactSelectedSection<T>(
         ApiOptions options,
-        IEnumerable<string> sectionNames)
+        SectionPipeline<T> pipeline)
     {
-        var knownSections = sectionNames.ToArray();
-        if (options.Select is [var selector])
+        if (options.Select is { Length: > 0 } selectors)
         {
             var result = SelectResolver.ResolveSelectAsSections(
-                [selector],
-                knownSections);
-            return result.ExactSections.Count == 1
-                ? result.ExactSections.Single()
+                selectors,
+                pipeline.SelectableSectionNames,
+                pipeline.InfoSectionNames,
+                pipeline.GetCategoryMap(),
+                selectDefault: options.SelectDefault);
+            return result.Sections is { Count: 1 } resolved
+                && result.ExactSections.Contains(resolved.Single())
+                ? resolved.Single()
                 : null;
         }
 
@@ -751,7 +755,7 @@ public class ApiCommand
         }
 
         var selected = options.IncludeSections.Single();
-        return knownSections.FirstOrDefault(
+        return pipeline.AllSectionNames.FirstOrDefault(
             section => section.Equals(selected, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -974,7 +978,7 @@ public class ApiCommand
     {
         ApplySurfaceFilters(api, options, (options as TypeOptions)?.TypeFilter);
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        var exactSection = GetExactSelectedSection(options, pipeline.AllSectionNames);
+        var exactSection = GetExactSelectedSection(options, pipeline);
         if (!options.Count
             && exactSection is not null
             && !pipeline.GetEffectiveSections(
@@ -1462,7 +1466,7 @@ public class ApiCommand
         if (options is TypeOptions { JsonOutput: true } && !options.Count)
         {
             var pipeline = ApiMemberSectionPipelines.Create(options);
-            var jsonExactSection = GetExactSelectedSection(options, pipeline.AllSectionNames);
+            var jsonExactSection = GetExactSelectedSection(options, pipeline);
             if (jsonExactSection is not null
                 && !pipeline.GetEffectiveSections(
                         BuildTypeForJsonOutput(type, options),
@@ -1734,7 +1738,7 @@ public class ApiCommand
             && !IsProjectionRequested(options)
             && GetExactSelectedSection(
                 options,
-                ApiMemberSectionPipelines.Create(options).AllSectionNames) is { } exactSection)
+                ApiMemberSectionPipelines.Create(options)) is { } exactSection)
         {
             var document = new TypeRenderDocument(
                 view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
