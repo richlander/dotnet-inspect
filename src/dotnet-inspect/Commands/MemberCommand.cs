@@ -262,6 +262,28 @@ public static class MemberCommand
                 }
             }
 
+            if (effectiveOptions is
+                {
+                    CallerScopeSectionImplicitlySelected: true,
+                    OverloadIndex: null,
+                    MemberFilter.Count: 1
+                })
+            {
+                var memberName = effectiveOptions.MemberFilter.First();
+                var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
+                if (overloads.Count > 1)
+                {
+                    effectiveOptions = effectiveOptions with
+                    {
+                        ImplicitCallerMemberTokens = overloads
+                            .Where(ApiMemberSectionDescriptors.IsBodyBacked)
+                            .Select(member => member.MetadataToken)
+                            .OfType<int>()
+                            .ToHashSet()
+                    };
+                }
+            }
+
             if (effectiveOptions.OverloadIndex is null
                 && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
                 && effectiveOptions.MemberGenericArity.HasValue
@@ -431,10 +453,10 @@ public static class MemberCommand
             if (writeExitCode != 0)
                 return writeExitCode;
 
-            if (!effectiveOptions.Tabular
-                && !effectiveOptions.JsonOutput
-                && (apiType.Members is [{ Kind: "field" }]
-                    || effectiveOptions.IncludeSections?.Contains(SectionNames.Callers, StringComparer.OrdinalIgnoreCase) == true))
+            if ((effectiveOptions.Count
+                 || !effectiveOptions.Tabular
+                 && !effectiveOptions.JsonOutput)
+                && apiType.Members is [{ Kind: "field" }])
             {
                 ApiCommand.WarnEmptySelectedSections(
                     apiType,
@@ -566,7 +588,11 @@ public static class MemberCommand
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         includeSections.Add(SectionNames.Callers);
-        return options with { IncludeSections = includeSections };
+        return options with
+        {
+            IncludeSections = includeSections,
+            CallerScopeSectionImplicitlySelected = true
+        };
     }
 
     private static MemberOptions ExcludeCallersSection(MemberOptions options)

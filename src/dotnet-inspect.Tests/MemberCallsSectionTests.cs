@@ -109,6 +109,20 @@ public static class MemberCallsFixture
         Console.WriteLine(value);
     }
 
+    public static void CallsOverloaded()
+    {
+        Overloaded(1);
+        Overloaded("value");
+    }
+
+    public static void UnusedOverloaded(int value)
+    {
+    }
+
+    public static void UnusedOverloaded(string value)
+    {
+    }
+
     // Non-public member: only selectable under --all. Regression coverage for #1323,
     // where the body-load path counted overloads public-only and so reported "no IL body"
     // for a method that the Calls/IL index reads fine.

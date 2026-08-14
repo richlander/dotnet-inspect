@@ -81,6 +81,35 @@ public class SourceResolverTests
         Assert.Null(source.AssemblyPath);
     }
 
+    [Theory]
+    [InlineData("Nope`1.Nada`2")]
+    [InlineData("Nope<T>.Nada<A,B>")]
+    public async Task ResolveAsync_UnknownNestedGenericType_ReportsPlatformMiss(string typeName)
+    {
+        var source = await SourceResolver.ResolveAsync(
+            [typeName], explicitPackage: null, explicitAssembly: null, explicitPlatform: null,
+            NoSourceKeys, verbose: false);
+
+        Assert.True(source.VersionError);
+        Assert.Contains("looks like a type name", source.VersionErrorMessage);
+        Assert.Contains("Specify the source", source.VersionErrorMessage);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_GenericMemberOnKnownContainingType_FallsThroughForMemberPeeling()
+    {
+        const string target =
+            "System.Collections.Generic.List<T>.ConvertAll<TOutput>";
+
+        var source = await SourceResolver.ResolveAsync(
+            [target], explicitPackage: null, explicitAssembly: null, explicitPlatform: null,
+            NoSourceKeys, verbose: false);
+
+        Assert.False(source.VersionError);
+        Assert.Equal("System.Collections.Generic.List`1.ConvertAll`1", source.PackagePath);
+        Assert.Null(source.TypeName);
+    }
+
     [Fact]
     public async Task ResolveAsync_UnknownBareName_KeepsPackageFallback()
     {

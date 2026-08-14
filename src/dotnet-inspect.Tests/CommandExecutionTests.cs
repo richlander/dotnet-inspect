@@ -4777,12 +4777,24 @@ public partial class CommandExecutionTests
         Assert.Contains($"## {SectionNames.Signature}", output);
     }
 
-    [Fact]
-    public async Task Member_InapplicableBodySection_ReportsNoDataAfterAutoSelection()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("--json")]
+    public async Task Member_InapplicableBodySection_CountReportsNoDataAfterAutoSelection(
+        string? ignoredFormat)
     {
-        var (exit, output, error) = await RunAppAsync(
+        List<string> args =
+        [
             "member", "System.String.Empty", "--platform", "System.Runtime",
-            "-S", SectionNames.IL, "--count", "--tips", "q");
+            "-S", SectionNames.IL, "--count", "--tips", "q"
+        ];
+        if (ignoredFormat is not null)
+            args.Add(ignoredFormat);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
 
         Assert.Equal(0, exit);
         Assert.Equal("0", output.Trim());
@@ -7966,9 +7978,29 @@ public partial class CommandExecutionTests
             nameof(MemberCallsFixture.Overloaded), "--bin", testDirectory, "--tips", "q");
 
         Assert.Equal(0, exit);
+        Assert.Equal(
+            2,
+            output.Split(
+                nameof(MemberCallsFixture.CallsOverloaded),
+                StringSplitOptions.None).Length - 1);
+        Assert.Contains("## Callers", output);
         Assert.Contains($"# {typeof(MemberCallsFixture).FullName}", output);
-        Assert.Contains("section 'Callers' has no data", error);
+        Assert.Empty(error);
         Assert.DoesNotContain("requires a single selected overload", error);
+    }
+
+    [Fact]
+    public async Task Member_BareNameCallerScope_EmptyAggregateRendersEmptyState()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallsFixture.UnusedOverloaded), "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Callers", output);
+        Assert.Contains("No callers found", output);
+        Assert.Empty(error);
     }
 
     [Fact]

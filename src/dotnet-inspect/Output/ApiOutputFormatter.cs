@@ -217,6 +217,11 @@ public static class ApiOutputFormatter
                     options.IncludeSections,
                     explicitInclude: sectionsPreResolved));
         }
+        if (ApiMemberSectionPipelines.ShouldAggregateImplicitCallers(type, options))
+        {
+            includeSections ??= [];
+            includeSections.Add(SectionNames.Callers);
+        }
         if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
             && !includeSections.Contains(SectionNames.Summary))
             includeSections = [SectionNames.Summary, .. includeSections];
@@ -1428,12 +1433,21 @@ public static class ApiOutputFormatter
     /// overload-index selector (<c>Prop:1</c>/<c>Prop:2</c>) addresses. A field carries
     /// no accessor token and yields no body methods, so its body sections stay N/A.
     /// </summary>
-    internal static List<ApiMember> ResolveBodyMethods(ApiType type, IReadOnlySet<string> requestedSections)
+    internal static List<ApiMember> ResolveBodyMethods(
+        ApiType type,
+        IReadOnlySet<string> requestedSections,
+        ApiOptions? options = null)
     {
         bool includeAbstract = requestedSections.Contains(SectionNames.UnsafeOperations);
         var methods = type.Members
             .Where(m => ApiMemberSectionDescriptors.IsMethodLike(m) && (!m.IsAbstract || includeAbstract))
             .ToList();
+        if (options is MemberOptions { ImplicitCallerMemberTokens: { } tokens })
+        {
+            methods = methods
+                .Where(member => member.MetadataToken is { } token && tokens.Contains(token))
+                .ToList();
+        }
 
         if (methods.Count == 0
             && type.Members is [{ } single]

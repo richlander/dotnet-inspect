@@ -419,7 +419,13 @@ public static class SourceResolver
             // only a miss falls through to MemberOptionsParser for member peeling.
             if (packagePath != null && typeName == null && packagePath.Contains('`'))
             {
-                bool mightBeTypeDotMember = packagePath.LastIndexOf('.') > packagePath.IndexOf('`');
+                var lastDot = packagePath.LastIndexOf('.');
+                var containingTypeLookup = lastDot > 0
+                    ? PlatformResolver.LookupType(packagePath[..lastDot])
+                    : null;
+                bool mightBeTypeDotMember =
+                    containingTypeLookup is PlatformTypeLookupOutcome.Resolved
+                        or PlatformTypeLookupOutcome.Ambiguous;
                 PlatformTypeLookupOutcome lookup =
                     PlatformResolver.LookupType(packagePath);
                 if (lookup is PlatformTypeLookupOutcome.Resolved resolved)
