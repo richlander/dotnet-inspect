@@ -409,6 +409,7 @@ jobs:
             case "$file" in
               tools/CSharpDiffHarness/*) CSHARPDIFF=true ;;
               src/ILInspector.Decompiler/*) CSHARPDIFF=true ;;
+              src/ILInspector.ILDiff/*) CSHARPDIFF=true ;;
               src/ILInspector.Instructions/*) CSHARPDIFF=true ;;
               src/ILInspector.ControlFlow/*) CSHARPDIFF=true ;;
               src/DiffFixtures.V1/*) CSHARPDIFF=true ;;
@@ -423,6 +424,7 @@ jobs:
             # cheap targeted build/smoke instead of the whole test suite.
             case "$file" in
               tools/IlDiffHarness/*) ILDIFF=true ;;
+              src/ILInspector.ILDiff/*) ILDIFF=true ;;
               src/ILInspector.Instructions/*) ILDIFF=true ;;
               src/ILInspector.ControlFlow/*) ILDIFF=true ;;
               src/DiffFixtures.V1/*) ILDIFF=true ;;
@@ -747,6 +749,9 @@ jobs:
 
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
+
+      - name: Run IL diff tests
+        run: dotnet run --project src/ILInspector.ILDiff.Tests -c Release
 
       - name: Run metadata tests
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release

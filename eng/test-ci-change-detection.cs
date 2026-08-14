@@ -388,6 +388,21 @@ Dictionary<string, string> ilDiff = RunDetection(
     outputs);
 AssertRouting(ilDiff, selected: "ildiff", notSelected: "code");
 
+Dictionary<string, string> ilDiffOwner = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/ILInspector.ILDiff/IlBodyDiff.cs",
+    outputs);
+if (ilDiffOwner["code"] != "true"
+    || ilDiffOwner["csharpdiff"] != "true"
+    || ilDiffOwner["ildiff"] != "true")
+{
+    throw new InvalidOperationException(
+        "IL diff owner routing canary skipped a required lane: " +
+        FormatValues(ilDiffOwner));
+}
+
 Dictionary<string, string> ilRoundtrip = RunDetection(
     repository,
     body,
@@ -1206,10 +1221,20 @@ static void ValidateOutputConsumers(YamlMappingNode jobs)
         "jobs.test");
     var roundtripSteps = new Dictionary<string, YamlMappingNode>(
         StringComparer.Ordinal);
+    YamlMappingNode? ilDiffTestStep = null;
     foreach (YamlNode stepNode in testSteps.Children)
     {
         YamlMappingNode step = RequireMapping(stepNode, "jobs.test step");
         string? name = GetOptionalScalar(step, "name");
+        if (name == "Run IL diff tests")
+        {
+            if (ilDiffTestStep is not null)
+            {
+                throw new InvalidOperationException(
+                    "jobs.test contains duplicate step: Run IL diff tests.");
+            }
+            ilDiffTestStep = step;
+        }
         if (name is "Restore vendored ILAssembler" or
             "Run IL round-trip tests (fast)")
         {
@@ -1221,6 +1246,17 @@ static void ValidateOutputConsumers(YamlMappingNode jobs)
         }
 
     }
+
+    if (ilDiffTestStep is null)
+    {
+        throw new InvalidOperationException(
+            "jobs.test is missing step: Run IL diff tests.");
+    }
+    RequireScalarValue(
+        ilDiffTestStep,
+        "run",
+        "dotnet run --project src/ILInspector.ILDiff.Tests -c Release",
+        "jobs.test Run IL diff tests");
 
     string roundtripCondition =
         "matrix.rid == 'linux-x64' && " +
