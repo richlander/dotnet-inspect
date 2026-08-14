@@ -139,6 +139,10 @@ gates nonzero failure propagation when Signals effective discovery cannot
 inspect direct references;
 `LibraryIdentifierConfusionAudit_DoesNotRepeatDirectReferenceFromClosure`
 gates direct/closure identity deduplication;
+`LibraryAudit_PreservesCaseDistinctResolvedNames` gates case-distinct
+direct/closure suppression, while
+`LibraryIdentifierConfusionAudit_PreservesCaseDistinctUnresolvedReferences`
+gates preservation of those spellings through traversal;
 `LibraryIdentifierConfusionAudit_DeduplicatesDiamondClosure` gates one
 projection row per resolved identity when several reference paths converge;
 and
@@ -162,12 +166,20 @@ content-free failure category on the public reference-tree projection.
 alternate-package metadata demand, producer result, and moderated network cost.
 `InspectAsync_IdentifierAuditMetadataFailureRemainsVisible` gates an
 `Unavailable` result when that registry metadata cannot be established;
+`FetchAllMetadataAsync_SearchDeprecationMustMatchRequestedVersion` gates
+version-specific authority for search deprecation metadata, and
+`FetchAllMetadataAsync_IgnoresMalformedCatalogReference` gates retry after a
+malformed catalog reference;
 `PackageCommand_IdentifierMetadataFailureIsNonzero` gates nonzero completion
 and content-free diagnostics for that failure;
 `MultiPackageCount_CountsSelectedAuditRows` gates scalar counts against the
 selected audit rows rather than unrelated package-info fields; and
 `MultiPackageCount_PreservesSelectedSectionMap` plus
 `MultiPackageCount_PreservesFixedOverviewMap` gate multi-section count maps.
+`Package_MultiplePackages_FixedOverviewCountPopulatesSections` gates the
+command path that supplies those fixed-overview sections, and
+`LibraryPackageSignals_FullEffectiveDiscoveryWarnsOnce` gates one diagnostic
+per package effective-discovery failure.
 `LibraryCommand_SelectedReferences_TreeDedupUsesShallowestPath` gates
 minimum-depth canonicalization under a bounded reference traversal.
 

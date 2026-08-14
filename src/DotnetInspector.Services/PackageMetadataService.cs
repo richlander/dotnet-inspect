@@ -42,15 +42,18 @@ public static class PackageMetadataService
     private readonly record struct SearchPageResult(
         bool Found,
         int ResultCount,
-        long? TotalHits);
+        long? TotalHits,
+        bool DeprecationMetadataAvailable);
 
     private readonly record struct SearchFetchResult(
         bool Succeeded,
-        bool Found);
+        bool Found,
+        bool DeprecationMetadataAvailable);
 
     private readonly record struct RegistrationMetadataResult(
         string? CatalogEntryUrl,
-        bool DeprecationMetadataAvailable);
+        bool DeprecationMetadataAvailable,
+        bool Indeterminate = false);
 
     private readonly record struct VulnerabilityFetchResult(
         bool Succeeded,
@@ -297,6 +300,8 @@ public static class PackageMetadataService
                     metadata.DeprecationMetadataAvailable =
                         registrationMetadata
                             .DeprecationMetadataAvailable;
+                    sawIndeterminate |=
+                        registrationMetadata.Indeterminate;
                     found = true;
                     break;
                 }
@@ -408,7 +413,7 @@ public static class PackageMetadataService
                     if (searchResult.Succeeded)
                     {
                         searchDataAvailable = true;
-                        if (searchResult.Found)
+                        if (searchResult.DeprecationMetadataAvailable)
                             metadata.DeprecationMetadataAvailable = true;
                         break;
                     }
@@ -650,7 +655,8 @@ public static class PackageMetadataService
             if (!searchResult.IsSuccess)
                 return new SearchFetchResult(
                     Succeeded: false,
-                    Found: false);
+                    Found: false,
+                    DeprecationMetadataAvailable: false);
 
             SearchPageResult page = ApplySearchMetadata(
                 searchResult.Content!,
@@ -661,22 +667,26 @@ public static class PackageMetadataService
             if (page.Found)
                 return new SearchFetchResult(
                     Succeeded: true,
-                    Found: true);
+                    Found: true,
+                    page.DeprecationMetadataAvailable);
             if (page.ResultCount == 0)
                 return new SearchFetchResult(
                     Succeeded: true,
-                    Found: false);
+                    Found: false,
+                    DeprecationMetadataAvailable: false);
 
             examined += page.ResultCount;
             if (page.TotalHits is > 0 && examined >= page.TotalHits)
                 return new SearchFetchResult(
                     Succeeded: true,
-                    Found: false);
+                    Found: false,
+                    DeprecationMetadataAvailable: false);
         }
 
         return new SearchFetchResult(
             Succeeded: true,
-            Found: false);
+            Found: false,
+            DeprecationMetadataAvailable: false);
     }
 
     private static RegistrationMetadataResult
@@ -734,7 +744,8 @@ public static class PackageMetadataService
             log?.Invoke("Ignoring malformed catalog entry URL.");
             return new RegistrationMetadataResult(
                 CatalogEntryUrl: null,
-                DeprecationMetadataAvailable: false);
+                DeprecationMetadataAvailable: false,
+                Indeterminate: true);
         }
     }
 
@@ -805,8 +816,15 @@ public static class PackageMetadataService
             return new SearchPageResult(
                 Found: false,
                 resultCount,
-                totalHits);
+                totalHits,
+                DeprecationMetadataAvailable: false);
         }
+
+        bool deprecationMetadataAvailable =
+            pkg.TryGetProperty(
+                "version",
+                out JsonElement packageVersion)
+            && VersionsEqual(packageVersion.GetString(), version);
 
         if (pkg.TryGetProperty("totalDownloads", out JsonElement downloads)
             && TryReadInt64(downloads, out long totalDownloads))
@@ -866,7 +884,8 @@ public static class PackageMetadataService
             };
         }
 
-        if (metadata.Deprecation is null
+        if (deprecationMetadataAvailable
+            && metadata.Deprecation is null
             && pkg.TryGetProperty(
                 "deprecation",
                 out JsonElement deprecationElement)
@@ -879,7 +898,8 @@ public static class PackageMetadataService
         return new SearchPageResult(
             Found: true,
             resultCount,
-            totalHits);
+            totalHits,
+            deprecationMetadataAvailable);
     }
 
     private static bool TryReadInt64(JsonElement element, out long value)

@@ -739,19 +739,17 @@ public class LibraryCommand
                 if (heapExitCode != 0)
                     return heapExitCode;
                 if (discoveryInspection)
-                    return IntegrityExitCode(
-                        Math.Max(
-                            identifierAuditExitCode,
-                            WriteEffectiveSections(
-                                assemblyPaths[0], inspections[0], options,
-                                pipeline, userVerbosity,
-                                fullEffectiveDiscovery,
-                                discoveryExecutionScope,
-                                sourceLinkAvailable,
-                                cache: useEffectiveDiscoveryCache,
-                                inspectedContentHash:
-                                    inspectedContentHash)),
-                        inspections[0]);
+                    return Math.Max(
+                        identifierAuditExitCode,
+                        WriteEffectiveSections(
+                            assemblyPaths[0], inspections[0], options,
+                            pipeline, userVerbosity,
+                            fullEffectiveDiscovery,
+                            discoveryExecutionScope,
+                            sourceLinkAvailable,
+                            cache: useEffectiveDiscoveryCache,
+                            inspectedContentHash:
+                                inspectedContentHash));
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
                     return IntegrityExitCode(
                         identifierAuditExitCode,

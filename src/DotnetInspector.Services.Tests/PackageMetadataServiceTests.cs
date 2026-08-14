@@ -477,6 +477,70 @@ public class PackageMetadataServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task FetchAllMetadataAsync_SearchDeprecationMustMatchRequestedVersion()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
+                        { "@id": "https://private.example/query", "@type": "SearchQueryService/3.5.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/1.0.0.json" => Json("""
+                    {
+                      "catalogEntry":
+                        "/catalog/private.package.1.0.0.json"
+                    }
+                    """),
+                "/catalog/private.package.1.0.0.json" =>
+                    new HttpResponseMessage(
+                        System.Net.HttpStatusCode.BadGateway),
+                "/query" => Json("""
+                    {
+                      "data": [
+                        {
+                          "id": "Private.Package",
+                          "version": "2.0.0",
+                          "deprecation": {
+                            "reasons": ["Legacy"],
+                            "alternatePackage": {
+                              "id": "\u0405ystem.LatestOnly"
+                            }
+                          },
+                          "versions": [
+                            { "version": "1.0.0", "downloads": 1 },
+                            { "version": "2.0.0", "downloads": 2 }
+                          ]
+                        }
+                      ]
+                    }
+                    """),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+
+        PackageMetadata result =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                new HttpClient(handler),
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                forceLatest: true,
+                sourceOptions:
+                    new NuGetSourceOptions { Sources = [source] });
+
+        Assert.False(result.DeprecationMetadataAvailable);
+        Assert.Null(result.Deprecation);
+        Assert.Equal(1, result.VersionDownloads);
+    }
+
+    [Fact]
     public async Task FetchAllMetadataAsync_TriesEquivalentSearchEndpointsInOrder()
     {
         const string source = "https://private.example/v3/index.json";
@@ -1639,6 +1703,7 @@ public class PackageMetadataServiceTests : IDisposable
     public async Task FetchAllMetadataAsync_IgnoresMalformedCatalogReference()
     {
         const string source = "https://private.example/v3/index.json";
+        int registrationRequests = 0;
         var handler = new RoutingHandler(request =>
             request.RequestUri!.AbsolutePath switch
             {
@@ -1650,28 +1715,60 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json("""
+                "/registration/private.package/1.0.0.json" =>
+                    Registration(),
+                _ => throw new InvalidOperationException(
+                    "A malformed catalog reference must not be requested."),
+            });
+        using var client = new HttpClient(handler);
+        var options = new NuGetSourceOptions { Sources = [source] };
+
+        PackageMetadata first = await PackageMetadataService.FetchAllMetadataAsync(
+            client,
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: options);
+        PackageMetadata second = await PackageMetadataService.FetchAllMetadataAsync(
+            client,
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: options);
+
+        Assert.Equal(
+            new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.Zero),
+            first.Published);
+        Assert.False(first.DeprecationMetadataAvailable);
+        Assert.True(second.DeprecationMetadataAvailable);
+        Assert.Equal(
+            "\u0405ystem.Fixed",
+            second.Deprecation!.AlternatePackageId);
+        Assert.True(registrationRequests > 1);
+
+        HttpResponseMessage Registration()
+        {
+            registrationRequests++;
+            return registrationRequests == 1
+                ? Json("""
                     {
                       "published": "2024-01-02T03:04:05Z",
                       "catalogEntry": "http://[::1"
                     }
-                    """),
-                _ => throw new InvalidOperationException(
-                    "A malformed catalog reference must not be requested."),
-            });
-
-        PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
-            new HttpClient(handler),
-            "Private.Package",
-            "1.0.0",
-            log: null,
-            sourceOptions: new NuGetSourceOptions { Sources = [source] });
-
-        Assert.Equal(
-            new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.Zero),
-            result.Published);
-        Assert.False(result.DeprecationMetadataAvailable);
-        Assert.Equal(2, handler.Requests.Count);
+                    """)
+                : Json("""
+                    {
+                      "catalogEntry": {
+                        "deprecation": {
+                          "reasons": ["Legacy"],
+                          "alternatePackage": {
+                            "id": "\u0405ystem.Fixed"
+                          }
+                        }
+                      }
+                    }
+                    """);
+        }
     }
 
     [Fact]

@@ -11701,6 +11701,50 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryIdentifierConfusionAudit_PreservesCaseDistinctUnresolvedReferences()
+    {
+        const string upperName = "Micr\u039fsoft.Hidden";
+        const string lowerName = "micr\u03bfsoft.hidden";
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-case-distinct-unresolved-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "Bridge",
+                upperName,
+                lowerName);
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "Bridge");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(
+                2,
+                CountOutput.CountMarkdownTableRows(output));
+            Assert.Contains("U+039F→O", output);
+            Assert.Contains("U+03BF→O", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageAllLibrariesIdentifierConfusionAudit_CollectsTransitiveReferences()
     {
         var (packagePath, tempDir) = CreateIdentifierConfusionReferencePackage();
@@ -11997,6 +12041,48 @@ public partial class CommandExecutionTests
                     + Environment.NewLine,
                     discovery.Error);
             }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryPackageSignals_FullEffectiveDiscoveryWarnsOnce()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-package-signals-discovery-test-{Guid.NewGuid():N}");
+        string content = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net8.0");
+        Directory.CreateDirectory(libraryDirectory);
+        try
+        {
+            WriteMalformedAssemblyReferenceNameAssembly(
+                Path.Combine(libraryDirectory, "Root.dll"));
+            string packagePath = Path.Combine(
+                tempDir,
+                "Identifier.Package.Signals.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var discovery = await RunAppAsync(
+                "library",
+                "Root.dll",
+                "--package",
+                packagePath,
+                "-D",
+                SectionNames.Signals,
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, discovery.Exit);
+            Assert.Contains("| Area | column |", discovery.Output);
+            Assert.Equal(
+                "Warning: Identifier audit failed: invalid assembly metadata"
+                + Environment.NewLine,
+                discovery.Error);
         }
         finally
         {
@@ -21034,6 +21120,41 @@ public partial class CommandExecutionTests
             Assert.Equal(
                 expected.ToString(CultureInfo.InvariantCulture),
                 combinedOutput.Trim());
+        }
+        finally
+        {
+            Directory.Delete(firstTempDir, recursive: true);
+            Directory.Delete(secondTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_FixedOverviewCountPopulatesSections()
+    {
+        var (firstPackagePath, firstTempDir) =
+            CreateLocalReadmePackage(
+                "Test.FixedOverview.One",
+                "README.md",
+                "one");
+        var (secondPackagePath, secondTempDir) =
+            CreateLocalReadmePackage(
+                "Test.FixedOverview.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackagePath,
+                secondPackagePath,
+                "-S",
+                "--count",
+                "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Package nuspec file | 2 |", output);
+            Assert.Contains("| Signature | 6 |", output);
         }
         finally
         {

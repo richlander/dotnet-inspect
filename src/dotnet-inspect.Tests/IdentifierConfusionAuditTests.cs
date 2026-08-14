@@ -105,6 +105,67 @@ public class IdentifierConfusionAuditTests
     }
 
     [Fact]
+    public void LibraryAudit_PreservesCaseDistinctResolvedNames()
+    {
+        const string directName = "Micr\u039fsoft.Shared";
+        const string transitiveName = "micr\u03bfsoft.shared";
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo
+            {
+                AssemblyName = "Root",
+                References =
+                [
+                    new AssemblyReference(
+                        directName,
+                        "1.0.0.0",
+                        "en-US",
+                        null),
+                ],
+            },
+            IdentifierConfusionReferenceClosure =
+            [
+                new AssemblyReferenceNode
+                {
+                    Name = directName,
+                    Version = "1.0.0.0",
+                    Depth = 0,
+                },
+                new AssemblyReferenceNode
+                {
+                    Name = transitiveName,
+                    Version = "1.0.0.0",
+                    Depth = 1,
+                },
+            ],
+        };
+
+        IReadOnlyList<IdentifierConfusionCase> cases =
+            IdentifierConfusionAudit.InspectLibrary(model);
+
+        Assert.Collection(
+            cases,
+            value =>
+            {
+                Assert.Equal(
+                    "AssemblyInfo.References[0].Name",
+                    value.Location);
+                Assert.Equal(
+                    [0x039F],
+                    value.Confusion.NonAsciiCodePoints);
+            },
+            value =>
+            {
+                Assert.Equal(
+                    "IdentifierConfusionReferenceClosure[1].Name",
+                    value.Location);
+                Assert.Equal(
+                    [0x03BF],
+                    value.Confusion.NonAsciiCodePoints);
+            });
+    }
+
+    [Fact]
     public async Task PackageSignals_SeparatesIdentifierConfusionFromTextContainment()
     {
         var model = new InspectionResult

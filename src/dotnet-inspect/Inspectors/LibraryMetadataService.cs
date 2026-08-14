@@ -1221,7 +1221,7 @@ internal static class LibraryMetadataService
                 && PathComparer.Equals(
                     x.BindingScope,
                     y.BindingScope)
-                && StringComparer.OrdinalIgnoreCase.Equals(
+                && StringComparer.Ordinal.Equals(
                     xReference.Name,
                     yReference.Name)
                 && EqualityComparer<Version?>.Default.Equals(
@@ -1247,7 +1247,7 @@ internal static class LibraryMetadataService
                 hash.Add(value.BindingScope, PathComparer);
                 hash.Add(
                     reference.Name,
-                    StringComparer.OrdinalIgnoreCase);
+                    StringComparer.Ordinal);
                 hash.Add(reference.Version);
                 hash.Add(
                     reference.Culture,

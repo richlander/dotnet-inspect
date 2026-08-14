@@ -138,7 +138,7 @@ internal static class IdentifierConfusionAudit
             && assembly.References is { } directReferences
                 ? new HashSet<string>(
                     directReferences.Select(reference => reference.Name),
-                    StringComparer.OrdinalIgnoreCase)
+                    StringComparer.Ordinal)
                 : null;
         if (includeTransitiveReferences
             && model.IdentifierConfusionReferenceClosure is { } transitiveReferences)

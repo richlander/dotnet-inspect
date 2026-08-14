@@ -1055,6 +1055,10 @@ gates full-effective discovery,
 gates nonzero failure propagation through Signals effective discovery,
 `LibraryIdentifierConfusionAudit_DoesNotRepeatDirectReferenceFromClosure`
 gates direct/closure identity deduplication,
+`LibraryAudit_PreservesCaseDistinctResolvedNames` gates case-distinct
+direct/closure suppression, while
+`LibraryIdentifierConfusionAudit_PreservesCaseDistinctUnresolvedReferences`
+gates preservation of those spellings through traversal,
 `LibraryIdentifierConfusionAudit_DeduplicatesDiamondClosure` gates one
 projection row per resolved identity when several reference paths converge,
 `AssemblyReferenceTreeResolutionTests.DistinctSameNameReferences_DoNotSuppressResolvableIdentity`
@@ -1083,12 +1087,20 @@ cost. `InspectAsync_IdentifierAuditMetadataFailureRemainsVisible` gates an
 `Unavailable` result when registry acquisition cannot establish
 alternate-package metadata; a failed acquisition is not interpreted as an
 absent alternate ID.
+`FetchAllMetadataAsync_SearchDeprecationMustMatchRequestedVersion` gates
+version-specific authority for search deprecation metadata, and
+`FetchAllMetadataAsync_IgnoresMalformedCatalogReference` gates retry after a
+malformed catalog reference.
 `PackageCommand_IdentifierMetadataFailureIsNonzero` gates nonzero completion
 and content-free diagnostics for that failure.
 `MultiPackageCount_CountsSelectedAuditRows` gates scalar counts against the
 selected audit rows rather than unrelated package-info fields;
 `MultiPackageCount_PreservesSelectedSectionMap` plus
 `MultiPackageCount_PreservesFixedOverviewMap` gate multi-section count maps;
+`Package_MultiplePackages_FixedOverviewCountPopulatesSections` gates the
+command path that supplies those fixed-overview sections;
+`LibraryPackageSignals_FullEffectiveDiscoveryWarnsOnce` gates one diagnostic
+per package effective-discovery failure;
 `LibraryCommand_SelectedReferences_TreeDedupUsesShallowestPath` gates
 minimum-depth canonicalization under a bounded reference traversal; and
 `PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent`
