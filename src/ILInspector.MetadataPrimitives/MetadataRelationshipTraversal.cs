@@ -21,14 +21,15 @@ public static class MetadataSafetyPolicy
 
     /// <summary>
     /// Maximum work charged while constructing one member-anchor signature
-    /// tree. Every materialized type-name occurrence is charged by character
-    /// length, and every composite type node (arrays, pointers, generics,
-    /// function pointers) is charged a fixed per-node unit, so discarded
-    /// modifier subtrees and nested compositions cannot amplify past this
-    /// ceiling before rejection. Gated by
-    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>
+    /// tree. Type-name occurrences are charged by character length with a
+    /// short-leaf floor, and every composite type node (arrays, pointers,
+    /// generics, function pointers) is charged a fixed per-node unit, so
+    /// discarded modifier subtrees that are deep or wide cannot amplify past
+    /// this ceiling before rejection. Gated by
+    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>,
     /// and
-    /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>.
+    /// <c>CreateMethodAnchor_WideGenericModoptsFailBeforeLargeAllocation</c>.
     /// </summary>
     public const int MaxAnchorSignatureWorkChars =
         MaxStructuralSignatureWorkChars;

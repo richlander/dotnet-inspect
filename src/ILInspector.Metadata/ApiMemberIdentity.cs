@@ -573,10 +573,14 @@ public static class ApiMemberIdentity
 
         AnchorSignatureType Encoded(string text)
         {
-            // Charge every occurrence, including repeated references to the same
-            // long name, so the cumulative work budget gates amplification during
-            // tree construction rather than after EnsureAnchorSignatureBudget.
-            _workBudget.Charge(text.Length);
+            // Charge every occurrence. Short leaves (e.g. "!0") still pay a
+            // floor so wide GENERICINST/FNPTR modifier trees cannot mint tens
+            // of thousands of near-free nodes under the name-length budget.
+            // Gated by CreateMethodAnchor_WideGenericModoptsFailBeforeLargeAllocation.
+            _workBudget.Charge(
+                text.Length > LeafNodeWorkUnits
+                    ? text.Length
+                    : LeafNodeWorkUnits);
             return new EncodedAnchorSignatureType(text);
         }
 
@@ -594,9 +598,11 @@ public static class ApiMemberIdentity
         }
 
         // Work units charged per composite anchor node (array/pointer/generic/
-        // fnptr). Sized so depth≈512 legal signatures stay far under the 4 MiB
-        // budget while 1000×500 discarded modopt trees exhaust it.
+        // fnptr) and as a floor for short leaf names. Sized so depth≈512 legal
+        // signatures stay far under the 4 MiB budget while discarded modopt
+        // trees that are deep or wide exhaust it before large allocation.
         const int CompositeNodeWorkUnits = 64;
+        const int LeafNodeWorkUnits = 64;
     }
 
     public static string GetMemberDigest(string canonicalSignature)
