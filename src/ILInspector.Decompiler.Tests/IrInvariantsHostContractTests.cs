@@ -297,6 +297,25 @@ public sealed class IrInvariantsHostContractTests
         Assert.Equal(new[] { ShippedToolEntryPoint }, sites);
     }
 
+    [Fact]
+    public void RepositoryLocalWorktreesAreNotCountedAsDuplicateHosts()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "repository");
+        string linkedWorktreeSource = Path.Combine(
+            root,
+            ".worktrees",
+            "review",
+            "src",
+            "Program.cs");
+        string repositorySource = Path.Combine(
+            root,
+            "src",
+            "Program.cs");
+
+        Assert.True(IsExcluded(root, linkedWorktreeSource));
+        Assert.False(IsExcluded(root, repositorySource));
+    }
+
     static List<string> FindOptOutSites()
     {
         string root = FindRepositoryRoot();
@@ -421,8 +440,9 @@ public sealed class IrInvariantsHostContractTests
             .Any(invocation => invocation.Expression is IdentifierNameSyntax { Identifier.ValueText: "nameof" });
 
     /// <summary>
-    /// Build output and version control only. Anything else under the repo root
-    /// is a candidate host, including directories that do not exist yet.
+    /// Build output, version control, and repository-local linked worktrees only.
+    /// Anything else under the repo root is a candidate host, including
+    /// directories that do not exist yet.
     /// </summary>
     static bool IsExcluded(string root, string path)
     {
@@ -430,7 +450,12 @@ public sealed class IrInvariantsHostContractTests
         string[] segments = relative.Split(Path.DirectorySeparatorChar);
 
         return segments.Any(static segment =>
-            segment is "bin" or "obj" or ".git" or "artifacts" or "node_modules");
+            segment is "bin"
+                or "obj"
+                or ".git"
+                or ".worktrees"
+                or "artifacts"
+                or "node_modules");
     }
 
     static bool PathsEqual(string left, string right) =>

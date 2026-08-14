@@ -309,10 +309,32 @@ into product caches (`FileSystemPackageStore.CommitAsync`).
 Symbol-package (`.snupkg`) PDB acquisition does not extract the archive to disk.
 `SnupkgPdbReader` opens the archive in memory, matches candidate entries by file
 name only (never by attacker-controlled directory paths), validates each
-candidate's PDB header and debug GUID, and returns the matching bytes. Those
+candidate's PDB header and complete Portable PDB content id (GUID plus stamp),
+and returns the matching bytes. Those
 bytes are then persisted through `IPdbStore`; the filesystem implementation
 (`FileSystemPdbStore`) maps only store-composed, per-segment-validated keys onto
-disk, so no archive-entry name is ever used as an output path.
+disk, so no archive-entry name is ever used as an output path. It publishes
+through a unique sibling staging file and atomically replaces the final entry,
+so a concurrent reader never accepts a partially written PDB. Symbol-server
+keys include the canonical provider host and complete Portable PDB content
+identity, preserving both provider and payload identity on cache reuse. A
+pathless host reads the same validated store entry through
+`AcquiredPortablePdb`; its explicit-capability service overload requires both
+the store and an already authorized package-source policy, while the legacy
+desktop overload remains path-bound instead of permitting a pathless caller to
+discover ambient NuGet configuration. Store failures while opening or reading
+that acquired entry propagate rather than becoming ordinary symbol absence.
+These properties are gated by
+`PdbIdentityTests.LoadPdbFromStream_RejectsMatchingGuidWithDifferentStamp`,
+`PdbIdentityTests.PortablePdbIdentity_WindowsCodeViewCannotAuthorizePortablePdb`,
+`SymbolPackageDownloaderTests.AcquirePdbAsync_MsdlCachePreservesProvider`,
+`SymbolPackageDownloaderTests.AcquiredPortablePdb_DifferentStampsRemainRepeatable`,
+`SymbolPackageDownloaderTests.AcquirePdbAsync_ExplicitStore_DoesNotUseAmbientCaches`,
+`PdbAcquisitionServiceTests.DescriptorAcquisition_RequiresExplicitHostCapabilities`,
+`PdbAcquisitionServiceTests.PathlessParticipant_DesktopOverloadDoesNotAcquire`,
+`PdbAcquisitionServiceTests.PathlessParticipant_StoreReadFailureIsVisible`,
+and
+`PdbStoreTests.FileSystemPdbStore_FailedReplacementPreservesPublishedContent`.
 
 Package identifiers and versions used as cache path components pass
 `NuGetCache.ValidatePathComponent`, which rejects empty or whitespace values,

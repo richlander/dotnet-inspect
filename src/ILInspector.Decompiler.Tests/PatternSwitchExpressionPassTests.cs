@@ -178,6 +178,23 @@ public class PatternSwitchExpressionPassTests
         Assert.Contains("_ => -1,", output);
     }
 
+    [Fact]
+    public void PrintRaised_DoesNotConvertOutOfMemoryToDiagnosticFailure()
+    {
+        using var source = MetadataSource.Open(typeof(HeterogeneousArmSample).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(HeterogeneousArmSample).FullName!,
+            nameof(HeterogeneousArmSample.GuardedArea));
+        Assert.NotNull(function);
+
+        Assert.Throws<OutOfMemoryException>(() =>
+            CSharpPrinter.PrintRaised(
+                function!,
+                importMethodBody: method => IrImporter.Import(source, method),
+                typesProvablyDisjoint: (_, _) => throw new OutOfMemoryException()));
+    }
+
     // ── Synthetic shape + negative guards ──────────────────────────────────
 
     // Minimal recognized shape (post-#3003 structuring): `sv = <place>; k = sv
