@@ -92,11 +92,17 @@ public sealed record AssemblyTypeSourceRequest
                 "The API type does not carry an exact metadata lookup name.",
                 nameof(type));
         }
+        if (metadataName.Contains('+', StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The API type does not carry an unambiguous exact metadata lookup name.",
+                nameof(type));
+        }
 
         MetadataTypeDefinitionNameResult result =
             MetadataTypeDefinitionName.Create(
                 type.Namespace ?? "",
-                [.. metadataName.Split('+')]);
+                [metadataName]);
         return result is MetadataTypeDefinitionNameResult.Valid valid
             ? valid.Name
             : throw new ArgumentException(

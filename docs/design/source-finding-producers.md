@@ -118,7 +118,13 @@ verifies the portable-PDB checksum, extracts the member body, and returns a
 `MetadataTypeDefinitionName`, verifies the primary document through the same
 path, and returns the complete authored document with its typed mapping,
 document, and checksum verdict. It does not use SourceLink's simple-name
-compatibility fallback.
+compatibility fallback or case-insensitive document inference.
+`MetadataSourceFindingsTests.ExactTypeSourceResolution_IsOrdinalAndDoesNotInferDocuments`
+gates that boundary. Request conversion uses `ApiType.DefinitionName` when
+available; an older surface's string `MetadataName` is accepted only for an
+unambiguous top-level name, because `+` cannot distinguish nesting from a
+literal metadata character. This is gated by
+`AssemblyContextSourceQueryTests.RequestFromLegacyApiType_RequiresUnambiguousMetadataName`.
 
 Conditional branch liveness is composed only at the member slicing boundary:
 Metadata reports point lines, CSharpText reports lexical branch ranges, and the

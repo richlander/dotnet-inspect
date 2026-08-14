@@ -14,6 +14,36 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyContextSourceQueryTests
 {
     [Fact]
+    public void RequestFromLegacyApiType_RequiresUnambiguousMetadataName()
+    {
+        var simple = new ApiType
+        {
+            Namespace = "Sample",
+            Name = "Widget",
+            MetadataName = "Widget",
+        };
+        var ambiguous = new ApiType
+        {
+            Namespace = "Sample",
+            Name = "Inner",
+            MetadataName = "Outer+Inner",
+        };
+
+        AssemblyTypeSourceRequest request =
+            AssemblyTypeSourceRequest.From(simple);
+
+        Assert.Equal(
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    ["Widget"]))
+                .Name,
+            request.Type);
+        Assert.Throws<ArgumentException>(
+            () => AssemblyTypeSourceRequest.From(ambiguous));
+    }
+
+    [Fact]
     public async Task PathlessMember_AcquiresVerifiedAuthoredSource()
     {
         TestAssembly assembly = TestAssembly.Create();

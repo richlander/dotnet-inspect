@@ -116,8 +116,11 @@ and explicit host capabilities for symbol and source acquisition. It opens the
 workspace snapshot as content, acquires a matching PDB through the supplied
 store, prefers checksum-verified authored source, and otherwise decompiles
 through the participant's `IAssemblyBindingPolicy`. It never accepts an
-assembly or PDB path. Its in-memory host path and typed failure behavior are
-gated by `AssemblyContextSourceQueryTests`.
+assembly or PDB path. A pathless decompiler descriptor may use embedded symbols
+but cannot derive and probe an ambient sidecar path; this is gated by
+`AssemblyReferenceResolverTests.PathlessDescriptor_DoesNotProbeIdentityDerivedSidecarPath`.
+The query's in-memory host path and typed failure behavior are gated by
+`AssemblyContextSourceQueryTests`.
 
 This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,

@@ -43,6 +43,23 @@ public sealed class MetadataSourceFindingsTests
 #line default
     }
 
+    sealed class TypeCaseCollisionProbe
+    {
+        public sealed class Target
+        {
+#line 100 "Generated/TypeCaseCollision.Upper.cs"
+            public static int Value() => 1;
+#line default
+        }
+
+        public sealed class TARGET
+        {
+#line 100 "Generated/TypeCaseCollision.Lower.cs"
+            public static int Value() => 2;
+#line default
+        }
+    }
+
     [Fact]
     public void DocumentChecksumIndexes_PreserveRowsAndRejectAmbiguousPathFallback()
     {
@@ -303,6 +320,50 @@ public sealed class MetadataSourceFindingsTests
             Path.Combine("Generated", "OrderedType.A.cs"),
             additional.FilePath,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExactTypeSourceResolution_IsOrdinalAndDoesNotInferDocuments()
+    {
+        using var context = PdbContext.Open(
+            typeof(MetadataSourceFindingsTests).Assembly.Location);
+        var map = SourceLinkFetch.SourceLinkResolver.Parse(
+            """{"documents":{"*":"https://example.test/*"}}""");
+        var resolver = new SourceLinkResolver(context, map);
+        var upperName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                typeof(MetadataSourceFindingsTests).Namespace,
+                [
+                    nameof(MetadataSourceFindingsTests),
+                    nameof(TypeCaseCollisionProbe),
+                    nameof(TypeCaseCollisionProbe.Target),
+                ]))
+            .Name;
+        var lowerName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                typeof(MetadataSourceFindingsTests).Namespace,
+                [
+                    nameof(MetadataSourceFindingsTests),
+                    nameof(TypeCaseCollisionProbe),
+                    nameof(TypeCaseCollisionProbe.TARGET),
+                ]))
+            .Name;
+
+        var upper = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource(upperName));
+        var lower = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource(lowerName));
+
+        Assert.EndsWith(
+            "TypeCaseCollision.Upper.cs",
+            upper.SourceFilePath,
+            StringComparison.Ordinal);
+        Assert.EndsWith(
+            "TypeCaseCollision.Lower.cs",
+            lower.SourceFilePath,
+            StringComparison.Ordinal);
+        Assert.Empty(upper.AdditionalSourceFiles);
+        Assert.Empty(lower.AdditionalSourceFiles);
     }
 
     [Fact]

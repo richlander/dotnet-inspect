@@ -15,6 +15,7 @@ public sealed class SourceLinkResolver
     Dictionary<string, List<string>>? _docsByFirstSegment;
     Dictionary<int, PdbDocumentInfo>? _documentsByRowId;
     Dictionary<string, PdbDocumentInfo>? _uniqueDocumentsByPath;
+    Dictionary<string, PdbTypeDocumentInfo>? _exactTypesByFullName;
     Dictionary<string, PdbTypeDocumentInfo>? _typesByFullName;
     Dictionary<string, PdbTypeDocumentInfo>? _typesBySimpleName;
 
@@ -85,9 +86,12 @@ public sealed class SourceLinkResolver
         MetadataTypeDefinitionName type)
     {
         ArgumentNullException.ThrowIfNull(type);
-        return ResolveTypeSource(
+        EnsureTypeIndexes();
+        return _exactTypesByFullName!.TryGetValue(
             type.ToMetadataFullName(),
-            allowSimpleNameFallback: false);
+            out PdbTypeDocumentInfo? match)
+                ? ResolveTypeSource(match, allowDocumentInference: false)
+                : null;
     }
 
     TypeSourceInfo? ResolveTypeSource(
@@ -104,9 +108,19 @@ public sealed class SourceLinkResolver
             return null;
         }
 
+        return ResolveTypeSource(type, allowDocumentInference: true);
+    }
+
+    TypeSourceInfo? ResolveTypeSource(
+        PdbTypeDocumentInfo type,
+        bool allowDocumentInference)
+    {
         string simpleName = type.TypeSimpleName;
         Dictionary<string, PartialSourceFile> files =
-            new(StringComparer.OrdinalIgnoreCase);
+            new(
+                allowDocumentInference
+                    ? StringComparer.OrdinalIgnoreCase
+                    : StringComparer.Ordinal);
 
         foreach (var documents in type.Documents.GroupBy(
             static document => document.FilePath,
@@ -120,11 +134,17 @@ public sealed class SourceLinkResolver
                     : Decorate(documents.Key));
         }
 
-        foreach (string path in FindDocumentsMatchingTypeName(simpleName))
-            files.TryAdd(path, Decorate(path));
+        if (allowDocumentInference)
+        {
+            foreach (string path in FindDocumentsMatchingTypeName(simpleName))
+                files.TryAdd(path, Decorate(path));
+        }
 
         if (files.Count == 0)
         {
+            if (!allowDocumentInference)
+                return null;
+
             string? inferred = DocumentPaths
                 .FirstOrDefault(path => Path.GetFileNameWithoutExtension(path)
                     .Equals(simpleName, StringComparison.OrdinalIgnoreCase));
@@ -197,16 +217,21 @@ public sealed class SourceLinkResolver
         if (_typesByFullName is not null)
             return;
 
+        var exactFullNames =
+            new Dictionary<string, PdbTypeDocumentInfo>(
+                StringComparer.Ordinal);
         var fullNames =
             new Dictionary<string, PdbTypeDocumentInfo>(StringComparer.OrdinalIgnoreCase);
         var simpleNames =
             new Dictionary<string, PdbTypeDocumentInfo>(StringComparer.OrdinalIgnoreCase);
         foreach (var type in _context.EnumerateTypeDocuments())
         {
+            exactFullNames.TryAdd(type.TypeFullName, type);
             fullNames.TryAdd(type.TypeFullName, type);
             simpleNames.TryAdd(type.TypeSimpleName, type);
         }
 
+        _exactTypesByFullName = exactFullNames;
         _typesByFullName = fullNames;
         _typesBySimpleName = simpleNames;
     }

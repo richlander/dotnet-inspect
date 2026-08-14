@@ -975,10 +975,11 @@ public sealed class MetadataSource : IDisposable
     }
 
     /// <summary>
-    /// The associated portable PDB reader — embedded in the PE or a sidecar
-    /// <c>.pdb</c> next to it — opened once and cached. Null when no PDB is
-    /// found or it cannot be read; the importer then leaves local names absent
-    /// and the printer falls back to <c>V_index</c>.
+    /// The associated portable PDB reader — embedded in the PE, or a sidecar
+    /// <c>.pdb</c> when the assembly descriptor exposes a path — opened once
+    /// and cached. Null when no PDB is found or it cannot be read; the importer
+    /// then leaves local names absent and the printer falls back to
+    /// <c>V_index</c>.
     /// </summary>
     readonly object _pdbLock = new();
     
@@ -999,7 +1000,19 @@ public sealed class MetadataSource : IDisposable
             }
         try
         {
-            if (Pe.TryOpenAssociatedPortablePdb(Path, p => File.Exists(p) ? File.OpenRead(p) : null, out var provider, out var pdbPath)
+            string peImagePath = _assembly.Path ?? Path;
+            Func<string, Stream?> pdbStreamProvider =
+                _assembly.Path is null
+                    ? static _ => null
+                    : static path =>
+                        File.Exists(path)
+                            ? File.OpenRead(path)
+                            : null;
+            if (Pe.TryOpenAssociatedPortablePdb(
+                    peImagePath,
+                    pdbStreamProvider,
+                    out var provider,
+                    out var pdbPath)
                 && provider is not null)
             {
                 _pdbProvider = provider;
