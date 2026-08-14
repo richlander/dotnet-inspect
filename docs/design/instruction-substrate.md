@@ -50,15 +50,17 @@ and never loads inspected assemblies.
   `MethodInstructions` is the Layer 0 façade; `InstructionDecoder.Decode` +
   `BlockGraph.Build` are the throwing primitives.
 - **Layer 1 — interpretation (per-consumer, opt-in, not shared).** Reaching-defs
-  (Analysis), allocation/loop facts (Analysis), the decompiler's symbolic IR
-  stack, and the substrate's own typed evaluation stack are each *consumers* of
-  Layer 0 that build their own model on top. Prior art is emphatic that unlike
-  consumers do not share the abstract interpretation: `dotnet/runtime` runs three
-  separate typed stacks (ILVerify's `StackValue`, RyuJIT's `GenTree*`+`typeInfo`,
+  (Analysis), ownership-flow summaries over reaching-defs (Analysis),
+  allocation/loop facts (Analysis), the decompiler's symbolic IR stack, and the
+  substrate's own typed evaluation stack are each *consumers* of Layer 0 that
+  build their own model on top. Prior art is emphatic that unlike consumers do
+  not share the abstract interpretation: `dotnet/runtime` runs three separate
+  typed stacks (ILVerify's `StackValue`, RyuJIT's `GenTree*`+`typeInfo`,
   `ILStackHelper`'s bare heights) over one shared `ILReader`/`FlowGraph`.
-  Analysis may share one of its interpretations, such as loop regions, among
-  its own topic producers without promoting that interpretation into the
-  cross-consumer `MethodInstructions` contract.
+  Analysis may share one of its interpretations, such as loop regions or the
+  decoded-body input to reaching definitions, among its own topic producers
+  without promoting that interpretation into the cross-consumer
+  `MethodInstructions` contract.
 
 The typed evaluation stack is opt-in via `MethodInstructions.InterpretStack(...)`,
 so broad scans and the offset join never pay for it.
