@@ -415,7 +415,12 @@ public sealed partial class CallGraphProjection
             public int From { get; } = from;
             public int To { get; } = to;
             public CallGraphEdgeOrigin Origin { get; } = origin;
-            public bool AnyCallInLoop { get; set; }
+            public bool PhysicalAnyCallInLoop { get; set; }
+            public bool FallbackAnyCallInLoop { get; set; }
+            public bool AnyCallInLoop =>
+                CallSiteIds.Count > 0
+                    ? PhysicalAnyCallInLoop
+                    : FallbackAnyCallInLoop;
             public string? LegacyLoopHint { get; set; }
             public List<int> CallSiteIds { get; } = [];
         }
@@ -601,10 +606,11 @@ public sealed partial class CallGraphProjection
             }
 
             MutableEdge edge = _edges[index];
-            edge.AnyCallInLoop |= fallbackInLoop;
             if (callSites.IsDefaultOrEmpty)
             {
-                if (fallbackInLoop
+                edge.FallbackAnyCallInLoop |= fallbackInLoop;
+                if (edge.CallSiteIds.Count == 0
+                    && fallbackInLoop
                     && edge.LegacyLoopHint is null)
                 {
                     edge.LegacyLoopHint = fallbackLoopHint;
@@ -612,10 +618,11 @@ public sealed partial class CallGraphProjection
                 return;
             }
 
+            edge.LegacyLoopHint = null;
             foreach (DirectCall call in callSites)
             {
                 ArgumentNullException.ThrowIfNull(call);
-                edge.AnyCallInLoop |= call.InLoop;
+                edge.PhysicalAnyCallInLoop |= call.InLoop;
                 var identity = new CallSiteIdentity(
                     _nodes[from].Identity,
                     call.Caller.ModuleVersionId,

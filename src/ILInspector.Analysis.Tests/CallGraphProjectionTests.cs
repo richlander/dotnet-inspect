@@ -798,6 +798,46 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
+    public void PhysicalCallSitesOverrideLegacyLoopEvidenceOnCollapsedEdge()
+    {
+        MemberRef focus = Member("Target", "Run");
+        MemberRef peer = Member("Peer", "Tick");
+        DirectCall physical = Call(focus, peer, 4);
+        CallTreeNode callerRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Node(
+                    peer,
+                    CallTreeStatus.Expanded,
+                    [Leaf(focus, inLoop: true, loopHint: "loop call")]),
+            ]);
+        CallTreeNode calleeRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Leaf(peer) with
+                {
+                    ParentEdgeCallSites = [physical],
+                },
+            ]);
+
+        CallGraphProjection projection =
+            CallGraphProjection.Create(callerRoot, calleeRoot);
+        CallGraphEdge edge = Assert.Single(
+            projection.Edges.Where(
+                candidate =>
+                    candidate.From == 0
+                    && candidate.To == 1));
+
+        Assert.Single(edge.CallSiteIds);
+        Assert.False(edge.AnyCallInLoop);
+        Assert.Null(edge.LegacyLoopHint);
+        Assert.False(
+            projection.CallSites[edge.CallSiteIds[0]].Call.InLoop);
+    }
+
+    [Fact]
     public void UnsupportedCalleeRootCollapsesOntoResolvedFocus()
     {
         var resolved = Member("Widget", "Build");
