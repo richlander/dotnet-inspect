@@ -1799,6 +1799,13 @@ internal static class CSharpDeclarationWriter
         {
             return false;
         }
+        if (!options.IncludeSignatureAttributes
+            && model.Parameters.Any(static parameter =>
+                parameter.HasDefault
+                && string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
+        {
+            return false;
+        }
 
         var parameters = string.Join(
             ", ",

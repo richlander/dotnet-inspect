@@ -305,9 +305,17 @@ public static class MemberBodyProducer
         ArgumentNullException.ThrowIfNull(member);
         if (!Enum.IsDefined(attributeMode))
             throw new ArgumentOutOfRangeException(nameof(attributeMode));
-        var start = ResolvedAssemblyReference.CreateFromPath(
-            dllPath,
-            AssemblyResolutionProvenance.Local("StartAssembly"));
+        ResolvedAssemblyReference start;
+        try
+        {
+            start = ResolvedAssemblyReference.CreateFromPath(
+                dllPath,
+                AssemblyResolutionProvenance.Local("StartAssembly"));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return FailedMemberRender(ex);
+        }
         return ComposeMemberCore(
             type,
             member,
@@ -349,8 +357,11 @@ public static class MemberBodyProducer
     /// whole type rather than once per member — the cost model a caller rendering
     /// many members of the same type (such as the compile-back harness) needs.
     /// The returned map is keyed by the same <see cref="ApiMember"/> instances in
-    /// <see cref="ApiType.Members"/> (reference identity). Members that produce no
-    /// listing output are mapped to <see cref="MemberBodyProductionStatus.Absent"/>.
+    /// <see cref="ApiType.Members"/> (reference identity). The result contains
+    /// one entry for every member. Members that produce no listing output are
+    /// mapped to <see cref="MemberBodyProductionStatus.Absent"/>; shared setup
+    /// failures map every otherwise-unrendered member to
+    /// <see cref="MemberBodyProductionStatus.Failed"/>.
     /// <paramref name="attributeMode"/> defaults to
     /// <see cref="MemberRenderAttributeMode.All"/>.
     /// </summary>
@@ -365,9 +376,22 @@ public static class MemberBodyProducer
         ArgumentNullException.ThrowIfNull(type);
         if (!Enum.IsDefined(attributeMode))
             throw new ArgumentOutOfRangeException(nameof(attributeMode));
-        var start = ResolvedAssemblyReference.CreateFromPath(
-            dllPath,
-            AssemblyResolutionProvenance.Local("StartAssembly"));
+        ResolvedAssemblyReference start;
+        try
+        {
+            start = ResolvedAssemblyReference.CreateFromPath(
+                dllPath,
+                AssemblyResolutionProvenance.Local("StartAssembly"));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            var failed = FailedMemberRender(ex);
+            var results = new Dictionary<ApiMember, MemberRenderResult>(
+                ReferenceEqualityComparer.Instance);
+            foreach (var member in type.Members)
+                results[member] = failed;
+            return results;
+        }
         return ComposeMembersBatch(
             type,
             () => ResolveDefinition(start, type, resolver, context),
@@ -518,7 +542,7 @@ public static class MemberBodyProducer
                 stream?.Dispose();
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             // Degrade honestly: the section renders the reason instead of
             // silently disappearing.
@@ -623,22 +647,30 @@ public static class MemberBodyProducer
         MemberRenderAttributeMode attributeMode)
     {
         var results = new Dictionary<ApiMember, MemberRenderResult>(ReferenceEqualityComparer.Instance);
-        if (type.Kind is "delegate")
+        var absent = new MemberRenderResult(
+            MemberBodyProductionStatus.Absent,
+            Text: null,
+            []);
+
+        void FillMissing(MemberRenderResult result)
         {
             foreach (var member in type.Members)
-            {
-                results[member] = new MemberRenderResult(
-                    MemberBodyProductionStatus.Absent,
-                    Text: null,
-                    []);
-            }
+                results.TryAdd(member, result);
+        }
+
+        if (type.Kind is "delegate")
+        {
+            FillMissing(absent);
             return results;
         }
 
         try
         {
             if (locateType() is not { } definition)
+            {
+                FillMissing(absent);
                 return results;
+            }
 
             Stream? stream = null;
             PEReader? peReader = null;
@@ -651,7 +683,10 @@ public static class MemberBodyProducer
                 if (!definition.Address.TryResolve(
                         reader,
                         out TypeDefinitionHandle typeHandle))
+                {
+                    FillMissing(absent);
                     return results;
+                }
 
                 using var pipelineSource = openPipelineSource(
                     definition,
@@ -703,8 +738,7 @@ public static class MemberBodyProducer
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // Degrade honestly: return whatever composed so far; the caller falls
-            // back to its own rendering for any member missing from the map.
+            FillMissing(FailedMemberRender(ex));
             return results;
         }
     }
@@ -1005,7 +1039,7 @@ public static class MemberBodyProducer
                     bool bodyIsDestructor = false;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions);
+                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic: only is not null);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -1085,7 +1119,8 @@ public static class MemberBodyProducer
                         member,
                         bodyNamespaces,
                         printerOptions,
-                        attributeMode);
+                        attributeMode,
+                        failOnDiagnostic: only is not null);
                     break;
                 }
 
@@ -1368,7 +1403,7 @@ public static class MemberBodyProducer
         StringBuilder sb, Pipeline.MetadataSource pipelineSource,
         MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type, ApiMember member,
         SortedSet<string> bodyNamespaces, Pipeline.PrinterOptions? printerOptions,
-        MemberRenderAttributeMode attributeMode)
+        MemberRenderAttributeMode attributeMode, bool failOnDiagnostic)
     {
         string typeFullName = type.FullName;
         var declarationFormatter = attributeMode == MemberRenderAttributeMode.All
@@ -1387,11 +1422,11 @@ public static class MemberBodyProducer
         {
             string list = signature[accessorList..];
             if (list.Contains("get;", StringComparison.Ordinal))
-                accessors.Add(("get", DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe, out var getSingleReturn, printerOptions), getRequiresUnsafe, getSingleReturn));
+                accessors.Add(("get", DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe, out var getSingleReturn, printerOptions, failOnDiagnostic), getRequiresUnsafe, getSingleReturn));
             if (list.Contains("set;", StringComparison.Ordinal))
-                accessors.Add(("set", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe, out var setSingleReturn, printerOptions), setRequiresUnsafe, setSingleReturn));
+                accessors.Add(("set", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe, out var setSingleReturn, printerOptions, failOnDiagnostic), setRequiresUnsafe, setSingleReturn));
             if (list.Contains("init;", StringComparison.Ordinal))
-                accessors.Add(("init", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe, out var initSingleReturn, printerOptions), initRequiresUnsafe, initSingleReturn));
+                accessors.Add(("init", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe, out var initSingleReturn, printerOptions, failOnDiagnostic), initRequiresUnsafe, initSingleReturn));
         }
 
         if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext))
@@ -1500,7 +1535,8 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? memberHandle,
         string typeFullName, ApiMember member, int overloadIndex,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
+        bool failOnDiagnostic)
     {
         // Prefer the member's own metadata handle — the canonical same-reader
         // addressing (see docs/design/member-body-substrate.md). The caller has
@@ -1511,7 +1547,7 @@ public static class MemberBodyProducer
         if (memberHandle is { } methodHandle)
             return DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, methodHandle),
-                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions);
+                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
 
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
@@ -1520,7 +1556,7 @@ public static class MemberBodyProducer
             publicOnly: member.Kind != "explicit-interface-implementation"
                 && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
                 && member.Accessibility is null,
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
     }
 
     /// <summary>
@@ -1591,7 +1627,8 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? accessorHandle,
         string typeFullName, string accessorName,
         SortedSet<string> bodyNamespaces, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions,
+        bool failOnDiagnostic)
         // Prefer the accessor's own handle (fixes indexer get_Item/set_Item
         // drift, where name+index:0 always selects the first indexer's
         // accessor). Fall back to the by-name path — accessors are non-public
@@ -1600,36 +1637,38 @@ public static class MemberBodyProducer
         => accessorHandle is { } handle
             ? DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, handle),
-                bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out _, printerOptions)
+                bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out _, printerOptions, failOnDiagnostic)
             : DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
-            publicOnly: false, bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out _, printerOptions);
+            publicOnly: false, bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out _, printerOptions, failOnDiagnostic);
 
     /// <summary>
     /// Imports one method to typed IR, runs the raising passes, and prints the
     /// body. A null import means no IL body
-    /// (abstract/extern) — nothing to render, not an error. PrintRaised never
-    /// throws; an import or pass failure surfaces as an honest diagnostic. The
-    /// types the body references contribute their namespaces to the listing's
-    /// using block (the printer renders simple names).
+    /// (abstract/extern) — nothing to render, not an error. Import or print
+    /// failures stay as diagnostic text in whole-type listings and escalate to
+    /// the typed <c>Failed</c> result in per-member rendering. OOM propagates.
     /// </summary>
     static string? DecompileMethod(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
         bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
+        bool failOnDiagnostic)
         => DecompileFunction(pipelineSource,
             Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly),
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
 
     /// <summary>
     /// Runs the raising passes and prints an already-imported function. A null
     /// function means no IL body (abstract/extern) — nothing to render, not an
     /// error. The two addressing front doors (handle-direct and name+ordinal)
-    /// share this body so they render identically.
+    /// share this body so they render identically. Pipeline failures throw to
+    /// the member-result boundary, which reports them as <c>Failed</c>.
     /// </summary>
     static string? DecompileFunction(
         Pipeline.MetadataSource pipelineSource, Pipeline.IrFunction? function,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
+        bool failOnDiagnostic)
     {
         constructorChain = null;
         requiresUnsafeContext = false;
@@ -1641,6 +1680,13 @@ public static class MemberBodyProducer
         var result = Pipeline.CSharpPrinter.PrintRaised(
             function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method), printerOptions,
             typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
+        if (failOnDiagnostic
+            && (!result.Succeeded
+            || result.Diagnostics.Any(static diagnostic =>
+                diagnostic.Id == DiagnosticIds.InternalError)))
+        {
+            throw new InvalidOperationException(DiagnosticComment(result));
+        }
         constructorChain = result.ConstructorChain;
         requiresUnsafeContext = result.RequiresUnsafeBodyModifier;
         bodyIsSingleExpressionBody = result.BodyIsSingleExpressionBody;

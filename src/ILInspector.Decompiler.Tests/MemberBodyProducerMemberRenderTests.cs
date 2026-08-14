@@ -93,8 +93,88 @@ public sealed class MemberBodyProducerMemberRenderTests
                 member,
                 AssemblyPath,
                 pdbPath: null);
-            Assert.Equal(single, batch[member]);
-            Assert.Equal(MemberBodyProductionStatus.Absent, batch[member].Status);
+            var batched = batch[member];
+            Assert.Equal(single.Status, batched.Status);
+            Assert.Equal(single.Text, batched.Text);
+            Assert.Equal(single.Namespaces, batched.Namespaces);
+            Assert.Equal(MemberBodyProductionStatus.Absent, batched.Status);
+        }
+    }
+
+    [Fact]
+    public void ProduceMembers_UnresolvedTypeMapsEveryMemberToAbsent()
+    {
+        var constructor = new ApiMember { Name = ".ctor", Kind = "constructor" };
+        var method = new ApiMember { Name = "M", Kind = "method" };
+        var type = new ApiType
+        {
+            Name = "Missing",
+            Namespace = "Canary",
+            Kind = "class",
+            Members = [constructor, method]
+        };
+
+        var batch = MemberBodyProducer.ProduceMembers(
+            type,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(type.Members.Count, batch.Count);
+        foreach (var member in type.Members)
+        {
+            var single = MemberBodyProducer.ProduceMember(
+                type,
+                member,
+                AssemblyPath,
+                pdbPath: null);
+            var batched = batch[member];
+            Assert.Equal(single.Status, batched.Status);
+            Assert.Equal(single.Text, batched.Text);
+            Assert.Equal(single.Namespaces, batched.Namespaces);
+            Assert.Equal(MemberBodyProductionStatus.Absent, batched.Status);
+        }
+    }
+
+    [Fact]
+    public void ProduceMembers_SharedSetupFailureMapsEveryMemberToFailed()
+    {
+        string assemblyPath = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(assemblyPath, "not a PE image");
+            var constructor = new ApiMember { Name = ".ctor", Kind = "constructor" };
+            var method = new ApiMember { Name = "M", Kind = "method" };
+            var type = new ApiType
+            {
+                Name = "Missing",
+                Namespace = "Canary",
+                Kind = "class",
+                Members = [constructor, method]
+            };
+
+            var batch = MemberBodyProducer.ProduceMembers(
+                type,
+                assemblyPath,
+                pdbPath: null);
+
+            Assert.Equal(type.Members.Count, batch.Count);
+            foreach (var member in type.Members)
+            {
+                var single = MemberBodyProducer.ProduceMember(
+                    type,
+                    member,
+                    assemblyPath,
+                    pdbPath: null);
+                var batched = batch[member];
+                Assert.Equal(single.Status, batched.Status);
+                Assert.Equal(single.Text, batched.Text);
+                Assert.Equal(single.Namespaces, batched.Namespaces);
+                Assert.Equal(MemberBodyProductionStatus.Failed, batched.Status);
+            }
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
         }
     }
 
@@ -158,7 +238,12 @@ public sealed class MemberBodyProducerMemberRenderTests
                 {
                     Type = "System.DateTime",
                     Name = "when",
-                    HasDefault = true
+                    HasDefault = true,
+                    Attributes =
+                    [
+                        "System.Runtime.InteropServices.Optional",
+                        "System.Runtime.CompilerServices.DateTimeConstant(42L)"
+                    ]
                 }
             ]
         };

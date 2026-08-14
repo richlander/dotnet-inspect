@@ -1529,7 +1529,7 @@ static class FidelityCheck
         try { built = timings is null
             ? BuildUnit(reader, targets, fieldInits, typeHandle, references.Accessibility)
             : timings.MeasureSkeletonEmit(() => BuildUnit(reader, targets, fieldInits, typeHandle, references.Accessibility)); }
-        catch { return false; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return false; }
         string unit = built.Source;
 
         var tree = timings is null
@@ -1599,7 +1599,10 @@ static class FidelityCheck
         try { built = timings is null
             ? BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility)
             : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility)); }
-        catch { return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit");
+        }
         string unit = built.Source;
         bool usedProductWholeMember = built.ProductWholeMembers.Contains(e.Handle);
 
@@ -1995,7 +1998,7 @@ static class FidelityCheck
             try { built = timings is null
                 ? BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility, include)
                 : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility, include)); }
-            catch
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 captureDetail = "cluster-source-build-failed";
                 return null; // fall back to the whole-module build

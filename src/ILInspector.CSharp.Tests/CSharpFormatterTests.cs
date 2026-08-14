@@ -948,7 +948,7 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
-    public void SignatureSuppressionDeclinesMetadataOnlyDefaultCompatibilityText()
+    public void SignatureSuppressionDeclinesStructuredMetadataOnlyDefault()
     {
         var type = new ApiType { Name = "Widget", Kind = "class" };
         var constructor = new ApiMember
@@ -969,7 +969,12 @@ public sealed class CSharpFormatterTests
                     {
                         Type = "System.DateTime",
                         Name = "when",
-                        HasDefault = true
+                        HasDefault = true,
+                        Attributes =
+                        [
+                            "System.Runtime.InteropServices.Optional",
+                            "System.Runtime.CompilerServices.DateTimeConstant(42L)"
+                        ]
                     }
                 ]
             }

@@ -123,7 +123,7 @@ public static class IrImporter
                 MethodImporter.Import(source, typeDefHandle, methodHandle),
                 CallerScope(reader, typeDef, method));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return CrashFunction(methodName, typeFullName, ex);
         }
@@ -220,7 +220,7 @@ public static class IrImporter
             return Build(source, MethodImporter.Import(source, typeDefHandle, methodHandle), CallerScope(reader, typeDef, method));
         }
 
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return reader is null
                 ? CrashFunction("<method>", "<type>", ex)
@@ -315,7 +315,7 @@ public static class IrImporter
                         MethodImporter.Import(source, typeDefHandle, methodHandle),
                         CallerScope(reader, typeDef, method));
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
                     function = CrashFunction(memberName, typeName, ex);
                 }
@@ -343,7 +343,7 @@ public static class IrImporter
                     MethodImporter.Import(source, TypeDefHandle, MethodHandle),
                     IrImporter.CallerScope(source.Reader, typeDef, method));
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 return IrImporter.CrashFunction(MethodName, TypeName, ex);
             }
@@ -454,7 +454,7 @@ public static class IrImporter
                     MethodImporter.Import(source, candidate.TypeDefHandle, candidate.MethodHandle),
                     CallerScope(reader, typeDef, method));
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 function = CrashFunction(candidate.MethodName, candidate.TypeName, ex);
             }
