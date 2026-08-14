@@ -664,9 +664,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                         result.Opportunities =
                         [
                             .. OptimizationOpportunityAnalysis.Collect(
-                                context,
-                                allocations.DiscoveredOccurrences,
-                                allocationAnalysis,
+                                allocationFacts,
                                 methodAnalysisResolver)
                             .Where(static opportunity =>
                                 opportunity.Shape
