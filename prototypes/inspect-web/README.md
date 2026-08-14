@@ -206,8 +206,8 @@ selects only the requested coordinate's participants, so another open package's
 surface is never materialized to be discarded. If a projection reaches a bound it
 stops at a whole participant — no type is returned with a shortened member list —
 and the response's `inspectionError` names the bound, what was projected, and how
-many assemblies were not. Types, members, retained metadata-row failures, and type
-forwarders each have an explicit ceiling.
+many assemblies were not. Types, members, retained metadata-row failures, type
+forwarders, and total inspected metadata rows each have an explicit ceiling.
 `BrowserEngineBoundaryTests.ApiSurfaceProjection_IsBoundedAndReportsTruncation`
 gates the bound and its non-vacuity; the truncation contract itself is gated by
 `AssemblyContextApiSurfaceQueryTests`. Every accessibility

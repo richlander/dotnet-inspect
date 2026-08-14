@@ -142,6 +142,9 @@ public enum ApiSurfaceProjectionLimit
 
     /// <summary>The projected type forwarders reached their bound.</summary>
     TypeForwarders,
+
+    /// <summary>The inspected metadata rows reached their bound.</summary>
+    MetadataRows,
 }
 
 /// <summary>
@@ -164,18 +167,21 @@ public sealed record ApiSurfaceProjectionLimits
         int maxTypes,
         int maxMembers,
         int maxInspectionFailures,
-        int maxTypeForwarders)
+        int maxTypeForwarders,
+        int maxMetadataRows)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxParticipants, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxTypes, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxMembers, 1);
         ArgumentOutOfRangeException.ThrowIfNegative(maxInspectionFailures);
         ArgumentOutOfRangeException.ThrowIfNegative(maxTypeForwarders);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMetadataRows);
         MaxParticipants = maxParticipants;
         MaxTypes = maxTypes;
         MaxMembers = maxMembers;
         MaxInspectionFailures = maxInspectionFailures;
         MaxTypeForwarders = maxTypeForwarders;
+        MaxMetadataRows = maxMetadataRows;
     }
 
     /// <summary>The most participants one projection may walk.</summary>
@@ -192,6 +198,9 @@ public sealed record ApiSurfaceProjectionLimits
 
     /// <summary>The most type forwarders one projection may return.</summary>
     public int MaxTypeForwarders { get; }
+
+    /// <summary>The most metadata rows one projection may inspect.</summary>
+    public int MaxMetadataRows { get; }
 }
 
 /// <summary>
@@ -206,7 +215,8 @@ public sealed record ApiSurfaceProjectionTruncation(
     int ProjectedTypes,
     int ProjectedMembers,
     int ProjectedInspectionFailures,
-    int ProjectedTypeForwarders);
+    int ProjectedTypeForwarders,
+    int InspectedMetadataRows);
 
 /// <summary>
 /// Ordered API-surface outcomes for every participant in one assembly context group, plus the
@@ -347,6 +357,7 @@ public static class AssemblyContextApiSurfaceQuery
         int walked = 0;
         int inspectionFailures = 0;
         int typeForwarders = 0;
+        int metadataRows = 0;
         if (selected.Count > limits.MaxParticipants)
         {
             truncation = new ApiSurfaceProjectionTruncation(
@@ -357,7 +368,8 @@ public static class AssemblyContextApiSurfaceQuery
                 ProjectedTypes: 0,
                 ProjectedMembers: 0,
                 ProjectedInspectionFailures: 0,
-                ProjectedTypeForwarders: 0);
+                ProjectedTypeForwarders: 0,
+                InspectedMetadataRows: 0);
             selected = [.. selected.Take(limits.MaxParticipants)];
         }
 
@@ -373,7 +385,8 @@ public static class AssemblyContextApiSurfaceQuery
                 limits.MaxTypes - types,
                 limits.MaxMembers - members,
                 limits.MaxInspectionFailures - inspectionFailures,
-                limits.MaxTypeForwarders - typeForwarders);
+                limits.MaxTypeForwarders - typeForwarders,
+                limits.MaxMetadataRows - metadataRows);
             AssemblyContextEntry<ApiSurfaceExtractionResult> entry =
                 AssemblyContextQueryExecutor.ExecuteParticipant(
                     group,
@@ -396,6 +409,8 @@ public static class AssemblyContextApiSurfaceQuery
                         ApiSurfaceProjectionLimit.InspectionFailures,
                     ApiSurfaceExtractionBound.TypeForwarders =>
                         ApiSurfaceProjectionLimit.TypeForwarders,
+                    ApiSurfaceExtractionBound.MetadataRows =>
+                        ApiSurfaceProjectionLimit.MetadataRows,
                     _ => throw new InvalidOperationException(
                         "Unknown API-surface extraction bound."),
                 };
@@ -407,6 +422,8 @@ public static class AssemblyContextApiSurfaceQuery
                         limits.MaxInspectionFailures,
                     ApiSurfaceExtractionBound.TypeForwarders =>
                         limits.MaxTypeForwarders,
+                    ApiSurfaceExtractionBound.MetadataRows =>
+                        limits.MaxMetadataRows,
                     _ => throw new InvalidOperationException(
                         "Unknown API-surface extraction bound."),
                 };
@@ -419,12 +436,14 @@ public static class AssemblyContextApiSurfaceQuery
                     ProjectedTypes: types,
                     ProjectedMembers: members,
                     ProjectedInspectionFailures: inspectionFailures,
-                    ProjectedTypeForwarders: typeForwarders);
+                    ProjectedTypeForwarders: typeForwarders,
+                    InspectedMetadataRows: metadataRows);
                 break;
             }
 
-            ApiSurface surface =
-                ((ApiSurfaceExtractionResult.Extracted)available.Value).Surface;
+            var extracted =
+                (ApiSurfaceExtractionResult.Extracted)available.Value;
+            ApiSurface surface = extracted.Surface;
             entries.Add(
                 new AssemblyContextEntry<AssemblyApiSurface>.Available(
                     available.Subject,
@@ -433,6 +452,7 @@ public static class AssemblyContextApiSurfaceQuery
             members += surface.Types.Sum(type => type.Members.Count);
             inspectionFailures += surface.InspectionFailures.Count;
             typeForwarders += surface.TypeForwarders.Count;
+            metadataRows += extracted.MetadataRows;
         }
 
         if (truncation is not null)
@@ -443,6 +463,7 @@ public static class AssemblyContextApiSurfaceQuery
                 ProjectedMembers = members,
                 ProjectedInspectionFailures = inspectionFailures,
                 ProjectedTypeForwarders = typeForwarders,
+                InspectedMetadataRows = metadataRows,
             };
         }
 

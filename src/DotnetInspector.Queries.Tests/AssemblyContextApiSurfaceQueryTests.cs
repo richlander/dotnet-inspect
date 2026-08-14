@@ -384,6 +384,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                     100_000,
                     1_000_000,
                     int.MaxValue,
+                    int.MaxValue,
                     int.MaxValue));
 
         Assert.Null(bounded.Truncation);
@@ -435,6 +436,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                     types,
                     members,
                     int.MaxValue,
+                    int.MaxValue,
                     int.MaxValue));
 
         Assert.Null(exact.Truncation);
@@ -450,6 +452,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                     64,
                     types,
                     members - 1,
+                    int.MaxValue,
                     int.MaxValue,
                     int.MaxValue));
 
@@ -475,6 +478,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                     64,
                     1,
                     1_000_000,
+                    int.MaxValue,
                     int.MaxValue,
                     int.MaxValue));
 
@@ -507,6 +511,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                     64,
                     1_000_000,
                     1,
+                    int.MaxValue,
                     int.MaxValue,
                     int.MaxValue));
 
@@ -546,6 +551,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                     1_000_000,
                     1_000_000,
                     1,
+                    int.MaxValue,
                     int.MaxValue));
 
         ApiSurfaceProjectionTruncation truncation = bounded.Truncation!;
@@ -588,7 +594,8 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                     1_000_000,
                     1_000_000,
                     int.MaxValue,
-                    0));
+                    0,
+                    int.MaxValue));
 
         ApiSurfaceProjectionTruncation truncation = bounded.Truncation!;
         Assert.NotNull(truncation);
@@ -600,6 +607,100 @@ public sealed class AssemblyContextApiSurfaceQueryTests
             maxTypes: 1_000_000,
             maxMembers: 1_000_000,
             maxTypeForwarders: 0);
+    }
+
+    [Fact]
+    public void ExecuteBounded_MetadataRowsBoundNestedInterfaceFanOut()
+    {
+        byte[] image = BuildBoundedSurfaceImage(
+            typeCount: 1,
+            interfaceCount: 100);
+        int metadataRows = MetadataRows(image);
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.Create(
+                        IdentityOf(image),
+                        path: null,
+                        () => new MemoryStream(image, writable: false),
+                        AssemblyResolutionProvenance.Local("interfaces")),
+                    policy),
+            ]);
+
+        AssemblyContextApiSurfaceResult bounded =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.Public,
+                new ApiSurfaceProjectionLimits(
+                    64,
+                    1,
+                    1,
+                    0,
+                    0,
+                    metadataRows - 1));
+
+        ApiSurfaceProjectionTruncation truncation = bounded.Truncation!;
+        Assert.NotNull(truncation);
+        Assert.Equal(ApiSurfaceProjectionLimit.MetadataRows, truncation.Limit);
+        Assert.Equal(metadataRows - 1, truncation.Bound);
+        Assert.Equal(0, truncation.InspectedMetadataRows);
+        Assert.Empty(bounded.Assemblies.Assemblies);
+    }
+
+    [Fact]
+    public void ExecuteBounded_SpendsMetadataRowsAcrossParticipants()
+    {
+        byte[] firstImage = BuildBoundedSurfaceImage(
+            typeCount: 1,
+            interfaceCount: 2,
+            assemblyName: "First");
+        byte[] secondImage = BuildBoundedSurfaceImage(
+            typeCount: 1,
+            interfaceCount: 2,
+            assemblyName: "Second");
+        int metadataRows = MetadataRows(firstImage);
+        Assert.Equal(metadataRows, MetadataRows(secondImage));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.Create(
+                        IdentityOf(firstImage),
+                        path: null,
+                        () => new MemoryStream(firstImage, writable: false),
+                        AssemblyResolutionProvenance.Local("first")),
+                    policy),
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.Create(
+                        IdentityOf(secondImage),
+                        path: null,
+                        () => new MemoryStream(secondImage, writable: false),
+                        AssemblyResolutionProvenance.Local("second")),
+                    policy),
+            ]);
+
+        AssemblyContextApiSurfaceResult bounded =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.Public,
+                new ApiSurfaceProjectionLimits(
+                    64,
+                    2,
+                    2,
+                    0,
+                    0,
+                    metadataRows));
+
+        ApiSurfaceProjectionTruncation truncation = bounded.Truncation!;
+        Assert.NotNull(truncation);
+        Assert.Equal(ApiSurfaceProjectionLimit.MetadataRows, truncation.Limit);
+        Assert.Equal(metadataRows, truncation.InspectedMetadataRows);
+        Assert.Single(bounded.Assemblies.Assemblies);
+        Assert.Equal(1, truncation.ProjectedParticipants);
+        Assert.Equal(1, truncation.OmittedParticipants);
     }
 
     // The budget is spent across participants, so a participant that fits the remaining budget is
@@ -637,6 +738,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                     64,
                     maxTypes,
                     1_000_000,
+                    int.MaxValue,
                     int.MaxValue,
                     int.MaxValue));
 
@@ -693,6 +795,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                     1_000_000,
                     maxMembers,
                     int.MaxValue,
+                    int.MaxValue,
                     int.MaxValue));
 
         ApiSurfaceProjectionTruncation truncation = bounded.Truncation!;
@@ -733,6 +836,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                     1,
                     1_000_000,
                     1_000_000,
+                    int.MaxValue,
                     int.MaxValue,
                     int.MaxValue));
 
@@ -792,6 +896,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                     1_000_000,
                     1_000_000,
                     int.MaxValue,
+                    int.MaxValue,
                     int.MaxValue),
                 [selected]);
 
@@ -807,15 +912,17 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     public void ExecuteBounded_RejectsNonPositiveLimits()
     {
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ApiSurfaceProjectionLimits(0, 1, 1, 1, 1));
+            () => new ApiSurfaceProjectionLimits(0, 1, 1, 1, 1, 1));
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ApiSurfaceProjectionLimits(1, 0, 1, 1, 1));
+            () => new ApiSurfaceProjectionLimits(1, 0, 1, 1, 1, 1));
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ApiSurfaceProjectionLimits(1, 1, 0, 1, 1));
+            () => new ApiSurfaceProjectionLimits(1, 1, 0, 1, 1, 1));
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ApiSurfaceProjectionLimits(1, 1, 1, -1, 1));
+            () => new ApiSurfaceProjectionLimits(1, 1, 1, -1, 1, 1));
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ApiSurfaceProjectionLimits(1, 1, 1, 1, -1));
+            () => new ApiSurfaceProjectionLimits(1, 1, 1, 1, -1, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ApiSurfaceProjectionLimits(1, 1, 1, 1, 1, -1));
     }
 
     [Fact]
@@ -855,7 +962,8 @@ public sealed class AssemblyContextApiSurfaceQueryTests
         int maxTypes,
         int maxMembers,
         int maxInspectionFailures = int.MaxValue,
-        int maxTypeForwarders = int.MaxValue)
+        int maxTypeForwarders = int.MaxValue,
+        int maxMetadataRows = int.MaxValue)
     {
         ApiType[] types =
         [
@@ -890,6 +998,10 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                 inspectionFailures,
                 truncation.ProjectedInspectionFailures);
             Assert.Equal(typeForwarders, truncation.ProjectedTypeForwarders);
+            Assert.True(
+                truncation.InspectedMetadataRows <= maxMetadataRows,
+                $"inspected {truncation.InspectedMetadataRows} metadata rows "
+                    + $"over a bound of {maxMetadataRows}");
         }
     }
 
@@ -899,17 +1011,19 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     /// </summary>
     static byte[] BuildBoundedSurfaceImage(
         int typeCount,
-        int typeForwarderCount = 0)
+        int typeForwarderCount = 0,
+        int interfaceCount = 0,
+        string assemblyName = "BoundedSurface")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
-            moduleName: metadata.GetOrAddString("BoundedSurface.dll"),
+            moduleName: metadata.GetOrAddString(assemblyName + ".dll"),
             mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
             encId: default,
             encBaseId: default);
         metadata.AddAssembly(
-            metadata.GetOrAddString("BoundedSurface"),
+            metadata.GetOrAddString(assemblyName),
             new Version(1, 0, 0, 0),
             culture: default,
             publicKey: default,
@@ -922,25 +1036,32 @@ public sealed class AssemblyContextApiSurfaceQueryTests
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle firstType = default;
         for (int index = 0; index < typeCount; index++)
         {
-            metadata.AddTypeDefinition(
+            TypeDefinitionHandle type = metadata.AddTypeDefinition(
                 TypeAttributes.Public,
                 metadata.GetOrAddString("Bounded"),
                 metadata.GetOrAddString($"Type{index}"),
                 baseType: default,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));
+            if (firstType.IsNil)
+                firstType = type;
         }
-        if (typeForwarderCount > 0)
+        AssemblyReferenceHandle target = default;
+        if (typeForwarderCount > 0 || interfaceCount > 0)
         {
-            AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            target = metadata.AddAssemblyReference(
                 metadata.GetOrAddString("Forwarder.Target"),
                 new Version(1, 0, 0, 0),
                 culture: default,
                 publicKeyOrToken: default,
                 flags: default,
                 hashValue: default);
+        }
+        if (typeForwarderCount > 0)
+        {
             for (int index = 0; index < typeForwarderCount; index++)
             {
                 metadata.AddExportedType(
@@ -951,6 +1072,15 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                     typeDefinitionId: 0);
             }
         }
+        if (interfaceCount > 0)
+        {
+            TypeReferenceHandle interfaceType = metadata.AddTypeReference(
+                    target,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString("IMarker"));
+            for (int index = 0; index < interfaceCount; index++)
+                    metadata.AddInterfaceImplementation(firstType, interfaceType);
+        }
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
@@ -960,6 +1090,13 @@ public sealed class AssemblyContextApiSurfaceQueryTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static int MetadataRows(byte[] image)
+    {
+        using var reader = new PEReader(new MemoryStream(image, writable: false));
+        MetadataReader metadata = reader.GetMetadataReader();
+        return Enum.GetValues<TableIndex>().Sum(metadata.GetTableRowCount);
     }
 
     static TValue Available<TValue>(AssemblyContextResult<TValue> result)

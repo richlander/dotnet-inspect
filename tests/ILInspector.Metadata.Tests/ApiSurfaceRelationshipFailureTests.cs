@@ -43,7 +43,7 @@ public class ApiSurfaceRelationshipFailureTests
         ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
             peReader,
             ApiSurfaceExtractionScope.IncludeAll,
-            new ApiSurfaceExtractionBounds(0, 0, 1, 0),
+            new ApiSurfaceExtractionBounds(0, 0, 1, 0, int.MaxValue),
             typesOnly: true);
 
         ApiSurface surface =
@@ -65,7 +65,7 @@ public class ApiSurfaceRelationshipFailureTests
             ApiSurfaceExtractor.ExtractBounded(
                 peReader,
                 ApiSurfaceExtractionScope.IncludeAll,
-                new ApiSurfaceExtractionBounds(0, 0, 1, 0),
+                new ApiSurfaceExtractionBounds(0, 0, 1, 0, int.MaxValue),
                 typesOnly: true));
 
         Assert.Equal(ApiSurfaceExtractionBound.InspectionFailures, exceeded.Bound);

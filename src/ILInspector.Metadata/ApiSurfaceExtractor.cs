@@ -42,6 +42,9 @@ public enum ApiSurfaceExtractionBound
 
     /// <summary>The extraction would have retained more type forwarders than allowed.</summary>
     TypeForwarders,
+
+    /// <summary>The image contains more metadata rows than the caller allows the walk to inspect.</summary>
+    MetadataRows,
 }
 
 /// <summary>
@@ -59,16 +62,19 @@ public sealed record ApiSurfaceExtractionBounds
         int maxTypes,
         int maxMembers,
         int maxInspectionFailures,
-        int maxTypeForwarders)
+        int maxTypeForwarders,
+        int maxMetadataRows)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxTypes);
         ArgumentOutOfRangeException.ThrowIfNegative(maxMembers);
         ArgumentOutOfRangeException.ThrowIfNegative(maxInspectionFailures);
         ArgumentOutOfRangeException.ThrowIfNegative(maxTypeForwarders);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMetadataRows);
         MaxTypes = maxTypes;
         MaxMembers = maxMembers;
         MaxInspectionFailures = maxInspectionFailures;
         MaxTypeForwarders = maxTypeForwarders;
+        MaxMetadataRows = maxMetadataRows;
     }
 
     /// <summary>The most types the extraction may retain.</summary>
@@ -82,6 +88,9 @@ public sealed record ApiSurfaceExtractionBounds
 
     /// <summary>The most type forwarders the extraction may retain.</summary>
     public int MaxTypeForwarders { get; }
+
+    /// <summary>The most metadata rows the extraction may inspect.</summary>
+    public int MaxMetadataRows { get; }
 }
 
 /// <summary>The outcome of one bounded API-surface extraction.</summary>
@@ -97,7 +106,8 @@ public abstract record ApiSurfaceExtractionResult
     }
 
     /// <summary>The image's whole surface fit the declared bounds.</summary>
-    public sealed record Extracted(ApiSurface Surface) : ApiSurfaceExtractionResult;
+    public sealed record Extracted(ApiSurface Surface, int MetadataRows)
+        : ApiSurfaceExtractionResult;
 
     /// <summary>
     /// The extraction was abandoned before retaining the row that would have exceeded
@@ -258,13 +268,16 @@ public static class ApiSurfaceExtractor
 
         try
         {
+            var budget = new ExtractionBudget(bounds);
+            ApiSurface surface = Extract(
+                peReader,
+                scope,
+                typesOnly,
+                includeCompilerGenerated,
+                budget);
             return new ApiSurfaceExtractionResult.Extracted(
-                Extract(
-                    peReader,
-                    scope,
-                    typesOnly,
-                    includeCompilerGenerated,
-                    new ExtractionBudget(bounds)));
+                surface,
+                budget.MetadataRows);
         }
         catch (ExtractionBoundExceededException exceeded)
         {
@@ -284,6 +297,7 @@ public static class ApiSurfaceExtractor
 
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
+        budget?.AdmitMetadataRows(reader);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -2974,6 +2988,23 @@ public static class ApiSurfaceExtractor
         int _pendingMembers;
         int _inspectionFailures;
         int _typeForwarders;
+
+        public int MetadataRows { get; private set; }
+
+        /// <summary>Refuses an image whose metadata shape exceeds the remaining walk budget.</summary>
+        public void AdmitMetadataRows(MetadataReader reader)
+        {
+            foreach (TableIndex table in Enum.GetValues<TableIndex>())
+            {
+                int rows = reader.GetTableRowCount(table);
+                if (rows > bounds.MaxMetadataRows - MetadataRows)
+                {
+                    throw new ExtractionBoundExceededException(
+                        ApiSurfaceExtractionBound.MetadataRows);
+                }
+                MetadataRows += rows;
+            }
+        }
 
         /// <summary>Starts a retained type, refusing before its model or members are built.</summary>
         public void BeginType()

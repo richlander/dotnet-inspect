@@ -29,6 +29,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 int.MaxValue,
                 int.MaxValue,
                 int.MaxValue,
+                int.MaxValue,
                 int.MaxValue));
 
         Assert.Equal(
@@ -56,7 +57,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 types,
                 members,
                 inspectionFailures,
-                typeForwarders));
+                typeForwarders,
+                int.MaxValue));
 
         Assert.Equal(types, exact.Types.Count);
         Assert.Equal(members, exact.Types.Sum(type => type.Members.Count));
@@ -73,6 +75,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 new ApiSurfaceExtractionBounds(
                     unbounded.Types.Count - 1,
                     members,
+                    int.MaxValue,
                     int.MaxValue,
                     int.MaxValue)));
 
@@ -91,6 +94,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
                     unbounded.Types.Count,
                     members - 1,
                     int.MaxValue,
+                    int.MaxValue,
                     int.MaxValue)));
 
         Assert.Equal(ApiSurfaceExtractionBound.Members, exceeded.Bound);
@@ -102,7 +106,13 @@ public sealed class ApiSurfaceExtractorBoundsTests
     public void AnExhaustedTypeBudget_RefusesBeforeWalkingMembers()
     {
         var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
-            Extract(new ApiSurfaceExtractionBounds(0, 0, int.MaxValue, int.MaxValue)));
+            Extract(
+                new ApiSurfaceExtractionBounds(
+                    0,
+                    0,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue)));
 
         Assert.Equal(ApiSurfaceExtractionBound.Types, exceeded.Bound);
     }
@@ -111,13 +121,15 @@ public sealed class ApiSurfaceExtractorBoundsTests
     public void NegativeBounds_AreRejected()
     {
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ApiSurfaceExtractionBounds(-1, 0, 0, 0));
+            () => new ApiSurfaceExtractionBounds(-1, 0, 0, 0, 0));
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ApiSurfaceExtractionBounds(0, -1, 0, 0));
+            () => new ApiSurfaceExtractionBounds(0, -1, 0, 0, 0));
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ApiSurfaceExtractionBounds(0, 0, -1, 0));
+            () => new ApiSurfaceExtractionBounds(0, 0, -1, 0, 0));
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ApiSurfaceExtractionBounds(0, 0, 0, -1));
+            () => new ApiSurfaceExtractionBounds(0, 0, 0, -1, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ApiSurfaceExtractionBounds(0, 0, 0, 0, -1));
     }
 
     [Fact]
@@ -127,6 +139,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
             new ApiSurfaceExtractionBounds(
                 int.MaxValue,
                 0,
+                int.MaxValue,
                 int.MaxValue,
                 int.MaxValue),
             typesOnly: true);
@@ -146,9 +159,43 @@ public sealed class ApiSurfaceExtractorBoundsTests
                     int.MaxValue,
                     int.MaxValue,
                     int.MaxValue,
-                    unbounded.TypeForwarders.Count - 1)));
+                    unbounded.TypeForwarders.Count - 1,
+                    int.MaxValue)));
 
         Assert.Equal(ApiSurfaceExtractionBound.TypeForwarders, exceeded.Bound);
+    }
+
+    [Fact]
+    public void MetadataRowBudget_IsExactAndStopsBeforeExtraction()
+    {
+        var generous = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            Extract(
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue)));
+        Assert.True(generous.MetadataRows > 0);
+
+        Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            Extract(
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    generous.MetadataRows)));
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    generous.MetadataRows - 1)));
+
+        Assert.Equal(ApiSurfaceExtractionBound.MetadataRows, exceeded.Bound);
     }
 
     static ApiSurface Unbounded()
