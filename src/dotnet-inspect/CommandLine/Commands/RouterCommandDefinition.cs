@@ -287,19 +287,24 @@ public static class RouterCommandDefinition
                 message => platformLookupFailure ??= message);
             if (typeProbe != null)
             {
-                if (typeProbe.Kind == SourceResolver.LocalSourceKind.Platform
-                    && !await IsExactPlatformTypeAsync(typeProbe, context))
+                bool isNonExactPlatformProbe =
+                    typeProbe.Kind == SourceResolver.LocalSourceKind.Platform
+                    && !await IsExactPlatformTypeAsync(typeProbe, context);
+                if (isNonExactPlatformProbe && platformLookupFailure is null)
                 {
                     return ["type", target, .. tail];
                 }
 
-                RequestTelemetry.Breadcrumb(
-                    "qualified-type",
-                    $"{target} -> source={typeProbe.SourceName}; type={typeProbe.Remainder}");
+                if (!isNonExactPlatformProbe)
+                {
+                    RequestTelemetry.Breadcrumb(
+                        "qualified-type",
+                        $"{target} -> source={typeProbe.SourceName}; type={typeProbe.Remainder}");
 
-                return typeProbe.Kind == SourceResolver.LocalSourceKind.Platform
-                    ? ["type", typeProbe.Remainder, "--platform", typeProbe.SourceName, .. tail]
-                    : ["type", typeProbe.Remainder, "--package", typeProbe.SourceName, .. tail];
+                    return typeProbe.Kind == SourceResolver.LocalSourceKind.Platform
+                        ? ["type", typeProbe.Remainder, "--platform", typeProbe.SourceName, .. tail]
+                        : ["type", typeProbe.Remainder, "--package", typeProbe.SourceName, .. tail];
+                }
             }
 
             var typeFind = await TypeFindIfMissResolver.ResolvePlatformAsync(
