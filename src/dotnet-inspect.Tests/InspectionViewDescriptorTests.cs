@@ -125,6 +125,31 @@ public class InspectionViewDescriptorTests
     }
 
     [Fact]
+    public void EmptyMemberViewSelection_UsesMinimalPreset()
+    {
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    MetadataToken = 0x06000001,
+                    HasMethodBody = true
+                }
+            ]
+        };
+
+        InspectionViewSelection selection = pipeline.ResolveInspectionViews(model, null);
+
+        Assert.Equal([SectionNames.Signature], selection.SectionNames);
+    }
+
+    [Fact]
     public void TypeSourceViews_DiscloseAcquisitionCapabilities()
     {
         var model = new ApiType
@@ -257,7 +282,7 @@ public class InspectionViewDescriptorTests
     }
 
     [Fact]
-    public void PackageSourceLinkView_DisclosesPdbAcquisition()
+    public void PackageSourceLinkViews_DiscloseAcquisitionCapabilities()
     {
         var model = new InspectionResult
         {
@@ -266,12 +291,34 @@ public class InspectionViewDescriptorTests
             AssemblyCount = 1
         };
 
-        InspectionViewDescriptor view = Assert.Single(
-            PackageSectionDescriptors.CreatePipeline().GetInspectionViews(model),
-            candidate => candidate.Id == PackageSections.SourceLinkFiles);
+        IReadOnlyDictionary<string, InspectionViewDescriptor> views =
+            PackageSectionDescriptors.CreatePipeline()
+                .GetInspectionViews(model)
+                .ToDictionary(view => view.Id, StringComparer.OrdinalIgnoreCase);
 
-        Assert.Equal(SectionCapabilities.MayDownloadPdb, view.Capabilities);
-        Assert.True(view.MayUseNetwork);
+        Assert.Equal(
+            SectionCapabilities.MayDownloadPdb,
+            views[PackageSections.SourceLinkFiles].Capabilities);
+        Assert.Equal(
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayAuditSources,
+            views[PackageSections.SourceLinkAvailability].Capabilities);
+        Assert.Equal(
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayAuditSources,
+            views[PackageSections.SourceLinkMissingFiles].Capabilities);
+        Assert.Equal(
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources,
+            views[PackageSections.SourceLinkIntegrity].Capabilities);
+        foreach (string name in new[]
+        {
+            PackageSections.SourceLinkFiles,
+            PackageSections.SourceLinkAvailability,
+            PackageSections.SourceLinkMissingFiles,
+            PackageSections.SourceLinkIntegrity
+        })
+        {
+            Assert.True(views[name].MayUseNetwork);
+        }
+        Assert.True(views[PackageSections.SourceLinkIntegrity].MayFetchSourceContent);
     }
 
     [Fact]
@@ -363,5 +410,33 @@ public class InspectionViewDescriptorTests
         Assert.DoesNotContain(SectionNames.DecompiledSource, discoverable);
         Assert.DoesNotContain(SectionNames.OriginalSource, discoverable);
         Assert.DoesNotContain(SectionNames.SourceFiles, discoverable);
+    }
+
+    [Fact]
+    public void TypeDiscovery_PreservesUnsafeSignaturesWithoutExecutableBodies()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "NativeOnly",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Copy",
+                    Kind = "method",
+                    IsUnsafe = true
+                }
+            ]
+        };
+
+        IReadOnlyList<string> discoverable = pipeline.GetDiscoverableSections(model);
+        InspectionViewSelection selection = pipeline.ResolveInspectionViews(
+            model,
+            [SectionNames.UnsafeMembers]);
+
+        Assert.Contains(SectionNames.UnsafeMembers, discoverable);
+        Assert.Equal([SectionNames.UnsafeMembers], selection.SectionNames);
     }
 }

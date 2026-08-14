@@ -470,7 +470,7 @@ public sealed class SectionPipeline<TModel>
                     && IsRequested(
                         entry,
                         index,
-                        Verbosity.Normal,
+                        Verbosity.Minimal,
                         include: null,
                         fixedOverview: false),
                 IsHighValue: entry.Info,

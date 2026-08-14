@@ -261,6 +261,8 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.SourceLinkAvailability;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayAuditSources;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
@@ -272,6 +274,8 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.SourceLinkIntegrity;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
@@ -283,6 +287,8 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.SourceLinkMissingFiles;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayAuditSources;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)

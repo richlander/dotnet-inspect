@@ -118,7 +118,7 @@ public static class ApiMemberSectionDescriptors
             .Add<ExtensionMethods>(HasExtensionMethods)
             .Add<Events>()
             .Add<MethodAttributes>()
-            .Add<UnsafeMembers>(HasExecutableBodyMembers, HasExecutableBodyMembers)
+            .Add<UnsafeMembers>()
             .Add<ExceptionRegions>(HasExecutableBodyMembers, HasExecutableBodyMembers)
             .Add<CalledTypes>(HasExecutableBodyMembers, HasExecutableBodyMembers)
             .Add<AllocationFacts>(HasExecutableBodyMembers, HasExecutableBodyMembers)
