@@ -19,7 +19,7 @@ namespace ILInspector.Analysis;
 /// <see cref="MetadataReader"/>/<see cref="PEReader"/> pair and owns the
 /// cross-assembly reference-resolution state created for that acquisition.
 /// </summary>
-internal sealed class LibraryBodyAnalysisBuilder : IDisposable
+internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
 {
     readonly string _path;
     readonly MetadataReader _reader;
@@ -693,17 +693,23 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             var methodAttributes = methodDef.GetCustomAttributes();
             if (includeOpportunities)
             {
+                var opportunities =
+                    ImmutableArray.CreateBuilder<
+                        OptimizationOpportunity>();
                 bool collectOrdinaryOpportunities =
                     !typeSourceGenerated
                     && !HasGeneratedCodeAttribute(methodAttributes)
                     && !HasCompilerGeneratedAttribute(methodAttributes)
-                    && !IsBlazorRenderMethod(caller))
-                    result.Opportunities =
+                    && !IsBlazorRenderMethod(caller);
+                if (collectOrdinaryOpportunities)
+                {
+                    opportunities.AddRange(
                         OptimizationOpportunityAnalysis.Collect(
                             context,
                             allocations.DiscoveredOccurrences,
                             allocationAnalysis,
-                            methodAnalysisResolver);
+                            methodAnalysisResolver));
+                }
                 else
                 {
                     result.Suppressed = true;

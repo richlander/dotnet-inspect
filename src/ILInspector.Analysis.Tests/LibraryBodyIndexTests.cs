@@ -1879,7 +1879,7 @@ public class LibraryBodyIndexTests
                 optimizationDiagnostic.MethodToken);
             Assert.Empty(
                 optimizationIndex.OptimizationOpportunities);
-            Assert.Empty(optimizationIndex.DirectCalls);
+            Assert.Single(optimizationIndex.DirectCalls);
             Assert.Equal(CallTreeStatus.AnalysisIncomplete, tree.Status);
             Assert.Same(diagnostic, tree.Diagnostic);
             Assert.Single(index.DirectCalls);
