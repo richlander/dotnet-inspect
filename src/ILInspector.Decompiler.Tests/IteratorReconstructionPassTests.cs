@@ -910,6 +910,28 @@ public class IteratorReconstructionPassTests
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
+    [Fact]
+    public void GenericDeclaringTypeIterator_RemainsHonestlyAcknowledged()
+    {
+        var type = typeof(GenericIteratorDeclaringTypeSamples<>);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(GenericIteratorDeclaringTypeSamples<int>.Loop));
+        Assert.NotNull(function);
+        Assert.True(IteratorShapes.TryGetKickoff(function!, out var handoff));
+        var moveNext = handoff.Constructor with { Name = "MoveNext" };
+        Assert.Equal(TypeRefKind.GenericInstance, moveNext.DeclaringType.Kind);
+        Assert.Null(IrImporter.Import(source, moveNext));
+
+        var result = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        Assert.Single(function.Descendants.OfType<UnsupportedNode>(), node => node.Opcode == "iterator");
+        function.CheckInvariant();
+    }
+
     static (IrFunction Function, IrFunction MoveNext, MethodRef SideEffect) BuildKickoffWithSideEffectBeforeHandoff()
     {
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -1318,5 +1340,16 @@ public class IteratorReconstructionPassTests
             [],
             HasThis: false);
         return new StoreLocal(1, intType, new Call(effect, isVirtual: false, []));
+    }
+}
+
+public sealed class GenericIteratorDeclaringTypeSamples<T>
+{
+    readonly int _count = 3;
+
+    public System.Collections.Generic.IEnumerable<int> Loop()
+    {
+        for (int i = 0; i < _count; i++)
+            yield return i;
     }
 }
