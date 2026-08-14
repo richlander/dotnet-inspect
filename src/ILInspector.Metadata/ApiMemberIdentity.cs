@@ -1,6 +1,7 @@
 using CSharpText;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Text;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -60,12 +61,264 @@ public sealed record ExtensionMemberAnchorInfo(
 /// </summary>
 public static class ApiMemberIdentity
 {
-    sealed class AnchorSignatureTypeProvider : ISignatureTypeProvider<string, GenericContext?>
+    abstract class AnchorSignatureType
     {
-        public static readonly AnchorSignatureTypeProvider Instance = new();
+        protected AnchorSignatureType(int length)
+        {
+            if (length < 0
+                || length > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+            {
+                throw new BadImageFormatException(
+                    "The member anchor type exceeds the encoded-character budget.");
+            }
+            Length = length;
+        }
 
-        public string GetPrimitiveType(PrimitiveTypeCode typeCode)
-            => typeCode switch
+        internal int Length { get; }
+        internal abstract void AppendTo(StringBuilder builder);
+
+        internal string Render()
+        {
+            var builder = new StringBuilder(Length);
+            AppendTo(builder);
+            return builder.ToString();
+        }
+
+        internal static int CheckedLength(params int[] parts)
+        {
+            try
+            {
+                int length = 0;
+                foreach (int part in parts)
+                    length = checked(length + part);
+                return length;
+            }
+            catch (OverflowException ex)
+            {
+                throw new BadImageFormatException(
+                    "The member anchor type exceeds the encoded-character budget.",
+                    ex);
+            }
+        }
+
+        internal static int CheckedProduct(int left, int right)
+        {
+            try
+            {
+                return checked(left * right);
+            }
+            catch (OverflowException ex)
+            {
+                throw new BadImageFormatException(
+                    "The member anchor type exceeds the encoded-character budget.",
+                    ex);
+            }
+        }
+    }
+
+    sealed class EncodedAnchorSignatureType(string text)
+        : AnchorSignatureType(text.Length)
+    {
+        internal override void AppendTo(StringBuilder builder)
+            => builder.Append(text);
+    }
+
+    sealed class WrappedAnchorSignatureType
+        : AnchorSignatureType
+    {
+        readonly string _prefix;
+        readonly AnchorSignatureType _value;
+        readonly string _suffix;
+
+        internal WrappedAnchorSignatureType(
+            string prefix,
+            AnchorSignatureType value,
+            string suffix)
+            : base(CheckedLength(prefix.Length, value.Length, suffix.Length))
+        {
+            _prefix = prefix;
+            _value = value;
+            _suffix = suffix;
+        }
+
+        internal override void AppendTo(StringBuilder builder)
+        {
+            builder.Append(_prefix);
+            _value.AppendTo(builder);
+            builder.Append(_suffix);
+        }
+    }
+
+    sealed class ArrayAnchorSignatureType
+        : AnchorSignatureType
+    {
+        readonly AnchorSignatureType _elementType;
+        readonly int _rank;
+
+        internal ArrayAnchorSignatureType(
+            AnchorSignatureType elementType,
+            int rank)
+            : base(
+                CheckedLength(
+                    elementType.Length,
+                    rank <= 1
+                        ? 3
+                        : CheckedLength(rank, 1)))
+        {
+            _elementType = elementType;
+            _rank = rank;
+        }
+
+        internal override void AppendTo(StringBuilder builder)
+        {
+            _elementType.AppendTo(builder);
+            if (_rank <= 1)
+            {
+                builder.Append("[*]");
+                return;
+            }
+
+            builder.Append('[');
+            builder.Append(',', _rank - 1);
+            builder.Append(']');
+        }
+    }
+
+    sealed class JoinedAnchorSignatureType
+        : AnchorSignatureType
+    {
+        readonly string _prefix;
+        readonly ImmutableArray<AnchorSignatureType> _values;
+        readonly string _separator;
+        readonly string _suffix;
+
+        internal JoinedAnchorSignatureType(
+            string prefix,
+            ImmutableArray<AnchorSignatureType> values,
+            string separator,
+            string suffix)
+            : base(GetLength(prefix, values, separator, suffix))
+        {
+            _prefix = prefix;
+            _values = values;
+            _separator = separator;
+            _suffix = suffix;
+        }
+
+        static int GetLength(
+            string prefix,
+            ImmutableArray<AnchorSignatureType> values,
+            string separator,
+            string suffix)
+        {
+            int length = CheckedLength(prefix.Length, suffix.Length);
+            if (values.Length > 1)
+            {
+                length = CheckedLength(
+                    length,
+                    CheckedProduct(
+                        separator.Length,
+                        values.Length - 1));
+            }
+            foreach (AnchorSignatureType value in values)
+                length = CheckedLength(length, value.Length);
+            return length;
+        }
+
+        internal override void AppendTo(StringBuilder builder)
+        {
+            builder.Append(_prefix);
+            for (int i = 0; i < _values.Length; i++)
+            {
+                if (i > 0)
+                    builder.Append(_separator);
+                _values[i].AppendTo(builder);
+            }
+            builder.Append(_suffix);
+        }
+    }
+
+    sealed class GenericAnchorSignatureType
+        : AnchorSignatureType
+    {
+        readonly AnchorSignatureType _genericType;
+        readonly ImmutableArray<AnchorSignatureType> _typeArguments;
+
+        internal GenericAnchorSignatureType(
+            AnchorSignatureType genericType,
+            ImmutableArray<AnchorSignatureType> typeArguments)
+            : base(GetLength(genericType, typeArguments))
+        {
+            _genericType = genericType;
+            _typeArguments = typeArguments;
+        }
+
+        static int GetLength(
+            AnchorSignatureType genericType,
+            ImmutableArray<AnchorSignatureType> typeArguments)
+        {
+            int length = CheckedLength(genericType.Length, 2);
+            if (typeArguments.Length > 1)
+                length = CheckedLength(length, typeArguments.Length - 1);
+            foreach (AnchorSignatureType argument in typeArguments)
+                length = CheckedLength(length, argument.Length);
+            return length;
+        }
+
+        internal override void AppendTo(StringBuilder builder)
+        {
+            _genericType.AppendTo(builder);
+            builder.Append('<');
+            for (int i = 0; i < _typeArguments.Length; i++)
+            {
+                if (i > 0)
+                    builder.Append(',');
+                _typeArguments[i].AppendTo(builder);
+            }
+            builder.Append('>');
+        }
+    }
+
+    /// <summary>
+    /// Cumulative work budget for one member-anchor signature construction.
+    /// Mirrors <c>StructuralSignatureWorkBudget</c>: charge every materialized
+    /// type-name occurrence so repeated long names cannot amplify past
+    /// <see cref="MetadataSafetyPolicy.MaxAnchorSignatureWorkChars"/> before
+    /// rejection. Gated by
+    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>.
+    /// </summary>
+    sealed class AnchorSignatureWorkBudget
+    {
+        int _remaining = MetadataSafetyPolicy.MaxAnchorSignatureWorkChars;
+        bool _exhausted;
+
+        internal void Charge(int characters)
+        {
+            if (_exhausted || characters < 0 || characters > _remaining)
+            {
+                _exhausted = true;
+                throw new BadImageFormatException(
+                    "The member anchor signature exceeds the cumulative work budget.");
+            }
+            _remaining -= characters;
+        }
+    }
+
+    sealed class AnchorSignatureTypeProvider
+        : ISignatureTypeProvider<AnchorSignatureType, GenericContext?>
+    {
+        readonly AnchorSignatureWorkBudget _workBudget;
+        Dictionary<TypeDefinitionHandle, AnchorSignatureType>? _definitionCache;
+        Dictionary<TypeReferenceHandle, AnchorSignatureType>? _referenceCache;
+
+        internal AnchorSignatureTypeProvider(
+            AnchorSignatureWorkBudget workBudget)
+        {
+            _workBudget = workBudget;
+        }
+
+        public AnchorSignatureType GetPrimitiveType(PrimitiveTypeCode typeCode)
+            => Encoded(typeCode switch
             {
                 PrimitiveTypeCode.Boolean => "System.Boolean",
                 PrimitiveTypeCode.Byte => "System.Byte",
@@ -86,52 +339,227 @@ public static class ApiMemberIdentity
                 PrimitiveTypeCode.Void => "System.Void",
                 PrimitiveTypeCode.TypedReference => "System.TypedReference",
                 _ => typeCode.ToString(),
-            };
+            });
 
-        public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-            => TypeResolver.GetFullName(reader, reader.GetTypeDefinition(handle)).Replace('+', '.');
+        public AnchorSignatureType GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind)
+        {
+            _definitionCache ??= [];
+            if (_definitionCache.TryGetValue(handle, out AnchorSignatureType? cached))
+            {
+                // Reuse the composed name, but still charge this occurrence so
+                // repeated references cannot bypass the cumulative work budget.
+                _workBudget.Charge(cached.Length);
+                return cached;
+            }
 
-        public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-            => TypeResolver.GetTypeNameFromReference(reader, handle).Replace('+', '.');
+            AnchorSignatureType encoded =
+                Encoded(FormatDefinitionTypeName(reader, handle));
+            _definitionCache.Add(handle, encoded);
+            return encoded;
+        }
 
-        public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
+        public AnchorSignatureType GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind)
+        {
+            _referenceCache ??= [];
+            if (_referenceCache.TryGetValue(handle, out AnchorSignatureType? cached))
+            {
+                _workBudget.Charge(cached.Length);
+                return cached;
+            }
+
+            AnchorSignatureType encoded =
+                Encoded(FormatReferenceTypeName(reader, handle));
+            _referenceCache.Add(handle, encoded);
+            return encoded;
+        }
+
+        public AnchorSignatureType GetTypeFromSpecification(
+            MetadataReader reader,
+            GenericContext? context,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind)
         {
             if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
-                return "System.Object";
+                return Encoded("System.Object");
             using (scope)
             {
                 return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
             }
         }
 
-        public string GetSZArrayType(string elementType) => $"{elementType}[]";
+        public AnchorSignatureType GetSZArrayType(
+            AnchorSignatureType elementType)
+            => new WrappedAnchorSignatureType("", elementType, "[]");
 
-        public string GetArrayType(string elementType, ArrayShape shape)
-            => $"{elementType}[{(shape.Rank <= 1 ? "*" : new string(',', shape.Rank - 1))}]";
+        public AnchorSignatureType GetArrayType(
+            AnchorSignatureType elementType,
+            ArrayShape shape)
+            => new ArrayAnchorSignatureType(
+                elementType,
+                shape.Rank);
 
-        public string GetByReferenceType(string elementType) => $"{elementType}&";
+        public AnchorSignatureType GetByReferenceType(
+            AnchorSignatureType elementType)
+            => new WrappedAnchorSignatureType("", elementType, "&");
 
-        public string GetPointerType(string elementType) => $"{elementType}*";
+        public AnchorSignatureType GetPointerType(
+            AnchorSignatureType elementType)
+            => new WrappedAnchorSignatureType("", elementType, "*");
 
-        public string GetPinnedType(string elementType) => $"pinned {elementType}";
+        public AnchorSignatureType GetPinnedType(
+            AnchorSignatureType elementType)
+            => new WrappedAnchorSignatureType("pinned ", elementType, "");
 
-        public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
-            => $"{genericType}<{string.Join(",", typeArguments)}>";
+        public AnchorSignatureType GetGenericInstantiation(
+            AnchorSignatureType genericType,
+            ImmutableArray<AnchorSignatureType> typeArguments)
+            => new GenericAnchorSignatureType(genericType, typeArguments);
 
-        public string GetGenericTypeParameter(GenericContext? context, int index)
-            => context is not null && index >= 0 && index < context.TypeParameters.Count
+        public AnchorSignatureType GetGenericTypeParameter(
+            GenericContext? context,
+            int index)
+            => Encoded(
+                context is not null
+                    && index >= 0
+                    && index < context.TypeParameters.Count
                 ? context.TypeParameters[index]
-                : $"!{index}";
+                : $"!{index}");
 
-        public string GetGenericMethodParameter(GenericContext? context, int index)
-            => context is not null && index >= 0 && index < context.MethodParameters.Count
+        public AnchorSignatureType GetGenericMethodParameter(
+            GenericContext? context,
+            int index)
+            => Encoded(
+                context is not null
+                    && index >= 0
+                    && index < context.MethodParameters.Count
                 ? context.MethodParameters[index]
-                : $"!!{index}";
+                : $"!!{index}");
 
-        public string GetFunctionPointerType(MethodSignature<string> signature)
-            => $"delegate*<{string.Join(",", signature.ParameterTypes.Append(signature.ReturnType))}>";
+        public AnchorSignatureType GetFunctionPointerType(
+            MethodSignature<AnchorSignatureType> signature)
+            => new JoinedAnchorSignatureType(
+                "delegate*<",
+                signature.ParameterTypes.Add(signature.ReturnType),
+                ",",
+                ">");
 
-        public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
+        public AnchorSignatureType GetModifiedType(
+            AnchorSignatureType modifier,
+            AnchorSignatureType unmodifiedType,
+            bool isRequired)
+            => unmodifiedType;
+
+        string FormatDefinitionTypeName(
+            MetadataReader reader,
+            TypeDefinitionHandle handle)
+        {
+            Span<TypeDefinitionHandle> chain =
+                stackalloc TypeDefinitionHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                    reader,
+                    handle,
+                    chain,
+                    out int consumed,
+                    out EntityHandle terminal,
+                    out var rejection)
+                || consumed == 0
+                || !terminal.IsNil)
+            {
+                throw new BadImageFormatException(
+                    rejection?.Detail
+                        ?? "The type has an invalid declaring-type chain.");
+            }
+
+            var builder = new StringBuilder();
+            var outer = reader.GetTypeDefinition(chain[0]);
+            AppendSignatureTypeName(
+                builder,
+                MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    outer.Namespace));
+            for (int i = 0; i < consumed; i++)
+            {
+                if (builder.Length > 0)
+                    AppendSignatureTypeName(builder, ".");
+                AppendSignatureTypeName(
+                    builder,
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        reader.GetTypeDefinition(chain[i]).Name));
+            }
+            return builder.ToString();
+        }
+
+        string FormatReferenceTypeName(
+            MetadataReader reader,
+            TypeReferenceHandle handle)
+        {
+            Span<TypeReferenceHandle> chain =
+                stackalloc TypeReferenceHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out int consumed,
+                    out _,
+                    out var rejection)
+                || consumed == 0)
+            {
+                throw new BadImageFormatException(
+                    rejection?.Detail
+                        ?? "The type has an invalid resolution-scope chain.");
+            }
+
+            var builder = new StringBuilder();
+            var outer = reader.GetTypeReference(chain[0]);
+            AppendSignatureTypeName(
+                builder,
+                MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    outer.Namespace));
+            for (int i = 0; i < consumed; i++)
+            {
+                if (builder.Length > 0)
+                    AppendSignatureTypeName(builder, ".");
+                AppendSignatureTypeName(
+                    builder,
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        reader.GetTypeReference(chain[i]).Name));
+            }
+            return builder.ToString();
+        }
+
+        static void AppendSignatureTypeName(
+            StringBuilder builder,
+            string value)
+        {
+            if (builder.Length
+                > MetadataSafetyPolicy.MaxStructuralSignatureChars
+                    - value.Length)
+            {
+                throw new BadImageFormatException(
+                    "The member anchor signature exceeds the encoded-character budget.");
+            }
+            builder.Append(value);
+        }
+
+        AnchorSignatureType Encoded(string text)
+        {
+            // Charge every occurrence, including repeated references to the same
+            // long name, so the cumulative work budget gates amplification during
+            // tree construction rather than after EnsureAnchorSignatureBudget.
+            _workBudget.Charge(text.Length);
+            return new EncodedAnchorSignatureType(text);
+        }
     }
 
     public static string GetMemberDigest(string canonicalSignature)
@@ -302,25 +730,61 @@ public static class ApiMemberIdentity
         PropertyDefinition property)
     {
         var context = GenericContext.ForType(reader, markerType);
-        var markerSignature = GuardedProviderDecode.Method(reader, markerMethod, AnchorSignatureTypeProvider.Instance, context, "System.Object");
+        var workBudget = new AnchorSignatureWorkBudget();
+        var provider = new AnchorSignatureTypeProvider(workBudget);
+        var decodedMarker = GuardedProviderDecode.MethodResult(
+            reader,
+            markerMethod,
+            provider,
+            context,
+            new EncodedAnchorSignatureType("System.Object"));
+        if (decodedMarker.IsDegraded)
+        {
+            throw new BadImageFormatException(
+                "The extension marker signature exceeds the metadata safety limit.");
+        }
+        MethodSignature<AnchorSignatureType> markerSignature =
+            decodedMarker.Value;
         if (markerSignature.ParameterTypes.Length != 1)
             throw new BadImageFormatException("An extension marker must have exactly one receiver parameter.");
 
-        var propertySignature = GuardedProviderDecode.Property(reader, property, AnchorSignatureTypeProvider.Instance, context, "System.Object");
-        string propertyName = reader.GetString(property.Name);
+        var decodedProperty = GuardedProviderDecode.PropertyResult(
+            reader,
+            property,
+            provider,
+            context,
+            new EncodedAnchorSignatureType("System.Object"));
+        if (decodedProperty.IsDegraded)
+        {
+            throw new BadImageFormatException(
+                "The extension property signature exceeds the metadata safety limit.");
+        }
+        MethodSignature<AnchorSignatureType> propertySignature =
+            decodedProperty.Value;
+        EnsureAnchorSignatureBudget(
+            propertySignature.ReturnType,
+            markerSignature.ParameterTypes,
+            propertySignature.ParameterTypes);
+        string propertyName =
+            MetadataSafetyPolicy.ReadStructuralString(
+                reader,
+                property.Name);
         string typeFullName = FormatDefinitionName(reader, extensionClassHandle);
-        string extendedType = markerSignature.ParameterTypes[0];
+        string extendedType = markerSignature.ParameterTypes[0].Render();
+        ImmutableArray<string> propertyParameterTypes =
+            Render(markerSignature.ParameterTypes)
+                .AddRange(Render(propertySignature.ParameterTypes));
         string canonicalSignature = MemberCanonicalSignature.BuildExtensionProperty(
             typeFullName,
             propertyName,
-            markerSignature.ParameterTypes.AddRange(propertySignature.ParameterTypes));
+            propertyParameterTypes);
         return new ExtensionMemberAnchorInfo(
             CreateAnchor(
                 typeFullName,
                 $"extension:{propertyName}",
                 propertyName,
                 canonicalSignature),
-            propertySignature.ReturnType,
+            propertySignature.ReturnType.Render(),
             extendedType);
     }
 
@@ -331,15 +795,37 @@ public static class ApiMemberIdentity
         bool isExtensionMethod)
     {
         var type = reader.GetTypeDefinition(typeHandle);
-        string methodName = reader.GetString(method.Name);
-        var signature = GuardedProviderDecode.Method(
+        string methodName =
+            MetadataSafetyPolicy.ReadStructuralString(
+                reader,
+                method.Name);
+        GenericContext context =
+            GenericContext.ForMethod(reader, type, method);
+        var workBudget = new AnchorSignatureWorkBudget();
+        var provider = new AnchorSignatureTypeProvider(workBudget);
+        var decoded = GuardedProviderDecode.MethodResult(
             reader,
             method,
-            AnchorSignatureTypeProvider.Instance,
-            GenericContext.ForMethod(reader, type, method),
-            "System.Object");
+            provider,
+            context,
+            new EncodedAnchorSignatureType("System.Object"));
+        if (decoded.IsDegraded)
+        {
+            throw new BadImageFormatException(
+                "The method signature exceeds the metadata safety limit.");
+        }
+        MethodSignature<AnchorSignatureType> signature =
+            decoded.Value;
+        EnsureAnchorSignatureBudget(
+            signature.ReturnType,
+            signature.ParameterTypes);
         string typeFullName = FormatDefinitionName(reader, typeHandle);
-        string memberName = MethodMemberName(reader, methodName, method);
+        string memberName = MethodMemberName(
+            methodName,
+            context.MethodParameters);
+        string returnType = signature.ReturnType.Render();
+        ImmutableArray<string> parameterTypes =
+            Render(signature.ParameterTypes);
         // Route the SRM-direct producer through the single full-name grammar core so it
         // cannot drift from other producers. Conversion operators overload on return type,
         // so pass the return type for their disambiguation suffix only.
@@ -347,14 +833,49 @@ public static class ApiMemberIdentity
             "M",
             typeFullName,
             memberName,
-            signature.ParameterTypes,
-            IsConversionOperator(methodName) ? signature.ReturnType : null);
+            parameterTypes,
+            IsConversionOperator(methodName) ? returnType : null);
         string selectorName = GetMemberSelectorName(methodName, isExtensionMethod);
         return (
             CreateAnchor(typeFullName, selectorName, memberName, canonicalSignature),
-            signature.ReturnType,
-            signature.ParameterTypes);
+            returnType,
+            parameterTypes);
     }
+
+    static ImmutableArray<string> Render(
+        ImmutableArray<AnchorSignatureType> types)
+    {
+        var builder = ImmutableArray.CreateBuilder<string>(types.Length);
+        foreach (AnchorSignatureType type in types)
+            builder.Add(type.Render());
+        return builder.MoveToImmutable();
+    }
+
+    static void EnsureAnchorSignatureBudget(
+        AnchorSignatureType returnType,
+        params ImmutableArray<AnchorSignatureType>[] parameterGroups)
+    {
+        int remaining =
+            MetadataSafetyPolicy.MaxStructuralSignatureChars
+            - returnType.Length;
+        if (remaining < 0)
+            throw AnchorSignatureBudgetExceeded();
+
+        foreach (ImmutableArray<AnchorSignatureType> parameters
+            in parameterGroups)
+        {
+            foreach (AnchorSignatureType parameter in parameters)
+            {
+                if (parameter.Length > remaining)
+                    throw AnchorSignatureBudgetExceeded();
+                remaining -= parameter.Length;
+            }
+        }
+    }
+
+    static BadImageFormatException AnchorSignatureBudgetExceeded()
+        => new(
+            "The member anchor signature exceeds the encoded-character budget.");
 
     public static MemberAnchor CreateAnchor(ApiType type, ApiMember member, string canonicalSignature)
     {
@@ -387,30 +908,114 @@ public static class ApiMemberIdentity
 
     static string FormatDefinitionName(MetadataReader reader, TypeDefinitionHandle handle)
     {
-        var type = reader.GetTypeDefinition(handle);
-        var genericNames = type.GetGenericParameters()
-            .Select(parameter => reader.GetString(reader.GetGenericParameter(parameter).Name))
-            .ToArray();
-        string name = reader.GetString(type.Name);
-        int tick = name.IndexOf('`');
-        string simple = tick < 0 ? name : name[..tick];
-        if (genericNames.Length > 0)
-            simple += $"<{string.Join(",", genericNames)}>";
-        var declaring = type.GetDeclaringType();
-        if (!declaring.IsNil)
-            return $"{FormatDefinitionName(reader, declaring)}.{simple}";
-        string ns = reader.GetString(type.Namespace);
-        return string.IsNullOrEmpty(ns) ? simple : $"{ns}.{simple}";
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                reader,
+                handle,
+                chain,
+                out int consumed,
+                out EntityHandle terminal,
+                out var rejection)
+            || consumed == 0
+            || !terminal.IsNil)
+        {
+            throw new BadImageFormatException(
+                rejection?.Detail
+                    ?? "The type has an invalid declaring-type chain.");
+        }
+
+        var builder = new StringBuilder();
+        string @namespace =
+            MetadataSafetyPolicy.ReadStructuralString(
+                reader,
+                reader.GetTypeDefinition(chain[0]).Namespace);
+        if (!string.IsNullOrEmpty(@namespace))
+        {
+            AppendAnchorName(builder, @namespace);
+            AppendAnchorName(builder, ".");
+        }
+
+        for (int i = 0; i < consumed; i++)
+        {
+            if (i > 0)
+                AppendAnchorName(builder, ".");
+
+            var type = reader.GetTypeDefinition(chain[i]);
+            string name =
+                MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    type.Name);
+            int tick = name.IndexOf('`');
+            AppendAnchorName(
+                builder,
+                name,
+                tick < 0 ? name.Length : tick);
+
+            var genericParameters = type.GetGenericParameters();
+            if (genericParameters.Count == 0)
+                continue;
+
+            AppendAnchorName(builder, "<");
+            int index = 0;
+            foreach (GenericParameterHandle parameter in genericParameters)
+            {
+                if (index++ > 0)
+                    AppendAnchorName(builder, ",");
+                AppendAnchorName(
+                    builder,
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        reader.GetGenericParameter(parameter).Name));
+            }
+            AppendAnchorName(builder, ">");
+        }
+
+        return builder.ToString();
     }
 
-    static string MethodMemberName(MetadataReader reader, string methodName, MethodDefinition method)
+    static void AppendAnchorName(
+        StringBuilder builder,
+        string value)
+        => AppendAnchorName(builder, value, value.Length);
+
+    static void AppendAnchorName(
+        StringBuilder builder,
+        string value,
+        int count)
+    {
+        if (count < 0
+            || count > value.Length
+            || builder.Length
+                > MetadataSafetyPolicy.MaxStructuralSignatureChars - count)
+        {
+            throw new BadImageFormatException(
+                "The member anchor name exceeds the encoded-character budget.");
+        }
+        builder.Append(value, 0, count);
+    }
+
+    static string MethodMemberName(
+        string methodName,
+        IReadOnlyList<string> genericNames)
     {
         if (methodName == ".ctor")
             return "#ctor";
-        var genericNames = method.GetGenericParameters()
-            .Select(parameter => reader.GetString(reader.GetGenericParameter(parameter).Name))
-            .ToArray();
-        return genericNames.Length == 0 ? methodName : $"{methodName}<{string.Join(",", genericNames)}>";
+        if (genericNames.Count == 0)
+            return methodName;
+
+        var builder = new StringBuilder();
+        AppendAnchorName(builder, methodName);
+        AppendAnchorName(builder, "<");
+        for (int i = 0; i < genericNames.Count; i++)
+        {
+            if (i > 0)
+                AppendAnchorName(builder, ",");
+            AppendAnchorName(builder, genericNames[i]);
+        }
+        AppendAnchorName(builder, ">");
+        return builder.ToString();
     }
 
     public static string GetCanonicalSignature(ApiType type, ApiMember member)

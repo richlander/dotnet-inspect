@@ -4,10 +4,38 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using YamlDotNet.RepresentationModel;
 
 string repository = Environment.CurrentDirectory;
-(string body, string[] outputs) = LoadDetectionBody(repository);
+string workflowPath = Path.Combine(
+    repository,
+    ".github",
+    "workflows",
+    "ci.yml");
+string workflowText = File.ReadAllText(workflowPath);
+if (args is ["--refresh-evil-provenance-pin"])
+{
+    string refreshed = RefreshEvilProvenancePin(repository, workflowText);
+    if (refreshed == workflowText)
+    {
+        Console.WriteLine("EVIL provenance pin is already current.");
+    }
+    else
+    {
+        File.WriteAllText(workflowPath, refreshed);
+        Console.WriteLine("Refreshed the EVIL provenance run SHA-256 in .github/workflows/ci.yml.");
+    }
+    return;
+}
+if (args.Length != 0)
+{
+    throw new InvalidOperationException(
+        "Usage: dotnet run eng/test-ci-change-detection.cs [-- --refresh-evil-provenance-pin]");
+}
+
+var (body, outputs, _, _) = LoadDetectionBody(repository, workflowText);
+AssertEvilProvenancePinMutations(repository, workflowText);
 
 AssertAll(RunDetection(repository, body, "pull_request", "", outputs), "true");
 AssertAll(RunDetection(repository, body, "push", "", outputs), "false");
@@ -254,6 +282,53 @@ if (source["code"] != "true")
         $"Source canary did not select code: {FormatValues(source)}");
 }
 AssertRouting(source, selected: "shipped", notSelected: "csharpdiff");
+AssertRouting(source, selected: "shipped", notSelected: "decompiler");
+
+Dictionary<string, string> cliTests = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/dotnet-inspect.Tests/CommandExecutionTests.cs",
+    outputs);
+AssertRouting(cliTests, selected: "code", notSelected: "decompiler");
+
+Dictionary<string, string> decompilerSubstrate = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/ILInspector.MetadataPrimitives/TypeName.cs",
+    outputs);
+AssertRouting(
+    decompilerSubstrate,
+    selected: "decompiler",
+    notSelected: "packaging");
+
+Dictionary<string, string> decompilerFixture = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/ILInspector.Decompiler.Fixtures.ClassicAsync/Fixture.cs",
+    outputs);
+AssertRouting(
+    decompilerFixture,
+    selected: "decompiler",
+    notSelected: "packaging");
+
+Dictionary<string, string> missingDecompilerSkipList = RunDetection(
+    repository,
+    body.Replace(
+        "eng/decompiler-gate-skip-projects.txt",
+        "eng/missing-decompiler-gate-skip-projects.txt",
+        StringComparison.Ordinal),
+    "pull_request",
+    "src/dotnet-inspect/Program.cs",
+    outputs);
+if (missingDecompilerSkipList["decompiler"] != "true")
+{
+    throw new InvalidOperationException(
+        "Missing decompiler project skip list did not fail safe: " +
+        FormatValues(missingDecompilerSkipList));
+}
 
 Dictionary<string, string> multipleFiles = RunDetection(
     repository,
@@ -268,6 +343,25 @@ if (multipleFiles["code"] != "true" ||
     throw new InvalidOperationException(
         $"Distinct multi-file canary did not discriminate: " +
         FormatValues(multipleFiles));
+}
+
+Dictionary<string, string> platformTypeRouting = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    """
+    docs/workflows/getting-started/type-and-member-addressability.md
+    src/dotnet-inspect.Tests/CommandExecutionTests.cs
+    src/dotnet-inspect/CommandLine/Commands/RouterCommandDefinition.cs
+    """,
+    outputs);
+if (platformTypeRouting["code"] != "true"
+    || platformTypeRouting["docs"] != "true"
+    || platformTypeRouting["decompiler"] != "false")
+{
+    throw new InvalidOperationException(
+        "Platform type routing canary selected the wrong lanes: " +
+        FormatValues(platformTypeRouting));
 }
 
 Dictionary<string, string> csharpDiff = RunDetection(
@@ -327,6 +421,14 @@ if (workflow["code"] != "true" || workflow["skills"] != "true")
     throw new InvalidOperationException(
         $"Workflow canary did not select code and skills: {FormatValues(workflow)}");
 }
+
+Dictionary<string, string> detectionGate = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "eng/test-ci-change-detection.cs",
+    outputs);
+AssertRouting(detectionGate, selected: "code", notSelected: "docs");
 
 Dictionary<string, string> skill = RunDetection(
     repository,
@@ -438,12 +540,19 @@ AssertDetectionFails(
     $"false{Environment.NewLine}{body}",
     outputs);
 
-Console.WriteLine("CI change detection fail-safe and path canaries passed.");
+Console.WriteLine(
+    "CI change detection fail-safe, path canaries, and provenance pin mutations passed.");
 
-static (string Body, string[] Outputs) LoadDetectionBody(string repository)
+static (
+    string Body,
+    string[] Outputs,
+    string ProvenanceRunSha256,
+    string ProvenancePin) LoadDetectionBody(
+        string repository,
+        string workflowText,
+        bool validateProvenancePin = true)
 {
-    string workflow = Path.Combine(repository, ".github", "workflows", "ci.yml");
-    using TextReader reader = File.OpenText(workflow);
+    using TextReader reader = new StringReader(workflowText);
     YamlStream yaml = [];
     yaml.Load(reader);
     if (yaml.Documents.Count != 1)
@@ -451,6 +560,109 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         throw new InvalidOperationException(
             $"Expected one workflow document, found {yaml.Documents.Count}.");
     }
+
+    static void ValidateDecompilerProjectSkipList(string repository)
+    {
+        string manifestPath = Path.Combine(
+            repository,
+            "eng",
+            "decompiler-gate-skip-projects.txt");
+        string[] manifestLines = File.ReadAllLines(manifestPath);
+        var actual = manifestLines.ToHashSet(StringComparer.Ordinal);
+        if (actual.Count != manifestLines.Length
+            || manifestLines.Any(line =>
+                string.IsNullOrWhiteSpace(line)
+                || line != line.Trim()
+                || Path.IsPathRooted(line)
+                || line.EndsWith('/')
+                || line.Split('/').Any(part => part is "" or "." or "..")
+                || !Directory.Exists(Path.Combine(repository, line))))
+        {
+            throw new InvalidOperationException(
+                "eng/decompiler-gate-skip-projects.txt must contain unique, " +
+                "existing, canonical repository-relative project directories.");
+        }
+
+        string graphPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-decompiler-graph-{Guid.NewGuid():N}.json");
+        try
+        {
+            ProcessStartInfo startInfo = new("dotnet")
+            {
+                UseShellExecute = false,
+                WorkingDirectory = repository,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            startInfo.ArgumentList.Add("msbuild");
+            startInfo.ArgumentList.Add(
+                "src/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj");
+            startInfo.ArgumentList.Add("-t:GenerateRestoreGraphFile");
+            startInfo.ArgumentList.Add($"-p:RestoreGraphOutputPath={graphPath}");
+            startInfo.ArgumentList.Add("-nologo");
+            startInfo.ArgumentList.Add("-v:q");
+
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException(
+                    "Could not start dotnet msbuild for the decompiler project graph.");
+            string standardOutput = process.StandardOutput.ReadToEnd();
+            string standardError = process.StandardError.ReadToEnd();
+            bool timedOut = !process.WaitForExit(milliseconds: 30_000);
+            if (timedOut)
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit();
+            }
+            if (timedOut || process.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    "Could not evaluate the decompiler project graph.\n" +
+                    $"stdout:\n{standardOutput}\nstderr:\n{standardError}");
+            }
+
+            using JsonDocument graph = JsonDocument.Parse(
+                File.ReadAllText(graphPath));
+            var projectClosure = graph.RootElement
+                .GetProperty("projects")
+                .EnumerateObject()
+                .Select(project =>
+                {
+                    string relative = Path.GetRelativePath(repository, project.Name);
+                    if (Path.IsPathRooted(relative)
+                        || relative == ".."
+                        || relative.StartsWith(
+                            $"..{Path.DirectorySeparatorChar}",
+                            StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException(
+                            $"Decompiler graph project is outside the repository: {project.Name}");
+                    }
+
+                    return Path.GetDirectoryName(relative)!
+                        .Replace(Path.DirectorySeparatorChar, '/');
+                })
+                .ToHashSet(StringComparer.Ordinal);
+
+            string[] unsafeExemptions = actual
+                .Intersect(projectClosure)
+                .Order()
+                .ToArray();
+            if (unsafeExemptions.Length != 0)
+            {
+                throw new InvalidOperationException(
+                    "eng/decompiler-gate-skip-projects.txt exempts projects in " +
+                    "the evaluated ILInspector.Decompiler.Tests graph: [" +
+                    string.Join(", ", unsafeExemptions) + "].");
+            }
+        }
+        finally
+        {
+            File.Delete(graphPath);
+        }
+    }
+
+    ValidateDecompilerProjectSkipList(Environment.CurrentDirectory);
 
     YamlMappingNode root = RequireMapping(
         yaml.Documents[0].RootNode,
@@ -524,7 +736,7 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
     if (steps.Children.Count != 5)
     {
         throw new InvalidOperationException(
-            "jobs.changes must contain exactly the four pinned prerequisites and self-test.");
+            "jobs.changes must contain checkout, setup, self-test, provenance, and detection steps.");
     }
 
     YamlMappingNode checkoutStep = RequireMapping(
@@ -574,10 +786,10 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
             $"found {detectionSteps.Count}.");
     }
 
-    if (detectionSteps[0].Index != 3)
+    if (detectionSteps[0].Index != 4)
     {
         throw new InvalidOperationException(
-            "Detect changes must run after checkout, .NET setup, and EVIL provenance validation.");
+            "Detect changes must run after checkout, .NET setup, self-test, and EVIL provenance validation.");
     }
 
     YamlMappingNode setupStep = RequireMapping(
@@ -604,11 +816,11 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         "jobs.changes .NET setup step.with");
 
     YamlMappingNode provenanceStep = RequireMapping(
-        steps.Children[2],
+        steps.Children[3],
         "jobs.changes EVIL provenance step");
     RequireExactKeys(
         provenanceStep,
-        ["name", "shell", "run"],
+        ["name", "shell", "env", "run"],
         "jobs.changes EVIL provenance step");
     RequireScalarValue(
         provenanceStep,
@@ -620,11 +832,32 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         "shell",
         "bash",
         "jobs.changes EVIL provenance step");
-    RequireScalarSha256(
+    YamlMappingNode provenanceEnvironment = GetRequiredMapping(
+        provenanceStep,
+        "env",
+        "jobs.changes EVIL provenance step");
+    RequireExactKeys(
+        provenanceEnvironment,
+        ["EVIL_PROVENANCE_RUN_SHA256"],
+        "jobs.changes EVIL provenance step.env");
+    string provenancePin = GetRequiredScalar(
+        provenanceEnvironment,
+        "EVIL_PROVENANCE_RUN_SHA256",
+        "jobs.changes EVIL provenance step.env");
+    RequireSha256(provenancePin, "jobs.changes EVIL provenance step.env");
+    string provenanceRun = GetRequiredScalar(
         provenanceStep,
         "run",
-        "AFD8804F209E05792867D7776A950AE6B0EA459F32F896782F0C6B794F5A4B76",
         "jobs.changes EVIL provenance step");
+    string provenanceRunSha256 = ComputeSha256(provenanceRun);
+    if (validateProvenancePin && provenanceRunSha256 != provenancePin)
+    {
+        throw new InvalidOperationException(
+            $"jobs.changes EVIL_PROVENANCE_RUN_SHA256 is stale: step.run hashes to " +
+            $"{provenanceRunSha256}, but the pin is {provenancePin}. Refresh it with " +
+            "'dotnet run eng/test-ci-change-detection.cs -- " +
+            "--refresh-evil-provenance-pin'.");
+    }
     RequireAbsent(
         provenanceStep,
         "if",
@@ -639,10 +872,10 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         "jobs.changes EVIL provenance step");
 
     if (selfTestSteps.Count != 1 ||
-        selfTestSteps[0].Index != 4)
+        selfTestSteps[0].Index != 2)
     {
         throw new InvalidOperationException(
-            "Self-test change detection must run once after Detect changes.");
+            "Self-test change detection must run once before EVIL provenance validation.");
     }
 
     YamlMappingNode selfTestStep = selfTestSteps[0].Step;
@@ -701,7 +934,47 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         throw new InvalidOperationException("Detect changes has an empty run block.");
     }
 
-    return (body, declaredOutputs.ToArray());
+    return (
+        body,
+        declaredOutputs.ToArray(),
+        provenanceRunSha256,
+        provenancePin);
+}
+
+static void AssertEvilProvenancePinMutations(
+    string repository,
+    string workflowText)
+{
+    const string command = "--verify-authored-corpus-history";
+    string stale = ReplaceExactlyOnce(
+        workflowText,
+        command,
+        command + " --history-path /tmp/ci-pin-mutation.jsonl",
+        "EVIL provenance command");
+    AssertInvalidOperation(
+        () => _ = LoadDetectionBody(repository, stale),
+        "jobs.changes EVIL_PROVENANCE_RUN_SHA256 is stale");
+
+    string refreshed = RefreshEvilProvenancePin(repository, stale);
+    _ = LoadDetectionBody(repository, refreshed);
+}
+
+static string RefreshEvilProvenancePin(
+    string repository,
+    string workflowText)
+{
+    (_, _, string actual, string expected) =
+        LoadDetectionBody(
+            repository,
+            workflowText,
+            validateProvenancePin: false);
+    return actual == expected
+        ? workflowText
+        : ReplaceExactlyOnce(
+            workflowText,
+            expected,
+            actual,
+            "EVIL provenance SHA-256 pin");
 }
 
 static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
@@ -1244,13 +1517,47 @@ static void RequireScalarSha256(
     string context)
 {
     string actual = GetRequiredScalar(mapping, key, context);
-    string hash = Convert.ToHexString(
-        SHA256.HashData(Encoding.UTF8.GetBytes(actual)));
+    string hash = ComputeSha256(actual);
     if (hash != expected)
     {
         throw new InvalidOperationException(
             $"{context}.{key} SHA-256 must be {expected}, got {hash}.");
     }
+}
+
+static string ComputeSha256(string value) =>
+    Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+
+static void RequireSha256(string value, string context)
+{
+    if (value.Length != 64 ||
+        value.Any(character =>
+            character is not (>= '0' and <= '9') and
+                not (>= 'A' and <= 'F')))
+    {
+        throw new InvalidOperationException(
+            $"{context} must be a 64-character uppercase hexadecimal SHA-256 value.");
+    }
+}
+
+static string ReplaceExactlyOnce(
+    string source,
+    string oldValue,
+    string newValue,
+    string context)
+{
+    int index = source.IndexOf(oldValue, StringComparison.Ordinal);
+    if (index < 0 ||
+        source.IndexOf(
+            oldValue,
+            index + oldValue.Length,
+            StringComparison.Ordinal) >= 0)
+    {
+        throw new InvalidOperationException(
+            $"{context} must appear exactly once.");
+    }
+
+    return source[..index] + newValue + source[(index + oldValue.Length)..];
 }
 
 static void RequireAbsent(
@@ -1609,6 +1916,22 @@ static void AssertDetectionFails(
 
     throw new InvalidOperationException(
         "The Actions-compatible shell did not stop after a failed command.");
+}
+
+static void AssertInvalidOperation(Action action, string expectedMessage)
+{
+    try
+    {
+        action();
+    }
+    catch (InvalidOperationException exception)
+        when (exception.Message.Contains(expectedMessage, StringComparison.Ordinal))
+    {
+        return;
+    }
+
+    throw new InvalidOperationException(
+        $"Expected InvalidOperationException containing '{expectedMessage}'.");
 }
 
 static string FormatValues(Dictionary<string, string> values) =>

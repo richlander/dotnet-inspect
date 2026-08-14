@@ -1,0 +1,2 @@
+src/dotnet-inspect
+src/dotnet-inspect.Tests
