@@ -8,7 +8,34 @@ using System.Text.Json;
 using YamlDotNet.RepresentationModel;
 
 string repository = Environment.CurrentDirectory;
-(string body, string[] outputs) = LoadDetectionBody(repository);
+string workflowPath = Path.Combine(
+    repository,
+    ".github",
+    "workflows",
+    "ci.yml");
+string workflowText = File.ReadAllText(workflowPath);
+if (args is ["--refresh-evil-provenance-pin"])
+{
+    string refreshed = RefreshEvilProvenancePin(repository, workflowText);
+    if (refreshed == workflowText)
+    {
+        Console.WriteLine("EVIL provenance pin is already current.");
+    }
+    else
+    {
+        File.WriteAllText(workflowPath, refreshed);
+        Console.WriteLine("Refreshed the EVIL provenance run SHA-256 in .github/workflows/ci.yml.");
+    }
+    return;
+}
+if (args.Length != 0)
+{
+    throw new InvalidOperationException(
+        "Usage: dotnet run eng/test-ci-change-detection.cs [-- --refresh-evil-provenance-pin]");
+}
+
+var (body, outputs, _, _) = LoadDetectionBody(repository, workflowText);
+AssertEvilProvenancePinMutations(repository, workflowText);
 
 AssertAll(RunDetection(repository, body, "pull_request", "", outputs), "true");
 AssertAll(RunDetection(repository, body, "push", "", outputs), "false");
@@ -395,6 +422,14 @@ if (workflow["code"] != "true" || workflow["skills"] != "true")
         $"Workflow canary did not select code and skills: {FormatValues(workflow)}");
 }
 
+Dictionary<string, string> detectionGate = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "eng/test-ci-change-detection.cs",
+    outputs);
+AssertRouting(detectionGate, selected: "code", notSelected: "docs");
+
 Dictionary<string, string> skill = RunDetection(
     repository,
     body,
@@ -505,12 +540,19 @@ AssertDetectionFails(
     $"false{Environment.NewLine}{body}",
     outputs);
 
-Console.WriteLine("CI change detection fail-safe and path canaries passed.");
+Console.WriteLine(
+    "CI change detection fail-safe, path canaries, and provenance pin mutations passed.");
 
-static (string Body, string[] Outputs) LoadDetectionBody(string repository)
+static (
+    string Body,
+    string[] Outputs,
+    string ProvenanceRunSha256,
+    string ProvenancePin) LoadDetectionBody(
+        string repository,
+        string workflowText,
+        bool validateProvenancePin = true)
 {
-    string workflow = Path.Combine(repository, ".github", "workflows", "ci.yml");
-    using TextReader reader = File.OpenText(workflow);
+    using TextReader reader = new StringReader(workflowText);
     YamlStream yaml = [];
     yaml.Load(reader);
     if (yaml.Documents.Count != 1)
@@ -620,7 +662,7 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         }
     }
 
-    ValidateDecompilerProjectSkipList(repository);
+    ValidateDecompilerProjectSkipList(Environment.CurrentDirectory);
 
     YamlMappingNode root = RequireMapping(
         yaml.Documents[0].RootNode,
@@ -694,7 +736,7 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
     if (steps.Children.Count != 5)
     {
         throw new InvalidOperationException(
-            "jobs.changes must contain exactly the four pinned prerequisites and self-test.");
+            "jobs.changes must contain checkout, setup, self-test, provenance, and detection steps.");
     }
 
     YamlMappingNode checkoutStep = RequireMapping(
@@ -744,10 +786,10 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
             $"found {detectionSteps.Count}.");
     }
 
-    if (detectionSteps[0].Index != 3)
+    if (detectionSteps[0].Index != 4)
     {
         throw new InvalidOperationException(
-            "Detect changes must run after checkout, .NET setup, and EVIL provenance validation.");
+            "Detect changes must run after checkout, .NET setup, self-test, and EVIL provenance validation.");
     }
 
     YamlMappingNode setupStep = RequireMapping(
@@ -774,11 +816,11 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         "jobs.changes .NET setup step.with");
 
     YamlMappingNode provenanceStep = RequireMapping(
-        steps.Children[2],
+        steps.Children[3],
         "jobs.changes EVIL provenance step");
     RequireExactKeys(
         provenanceStep,
-        ["name", "shell", "run"],
+        ["name", "shell", "env", "run"],
         "jobs.changes EVIL provenance step");
     RequireScalarValue(
         provenanceStep,
@@ -790,11 +832,32 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         "shell",
         "bash",
         "jobs.changes EVIL provenance step");
-    RequireScalarSha256(
+    YamlMappingNode provenanceEnvironment = GetRequiredMapping(
+        provenanceStep,
+        "env",
+        "jobs.changes EVIL provenance step");
+    RequireExactKeys(
+        provenanceEnvironment,
+        ["EVIL_PROVENANCE_RUN_SHA256"],
+        "jobs.changes EVIL provenance step.env");
+    string provenancePin = GetRequiredScalar(
+        provenanceEnvironment,
+        "EVIL_PROVENANCE_RUN_SHA256",
+        "jobs.changes EVIL provenance step.env");
+    RequireSha256(provenancePin, "jobs.changes EVIL provenance step.env");
+    string provenanceRun = GetRequiredScalar(
         provenanceStep,
         "run",
-        "AFD8804F209E05792867D7776A950AE6B0EA459F32F896782F0C6B794F5A4B76",
         "jobs.changes EVIL provenance step");
+    string provenanceRunSha256 = ComputeSha256(provenanceRun);
+    if (validateProvenancePin && provenanceRunSha256 != provenancePin)
+    {
+        throw new InvalidOperationException(
+            $"jobs.changes EVIL_PROVENANCE_RUN_SHA256 is stale: step.run hashes to " +
+            $"{provenanceRunSha256}, but the pin is {provenancePin}. Refresh it with " +
+            "'dotnet run eng/test-ci-change-detection.cs -- " +
+            "--refresh-evil-provenance-pin'.");
+    }
     RequireAbsent(
         provenanceStep,
         "if",
@@ -809,10 +872,10 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         "jobs.changes EVIL provenance step");
 
     if (selfTestSteps.Count != 1 ||
-        selfTestSteps[0].Index != 4)
+        selfTestSteps[0].Index != 2)
     {
         throw new InvalidOperationException(
-            "Self-test change detection must run once after Detect changes.");
+            "Self-test change detection must run once before EVIL provenance validation.");
     }
 
     YamlMappingNode selfTestStep = selfTestSteps[0].Step;
@@ -871,7 +934,47 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         throw new InvalidOperationException("Detect changes has an empty run block.");
     }
 
-    return (body, declaredOutputs.ToArray());
+    return (
+        body,
+        declaredOutputs.ToArray(),
+        provenanceRunSha256,
+        provenancePin);
+}
+
+static void AssertEvilProvenancePinMutations(
+    string repository,
+    string workflowText)
+{
+    const string command = "--verify-authored-corpus-history";
+    string stale = ReplaceExactlyOnce(
+        workflowText,
+        command,
+        command + " --history-path /tmp/ci-pin-mutation.jsonl",
+        "EVIL provenance command");
+    AssertInvalidOperation(
+        () => _ = LoadDetectionBody(repository, stale),
+        "jobs.changes EVIL_PROVENANCE_RUN_SHA256 is stale");
+
+    string refreshed = RefreshEvilProvenancePin(repository, stale);
+    _ = LoadDetectionBody(repository, refreshed);
+}
+
+static string RefreshEvilProvenancePin(
+    string repository,
+    string workflowText)
+{
+    (_, _, string actual, string expected) =
+        LoadDetectionBody(
+            repository,
+            workflowText,
+            validateProvenancePin: false);
+    return actual == expected
+        ? workflowText
+        : ReplaceExactlyOnce(
+            workflowText,
+            expected,
+            actual,
+            "EVIL provenance SHA-256 pin");
 }
 
 static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
@@ -1414,13 +1517,47 @@ static void RequireScalarSha256(
     string context)
 {
     string actual = GetRequiredScalar(mapping, key, context);
-    string hash = Convert.ToHexString(
-        SHA256.HashData(Encoding.UTF8.GetBytes(actual)));
+    string hash = ComputeSha256(actual);
     if (hash != expected)
     {
         throw new InvalidOperationException(
             $"{context}.{key} SHA-256 must be {expected}, got {hash}.");
     }
+}
+
+static string ComputeSha256(string value) =>
+    Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+
+static void RequireSha256(string value, string context)
+{
+    if (value.Length != 64 ||
+        value.Any(character =>
+            character is not (>= '0' and <= '9') and
+                not (>= 'A' and <= 'F')))
+    {
+        throw new InvalidOperationException(
+            $"{context} must be a 64-character uppercase hexadecimal SHA-256 value.");
+    }
+}
+
+static string ReplaceExactlyOnce(
+    string source,
+    string oldValue,
+    string newValue,
+    string context)
+{
+    int index = source.IndexOf(oldValue, StringComparison.Ordinal);
+    if (index < 0 ||
+        source.IndexOf(
+            oldValue,
+            index + oldValue.Length,
+            StringComparison.Ordinal) >= 0)
+    {
+        throw new InvalidOperationException(
+            $"{context} must appear exactly once.");
+    }
+
+    return source[..index] + newValue + source[(index + oldValue.Length)..];
 }
 
 static void RequireAbsent(
@@ -1779,6 +1916,22 @@ static void AssertDetectionFails(
 
     throw new InvalidOperationException(
         "The Actions-compatible shell did not stop after a failed command.");
+}
+
+static void AssertInvalidOperation(Action action, string expectedMessage)
+{
+    try
+    {
+        action();
+    }
+    catch (InvalidOperationException exception)
+        when (exception.Message.Contains(expectedMessage, StringComparison.Ordinal))
+    {
+        return;
+    }
+
+    throw new InvalidOperationException(
+        $"Expected InvalidOperationException containing '{expectedMessage}'.");
 }
 
 static string FormatValues(Dictionary<string, string> values) =>

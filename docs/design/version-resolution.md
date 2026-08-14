@@ -59,6 +59,13 @@ cache, and the projected payload must retain that producer's authorization.
 Package metadata (publish date, downloads, deprecation, vulnerabilities) is
 also cached with a 1-hour TTL.
 
+Paths projected from restored `.deps.json` and `project.assets.json` files do
+not choose arbitrary local files. Package locations are contained by the
+global-packages root, and each asset path is separately contained by its owning
+package directory. Local `.deps.json` assets are contained by the target
+assembly directory. Invalid manifest paths are rejected rather than normalized
+or followed.
+
 Those aggregate metadata services are NuGet.org-specific. They are queried only
 when the resolved source list contains the canonical
 `https://api.nuget.org/v3/index.json` service index (an optional trailing slash

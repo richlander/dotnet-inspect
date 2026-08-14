@@ -2,8 +2,312 @@ using System.Text.Json;
 
 namespace DotnetInspector.Services.Tests;
 
+[Collection(ManifestPathEnvironmentCollection.Name)]
 public class ProjectAssetsParserTests
 {
+    [Fact]
+    public void Parse_LibraryPathCannotEscapeGlobalPackagesRoot()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assets-path-").FullName;
+        try
+        {
+            string packagesRoot = Path.Combine(root, "packages");
+            string outsideDirectory = Path.Combine(root, "outside");
+            Directory.CreateDirectory(packagesRoot);
+            Directory.CreateDirectory(outsideDirectory);
+            string safePath = Path.Combine(
+                packagesRoot,
+                "safe",
+                "1.0.0",
+                "Safe.dll");
+            string outsidePath = Path.Combine(outsideDirectory, "Escape.dll");
+            Directory.CreateDirectory(Path.GetDirectoryName(safePath)!);
+            File.WriteAllText(safePath, "");
+            File.WriteAllText(outsidePath, "");
+            using var environment =
+                new NuGetPackagesEnvironment(packagesRoot);
+            string assetsPath = WriteTempFile(
+                """
+                {
+                  "targets": {
+                    "net9.0": {
+                      "Safe/1.0.0": {
+                        "compile": {
+                          "Safe.dll": {}
+                        }
+                      },
+                      "Escape/1.0.0": {
+                        "compile": {
+                          "Escape.dll": {}
+                        }
+                      }
+                    }
+                  },
+                  "libraries": {
+                    "Safe/1.0.0": {
+                      "type": "package",
+                      "path": "safe/1.0.0"
+                    },
+                    "Escape/1.0.0": {
+                      "type": "package",
+                      "path": "../outside"
+                    }
+                  }
+                }
+                """);
+            List<string> messages = [];
+
+            try
+            {
+                var result = Assert.Single(
+                    ProjectAssetsParser.Parse(
+                        assetsPath,
+                        null,
+                        messages.Add));
+                Assert.Equal(Path.GetFullPath(safePath), result.Path);
+                Assert.Contains(
+                    messages,
+                    message => message.Contains(
+                        "libraries[].path",
+                        StringComparison.Ordinal));
+                Assert.DoesNotContain(
+                    messages,
+                    message => message.Contains(
+                        "../outside",
+                        StringComparison.Ordinal));
+            }
+            finally
+            {
+                File.Delete(assetsPath);
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Parse_AssetPathCannotEscapeOwningPackageDirectory()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assets-path-").FullName;
+        try
+        {
+            string packagesRoot = Path.Combine(root, "packages");
+            string outsidePath = Path.Combine(
+                packagesRoot,
+                "other",
+                "1.0.0",
+                "Escape.dll");
+            string safePath = Path.Combine(
+                packagesRoot,
+                "direct",
+                "1.0.0",
+                "lib",
+                "Safe.dll");
+            Directory.CreateDirectory(Path.GetDirectoryName(outsidePath)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(safePath)!);
+            File.WriteAllText(outsidePath, "");
+            File.WriteAllText(safePath, "");
+            using var environment =
+                new NuGetPackagesEnvironment(packagesRoot);
+            string assetsPath = WriteTempFile(
+                """
+                {
+                  "targets": {
+                    "net9.0": {
+                      "Direct/1.0.0": {
+                        "compile": {
+                          "lib/Safe.dll": {},
+                          "../../other/1.0.0/Escape.dll": {}
+                        }
+                      }
+                    }
+                  },
+                  "libraries": {
+                    "Direct/1.0.0": {
+                      "type": "package",
+                      "path": "direct/1.0.0"
+                    }
+                  }
+                }
+                """);
+            List<string> messages = [];
+
+            try
+            {
+                var result = Assert.Single(
+                    ProjectAssetsParser.Parse(
+                        assetsPath,
+                        null,
+                        messages.Add));
+                Assert.Equal(Path.GetFullPath(safePath), result.Path);
+                Assert.Contains(
+                    messages,
+                    message => message.Contains(
+                        "targets[].compile",
+                        StringComparison.Ordinal));
+                Assert.DoesNotContain(
+                    messages,
+                    message => message.Contains(
+                        "../../other",
+                        StringComparison.Ordinal));
+            }
+            finally
+            {
+                File.Delete(assetsPath);
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ParsePackageReferences_LibraryPathCannotEscapeGlobalPackagesRoot()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assets-path-").FullName;
+        try
+        {
+            string packagesRoot = Path.Combine(root, "packages");
+            Directory.CreateDirectory(packagesRoot);
+            using var environment =
+                new NuGetPackagesEnvironment(packagesRoot);
+            string assetsPath = WriteTempFile(
+                """
+                {
+                  "targets": {
+                    "net9.0": {
+                      "Direct/1.0.0": {}
+                    }
+                  },
+                  "libraries": {
+                    "Direct/1.0.0": {
+                      "type": "package",
+                      "path": "../outside"
+                    }
+                  },
+                  "project": {
+                    "frameworks": {
+                      "net9.0": {
+                        "dependencies": {
+                          "Direct": {
+                            "target": "Package",
+                            "version": "[1.0.0, )"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                """);
+            List<string> messages = [];
+
+            try
+            {
+                ProjectPackageReference dependency = Assert.Single(
+                    ProjectAssetsParser.ParsePackageReferences(
+                        assetsPath,
+                        null,
+                        messages.Add));
+
+                Assert.Null(dependency.PackagePath);
+                Assert.Contains(
+                    messages,
+                    message => message.Contains(
+                        "libraries[].path",
+                        StringComparison.Ordinal));
+            }
+            finally
+            {
+                File.Delete(assetsPath);
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ParsePackageFileEntries_FilePathCannotEscapeOwningPackageDirectory()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assets-path-").FullName;
+        try
+        {
+            string packagesRoot = Path.Combine(root, "packages");
+            string outsidePath = Path.Combine(
+                packagesRoot,
+                "other",
+                "1.0.0",
+                "SKILL.md");
+            Directory.CreateDirectory(Path.GetDirectoryName(outsidePath)!);
+            File.WriteAllText(outsidePath, "# Outside");
+            using var environment =
+                new NuGetPackagesEnvironment(packagesRoot);
+            string assetsPath = WriteTempFile(
+                """
+                {
+                  "targets": {
+                    "net9.0": {
+                      "Direct/1.0.0": {}
+                    }
+                  },
+                  "libraries": {
+                    "Direct/1.0.0": {
+                      "type": "package",
+                      "path": "direct/1.0.0",
+                      "files": [
+                        "skills/../../../other/1.0.0/SKILL.md"
+                      ]
+                    }
+                  },
+                  "project": {
+                    "frameworks": {
+                      "net9.0": {
+                        "dependencies": {
+                          "Direct": {
+                            "target": "Package",
+                            "version": "[1.0.0, )"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                """);
+            List<string> messages = [];
+
+            try
+            {
+                Assert.Empty(
+                    ProjectAssetsParser.ParsePackageFileEntries(
+                        assetsPath,
+                        null,
+                        ["skills/**/SKILL.md"],
+                        messages.Add));
+                Assert.Contains(
+                    messages,
+                    message => message.Contains(
+                        "libraries[].files[]",
+                        StringComparison.Ordinal));
+            }
+            finally
+            {
+                File.Delete(assetsPath);
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void Parse_EmptyTargets_ReturnsEmpty()
     {
@@ -234,12 +538,21 @@ public class ProjectAssetsParserTests
     [Fact]
     public void ParsePackageFileEntries_ReturnsDirectPackageFilesMatchingPattern()
     {
-        var packageRoot = Path.Combine(Path.GetTempPath(), $"pa-files-{Guid.NewGuid():N}");
+        var nugetRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"pa-files-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(
+            nugetRoot,
+            "direct.package",
+            "2.1.0");
         var skillPath = Path.Combine(packageRoot, "skills", "query", "SKILL.md");
         Directory.CreateDirectory(Path.GetDirectoryName(skillPath)!);
         File.WriteAllText(skillPath, "# Skill");
 
-        var transitiveRoot = Path.Combine(Path.GetTempPath(), $"pa-files-{Guid.NewGuid():N}");
+        var transitiveRoot = Path.Combine(
+            nugetRoot,
+            "transitive.package",
+            "1.0.0");
         Directory.CreateDirectory(Path.Combine(transitiveRoot, "skills", "transitive"));
 
         var json = $$"""
@@ -254,7 +567,7 @@ public class ProjectAssetsParserTests
             "libraries": {
                 "Direct.Package/2.1.0": {
                     "type": "package",
-                    "path": "{{packageRoot.Replace("\\", "/")}}",
+                    "path": "direct.package/2.1.0",
                     "files": [
                         42,
                         "README.md",
@@ -263,7 +576,7 @@ public class ProjectAssetsParserTests
                 },
                 "Transitive.Package/1.0.0": {
                     "type": "package",
-                    "path": "{{transitiveRoot.Replace("\\", "/")}}",
+                    "path": "transitive.package/1.0.0",
                     "files": [
                         "skills/transitive/SKILL.md"
                     ]
@@ -292,6 +605,8 @@ public class ProjectAssetsParserTests
         """;
 
         var assetsPath = WriteTempFile(json);
+        using var environment =
+            new NuGetPackagesEnvironment(nugetRoot);
         try
         {
             var result = ProjectAssetsParser.ParsePackageFileEntries(
@@ -312,15 +627,20 @@ public class ProjectAssetsParserTests
         finally
         {
             File.Delete(assetsPath);
-            Directory.Delete(packageRoot, recursive: true);
-            Directory.Delete(transitiveRoot, recursive: true);
+            Directory.Delete(nugetRoot, recursive: true);
         }
     }
 
     [Fact]
     public void ParsePackageFileEntries_CanMatchTopLevelSkillFile()
     {
-        var packageRoot = Path.Combine(Path.GetTempPath(), $"pa-files-{Guid.NewGuid():N}");
+        var nugetRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"pa-files-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(
+            nugetRoot,
+            "direct.package",
+            "1.0.0");
         var skillPath = Path.Combine(packageRoot, "skills", "SKILL.md");
         Directory.CreateDirectory(Path.GetDirectoryName(skillPath)!);
         File.WriteAllText(skillPath, "# Skill");
@@ -335,7 +655,7 @@ public class ProjectAssetsParserTests
             "libraries": {
                 "Direct.Package/1.0.0": {
                     "type": "package",
-                    "path": "{{packageRoot.Replace("\\", "/")}}",
+                    "path": "direct.package/1.0.0",
                     "files": [
                         "skills/SKILL.md"
                     ]
@@ -357,6 +677,8 @@ public class ProjectAssetsParserTests
         """;
 
         var assetsPath = WriteTempFile(json);
+        using var environment =
+            new NuGetPackagesEnvironment(nugetRoot);
         try
         {
             var entry = Assert.Single(ProjectAssetsParser.ParsePackageFileEntries(
@@ -371,7 +693,7 @@ public class ProjectAssetsParserTests
         finally
         {
             File.Delete(assetsPath);
-            Directory.Delete(packageRoot, recursive: true);
+            Directory.Delete(nugetRoot, recursive: true);
         }
     }
 
