@@ -1,7 +1,6 @@
 using System.Text;
-using InertText;
 
-namespace DotnetInspector.Core;
+namespace InertText;
 
 /// <summary>
 /// The one owner of what a URL may look like in a diagnostic.
@@ -39,8 +38,12 @@ namespace DotnetInspector.Core;
 /// drift from this one, and the direction it drifts is a printed secret.
 /// </para>
 /// <para>
-/// Gated by <c>UrlRedactionTests</c> and, on the package paths that consume it,
-/// by <c>PackagePayloadAcquisitionTests</c>' log assertions.
+/// Lives in <c>InertText</c> so both product Core/package paths and the
+/// NuGetFetch leaf can share it without NuGetFetch taking a Core dependency.
+/// </para>
+/// <para>
+/// Gated by <c>UrlRedactionTests</c>, NuGetFetch credential rejection messages,
+/// and package-path log assertions.
 /// </para>
 /// </remarks>
 public static class UrlRedaction
