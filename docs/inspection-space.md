@@ -307,6 +307,14 @@ all-group cleanup after an owned-resource failure, and
 `InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
 gates preservation of an in-flight callback failure when deferred cleanup also
 fails.
+Portable-PDB acquisition now follows the same content-shaped boundary:
+`AcquiredPortablePdb` opens repeatable content from a host-supplied `IPdbStore`,
+and `PdbAcquisitionService` can load it for a pathless
+`ResolvedAssemblyReference`. The filesystem store supplies the compatibility
+path used by desktop decompiler callers; an in-memory store supplies the same
+validated PDB bytes to browser/Wasm hosts. This capability does not itself add a
+group query; it is the symbol-input seam such a query consumes.
+
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
 gates asynchronous host work over a retained descriptor without reopening its
 source.

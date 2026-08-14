@@ -14,6 +14,90 @@ public record PdbDownloadResult(
 );
 
 /// <summary>
+/// Repeatable access to one acquired Portable PDB payload.
+/// </summary>
+/// <remarks>
+/// The backing store owns persistence. <see cref="OpenReadAsync"/> returns a
+/// fresh readable, seekable stream positioned at zero; the caller owns that
+/// stream. <see cref="LocalPath"/> is available only when the store is
+/// filesystem-backed.
+/// </remarks>
+public sealed class AcquiredPortablePdb
+{
+    private readonly IPdbStore _store;
+    private readonly string _storeKey;
+
+    internal AcquiredPortablePdb(
+        IPdbStore store,
+        string storeKey,
+        string symbolServer,
+        bool fromCache)
+    {
+        _store = store;
+        _storeKey = storeKey;
+        SymbolServer = symbolServer;
+        FromCache = fromCache;
+    }
+
+    public string SymbolServer { get; }
+    public bool FromCache { get; }
+    public string? LocalPath => _store.TryGetLocalPath(_storeKey);
+
+    public async ValueTask<Stream> OpenReadAsync(
+        CancellationToken cancellationToken = default)
+    {
+        Stream? stream =
+            await _store.TryOpenAsync(
+                _storeKey,
+                cancellationToken).ConfigureAwait(false);
+        if (stream is null)
+        {
+            throw new IOException(
+                "The acquired Portable PDB content is no longer available.");
+        }
+
+        if (!stream.CanRead || !stream.CanSeek)
+        {
+            await stream.DisposeAsync().ConfigureAwait(false);
+            throw new IOException(
+                "The acquired Portable PDB store returned an unreadable or non-seekable stream.");
+        }
+
+        stream.Position = 0;
+        return stream;
+    }
+}
+
+/// <summary>The typed result of content-shaped Portable PDB acquisition.</summary>
+public abstract record PortablePdbAcquisitionResult
+{
+    private protected PortablePdbAcquisitionResult(
+        bool windowsPdbDetected)
+        => WindowsPdbDetected = windowsPdbDetected;
+
+    public bool WindowsPdbDetected { get; }
+
+    public sealed record Acquired : PortablePdbAcquisitionResult
+    {
+        internal Acquired(
+            AcquiredPortablePdb pdb,
+            bool windowsPdbDetected)
+            : base(windowsPdbDetected)
+            => Pdb = pdb;
+
+        public AcquiredPortablePdb Pdb { get; }
+    }
+
+    public sealed record Unavailable : PortablePdbAcquisitionResult
+    {
+        internal Unavailable(bool windowsPdbDetected)
+            : base(windowsPdbDetected)
+        {
+        }
+    }
+}
+
+/// <summary>
 /// Downloads and manages symbol packages (.snupkg) from NuGet for SourceLink resolution.
 /// Only supports Portable PDBs (embedded or standalone) and snupkg files.
 /// </summary>
@@ -21,9 +105,10 @@ public record PdbDownloadResult(
 /// <para>
 /// Transport is injectable via <see cref="HttpClient"/> and persistence via
 /// <see cref="IPdbStore"/>. The host-neutral snupkg parsing lives in
-/// <see cref="SnupkgPdbReader"/>; this class is the desktop orchestrator that
-/// returns on-disk PDB paths (a browser/WASM host reuses <see cref="SnupkgPdbReader"/>
-/// directly for bytes and does not depend on filesystem paths).
+/// <see cref="SnupkgPdbReader"/>. <see cref="AcquirePdbAsync"/> returns
+/// repeatable content for either filesystem or in-memory stores;
+/// <see cref="DownloadPdbAsync"/> is the desktop compatibility projection that
+/// returns only an on-disk path.
 /// </para>
 /// <para>
 /// Symbol server key generation follows the conventions from dotnet/symstore:
@@ -38,13 +123,17 @@ public class SymbolPackageDownloader
     private static readonly TimeSpan SymbolForbiddenCacheTtl = TimeSpan.FromDays(7);
     private readonly HttpClient _client;
     private readonly IPdbStore _pdbStore;
+    private readonly bool _usePersistentMissCache;
 
     /// <summary>
     /// Creates a downloader backed by the default filesystem PDB cache
     /// (<c>{app-cache}/packages/symbols</c>).
     /// </summary>
     public SymbolPackageDownloader(HttpClient client)
-        : this(client, FileSystemPdbStore.CreateDefault())
+        : this(
+            client,
+            FileSystemPdbStore.CreateDefault(),
+            usePersistentMissCache: true)
     {
     }
 
@@ -53,28 +142,31 @@ public class SymbolPackageDownloader
     /// persistence (in-memory for browser/WASM hosts and tests).
     /// </summary>
     /// <remarks>
-    /// <see cref="DownloadPdbAsync"/> reports success as an on-disk
-    /// <see cref="PdbDownloadResult.PdbFilePath"/>, so it is meaningful only with a
-    /// filesystem-backed store. A store whose <c>TryGetLocalPath</c> always returns
-    /// null (for example <see cref="InMemoryPdbStore"/>) is for host-neutral
-    /// persistence; such a host reads PDB bytes through <see cref="SnupkgPdbReader"/>
-    /// and the store directly rather than through this on-disk path orchestration.
+    /// Persistent negative-result caching is disabled by default for an
+    /// explicit store, so an in-memory browser/WASM host does not depend on
+    /// <see cref="CoreCache"/>'s filesystem. Set
+    /// <paramref name="usePersistentMissCache"/> only when the host has
+    /// initialized that disk cache.
     /// </remarks>
-    public SymbolPackageDownloader(HttpClient client, IPdbStore pdbStore)
+    public SymbolPackageDownloader(
+        HttpClient client,
+        IPdbStore pdbStore,
+        bool usePersistentMissCache = false)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(pdbStore);
         _client = client;
         _pdbStore = pdbStore;
+        _usePersistentMissCache = usePersistentMissCache;
     }
 
     /// <summary>
-    /// Downloads a PDB file and returns its path on disk. No SRM types in signature.
-    /// The caller (PdbContext) is responsible for opening and reading the PDB.
+    /// Acquires a Portable PDB through the configured store without requiring a
+    /// filesystem path.
     /// </summary>
-    public async Task<PdbDownloadResult> DownloadPdbAsync(
+    public async Task<PortablePdbAcquisitionResult> AcquirePdbAsync(
         Guid pdbGuid, int pdbAge, string pdbFileName, bool isPortable,
-        string assemblyPath,
+        string? assemblyName = null,
         string? packageName = null,
         string? packageVersion = null,
         Action<string>? log = null,
@@ -96,6 +188,12 @@ public class SymbolPackageDownloader
         bool pdbFileNameUsable = StorePath.IsSafeSegment(pdbFileName);
         if (!pdbFileNameUsable)
             log?.Invoke("Unusable PDB file name; skipping symbol-server paths");
+        string? snupkgAssemblyName =
+            GetSnupkgAssemblyName(
+                pdbFileName,
+                pdbFileNameUsable,
+                assemblyName,
+                log);
 
         var guid = pdbGuid.ToString("N").ToUpperInvariant();
         var symbolKey = isPortable
@@ -109,8 +207,12 @@ public class SymbolPackageDownloader
             log?.Invoke(isPlatformAssembly ? "Platform library, trying MSDL symbol server" : "Microsoft package detected, trying MSDL symbol server first");
             var msdlResult = await TryLocateFromMsdlAsync(
                 pdbFileName, symbolKey, log, cacheOnly, cancellationToken).ConfigureAwait(false);
-            if (msdlResult.PdbFilePath != null)
-                return msdlResult;
+            if (msdlResult.Pdb is not null)
+            {
+                return new PortablePdbAcquisitionResult.Acquired(
+                    msdlResult.Pdb,
+                    windowsPdbDetected || msdlResult.WindowsPdbDetected);
+            }
             if (msdlResult.WindowsPdbDetected)
                 windowsPdbDetected = true;
         }
@@ -118,12 +220,17 @@ public class SymbolPackageDownloader
         // Try downloading symbol package (.snupkg)
         if (!string.IsNullOrEmpty(packageName)
             && !string.IsNullOrEmpty(packageVersion)
+            && snupkgAssemblyName is not null
             && IsNuGetOrgEligibleForPackage(sourceOptions, packageName))
         {
             var snupkgResult = await TryLocateFromSymbolPackageAsync(
-                packageName, packageVersion, assemblyPath, symbolKey, pdbGuid, log, cacheOnly, cancellationToken).ConfigureAwait(false);
-            if (snupkgResult.PdbFilePath != null)
-                return snupkgResult;
+                packageName, packageVersion, snupkgAssemblyName, symbolKey, pdbGuid, log, cacheOnly, cancellationToken).ConfigureAwait(false);
+            if (snupkgResult.Pdb is not null)
+            {
+                return new PortablePdbAcquisitionResult.Acquired(
+                    snupkgResult.Pdb,
+                    windowsPdbDetected || snupkgResult.WindowsPdbDetected);
+            }
             if (snupkgResult.WindowsPdbDetected)
                 windowsPdbDetected = true;
         }
@@ -133,14 +240,69 @@ public class SymbolPackageDownloader
         {
             var symbolResult = await TryLocateFromSymbolServerAsync(
                 pdbFileName, symbolKey, log, cacheOnly, cancellationToken).ConfigureAwait(false);
-            if (symbolResult.PdbFilePath != null)
-                return symbolResult;
+            if (symbolResult.Pdb is not null)
+            {
+                return new PortablePdbAcquisitionResult.Acquired(
+                    symbolResult.Pdb,
+                    windowsPdbDetected || symbolResult.WindowsPdbDetected);
+            }
             if (symbolResult.WindowsPdbDetected)
                 windowsPdbDetected = true;
         }
 
         log?.Invoke(cacheOnly ? "No cached Portable PDB available" : "No Portable PDB available");
-        return new PdbDownloadResult(null, windowsPdbDetected);
+        return new PortablePdbAcquisitionResult.Unavailable(
+            windowsPdbDetected);
+    }
+
+    /// <summary>
+    /// Downloads a PDB file and returns its path on disk. This compatibility
+    /// wrapper is meaningful only with a filesystem-backed store.
+    /// </summary>
+    public async Task<PdbDownloadResult> DownloadPdbAsync(
+        Guid pdbGuid, int pdbAge, string pdbFileName, bool isPortable,
+        string assemblyPath,
+        string? packageName = null,
+        string? packageVersion = null,
+        Action<string>? log = null,
+        bool isPlatformAssembly = false,
+        bool cacheOnly = false,
+        NuGetSourceOptions? sourceOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        PortablePdbAcquisitionResult result =
+            await AcquirePdbAsync(
+                pdbGuid,
+                pdbAge,
+                pdbFileName,
+                isPortable,
+                Path.GetFileNameWithoutExtension(assemblyPath),
+                packageName,
+                packageVersion,
+                log,
+                isPlatformAssembly,
+                cacheOnly,
+                sourceOptions,
+                cancellationToken).ConfigureAwait(false);
+
+        if (result is not PortablePdbAcquisitionResult.Acquired acquired)
+        {
+            return new PdbDownloadResult(
+                null,
+                result.WindowsPdbDetected);
+        }
+
+        string? localPath = acquired.Pdb.LocalPath;
+        if (localPath is null)
+        {
+            log?.Invoke(
+                "Portable PDB content was acquired, but the configured store exposes no filesystem path.");
+        }
+
+        return new PdbDownloadResult(
+            localPath,
+            result.WindowsPdbDetected,
+            acquired.Pdb.SymbolServer);
     }
 
     private static bool IsNuGetOrgEligibleForPackage(
@@ -163,7 +325,24 @@ public class SymbolPackageDownloader
         }
     }
 
-    private async Task<PdbDownloadResult> TryLocateFromMsdlAsync(
+    private sealed record PdbProbeResult(
+        AcquiredPortablePdb? Pdb,
+        bool WindowsPdbDetected);
+
+    private PdbProbeResult Acquired(
+        string cacheKey,
+        string symbolServer,
+        bool fromCache,
+        bool windowsPdbDetected = false)
+        => new(
+            new AcquiredPortablePdb(
+                _pdbStore,
+                cacheKey,
+                symbolServer,
+                fromCache),
+            windowsPdbDetected);
+
+    private async Task<PdbProbeResult> TryLocateFromMsdlAsync(
         string pdbFileName,
         string symbolKey,
         Action<string>? log,
@@ -171,24 +350,32 @@ public class SymbolPackageDownloader
         CancellationToken cancellationToken)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
+        const string ServerHost = "msdl.microsoft.com";
         bool windowsPdbDetected = false;
 
-        var cacheKey = GetSymbolServerCacheKey(pdbFileName, symbolKey);
+        var cacheKey =
+            GetSymbolServerCacheKey(
+                ServerHost,
+                pdbFileName,
+                symbolKey);
         var cached = await ClassifyStoredPdbAsync(cacheKey, cancellationToken).ConfigureAwait(false);
         if (cached.Portable)
         {
             log?.Invoke("Using cached PDB from MSDL");
-            return new PdbDownloadResult(_pdbStore.TryGetLocalPath(cacheKey), SymbolServer: "msdl.microsoft.com");
+            return Acquired(
+                cacheKey,
+                ServerHost,
+                fromCache: true);
         }
         if (cached.Windows)
             windowsPdbDetected = true;
 
         if (cacheOnly)
-            return new PdbDownloadResult(null, windowsPdbDetected);
+            return new PdbProbeResult(null, windowsPdbDetected);
 
         var url = $"https://msdl.microsoft.com/download/symbols/{pdbFileName}/{symbolKey}/{pdbFileName}";
         if (IsCachedMiss(url, log, "MSDL symbol server"))
-            return new PdbDownloadResult(null, windowsPdbDetected);
+            return new PdbProbeResult(null, windowsPdbDetected);
 
         log?.Invoke("Trying MSDL symbol server");
 
@@ -203,7 +390,7 @@ public class SymbolPackageDownloader
             {
                 CacheMissIfDefinitive(url, httpResult);
                 log?.Invoke("MSDL: symbol not found");
-                return new PdbDownloadResult(null, windowsPdbDetected);
+                return new PdbProbeResult(null, windowsPdbDetected);
             }
 
             using (var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
@@ -215,7 +402,11 @@ public class SymbolPackageDownloader
             if (headerCheck.Portable)
             {
                 log?.Invoke("Successfully downloaded PDB from MSDL");
-                return new PdbDownloadResult(_pdbStore.TryGetLocalPath(cacheKey), SymbolServer: "msdl.microsoft.com");
+                return Acquired(
+                    cacheKey,
+                    ServerHost,
+                    fromCache: false,
+                    windowsPdbDetected);
             }
             if (headerCheck.Windows)
             {
@@ -232,13 +423,13 @@ public class SymbolPackageDownloader
             log?.Invoke($"MSDL error: {ex.Message}");
         }
 
-        return new PdbDownloadResult(null, windowsPdbDetected);
+        return new PdbProbeResult(null, windowsPdbDetected);
     }
 
-    private async Task<PdbDownloadResult> TryLocateFromSymbolPackageAsync(
+    private async Task<PdbProbeResult> TryLocateFromSymbolPackageAsync(
         string packageName,
         string packageVersion,
-        string assemblyPath,
+        string assemblyName,
         string symbolKey,
         Guid pdbGuid,
         Action<string>? log,
@@ -251,18 +442,26 @@ public class SymbolPackageDownloader
         bool windowsPdbDetected = false;
 
         // Check cache first
-        var cacheKey = GetCachedPdbKey(normalizedName, normalizedVersion, assemblyPath, symbolKey);
+        var cacheKey =
+            GetCachedPdbKey(
+                normalizedName,
+                normalizedVersion,
+                assemblyName,
+                symbolKey);
         var cached = await ClassifyStoredPdbAsync(cacheKey, cancellationToken).ConfigureAwait(false);
         if (cached.Portable)
         {
-            log?.Invoke($"Using cached PDB: {Path.GetFileNameWithoutExtension(assemblyPath)}.pdb");
-            return new PdbDownloadResult(_pdbStore.TryGetLocalPath(cacheKey), SymbolServer: "nuget.org");
+            log?.Invoke($"Using cached PDB: {assemblyName}.pdb");
+            return Acquired(
+                cacheKey,
+                "nuget.org",
+                fromCache: true);
         }
         if (cached.Windows)
             windowsPdbDetected = true;
 
         if (cacheOnly)
-            return new PdbDownloadResult(null, windowsPdbDetected);
+            return new PdbProbeResult(null, windowsPdbDetected);
 
         // Try NuGet global CDN first
         var snupkgUrls = new[]
@@ -294,7 +493,7 @@ public class SymbolPackageDownloader
                 log?.Invoke(
                     $"Found symbol package at: {UrlRedaction.ForDiagnostics(snupkgUrl)}");
                 var result = await ExtractPdbFromSymbolPackage(
-                    response, cacheKey, assemblyPath, pdbGuid, windowsPdbDetected, log, cancellationToken).ConfigureAwait(false);
+                    response, cacheKey, assemblyName, pdbGuid, windowsPdbDetected, log, cancellationToken).ConfigureAwait(false);
                 if (result.WindowsPdbDetected)
                     windowsPdbDetected = true;
                 return result;
@@ -312,19 +511,17 @@ public class SymbolPackageDownloader
         }
 
         log?.Invoke("Symbol package not found on NuGet");
-        return new PdbDownloadResult(null, windowsPdbDetected);
+        return new PdbProbeResult(null, windowsPdbDetected);
     }
 
-    private async Task<PdbDownloadResult> ExtractPdbFromSymbolPackage(
+    private async Task<PdbProbeResult> ExtractPdbFromSymbolPackage(
         HttpResponseMessage response,
-        string cacheKey, string assemblyPath,
+        string cacheKey, string assemblyName,
         Guid pdbGuid,
         bool windowsPdbDetected,
         Action<string>? log,
         CancellationToken cancellationToken)
     {
-        var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
-
         SnupkgPdbResult extracted;
         using (var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -343,7 +540,7 @@ public class SymbolPackageDownloader
         if (extracted.PdbBytes == null)
         {
             log?.Invoke("No matching Portable PDB identity found in symbol package");
-            return new PdbDownloadResult(null, windowsPdbDetected);
+            return new PdbProbeResult(null, windowsPdbDetected);
         }
 
         using (var pdbStream = new MemoryStream(extracted.PdbBytes, writable: false))
@@ -351,11 +548,28 @@ public class SymbolPackageDownloader
             await _pdbStore.PutAsync(cacheKey, pdbStream, cancellationToken).ConfigureAwait(false);
         }
 
+        var stored =
+            await ClassifyStoredPdbAsync(
+                cacheKey,
+                cancellationToken).ConfigureAwait(false);
+        if (!stored.Portable)
+        {
+            if (stored.Windows)
+                windowsPdbDetected = true;
+            log?.Invoke(
+                "The matching Portable PDB could not be read back from the configured store.");
+            return new PdbProbeResult(null, windowsPdbDetected);
+        }
+
         log?.Invoke("Successfully located PDB from symbol package");
-        return new PdbDownloadResult(_pdbStore.TryGetLocalPath(cacheKey), windowsPdbDetected, SymbolServer: "nuget.org");
+        return Acquired(
+            cacheKey,
+            "nuget.org",
+            fromCache: false,
+            windowsPdbDetected);
     }
 
-    private async Task<PdbDownloadResult> TryLocateFromSymbolServerAsync(
+    private async Task<PdbProbeResult> TryLocateFromSymbolServerAsync(
         string pdbFileName,
         string symbolKey,
         Action<string>? log,
@@ -365,20 +579,6 @@ public class SymbolPackageDownloader
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
         bool windowsPdbDetected = false;
 
-        // Check cache before hitting the network
-        var cacheKey = GetSymbolServerCacheKey(pdbFileName, symbolKey);
-        var cached = await ClassifyStoredPdbAsync(cacheKey, cancellationToken).ConfigureAwait(false);
-        if (cached.Portable)
-        {
-            log?.Invoke("Using cached PDB from symbol server");
-            return new PdbDownloadResult(_pdbStore.TryGetLocalPath(cacheKey), SymbolServer: "cached");
-        }
-        if (cached.Windows)
-            windowsPdbDetected = true;
-
-        if (cacheOnly)
-            return new PdbDownloadResult(null, windowsPdbDetected);
-
         var symbolServers = new[]
         {
             "https://symbols.nuget.org/download/symbols",
@@ -387,6 +587,32 @@ public class SymbolPackageDownloader
 
         foreach (var server in symbolServers)
         {
+            var serverHost = new Uri(server).Host;
+            var cacheKey =
+                GetSymbolServerCacheKey(
+                    serverHost,
+                    pdbFileName,
+                    symbolKey);
+            var cached =
+                await ClassifyStoredPdbAsync(
+                    cacheKey,
+                    cancellationToken).ConfigureAwait(false);
+            if (cached.Portable)
+            {
+                log?.Invoke(
+                    $"Using cached PDB from {serverHost}");
+                return Acquired(
+                    cacheKey,
+                    serverHost,
+                    fromCache: true,
+                    windowsPdbDetected);
+            }
+            if (cached.Windows)
+                windowsPdbDetected = true;
+
+            if (cacheOnly)
+                continue;
+
             var url = $"{server}/{pdbFileName}/{symbolKey}/{pdbFileName}";
             if (IsCachedMiss(url, log, "symbol server"))
                 continue;
@@ -414,9 +640,12 @@ public class SymbolPackageDownloader
                 var headerCheck = await ClassifyStoredPdbAsync(cacheKey, cancellationToken).ConfigureAwait(false);
                 if (headerCheck.Portable)
                 {
-                    var serverHost = new Uri(server).Host;
                     log?.Invoke("Successfully downloaded PDB from symbol server");
-                    return new PdbDownloadResult(_pdbStore.TryGetLocalPath(cacheKey), SymbolServer: serverHost);
+                    return Acquired(
+                        cacheKey,
+                        serverHost,
+                        fromCache: false,
+                        windowsPdbDetected);
                 }
                 if (headerCheck.Windows)
                 {
@@ -434,7 +663,7 @@ public class SymbolPackageDownloader
             }
         }
 
-        return new PdbDownloadResult(null, windowsPdbDetected);
+        return new PdbProbeResult(null, windowsPdbDetected);
     }
 
     private async Task<(bool Portable, bool Windows)> ClassifyStoredPdbAsync(
@@ -463,8 +692,14 @@ public class SymbolPackageDownloader
         }
     }
 
-    private static bool IsCachedMiss(string key, Action<string>? log, string source)
+    private bool IsCachedMiss(
+        string key,
+        Action<string>? log,
+        string source)
     {
+        if (!_usePersistentMissCache)
+            return false;
+
         if (CoreCache.TryGet(SymbolMissCacheCategory, key, SymbolForbiddenCacheTtl, extension: "forbidden") != null)
         {
             log?.Invoke($"Using cached symbol miss: {source}");
@@ -478,8 +713,13 @@ public class SymbolPackageDownloader
         return true;
     }
 
-    private static void CacheMissIfDefinitive(string key, HttpRetryHelper.HttpRetryResult result)
+    private void CacheMissIfDefinitive(
+        string key,
+        HttpRetryHelper.HttpRetryResult result)
     {
+        if (!_usePersistentMissCache)
+            return;
+
         if (result.StatusCode is not { } statusCode)
             return;
 
@@ -504,14 +744,43 @@ public class SymbolPackageDownloader
                packageName.Equals("WindowsAzure.Storage", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string GetCachedPdbKey(string packageName, string packageVersion, string assemblyPath, string symbolKey)
-    {
-        var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
-        return $"{packageName}/{packageVersion}/{symbolKey}/{assemblyName}.pdb";
-    }
+    private static string GetCachedPdbKey(
+        string packageName,
+        string packageVersion,
+        string assemblyName,
+        string symbolKey)
+        => $"{packageName}/{packageVersion}/{symbolKey}/{assemblyName}.pdb";
 
-    private static string GetSymbolServerCacheKey(string pdbName, string symbolKey)
-        => $"servers/{pdbName}/{symbolKey}/{pdbName}";
+    private static string GetSymbolServerCacheKey(
+        string serverHost,
+        string pdbName,
+        string symbolKey)
+        => $"servers/{serverHost}/{pdbName}/{symbolKey}/{pdbName}";
+
+    private static string? GetSnupkgAssemblyName(
+        string pdbFileName,
+        bool pdbFileNameUsable,
+        string? fallbackAssemblyName,
+        Action<string>? log)
+    {
+        if (pdbFileNameUsable)
+        {
+            string fromCodeView =
+                Path.GetFileNameWithoutExtension(pdbFileName);
+            if (StorePath.IsSafeSegment(fromCodeView))
+                return fromCodeView;
+        }
+
+        if (!string.IsNullOrWhiteSpace(fallbackAssemblyName)
+            && StorePath.IsSafeSegment(fallbackAssemblyName))
+        {
+            return fallbackAssemblyName;
+        }
+
+        log?.Invoke(
+            "No usable assembly name is available; skipping the symbol-package path.");
+        return null;
+    }
 
     private static string GetSymbolFileName(string pdbPath)
     {

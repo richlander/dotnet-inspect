@@ -33,6 +33,18 @@ The tool searches for PDBs in this order:
 `PdbAcquisitionService` owns this reusable acquisition algorithm. The typed
 `SourceLinkDocumentsQuery` invokes it through a host-supplied `SourceLinkService`
 and HTTP client, so library and package hosts do not duplicate symbol lookup.
+`SymbolPackageDownloader.AcquirePdbAsync` returns an
+`AcquiredPortablePdb` content reference backed by the host's `IPdbStore`;
+filesystem stores expose an optional local path, while browser/Wasm hosts use
+an in-memory store and open the same acquired bytes as a stream. The legacy
+`DownloadPdbAsync` path result is only the desktop compatibility projection.
+
+`PdbAcquisitionService` can pair that content with a
+`ResolvedAssemblyReference` that has no path. It derives the symbol-package PDB
+name from the CodeView record, uses the assembly identity only as a validated
+fallback, and asks Metadata to validate the Portable PDB identity against the
+already-open assembly image. This is the content-shaped symbol capability for
+assembly-context participants; a group-scoped source query remains separate.
 
 ### 1. Embedded PDB
 
@@ -127,13 +139,20 @@ typed APIs for map extraction, URL decoration, and provenance.
 Downloaded PDBs are cached locally to avoid repeated downloads:
 
 - **Symbol packages**: `~/.dotnet-inspect/symbols/{package}/{version}/{filename}.pdb`
-- **Symbol server**: `~/.dotnet-inspect/symbols/{pdbname}/{key}/{pdbname}`
+- **Symbol server**:
+  `~/.dotnet-inspect/symbols/servers/{server-host}/{pdbname}/{key}/{pdbname}`
 
-Those are the current source-blind paths. The target model scopes a
-package-associated PDB by package producer and a symbol-server PDB by server
-identity, or persists equivalent provenance beside the entry, so a warm hit
-reports and enforces the same origin as the initial acquisition. This migration
-is part of [#3738](https://github.com/richlander/dotnet-inspect/issues/3738).
+The store may instead be in-memory, in which case the same keys have no
+filesystem projection. Symbol-server entries are scoped by provider host, so a
+warm hit reports the same server that supplied the content. Package-associated
+PDB entries remain NuGet.org-specific and package/version-keyed; extending them
+to custom producers requires source-scoped provenance and is part of
+[#3738](https://github.com/richlander/dotnet-inspect/issues/3738).
+
+Filesystem PDB publication writes a unique sibling staging file and atomically
+replaces the final entry only after the complete payload is closed. Readers
+therefore observe the previous complete PDB or the replacement, never a
+truncated in-progress write.
 
 ## Error handling
 

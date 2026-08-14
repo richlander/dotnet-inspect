@@ -17,7 +17,8 @@ public static class PdbAcquisitionService
         Action<string>? log,
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IPdbStore? pdbStore = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(httpClient);
@@ -32,25 +33,66 @@ public static class PdbAcquisitionService
             return;
         }
 
-        var downloader = new SymbolPackageDownloader(httpClient);
-        var result = await downloader.DownloadPdbAsync(
-            context.PdbId!.Guid,
-            context.PdbId.Age,
-            context.PdbId.PdbFileName,
-            context.PdbId.IsPortable,
-            assemblyPath,
+        await AcquireCoreAsync(
+            context,
+            httpClient,
+            Path.GetFileNameWithoutExtension(assemblyPath),
             packageName,
             packageVersion,
-            log,
             isPlatformAssembly,
+            log,
             cacheOnly,
             sourceOptions,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            pdbStore).ConfigureAwait(false);
+    }
 
-        if (result.PdbFilePath != null)
-            context.LoadPdbFromFile(result.PdbFilePath, "Symbol Package", result.SymbolServer);
+    private static async Task AcquireCoreAsync(
+        PdbContext context,
+        HttpClient httpClient,
+        string? assemblyName,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        Action<string>? log,
+        bool cacheOnly,
+        NuGetSourceOptions? sourceOptions,
+        CancellationToken cancellationToken,
+        IPdbStore? pdbStore)
+    {
+        var downloader = pdbStore is null
+            ? new SymbolPackageDownloader(httpClient)
+            : new SymbolPackageDownloader(httpClient, pdbStore);
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                context.PdbId!.Guid,
+                context.PdbId.Age,
+                context.PdbId.PdbFileName,
+                context.PdbId.IsPortable,
+                assemblyName,
+                packageName,
+                packageVersion,
+                log,
+                isPlatformAssembly,
+                cacheOnly,
+                sourceOptions,
+                cancellationToken).ConfigureAwait(false);
+
+        if (result is PortablePdbAcquisitionResult.Acquired acquired)
+        {
+            Stream stream =
+                await acquired.Pdb.OpenReadAsync(
+                    cancellationToken).ConfigureAwait(false);
+            context.LoadPdbFromStream(
+                stream,
+                "Symbol Package",
+                acquired.Pdb.SymbolServer,
+                acquired.Pdb.LocalPath);
+        }
         else if (result.WindowsPdbDetected)
+        {
             context.WindowsPdbDetected = true;
+        }
     }
 
     public static Task AcquireAsync(
@@ -60,9 +102,16 @@ public static class PdbAcquisitionService
         Action<string>? log,
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IPdbStore? pdbStore = null)
     {
+        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(httpClient);
+
+        if (!context.NeedsPdb)
+            return Task.CompletedTask;
+
         string? packageName = null;
         string? packageVersion = null;
         bool isPlatformAssembly = false;
@@ -78,15 +127,17 @@ public static class PdbAcquisitionService
                 break;
         }
 
-        return AcquireAsync(
+        return AcquireCoreAsync(
             context,
             httpClient,
+            assembly.Identity.Name,
             packageName,
             packageVersion,
             isPlatformAssembly,
             log,
             cacheOnly,
             sourceOptions,
-            cancellationToken);
+            cancellationToken,
+            pdbStore);
     }
 }
