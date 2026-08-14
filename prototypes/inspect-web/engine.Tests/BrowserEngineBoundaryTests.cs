@@ -570,6 +570,17 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Contains("package coordinate", failure.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task ExactDependencyNavigation_DoesNotRequireAListedVersion()
+    {
+        string resolved =
+            await BrowserPackageWorkspace.ResolveDependencyVersionAsync(
+                "Example.Package",
+                "[999999.0]");
+
+        Assert.Equal("999999.0.0", resolved);
+    }
+
     // The default package load runs under explicit bounds and says so when it stops early. Both
     // halves matter: an ordinary projection must be untouched, and the bound must be reachable.
     [Fact]

@@ -74,6 +74,23 @@ public static class PackageDependencyVersionRange
             : candidates.First(candidate => candidate.Version == best).Text;
     }
 
+    /// <summary>
+    /// Returns the canonical version when the declaration names exactly one
+    /// coordinate, or <see langword="null"/> for a range or floating declaration.
+    /// </summary>
+    public static string? GetExactVersion(string? declaredRange)
+    {
+        VersionRange range = Parse(declaredRange);
+        return !range.IsFloating
+            && range.MinVersion is { } minimum
+            && range.MaxVersion is { } maximum
+            && range.IsMinInclusive
+            && range.IsMaxInclusive
+            && minimum == maximum
+                ? minimum.ToNormalizedString()
+                : null;
+    }
+
     internal static void Validate(string? declaredRange) =>
         _ = Parse(declaredRange);
 
@@ -198,7 +215,15 @@ public static class PackageDependencyGroupsQuery
             foreach (DependencyGroup group in mutableGroups ?? [])
             {
                 foreach (PackageDependency dependency in group.Dependencies)
+                {
+                    if (!PackageCoordinateResolver.IsCanonicalPackageId(dependency.Id))
+                    {
+                        throw new InvalidDataException(
+                            "The package manifest contains an invalid dependency id.");
+                    }
+
                     PackageDependencyVersionRange.Validate(dependency.Version);
+                }
             }
 
             DependencyResolutionService.DependencyGroupSelection selection =

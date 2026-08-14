@@ -64,6 +64,21 @@ public sealed class PackageDependencyGroupsQueryTests
                 "[1.0.0-beta.1,1.0.0)"));
     }
 
+    [Theory]
+    [InlineData("[2.0.0]", "2.0.0")]
+    [InlineData("[2.0, 2.0]", "2.0.0")]
+    [InlineData("2.0.0", null)]
+    [InlineData("[2.0.0, 3.0.0)", null)]
+    [InlineData("2.*", null)]
+    public void DependencyVersionRange_IdentifiesOnlyExactCoordinates(
+        string range,
+        string? expected)
+    {
+        Assert.Equal(
+            expected,
+            PackageDependencyVersionRange.GetExactVersion(range));
+    }
+
     [Fact]
     public async Task ExecuteAsync_RejectsInvalidDeclaredVersionRange()
     {
@@ -77,6 +92,22 @@ public sealed class PackageDependencyGroupsQueryTests
             await ExecuteAsync(content, "Example.Package", "net8.0"));
 
         Assert.IsType<InvalidDataException>(error);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RejectsInvalidDependencyIdBeforeProjection()
+    {
+        InMemoryPackageContent content = Content(
+            ("Example.Package.nuspec", Manifest(
+                """
+                <dependency id="evil/../other" version="[1.0.0]" />
+                """)));
+
+        Exception error = Failed(
+            await ExecuteAsync(content, "Example.Package", "net8.0"));
+
+        Assert.IsType<InvalidDataException>(error);
+        Assert.DoesNotContain("evil/../other", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
