@@ -106,6 +106,30 @@ export function createDependencyGraphRenderSequence() {
   };
 }
 
+export function createDependencyGraphPendingState(dataset) {
+  return {
+    isPending(signature) {
+      return dataset.graphPending === signature;
+    },
+    begin(signature, sequence) {
+      dataset.graphPending = signature;
+      dataset.graphPendingSequence = String(sequence);
+    },
+    invalidate() {
+      delete dataset.graphPending;
+      delete dataset.graphPendingSequence;
+    },
+    complete(signature, sequence) {
+      if (dataset.graphPending !== signature
+        || dataset.graphPendingSequence !== String(sequence)) {
+        return false;
+      }
+      this.invalidate();
+      return true;
+    }
+  };
+}
+
 export function normalizeShareTabs(list) {
   if (!Array.isArray(list)) {
     return {

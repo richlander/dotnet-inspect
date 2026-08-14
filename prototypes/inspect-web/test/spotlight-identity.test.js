@@ -7,6 +7,7 @@ import {
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
+  createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
   dependencyGroupSelectionMessage,
   dependencyGraphGroupSelectionIndex,
@@ -143,6 +144,25 @@ test("empty dependency graph invalidates an in-flight render", () => {
   assert.match(
     appSource,
     /if \(!built\) \{\s*depGraphRenderSequence\.invalidate\(\);/);
+});
+
+test("stale dependency graph cleanup preserves a replacement with the same signature", () => {
+  const sequence = createDependencyGraphRenderSequence();
+  const dataset = {};
+  const pending = createDependencyGraphPendingState(dataset);
+  const signature = "same graph";
+
+  const stale = sequence.begin();
+  pending.begin(signature, stale);
+  sequence.invalidate();
+  pending.invalidate();
+  const replacement = sequence.begin();
+  pending.begin(signature, replacement);
+
+  assert.equal(pending.complete(signature, stale), false);
+  assert.equal(pending.isPending(signature), true);
+  assert.equal(pending.complete(signature, replacement), true);
+  assert.equal(pending.isPending(signature), false);
 });
 
 test("dependency graph binds navigation to generated node identities", () => {

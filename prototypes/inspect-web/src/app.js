@@ -2,6 +2,7 @@ import {
   assemblyDescriptorForType,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
+  createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
   dependencyGroupSelectionMessage,
   dependencyGraphGroupSelectionIndex,
@@ -6411,16 +6412,18 @@ function buildDependencyGraphMermaid() {
 async function renderDependencyGraph() {
   const container = document.querySelector("#dependency-graph-diagram");
   if (!container) return;
+  const pending = createDependencyGraphPendingState(container.dataset);
   const groups = state.packageDependencies?.dependencyGroups || [];
   if (!groups.length) {
     depGraphRenderSequence.invalidate();
+    pending.invalidate();
     return;
   }
   const built = buildDependencyGraphMermaid();
   if (!built) {
     depGraphRenderSequence.invalidate();
     container.dataset.graphDef = "";
-    delete container.dataset.graphPending;
+    pending.invalidate();
     container.innerHTML = '<p class="graph-empty">No connected packages for this framework. Open a package that depends on this one to see caller edges.</p>';
     return;
   }
@@ -6431,9 +6434,9 @@ async function renderDependencyGraph() {
   // (renderDependencyGraph is invoked repeatedly per render cycle — from both
   // maybeAutoLoadPackageDependencies and ensureWorkspaceDependencies — so without this guard
   // two concurrent mermaid.render calls race and one's catch can clobber the other's graph.)
-  if (container.dataset.graphPending === signature) return;
-  container.dataset.graphPending = signature;
+  if (pending.isPending(signature)) return;
   const seq = depGraphRenderSequence.begin();
+  pending.begin(signature, seq);
   try {
     mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
     const { default: mermaid } = await mermaidModule;
@@ -6490,7 +6493,7 @@ async function renderDependencyGraph() {
       container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(String(error?.message || error))}</p></div>`;
     }
   } finally {
-    if (container.dataset.graphPending === signature) delete container.dataset.graphPending;
+    pending.complete(signature, seq);
   }
 }
 
