@@ -83,6 +83,52 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
+    public void ResolutionSession_PreservesUnavailableConstraintDependency()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string targetPath = Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                targetPath,
+                BuildConstrainedAssembly(
+                    "Target",
+                    "Dependency",
+                    "Type`1"));
+            File.WriteAllText(
+                Path.Combine(directory, "Dependency.dll"),
+                "not a managed assembly");
+
+            using var resolution =
+                new TypeDefinitionResolutionSession(
+                    targetPath,
+                    isPlatformAssembly: false);
+            ApiSurface surface = Assert.IsType<ApiSurface>(
+                resolution.ExtractApiSurface());
+
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(surface.InspectionFailures);
+            Assert.Contains(
+                "was unavailable: 'CandidateUnavailable'",
+                failure.Detail,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "could not be bound",
+                failure.Detail,
+                StringComparison.Ordinal);
+            Assert.Equal(
+                "Dependency",
+                Assert.IsType<AssemblyReferenceIdentity>(
+                    failure.DependencyAssembly)
+                    .Name);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ResolutionSession_RejectsSourceChangedAfterInventory()
     {
         string directory = CreateDirectory();

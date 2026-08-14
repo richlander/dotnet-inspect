@@ -403,8 +403,10 @@ evidence survives multiple kind-authentication hops
 withholds kind-incomplete resolutions from catalog promotion. The reproduced transitive
 missing-binding outcome retains typed kind-failure evidence rather than becoming a
 success-shaped unknown kind; `TransitiveUnboundDependencyIsVisibleOnApiSurface` gates that
-case. The equivalent unavailable, missing-type, and ambiguity arms are typed but remain
-unverified. A failed binding or rejected terminal declaration after one or more forwarding hops retains the
+case. The equivalent unavailable arm is gated end-to-end by
+`ResolutionSession_PreservesUnavailableConstraintDependency`; the missing-type and ambiguity
+arms are typed but remain unverified. A failed binding or rejected terminal declaration after
+one or more forwarding hops retains the
 terminal assembly identity rather than being attributed to the initial facade
 (`ForwardedUnboundDependencyPreservesTerminalAssemblyIdentity` and
 `ForwardedModuleExportRejectionPreservesTerminalAssemblyIdentity`). An

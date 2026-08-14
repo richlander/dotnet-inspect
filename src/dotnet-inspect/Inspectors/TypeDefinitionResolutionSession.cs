@@ -16,7 +16,7 @@ internal sealed record TypeDefinitionApiSurfaceFailure(
 internal sealed class TypeDefinitionResolutionSession : IDisposable
 {
     readonly ResolvedAssemblyReference _root;
-    readonly AssemblyReferenceBindingPolicy _policy;
+    readonly IAssemblyBindingPolicy _policy;
     readonly TypeResolutionCatalog _catalog = new();
 
     public TypeDefinitionResolutionSession(
@@ -59,7 +59,7 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
                 PreferImplementationAssemblies = true,
                 AllowPlatformAssemblyVersionRollForward = true,
             });
-        _policy = new AssemblyReferenceBindingPolicy(resolver);
+        _policy = resolver;
     }
 
     public TypeResolutionOutcome Resolve(MetadataTypeDefinitionName type)
