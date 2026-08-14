@@ -384,7 +384,7 @@ receive an explicit failure-bearing boundary.
   neutral rejection types.
 - `ILInspector.Metadata` owns API identities, metadata declarations, and
   degraded metadata facts.
-- `ILInspector.Instructions` owns IL operand and diff spelling over the neutral
+- `ILInspector.ILDiff` owns IL operand and diff spelling over the neutral
   chains.
 - `ILInspector.Analysis` and `ILInspector.Decompiler` retain their semantic
   type models and use the shared mechanics only for metadata relationships.

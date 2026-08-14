@@ -4,10 +4,11 @@
 > point for choosing a type, member, or API identity shape. This document owns
 > the details below.
 
-`IlBodyDiff` is a low-level body-diff substrate in
-`ILInspector.Instructions`. It compares decoded IL operations after a small
-amount of canonicalization, then projects producer-owned rows through
-`IlDiffPrinter`.
+`IlBodyDiff` is a low-level body-diff producer in `ILInspector.ILDiff`. It
+compares decoded `ILInspector.Instructions` operations after a small amount of
+canonicalization, then projects producer-owned rows through `IlDiffPrinter`.
+The public types retain the `ILInspector.Instructions` namespace for consumer
+source compatibility; their owning assembly is `ILInspector.ILDiff`.
 
 `IlAssemblyDiff` is the assembly/member producer above that substrate. It owns
 method identity for pairing bodies, runs self-diff and pair-diff checks, and
