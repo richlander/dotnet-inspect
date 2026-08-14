@@ -873,6 +873,9 @@ public sealed class MemberCallGraphSessionTests
             first.Nodes.Select(node => (node.Id, node.Label, node.Kind)),
             second.Nodes.Select(node => (node.Id, node.Label, node.Kind)));
         Assert.Equal(first.Edges.Length, second.Edges.Length);
+        Assert.Equal(
+            InspectionGraphDocumentScope.SessionBound,
+            CallGraphInspectionGraphAdapter.Create(first).Scope);
         Assert.Equal(before, graph.BuildCounts);
         Assert.All(
             context.Sources,
