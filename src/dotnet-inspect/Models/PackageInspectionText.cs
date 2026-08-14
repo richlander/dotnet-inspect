@@ -351,11 +351,11 @@ internal readonly record struct PackageSourceFileText(
     InertString Type,
     InertString? Url);
 
-internal readonly record struct PackageSourceLinkIssueText(
+public readonly record struct PackageSourceLinkIssueText(
     InertString Library,
     InertString Reason);
 
-internal readonly record struct PackageSourceLinkFileText(
+public readonly record struct PackageSourceLinkFileText(
     InertString Library,
     InertString Path);
 
