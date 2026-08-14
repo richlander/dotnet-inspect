@@ -64,6 +64,16 @@ change ready to merge.
 - Use one development worktree per PR, plus temporary worktrees for independent
   reviews. Do not reuse a worktree across unrelated changes.
 - Never amend commits; create follow-up commits.
+- **Conflict recovery is the first priority for an open PR.** When GitHub
+  reports a merge conflict, stop tests, reviews, lower-stack restacks, and
+  unrelated follow-up work on that PR. Integrate the effective base, resolve
+  the conflict, re-read these instructions and the task-relevant docs, and push
+  the replacement head immediately so CI starts. Run required local validation
+  against that exact pushed head after the push or in parallel with CI. This is
+  the standing exception to the validate-before-push order below; it changes
+  sequencing only, and the PR remains unready until local validation, CI, and
+  required review are clean. Recover a stack bottom-up so every child rests on
+  a conflict-free parent.
 - Form one frozen candidate for each review round. Immediately before local
   validation, fetch and integrate the effective base, record that base tip, and
   then keep the resulting head fixed through validation, push, CI, and review.
