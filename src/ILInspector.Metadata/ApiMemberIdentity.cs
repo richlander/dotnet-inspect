@@ -352,9 +352,10 @@ public static class ApiMemberIdentity
             _definitionCache ??= [];
             if (_definitionCache.TryGetValue(handle, out AnchorSignatureType? cached))
             {
-                // Reuse the composed name, but still charge this occurrence so
-                // repeated references cannot bypass the cumulative work budget.
-                _workBudget.Charge(cached.Length);
+                // Reuse the composed name, but charge the same leaf floor as
+                // Encoded so wide GENERICINST/FNPTR trees of short TypeDef
+                // names cannot bypass the budget on cache hits.
+                ChargeLeaf(cached.Length);
                 return cached;
             }
 
@@ -372,7 +373,7 @@ public static class ApiMemberIdentity
             _referenceCache ??= [];
             if (_referenceCache.TryGetValue(handle, out AnchorSignatureType? cached))
             {
-                _workBudget.Charge(cached.Length);
+                ChargeLeaf(cached.Length);
                 return cached;
             }
 
@@ -573,15 +574,24 @@ public static class ApiMemberIdentity
 
         AnchorSignatureType Encoded(string text)
         {
-            // Charge every occurrence. Short leaves (e.g. "!0") still pay a
-            // floor so wide GENERICINST/FNPTR modifier trees cannot mint tens
-            // of thousands of near-free nodes under the name-length budget.
-            // Gated by CreateMethodAnchor_WideGenericModoptsFailBeforeLargeAllocation.
-            _workBudget.Charge(
-                text.Length > LeafNodeWorkUnits
-                    ? text.Length
-                    : LeafNodeWorkUnits);
+            // Charge every occurrence, including the short-leaf floor. Gated by
+            // CreateMethodAnchor_WideGenericModoptsFailBeforeLargeAllocation and
+            // CreateMethodAnchor_WideTypeRefGenericModoptsFailBeforeLargeAllocation.
+            ChargeLeaf(text.Length);
             return new EncodedAnchorSignatureType(text);
+        }
+
+        void ChargeLeaf(int length)
+        {
+            // Short leaves (e.g. "!0", "N.T") still pay a floor so wide
+            // GENERICINST/FNPTR modifier trees cannot mint tens of thousands of
+            // near-free nodes under the name-length budget. Cache hits must use
+            // the same floor as first-time Encoded; charging cached.Length alone
+            // reopened the width axis on repeated TypeRef/TypeDef leaves.
+            _workBudget.Charge(
+                length > LeafNodeWorkUnits
+                    ? length
+                    : LeafNodeWorkUnits);
         }
 
         AnchorSignatureType Composite(AnchorSignatureType type)

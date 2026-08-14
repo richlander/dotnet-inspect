@@ -409,6 +409,43 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void CreateMethodAnchor_WideTypeRefGenericModoptsFailBeforeLargeAllocation()
+    {
+        // Same width shape as WideGenericModopts, but every generic argument is
+        // a short TypeRef. After the first decode the TypeRef cache hits and
+        // must still pay the leaf floor; charging cached.Length alone let this
+        // path allocate ~100 MiB before reject (and succeed under the budget at
+        // slightly smaller widths).
+        const int parameterCount = 2_000;
+        const int genericArity = 2_030;
+        byte[] image = BuildWideTypeRefGenericModoptImage(
+            parameterCount,
+            genericArity);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single();
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        BadImageFormatException ex =
+            Assert.Throws<BadImageFormatException>(
+                () => ApiMemberIdentity.CreateMethodAnchorInfo(
+                    reader,
+                    method.GetDeclaringType(),
+                    method));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Contains("cumulative work budget", ex.Message);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Wide TypeRef generic modopt rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void Resolve_TrailingConstraintTypeSpecBytesFailClosed()
     {
         byte[] sourceImage =
@@ -1054,6 +1091,66 @@ public sealed class MethodCorrespondenceResolverTests
         {
             typeSpecSignature.WriteByte(0x13); // ELEMENT_TYPE_VAR
             typeSpecSignature.WriteCompressedInteger(0);
+        }
+        TypeSpecificationHandle typeSpec =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(typeSpecSignature));
+        int typeSpecCodedIndex =
+            (MetadataTokens.GetRowNumber(typeSpec) << 2) | 2;
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameterCount; i++)
+        {
+            signature.WriteByte(0x20); // CMOD_OPT
+            signature.WriteCompressedInteger(typeSpecCodedIndex);
+            signature.WriteByte(0x08);
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildWideTypeRefGenericModoptImage(
+        int parameterCount,
+        int genericArity)
+    {
+        var metadata = CreateSingleTypeMetadata("WideTypeRefGenericModopt");
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        // Row 1: short leaf reused across the generic arity (cache-hit path).
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("T"));
+        // Row 2: open generic type.
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("G"));
+
+        var typeSpecSignature = new BlobBuilder();
+        typeSpecSignature.WriteByte(0x15); // ELEMENT_TYPE_GENERICINST
+        typeSpecSignature.WriteByte(0x12); // ELEMENT_TYPE_CLASS
+        typeSpecSignature.WriteCompressedInteger((2 << 2) | 1); // TypeRef 2
+        typeSpecSignature.WriteCompressedInteger(genericArity);
+        for (int i = 0; i < genericArity; i++)
+        {
+            typeSpecSignature.WriteByte(0x12); // ELEMENT_TYPE_CLASS
+            typeSpecSignature.WriteCompressedInteger((1 << 2) | 1); // TypeRef 1
         }
         TypeSpecificationHandle typeSpec =
             metadata.AddTypeSpecification(
