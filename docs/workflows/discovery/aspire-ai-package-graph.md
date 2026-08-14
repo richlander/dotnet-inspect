@@ -264,6 +264,43 @@ relationship type.
 Issue numbers above are GitHub issues (4133, 3632, 3629, 3630); link them in
 the PR body when filing the two new trackers.
 
+## Thesis — type and package at once
+
+Call-graph demos are most powerful when **type and package are simultaneous
+lenses on one member-centric graph**, not two separate tools:
+
+| Direction | Start | Travel | Land |
+| --------- | ----- | ------ | ---- |
+| Type outward | A type (or its members) | Call edges + characteristics | Packages, integrations, providers |
+| Package inward | A package set | Call / extends / integration arcs | Types and APIs that matter |
+
+**Arcs are to the graph what carets are to AnnotatedSourceDocument:** the
+visual hook that carries the rest of the tool’s richness (integration kind,
+package boundary, loop, alloc, findings) without changing the underlying
+identity. Members stay the substrate (#4139); arcs and node marks are the
+descriptive plane; viewers filter layers.
+
+Same envelope both ways — seed or ad hoc mode (#4133) only changes how the
+subgraph is chosen, not whether type and package can co-appear.
+
+```mermaid
+flowchart LR
+  subgraph typeLens["Type lens"]
+    T["IChatClient / OpenAIExtensions"]
+  end
+  subgraph pkgLens["Package lens"]
+    P1["MEAI.OpenAI"]
+    P2["Bedrock.MEAI"]
+    P3["Aspire.Hosting.OpenAI"]
+  end
+  T -->|AsIChatClient Integration: AI| P1
+  T -->|AsIChatClient Integration: AI| P2
+  P3 -->|AddOpenAI Integration: Aspire| T
+```
+
+Demo A/C lean package→type; Demo B leans type/member→package. Ideal shareable
+views show **both** group labels and typed arcs in one diagram.
+
 ## Validation posture
 
 - **Target Mermaid** in this file is normative for product direction; it is not
