@@ -176,4 +176,93 @@ public class InfiniteLoopStructuringTests
         Assert.Contains("goto IL_", output);
         Assert.Contains("throw new FormatException();", output);
     }
+
+    [Fact]
+    public void InfiniteLoopContainingOuterOwnedContinue_StaysFlat()
+    {
+        var loopBody = new BlockContainer();
+
+        var dispatch = new Block(0x00);
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", TypeRef.CoreLib("System", "Int32")),
+            [0x10, 0x20]));
+        loopBody.Add(dispatch);
+
+        foreach (int offset in new[] { 0x08, 0x10, 0x20 })
+        {
+            var section = new Block(offset);
+            section.Add(new Continue());
+            loopBody.Add(section);
+        }
+
+        var latch = new Block(0x30);
+        latch.Add(new Branch(0x00));
+        loopBody.Add(latch);
+
+        var function = InOuterLoop(loopBody);
+
+        function.CheckInvariant();
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Equal(3, function.Descendants.OfType<Continue>().Count());
+    }
+
+    [Fact]
+    public void GuardedWhileContainingOuterOwnedContinue_StaysFlat()
+    {
+        var loopBody = new BlockContainer();
+
+        var guard = new Block(0x00);
+        guard.Add(new Branch(0x20));
+        loopBody.Add(guard);
+
+        var body = new Block(0x10);
+        body.Add(new Continue());
+        loopBody.Add(body);
+
+        var condition = new Block(0x20);
+        condition.Add(new ConditionalBranch(
+            new LoadArgument(0, "repeat", TypeRef.CoreLib("System", "Boolean")),
+            0x10));
+        loopBody.Add(condition);
+
+        var exit = new Block(0x30);
+        exit.Add(new Return(null));
+        loopBody.Add(exit);
+
+        var function = InOuterLoop(loopBody);
+
+        function.CheckInvariant();
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(function.Descendants.OfType<Continue>());
+        Assert.NotEmpty(function.Descendants.OfType<Branch>());
+    }
+
+    static IrFunction InOuterLoop(BlockContainer loopBody)
+    {
+        var body = new BlockContainer();
+        var entry = new Block(0x00);
+        entry.Add(new DoWhileLoop(
+            loopBody,
+            new Constant(false, TypeRef.CoreLib("System", "Boolean"))));
+        entry.Add(new Return(null));
+        body.Add(entry);
+
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("value", TypeRef.CoreLib("System", "Int32"))],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+    }
 }

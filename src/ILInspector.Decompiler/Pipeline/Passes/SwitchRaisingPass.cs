@@ -240,7 +240,7 @@ public sealed class SwitchRaisingPass : IIrPass
                 return false;
         if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
             return false;
-        if (OuterContinueCouldBeCaptured(blocks, regions, offsetToIndex, s))
+        if (OuterContinueCouldBeCaptured(blocks, regions, offsetToIndex))
             return false;
 
         // Nothing outside the switch (the block s aside, which dispatches) may
@@ -406,7 +406,7 @@ public sealed class SwitchRaisingPass : IIrPass
         }
         if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
             return false;
-        if (OuterContinueCouldBeCaptured(blocks, regions, offsetToIndex, s))
+        if (OuterContinueCouldBeCaptured(blocks, regions, offsetToIndex))
             return false;
 
         // The join must be a genuine merge a section breaks to — never an arbitrary
@@ -1381,31 +1381,15 @@ public sealed class SwitchRaisingPass : IIrPass
     static bool OuterContinueCouldBeCaptured(
         IReadOnlyList<Block> blocks,
         IReadOnlyDictionary<int, List<int>> regions,
-        Dictionary<int, int> offsetToIndex,
-        int switchHead)
+        Dictionary<int, int> offsetToIndex)
     {
-        bool containsOuterContinue = false;
         foreach (var region in regions.Values)
         {
             if (!ContainsOuterOwnedContinue(blocks, region))
                 continue;
-            containsOuterContinue = true;
             if (RegionContainsCycle(blocks, region, offsetToIndex))
                 return true;
         }
-        return containsOuterContinue
-            && HasBackEdgeEncirclingSwitch(blocks, switchHead, offsetToIndex);
-    }
-
-    static bool HasBackEdgeEncirclingSwitch(
-        IReadOnlyList<Block> blocks,
-        int switchHead,
-        Dictionary<int, int> offsetToIndex)
-    {
-        for (int source = switchHead + 1; source < blocks.Count; source++)
-            foreach (int targetOffset in TargetsInFunctionScope(blocks[source]))
-                if (offsetToIndex.TryGetValue(targetOffset, out int target) && target <= switchHead)
-                    return true;
         return false;
     }
 
@@ -1934,7 +1918,7 @@ public sealed class SwitchRaisingPass : IIrPass
                 return false;
         if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
             return false;
-        if (OuterContinueCouldBeCaptured(blocks, regions, offsetToIndex, s))
+        if (OuterContinueCouldBeCaptured(blocks, regions, offsetToIndex))
             return false;
 
         if (!OnlyReachedByChain(blocks, owned, s, dispatchEnd, leaveTargets, regions))

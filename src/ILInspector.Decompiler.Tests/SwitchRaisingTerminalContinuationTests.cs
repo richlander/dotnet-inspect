@@ -283,41 +283,6 @@ public class SwitchRaisingTerminalContinuationTests
     }
 
     [Fact]
-    public void BackEdgeEncirclingSwitchWithOuterContinue_DeclinesSwitchRaise()
-    {
-        var loopBody = new BlockContainer();
-
-        var dispatch = new Block(0x00);
-        dispatch.Add(new SwitchBranch(
-            new LoadArgument(0, "value", s_int),
-            [0x10, 0x20]));
-        loopBody.Add(dispatch);
-
-        foreach (int offset in new[] { 0x08, 0x10, 0x20 })
-        {
-            var section = new Block(offset);
-            section.Add(new Continue());
-            loopBody.Add(section);
-        }
-
-        var latch = new Block(0x30);
-        latch.Add(new Branch(0x00));
-        loopBody.Add(latch);
-
-        var function = CreateLoopFunction(
-            loopBody,
-            [new Parameter("value", s_int)]);
-
-        function.CheckInvariant();
-        new SwitchRaisingPass().Run(function, PassContext.None);
-        function.CheckInvariant();
-
-        Assert.Single(function.Descendants.OfType<SwitchBranch>());
-        Assert.Empty(function.Descendants.OfType<Switch>());
-        Assert.Equal(3, function.Descendants.OfType<Continue>().Count());
-    }
-
-    [Fact]
     public void DuplicateOwnedBlockOffsets_DeclineWithoutThrowing()
     {
         var body = new BlockContainer();

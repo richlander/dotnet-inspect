@@ -394,6 +394,11 @@ public sealed class StructuringPass : IIrPass
             // (continueTarget == i) so the body walk does not re-enter the loop.
             if (continueTarget != i && FindInfiniteLoopShape(ctx, i, stop) is { } latch)
             {
+                if (ContainsContinueOwnedOutsideProspectiveLoop(blocks, i, latch + 1))
+                {
+                    ctx.Recorder?.Record("loop-captures-outer-continue");
+                    return false;
+                }
                 if (!Validate(ctx, i, latch + 1, joinIndex: latch + 1, breakTarget: latch + 1, continueTarget: i))
                     return false;
                 i = latch + 1;
@@ -483,6 +488,11 @@ public sealed class StructuringPass : IIrPass
                     // csc's guarded while: br COND; BODY...; COND: brtrue BODY.
                     if (FindWhileShape(ctx, i, branchTarget, stop) is { } loop)
                     {
+                        if (ContainsContinueOwnedOutsideProspectiveLoop(blocks, i + 1, branchTarget))
+                        {
+                            ctx.Recorder?.Record("loop-captures-outer-continue");
+                            return false;
+                        }
                         // The body's breaks target the block after the loop.
                         // EH retry leaves to the condition are converted after
                         // the body is built; ordinary branches to the condition
@@ -631,6 +641,28 @@ public sealed class StructuringPass : IIrPass
             }
         }
         return true;
+    }
+
+    static bool ContainsContinueOwnedOutsideProspectiveLoop(
+        IReadOnlyList<Block> blocks,
+        int start,
+        int stop)
+    {
+        for (int index = start; index < stop; index++)
+        {
+            var root = blocks[index];
+            foreach (var @continue in root.DescendantsOutsideNestedFunctions.OfType<Continue>())
+            {
+                for (var ancestor = @continue.Parent; ancestor is not null; ancestor = ancestor.Parent)
+                {
+                    if (ReferenceEquals(ancestor, root))
+                        return true;
+                    if (ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement)
+                        break;
+                }
+            }
+        }
+        return false;
     }
 
     /// <summary>
