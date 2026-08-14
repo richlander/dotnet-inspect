@@ -546,6 +546,18 @@ public static class StructuralCloneAnalysis
                         side,
                         "The method return signature contains an unsupported type shape."));
             }
+            if (!SignatureBlobGuard.IsSafeToDecode(
+                    reader,
+                    definition.Signature,
+                    SignatureBlobGuard.Kind.Method))
+            {
+                return BodyProduction.NotCompleted(
+                    StructuralCloneDisposition.Unsupported,
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.UnsupportedMethodSignature,
+                        side,
+                        "The method signature exceeds the guarded decode policy."));
+            }
             StructuralCloneMethodSignature signature = new(
                 decodedSignature.Header.RawValue,
                 decodedSignature.GenericParameterCount,
