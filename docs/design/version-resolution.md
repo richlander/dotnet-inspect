@@ -59,6 +59,13 @@ cache, and the projected payload must retain that producer's authorization.
 Package metadata (publish date, downloads, deprecation, vulnerabilities) is
 also cached with a 1-hour TTL.
 
+NuGet V3 service-index, version-index, and search documents are limited to
+16 MiB each. The limit applies to bytes actually read even when a feed omits or
+understates `Content-Length`; an advertised oversize response is rejected
+before its body is opened. Headers-first reads retain a body-phase timeout of at
+most 30 seconds. Oversize and timeout failures remain distinct from a genuine
+empty version list or zero-result search.
+
 Paths projected from restored `.deps.json` and `project.assets.json` files do
 not choose arbitrary local files. Package locations are contained by the
 global-packages root, and each asset path is separately contained by its owning

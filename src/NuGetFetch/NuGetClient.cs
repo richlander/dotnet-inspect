@@ -27,6 +27,7 @@ public class NuGetClient(HttpClient client)
         try
         {
             using HttpRequestMessage request = new(HttpMethod.Get, url);
+            NuGetMetadataResponse.EnableStreaming(request);
             ApplyCredential(request, credential);
             using HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
@@ -36,8 +37,11 @@ public class NuGetClient(HttpClient client)
             }
 
             response.EnsureSuccessStatusCode();
-            using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            VersionIndex? index = await NuGetApi.GetVersionIndexAsync(stream, cancellationToken).ConfigureAwait(false);
+            VersionIndex? index = await NuGetMetadataResponse.ReadAsync(
+                client,
+                response,
+                NuGetApi.GetVersionIndexAsync,
+                cancellationToken).ConfigureAwait(false);
             return (IReadOnlyList<string>?)index?.Versions ?? [];
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -131,8 +135,18 @@ public class NuGetClient(HttpClient client)
     /// </summary>
     public async Task<string?> GetPackageBaseAddressAsync(string serviceIndexUrl, CancellationToken cancellationToken = default)
     {
-        using Stream stream = await client.GetStreamAsync(serviceIndexUrl, cancellationToken).ConfigureAwait(false);
-        ServiceIndex? index = await NuGetApi.GetServiceIndexAsync(stream, cancellationToken).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, serviceIndexUrl);
+        NuGetMetadataResponse.EnableStreaming(request);
+        using HttpResponseMessage response = await client.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        ServiceIndex? index = await NuGetMetadataResponse.ReadAsync(
+            client,
+            response,
+            NuGetApi.GetServiceIndexAsync,
+            cancellationToken).ConfigureAwait(false);
 
         string? baseAddress = index?.Resources
             .Where(r => r.Type.StartsWith("PackageBaseAddress", StringComparison.OrdinalIgnoreCase))
@@ -176,9 +190,19 @@ public class NuGetClient(HttpClient client)
     {
         string prerelease = includePrerelease ? "true" : "false";
         string url = $"{NuGetOrgSearchUrl}?q=packageid:{Uri.EscapeDataString(packageId)}&take=1&prerelease={prerelease}";
-        using Stream stream = await client.GetStreamAsync(url, cancellationToken).ConfigureAwait(false);
-        SearchResponse? response = await NuGetApi.GetSearchResponseAsync(stream, cancellationToken).ConfigureAwait(false);
-        return response?.Data.FirstOrDefault()?.Version;
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        NuGetMetadataResponse.EnableStreaming(request);
+        using HttpResponseMessage response = await client.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        SearchResponse? parsed = await NuGetMetadataResponse.ReadAsync(
+            client,
+            response,
+            NuGetApi.GetSearchResponseAsync,
+            cancellationToken).ConfigureAwait(false);
+        return parsed?.Data.FirstOrDefault()?.Version;
     }
 
     private async Task<string> ResolveBaseAddressAsync(string? sourceUrl, CancellationToken cancellationToken)

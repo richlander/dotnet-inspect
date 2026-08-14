@@ -1,15 +1,25 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace NuGetFetch;
 
 public static class NuGetApi
 {
+    /// <summary>
+    /// Maximum accepted size of a NuGet service-index, version-index, or search
+    /// response body.
+    /// </summary>
+    public const long MaxMetadataResponseBytes = 16 * 1024 * 1024;
+
     public static async ValueTask<ServiceIndex?> GetServiceIndexAsync(Stream json, CancellationToken cancellationToken = default)
     {
         try
         {
-            return await JsonSerializer.DeserializeAsync(json, NuGetJsonContext.Default.ServiceIndex, cancellationToken).ConfigureAwait(false);
+            return await DeserializeAsync(
+                json,
+                NuGetJsonContext.Default.ServiceIndex,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (JsonException)
         {
@@ -21,7 +31,10 @@ public static class NuGetApi
     {
         try
         {
-            return await JsonSerializer.DeserializeAsync(json, NuGetJsonContext.Default.VersionIndex, cancellationToken).ConfigureAwait(false);
+            return await DeserializeAsync(
+                json,
+                NuGetJsonContext.Default.VersionIndex,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (JsonException)
         {
@@ -40,7 +53,29 @@ public static class NuGetApi
     /// failure into success-shaped empty output. See issue #3417.
     /// </remarks>
     public static async ValueTask<SearchResponse?> GetSearchResponseAsync(Stream json, CancellationToken cancellationToken = default)
-        => await JsonSerializer.DeserializeAsync(json, NuGetJsonContext.Default.SearchResponse, cancellationToken).ConfigureAwait(false);
+        => await DeserializeAsync(
+            json,
+            NuGetJsonContext.Default.SearchResponse,
+            cancellationToken).ConfigureAwait(false);
+
+    internal static InvalidDataException CreateResponseTooLargeException() =>
+        new(
+            $"The NuGet metadata response exceeded the {MaxMetadataResponseBytes} byte limit.");
+
+    private static async ValueTask<T?> DeserializeAsync<T>(
+        Stream json,
+        JsonTypeInfo<T> typeInfo,
+        CancellationToken cancellationToken)
+    {
+        await using var bounded = new MaxBytesReadStream(
+            json,
+            MaxMetadataResponseBytes,
+            leaveOpen: true);
+        return await JsonSerializer.DeserializeAsync(
+            bounded,
+            typeInfo,
+            cancellationToken).ConfigureAwait(false);
+    }
 }
 
 // Feeds disagree about whether a JSON number is a number. Azure DevOps Artifacts

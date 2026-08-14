@@ -14,6 +14,8 @@ namespace NuGetFetch.Tests;
 public class SearchServiceTests
 {
     private const string SearchUrl = "https://feed.example/query";
+    private static readonly HttpRequestOptionsKey<bool> BrowserStreamingResponse =
+        new("WebAssemblyEnableStreamingResponse");
 
     [Fact]
     public async Task SearchAsync_UsesConfiguredSearchUrlAndQueryParameters()
@@ -32,6 +34,11 @@ public class SearchServiceTests
         Assert.Contains("q=json%20serializer", url);
         Assert.Contains("take=5", url);
         Assert.Contains("prerelease=true", url);
+        Assert.True(
+            handler.LastRequest.Options.TryGetValue(
+                BrowserStreamingResponse,
+                out bool streaming)
+            && streaming);
     }
 
     [Fact]
@@ -114,6 +121,92 @@ public class SearchServiceTests
     }
 
     [Fact]
+    public async Task SearchAsync_AdvertisedOversizeBody_Throws()
+    {
+        var handler = new ResponseHandler(static request =>
+        {
+            var content = new StringContent("""{"data":[]}""");
+            content.Headers.ContentLength = NuGetApi.MaxMetadataResponseBytes + 1;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = content,
+                RequestMessage = request,
+            };
+        });
+        using var client = new HttpClient(handler);
+        var service = new SearchService(client, SearchUrl);
+
+        InvalidDataException error = await Assert.ThrowsAsync<InvalidDataException>(
+            () => service.SearchAsync(
+                "q",
+                cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Contains("16777216 byte limit", error.Message);
+    }
+
+    [Fact]
+    public async Task SearchAsync_UnadvertisedOversizeBody_Throws()
+    {
+        var handler = new ResponseHandler(static request =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new OversizeSearchDocumentStream()),
+                RequestMessage = request,
+            });
+        using var client = new HttpClient(handler);
+        var service = new SearchService(client, SearchUrl);
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => service.SearchAsync(
+                "q",
+                cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SearchAsync_StalledBody_ThrowsTimeout()
+    {
+        var handler = new ResponseHandler(static request =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new StalledStream()),
+                RequestMessage = request,
+            });
+        using var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromMilliseconds(50),
+        };
+        var service = new SearchService(client, SearchUrl);
+
+        TimeoutException error = await Assert.ThrowsAsync<TimeoutException>(
+            () => service.SearchAsync(
+                "q",
+                cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Contains("body timed out", error.Message);
+    }
+
+    [Fact]
+    public async Task SearchAsync_CallerCancellationRemainsCancellation()
+    {
+        var handler = new ResponseHandler(static request =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new StalledStream()),
+                RequestMessage = request,
+            });
+        using var client = new HttpClient(handler);
+        var service = new SearchService(client, SearchUrl);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        cancellation.CancelAfter(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => service.SearchAsync(
+                "q",
+                cancellationToken: cancellation.Token));
+    }
+
+    [Fact]
     public async Task SearchByPrefixAsync_ContinuesAfterServerCappedPage()
     {
         var handler = new CappedPagingHandler();
@@ -178,6 +271,113 @@ public class SearchServiceTests
                 RequestMessage = request
             });
         }
+    }
+
+    private sealed class ResponseHandler(
+        Func<HttpRequestMessage, HttpResponseMessage> response)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(response(request));
+    }
+
+    private sealed class OversizeSearchDocumentStream : Stream
+    {
+        private static readonly byte[] Prefix =
+            System.Text.Encoding.UTF8.GetBytes("{\"data\":[{\"id\":\"");
+        private long _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => _position;
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            Read(buffer.AsSpan(offset, count));
+
+        public override int Read(Span<byte> buffer)
+        {
+            int read = Fill(buffer);
+            _position += read;
+            return read;
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int read = Fill(buffer.Span);
+            _position += read;
+            return ValueTask.FromResult(read);
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        private int Fill(Span<byte> buffer)
+        {
+            long length = NuGetApi.MaxMetadataResponseBytes + 1;
+            if (_position >= length)
+                return 0;
+
+            int count = (int)Math.Min(buffer.Length, length - _position);
+            for (int index = 0; index < count; index++)
+            {
+                long absolute = _position + index;
+                buffer[index] = absolute < Prefix.Length
+                    ? Prefix[(int)absolute]
+                    : (byte)'a';
+            }
+
+            return count;
+        }
+    }
+
+    private sealed class StalledStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => 0;
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
     }
 
     private sealed class CappedPagingHandler : HttpMessageHandler

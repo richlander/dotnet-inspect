@@ -425,7 +425,7 @@ the `PackageBaseAddress` endpoint, and then the flat-container version index. Az
 authenticates both.
 
 `NuGetFetch.NuGetClient.GetPackageBaseAddressAsync` takes no credential and issues a bare
-`GetStreamAsync`, so its service index request is always anonymous. A caller that passes a
+request, so its service index request is always anonymous. A caller that passes a
 credential to `GetVersionsAsync` and points it at a private feed therefore fails at discovery,
 before the credential is ever offered.
 

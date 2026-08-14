@@ -62,16 +62,23 @@ public class SearchService(HttpClient client, string? searchUrl = null)
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        NuGetMetadataResponse.EnableStreaming(request);
         if (auth is not null)
         {
             request.Headers.Authorization = auth;
         }
 
-        using HttpResponseMessage response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await client.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        SearchResponse? parsed = await NuGetApi.GetSearchResponseAsync(stream, cancellationToken).ConfigureAwait(false);
+        SearchResponse? parsed = await NuGetMetadataResponse.ReadAsync(
+            client,
+            response,
+            NuGetApi.GetSearchResponseAsync,
+            cancellationToken).ConfigureAwait(false);
 
         // A null document is not an empty result set. Reporting it as one would
         // hide the failure behind a successful-looking zero-result search. The

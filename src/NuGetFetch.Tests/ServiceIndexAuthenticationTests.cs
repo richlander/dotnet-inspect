@@ -44,7 +44,7 @@ public sealed class ServiceIndexAuthenticationTests
     public async Task ServiceIndexRequest_DoesNotCarryTheCredential()
     {
         // Pins a real gap. GetPackageBaseAddressAsync takes no credential and issues a bare
-        // GetStreamAsync, so the service index is always fetched anonymously. Against a feed
+        // request, so the service index is always fetched anonymously. Against a feed
         // that authenticates its service index — Azure DevOps does — the lookup fails at the
         // discovery step and the credential is never even offered.
         //

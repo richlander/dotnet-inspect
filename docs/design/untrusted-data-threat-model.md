@@ -356,6 +356,23 @@ The coverage is not yet complete, and the gaps are on the feed path specifically
 source-generated context that does not reject duplicates. `runfaster` also still parses its trace
 inputs directly. Nothing gates the invariant, which is why the gaps persisted; see open work below.
 
+### NuGet metadata response bodies are bounded
+
+`NuGetFetch` accepts at most 16 MiB for each service-index, version-index, or
+search response. The parser counts bytes from the stream rather than trusting
+`Content-Length`, while HTTP callers also reject an advertised oversize body
+before opening it. Headers-first requests keep body buffering outside
+`HttpClient` and opt into Browser/Wasm response streaming so the browser
+transport cannot buffer an unbounded body before the parser sees it. A linked
+body-phase timeout uses the caller's shorter timeout or 30 seconds, whichever
+is less. An oversize or stalled response raises a visible failure rather than
+becoming an empty version list or search result.
+
+`SearchServiceTests.SearchAsync_AdvertisedOversizeBody_Throws`,
+`SearchServiceTests.SearchAsync_UnadvertisedOversizeBody_Throws`,
+`SearchServiceTests.SearchAsync_StalledBody_ThrowsTimeout`, and
+`NuGetClientMetadataResponseTests` gate the HTTP and parser seams.
+
 ### SourceLink provenance is read off the URL source is fetched from
 
 SourceLink map presence is not reported as successful usability. The
