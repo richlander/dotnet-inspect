@@ -16,6 +16,79 @@ public static class ApiSurfaceExtractor
     private const string OptionalAttributeName = "System.Runtime.InteropServices.Optional";
     private const string DateTimeConstantAttributeName = "System.Runtime.CompilerServices.DateTimeConstant";
 
+    /// <summary>
+    /// Extracts the public type identities and member-kind counts needed by the compact platform
+    /// API view without decoding signatures or materializing rich member models.
+    /// </summary>
+    public static ApiSurface ExtractSummary(PEReader peReader)
+    {
+        var surface = new ApiSurface();
+        var reader = peReader.GetMetadataReader();
+
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+        {
+            int publicMethodCount = surface.PublicMethodCount;
+            int publicPropertyCount = surface.PublicPropertyCount;
+            int publicEventCount = surface.PublicEventCount;
+            int publicFieldCount = surface.PublicFieldCount;
+            try
+            {
+                var typeDef = reader.GetTypeDefinition(typeDefHandle);
+                if (!typeDef.IsPublic)
+                    continue;
+
+                string metadataName = reader.GetString(typeDef.Name);
+                if (TypeFilters.IsCompilerGenerated(metadataName))
+                    continue;
+
+                if (AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
+                    continue;
+
+                var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
+                var apiType = new ApiType
+                {
+                    Namespace = typeNamespace,
+                    Name = typeName,
+                    MetadataName = GetMetadataName(reader, typeDefHandle),
+                    DefinitionName =
+                        MetadataTypeDefinitionNameReader.Read(reader, typeDefHandle)
+                        is MetadataTypeDefinitionNameReadResult.Read read
+                            ? read.Name
+                            : null,
+                    Kind = "class",
+                    Members = []
+                };
+
+                CountSummaryMembers(reader, typeDef, apiType, surface);
+                surface.Types.Add(apiType);
+                surface.PublicTypeCount++;
+            }
+            catch (MetadataRowRejectedException ex)
+            {
+                surface.PublicMethodCount = publicMethodCount;
+                surface.PublicPropertyCount = publicPropertyCount;
+                surface.PublicEventCount = publicEventCount;
+                surface.PublicFieldCount = publicFieldCount;
+                AddInspectionFailure(surface, ex.Operation, typeDefHandle, ex.Failure);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                surface.PublicMethodCount = publicMethodCount;
+                surface.PublicPropertyCount = publicPropertyCount;
+                surface.PublicEventCount = publicEventCount;
+                surface.PublicFieldCount = publicFieldCount;
+                AddInspectionFailure(
+                    surface,
+                    "type summary row",
+                    typeDefHandle,
+                    MetadataTypeNameFailure.Malformed(typeDefHandle, ex.Message));
+            }
+        }
+
+        ExtractTypeForwarders(reader, surface);
+        return surface;
+    }
+
     public static ApiSurface Extract(PEReader peReader, bool includeAll = false, bool typesOnly = false, bool includeCompilerGenerated = false)
     {
         var surface = new ApiSurface();
@@ -593,6 +666,123 @@ public static class ApiSurfaceExtractor
         AttachLocalExtensionMethods(surface);
 
         // Extract type forwarders (ExportedTypes that are forwarded to other assemblies)
+        ExtractTypeForwarders(reader, surface);
+
+        ApiMemberIdentity.PopulateCanonicalIdentities(surface);
+
+        return surface;
+    }
+
+    private static void CountSummaryMembers(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        ApiType apiType,
+        ApiSurface surface)
+    {
+        var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
+            bool isExplicitImplementation = explicitImplementationBodies.Contains(methodHandle);
+            if (methodAccess != MethodAttributes.Public && !isExplicitImplementation)
+                continue;
+
+            string methodName = reader.GetString(method.Name);
+            if (methodName.StartsWith("get_", StringComparison.Ordinal)
+                || methodName.StartsWith("set_", StringComparison.Ordinal)
+                || methodName.StartsWith("add_", StringComparison.Ordinal)
+                || methodName.StartsWith("remove_", StringComparison.Ordinal)
+                || methodName.StartsWith('<'))
+            {
+                continue;
+            }
+
+            if (!isExplicitImplementation
+                && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
+            {
+                continue;
+            }
+
+            apiType.Members.Add(new ApiMember { Name = methodName, Kind = "method" });
+            surface.PublicMethodCount++;
+        }
+
+        foreach (var propertyHandle in typeDef.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            var accessors = property.GetAccessors();
+            MethodAttributes bestAccess = 0;
+            if (!accessors.Getter.IsNil)
+            {
+                bestAccess = reader.GetMethodDefinition(accessors.Getter).Attributes
+                    & MethodAttributes.MemberAccessMask;
+            }
+            if (!accessors.Setter.IsNil)
+            {
+                var setterAccess = reader.GetMethodDefinition(accessors.Setter).Attributes
+                    & MethodAttributes.MemberAccessMask;
+                if (setterAccess > bestAccess)
+                    bestAccess = setterAccess;
+            }
+
+            if (bestAccess != MethodAttributes.Public
+                || AttributeReader.HasEditorBrowsableNeverAttribute(reader, property.GetCustomAttributes()))
+            {
+                continue;
+            }
+
+            apiType.Members.Add(new ApiMember
+            {
+                Name = reader.GetString(property.Name),
+                Kind = "property"
+            });
+            surface.PublicPropertyCount++;
+        }
+
+        foreach (var fieldHandle in typeDef.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if ((field.Attributes & FieldAttributes.FieldAccessMask) != FieldAttributes.Public)
+                continue;
+
+            string fieldName = reader.GetString(field.Name);
+            if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated: false)
+                || AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
+            {
+                continue;
+            }
+
+            apiType.Members.Add(new ApiMember { Name = fieldName, Kind = "field" });
+            surface.PublicFieldCount++;
+        }
+
+        foreach (var eventHandle in typeDef.GetEvents())
+        {
+            var evt = reader.GetEventDefinition(eventHandle);
+            var accessors = evt.GetAccessors();
+            if (accessors.Adder.IsNil)
+                continue;
+
+            var adder = reader.GetMethodDefinition(accessors.Adder);
+            if ((adder.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
+                || AttributeReader.HasEditorBrowsableNeverAttribute(reader, evt.GetCustomAttributes()))
+            {
+                continue;
+            }
+
+            apiType.Members.Add(new ApiMember
+            {
+                Name = reader.GetString(evt.Name),
+                Kind = "event"
+            });
+            surface.PublicEventCount++;
+        }
+    }
+
+    private static void ExtractTypeForwarders(MetadataReader reader, ApiSurface surface)
+    {
         foreach (var exportedTypeHandle in reader.ExportedTypes)
         {
             try
@@ -653,10 +843,6 @@ public static class ApiSurfaceExtractor
                     MetadataTypeNameFailure.Malformed(exportedTypeHandle, ex.Message));
             }
         }
-
-        ApiMemberIdentity.PopulateCanonicalIdentities(surface);
-
-        return surface;
     }
 
     private static byte? GetEffectiveNullable(

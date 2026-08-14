@@ -4166,6 +4166,15 @@ public partial class CommandExecutionTests
         foreach (var field in new[] { "Library", "Types", "Methods", "Properties", "Source", "Version", "TFM" })
             Assert.Contains(field + ":", line, StringComparison.Ordinal);
 
+        var (jsonExit, jsonOutput, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "--json", "--tips", "q");
+        Assert.Equal(0, jsonExit);
+        using var fullDocument = JsonDocument.Parse(jsonOutput);
+        var root = fullDocument.RootElement;
+        Assert.Contains($"Types: {root.GetProperty("public_type_count").GetInt32()}", line);
+        Assert.Contains($"Methods: {root.GetProperty("public_method_count").GetInt32()}", line);
+        Assert.Contains($"Properties: {root.GetProperty("public_property_count").GetInt32()}", line);
+
         foreach (var args in withoutTheLine)
         {
             var (exit, output, _) = await RunAppAsync(

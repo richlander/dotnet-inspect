@@ -80,9 +80,17 @@ public static class TypeCommand
             if (string.IsNullOrEmpty(typeName))
             {
                 // No type specified - list all types
-                var loaded = ApiServices.LoadFullApi(
-                    searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                    apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
+                var loaded = CanUsePlatformSummary(options, runtimeAssemblyPath)
+                    ? ApiServices.LoadPlatformApiSummary(
+                        searchPath,
+                        runtimeAssemblyPath!,
+                        apiSource,
+                        apiVersion,
+                        selectedTfm,
+                        logger)
+                    : ApiServices.LoadFullApi(
+                        searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
+                        apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -118,7 +126,7 @@ public static class TypeCommand
                     return listExitCode;
                 inspectionIncomplete = api.InspectionFailures.Count > 0;
 
-                if (!options.FormatExplicitlySet && !options.IsRawOutput)
+                if (!loaded.IsSummary && !options.FormatExplicitlySet && !options.IsRawOutput)
                 {
                     var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                         : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
@@ -144,6 +152,7 @@ public static class TypeCommand
                         Hints.WriteTips(options.TipLevel, [.. tips]);
                     }
                 }
+
             }
             else
             {
@@ -429,6 +438,19 @@ public static class TypeCommand
             }
         }
     }
+
+    private static bool CanUsePlatformSummary(TypeOptions options, string? runtimeAssemblyPath) =>
+        runtimeAssemblyPath is not null
+        && options.Verbosity == Verbosity.Quiet
+        && !options.IsRawOutput
+        && !options.IncludeAll
+        && !options.EffectiveDiscovery
+        && !options.HasSectionQuery
+        && !options.Count
+        && !options.UnsafeOnly
+        && options.TypeFilter is null
+        && options.KindFilter.Count == 0
+        && !options.Limit.HasValue;
 
     private static Task<int?> TryExecuteWidePlatformPrefixFallbackAsync(
         TypeOptions options,
