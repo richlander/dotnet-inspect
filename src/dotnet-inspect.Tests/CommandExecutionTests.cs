@@ -19448,15 +19448,26 @@ public partial class CommandExecutionTests
                 "--count",
                 "--columns",
                 "Value");
+            var signatureCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--count",
+                "--columns",
+                "Package");
 
             Assert.Equal(0, bothSections.Exit);
             Assert.Equal(0, packageInfoOnly.Exit);
             Assert.Equal(0, fixedOverview.Exit);
             Assert.Equal(0, valueColumn.Exit);
+            Assert.Equal(0, signatureCount.Exit);
             Assert.Empty(bothSections.Error);
             Assert.Empty(packageInfoOnly.Error);
             Assert.Empty(fixedOverview.Error);
             Assert.Empty(valueColumn.Error);
+            Assert.Empty(signatureCount.Error);
             string packageInfoRow = Assert.Single(
                 bothSections.Output.Split(
                     '\n',
@@ -19479,7 +19490,7 @@ public partial class CommandExecutionTests
                 "| Package README file | 2 |",
                 fixedOverview.Output);
             Assert.Contains(
-                "| Signature | 0 |",
+                $"| Signature | {signatureCount.Output.Trim()} |",
                 fixedOverview.Output);
             Assert.DoesNotContain(
                 "| Signature | 0 |",
