@@ -312,8 +312,10 @@ Portable-PDB acquisition now follows the same content-shaped boundary:
 and `PdbAcquisitionService` can load it for a pathless
 `ResolvedAssemblyReference`. The filesystem store supplies the compatibility
 path used by desktop decompiler callers; an in-memory store supplies the same
-validated PDB bytes to browser/Wasm hosts. This capability does not itself add a
-group query; it is the symbol-input seam such a query consumes.
+validated PDB bytes to browser/Wasm hosts, paired with the same explicit
+`IPackageSourceAuthorization` used for package acquisition. This capability
+does not itself add a group query; it is the symbol-input seam such a query
+consumes.
 
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
 gates asynchronous host work over a retained descriptor without reopening its

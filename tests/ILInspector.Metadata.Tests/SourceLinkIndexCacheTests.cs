@@ -46,8 +46,16 @@ public class SourceLinkIndexCacheTests
         // two reads of one assembly, which must still hit the cache.
         Assert.Equal(first, SourceLinkService.BuildIndexCacheKey(Origin, symbols));
 
-        // The age is part of the identity, so two builds sharing a GUID still separate.
-        Assert.NotEqual(first, SourceLinkService.BuildIndexCacheKey(Origin, symbols with { Age = 2 }));
+        // The Portable PDB stamp completes its content identity.
+        Assert.NotEqual(first, SourceLinkService.BuildIndexCacheKey(Origin, symbols with { Stamp = 1 }));
+
+        // Windows PDB identities use age rather than the Portable PDB stamp.
+        var windowsSymbols = symbols with { IsPortable = false };
+        Assert.NotEqual(
+            SourceLinkService.BuildIndexCacheKey(Origin, windowsSymbols),
+            SourceLinkService.BuildIndexCacheKey(
+                Origin,
+                windowsSymbols with { Age = 2 }));
 
         // And the origin still separates two assemblies whose symbols somehow agree, which a
         // deterministic build of identical content across forks can produce.

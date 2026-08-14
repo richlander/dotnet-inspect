@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -11,7 +12,12 @@ namespace ILInspector.Metadata;
 /// <summary>
 /// CodeView debug info needed for symbol server lookup (no SRM types in signature).
 /// </summary>
-public record CodeViewInfo(Guid Guid, int Age, string PdbFileName, bool IsPortable);
+public record CodeViewInfo(
+    Guid Guid,
+    int Age,
+    string PdbFileName,
+    bool IsPortable,
+    uint Stamp = 0);
 
 /// <summary>
 /// Source document info for strict verification (no SRM types in signature).
@@ -456,6 +462,11 @@ public class PdbContext : IDisposable
     /// Loads a Portable PDB from caller-supplied content. This method takes
     /// ownership of <paramref name="pdbStream"/> on every outcome.
     /// </summary>
+    /// <remarks>
+    /// <c>PdbIdentityTests.LoadPdbFromStream_WindowsHeaderDisposesContentBeforeSrm</c>
+    /// gates ownership on the early-return path before SRM can dispose the
+    /// stream itself.
+    /// </remarks>
     public void LoadPdbFromStream(
         Stream pdbStream,
         string? pdbLocation = null,
@@ -1442,7 +1453,12 @@ public class PdbContext : IDisposable
                 if (isPortable)
                 {
                     portableCodeView = cvData;
-                    PdbId = new CodeViewInfo(cvData.Guid, cvData.Age, Path.GetFileName(cvData.Path), true);
+                    PdbId = new CodeViewInfo(
+                        cvData.Guid,
+                        cvData.Age,
+                        Path.GetFileName(cvData.Path),
+                        true,
+                        entry.Stamp);
                 }
                 else
                 {
@@ -1450,7 +1466,12 @@ public class PdbContext : IDisposable
                     if (portableCodeView == null)
                     {
                         // Only use Windows PDB as fallback
-                        PdbId = new CodeViewInfo(cvData.Guid, cvData.Age, Path.GetFileName(cvData.Path), false);
+                        PdbId = new CodeViewInfo(
+                            cvData.Guid,
+                            cvData.Age,
+                            Path.GetFileName(cvData.Path),
+                            false,
+                            entry.Stamp);
                     }
                 }
             }
@@ -1518,24 +1539,47 @@ public class PdbContext : IDisposable
     }
 
     private bool PdbMatchesAssembly(MetadataReader pdbReader)
-    {
-        if (PdbId is not { IsPortable: true } expected)
-            return true;
+        => PortablePdbIdentityMatches(
+            PdbId,
+            pdbReader.DebugMetadataHeader?.Id,
+            _log);
 
-        var id = pdbReader.DebugMetadataHeader?.Id;
-        if (id is not { Length: >= 16 })
+    internal static bool PortablePdbIdentityMatches(
+        CodeViewInfo? expected,
+        ImmutableArray<byte>? pdbContentId,
+        Action<string>? log)
+    {
+        if (expected is null)
+            return true;
+        if (!expected.IsPortable)
         {
-            _log?.Invoke("PDB identity missing or too short to verify");
+            log?.Invoke(
+                "Portable PDB identity cannot be verified because the assembly has no Portable CodeView entry");
+            return false;
+        }
+
+        if (pdbContentId is not { Length: >= 20 } id)
+        {
+            log?.Invoke("PDB identity missing or too short to verify");
             return false;
         }
 
         Span<byte> guidBytes = stackalloc byte[16];
-        id.Value.AsSpan(0, 16).CopyTo(guidBytes);
+        id.AsSpan(0, 16).CopyTo(guidBytes);
         var actual = new Guid(guidBytes);
-        if (actual == expected.Guid)
+        uint actualStamp =
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                id.AsSpan(16, 4));
+        if (actual == expected.Guid
+            && actualStamp == expected.Stamp)
+        {
             return true;
+        }
 
-        _log?.Invoke($"PDB GUID mismatch: assembly expects {expected.Guid:D}; PDB has {actual:D}");
+        log?.Invoke(
+            "PDB identity mismatch: assembly expects "
+            + $"{expected.Guid:D}/{expected.Stamp:x8}; PDB has "
+            + $"{actual:D}/{actualStamp:x8}");
         return false;
     }
 }

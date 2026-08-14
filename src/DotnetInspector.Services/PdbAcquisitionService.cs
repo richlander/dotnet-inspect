@@ -18,7 +18,8 @@ public static class PdbAcquisitionService
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default,
-        IPdbStore? pdbStore = null)
+        IPdbStore? pdbStore = null,
+        IPackageSourceAuthorization? sourceAuthorization = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(httpClient);
@@ -44,7 +45,8 @@ public static class PdbAcquisitionService
             cacheOnly,
             sourceOptions,
             cancellationToken,
-            pdbStore).ConfigureAwait(false);
+            pdbStore,
+            sourceAuthorization).ConfigureAwait(false);
     }
 
     private static async Task AcquireCoreAsync(
@@ -58,11 +60,19 @@ public static class PdbAcquisitionService
         bool cacheOnly,
         NuGetSourceOptions? sourceOptions,
         CancellationToken cancellationToken,
-        IPdbStore? pdbStore)
+        IPdbStore? pdbStore,
+        IPackageSourceAuthorization? sourceAuthorization)
     {
         var downloader = pdbStore is null
             ? new SymbolPackageDownloader(httpClient)
-            : new SymbolPackageDownloader(httpClient, pdbStore);
+            : sourceAuthorization is null
+                ? new SymbolPackageDownloader(
+                    httpClient,
+                    pdbStore)
+                : new SymbolPackageDownloader(
+                    httpClient,
+                    pdbStore,
+                    sourceAuthorization);
         PortablePdbAcquisitionResult result =
             await downloader.AcquirePdbAsync(
                 context.PdbId!.Guid,
@@ -76,7 +86,8 @@ public static class PdbAcquisitionService
                 isPlatformAssembly,
                 cacheOnly,
                 sourceOptions,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                context.PdbId.Stamp).ConfigureAwait(false);
 
         if (result is PortablePdbAcquisitionResult.Acquired acquired)
         {
@@ -103,7 +114,8 @@ public static class PdbAcquisitionService
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default,
-        IPdbStore? pdbStore = null)
+        IPdbStore? pdbStore = null,
+        IPackageSourceAuthorization? sourceAuthorization = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(assembly);
@@ -138,6 +150,7 @@ public static class PdbAcquisitionService
             cacheOnly,
             sourceOptions,
             cancellationToken,
-            pdbStore);
+            pdbStore,
+            sourceAuthorization);
     }
 }

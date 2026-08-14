@@ -52,7 +52,10 @@ public class PdbAcquisitionServiceTests
             log: null,
             cancellationToken:
                 TestContext.Current.CancellationToken,
-            pdbStore: new InMemoryPdbStore());
+            pdbStore: new InMemoryPdbStore(),
+            sourceAuthorization:
+                new UniformPackageSourceAuthorization(
+                    [NuGetFetch.PackageSource.NuGetOrg]));
 
         Assert.True(source.HasPdb);
         Assert.Null(source.Context.PortablePdbPath);

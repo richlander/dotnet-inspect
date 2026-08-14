@@ -36,15 +36,23 @@ and HTTP client, so library and package hosts do not duplicate symbol lookup.
 `SymbolPackageDownloader.AcquirePdbAsync` returns an
 `AcquiredPortablePdb` content reference backed by the host's `IPdbStore`;
 filesystem stores expose an optional local path, while browser/Wasm hosts use
-an in-memory store and open the same acquired bytes as a stream. The legacy
-`DownloadPdbAsync` path result is only the desktop compatibility projection.
+an in-memory store, an explicit `IPackageSourceAuthorization`, and open the same
+acquired bytes as a stream. The legacy `DownloadPdbAsync` path result is only
+the desktop compatibility projection.
 
 `PdbAcquisitionService` can pair that content with a
 `ResolvedAssemblyReference` that has no path. It derives the symbol-package PDB
 name from the CodeView record, uses the assembly identity only as a validated
 fallback, and asks Metadata to validate the Portable PDB identity against the
-already-open assembly image. This is the content-shaped symbol capability for
-assembly-context participants; a group-scoped source query remains separate.
+already-open assembly image. That comparison uses the complete Portable PDB
+content id (GUID plus stamp), not the symbol-server GUID alone. This is the
+content-shaped symbol capability for assembly-context participants; a
+group-scoped source query remains separate.
+`PdbIdentityTests.LoadPdbFromStream_RejectsMatchingGuidWithDifferentStamp`,
+`PdbIdentityTests.PortablePdbIdentity_WindowsCodeViewCannotAuthorizePortablePdb`,
+and
+`PdbAcquisitionServiceTests.PathlessParticipant_AcquiresMatchingPdbThroughInMemoryStore`
+gate those claims.
 
 ### 1. Embedded PDB
 
@@ -90,6 +98,7 @@ The PE file's debug directory contains CodeView entries that provide:
 
 - **Path**: Original PDB filename (e.g., `System.Text.Json.pdb`)
 - **GUID**: Unique identifier for this build
+- **Stamp**: Final 4 bytes of the Portable PDB content identity
 - **Age**: Build counter (always 1 for Portable PDBs)
 - **MinorVersion**: `0x504d` indicates Portable PDB format
 
@@ -148,11 +157,28 @@ warm hit reports the same server that supplied the content. Package-associated
 PDB entries remain NuGet.org-specific and package/version-keyed; extending them
 to custom producers requires source-scoped provenance and is part of
 [#3738](https://github.com/richlander/dotnet-inspect/issues/3738).
+`SymbolPackageDownloaderTests.AcquirePdbAsync_MsdlCachePreservesProvider` gates
+provider preservation when the supplying server is not the first one probed.
 
 Filesystem PDB publication writes a unique sibling staging file and atomically
 replaces the final entry only after the complete payload is closed. Readers
 therefore observe the previous complete PDB or the replacement, never a
 truncated in-progress write.
+`PdbStoreTests.FileSystemPdbStore_FailedReplacementPreservesPublishedContent`
+gates that publication invariant.
+
+The host-neutral downloader overload pairs an explicit store with explicit
+package-source authorization and disables the filesystem negative-result cache
+by default.
+`SymbolPackageDownloaderTests.AcquirePdbAsync_ExplicitStore_DoesNotUseAmbientCaches`
+gates both defaults. Store read/write failures remain visible rather than being
+reported as symbol unavailability;
+`SymbolPackageDownloaderTests.AcquirePdbAsync_StoreFailureIsVisible` is that
+gate. Cached and downloaded Portable PDBs are parsed and identity-checked before
+an acquired result is returned, so an invalid entry cannot suppress later
+providers;
+`SymbolPackageDownloaderTests.AcquirePdbAsync_InvalidCachedPdbContinuesToNextProvider`
+gates the fallback.
 
 ## Error handling
 
