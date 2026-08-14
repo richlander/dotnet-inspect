@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Collections.Immutable;
 using System.Runtime.Versioning;
 using System.Xml;
+using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Analysis;
@@ -202,6 +203,21 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void UnconstrainedDependencyNavigation_SelectsLatestStableVersion()
+    {
+        Assert.Equal(
+            "3.0.0",
+            BrowserPackageWorkspace.SelectDependencyVersion(
+                ["1.0.0", "3.1.0-preview.1", "3.0.0"],
+                declaredRange: ""));
+        Assert.Equal(
+            "2.1.0",
+            BrowserPackageWorkspace.SelectDependencyVersion(
+                ["1.0.0", "2.0.0", "2.1.0", "3.0.0"],
+                declaredRange: "2.*"));
+    }
+
+    [Fact]
     public void WorkspaceBinding_RejectsPackageParticipantsForPlatformScope()
     {
         byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
@@ -358,6 +374,72 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageDependencies_UsesProductQueriesForManifestAndReferences()
+    {
+        const string packageId = "Browser.Dependency.Root";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageWithManifest(
+            image,
+            $"lib/net11.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+                 <dependencies>
+                   <group targetFramework=".NETCoreApp,Version=v11.0">
+                     <dependency id="Browser.Dependency.Child" version="[2.0.0]" />
+                   </group>
+                 </dependencies>
+               </metadata>
+             </package>
+             """);
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+
+        string json = await BrowserInspectionEngine.QueryPackageDependencies(
+            packageId,
+            "1.0.0",
+            "net11.0",
+            $"{packageId}.dll");
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        Assert.Equal(packageId, root.GetProperty("package").GetString());
+        Assert.Equal("net11.0", root.GetProperty("activeFramework").GetString());
+        JsonElement group = Assert.Single(
+            root.GetProperty("dependencyGroups").EnumerateArray());
+        Assert.Equal(0, group.GetProperty("index").GetInt32());
+        Assert.True(group.GetProperty("isActive").GetBoolean());
+        JsonElement dependency = Assert.Single(
+            group.GetProperty("dependencies").EnumerateArray());
+        Assert.Equal(
+            "Browser.Dependency.Child",
+            dependency.GetProperty("id").GetString());
+        JsonElement reference = Assert.Single(
+            root.GetProperty("assemblyReferences").EnumerateArray(),
+            reference =>
+                reference.GetProperty("name").GetString() == "System.Runtime");
+        Assert.Equal("11.0.0.0", reference.GetProperty("version").GetString());
+        Assert.True(reference.TryGetProperty("culture", out JsonElement culture));
+        Assert.True(
+            culture.ValueKind is JsonValueKind.Null or JsonValueKind.String);
+        Assert.False(string.IsNullOrWhiteSpace(
+            reference.GetProperty("publicKeyToken").GetString()));
+        Assert.Equal(
+            JsonValueKind.Null,
+            root.GetProperty("dependencyGroupError").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Null,
+            root.GetProperty("assemblyReferenceError").ValueKind);
+    }
+
+    [Fact]
     public void MermaidLabel_ContainsGrammarSignificantArtifactText()
     {
         string encoded = BrowserInspectionEngine.MermaidLabel(
@@ -486,6 +568,17 @@ public sealed class BrowserEngineBoundaryTests
                 () => BrowserPackageWorkspace.GetVersionsAsync("evil/../other"));
 
         Assert.Contains("package coordinate", failure.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExactDependencyNavigation_DoesNotRequireAListedVersion()
+    {
+        string resolved =
+            await BrowserPackageWorkspace.ResolveDependencyVersionAsync(
+                "Example.Package",
+                "[999999.0]");
+
+        Assert.Equal("999999.0.0", resolved);
     }
 
     // The default package load runs under explicit bounds and says so when it stops early. Both
@@ -723,6 +816,39 @@ public sealed class BrowserEngineBoundaryTests
             {
                 entry.Write(implementationAssembly);
             }
+        }
+
+        return content.ToArray();
+    }
+
+    static byte[] PackageWithManifest(
+        byte[] assembly,
+        string assemblyPath,
+        string manifest)
+    {
+        using var content = new MemoryStream();
+        using (var archive = new ZipArchive(
+            content,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (Stream entry = archive
+                .CreateEntry(assemblyPath, CompressionLevel.NoCompression)
+                .Open())
+            {
+                entry.Write(assembly);
+            }
+
+            using Stream nuspec = archive
+                .CreateEntry(
+                    "Browser.Dependency.Root.nuspec",
+                    CompressionLevel.NoCompression)
+                .Open();
+            using var writer = new StreamWriter(
+                nuspec,
+                System.Text.Encoding.UTF8,
+                leaveOpen: true);
+            writer.Write(manifest);
         }
 
         return content.ToArray();
