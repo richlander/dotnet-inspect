@@ -104,6 +104,9 @@ public static class PackageExtractor
 {
     private const int MaxToolWrapperRedirectHops = 8;
 
+    public static bool IsValidPackageId(string packageId)
+        => NuGetCache.IsValidPathComponent(packageId);
+
     /// <summary>
     /// Hard cap on package <c>.nuspec</c> bodies (cache file or remote manifest
     /// GET). Real nuspecs are small XML; an unbounded string read would let a
@@ -974,21 +977,41 @@ public static class PackageExtractor
                 continue;
             }
 
-            var cachedNuspec = Directory
-                .GetFiles(cachedPath, "*.nuspec", SearchOption.TopDirectoryOnly)
-                .FirstOrDefault();
-            if (cachedNuspec != null)
+            try
             {
-                string? cachedXml = await TryReadNuspecFileAsync(cachedNuspec)
-                    .ConfigureAwait(false);
-                if (cachedXml != null
-                    && (!validateCoordinate
-                        || IsExpectedNuspec(cachedXml, packageId, version)))
+                var cachedNuspec = Directory
+                    .GetFiles(
+                        cachedPath,
+                        "*.nuspec",
+                        SearchOption.TopDirectoryOnly)
+                    .FirstOrDefault();
+                if (cachedNuspec != null)
                 {
-                    return new NuspecProbeResult(
-                        cachedXml,
-                        NuspecProbeStatus.Present);
+                    string? cachedXml =
+                        await TryReadNuspecFileAsync(cachedNuspec)
+                            .ConfigureAwait(false);
+                    if (cachedXml != null
+                        && (!validateCoordinate
+                            || IsExpectedNuspec(
+                                cachedXml,
+                                packageId,
+                                version)))
+                    {
+                        return new NuspecProbeResult(
+                            cachedXml,
+                            NuspecProbeStatus.Present);
+                    }
                 }
+            }
+            catch (IOException ex)
+            {
+                log?.Invoke(
+                    $"Cached nuspec read failed: {ex.GetType().Name}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                log?.Invoke(
+                    $"Cached nuspec read failed: {ex.GetType().Name}");
             }
 
             sawIndeterminateSource = true;
@@ -1087,32 +1110,19 @@ public static class PackageExtractor
             XDocument document = XDocument.Load(reader, LoadOptions.None);
             XElement? root = document.Root;
             if (root is null
-                || !root.Name.LocalName.Equals(
-                    "package",
-                    StringComparison.OrdinalIgnoreCase))
+                || root.Name.LocalName != "package")
             {
                 return false;
             }
 
-            XElement? metadata = root
-                .Elements()
-                .FirstOrDefault(element =>
-                    element.Name.LocalName.Equals(
-                        "metadata",
-                        StringComparison.OrdinalIgnoreCase));
+            XNamespace nuspecNamespace = root.Name.Namespace;
+            XElement? metadata = root.Element(
+                nuspecNamespace + "metadata");
             string? actualId = metadata?
-                .Elements()
-                .FirstOrDefault(element =>
-                    element.Name.LocalName.Equals(
-                        "id",
-                        StringComparison.OrdinalIgnoreCase))
+                .Element(nuspecNamespace + "id")
                 ?.Value;
             string? actualVersion = metadata?
-                .Elements()
-                .FirstOrDefault(element =>
-                    element.Name.LocalName.Equals(
-                        "version",
-                        StringComparison.OrdinalIgnoreCase))
+                .Element(nuspecNamespace + "version")
                 ?.Value;
 
             return string.Equals(

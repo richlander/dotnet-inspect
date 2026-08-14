@@ -25,7 +25,7 @@ public class RidPackageVerifierTests
             """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
         handler.Add(
             "content.example.test/flat/testpackage.linux-x64/1.0.0/testpackage.linux-x64.nuspec",
-            """<?xml version="1.0"?><package><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata></package>""");
+            """<?xml version="1.0"?><package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata></package>""");
         using var client = new HttpClient(handler);
         var result = new InspectionResult
         {
@@ -153,6 +153,7 @@ public class RidPackageVerifierTests
     [Theory]
     [InlineData("<html>sign in</html>")]
     [InlineData("<not-package><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata></not-package>")]
+    [InlineData("<package xmlns=\"urn:a\"><metadata xmlns=\"urn:b\"><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata></package>")]
     [InlineData("<package><metadata><id>Other.Package</id><version>1.0.0</version></metadata></package>")]
     [InlineData("<package><metadata><id>TestPackage.linux-x64</id><version>2.0.0</version></metadata></package>")]
     public async Task VerifyAsync_InvalidNuspecLeavesAvailabilityUnknown(
@@ -180,6 +181,49 @@ public class RidPackageVerifierTests
             });
 
         Assert.Null(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Weird:Id")]
+    [InlineData("../escape")]
+    public async Task VerifyAsync_InvalidPackageIdLeavesAvailabilityUnknown(
+        string packageId)
+    {
+        var handler = new StubHandler();
+        using var client = new HttpClient(handler);
+        var result = new InspectionResult
+        {
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "linux-x64",
+                    PackageId = packageId,
+                }
+            ]
+        };
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"]
+            });
+        Assert.Null(Assert.Single(result.RuntimeIdentifierPackages).Exists);
+        Assert.Empty(handler.Requests);
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: Path.GetTempPath(),
+            logger: new VerboseLogger(enabled: false));
+        Assert.Null(Assert.Single(result.RuntimeIdentifierPackages).Exists);
     }
 
     [Fact]

@@ -18,7 +18,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class PackageIndexCache
 {
-    internal const string Category = "pkg-index-v14";
+    internal const string Category = "pkg-index-v15";
     private static ReadOnlySpan<byte> DescriptionLengthPrefix => "description-bytes: "u8;
     private static readonly UTF8Encoding StrictUtf8 =
         new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
@@ -411,7 +411,7 @@ internal static class PackageIndexCache
     }
 
     private static string FormatRidPackageReference(RidPackageReference reference)
-        => $"{reference.RuntimeIdentifier}|{reference.PackageId}|{reference.AvailableDisplay}";
+        => $"{reference.RuntimeIdentifier}|{reference.PackageId}";
 
     private static RidPackageReference ParseRidPackageReference(string raw)
     {

@@ -76,7 +76,7 @@ public static class NuGetCache
         }
     }
 
-    private static bool IsValidPathComponent(string value) =>
+    internal static bool IsValidPathComponent(string value) =>
         !(string.IsNullOrWhiteSpace(value)
             || value.Contains("..")
             || value.Contains('/')

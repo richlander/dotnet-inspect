@@ -189,7 +189,7 @@ public sealed class PackageIndexCacheTests
                 ProducerKey),
             extension: "md")!;
         CoreCache.SetBytes(
-            "pkg-index-v13",
+            "pkg-index-v14",
             PackageIndexCache.CacheKey(
                 legacyPackage,
                 version,
@@ -202,6 +202,42 @@ public sealed class PackageIndexCacheTests
                 legacyPackage,
                 version,
                 ProducerKey));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RidAvailabilityDoesNotPersistAcrossSourcePolicies(
+        bool availability)
+    {
+        string packageName = $"Rid.Policy.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        PackageIndexCache.Set(
+            packageName,
+            version,
+            ProducerKey,
+            new InspectionResult
+            {
+                PackageName = packageName,
+                Version = version,
+                IsRidSpecificPointerPackage = true,
+                RuntimeIdentifierPackages =
+                [
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "linux-x64",
+                        PackageId = $"{packageName}.linux-x64",
+                        Exists = availability,
+                    }
+                ],
+            });
+
+        Assert.Null(
+            Assert.Single(
+                PackageIndexCache.TryGet(
+                    packageName,
+                    version,
+                    ProducerKey)!.RuntimeIdentifierPackages!).Exists);
     }
 
     [Theory]

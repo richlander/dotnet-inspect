@@ -181,7 +181,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     }
 
     [Fact]
-    public async Task InspectAsync_CachedUnknownRidAvailabilityIsRechecked()
+    public async Task InspectAsync_CachedUnknownRidAvailabilityIsRecheckedWithoutPersisting()
     {
         string packageName = $"Pointer.Package.{Guid.NewGuid():N}";
         const string version = "1.0.0";
@@ -252,7 +252,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
 
         Assert.True(
             Assert.Single(result.RuntimeIdentifierPackages!).Exists);
-        Assert.True(
+        Assert.Null(
             Assert.Single(
                 PackageIndexCache.TryGet(
                     packageName,

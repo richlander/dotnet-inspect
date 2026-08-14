@@ -309,7 +309,8 @@ and commands while keeping the payload package identity and producer as the prov
 managed assemblies being inspected. RID companion availability is verified only when an
 explicit manifest selection requests it: a coordinate-matching nuspec proves presence,
 authoritative absence renders `no`, and malformed or otherwise inconclusive probes remain
-`unknown`.
+`unknown`. Availability is not retained in the payload index; each explicit request evaluates
+the current source policy and available cache replicas.
 
 ### Signature decoding
 

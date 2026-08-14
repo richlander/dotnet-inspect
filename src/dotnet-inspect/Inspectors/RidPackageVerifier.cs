@@ -25,6 +25,14 @@ public static class RidPackageVerifier
             if (ridPkg.Exists is not null)
                 continue;
 
+            if (!PackageExtractor.IsValidPackageId(ridPkg.PackageId))
+            {
+                logger.Log(
+                    $"  {ridPkg.RuntimeIdentifier}: availability unknown "
+                    + "(invalid package id)");
+                continue;
+            }
+
             if (localDir != null)
             {
                 // Local verification: check if sibling .nupkg file exists
