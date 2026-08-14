@@ -717,7 +717,7 @@ discovery. A field catalog must say:
 - target kind;
 - descriptor id and aliases;
 - value shape;
-- producer cost and capabilities;
+- the bound producer query whose L1 definition declares cost and capabilities;
 - aggregation availability for the active lens; and
 - whether the field has data in the effective target.
 
