@@ -246,13 +246,14 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             var method = calls[0].Callee;
             if (method.HasThis)
                 continue;  // instance receiver — out of this slice
-            if (calls.Any(call => !CanPreserveParameterRefKinds(call.Callee)))
-                continue;
 
             var environment = ResolveEnvironment(method, calls, function);
             // A display-class parameter we could not resolve to a clean, single-use
             // environment (shared, or read another way) is out of this slice.
             if (environment is null && method.ParameterTypes.Any(IsDisplayClassParameter))
+                continue;
+            int visibleParameterCount = method.ParameterTypes.Length - (environment is null ? 0 : 1);
+            if (calls.Any(call => !CanPreserveParameterRefKinds(call.Callee, visibleParameterCount)))
                 continue;
 
             if (!context.TryEnterCrossMethodPipeline(method, out var importScope))
@@ -304,14 +305,14 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 // has run without re-entering this method's import.
                 if (HasOtherLocalFunctionCall(body, method))
                     continue;
-                if (SelfCalls(body, method).Any(call => !CanPreserveParameterRefKinds(call.Callee)))
+                if (SelfCalls(body, method).Any(call => !CanPreserveParameterRefKinds(call.Callee, call.Callee.ParameterTypes.Length)))
                     continue;
 
                 importScope.Run(body, IrPasses.Default);
 
                 if (HasOtherLocalFunctionCall(body, method))
                     continue;
-                if (SelfCalls(body, method).Any(call => !CanPreserveParameterRefKinds(call.Callee)))
+                if (SelfCalls(body, method).Any(call => !CanPreserveParameterRefKinds(call.Callee, call.Callee.ParameterTypes.Length)))
                     continue;
                 // And vote again on the body's self-references, for the same reason the
                 // foreign check above runs twice: IrPasses.Run can ADD reference nodes.
@@ -587,8 +588,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         => body.Descendants.OfType<Call>()
             .Where(call => SameLocalFunctionMethod(call.Callee, method));
 
-    static bool CanPreserveParameterRefKinds(MethodRef method)
-        => !method.ParameterTypes.Any(type => type.Kind == TypeRefKind.ByRef)
+    static bool CanPreserveParameterRefKinds(MethodRef method, int visibleParameterCount)
+        => !method.ParameterTypes.Take(visibleParameterCount).Any(type => type.Kind == TypeRefKind.ByRef)
             || method.ParameterRefKindsFacts == ParameterRefKindFacts.Known
                 && method.ParameterRefKinds.Length == method.ParameterTypes.Length;
 
