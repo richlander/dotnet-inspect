@@ -136,6 +136,19 @@ public class InfiniteLoopStructuringTests
     }
 
     [Fact]
+    public void NestedOuterRetryLoop_KeepsOuterRetryLeave()
+    {
+        var function = Raised(nameof(CfgSampleClass.NestedOuterRetryLoop));
+
+        Assert.Equal(2, function.Descendants.OfType<WhileLoop>().Count());
+        Assert.Contains(function.Descendants.OfType<Leave>(), leave => leave.TargetOffset == 0);
+
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("IL_0000:", output);
+        Assert.Contains("goto IL_0000; // leave", output);
+    }
+
+    [Fact]
     public void EnumeratorLoopCatchContinue_RaisesLeaveToContinue()
     {
         var function = Raised(nameof(CfgSampleClass.EnumeratorLoopCatchContinue));

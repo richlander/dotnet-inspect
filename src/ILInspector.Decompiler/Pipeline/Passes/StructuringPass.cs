@@ -1896,7 +1896,7 @@ public sealed class StructuringPass : IIrPass
 
     static void ReplaceRetryLeavesWithContinues(IrNode root, int targetOffset)
     {
-        foreach (var leave in RaisableLeavesTargeting(root, targetOffset))
+        foreach (var leave in RaisableLeavesTargeting(root, targetOffset, replacementIsContinue: true))
         {
             var next = new Continue();
             next.InheritSourceOffset(leave);
@@ -1906,7 +1906,7 @@ public sealed class StructuringPass : IIrPass
 
     static void ReplaceRetryLeavesWithBreaks(IrNode root, int targetOffset)
     {
-        foreach (var leave in RaisableLeavesTargeting(root, targetOffset))
+        foreach (var leave in RaisableLeavesTargeting(root, targetOffset, replacementIsContinue: false))
         {
             var next = new Break();
             next.InheritSourceOffset(leave);
@@ -1917,13 +1917,30 @@ public sealed class StructuringPass : IIrPass
     // Raisable descendant Leave nodes targeting a given offset, materialized so the tree can be
     // rewritten during iteration. Collected in one pooled-DFS pass with inline filtering, avoiding
     // the per-call closure/delegate/iterator allocations of the equivalent LINQ chain.
-    static List<Leave> RaisableLeavesTargeting(IrNode root, int targetOffset)
+    static List<Leave> RaisableLeavesTargeting(
+        IrNode root,
+        int targetOffset,
+        bool replacementIsContinue)
     {
         var result = new List<Leave>();
         foreach (var node in root.DescendantsOutsideNestedFunctions)
         {
-            if (node is Leave leave && leave.TargetOffset == targetOffset && CanRaiseRetryLeave(leave))
-                result.Add(leave);
+            if (node is not Leave leave
+                || leave.TargetOffset != targetOffset
+                || !CanRaiseRetryLeave(leave))
+            {
+                continue;
+            }
+            if (HasOwnerBeforeRoot(
+                leave,
+                root,
+                replacementIsContinue
+                    ? static ancestor => ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement
+                    : static ancestor => ancestor is Switch or WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
+            {
+                continue;
+            }
+            result.Add(leave);
         }
         return result;
     }

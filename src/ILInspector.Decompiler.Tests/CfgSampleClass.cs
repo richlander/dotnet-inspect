@@ -1196,6 +1196,30 @@ public class CfgSampleClass
         }
     }
 
+    public static int NestedOuterRetryLoop(int seed)
+    {
+    Outer:
+        while (true)
+        {
+            int i = seed;
+            while (true)
+            {
+                i++;
+                if (i > 100)
+                    return i;
+                try
+                {
+                    if (100 % i == 0)
+                        return i;
+                }
+                catch (DivideByZeroException)
+                {
+                    goto Outer;
+                }
+            }
+        }
+    }
+
     public static int EnumeratorLoopCatchContinue(System.Collections.Generic.IEnumerable<int> values)
     {
         int total = 0;
