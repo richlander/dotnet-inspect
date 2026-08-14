@@ -655,6 +655,20 @@ test("missing exact dependency groups never create graph edges", () => {
   assert.equal(selectedDependencyGroup(data), null);
 });
 
+test("dependency graph honors explicit selection after an exact group miss", () => {
+  const data = {
+    dependencyGroupError: "No exact dependency group.",
+    dependencyGroups: [
+      { index: 0, framework: "net8.0", isActive: false, dependencies: [] },
+      { index: 1, framework: "net9.0", isActive: false, dependencies: [] }
+    ]
+  };
+
+  assert.equal(
+    selectedDependencyGroup(data, 0),
+    data.dependencyGroups[0]);
+});
+
 test("dependency graph uses each cached package's product-selected group", () => {
   const data = {
     dependencyGroupError: "",

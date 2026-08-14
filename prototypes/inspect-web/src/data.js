@@ -196,9 +196,10 @@ export function dependencyGroupSelectionMessage(data) {
 
 export function selectedDependencyGroup(data, selectedGroupIndex = null) {
   const groups = data?.dependencyGroups || [];
-  if (!groups.length || data?.dependencyGroupError) return null;
+  if (!groups.length) return null;
   const selected = groups.find(group => group.index === selectedGroupIndex);
   if (selected) return selected;
+  if (data?.dependencyGroupError) return null;
   return groups.find(group => group.isActive) || null;
 }
 

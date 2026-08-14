@@ -205,7 +205,7 @@ public static class TfmSelector
         dotted = "";
         compact = "";
         string[] parts = value.Trim().Split('.');
-        if (parts.Length == 0)
+        if (parts.Length is 0 or > 4)
             return false;
 
         int[] numbers = new int[parts.Length];

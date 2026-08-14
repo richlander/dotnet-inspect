@@ -465,6 +465,26 @@ public class DependencyResolutionServiceTests
     }
 
     [Fact]
+    public void SelectDependencyGroup_ExactMode_RejectsOverlongFrameworkVersion()
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = ".NETCoreApp,Version=v8.0.0.0.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net8.0",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.Equal(
+            DependencyResolutionService.DependencyGroupSelectionStatus
+                .NoMatchingTargetFramework,
+            result.Status);
+        Assert.Null(result.Group);
+    }
+
+    [Fact]
     public void SelectDependencyGroup_ExactMode_DoesNotConflateFrameworkProfile()
     {
         var groups = new List<DependencyGroup>
