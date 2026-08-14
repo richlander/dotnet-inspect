@@ -71,6 +71,32 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void SerializedName_UsesRuntimeGrammarAndPreservesExactSegments()
+    {
+        var nested = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.ParseSerialized(
+                "Program+<<Main>$>d__0"));
+        var consecutiveDot =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseSerialized("N..T+S"));
+
+        Assert.Equal(
+            Name("", "Program", "<<Main>$>d__0"),
+            nested.Name);
+        Assert.Equal(Name("N", ".T", "S"), consecutiveDot.Name);
+    }
+
+    [Theory]
+    [InlineData(@"System.Environment+\SpecialFolder")]
+    [InlineData("Program+StateMachine, OtherAssembly")]
+    [InlineData("Program+StateMachine[]")]
+    public void SerializedName_RejectsNonDefinitionIdentity(string value)
+    {
+        Assert.IsType<MetadataTypeDefinitionNameResult.Rejected>(
+            MetadataTypeDefinitionName.ParseSerialized(value));
+    }
+
+    [Fact]
     public void StructuredNameReader_PreservesNestedTypeReferenceSegments()
     {
         TypeReferenceHandle leaf = default;
@@ -150,6 +176,30 @@ public class MetadataTypeDeclarationProbeTests
                 Name("N", "Outer`1", "Inner`2")));
 
         Assert.Equal(MetadataTokens.GetToken(inner), defined.Definition.Value);
+    }
+
+    [Fact]
+    public void ProbeDefinition_RejectsRepeatedLongLeafWork()
+    {
+        string leaf = new(
+            'X',
+            MetadataSafetyPolicy.MaxStructuralSignatureWorkChars / 4);
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            for (int i = 0; i < 5; i++)
+            {
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    $"N{i}",
+                    leaf);
+            }
+        });
+
+        Assert.IsType<TypeDeclarationResult.Rejected>(
+            MetadataTypeDeclarationProbe.ProbeDefinition(
+                image.Reader,
+                Name("N0", leaf)));
     }
 
     [Fact]

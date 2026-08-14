@@ -1166,173 +1166,23 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         if (stateMachineName is null)
             return false;
 
-        foreach (TypeDefinitionHandle typeHandle in _reader.TypeDefinitions)
-        {
-            if (!SerializedTypeNameMatchesDefinition(
-                    stateMachineName,
-                    typeHandle))
-            {
-                continue;
-            }
-            TypeRef type = TypeRefDecoder.Instance.GetTypeFromDefinition(
-                _reader,
-                typeHandle,
-                0);
-            if (!AsyncStateMachineTypes().Contains(
-                    type.ToQualifiedDisplayString())
-                || !stateMachineHandle.IsNil)
-            {
-                return false;
-            }
-            stateMachineHandle = typeHandle;
-        }
-        return !stateMachineHandle.IsNil;
-    }
-
-    bool SerializedTypeNameMatchesDefinition(
-        string serializedName,
-        TypeDefinitionHandle typeHandle)
-    {
-        if (serializedName.Length
-            > MetadataSafetyPolicy.MaxStructuralSignatureChars)
-        {
-            return false;
-        }
-
-        Span<TypeDefinitionHandle> chain =
-            stackalloc TypeDefinitionHandle[
-                MetadataSafetyPolicy.MaxRelationshipNodes];
-        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
-                _reader,
-                typeHandle,
-                chain,
-                out int count,
-                out _,
-                out _))
-        {
-            return false;
-        }
-
-        int firstNestedSeparator = -1;
-        int lastNamespaceSeparator = -1;
-        bool escaped = false;
-        for (int i = 0; i < serializedName.Length; i++)
-        {
-            char current = serializedName[i];
-            if (escaped)
-            {
-                escaped = false;
-                continue;
-            }
-            if (current == '\\')
-            {
-                escaped = true;
-            }
-            else if (current == ',')
-            {
-                // The authenticated state machine must be defined in this image.
-                return false;
-            }
-            else if (current == '+' && firstNestedSeparator < 0)
-            {
-                firstNestedSeparator = i;
-            }
-            else if (current == '.' && firstNestedSeparator < 0)
-            {
-                lastNamespaceSeparator = i;
-            }
-        }
-        if (escaped)
-            return false;
-
-        int rootEnd = firstNestedSeparator < 0
-            ? serializedName.Length
-            : firstNestedSeparator;
-        var root = _reader.GetTypeDefinition(chain[0]);
-        ReadOnlySpan<char> namespacePart = lastNamespaceSeparator < 0
-            ? []
-            : serializedName.AsSpan(0, lastNamespaceSeparator);
-        ReadOnlySpan<char> rootNamePart = serializedName.AsSpan(
-            lastNamespaceSeparator + 1,
-            rootEnd - lastNamespaceSeparator - 1);
-        if (!SerializedIdentifierEquals(
-                namespacePart,
-                MetadataSafetyPolicy.ReadStructuralString(
+        if (MetadataTypeDefinitionName.ParseSerialized(stateMachineName)
+                is not MetadataTypeDefinitionNameResult.Valid valid
+            || MetadataTypeDeclarationProbe.ProbeDefinition(
                     _reader,
-                    root.Namespace))
-            || !SerializedIdentifierEquals(
-                rootNamePart,
-                MetadataSafetyPolicy.ReadStructuralString(
-                    _reader,
-                    root.Name)))
+                    valid.Name)
+                is not TypeDeclarationResult.Defined defined)
         {
             return false;
         }
 
-        int cursor = rootEnd;
-        for (int chainIndex = 1; chainIndex < count; chainIndex++)
-        {
-            if (cursor >= serializedName.Length
-                || serializedName[cursor] != '+')
-            {
-                return false;
-            }
-
-            int segmentStart = ++cursor;
-            while (cursor < serializedName.Length)
-            {
-                if (serializedName[cursor] == '\\')
-                {
-                    cursor += 2;
-                    continue;
-                }
-                if (serializedName[cursor] == '+')
-                    break;
-                cursor++;
-            }
-
-            var nested = _reader.GetTypeDefinition(chain[chainIndex]);
-            if (!_reader.StringComparer.Equals(nested.Namespace, "")
-                || !SerializedIdentifierEquals(
-                    serializedName.AsSpan(
-                        segmentStart,
-                        cursor - segmentStart),
-                    MetadataSafetyPolicy.ReadStructuralString(
-                        _reader,
-                        nested.Name)))
-            {
-                return false;
-            }
-        }
-        return cursor == serializedName.Length;
-    }
-
-    static bool SerializedIdentifierEquals(
-        ReadOnlySpan<char> serialized,
-        string metadataName)
-    {
-        int metadataIndex = 0;
-        for (int i = 0; i < serialized.Length; i++)
-        {
-            char current = serialized[i];
-            if (current == '\\')
-            {
-                if (++i >= serialized.Length)
-                    return false;
-                current = serialized[i];
-            }
-            else if (current is ',' or '+' or '[' or ']' or '&' or '*')
-            {
-                return false;
-            }
-
-            if (metadataIndex >= metadataName.Length
-                || metadataName[metadataIndex++] != current)
-            {
-                return false;
-            }
-        }
-        return metadataIndex == metadataName.Length;
+        EntityHandle resolved =
+            MetadataTokens.EntityHandle(defined.Definition.Value);
+        if (resolved.Kind != HandleKind.TypeDefinition)
+            return false;
+        stateMachineHandle = (TypeDefinitionHandle)resolved;
+        return AsyncStateMachineTypeHandles().Contains(
+            stateMachineHandle);
     }
 
     bool MethodReferencesLiftedBody(
@@ -1727,22 +1577,36 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         }
     }
 
-    IReadOnlySet<string>? _asyncStateMachineTypes;
+    IReadOnlySet<TypeRef>? _asyncStateMachineTypes;
+    IReadOnlySet<TypeDefinitionHandle>? _asyncStateMachineTypeHandles;
 
     bool IsAsyncStateMachineType(TypeRef? type)
     {
         if (type is null)
             return false;
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-        return AsyncStateMachineTypes().Contains(definition.ToQualifiedDisplayString());
+        return AsyncStateMachineTypes().Contains(definition);
     }
 
-    IReadOnlySet<string> AsyncStateMachineTypes()
+    IReadOnlySet<TypeRef> AsyncStateMachineTypes()
+    {
+        EnsureAsyncStateMachineTypes();
+        return _asyncStateMachineTypes!;
+    }
+
+    IReadOnlySet<TypeDefinitionHandle> AsyncStateMachineTypeHandles()
+    {
+        EnsureAsyncStateMachineTypes();
+        return _asyncStateMachineTypeHandles!;
+    }
+
+    void EnsureAsyncStateMachineTypes()
     {
         if (_asyncStateMachineTypes is not null)
-            return _asyncStateMachineTypes;
+            return;
 
-        var set = new HashSet<string>(StringComparer.Ordinal);
+        var types = new HashSet<TypeRef>();
+        var handles = new HashSet<TypeDefinitionHandle>();
         foreach (var typeHandle in _reader.TypeDefinitions)
         {
             var typeDef = _reader.GetTypeDefinition(typeHandle);
@@ -1758,13 +1622,14 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     : interfaceType;
                 if (FrameworkIdentity.IsCoreLibraryType(definition, "System.Runtime.CompilerServices", "IAsyncStateMachine"))
                 {
-                    set.Add(type.ToQualifiedDisplayString());
+                    types.Add(type);
+                    handles.Add(typeHandle);
                     break;
                 }
             }
         }
-        _asyncStateMachineTypes = set;
-        return set;
+        _asyncStateMachineTypeHandles = handles;
+        _asyncStateMachineTypes = types;
     }
 
     TypeRef TypeFromEntity(EntityHandle handle)
