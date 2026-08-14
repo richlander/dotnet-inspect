@@ -2655,16 +2655,39 @@ public static class PackageExtractor
         Action<string>? log,
         NuGetSourceOptions? sourceOptions = null)
     {
-        string normalizedName = packageName.ToLowerInvariant();
         List<NuGetSource> sources =
             NuGetSourceResolver.ResolveSourcesForPackage(
                 sourceOptions,
                 packageName);
+        return await GetVersionCandidatesAsync(
+            client,
+            packageName,
+            sources,
+            includePrerelease,
+            log,
+            useCache: true,
+            cancellationToken: default).ConfigureAwait(false);
+    }
+
+    internal static async Task<(
+        List<PackageVersionResolution>? Candidates,
+        bool HasIncompleteMetadata)> GetVersionCandidatesAsync(
+        HttpClient client,
+        string packageName,
+        IReadOnlyList<NuGetSource> sources,
+        bool includePrerelease,
+        Action<string>? log,
+        bool useCache,
+        CancellationToken cancellationToken)
+    {
+        string normalizedName = packageName.ToLowerInvariant();
         var perSource = await FetchListingsPerSourceAsync(
             client,
             normalizedName,
-            sources,
-            log).ConfigureAwait(false);
+            [.. sources],
+            log,
+            useCache,
+            cancellationToken).ConfigureAwait(false);
         if (perSource is null)
             return (null, HasIncompleteMetadata: false);
         if (perSource.Any(candidate => !candidate.Authoritative))
@@ -2953,12 +2976,15 @@ public static class PackageExtractor
         HttpClient client,
         string normalizedName,
         List<NuGetSource> sources,
-        Action<string>? log)
+        Action<string>? log,
+        bool useCache = true,
+        CancellationToken cancellationToken = default)
     {
         var perSource = new List<SourceVersionListings>();
 
         foreach (var source in sources)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             List<PackageVersionInfo>? listings = null;
             bool fetchedAuthoritative = false;
             bool fromCache = false;
@@ -2966,11 +2992,13 @@ public static class PackageExtractor
                 NuGetCache.GetSourceKey(source.Url),
                 normalizedName);
 
-            string? cached = CoreCache.TryGet(
-                VersionCacheCategory,
-                cacheKey,
-                VersionCacheTtl,
-                extension: "txt");
+            string? cached = useCache
+                ? CoreCache.TryGet(
+                    VersionCacheCategory,
+                    cacheKey,
+                    VersionCacheTtl,
+                    extension: "txt")
+                : null;
             if (cached is not null)
             {
                 listings = DeserializeListings(cached);
@@ -2983,7 +3011,15 @@ public static class PackageExtractor
             }
 
             if (listings == null)
-                (listings, fetchedAuthoritative) = await FetchVersionListingsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
+            {
+                (listings, fetchedAuthoritative) =
+                    await FetchVersionListingsFromSourceAsync(
+                        client,
+                        normalizedName,
+                        source,
+                        log,
+                        cancellationToken).ConfigureAwait(false);
+            }
             if (listings == null)
                 continue;
 
@@ -2993,7 +3029,7 @@ public static class PackageExtractor
                 listings,
                 authoritative));
 
-            if (!fromCache && fetchedAuthoritative)
+            if (useCache && !fromCache && fetchedAuthoritative)
             {
                 CoreCache.Set(
                     VersionCacheCategory,
@@ -3066,9 +3102,15 @@ public static class PackageExtractor
         HttpClient client,
         string packageName,
         NuGetSource source,
-        Action<string>? log)
+        Action<string>? log,
+        CancellationToken cancellationToken = default)
     {
-        var versions = await FetchAllVersionsFromSourceAsync(client, packageName, source, log).ConfigureAwait(false);
+        var versions = await FetchAllVersionsFromSourceAsync(
+            client,
+            packageName,
+            source,
+            log,
+            cancellationToken).ConfigureAwait(false);
         if (versions == null)
             return (null, Authoritative: true);
 
@@ -3076,7 +3118,8 @@ public static class PackageExtractor
             ? await FetchRegistrationVersionsFromNuGetOrgAsync(
                 client,
                 packageName,
-                log).ConfigureAwait(false)
+                log,
+                cancellationToken).ConfigureAwait(false)
             : null;
 
         bool authoritative = !source.IsNuGetOrg
