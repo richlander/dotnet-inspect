@@ -399,10 +399,30 @@ public sealed class BrowserEngineBoundaryTests
             MemberKind.Method);
         CallGraphNode[] nodes =
         [
-            new(0, member, "focus", CallGraphNodeKind.Focus),
-            new(1, member, "normal", CallGraphNodeKind.Normal),
-            new(2, member, "external", CallGraphNodeKind.External),
-            new(3, arrayMember, "array", CallGraphNodeKind.Normal),
+            new(
+                0,
+                GraphNodeIdentity.FromMember(member),
+                member,
+                "focus",
+                CallGraphNodeKind.Focus),
+            new(
+                1,
+                GraphNodeIdentity.FromMember(member),
+                member,
+                "normal",
+                CallGraphNodeKind.Normal),
+            new(
+                2,
+                GraphNodeIdentity.FromMember(member),
+                member,
+                "external",
+                CallGraphNodeKind.External),
+            new(
+                3,
+                GraphNodeIdentity.FromMember(arrayMember),
+                arrayMember,
+                "array",
+                CallGraphNodeKind.Normal),
         ];
 
         BrowserCallGraphTarget[] targets = BrowserInspectionEngine.Targets(
@@ -519,26 +539,30 @@ public sealed class BrowserEngineBoundaryTests
         TypeRef nested = ResolvedDefinition("Example", ["Outer", "Inner"]);
         TypeRef literalPlus = ResolvedDefinition("Example", ["Outer+Inner"]);
         TypeRef returnType = TypeRef.Definition(TypeRef.CoreLibrary, "System", "Void");
+        var nestedMember = new MemberRef(
+            nested,
+            "Run",
+            ImmutableArray<TypeRef>.Empty,
+            returnType,
+            MemberKind.Method);
+        var literalPlusMember = new MemberRef(
+            literalPlus,
+            "Run",
+            ImmutableArray<TypeRef>.Empty,
+            returnType,
+            MemberKind.Method);
         CallGraphNode[] nodes =
         [
             new(
                 0,
-                new MemberRef(
-                    nested,
-                    "Run",
-                    ImmutableArray<TypeRef>.Empty,
-                    returnType,
-                    MemberKind.Method),
+                GraphNodeIdentity.FromMember(nestedMember),
+                nestedMember,
                 "nested",
                 CallGraphNodeKind.Normal),
             new(
                 1,
-                new MemberRef(
-                    literalPlus,
-                    "Run",
-                    ImmutableArray<TypeRef>.Empty,
-                    returnType,
-                    MemberKind.Method),
+                GraphNodeIdentity.FromMember(literalPlusMember),
+                literalPlusMember,
                 "literal",
                 CallGraphNodeKind.Normal),
         ];
@@ -592,16 +616,18 @@ public sealed class BrowserEngineBoundaryTests
     public void CallGraphTargets_KeepTheLegacyIdentityWhereItIsUnambiguous()
     {
         TypeRef declaring = ResolvedDefinition("Example", ["Outer`1", "Widget`1"]);
+        var member = new MemberRef(
+            declaring,
+            "Run",
+            ImmutableArray<TypeRef>.Empty,
+            TypeRef.Definition(TypeRef.CoreLibrary, "System", "Void"),
+            MemberKind.Method);
         CallGraphNode[] nodes =
         [
             new(
                 0,
-                new MemberRef(
-                    declaring,
-                    "Run",
-                    ImmutableArray<TypeRef>.Empty,
-                    TypeRef.Definition(TypeRef.CoreLibrary, "System", "Void"),
-                    MemberKind.Method),
+                GraphNodeIdentity.FromMember(member),
+                member,
                 "nested",
                 CallGraphNodeKind.Normal),
         ];
