@@ -4635,6 +4635,60 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleType_JsonLimitUsesSameOrderedMembersForExactSections()
+    {
+        var (constructorExit, constructorOutput, constructorError) = await RunAppAsync(
+            "type", "System.Text.Json.Utf8JsonWriter",
+            "-m", "1", "-S", "Constructors", "--json", "--tips", "q");
+
+        Assert.Equal(0, constructorExit);
+        Assert.Empty(constructorError);
+        using (var document = JsonDocument.Parse(constructorOutput))
+        {
+            var members = document.RootElement.GetProperty("members");
+            Assert.Single(members.EnumerateArray());
+            Assert.Equal("constructor", members[0].GetProperty("kind").GetString());
+        }
+
+        var (methodExit, methodOutput, methodError) = await RunAppAsync(
+            "type", "System.Text.Json.Utf8JsonWriter",
+            "-m", "1", "-S", "Methods", "--json", "--tips", "q");
+
+        Assert.Equal(1, methodExit);
+        Assert.Empty(methodOutput);
+        Assert.Contains("This section (Methods) produced no output.", methodError);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_JsonMemberLimitPreservesTypeIdentity()
+    {
+        var (fullExit, fullOutput, fullError) = await RunAppAsync(
+            "type", "System.Span<T>", "--json", "--tips", "q");
+        var (limitedExit, limitedOutput, limitedError) = await RunAppAsync(
+            "type", "System.Span<T>", "-m", "1", "--json", "--tips", "q");
+
+        Assert.Equal(0, fullExit);
+        Assert.Equal(0, limitedExit);
+        Assert.Empty(fullError);
+        Assert.Empty(limitedError);
+        using var full = JsonDocument.Parse(fullOutput);
+        using var limited = JsonDocument.Parse(limitedOutput);
+
+        foreach (var property in new[]
+                 {
+                     "is_by_ref_like",
+                     "is_read_only",
+                     "attributes",
+                     "type_parameters",
+                 })
+        {
+            Assert.Equal(
+                full.RootElement.GetProperty(property).GetRawText(),
+                limited.RootElement.GetProperty(property).GetRawText());
+        }
+    }
+
+    [Fact]
     public async Task Type_Listing_MarkdownColumnsWithoutSelectTargetTypeRows()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -4660,6 +4714,37 @@ public partial class CommandExecutionTests
         Assert.Contains("## Classes", output);
         Assert.Contains("| Kind | Type |", output);
         Assert.DoesNotContain("## API Info", output);
+    }
+
+    [Fact]
+    public async Task Type_WidePrefixFallback_MarkdownColumnsTargetTypeRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections.Frozen",
+            "--columns", "Kind,Type", "--tips", "q", "-n", "12");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("best-effort platform prefix matches", error);
+        Assert.Contains("## Classes", output);
+        Assert.Contains("| Kind | Type |", output);
+        Assert.DoesNotContain("## API Info", output);
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--tsv")]
+    public async Task Type_WidePrefixFallback_RevalidatesListingSectionArity(string outputOption)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections.Frozen",
+            "-S", "*l*a*e*s*", outputOption, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        if (outputOption == "--count")
+            Assert.Contains("--count requires -S/--select to match exactly one section.", error);
+        else
+            Assert.Contains("Selection matches 2 sections: Classes, Delegates.", error);
     }
 
     [Theory]

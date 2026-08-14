@@ -111,20 +111,16 @@ public class ApiCommand
             : options with { SelectDeferredToListing = false };
         listingOptions = ApplyImplicitTypeListingColumnScope(listingOptions);
 
-        // The preamble skips the selection-arity checks for a deferred select because it cannot yet
-        // know which pipeline will render. Now it is known, so they run here against the sections
-        // the listing actually resolved. The payload projections are deliberately not re-checked:
-        // the listing refuses them outright further down, and that reason is the useful one.
-        if (options.SelectDeferredToListing)
-        {
-            if (listingOptions.Discover == null && listingOptions.Count
-                && !CountOutput.ValidateSingleSection(listingOptions.IncludeSections))
-                return null;
+        // The listing can resolve a selector to a different number of sections than the exact-type
+        // pipeline did. Validate the resolved listing set even when the original selector was not
+        // deferred, so count and tabular output cannot silently consume several sections.
+        if (listingOptions.Discover == null && listingOptions.Count
+            && !CountOutput.ValidateSingleSection(listingOptions.IncludeSections))
+            return null;
 
-            if (!OutputFormatResolver.ValidateSingleSectionForTabular(
-                    listingOptions.TabularExplicitlySet, listingOptions.IncludeSections))
-                return null;
-        }
+        if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+                listingOptions.TabularExplicitlySet, listingOptions.IncludeSections))
+            return null;
 
         return listingOptions;
     }
@@ -719,23 +715,29 @@ public class ApiCommand
 
         var filteredMembers = members.ToList();
         if (options.Limit.HasValue && options.Limit.Value < filteredMembers.Count)
-            filteredMembers = filteredMembers.Take(options.Limit.Value).ToList();
+            filteredMembers = OrderMembersForLimit(filteredMembers)
+                .Take(options.Limit.Value)
+                .ToList();
 
-        return new ApiType
+        return CopyTypeWithMembers(type, filteredMembers);
+    }
+
+    private static IOrderedEnumerable<ApiMember> OrderMembersForLimit(
+        IEnumerable<ApiMember> members)
+        => members
+            .OrderBy(member => ApiOutputFormatter.GetMemberSortOrder(member.Kind))
+            .ThenBy(member => member.Name, StringComparer.Ordinal)
+            .ThenBy(ApiOutputFormatter.GetMemberSignatureSortKey, StringComparer.Ordinal);
+
+    private static ApiType CopyTypeWithMembers(ApiType type, List<ApiMember> members)
+        => new()
         {
             Namespace = type.Namespace,
             Name = type.Name,
-            // Preserve the exact metadata name so the filtered copy keeps matching
-            // via ApiOutputFormatter.SameType (which prefers MetadataName over the
-            // lossy '+'→'.' fallback) when it reaches the type-scope analysis path.
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
-            Kind = type.Kind,
-            // Every identity fact carries over: this copy exists to narrow Members, and anything
-            // else it drops silently changes what sections and discovery see. Omitting the two
-            // struct modifiers made `-D "Type Info"` hide the Modifiers row that `-S` rendered for
-            // every readonly/ref struct, because discovery builds its manifest from this copy.
             Accessibility = type.Accessibility,
+            Kind = type.Kind,
             Attributes = type.Attributes,
             EnumUnderlyingType = type.EnumUnderlyingType,
             IsSealed = type.IsSealed,
@@ -743,12 +745,11 @@ public class ApiCommand
             IsStatic = type.IsStatic,
             IsByRefLike = type.IsByRefLike,
             IsReadOnly = type.IsReadOnly,
-            SourceAssemblyPath = type.SourceAssemblyPath,
             BaseType = type.BaseType,
             Interfaces = type.Interfaces,
             DerivedTypes = type.DerivedTypes,
             TypeParameters = type.TypeParameters,
-            Members = filteredMembers,
+            Members = members,
             SourceFilePath = type.SourceFilePath,
             SourceUrl = type.SourceUrl,
             GitHubBrowseUrl = type.GitHubBrowseUrl,
@@ -758,9 +759,9 @@ public class ApiCommand
             SourceResolution = type.SourceResolution,
             AdditionalSourceFiles = type.AdditionalSourceFiles,
             IsForwarded = type.IsForwarded,
-            Documentation = type.Documentation
+            SourceAssemblyPath = type.SourceAssemblyPath,
+            Documentation = type.Documentation,
         };
-    }
 
     internal static DocumentSchema GetTypeDocumentSchema(ApiOptions options)
     {
@@ -1347,7 +1348,7 @@ public class ApiCommand
             var jsonExactSection = GetExactSelectedSection(options, pipeline.AllSectionNames);
             if (jsonExactSection is not null
                 && !pipeline.GetEffectiveSections(
-                        BuildFilteredTypeForSections(type, options),
+                        BuildTypeForJsonOutput(type, options),
                         options.Verbosity,
                         options.IncludeSections)
                     .Contains(jsonExactSection, StringComparer.OrdinalIgnoreCase))
@@ -2501,24 +2502,7 @@ public class ApiCommand
     private static void WriteJsonTypeOutput(ApiType type, ApiOptions options)
     {
         var outputType = type;
-        var members = type.Members;
-
-        if (options.MemberFilter.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
-
-        if (options.KindFilter.Count > 0)
-            members = members.Where(m => options.KindFilter.Contains(m.Kind)).ToList();
-
-        if (options.UnsafeOnly)
-            members = members.Where(m => m.IsUnsafe).ToList();
-
-        if (options.Limit.HasValue && members.Count > options.Limit.Value)
-            members = members
-                .OrderBy(m => ApiOutputFormatter.GetMemberSortOrder(m.Kind))
-                .ThenBy(m => m.Name, StringComparer.Ordinal)
-                .ThenBy(ApiOutputFormatter.GetMemberSignatureSortKey, StringComparer.Ordinal)
-                .Take(options.Limit.Value)
-                .ToList();
+        var (members, membersChanged) = GetJsonOutputMembers(type, options);
 
         // -S/--select scopes JSON to the requested sections, mirroring the markdown view.
         if (options.IncludeSections is { Count: > 0 } sections)
@@ -2526,31 +2510,8 @@ public class ApiCommand
             outputType = ProjectTypeToSections(type, members, sections);
         }
 
-        else if (members != type.Members)
-        {
-            outputType = new ApiType
-            {
-                Namespace = type.Namespace,
-                Name = type.Name,
-                MetadataName = type.MetadataName,
-                DefinitionName = type.DefinitionName,
-                Kind = type.Kind,
-                IsSealed = type.IsSealed,
-                IsAbstract = type.IsAbstract,
-                IsStatic = type.IsStatic,
-                BaseType = type.BaseType,
-                Interfaces = type.Interfaces,
-                Members = members,
-                SourceFilePath = type.SourceFilePath,
-                SourceUrl = type.SourceUrl,
-                GitHubBrowseUrl = type.GitHubBrowseUrl,
-                SourceLineNumber = type.SourceLineNumber,
-                SourceChecksum = type.SourceChecksum,
-                SourceChecksumAlgorithm = type.SourceChecksumAlgorithm,
-                AdditionalSourceFiles = type.AdditionalSourceFiles,
-                Documentation = type.Documentation
-            };
-        }
+        else if (membersChanged)
+            outputType = CopyTypeWithMembers(type, members);
 
         // Project the durable identity (Digest + Canonical Signature) onto each member so
         // JSON consumers get the same overload handle the Markdown Digest column exposes.
@@ -2566,6 +2527,50 @@ public class ApiCommand
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeCompactJsonContext.Default.ApiType));
         else
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
+    }
+
+    private static ApiType BuildTypeForJsonOutput(ApiType type, ApiOptions options)
+    {
+        var (members, membersChanged) = GetJsonOutputMembers(type, options);
+        return membersChanged ? CopyTypeWithMembers(type, members) : type;
+    }
+
+    private static (List<ApiMember> Members, bool Changed) GetJsonOutputMembers(
+        ApiType type,
+        ApiOptions options)
+    {
+        IEnumerable<ApiMember> members = type.Members;
+        bool changed = false;
+
+        if (options.MemberFilter.Count > 0)
+        {
+            members = members.Where(
+                member => TypeMatcher.MatchesMemberFilter(member.Name, options.MemberFilter));
+            changed = true;
+        }
+
+        if (options.KindFilter.Count > 0)
+        {
+            members = members.Where(member => options.KindFilter.Contains(member.Kind));
+            changed = true;
+        }
+
+        if (options.UnsafeOnly)
+        {
+            members = members.Where(member => member.IsUnsafe);
+            changed = true;
+        }
+
+        var filtered = changed ? members.ToList() : type.Members;
+        if (options.Limit.HasValue && filtered.Count > options.Limit.Value)
+        {
+            filtered = OrderMembersForLimit(filtered)
+                .Take(options.Limit.Value)
+                .ToList();
+            changed = true;
+        }
+
+        return (filtered, changed);
     }
 
     private static bool IsAnnotatedSourceDocumentJson(ApiOptions options)

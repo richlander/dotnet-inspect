@@ -565,17 +565,11 @@ public static class TypeCommand
             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
         };
 
-        // This renders a listing for what entered as a single-type request, so every active
-        // selection resolves again against the pipeline doing the rendering. A selection that was
-        // valid for one type (including bare -S -> Type Info) is not valid evidence for a listing.
-        if (browseOptions.SelectDeferredToListing
-            || browseOptions.SelectDefault
-            || browseOptions.Select is { Length: > 0 })
-        {
-            if (ApiCommand.ReresolveSectionsForListing(browseOptions) is not { } resolvedBrowseOptions)
-                return 1;
-            browseOptions = resolvedBrowseOptions;
-        }
+        // This renders a listing for what entered as a single-type request, so resolve every
+        // listing-owned default and projection against that pipeline, even without -S.
+        if (ApiCommand.ReresolveSectionsForListing(browseOptions) is not { } resolvedBrowseOptions)
+            return 1;
+        browseOptions = resolvedBrowseOptions;
 
         CommandError.WriteNote($"Showing best-effort platform prefix matches for '{query}'.");
         CommandError.WriteNote($"Use `find \"{ToFindPrefixPattern(query)}\" --platform` to see source libraries.");
