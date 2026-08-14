@@ -6,6 +6,7 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using System.Collections.Immutable;
 using System.Text;
+using System.Text.Json;
 using System.Globalization;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
@@ -342,9 +343,19 @@ public static class ApiOutputFormatter
         string? packageVersion,
         HashSet<string> memberFilter,
         HashSet<string>? kindFilter = null,
-        Verbosity verbosity = Verbosity.Minimal)
+        Verbosity verbosity = Verbosity.Minimal,
+        int? memberLimit = null)
     {
-        var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter, kindFilter, verbosity);
+        bool filtersMatchedMembers = FilterShapeMembers(type, memberFilter, kindFilter).Any();
+        var view = BuildShapeView(
+            type,
+            foundIn,
+            packageName,
+            packageVersion,
+            memberFilter,
+            kindFilter,
+            verbosity,
+            memberLimit);
         if (view.Members is { Count: > 0 })
         {
             // Lead with a declaration-style header when the type carries modifiers
@@ -357,7 +368,8 @@ public static class ApiOutputFormatter
             var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
             writer.WriteTree([.. view.Members]);
         }
-        else if (kindFilter?.Count > 0 || memberFilter.Count > 0)
+        else if ((kindFilter?.Count > 0 || memberFilter.Count > 0)
+                 && !filtersMatchedMembers)
         {
             var filterDesc = kindFilter?.Count > 0
                 ? string.Join(", ", kindFilter)
@@ -469,6 +481,8 @@ public static class ApiOutputFormatter
             Version = topFieldsOnly ? packageVersion : null,
             Source = topFieldsOnly ? apiSource : null,
             SourceUrl = SelectSourceUrl(type.SourceUrl, options.BrowsableUrls),
+            SourceChecksum = type.SourceChecksum,
+            SourceChecksumAlgorithm = type.SourceChecksumAlgorithm,
             AdditionalSourceFiles = SelectSourceFiles(type.AdditionalSourceFiles, options.BrowsableUrls),
             Tfm = topFieldsOnly ? selectedTfm : null,
             SamplesInfo = topFieldsOnly ? samplesInfo : null,
@@ -531,34 +545,57 @@ public static class ApiOutputFormatter
         string? packageVersion,
         HashSet<string> memberFilter,
         HashSet<string>? kindFilter = null,
-        Verbosity verbosity = Verbosity.Minimal)
+        Verbosity verbosity = Verbosity.Minimal,
+        int? memberLimit = null)
     {
         bool hasFilter = memberFilter.Count > 0 || kindFilter?.Count > 0;
         bool expandOverloads = verbosity >= Verbosity.Normal;
         List<TreeNode> nodes = [];
 
         // Group members by kind
-        bool hasMemberNodes = false;
+        bool filtersMatchedMembers = false;
         if (type.Members.Count > 0)
         {
-            var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
-
-            if (memberFilter.Count > 0)
+            var memberList = FilterShapeMembers(type, memberFilter, kindFilter).ToList();
+            filtersMatchedMembers = memberList.Count > 0;
+            if (memberLimit.HasValue)
             {
-                members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
+                var displayEntries = memberList
+                    .GroupBy(m => m.Kind)
+                    .OrderBy(g => GetTreeKindOrder(g.Key))
+                    .SelectMany(group =>
+                        !IsOverloadGroupedKind(group.Key)
+                            ? group
+                                .OrderBy(m => m.Name, StringComparer.Ordinal)
+                                .Select(member => new List<ApiMember> { member })
+                            : expandOverloads
+                                ? group
+                                    .GroupBy(m => m.Name)
+                                    .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
+                                    .SelectMany(overloads => overloads
+                                        .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+                                        .Select(member => new List<ApiMember> { member }))
+                            : group
+                                .GroupBy(m => m.Name)
+                                .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
+                                .Select(overloads => overloads
+                                    .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+                                    .ToList()))
+                    .ToList();
+
+                if (memberLimit.Value < displayEntries.Count)
+                {
+                    memberList = displayEntries
+                        .Take(memberLimit.Value)
+                        .SelectMany(entry => entry)
+                        .ToList();
+                }
             }
 
-            if (kindFilter?.Count > 0)
-            {
-                members = members.Where(m => kindFilter.Contains(m.Kind));
-            }
-
-            var membersByKind = members
+            var membersByKind = memberList
                 .GroupBy(m => m.Kind)
                 .OrderBy(g => GetTreeKindOrder(g.Key))
                 .ToList();
-
-            hasMemberNodes = membersByKind.Count > 0;
 
             foreach (var group in membersByKind)
             {
@@ -660,7 +697,7 @@ public static class ApiOutputFormatter
         }
 
         // Structural nodes (suppress when a filter is active but matched nothing)
-        if (!hasFilter || hasMemberNodes)
+        if (!hasFilter || filtersMatchedMembers)
         {
             // Inheritance
             if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
@@ -713,6 +750,22 @@ public static class ApiOutputFormatter
             Version = packageVersion,
             Members = nodes
         };
+    }
+
+    private static IEnumerable<ApiMember> FilterShapeMembers(
+        ApiType type,
+        HashSet<string> memberFilter,
+        HashSet<string>? kindFilter)
+    {
+        var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
+
+        if (memberFilter.Count > 0)
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
+
+        if (kindFilter?.Count > 0)
+            members = members.Where(m => kindFilter.Contains(m.Kind));
+
+        return members;
     }
 
     // Renders a type parameter's constraint list for display, delegating C# spelling
@@ -1000,7 +1053,11 @@ public static class ApiOutputFormatter
                 member.SourceFilePath is null ? null : MarkoutInline.Code(member.SourceFilePath),
                 member.SourceLineNumber,
                 endLine,
-                SelectSourceUrl(member.SourceUrl, options.BrowsableUrls)));
+                SelectSourceUrl(member.SourceUrl, options.BrowsableUrls))
+            {
+                Checksum = member.SourceChecksum,
+                ChecksumAlgorithm = member.SourceChecksumAlgorithm,
+            });
         }
 
         view.SourceLocationRows = rows;
@@ -1019,7 +1076,9 @@ public static class ApiOutputFormatter
             {
                 FilePath = file.FilePath,
                 SourceUrl = SelectSourceUrl(file.SourceUrl, browsableUrls),
-                GitHubBrowseUrl = file.GitHubBrowseUrl
+                GitHubBrowseUrl = file.GitHubBrowseUrl,
+                SourceChecksum = file.SourceChecksum,
+                SourceChecksumAlgorithm = file.SourceChecksumAlgorithm,
             }).ToList()
             : files;
 
@@ -1464,6 +1523,7 @@ public static class ApiOutputFormatter
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource)
                 || requestedSections.Contains(SectionNames.SourceDiff),
             AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
+            SourceDocument: requestedSections.Contains(SectionNames.AnnotatedSourceDocument),
             CostOverlay: requestedSections.Contains(SectionNames.CostOverlay),
             SemanticsOverlay: requestedSections.Contains(SectionNames.SemanticsOverlay),
             IL: requestedSections.Contains(SectionNames.IL),
@@ -1585,23 +1645,38 @@ public static class ApiOutputFormatter
             // One bidirectional graph: inbound callers and outbound callees around the selected
             // member. The projection collapses the two trees onto shared node identity, so a member
             // that is both a caller and a callee is one node rather than two unrelated subtrees.
-            Analysis.CallTreeNode callerTree =
-                analysisInspection.BuildCallerTree(graphToken);
+            var projection =
+                analysisInspection.BuildCallGraph(graphToken);
             view.CallGraphIncomplete =
                 analysisInspection.CallGraphDiagnostics.IsIncomplete;
-            var projection = ILInspector.CallGraph.CallGraphProjection.Create(
-                callerTree,
-                analysisInspection.BuildCallTree(graphToken));
+            var selectedRows = RowWindow.Apply(options?.Rows, projection.Rows);
+            memberCode.CallGraphRowCount = selectedRows.Count;
+            bool loweringNeedsSelectedGraph =
+                options is { Tabular: false, Rows: not null }
+                && (options.PlainText
+                    || options.EmbeddedMermaid
+                    || options.MermaidOutput
+                    || options is MemberOptions { Tree: true });
+            bool graphWindowIsEmpty =
+                loweringNeedsSelectedGraph
+                && selectedRows.Count == 0;
             // A lone focus node with no edges is the empty state, not a graph.
-            if (projection.Edges.Length > 0)
+            if (projection.Edges.Length > 0 && !graphWindowIsEmpty)
             {
+                // Edge-table output windows rows at the Markout table-writer boundary. Tree and
+                // Mermaid lowerings have no table rows, so give them the selected projection
+                // before rendering. Either route addresses the same stable edge rows exactly once.
+                IReadOnlyList<ILInspector.CallGraph.CallGraphRow>? renderedRows =
+                    loweringNeedsSelectedGraph ? selectedRows : null;
                 memberCode.CallGraph = CallGraphSectionAdapter.ToGraph(
                     projection,
                     FormatCallee,
-                    GetRequestedCallGraphFields(options));
+                    GetRequestedCallGraphFields(options),
+                    renderedRows);
                 hasCode = true;
             }
-            else if (ExplicitlySelected(SectionNames.CallGraph))
+            else if (ExplicitlySelected(SectionNames.CallGraph)
+                || graphWindowIsEmpty)
             {
                 memberCode.CallGraph = new Markout.Graph([], []);
                 hasCode = true;
@@ -1697,7 +1772,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste)
+        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste || request.SourceDocument)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, bodyMethods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
@@ -1739,6 +1814,11 @@ public static class ApiOutputFormatter
                 memberCode.ILCode = new CodeSection("il", ilText);
                 hasCode = true;
             }
+
+            hasCode |= PopulateAnnotatedSourceDocument(
+                memberCode,
+                code.SourceDocument,
+                code.SourceDocumentFailure);
 
             if (request.Facts && code.Facts is { } facts)
             {
@@ -1826,6 +1906,35 @@ public static class ApiOutputFormatter
         }
 
         return hasCode;
+    }
+
+    internal static bool PopulateAnnotatedSourceDocument(
+        MemberCodeView memberCode,
+        Decompiler.AnnotatedSourceDocument? sourceDocument,
+        Decompiler.DecompilerResult? failure)
+    {
+        ArgumentNullException.ThrowIfNull(memberCode);
+        if (sourceDocument is not null)
+        {
+            memberCode.AnnotatedSourceDocument = sourceDocument;
+            memberCode.AnnotatedSourceDocumentCode = new CodeSection(
+                "json",
+                JsonSerializer.Serialize(
+                    sourceDocument,
+                    AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument));
+            return true;
+        }
+        if (failure is not null)
+        {
+            memberCode.AnnotatedSourceDocumentFailure = failure;
+            memberCode.AnnotatedSourceDocumentCode = new CodeSection(
+                "text",
+                string.Join(
+                    "\n",
+                    failure.Diagnostics.Select(diagnostic => diagnostic.ToString())));
+            return true;
+        }
+        return false;
     }
 
     internal static List<FidelityCauseRow> BuildFidelityCauseRows(

@@ -41,6 +41,10 @@ separate lenses such as `@Performance`, `@Metadata`, and `@SourceLink`.
 Automatic verbosity uses only the base-category union. Selecting an exact
 domain category is the gesture that enters that domain.
 
+Library uses `@Library` and `@Surface` as its base categories. Package uses
+`@Package` and `@Files`; package evidence is also cross-listed into
+`@Dependencies`, `@Audit`, and `@SourceLink` domain categories.
+
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories. Users who
 need broad evidence select the relevant authored categories explicitly.
 
@@ -55,6 +59,8 @@ dotnet-inspect library System.Text.Json -S "Async*"
 dotnet-inspect library System.Text.Json -S @Performance
 dotnet-inspect library System.Text.Json -S References --tree --depth 2
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S @Analysis
+dotnet-inspect package System.Text.Json -S @Package
+dotnet-inspect package System.Text.Json -S @Audit
 ```
 
 Selection controls both rendering and data collection. Only producers needed

@@ -32,6 +32,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["CSharpPrinterReceiverTests.cs"] = (1, "Product-output validity: compiles printer receiver-spelling output."),
             ["DataflowFactsTests.cs"] = (1, "Product-output validity: compiles synthesized dataflow source per case."),
             ["EnumCastPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced enum-cast source."),
+            ["EnumCaseLabelOrderTests.cs"] = (1, "Round-trip fixed point: recompiles the alphabetically ordered product output and decompiles it again."),
             ["FinallyDisposePrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced finally/dispose source."),
             ["FluentChainFormattingTests.cs"] = (1, "Product-output validity: compiles printer-produced broken fluent-chain source."),
             ["SplittableExpressionWrapTests.cs"] = (1, "Product-output validity: compiles printer-produced wrapped &&/|| chain source."),
@@ -76,6 +77,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["ReturnToSenderFixtureCatalogTests.cs"] = (1, "Input-generation seam: builds a temporary input assembly for the RTS catalog."),
             ["RoundTripComparisonTests.cs"] = (1, "Round-trip oracle seam: compiles an exact donor fixture for typed C# and IL comparison."),
             ["SpanAttributionTests.cs"] = (1, "Product-output validity + oracle seam: compiles synthesized decompiled/authored source per case to feed real compiler diagnostics to the span-attribution classifier."),
+            ["ValidDifferentFaultIsolationTests.cs"] = (1, "Round-trip oracle seam: compiles runtime-varying authored and rejected bodies to gate successful IL-diff attribution."),
         };
 
     // Fingerprint. Three independent +1 site additions stack on the 29 files /
@@ -109,11 +111,16 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #3238 adds AnnotatedCompileBackFailureTests.cs (1 site): compiles a
     //     synthesized invisible-rune source to obtain a real diagnostic for the
     //     annotated compile-back failure caret render.
+    //   #3784 adds ValidDifferentFaultIsolationTests.cs (1 site): compiles
+    //     runtime-varying authored and rejected bodies to gate successful
+    //     IL-diff attribution.
     //   #3898 adds AuthoredRebuildFidelityTests.cs (1 site): constructs and
     //     replaces a same-identity dependency to gate frozen-closure reuse.
-    //   Combined: 38 files, 48 sites.
-    const int ExpectedDynamicFiles = 38;
-    const int ExpectedDynamicSites = 48;
+    //   #4003 adds EnumCaseLabelOrderTests.cs (1 site): recompiles the canonical
+    //     alphabetical output and proves a second decompilation is identical.
+    //   Combined: 40 files, 50 sites.
+    const int ExpectedDynamicFiles = 40;
+    const int ExpectedDynamicSites = 50;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

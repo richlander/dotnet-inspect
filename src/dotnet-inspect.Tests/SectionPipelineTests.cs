@@ -318,7 +318,7 @@ public class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(52 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(53 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
@@ -481,7 +481,9 @@ public class SectionPipelineTests
         Assert.DoesNotContain(
             AssemblyContextIntegrationsQuery.Definition,
             detailedQueries);
-        Assert.DoesNotContain(LibrarySections.ScannerIntegrationOpportunities, detailedScanners);
+        Assert.DoesNotContain(
+            AssemblyContextIntegrationOpportunitiesQuery.Definition,
+            detailedQueries);
         Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerResourceTriage, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerTopLeverage, detailedScanners);
@@ -990,6 +992,24 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void LibrarySourcePlan_ExplicitLocalDiagnosticsReadCachedPdbWithoutDownloading()
+    {
+        foreach (string section in new[]
+        {
+            SectionNames.SourceLinkDiagnostics,
+            SectionNames.NonNormalizedPaths,
+        })
+        {
+            var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section };
+            var plan = LibrarySourcePlans.For(Verbosity.Quiet, include);
+
+            Assert.False(plan.AllowPdbDownload);
+            Assert.False(plan.CollectSourceFiles);
+            Assert.True(plan.ReadCachedPdb);
+        }
+    }
+
+    [Fact]
     public void LibrarySourcePlan_PreservesAuthorizationForEverySelection()
     {
         string[] sourceSections =
@@ -1036,7 +1056,8 @@ public class SectionPipelineTests
         {
             Assert.True(sectionNames.Add(section.Name));
             Assert.NotEqual(LibrarySourcePlanModes.None, section.Modes);
-            Assert.True(section.DownloadPdb);
+            Assert.True(section.DownloadPdb || section.ReadCachedPdb);
+            Assert.False(section.CollectSourceFiles && !section.DownloadPdb);
         }
     }
 
@@ -1251,6 +1272,8 @@ public class SectionPipelineTests
         {
             ("library", LibrarySections.CreatePipeline().AllSectionNames,
                 LibrarySections.CreatePipeline().GetCategoryMap()),
+            ("package", PackageSectionDescriptors.CreatePipeline().AllSectionNames,
+                PackageSectionDescriptors.CreatePipeline().GetCategoryMap()),
             ("api-type", ApiTypeSectionDescriptors.CreatePipeline().AllSectionNames,
                 ApiTypeSectionDescriptors.CreatePipeline().GetCategoryMap()),
             ("api-member", ApiMemberSectionDescriptors.CreatePipeline().AllSectionNames,
@@ -1282,6 +1305,7 @@ public class SectionPipelineTests
                 SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
                 SectionNames.NonNormalizedPaths,
+                SectionNames.SourceLinkDiagnostics,
                 SectionNames.Signals,
                 SectionNames.Symbols
             ],
@@ -1470,6 +1494,45 @@ public class SectionPipelineTests
         Assert.Equal([CustomAttributesQuery.Definition], queries);
     }
 
+    [Fact]
+    public void LibraryPipeline_TargetedResources_OnlyRequiresItsQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string> { "Resources" };
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
+        var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
+
+        Assert.Empty(scanners);
+        Assert.Equal([ResourcesQuery.Definition], queries);
+    }
+
+    [Fact]
+    public void LibraryPipeline_TargetedTypeForwarders_OnlyRequiresItsQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string> { "Type Forwarders" };
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
+        var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
+
+        Assert.Empty(scanners);
+        Assert.Equal([TypeForwardersQuery.Definition], queries);
+    }
+
+    [Fact]
+    public void LibraryPipeline_TargetedUnionTypes_OnlyRequiresItsQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string> { "Union Types" };
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
+        var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
+
+        Assert.Empty(scanners);
+        Assert.Equal([UnionTypesQuery.Definition], queries);
+    }
+
     // ===== Scanner registry tests =====
 
     [Fact]
@@ -1568,13 +1631,17 @@ public class SectionPipelineTests
                 StringComparer.Ordinal));
         Assert.Equal(
             [
+                AssemblyContextIntegrationOpportunitiesQuery.Definition,
                 AssemblyContextIntegrationsQuery.Definition,
                 AssemblyReferencesQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
+                ResourcesQuery.Definition,
                 SourceAvailabilityQuery.Definition,
                 SourceIntegrityQuery.Definition,
+                TypeForwardersQuery.Definition,
+                UnionTypesQuery.Definition,
             ],
             pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
     }
@@ -1650,6 +1717,260 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void DiffQueryRegistry_RegistrationMatchesDeclaration()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+
+        HashSet<InspectionQueryDefinition> closure =
+            catalog.QueryRegistry.ExpandRequired(catalog.Pipeline.DeclaredQueries);
+
+        Assert.Equal(
+            closure.OrderBy(query => query.Name, StringComparer.Ordinal),
+            catalog.QueryRegistry.RegisteredQueries.OrderBy(
+                query => query.Name,
+                StringComparer.Ordinal));
+        Assert.Equal(
+            [
+                ApiComparisonQuery.Definition,
+                BodySignalComparisonQuery.Definition,
+                ImplementationComparisonQuery.Definition,
+            ],
+            catalog.Pipeline.DeclaredQueries);
+    }
+
+    [Fact]
+    public void DiffComparisonSections_DemandTheirProducerQueriesAndCosts()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+        var changes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.Changes.Name,
+        };
+        var analysis = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.AnalysisDiff.Name,
+        };
+        var implementation = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.ImplementationDiff.Name,
+        };
+
+        Assert.Equal(
+            [ApiComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, changes));
+        Assert.Equal(
+            [ApiComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal));
+        Assert.Equal(
+            [BodySignalComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, analysis));
+        Assert.Equal(
+            [ImplementationComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                implementation));
+        Assert.Equal(
+            SectionCost.NetworkFree,
+            Assert.Single(
+                catalog.Pipeline.SectionCosts,
+                section => section.Name == DiffSections.Changes.Name).Cost);
+        Assert.Equal(
+            SectionCost.Unbounded,
+            Assert.Single(
+                catalog.Pipeline.SectionCosts,
+                section => section.Name == DiffSections.AnalysisDiff.Name).Cost);
+        Assert.Equal(
+            SectionCost.Unbounded,
+            Assert.Single(
+                catalog.Pipeline.SectionCosts,
+                section => section.Name
+                    == DiffSections.ImplementationDiff.Name).Cost);
+    }
+
+    [Fact]
+    public void DiffQueryRegistry_RunsOnlySelectedSectionDemand()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+        var analysis = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.AnalysisDiff.Name,
+        };
+        int analysisInputsCreated = 0;
+        var analysisContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            () =>
+            {
+                analysisInputsCreated++;
+                return new BodySignalComparisonInput([], []);
+            });
+        List<InspectionQueryDefinition> analysisExecuted = [];
+
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, analysis),
+            analysisContext,
+            (query, _) => analysisExecuted.Add(query));
+
+        Assert.Equal([BodySignalComparisonQuery.Definition], analysisExecuted);
+        Assert.Equal(1, analysisInputsCreated);
+
+        var changesContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            () => throw new InvalidOperationException(
+                "Changes-only demand must not acquire Analysis indexes."),
+            () => throw new InvalidOperationException(
+                "Changes-only demand must not acquire Implementation inputs."));
+        List<InspectionQueryDefinition> changesExecuted = [];
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.Changes.Name,
+                }),
+            changesContext,
+            (query, _) => changesExecuted.Add(query));
+
+        Assert.Equal([ApiComparisonQuery.Definition], changesExecuted);
+
+        int implementationInputsCreated = 0;
+        var implementationContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            createImplementationComparisonInput: () =>
+            {
+                implementationInputsCreated++;
+                return new ImplementationComparisonInput([], []);
+            });
+        List<InspectionQueryDefinition> implementationExecuted = [];
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.ImplementationDiff.Name,
+                }),
+            implementationContext,
+            (query, _) => implementationExecuted.Add(query));
+
+        Assert.Equal(
+            [ImplementationComparisonQuery.Definition],
+            implementationExecuted);
+        Assert.Equal(1, implementationInputsCreated);
+
+        int analysisComposedInputsCreated = 0;
+        int implementationComposedInputsCreated = 0;
+        var composedContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            () =>
+            {
+                analysisComposedInputsCreated++;
+                return new BodySignalComparisonInput([], []);
+            },
+            () =>
+            {
+                implementationComposedInputsCreated++;
+                return new ImplementationComparisonInput([], []);
+            });
+        List<InspectionQueryDefinition> composedExecuted = [];
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.Changes.Name,
+                    DiffSections.AnalysisDiff.Name,
+                    DiffSections.ImplementationDiff.Name,
+                }),
+            composedContext,
+            (query, _) => composedExecuted.Add(query));
+
+        Assert.Equal(
+            [
+                ApiComparisonQuery.Definition,
+                BodySignalComparisonQuery.Definition,
+                ImplementationComparisonQuery.Definition,
+            ],
+            composedExecuted);
+        Assert.Equal(1, analysisComposedInputsCreated);
+        Assert.Equal(1, implementationComposedInputsCreated);
+    }
+
+    [Fact]
+    public void DiffCommand_AllocRegressionsRequestsAnalysisWithoutUnusedChanges()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+
+        HashSet<InspectionQueryDefinition> singleSection =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    AllocRegressionsOnly = true,
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.Changes.Name,
+                    },
+                });
+        HashSet<InspectionQueryDefinition> composedDocument =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    AllocRegressionsOnly = true,
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.Changes.Name,
+                        DiffSections.AnalysisDiff.Name,
+                    },
+                });
+        HashSet<InspectionQueryDefinition> implementationSelection =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    AllocRegressionsOnly = true,
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.ImplementationDiff.Name,
+                    },
+                });
+        HashSet<InspectionQueryDefinition> implementationOnly =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.ImplementationDiff.Name,
+                    },
+                });
+
+        Assert.Equal(
+            [BodySignalComparisonQuery.Definition],
+            singleSection);
+        Assert.Equal(
+            [BodySignalComparisonQuery.Definition],
+            implementationSelection);
+        Assert.Equal(
+            [ImplementationComparisonQuery.Definition],
+            implementationOnly);
+        Assert.Equal(
+            [
+                ApiComparisonQuery.Definition,
+                BodySignalComparisonQuery.Definition,
+            ],
+            composedDocument);
+    }
+
+    [Fact]
     public void PackageIntegrityExitCode_FailsOnlyForMismatches()
     {
         var clean = new InspectionResult
@@ -1705,7 +2026,8 @@ public class SectionPipelineTests
             int exitCode = PackageCommand.WriteMultiPackageCount(
                 [clean, mismatch],
                 PackageSections.Files,
-                new InspectionOptions { Count = true, OutputPath = outputPath });
+                new InspectionOptions { Count = true, OutputPath = outputPath },
+                PackageSectionDescriptors.CreatePipeline());
 
             Assert.Equal(1, exitCode);
             Assert.Equal("2", File.ReadAllText(outputPath).Trim());
@@ -1743,8 +2065,8 @@ public class SectionPipelineTests
             AssemblyReferencesQuery.Execute(session));
 
         Assert.Equal(
-            session.AssemblyReferences().OrderBy(reference => reference.Name),
-            result.References.OrderBy(reference => reference.Name));
+            session.AssemblyReferenceIdentities().OrderBy(reference => reference.Name),
+            result.Identities.OrderBy(reference => reference.Name));
     }
 
     [Fact]
@@ -1773,7 +2095,12 @@ public class SectionPipelineTests
             [SectionNames.ExtensionMethods, SectionNames.LibraryInfo],
             boundSections);
         Assert.Equal(
-            [CustomAttributesQuery.Definition, ExtensionMethodsQuery.Definition],
+            [
+                CustomAttributesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
+                ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
+            ],
             required.OrderBy(query => query.Name, StringComparer.Ordinal));
     }
 
@@ -1803,8 +2130,487 @@ public class SectionPipelineTests
             [SectionNames.CustomAttributes, SectionNames.LibraryInfo],
             boundSections);
         Assert.Equal(
-            [CustomAttributesQuery.Definition, ExtensionMethodsQuery.Definition],
+            [
+                CustomAttributesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
+                ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
+            ],
             required.OrderBy(query => query.Name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void LibraryInfoAndResourcesSections_ShareTypedResourcesQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        string[] boundSections = pipeline.QueryBoundSections
+            .Where(binding => ReferenceEquals(
+                binding.Query,
+                ResourcesQuery.Definition))
+            .Select(binding => binding.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        HashSet<string> sections =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.LibraryInfo,
+                SectionNames.Resources,
+            };
+
+        HashSet<InspectionQueryDefinition> required = pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            sections);
+
+        Assert.Equal(
+            [SectionNames.LibraryInfo, SectionNames.Resources],
+            boundSections);
+        Assert.Equal(
+            [
+                CustomAttributesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
+                ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
+            ],
+            required.OrderBy(query => query.Name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void LibraryInfoAndTypeForwardersSections_ShareTypedTypeForwardersQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        string[] boundSections = pipeline.QueryBoundSections
+            .Where(binding => ReferenceEquals(
+                binding.Query,
+                TypeForwardersQuery.Definition))
+            .Select(binding => binding.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        HashSet<string> sections =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.LibraryInfo,
+                SectionNames.TypeForwarders,
+            };
+
+        HashSet<InspectionQueryDefinition> required = pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            sections);
+
+        Assert.Equal(
+            [SectionNames.LibraryInfo, SectionNames.TypeForwarders],
+            boundSections);
+        Assert.Equal(
+            [
+                CustomAttributesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
+                ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
+            ],
+            required.OrderBy(query => query.Name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_ReturnsMetadataOrderedForwardersFromBorrowedContent()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(AssemblyInspectionSession).Assembly.Location);
+
+        var result = Assert.IsType<TypeForwardersResult.Available>(
+            TypeForwardersQuery.Execute(session));
+
+        Assert.Contains(
+            result.Forwarders,
+            forwarder =>
+                forwarder.TypeName == "ILInspector.Metadata.SignatureBlobGuard"
+                && forwarder.TargetAssembly == "ILInspector.MetadataPrimitives");
+        Assert.Equal(session.TypeForwarders(), result.Forwarders);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_UsesTheCommandsOpenImage()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var metadataContext = PdbContext.Open(
+            typeof(AssemblyInspectionSession).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [TypeForwardersQuery.Definition],
+            context);
+        var forwarders = Assert.IsType<TypeForwardersResult.Available>(
+            results.Get(TypeForwardersQuery.Definition));
+
+        Assert.Contains(
+            forwarders.Forwarders,
+            forwarder => forwarder.TypeName == "ILInspector.Metadata.SignatureBlobGuard");
+        Assert.Equal(1, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_OpenFailureRemainsTyped()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [TypeForwardersQuery.Definition],
+            context);
+        var failure = Assert.IsType<TypeForwardersResult.Failed>(
+            results.Get(TypeForwardersQuery.Definition));
+
+        Assert.IsType<FileNotFoundException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_DisposedBorrowedSessionRemainsTyped()
+    {
+        using var lender = PdbContext.Open(
+            typeof(AssemblyInspectionSession).Assembly.Location);
+        var session = AssemblyInspectionSession.Borrow(lender);
+        session.Dispose();
+
+        var failure = Assert.IsType<TypeForwardersResult.Failed>(
+            TypeForwardersQuery.Execute(session));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_RetainedImageFailureDoesNotReopenPath()
+    {
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        string reopenCanary = typeof(AssemblyInspectionSession).Assembly.Location;
+        using (var canarySession = AssemblyInspectionSession.Open(reopenCanary))
+        {
+            Assert.NotEmpty(canarySession.TypeForwarders());
+        }
+
+        using var context = new ScannerContext
+        {
+            AssemblyPath = reopenCanary,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+        metadataContext.Dispose();
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [TypeForwardersQuery.Definition],
+            context);
+        var failure = Assert.IsType<TypeForwardersResult.Failed>(
+            results.Get(TypeForwardersQuery.Definition));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void TypeForwardersQuery_FailureRemainsTypedAndProjectsFindingFailure()
+    {
+        var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+        session.Dispose();
+        var model = new LibraryInspection();
+
+        var result = Assert.IsType<TypeForwardersResult.Failed>(
+            TypeForwardersQuery.Execute(session));
+        LibraryMetadataService.ApplyTypeForwardersResult(
+            "disposed.dll",
+            model,
+            new Output.VerboseLogger(false),
+            result);
+
+        Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(
+            model.TypeForwarderInspection!.Value);
+        Assert.Null(model.TypeForwarders);
+        Assert.Equal("Type Forwarders", Assert.Single(model.InspectionFailures!).Section);
+    }
+
+    [Fact]
+    public void UnionTypesQuery_ReturnsMetadataOrderedUnionsFromBorrowedContent()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(SampleDiscoveredUnion).Assembly.Location);
+
+        var result = Assert.IsType<UnionTypesResult.Available>(
+            UnionTypesQuery.Execute(session));
+
+        Assert.Contains(
+            result.Unions,
+            union => union.TypeName == typeof(SampleDiscoveredUnion).FullName);
+        Assert.Equal(
+            session.UnionTypes().Select(union =>
+                (union.TypeName,
+                    union.Kind,
+                    union.ImplementsIUnion,
+                    Cases: string.Join('\n', union.CaseTypes))),
+            result.Unions.Select(union =>
+                (union.TypeName,
+                    union.Kind,
+                    union.ImplementsIUnion,
+                    Cases: string.Join('\n', union.CaseTypes))));
+    }
+
+    [Fact]
+    public void UnionTypesQuery_UsesTheCommandsOpenImage()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var metadataContext = PdbContext.Open(
+            typeof(SampleDiscoveredUnion).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [UnionTypesQuery.Definition],
+            context);
+        var unions = Assert.IsType<UnionTypesResult.Available>(
+            results.Get(UnionTypesQuery.Definition));
+
+        Assert.Contains(
+            unions.Unions,
+            union => union.TypeName == typeof(SampleDiscoveredUnion).FullName);
+        Assert.Equal(1, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void UnionTypesQuery_OpenFailureRemainsTyped()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [UnionTypesQuery.Definition],
+            context);
+        var failure = Assert.IsType<UnionTypesResult.Failed>(
+            results.Get(UnionTypesQuery.Definition));
+
+        Assert.IsType<FileNotFoundException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void UnionTypesQuery_DisposedBorrowedSessionRemainsTyped()
+    {
+        using var lender = PdbContext.Open(
+            typeof(SampleDiscoveredUnion).Assembly.Location);
+        var session = AssemblyInspectionSession.Borrow(lender);
+        session.Dispose();
+
+        var failure = Assert.IsType<UnionTypesResult.Failed>(
+            UnionTypesQuery.Execute(session));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+    }
+
+    [Fact]
+    public void UnionTypesQuery_RetainedImageFailureDoesNotReopenPath()
+    {
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        string reopenCanary = typeof(SampleDiscoveredUnion).Assembly.Location;
+        using (var canarySession = AssemblyInspectionSession.Open(reopenCanary))
+        {
+            Assert.Contains(
+                canarySession.UnionTypes(),
+                union => union.TypeName == typeof(SampleDiscoveredUnion).FullName);
+        }
+
+        using var context = new ScannerContext
+        {
+            AssemblyPath = reopenCanary,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+        metadataContext.Dispose();
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [UnionTypesQuery.Definition],
+            context);
+        var failure = Assert.IsType<UnionTypesResult.Failed>(
+            results.Get(UnionTypesQuery.Definition));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void UnionTypesQuery_FailureRemainsTypedAndProjectsFindingFailure()
+    {
+        var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+        session.Dispose();
+        var model = new LibraryInspection();
+
+        var result = Assert.IsType<UnionTypesResult.Failed>(
+            UnionTypesQuery.Execute(session));
+        LibraryMetadataService.ApplyUnionTypesResult(
+            "disposed.dll",
+            model,
+            new Output.VerboseLogger(false),
+            result);
+
+        Assert.IsType<FindingInspection<UnionTypeInfo>.Failed>(
+            model.UnionTypeInspection!.Value);
+        Assert.Null(model.UnionTypes);
+        Assert.Equal("Union Types", Assert.Single(model.InspectionFailures!).Section);
+    }
+
+    [Fact]
+    public void ResourcesQuery_ReturnsManifestResourcesFromBorrowedContent()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(LibraryInspection).Assembly.Location);
+
+        var result = Assert.IsType<ResourcesResult.Available>(
+            ResourcesQuery.Execute(session));
+
+        Assert.Contains(
+            result.Resources,
+            resource => resource.Name.Contains("SKILL.md", StringComparison.Ordinal));
+        Assert.Equal(session.Resources(), result.Resources);
+    }
+
+    [Fact]
+    public void ResourcesQuery_UsesTheCommandsOpenImage()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [ResourcesQuery.Definition],
+            context);
+        var resources = Assert.IsType<ResourcesResult.Available>(
+            results.Get(ResourcesQuery.Definition));
+
+        Assert.Contains(
+            resources.Resources,
+            resource => resource.Name.Contains("SKILL.md", StringComparison.Ordinal));
+        Assert.Equal(1, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void ResourcesQuery_OpenFailureRemainsTyped()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [ResourcesQuery.Definition],
+            context);
+        var failure = Assert.IsType<ResourcesResult.Failed>(
+            results.Get(ResourcesQuery.Definition));
+
+        Assert.IsType<FileNotFoundException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void ResourcesQuery_DisposedBorrowedSessionRemainsTyped()
+    {
+        using var lender = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        var session = AssemblyInspectionSession.Borrow(lender);
+        session.Dispose();
+
+        var failure = Assert.IsType<ResourcesResult.Failed>(
+            ResourcesQuery.Execute(session));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+    }
+
+    [Fact]
+    public void ResourcesQuery_RetainedImageFailureDoesNotReopenPath()
+    {
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(AssemblyInspectionSession).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+        metadataContext.Dispose();
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [ResourcesQuery.Definition],
+            context);
+        var failure = Assert.IsType<ResourcesResult.Failed>(
+            results.Get(ResourcesQuery.Definition));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void ResourcesQuery_FailureRemainsTypedAndProjectsFindingFailure()
+    {
+        var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+        session.Dispose();
+        var model = new LibraryInspection();
+
+        var result = Assert.IsType<ResourcesResult.Failed>(
+            ResourcesQuery.Execute(session));
+        LibraryMetadataService.ApplyResourcesResult(
+            "disposed.dll",
+            model,
+            new Output.VerboseLogger(false),
+            result);
+
+        Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(
+            model.ResourceInspection!.Value);
+        Assert.Null(model.Resources);
+        Assert.Equal("Resources", Assert.Single(model.InspectionFailures!).Section);
     }
 
     [Fact]
@@ -3134,19 +3940,21 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void IntegrationSections_BindToTheAssemblyContextQueryByIdentity()
+    public void IntegrationSections_BindToGroupQueriesByIdentity()
     {
         LibrarySectionCatalog catalog = LibrarySections.CreateCatalog();
         SectionPipeline<LibraryInspection> pipeline = catalog.Pipeline;
         Assert.Contains(
             AssemblyContextIntegrationsQuery.Definition,
             catalog.GroupQueryRegistry.RegisteredQueries);
+        Assert.Contains(
+            AssemblyContextIntegrationOpportunitiesQuery.Definition,
+            catalog.GroupQueryRegistry.RegisteredQueries);
         Assert.DoesNotContain(
             AssemblyContextIntegrationsQuery.Definition,
             catalog.QueryRegistry.RegisteredQueries);
 
-        foreach (string section in LibraryIntegrationCatalog.CategorySections
-                     .Append(IntegrationSectionNames.Opportunities))
+        foreach (string section in LibraryIntegrationCatalog.CategorySections)
         {
             var include = new HashSet<string>(
                 StringComparer.OrdinalIgnoreCase)
@@ -3167,8 +3975,21 @@ public class SectionPipelineTests
             IntegrationSectionNames.Opportunities,
         };
         Assert.Contains(
-            LibrarySections.ScannerIntegrationOpportunities,
+            AssemblyContextIntegrationOpportunitiesQuery.Definition,
+            pipeline.GetRequiredQueries(Verbosity.Minimal, opportunities));
+        Assert.DoesNotContain(
+            AssemblyContextIntegrationsQuery.Definition,
+            pipeline.GetRequiredQueries(Verbosity.Minimal, opportunities));
+        Assert.Empty(
             pipeline.GetRequiredScanners(Verbosity.Minimal, opportunities));
+        Assert.Equal(
+            [AssemblyContextIntegrationsQuery.Definition],
+            catalog.GroupQueryRegistry.RequirementsOf(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition));
+        Assert.Equal(
+            InspectionCost.Unbounded,
+            catalog.GroupQueryRegistry.CostOf(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition));
     }
 
     [Fact]
@@ -3194,11 +4015,9 @@ public class SectionPipelineTests
         // observable that stands in for it.
         string[] sharedSessionScanners =
         [
-            // was ScanInfoCounts's fan-out
+            // remains from ScanInfoCounts's fan-out
             LibrarySections.ScannerClassifiedMethods,
-            LibrarySections.ScannerResources,
-            LibrarySections.ScannerTypeForwarders,
-            LibrarySections.ScannerIntegrationOpportunities,
+            LibrarySections.ScannerSwitches,
             // was PopulateLibraryAudit running ScanClassifiedMethods on its own session
             LibrarySections.ScannerAuditSignals,
         ];
@@ -3218,33 +4037,9 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void SharedSession_FallsBackToReopenWhenAssemblyCannotBeOpened()
-    {
-        // The shared session returns null rather than throwing so each scanner keeps its own
-        // open-failure mapping. Without this, SharedSessionScanners_AllObserveOneSession could be
-        // satisfied by a Session() that throws, and an unopenable assembly would surface as one
-        // generic failure instead of a typed failed inspection per scanner.
-        var registry = LibrarySections.CreateScannerRegistry();
-        var model = new LibraryInspection();
-        using var context = new ScannerContext
-        {
-            AssemblyPath = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll"),
-            Model = model,
-            Logger = new Output.VerboseLogger(false),
-        };
-
-        registry.RunScanners([LibrarySections.ScannerResources], context);
-
-        Assert.Null(context.Session());
-        Assert.Equal(0, context.SharedScanCount);
-        Assert.NotNull(model.ResourceInspection);
-        Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(model.ResourceInspection!.Value);
-    }
-
-    [Fact]
     public void Trace_RecordsWhatRan_AndMarksBundlesAsDoingNoWorkOfTheirOwn()
     {
-        // InfoCounts is a bundle: it does no work itself and exists only to pull in three scanners.
+        // InfoCounts is a bundle: it does no work itself and exists only to pull in one scanner.
         // A trace that reported it as an ordinary scanner would attribute the bundle's dispatch
         // cost to a step that has none, and hide that the real work belongs to its prerequisites.
         var registry = LibrarySections.CreateScannerRegistry();
@@ -3370,6 +4165,9 @@ public class SectionPipelineTests
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
+                ResourcesQuery.Definition,
+                TypeForwardersQuery.Definition,
+                UnionTypesQuery.Definition,
             ],
             requested.OrderBy(query => query.Name, StringComparer.Ordinal));
 
@@ -3489,9 +4287,6 @@ public class SectionPipelineTests
         // single scanner fault escapes RunScanners into InspectAsync's broad catch and the whole
         // command degrades to one generic "Could not read library".
         //
-        // ScanIntegrationOpportunities' session overload did NOT catch, so the shared-session
-        // change silently dropped that mapping for it. This gate is why that was found.
-        //
         // A disposed session is the fault injector: AssemblyImage.EnsureAlive throws
         // ObjectDisposedException on every facet, so it faults each scanner at the point where it
         // touches metadata, deterministically and on every platform.
@@ -3501,40 +4296,14 @@ public class SectionPipelineTests
         var logger = new Output.VerboseLogger(false);
         const string Path = "disposed.dll";
 
-        // Each scanner runs against its OWN model and is asserted on the exact field it alone must
-        // populate. Found by review: a single shared model let a typed failure written by an
-        // earlier scanner satisfy an assertion nominally about a later one -- deleting
-        // MarkIntegrationFailuresIfMissing from ScanIntegrationOpportunities' catch left this gate
-        // green, because ScanIntegrations had already set the same two fields and the mapping uses
-        // ??=.
+        // Each scanner runs against its OWN model and is asserted on the exact
+        // field it alone must populate.
         var scans = new (string Name, Action<LibraryInspection> Run, Action<LibraryInspection> Assert)[]
         {
             ("ClassifiedMethods",
                 m => m.Apply(LibraryMetadataService.ScanClassifiedMethods(session, Path, logger)),
                 m => Xunit.Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(
                     m.ClassifiedMethodInspection!.Value)),
-
-            ("Resources",
-                m => m.ResourceInspection = LibraryMetadataService.ScanResources(session, Path, logger),
-                m => Xunit.Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(
-                    m.ResourceInspection!.Value)),
-
-            ("TypeForwarders",
-                m => m.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(session, Path, logger),
-                m => Xunit.Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(
-                    m.TypeForwarderInspection!.Value)),
-
-            ("IntegrationOpportunities",
-                m => LibraryMetadataService.ScanIntegrationOpportunities(session, Path, m, logger),
-                m =>
-                {
-                    // Nothing else ran against this model, so these can only come from the
-                    // opportunity scanner's own catch.
-                    Xunit.Assert.IsType<FindingInspection<OpenTelemetrySignalInfo>.Failed>(
-                        m.OpenTelemetryInspection!.Value);
-                    Xunit.Assert.IsType<FindingInspection<EcosystemIntegrationSignalInfo>.Failed>(
-                        m.EcosystemIntegrationInspection!.Value);
-                }),
 
             ("AuditSignals",
                 m => AuditSignalBuilder.PopulateLibraryAudit(session, Path, m, logger),
@@ -3611,7 +4380,7 @@ public class SectionPipelineTests
             Assert.NotEqual(expectedA.Full, expectedB.Full);
 
             // The action-based scanners must distinguish the fixtures on their own. Found by
-            // review: asserting only the combined signature let the three value-returning census
+            // review: asserting only the combined signature let the two value-returning census
             // scanners carry the whole assertion, so a tamper confined to the void Scan overload
             // -- which is how Audit Signals, Integrations and Integration Opportunities run --
             // left this gate green while three scanners reopened the path.
@@ -3792,7 +4561,7 @@ public class SectionPipelineTests
     /// <summary>
     /// Runs the shared-session scanners over an untouched path and returns their signature, split
     /// so a caller can assert that the action-based scanners on their own distinguish the two
-    /// fixtures. Without that split, the three value-returning census scanners could carry the whole
+    /// fixtures. Without that split, the two value-returning census scanners could carry the whole
     /// signature and a tamper confined to the void <c>Scan</c> overload would stay invisible.
     /// </summary>
     private static (string Full, string Actions) CensusSignature(string assemblyPath)
@@ -3812,23 +4581,22 @@ public class SectionPipelineTests
     }
 
     /// <summary>
-    /// Every scanner the fan-out held inside one session. Both retarget gates drive this whole set
-    /// so the three action-based scanners are covered, not just the four that return a value.
+    /// Every remaining scanner that must stay coherent with the command-owned
+    /// image. Both retarget gates drive this whole set so action-based and
+    /// value-returning scanners are covered.
     /// </summary>
     private static readonly string[] SharedSessionScannerKeys =
     [
         LibrarySections.ScannerClassifiedMethods,
-        LibrarySections.ScannerResources,
-        LibrarySections.ScannerTypeForwarders,
-        LibrarySections.ScannerIntegrationOpportunities,
+        LibrarySections.ScannerSwitches,
         LibrarySections.ScannerAuditSignals,
     ];
 
     private static string SignatureOf(LibraryInspection model) => string.Join(
         "|",
         $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
-        $"resources={PayloadCount(model.ResourceInspection)}",
-        $"forwarders={PayloadCount(model.TypeForwarderInspection)}",
+        $"unions={PayloadCount(model.UnionTypeInspection)}",
+        $"switches={PayloadCount(model.SwitchInspection)}",
         ActionSignatureOf(model));
 
     /// <summary>
@@ -3841,8 +4609,7 @@ public class SectionPipelineTests
         "|",
         $"audit=[{string.Join(",", model.AuditSignals?.Select(s => $"{s.Signal}={s.Value}") ?? [])}]",
         $"otel={PayloadCount(model.OpenTelemetryInspection)}",
-        $"ecosystem={PayloadCount(model.EcosystemIntegrationInspection)}",
-        $"opportunities=[{string.Join(",", model.IntegrationOpportunities?.Select(o => $"{o.Integration}:{o.Api}") ?? [])}]");
+        $"ecosystem={PayloadCount(model.EcosystemIntegrationInspection)}");
 
     private static int? PayloadCount<T>(FindingInspection<T>? inspection) where T : notnull
         => inspection?.Value is FindingInspection<T>.Complete complete ? complete.Findings.Length : null;
@@ -4190,6 +4957,133 @@ public class SectionPipelineTests
     }
 
     // ===== Package pipeline tests =====
+
+    [Fact]
+    public void PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var categorized = pipeline.GetCategoryMap()
+            .SelectMany(pair => pair.Value)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var uncategorized = pipeline.SelectableSectionNames
+            .Where(name => !categorized.Contains(name))
+            .ToArray();
+
+        Assert.True(
+            uncategorized.Length == 0,
+            $"Package section(s) have no authored category: {string.Join(", ", uncategorized)}");
+    }
+
+    [Fact]
+    public void PackagePipeline_BaseScopeIsDerivedFromPackageAndFilesCategories()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var categories = pipeline.GetCategoryMap();
+
+        Assert.Equal(
+            [SectionCategoryNames.Files, SectionCategoryNames.Package],
+            pipeline.GetBaseCategoryDoors().OrderBy(name => name, StringComparer.Ordinal));
+
+        var expected = categories[SectionCategoryNames.Package]
+            .Concat(categories[SectionCategoryNames.Files])
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal(
+            expected.OrderBy(name => name, StringComparer.Ordinal),
+            pipeline.BaseSectionNames.OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void PackagePipeline_CategoryCompositionMatchesPackageEvidenceDomains()
+    {
+        var categories = PackageSectionDescriptors.CreatePipeline().GetCategoryMap();
+
+        Assert.Equal(
+            [
+                PackageSections.PackageInfo,
+                PackageSections.Signals,
+                PackageSections.Statistics,
+                PackageSections.TargetFrameworks,
+                PackageSections.Signature,
+                PackageSections.Dependencies,
+                PackageSections.Vulnerabilities,
+                PackageSections.Manifest,
+                PackageSections.RuntimeDependencies,
+                PackageSections.Files
+            ],
+            categories[SectionCategoryNames.Package]);
+        Assert.Equal(
+            [PackageSections.Dependencies, PackageSections.RuntimeDependencies],
+            categories[SectionCategoryNames.Dependencies]);
+        Assert.Equal(
+            [
+                PackageSections.Signals,
+                PackageSections.Signature,
+                PackageSections.Vulnerabilities,
+                PackageSections.SourceLinkAvailability,
+                PackageSections.SourceLinkMissingFiles,
+                PackageSections.SourceLinkIntegrity
+            ],
+            categories[SectionCategoryNames.Audit]);
+    }
+
+    [Fact]
+    public void PackagePipeline_BaseCategoriesPreserveAutomaticCandidateSets()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+
+        Assert.Equal(
+            [PackageSections.Summary],
+            pipeline.GetCandidateSections(Verbosity.Quiet));
+        Assert.Equal(
+            [PackageSections.PackageInfo],
+            pipeline.GetCandidateSections(Verbosity.Minimal));
+        Assert.Equal(
+            new[]
+            {
+                PackageSections.Summary,
+                PackageSections.PackageInfo,
+                PackageSections.FilesReadme,
+                PackageSections.TargetFrameworks,
+                PackageSections.FilesNuspec,
+                PackageSections.FilesSkills,
+                PackageSections.Signature,
+                PackageSections.Dependencies,
+                PackageSections.Manifest,
+                PackageSections.RuntimeDependencies
+            }.OrderBy(name => name, StringComparer.Ordinal),
+            pipeline.GetCandidateSections(Verbosity.Normal)
+                .OrderBy(name => name, StringComparer.Ordinal));
+        Assert.Equal(
+            new[]
+            {
+                PackageSections.Summary,
+                PackageSections.PackageInfo,
+                PackageSections.FilesReadme,
+                PackageSections.Signals,
+                PackageSections.Statistics,
+                PackageSections.TargetFrameworks,
+                PackageSections.FilesNuspec,
+                PackageSections.FilesSkills,
+                PackageSections.Signature,
+                PackageSections.Dependencies,
+                PackageSections.Vulnerabilities,
+                PackageSections.Manifest,
+                PackageSections.RuntimeDependencies
+            }.OrderBy(name => name, StringComparer.Ordinal),
+            pipeline.GetCandidateSections(Verbosity.Detailed)
+                .OrderBy(name => name, StringComparer.Ordinal));
+        Assert.Equal(
+            [
+                PackageSections.PackageInfo,
+                PackageSections.FilesReadme,
+                PackageSections.FilesNuspec,
+                PackageSections.Signature,
+                PackageSections.Manifest
+            ],
+            pipeline.BareSelectSectionNames);
+    }
 
     [Fact]
     public void PackagePipeline_HasExpectedSectionCount()
@@ -5173,6 +6067,14 @@ public class SectionPipelineTests
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
 
         Assert.Equal(["Signature", "Decompiled Source"], pipeline.InfoSectionNames);
+    }
+
+    [Fact]
+    public void ApiMemberDetailPipeline_FixedOverview_IsExactlySignature()
+    {
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+
+        Assert.Equal([SectionNames.Signature], pipeline.FixedOverviewSectionNames);
     }
 
     [Fact]

@@ -92,6 +92,7 @@ public sealed record MethodIdentity(
 
     internal byte SignatureHeader { get; init; }
     internal int RequiredParameterCount { get; init; } = -1;
+    internal bool IsVirtualDispatchOpen { get; init; }
 
     public bool Equals(MethodIdentity? other)
         => other is not null
@@ -373,18 +374,4 @@ public sealed class MemberPattern
         return !MatchParameterTypes || member.ParameterTypes.SequenceEqual(ParameterTypes);
     }
 
-    /// <summary>
-    /// Matches the member portion of a cross-assembly call after another
-    /// component has established declaring-type correspondence.
-    /// </summary>
-    public bool MatchesResolvedCrossAssembly(MemberRef member)
-    {
-        if (!string.Equals(member.Name, Name, StringComparison.Ordinal))
-            return false;
-        if (!MatchParameterTypes)
-            return true;
-        return _eraseGenericSignature
-            ? member.ParameterTypes.Length == ParameterTypes.Length
-            : member.ParameterTypes.SequenceEqual(ParameterTypes);
-    }
 }

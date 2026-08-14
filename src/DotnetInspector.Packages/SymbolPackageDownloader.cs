@@ -1,5 +1,6 @@
 using System.Net;
 using DotnetInspector.Core;
+using InertText;
 
 namespace DotnetInspector.Packages;
 
@@ -79,6 +80,7 @@ public class SymbolPackageDownloader
         Action<string>? log = null,
         bool isPlatformAssembly = false,
         bool cacheOnly = false,
+        NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -114,7 +116,9 @@ public class SymbolPackageDownloader
         }
 
         // Try downloading symbol package (.snupkg)
-        if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
+        if (!string.IsNullOrEmpty(packageName)
+            && !string.IsNullOrEmpty(packageVersion)
+            && IsNuGetOrgEligibleForPackage(sourceOptions, packageName))
         {
             var snupkgResult = await TryLocateFromSymbolPackageAsync(
                 packageName, packageVersion, assemblyPath, symbolKey, pdbGuid, log, cacheOnly, cancellationToken).ConfigureAwait(false);
@@ -137,6 +141,26 @@ public class SymbolPackageDownloader
 
         log?.Invoke(cacheOnly ? "No cached Portable PDB available" : "No Portable PDB available");
         return new PdbDownloadResult(null, windowsPdbDetected);
+    }
+
+    private static bool IsNuGetOrgEligibleForPackage(
+        NuGetSourceOptions? sourceOptions,
+        string packageName)
+    {
+        try
+        {
+            return NuGetSourceResolver.ResolveSourcesForPackage(
+                    sourceOptions,
+                    packageName)
+                .Any(source => source.IsNuGetOrg);
+        }
+        catch (PackageSourceMappingException ex)
+            when (ex.Failure is
+                PackageSourceMappingFailure.NoPattern
+                or PackageSourceMappingFailure.InactiveSource)
+        {
+            return false;
+        }
     }
 
     private async Task<PdbDownloadResult> TryLocateFromMsdlAsync(
@@ -267,7 +291,8 @@ public class SymbolPackageDownloader
                     continue;
                 }
 
-                log?.Invoke($"Found symbol package at: {snupkgUrl}");
+                log?.Invoke(
+                    $"Found symbol package at: {UrlRedaction.ForDiagnostics(snupkgUrl)}");
                 var result = await ExtractPdbFromSymbolPackage(
                     response, cacheKey, assemblyPath, pdbGuid, windowsPdbDetected, log, cancellationToken).ConfigureAwait(false);
                 if (result.WindowsPdbDetected)
@@ -280,7 +305,9 @@ public class SymbolPackageDownloader
             }
             catch (Exception ex)
             {
-                log?.Invoke($"Error downloading symbol package: {ex.Message}");
+                log?.Invoke(
+                    "Error downloading symbol package: "
+                    + UrlRedaction.DescribeRequestFailure(snupkgUrl, ex));
             }
         }
 

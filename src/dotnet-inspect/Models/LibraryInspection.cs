@@ -48,7 +48,23 @@ internal static class LibraryInspectionDisplay
 public class LibraryInspection
 {
     [JsonIgnore]
+    internal IReadOnlyList<AssemblyReferenceIdentity>? AssemblyReferenceIdentities { get; set; }
+
+    [JsonIgnore]
     public AssemblyIntegrationsEntry? AssemblyIntegrationsEntry { get; set; }
+
+    [JsonIgnore]
+    public AssemblyIntegrationOpportunitiesEntry?
+        AssemblyIntegrationOpportunitiesEntry
+    {
+        get;
+        set
+        {
+            field = value;
+            _inspectionFailuresInitialized = false;
+            _inspectionFailures = null;
+        }
+    }
 
     [JsonIgnore]
     public string? Tfm { get; set; }
@@ -169,6 +185,9 @@ public class LibraryInspection
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? SourceLinkJson { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SourceLinkMapInspection? SourceLinkMap { get; set; }
 
     public List<string>? NonNormalizedPaths { get; set; }
 
@@ -651,6 +670,24 @@ public class LibraryInspection
             AddFailure(failures, "Type Forwarders", TypeForwarderInspection);
             AddFailure(failures, "Union Types", UnionTypeInspection);
             AddFailure(failures, "Switches", SwitchInspection);
+            switch (AssemblyIntegrationOpportunitiesEntry)
+            {
+                case AssemblyIntegrationOpportunitiesEntry.Rejected rejected:
+                    failures.Add(new LibraryInspectionFailureJson(
+                        IntegrationSectionNames.Opportunities,
+                        AssemblyContextIntegrationOpportunitiesQuery
+                            .Definition.Name,
+                        $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"));
+                    break;
+
+                case AssemblyIntegrationOpportunitiesEntry.Failed failed:
+                    failures.Add(new LibraryInspectionFailureJson(
+                        IntegrationSectionNames.Opportunities,
+                        AssemblyContextIntegrationOpportunitiesQuery
+                            .Definition.Name,
+                        failed.Error.Message));
+                    break;
+            }
             if (MetadataImageResult is MetadataImageResult.Failed metadataFailure)
             {
                 failures.Add(new LibraryInspectionFailureJson(

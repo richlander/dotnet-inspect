@@ -232,7 +232,7 @@ public sealed record CSharpBodyDiffResult(
 /// Decompiler-owned C# body diff over the shipped decompiler output for matched
 /// method bodies.
 /// </summary>
-public static class CSharpBodyDiff
+public static partial class CSharpBodyDiff
 {
     internal const int MaxLcsLines = 4096;
 
@@ -359,6 +359,43 @@ public static class CSharpBodyDiff
             includeNonPublic,
             typeFilters,
             "new");
+        return CompareMethodIndexes(
+            oldIndex,
+            newIndex,
+            memberTargetIdentities);
+    }
+
+    public static CSharpBodyDiffResult CompareAssemblies(
+        IReadOnlyList<MetadataSource> oldSources,
+        IReadOnlyList<MetadataSource> newSources,
+        bool includeNonPublic = false,
+        IReadOnlySet<string>? typeFilters = null,
+        IReadOnlySet<string>? memberTargetIdentities = null)
+    {
+        ArgumentNullException.ThrowIfNull(oldSources);
+        ArgumentNullException.ThrowIfNull(newSources);
+
+        var oldIndex = BuildMethodIndexWithFailures(
+            oldSources,
+            includeNonPublic,
+            typeFilters,
+            "old");
+        var newIndex = BuildMethodIndexWithFailures(
+            newSources,
+            includeNonPublic,
+            typeFilters,
+            "new");
+        return CompareMethodIndexes(
+            oldIndex,
+            newIndex,
+            memberTargetIdentities);
+    }
+
+    static CSharpBodyDiffResult CompareMethodIndexes(
+        CSharpMethodIndex oldIndex,
+        CSharpMethodIndex newIndex,
+        IReadOnlySet<string>? memberTargetIdentities)
+    {
         var oldMethods = oldIndex.Methods;
         var newMethods = newIndex.Methods;
         var rows = ImmutableArray.CreateBuilder<CSharpDiffRow>();
@@ -448,6 +485,46 @@ public static class CSharpBodyDiff
                 failures));
         }
 
+        return CreateMethodIndex(entries, failures);
+    }
+
+    internal static CSharpMethodIndex BuildMethodIndexWithFailures(
+        IReadOnlyList<MetadataSource> sources,
+        bool includeNonPublic,
+        IReadOnlySet<string>? typeFilters,
+        string side)
+    {
+        var entries = new List<CSharpMethodEntry>();
+        var failures = ImmutableArray.CreateBuilder<CSharpIdentityResolutionFailure>();
+        var assemblyOccurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        var seen = new HashSet<MetadataSource>(
+            ReferenceEqualityComparer.Instance);
+        foreach (var source in sources)
+        {
+            if (!seen.Add(source))
+                continue;
+
+            string assemblyKey = StableAssemblyKey(source);
+            int occurrence = assemblyOccurrences.GetValueOrDefault(assemblyKey);
+            assemblyOccurrences[assemblyKey] = occurrence + 1;
+            string occurrenceKey = $"{assemblyKey}#{occurrence}";
+            entries.AddRange(EnumerateMethods(
+                source,
+                source.Path,
+                occurrenceKey,
+                includeNonPublic,
+                typeFilters,
+                side,
+                failures).Select(entry => entry with { Source = source }));
+        }
+
+        return CreateMethodIndex(entries, failures);
+    }
+
+    static CSharpMethodIndex CreateMethodIndex(
+        List<CSharpMethodEntry> entries,
+        ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures)
+    {
         var methods = entries
             .GroupBy(entry => $"{entry.StableAssemblyKey}|{entry.RawKey}", StringComparer.Ordinal)
             .SelectMany(group => group
@@ -469,7 +546,7 @@ public static class CSharpBodyDiff
 
     static CSharpMethodRender Decompile(CSharpMethodEntry entry, SourceCache sources)
     {
-        var source = sources.Open(entry.Path);
+        var source = sources.Open(entry);
         return Decompile(entry, source);
     }
 
@@ -1083,6 +1160,38 @@ public static class CSharpBodyDiff
         return handles;
     }
 
+    internal static ExplicitImplementationVisibility GetVisibleExplicitImplementationBodies(
+        MetadataReader reader)
+    {
+        var typeDefinitionsByName = BuildTypeDefinitionMap(reader);
+        HashSet<MethodDefinitionHandle> handles = [];
+        List<ExplicitImplementationVisibilityFailure> failures = [];
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(typeHandle);
+            try
+            {
+                handles.UnionWith(GetExplicitImplementationBodies(
+                    reader,
+                    type,
+                    typeDefinitionsByName));
+            }
+            catch (MetadataIdentityResolutionException ex)
+            {
+                failures.Add(new ExplicitImplementationVisibilityFailure(
+                    MetadataTokens.GetToken(typeHandle),
+                    ex.Message));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                failures.Add(new ExplicitImplementationVisibilityFailure(
+                    MetadataTokens.GetToken(typeHandle),
+                    ex.Message));
+            }
+        }
+        return new ExplicitImplementationVisibility(handles, failures);
+    }
+
     static bool IsVisibleImplementedMember(
         MetadataReader reader,
         EntityHandle declaration,
@@ -1124,7 +1233,7 @@ public static class CSharpBodyDiff
         IReadOnlyDictionary<string, TypeDefinitionHandle> typeDefinitionsByName)
     {
         var reference = reader.GetTypeReference(handle);
-        if (reference.ResolutionScope.Kind == HandleKind.AssemblyReference)
+        if (IsAssemblyScopedTypeReference(reader, handle))
             return true;
 
         string metadataName = ResolveIdentityTypeName(reader, handle);
@@ -1132,6 +1241,23 @@ public static class CSharpBodyDiff
             return IsVisibleInterfaceDefinition(reader, typeHandle, typeDefinitionsByName);
 
         return false;
+    }
+
+    static bool IsAssemblyScopedTypeReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
+    {
+        var result = MetadataRelationshipTraversal.WalkTypeReferenceResolutionScope(
+            reader,
+            handle);
+        if (result is RelationshipTraversalResult<RelationshipChain<TypeReferenceHandle>>.Rejected rejected)
+        {
+            throw new MetadataIdentityResolutionException(
+                MetadataTypeNameFailure.From(rejected.Rejection));
+        }
+
+        var chain = ((RelationshipTraversalResult<RelationshipChain<TypeReferenceHandle>>.Completed)result).Value;
+        return chain.Terminal.Kind == HandleKind.AssemblyReference;
     }
 
     static bool IsVisibleTypeSpecificationParent(
@@ -2148,6 +2274,14 @@ public static class CSharpBodyDiff
         Dictionary<string, CSharpMethodEntry> Methods,
         ImmutableArray<CSharpIdentityResolutionFailure> Failures);
 
+    internal sealed record ExplicitImplementationVisibility(
+        HashSet<MethodDefinitionHandle> Handles,
+        IReadOnlyList<ExplicitImplementationVisibilityFailure> Failures);
+
+    internal sealed record ExplicitImplementationVisibilityFailure(
+        int SubjectToken,
+        string Reason);
+
     sealed class MetadataIdentityResolutionException
         : InvalidOperationException
     {
@@ -2177,13 +2311,17 @@ public static class CSharpBodyDiff
         MethodDefinitionHandle MethodHandle,
         int OverloadIndex,
         bool HasBody,
-        string? BodyFingerprint);
+        string? BodyFingerprint,
+        MetadataSource? Source = null);
 
     sealed record CSharpMethodRender(CSharpRenderState State, IReadOnlyList<SourceLine> Lines, DecompilationFidelity Fidelity);
 
     internal sealed class SourceCache : IDisposable
     {
         readonly Dictionary<string, MetadataSource> _sources = new(StringComparer.Ordinal);
+
+        public MetadataSource Open(CSharpMethodEntry entry)
+            => entry.Source ?? Open(entry.Path);
 
         public MetadataSource Open(string path)
         {

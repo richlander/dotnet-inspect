@@ -17,16 +17,24 @@ internal sealed class AssemblyContextIntegrationsBatch
         IEnumerable<(
             string Path,
             ResolvedAssemblyReference? Assembly,
-            AssemblyIntegrationsEntry? Entry)> entries)
+            AssemblyIntegrationsEntry? IntegrationsEntry,
+            AssemblyIntegrationOpportunitiesEntry? OpportunitiesEntry)> entries)
     {
         _resultByPath = entries.ToDictionary(
             entry => System.IO.Path.GetFullPath(entry.Path),
-            entry => new ParticipantResult(entry.Assembly, entry.Entry),
+            entry => new ParticipantResult(
+                entry.Assembly,
+                entry.IntegrationsEntry,
+                entry.OpportunitiesEntry),
             StringComparer.OrdinalIgnoreCase);
     }
 
     internal AssemblyIntegrationsEntry? EntryFor(string path)
-        => ResultFor(path).Entry;
+        => ResultFor(path).IntegrationsEntry;
+
+    internal AssemblyIntegrationOpportunitiesEntry?
+        OpportunitiesEntryFor(string path)
+        => ResultFor(path).OpportunitiesEntry;
 
     internal ResolvedAssemblyReference? AssemblyForInspection(string path)
         => ResultFor(path).Assembly;
@@ -41,7 +49,8 @@ internal sealed class AssemblyContextIntegrationsBatch
 
     sealed record ParticipantResult(
         ResolvedAssemblyReference? Assembly,
-        AssemblyIntegrationsEntry? Entry);
+        AssemblyIntegrationsEntry? IntegrationsEntry,
+        AssemblyIntegrationOpportunitiesEntry? OpportunitiesEntry);
 }
 
 internal static class AssemblyContextIntegrationsRunner
@@ -54,11 +63,16 @@ internal static class AssemblyContextIntegrationsRunner
         AssemblyContextGroupOptions? groupOptions = null)
     {
         ArgumentNullException.ThrowIfNull(queryRegistry);
-        if (requestedQueries?.Remove(
-                AssemblyContextIntegrationsQuery.Definition) != true)
+        HashSet<InspectionQueryDefinition> requested = requestedQueries?
+            .Where(
+                query =>
+                    queryRegistry.RegisteredQueries.Contains(query))
+            .ToHashSet() ?? [];
+        if (requested.Count == 0)
         {
             return null;
         }
+        requestedQueries!.ExceptWith(requested);
 
         AssemblyContextIntegrationsInput[] inputArray = [.. inputs];
         if (inputArray.Length == 0)
@@ -82,7 +96,9 @@ internal static class AssemblyContextIntegrationsRunner
                 inputArray.Select(input => (
                     input.Path,
                     Assembly: (ResolvedAssemblyReference?)null,
-                    Entry: (AssemblyIntegrationsEntry?)null)));
+                    IntegrationsEntry: (AssemblyIntegrationsEntry?)null,
+                    OpportunitiesEntry:
+                        (AssemblyIntegrationOpportunitiesEntry?)null)));
         }
 
         var sourcePolicies = roots
@@ -100,8 +116,6 @@ internal static class AssemblyContextIntegrationsRunner
         using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(participants, groupOptions);
-        HashSet<InspectionQueryDefinition> requested =
-            [AssemblyContextIntegrationsQuery.Definition];
         HashSet<InspectionQueryDefinition> closure =
             queryRegistry.ExpandRequired(requested);
         trace?.RecordQueryClosure(closure);
@@ -111,11 +125,18 @@ internal static class AssemblyContextIntegrationsRunner
             requested,
             group,
             recordExecution);
-        AssemblyContextIntegrationsResult result = queryResults.Get(
+        AssemblyContextIntegrationsResult integrationsResult = queryResults.Get(
             AssemblyContextIntegrationsQuery.Definition);
+        AssemblyContextIntegrationOpportunitiesResult? opportunitiesResult =
+            queryResults.TryGet(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition,
+                out AssemblyContextIntegrationOpportunitiesResult?
+                    producedOpportunities)
+                ? producedOpportunities
+                : null;
         ResolvedAssemblyReference?[] retainedAssemblies = roots
             .Zip(
-                result.Assemblies,
+                integrationsResult.Assemblies,
                 (root, entry) => entry
                     is AssemblyIntegrationsEntry.Rejected
                         ? null
@@ -131,7 +152,10 @@ internal static class AssemblyContextIntegrationsRunner
                     return (
                         Path: candidate.Input.Path,
                         Assembly: (ResolvedAssemblyReference?)null,
-                        Entry: (AssemblyIntegrationsEntry?)null);
+                        IntegrationsEntry:
+                            (AssemblyIntegrationsEntry?)null,
+                        OpportunitiesEntry:
+                            (AssemblyIntegrationOpportunitiesEntry?)null);
                 }
 
                 int index = managedIndex++;
@@ -139,8 +163,12 @@ internal static class AssemblyContextIntegrationsRunner
                     Path: candidate.Input.Path,
                     Assembly: (ResolvedAssemblyReference?)
                         retainedAssemblies[index],
-                    Entry: (AssemblyIntegrationsEntry?)
-                        result.Assemblies[index]);
+                    IntegrationsEntry: (AssemblyIntegrationsEntry?)
+                        integrationsResult.Assemblies[index],
+                    OpportunitiesEntry:
+                        opportunitiesResult is null
+                            ? null
+                            : opportunitiesResult.Assemblies[index]);
             }));
     }
 
@@ -170,7 +198,9 @@ internal static class AssemblyContextIntegrationsRunner
         catch (Exception ex) when (
             ex is IOException
                 or UnauthorizedAccessException
-                or BadImageFormatException)
+                or BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
             // The owning per-library inspection path reports the artifact
             // failure; it must not prevent valid group participants from

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ILInspector.Decompiler;
 using System.Text.Json.Serialization.Metadata;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
@@ -124,6 +125,26 @@ public partial class ApiTypeCompactJsonContext : JsonSerializerContext
 {
 }
 
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(AnnotatedSourceDocument))]
+internal partial class AnnotatedSourceDocumentJsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(AnnotatedSourceDocument))]
+internal partial class AnnotatedSourceDocumentCompactJsonContext : JsonSerializerContext
+{
+}
+
 // Extensions command JSON contexts
 [JsonSourceGenerationOptions(
     WriteIndented = true,
@@ -177,21 +198,47 @@ internal partial class DependsCompactJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(NuGetSearchResult))]
 internal partial class PackageSearchJsonlContext : JsonSerializerContext { }
 
-// TypeFindResult JSONL context (one compact object per line)
 [JsonSourceGenerationOptions(
-    WriteIndented = false,
+    WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(TypeFindResult))]
-internal partial class TypeFindResultJsonlContext : JsonSerializerContext { }
+[JsonSerializable(typeof(List<TypeFindResult>))]
+internal partial class TypeFindResultJsonContext : JsonSerializerContext { }
 
-// MemberFindResult JSONL context (one compact object per line)
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(MemberFindResult))]
-internal partial class MemberFindResultJsonlContext : JsonSerializerContext { }
+[JsonSerializable(typeof(List<TypeFindResult>))]
+internal partial class TypeFindResultCompactJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<MemberFindResult>))]
+internal partial class MemberFindResultJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<MemberFindResult>))]
+internal partial class MemberFindResultCompactJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<BodyShapeJsonMatch>))]
+internal partial class BodyShapeJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(List<BodyShapeJsonMatch>))]
+internal partial class BodyShapeCompactJsonContext : JsonSerializerContext { }
 
 static class JsonOutputHelper
 {

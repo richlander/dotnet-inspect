@@ -4,6 +4,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using CSharpText;
 using DotnetInspector.Core;
+using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGet.Versioning;
 
@@ -548,7 +549,8 @@ public static class PlatformResolver
         Action<string>? log = null,
         string? frameworkSpec = null,
         bool useRuntimeAssemblies = false,
-        string? platformVersion = null)
+        string? platformVersion = null,
+        NuGetSourceOptions? sourceOptions = null)
     {
         // Try resolving from already-installed packs first (SDK + app cache, no network)
         var local = ResolveAssembly(assemblyName, frameworkSpec, useRuntimeAssemblies: useRuntimeAssemblies, platformVersion: platformVersion);
@@ -569,7 +571,11 @@ public static class PlatformResolver
                 explicitVersion = frameworkSpec[(frameworkSpec.LastIndexOf('@') + 1)..];
 
             var requests = PlatformPackService.BuildPackRequests(assemblyName, explicitVersion);
-            await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, log).ConfigureAwait(false))
+            await foreach (var _ in PlatformPackService.EnsurePacksAsync(
+                requests,
+                httpClient,
+                log,
+                sourceOptions: sourceOptions).ConfigureAwait(false))
             {
             }
 
@@ -857,25 +863,20 @@ public static class PlatformResolver
     /// <summary>
     /// Finds a DLL in a directory using case-insensitive matching.
     /// Returns the actual path if found, null otherwise.
-    /// Tries exact match first for performance, then falls back to directory scan on Linux.
+    /// The requested assembly name is matched against enumerated file names and is
+    /// never interpreted as a path beneath <paramref name="directory"/>.
     /// </summary>
     private static string? FindAssemblyCaseInsensitive(string directory, string assemblyFileName)
     {
-        var exactPath = Path.Combine(directory, assemblyFileName);
-        if (File.Exists(exactPath))
-            return exactPath;
-
-        // On case-sensitive filesystems, try a directory scan
         if (!Directory.Exists(directory))
             return null;
 
         try
         {
-            var match = Directory.EnumerateFiles(directory, "*.dll")
+            return Directory.EnumerateFiles(directory, "*.dll")
                 .FirstOrDefault(f => Path.GetFileName(f).Equals(assemblyFileName, StringComparison.OrdinalIgnoreCase));
-            return match;
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return null;
         }

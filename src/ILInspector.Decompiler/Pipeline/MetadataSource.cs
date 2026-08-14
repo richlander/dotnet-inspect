@@ -53,6 +53,10 @@ public sealed class MetadataSource : IDisposable
     /// <summary>Simple assembly name (no version/culture).</summary>
     public string AssemblyName { get; }
 
+    /// <summary>The opened module's stable metadata identity.</summary>
+    public Guid ModuleVersionId =>
+        Reader.GetGuid(Reader.GetModuleDefinition().Mvid);
+
     /// <summary>
     /// Optimistic ("simulate") rendering: when set, the importer treats the
     /// module as if it opted into the updated memory-safety rules even when it
@@ -216,26 +220,38 @@ public sealed class MetadataSource : IDisposable
     /// resolution (packages, deps.json, projects, shared frameworks) belongs to
     /// callers that inject a resolver.
     /// </summary>
-    internal sealed class SiblingAssemblyReferenceResolver(string path)
+    internal sealed class SiblingAssemblyReferenceResolver
         : IAssemblyReferenceResolver
     {
-        readonly string? _directory = System.IO.Path.GetDirectoryName(path);
+        readonly string? _directory;
+        readonly Lazy<IReadOnlyList<string>> _candidates;
         readonly ConcurrentDictionary<
             string,
             Lazy<ResolvedAssemblyReference?>> _assemblies =
                 new(StringComparer.Ordinal);
+
+        public SiblingAssemblyReferenceResolver(string path)
+        {
+            _directory = System.IO.Path.GetDirectoryName(
+                System.IO.Path.GetFullPath(path));
+            _candidates = new(
+                EnumerateCandidates,
+                LazyThreadSafetyMode.ExecutionAndPublication);
+        }
 
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
         {
             if (scope == AssemblyResolutionScope.Platform)
                 return null;
 
-            if (_directory is not null)
+            foreach (string sibling in _candidates.Value)
             {
-                string sibling = System.IO.Path.Combine(_directory, identity.Name + ".dll");
-                if (File.Exists(sibling))
-                {
-                    return _assemblies.GetOrAdd(
+                if (!System.IO.Path.GetFileNameWithoutExtension(sibling)
+                    .Equals(identity.Name, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                ResolvedAssemblyReference? candidate =
+                    _assemblies.GetOrAdd(
                         sibling,
                         static path => new Lazy<ResolvedAssemblyReference?>(
                             () => ResolvedAssemblyReference.TryCreateFromPath(
@@ -246,11 +262,22 @@ public sealed class MetadataSource : IDisposable
                                     ? reference
                                     : null,
                             LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+                if (candidate is not null
+                    && identity.MatchesCandidate(
+                        candidate.Identity,
+                        ignoreVersion: true))
+                {
+                    return candidate;
                 }
             }
 
             return null;
         }
+
+        IReadOnlyList<string> EnumerateCandidates()
+            => _directory is not null && Directory.Exists(_directory)
+                ? Directory.EnumerateFiles(_directory, "*.dll").ToArray()
+                : [];
     }
 
     /// <summary>

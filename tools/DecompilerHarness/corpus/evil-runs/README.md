@@ -13,8 +13,8 @@ attachment, or CI artifact. Do not commit full per-row run payloads here.
 Each row contains these fields:
 
 - `date`: UTC run date, formatted as `yyyy-mm-dd`.
-- `commit`: short source commit SHA for the harness under test, or `null` when
-  the original run did not record it.
+- `commit`: bare hexadecimal source commit ID for the harness under test. Only
+  the original `2026-07-20` run is grandfathered as `null`.
 - `poolMatched` and `poolTotal`: corpus assembly coverage for the supplied
   assembly pool.
 - `evaluated`: target methods evaluated by the benchmark.
@@ -27,6 +27,20 @@ Each row contains these fields:
   - `knownTaste`: a documented product decision, already accounted for.
   - `frontierIlExact`: cosmetic frontier rows with IL-exact output.
   - `frontierIlDiff`: semantic frontier rows with IL-different output.
+  - `frontierIlDiffAttribution`: present exactly from methodology v3 onward;
+    earlier methodologies did not produce it and rows that claim it are
+    refused. Its sub-buckets sum exactly to `frontierIlDiff`:
+    - `total`: the `frontierIlDiff` population being partitioned.
+    - `productBodyDefect`: unaided RTS rows whose decompiled body differs but
+      whose exact authored body reproduces the original IL in the same RTS
+      shell.
+    - `harnessShellReconstruction`: unaided RTS rows whose authored body also
+      differs or does not compile in that shell.
+    - `compileBackFloor`: rows whose headline IL-diff verdict came from the
+      older CompileBack floor. They are surfaced separately and are not treated
+      as evidence from the RTS fidelity control.
+    - `unclassified`: unaided IL-diff rows for which the control produced no
+      verdict.
   - `frontierIlNoVerdict`: rows the compile-back oracle returned **no verdict**
     for. This is instrument failure, not a classification — those rows are
     *unmeasured*, not "neither exact nor diff". It is recorded even when zero so
@@ -67,7 +81,7 @@ Each row contains these fields:
   assemblies, and the manifest described only the sweep half — so it does not
   interoperate with `poolSha256` and rows carrying only it record no pool
   identity under the current scheme.
-- `methodologyVersion`: how `invalidBreakdown.productBodyDefect` was computed.
+- `methodologyVersion`: which authored-corpus attribution controls were active.
   **Every version is a lower bound on decompiler-caused body defects**; a later
   version tightens the bound rather than measuring the true count. Copy this
   field verbatim from the run JSON's top-level `methodologyVersion`.
@@ -109,6 +123,31 @@ Each row contains these fields:
   the prose above forbids. v1 and v2 counts are not directly comparable, and the
   progress card never diffs `productBodyDefect` across the boundary.
 
+  **v3** preserves the final target constructor-chain and modifier metadata in
+  the shared authored-body substitution, and adds the authored-body fidelity
+  control for unaided RTS `ValidDifferent` IL-diff rows. The exact
+  checksum-verified authored body replaces only the target body in the final RTS
+  shell, compiles with the same references and options, and is compared to the
+  original method under the same Full-fidelity IL contract:
+
+  1. authored IL exact while the decompiled body differs =>
+     `productBodyDefect`;
+  2. authored IL also differs, or authored compilation fails =>
+     `harnessShellReconstruction`;
+  3. source correlation, target recovery, or fidelity comparison unavailable =>
+     `unclassified`.
+
+  The control runs only for unaided RTS `OpcodeDiff`/`OperandDiff` results.
+  IL-exact source differences have no semantic IL fault to isolate, and
+  CompileBack-floor rows stay in their own explicit bucket so the older oracle
+  does not become load-bearing. The shared substitution-shell change gives the
+  invalid product count a new lineage, so v2 and v3
+  `invalidBreakdown.productBodyDefect` values are not compared.
+  The frontier partition is recorded and charted, but its raw sub-counts are not
+  ratcheted: a row can move among product, shell, floor, and unclassified
+  attribution without a quality change, so treating any one raw count as
+  monotonic would be unsound.
+
 ## Append procedure
 
 1. Build the harness at the commit under test. **This must be a commit on
@@ -116,7 +155,28 @@ Each row contains these fields:
    from the recorded commit; a feature-branch commit is not, and it carries
    whatever product state the branch happened to be based on. Measuring a
    methodology or product change against its own base is a valid experiment —
-   it just belongs in the PR that makes the change, not in this series.
+   it belongs in that PR's evidence, not in this series.
+   The `Check EVIL history provenance` CI step permits only the one grandfathered
+   commit-less row, rejects symbolic revisions, enforces ancestry for every
+   recorded commit against the full `origin/main` history, and verifies that the
+   recorded methodology matches the implementation at that commit.
+   A methodology-bump PR therefore leaves the newest stored methodology one
+   version behind while it is under review. After the change lands, append its
+   first row from the resulting `main` commit in a follow-up.
+
+   Build from a clean checkout and leave it clean through the run. The harness
+   embeds whether the repository was `clean`, `dirty`, or `unknown` when the
+   binary was compiled, and records the repository state again when the
+   benchmark executes. The append command accepts only a build-time `clean`
+   artifact with a clean execution-time checkout and a build revision matching
+   `HEAD`. This prevents a dirty binary from being cleaned or stashed after the
+   build and then presented as an immutable measurement. Builds from source
+   archives without Git remain supported, but their `unknown` provenance is not
+   eligible for the tracked history.
+   `RepositoryBuildStateTarget_DistinguishesCleanDirtyAndClean` gates the
+   build-time discrimination, and
+   `GitRepository_RejectsBenchmarklessNonMainAndDuplicateMethodologyCommits`
+   gates the real Git refusal paths.
 2. Prepare or reuse the EVIL pool:
 
    ```bash
@@ -128,12 +188,14 @@ Each row contains these fields:
    ```bash
    dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
      --benchmark-authored-corpus external/authored-source-corpus/evil/corpus.jsonl \
-     --json $(cat /tmp/evil-pool/assemblies.txt) > evil-run-YYYYMMDD-SHA.json
+     --json $(cat /tmp/evil-pool/assemblies.txt) > /tmp/evil-run-YYYYMMDD-SHA.json
    ```
 
-   The run reports the `poolSha256` the recorded row needs without being asked:
-   the identity is derived from the assemblies passed in, so an appended row can
-   never fail to identify its pool.
+   The run records the build's full commit, UTC run date, build-time source
+   state, execution-time source state, `poolSha256`, and `corpusSha256` without
+   being asked. The commit comes from the built assembly rather than the command
+   line, and the two source-state checks expose a stale or dirty build even if
+   the checkout is cleaned before execution.
 
    Exit code 1 is expected while `invalid`, `drift`, or `unsupported` is
    non-zero; the JSON is still authoritative. That contract is unchanged, and
@@ -142,28 +204,35 @@ Each row contains these fields:
    perfection, see [The regression ratchet](#the-regression-ratchet).
 
 4. Archive the full JSON and `/tmp/evil-pool/sweep-manifest.json` out-of-tree.
-5. Record the UTC date and short SHA, and copy `poolSha256` and
-   `corpusSha256` from the run JSON. Do not compute these by hand: both are
-   defined by the tool (see [Comparability](#comparability-and-the-difference-between-a-skip-and-a-pass)),
-   and a hand-derived value that disagrees makes the row uncomparable.
-6. Copy the run JSON's top-level `methodologyVersion` into the row, **and its
-   `invalidBreakdown`**. A row that states a methodology and omits the breakdown
-   is refused: the version it stamps is the definition of a number it declined
-   to record.
-7. Append one compact JSON object to `history.jsonl`, copying **every** bucket —
-   the full `validDifferent` partition (including zeros), `notFull`, `drift`,
-   `unsupported`, and `unknownOutcome`. A row that omits a bucket shrinks the
-   partition silently, which is the defect #3244 fixed. The row's
-   `validDifferent` member is the run JSON's `validBreakdown` object copied
-   whole; it carries `total` for exactly this reason, because that total is what
-   the ratchet's `valid` metric is built from.
-8. Validate every line parses before committing.
+5. Append the row through the typed projector:
+
+   ```bash
+   dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
+     --append-authored-corpus-history /tmp/evil-run-YYYYMMDD-SHA.json
+   ```
+
+   The command accepts no date, commit, methodology, digest, count, or partition
+   arguments. It recomputes every compact metric from the artifact's per-row
+   classifications, requires the producer summaries to agree, proves the
+   recorded commit is on `origin/main`, reads the methodology implemented at
+   that commit, verifies the complete existing store, and appends one canonical
+   JSONL object.
+6. Re-run the verifier before committing:
+
+   ```bash
+   dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
+     --verify-authored-corpus-history
+   ```
+
+   CI runs the same command. `--history-path <file>` selects a non-default store
+   for either command.
 
 ### The partition is enforced, not assumed
 
 `AuthoredCorpusHistoryCardTests` reads this tracked store and fails when:
 
-- a row's `validDifferent` sub-buckets do not sum to its `total`, or its
+- a row's `validDifferent` sub-buckets do not sum to its `total`, its
+  v3 frontier-attribution sub-buckets do not sum to `frontierIlDiff`, or its
   top-level buckets do not sum to `evaluated`
   (`TrackedHistory_CompleteRows_PartitionExactly`); or
 - any row other than the grandfathered ones omits a bucket
@@ -206,7 +275,8 @@ The fix separates two questions the old contract conflated:
   failure.
 - **Quality level** is the thing being measured. Without a baseline it keeps the
   historical `invalid == 0` contract. With one, the run fails on a *regression*
-  in `valid`, `correct`, `invalid`, or `invalidBreakdown.productBodyDefect`.
+  in `valid`, `correct`, `invalid`, or
+  `invalidBreakdown.productBodyDefect`.
 
 ### The band is zero
 
@@ -233,12 +303,12 @@ A baseline row is comparable only when it shares the run's `evaluated`,
 every metric the run states. The newest comparable row wins — not the newest row outright, so a resized corpus or a repooled sweep
 cannot silently retarget the ratchet at an incomparable baseline.
 
-`methodologyVersion` is deliberately **not** part of that key. It defines how
-`productBodyDefect` is computed and nothing else, so folding it in discarded
-three perfectly sound metrics at every version bump — and, because every row
-after a bump was then incomparable, it is what made the tracked-store gate a
-permanent skip. It is applied per metric instead: across a bump, `valid`,
-`correct`, and `invalid` keep ratcheting and only `productBodyDefect` drops out.
+`methodologyVersion` is deliberately **not** part of that key. The invalid
+attribution lineage governs `productBodyDefect`, while `valid`, `correct`, and
+raw `invalid` remain comparable. Folding the global stamp into the key discarded
+those independent metrics at every version bump and made the tracked-store gate
+a permanent skip. Attribution lineage is applied per metric: v1, v2, and v3
+invalid attribution are separate lineages and do not compare with one another.
 
 Both identity hashes compare **symmetrically, absence included** — unknown never
 equals known, in either direction. Two weaker rules were tried and both were
@@ -315,10 +385,11 @@ set equality by `TrackedHistory_OnlyTheUnconfirmableRowIsNotTrustworthy`.
 Soundness is checked by **summing the buckets**, not by confirming they were
 recorded. A row claiming 12,000 evaluated whose buckets total 11,999 has lost a
 target, and a lost target reads as a lower `invalid` — the same "looks like
-progress, is actually absence" shape. All three levels are checked: the
+progress, is actually absence" shape. All levels are checked: the
 top-level buckets must account for `evaluated`, the `validDifferent` sub-buckets
 must account for their own total, and — when the row states it — the
-`invalidBreakdown` reasons must account for `invalid`.
+`invalidBreakdown` reasons must account for `invalid`. From v3 onward,
+`frontierIlDiffAttribution` must also account exactly for `frontierIlDiff`.
 
 The third level is not decorative. Review forged a row pairing `invalid: 0` with
 `productBodyDefect: 100`. It closed the other two partitions, became comparable,
@@ -333,9 +404,8 @@ closure alone, pushing one bucket above the run's own size stays expressible by
 driving another negative, so 100 `productBodyDefect` on a 60-target run is
 reachable by recording `-40` somewhere else.
 
-When you append a row by hand, this is the rule most likely to reject it: take
-`invalidBreakdown` from the run JSON verbatim rather than filling in the reason
-you care about and zeroing the rest.
+The typed append command recomputes this partition from the per-row artifact and
+rejects any disagreement with the producer summary.
 
 A recorded identity must also be **well formed**: `poolSha256` and
 `corpusSha256` are either absent or exactly 64 lowercase hex characters, the
@@ -413,9 +483,9 @@ checked against the fields `CorpusRecord` declares non-nullable, and the set is
 derived from that type by reflection rather than restated, so a new required
 field that goes unchecked fails a test instead of going unenforced.
 
-`productBodyDefect` is reported with its lower-bound caveat attached: it counts
-decompiler-caused body defects the oracle could adjudicate (~5.9% coverage), so
-its movement is a floor, not a census.
+Both product-body-defect metrics are reported with their lower-bound caveat
+attached: they count decompiler-caused body defects the applicable control could
+adjudicate, so movement is a floor, not a census.
 
 ### The identity bootstrap, and how it was crossed
 
@@ -481,7 +551,7 @@ identity already detects the change loudly and precisely, while a pin adds a
 second place that must be kept in sync and delays every corpus improvement from
 reaching the lane until someone remembers to bump it.
 
-One caveat when appending by hand: `eng/restore-authored-source-corpus.sh` exits
+One caveat when preparing an append run: `eng/restore-authored-source-corpus.sh` exits
 early if `external/authored-source-corpus` already exists, and it only fetches
 when the local branch is missing. A worktree restored weeks ago therefore
 measures whatever it was restored at, not the current tip. CI is unaffected
@@ -492,7 +562,7 @@ branch is current before treating its run as a baseline.
 
 - **Every PR**: `AuthoredCorpusRatchetTests` ratchets the newest row of this
   tracked store against the newest earlier row it is comparable with, so a
-  hand-appended row that halves the quality fails review. Rows recorded before
+  newly appended row that halves the quality fails review. Rows recorded before
   the ratchet existed are data, not a contract, so only the new row is judged.
   The gate asserts that the comparison actually *happened*, not merely that it
   found no regressions — an empty-regressions assertion alone passes for a skip,

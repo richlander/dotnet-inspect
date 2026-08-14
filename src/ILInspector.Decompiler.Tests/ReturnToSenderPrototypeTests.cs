@@ -1563,6 +1563,43 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void ResolveExternalTypeDefinition_RollsOlderPlatformFacadeIntoCompilationClosure()
+    {
+        string assemblyPath = CompileFixture("public sealed class Fixture { }");
+        string runtimePath = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Single(path => Path.GetFileName(path).Equals("System.Runtime.dll", StringComparison.OrdinalIgnoreCase));
+        try
+        {
+            using var stream = File.OpenRead(runtimePath);
+            using var pe = new PEReader(stream);
+            AssemblyReferenceIdentity runtimeIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(pe.GetMetadataReader());
+            Assert.NotNull(runtimeIdentity.Version);
+            Assert.True(runtimeIdentity.Version.Major > 0);
+            AssemblyReferenceIdentity priorRuntimeIdentity = runtimeIdentity with
+            {
+                Version = new Version(runtimeIdentity.Version.Major - 1, 0, 0, 0),
+            };
+            ReturnToSender.CompilationClosure closure =
+                ReturnToSender.CreateCompilationClosure(assemblyPath);
+
+            var resolved = CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                closure.TargetAssembly,
+                priorRuntimeIdentity,
+                "System.IConvertible",
+                closure.Resolver);
+
+            Assert.NotNull(resolved);
+            Assert.Equal("System.Private.CoreLib", resolved.Value.Assembly.Identity.Name);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void ResolveExternalTypeDefinition_DeclinesWhenSiblingSpoofsDurableAddress()
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
@@ -1625,6 +1662,54 @@ public class ReturnToSenderPrototypeTests
         File.WriteAllBytes(
             Path.Combine(fixtureDir, "System.Text.Json.dll"),
             BuildConfusableAssemblyImage(platformPath));
+        var facade = ResolvedAssemblyReference.CreateFromPath(
+            facadePath,
+            AssemblyResolutionProvenance.Local("test"));
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                ExcludeTargetAssembly = true,
+            });
+        try
+        {
+            Assert.Null(
+                CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                    facade,
+                    "System.Text.Json.JsonSerializer",
+                    resolver));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ResolveExternalTypeDefinition_DeclinesWhenVersionSkewedSiblingShadowsPlatform()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.JsonSerializer).Assembly.Location;
+        string facadePath = CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: TypeForwardedTo(typeof(System.Text.Json.JsonSerializer))]
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsPlatformFacade");
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { }",
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        using (var stream = File.OpenRead(platformPath))
+        using (var pe = new PEReader(stream))
+        {
+            Version platformVersion = pe.GetMetadataReader().GetAssemblyDefinition().Version;
+            File.WriteAllBytes(
+                Path.Combine(fixtureDir, "System.Text.Json.dll"),
+                BuildConfusableAssemblyImage(
+                    platformPath,
+                    new Version(platformVersion.Major - 1, 0, 0, 0)));
+        }
         var facade = ResolvedAssemblyReference.CreateFromPath(
             facadePath,
             AssemblyResolutionProvenance.Local("test"));
@@ -6517,14 +6602,14 @@ public class ReturnToSenderPrototypeTests
         var references = RoslynTestReferences.TrustedPlatform.ToArray();
 
         var decompiledArtifact = CompileBackSourceComposer.Compose(request);
+        Assert.NotNull(decompiledArtifact.SourceArtifact.ReplaceableBodyRange);
         var decompiledTree = CSharpSyntaxTree.ParseText(decompiledArtifact.Source, parseOptions);
         var decompiledDiagnostics = CSharpCompilation
             .Create("return-to-sender-decompiled", [decompiledTree], references, compileOptions)
             .GetDiagnostics();
 
         return ReturnToSender.TryIsolateRecompileFailure(
-            request,
-            decompiledArtifact.Source,
+            decompiledArtifact,
             decompiledDiagnostics,
             sourceIndex,
             parseOptions,
@@ -6676,6 +6761,46 @@ public class ReturnToSenderPrototypeTests
             ]));
 
         Assert.Contains("public class Class1<T>(string message) where T : class", Assert.Single(result.Units).Source);
+    }
+
+    [Fact]
+    public void CompileBackTargets_LexicallyShadowedNamespaceRootUsesGlobalAlias()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace Alpha.Beta
+            {
+                public class Thing
+                {
+                }
+            }
+
+            public class Worker<Alpha, Thing>
+            {
+                public global::Alpha.Beta.Thing GetThing()
+                {
+                    return null;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Worker`2", "GetThing", 0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "public global::Alpha.Beta.Thing GetThing()",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
     }
 
     [Fact]
@@ -8814,7 +8939,9 @@ public class ReturnToSenderPrototypeTests
         return image.ToArray();
     }
 
-    static byte[] BuildConfusableAssemblyImage(string platformPath)
+    static byte[] BuildConfusableAssemblyImage(
+        string platformPath,
+        Version? version = null)
     {
         using var stream = File.OpenRead(platformPath);
         using var reader = new PEReader(stream);
@@ -8832,7 +8959,7 @@ public class ReturnToSenderPrototypeTests
         metadata.AddAssembly(
             metadata.GetOrAddString(
                 platformMetadata.GetString(platformAssembly.Name)),
-            platformAssembly.Version,
+            version ?? platformAssembly.Version,
             platformAssembly.Culture.IsNil
                 ? default
                 : metadata.GetOrAddString(

@@ -28,6 +28,12 @@ public sealed class CSharpTypePrinter
         var requestList = requests.ToArray();
         if (requestList.Any(request => request is null))
             throw new ArgumentException("Type print requests cannot contain null entries.", nameof(requests));
+        if (requestList.Sum(CountReplacementTargets) > 1)
+        {
+            throw new ArgumentException(
+                "A C# type print batch can select at most one replacement target.",
+                nameof(requests));
+        }
 
         // A single request produces at most one namespace, so a file-scoped
         // namespace declaration is always legal and reads cleaner. Multiple
@@ -51,102 +57,280 @@ public sealed class CSharpTypePrinter
                 nameof(requests)));
         }
 
-        var derivedUsings = ComputeDerivedUsings(preparedTypes, options);
-        IReadOnlyList<string> contextualUsings = options.TypeNamePolicy switch
-        {
-            CSharpTypeNamePolicy.Qualified => [],
-            CSharpTypeNamePolicy.ShortWithUsings => derivedUsings,
-            CSharpTypeNamePolicy.ContextualShort when options.IncludeUsings => configuredUsings,
-            CSharpTypeNamePolicy.ContextualShort => [],
-            _ => throw new InvalidOperationException()
-        };
-        var emittedUsings = options.IncludeUsings
+        var typeNameContext = ComputeTypeNameContext(preparedTypes, options);
+        var safeUsings = typeNameContext.SafeUsings;
+        var derivedUsings = options.TypeNamePolicy == CSharpTypeNamePolicy.ShortWithUsings
+            ? safeUsings
+            : [];
+        var contextualUsings = TypeNameContext(options, configuredUsings, safeUsings);
+        var effectiveUsings = options.IncludeUsings
             ? configuredUsings
                 .Concat(derivedUsings)
-                .ToImmutableHashSet(StringComparer.Ordinal)
-            : ImmutableHashSet.Create<string>(StringComparer.Ordinal);
-
-        var units = ImmutableArray.CreateBuilder<CSharpTypeSourceUnit>();
+                .ToImmutableSortedSet(StringComparer.Ordinal)
+            : ImmutableSortedSet.Create<string>(StringComparer.Ordinal);
+        var declaredTypeFullNamesByNamespace =
+            new Dictionary<string, ImmutableHashSet<string>>(StringComparer.Ordinal);
         foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
         {
+            var declaredTypeFullNames = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
+            var pendingTypes = new Stack<(PreparedType Type, string? Parent)>(
+                group.Select(type => (type, (string?)null)));
+            while (pendingTypes.TryPop(out var pending))
+            {
+                string name = CSharpFormatter.StripArity(pending.Type.Type.Name);
+                string fullName = pending.Parent is null ? name : $"{pending.Parent}.{name}";
+                declaredTypeFullNames.Add(fullName);
+                foreach (var nested in pending.Type.NestedTypes)
+                    pendingTypes.Push((nested, fullName));
+            }
+            declaredTypeFullNamesByNamespace.Add(group.Key, declaredTypeFullNames.ToImmutable());
+        }
+        var importedDeclaredTypeFullNames = declaredTypeFullNamesByNamespace
+            .Where(entry => effectiveUsings.Contains(entry.Key))
+            .SelectMany(entry => entry.Value.Select(path => (Namespace: entry.Key, Path: path)))
+            .GroupBy(entry => entry.Path, StringComparer.Ordinal)
+            .Where(group => group.Select(entry => entry.Namespace).Distinct(StringComparer.Ordinal).Count() == 1)
+            .Select(group => group.Key)
+            .ToImmutableHashSet(StringComparer.Ordinal);
+        var importedDeclaredTypeNames = preparedTypes
+            .Where(type => effectiveUsings.Contains(type.Namespace))
+            .Select(type => CSharpFormatter.StripArity(type.Type.Name))
+            .ToImmutableHashSet(StringComparer.Ordinal);
+        var globalDeclaredTypeNames = preparedTypes
+            .Where(type => type.Namespace.Length == 0
+                && type.Type.TypeParameters.Count == 0)
+            .Select(type => CSharpFormatter.StripArity(type.Type.Name))
+            .ToImmutableHashSet(StringComparer.Ordinal);
+        foreach (string globalTypeName in globalDeclaredTypeNames)
+        {
+            bool conflictsWithNamespace = preparedTypes.Any(type =>
+                NamespaceRoot(type.Namespace) == globalTypeName);
+            bool conflictsWithUsing = effectiveUsings.Any(@namespace =>
+                NamespaceRoot(@namespace) == globalTypeName);
+            if (conflictsWithNamespace || conflictsWithUsing)
+            {
+                diagnostics.Add(new CSharpTypePrintDiagnostic(
+                    globalTypeName,
+                    $"Namespace root '{globalTypeName}' conflicts with global type '{globalTypeName}'; emitted namespace or using directives cannot bind that root as a namespace."));
+            }
+        }
+        var globalAttributeOptions = new CSharpDeclarationOptions
+        {
+            TypeNameMode = options.TypeNamePolicy == CSharpTypeNamePolicy.Qualified
+                ? CSharpTypeNameMode.Qualified
+                : CSharpTypeNameMode.ContextualShort,
+            Usings = contextualUsings,
+            AdditionalRootShadowingNames = globalDeclaredTypeNames,
+            AdditionalUnresolvableRootNames = globalDeclaredTypeNames,
+            AdditionalKnownNamespaces = typeNameContext.KnownNamespaces
+        };
+        var plannedAssemblyAttributes = CSharpDeclarationWriter.RenderAttributeBodies(
+            options.AssemblyAttributes,
+            globalAttributeOptions);
+        var plannedModuleAttributes = CSharpDeclarationWriter.RenderAttributeBodies(
+            options.ModuleAttributes,
+            globalAttributeOptions);
+        diagnostics.AddRange(plannedAssemblyAttributes.Diagnostics.Select(
+            diagnostic => new CSharpTypePrintDiagnostic("<assembly>", diagnostic)));
+        diagnostics.AddRange(plannedModuleAttributes.Diagnostics.Select(
+            diagnostic => new CSharpTypePrintDiagnostic("<module>", diagnostic)));
+        var units = ImmutableArray.CreateBuilder<CSharpTypeSourceUnit>();
+        var renderedUnits = ImmutableArray.CreateBuilder<RenderedFragment>();
+        foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
+        {
+            var groupedTypes = group.ToList();
+            var declaredTypeFullNameSet = declaredTypeFullNamesByNamespace
+                .Where(entry => string.Equals(entry.Key, group.Key, StringComparison.Ordinal)
+                    || IsAncestorNamespace(entry.Key, group.Key))
+                .SelectMany(entry => entry.Value)
+                .ToImmutableHashSet(StringComparer.Ordinal);
             var containingNamespace = group.Key.Length == 0 ? null : group.Key;
-            var source = string.Join(
-                "\n\n",
-                group.Select(type => RenderType(type, indent: 0, options, contextualUsings, diagnostics)));
+            bool useBlockScopedNamespace = containingNamespace is not null && !useFileScopedNamespace;
+            var ancestorTypeNames = preparedTypes
+                .Where(candidate => IsAncestorNamespace(candidate.Namespace, group.Key))
+                .Select(candidate => CSharpFormatter.StripArity(candidate.Type.Name))
+                .ToImmutableHashSet(StringComparer.Ordinal);
+            var referencedAncestorTypeNames = typeNameContext.ReferencedTypeNames
+                .Where(reference => string.Equals(reference.Namespace, group.Key, StringComparison.Ordinal)
+                    || IsAncestorNamespace(reference.Namespace, group.Key))
+                .Select(reference => reference.SimpleName);
+            var rendered = Join(
+                groupedTypes.Select(type => RenderType(
+                    type,
+                    indent: 0,
+                    options,
+                    contextualUsings,
+                    inheritedShadowingNames: ImmutableHashSet<string>.Empty,
+                    inheritedRootShadowingNames: groupedTypes
+                        .Where(sibling => !ReferenceEquals(sibling, type))
+                        .Select(sibling => CSharpFormatter.StripArity(sibling.Type.Name))
+                        .Concat(ancestorTypeNames)
+                        .Concat(referencedAncestorTypeNames)
+                        .Concat(importedDeclaredTypeNames)
+                        .ToImmutableHashSet(StringComparer.Ordinal),
+                    globalDeclaredTypeNames,
+                    declaredTypeFullNameSet,
+                    importedDeclaredTypeFullNames,
+                    typeNameContext.KnownNamespaces,
+                    diagnostics)),
+                "\n\n");
             if (containingNamespace is not null)
             {
                 string renderedNamespace = CSharpFormatter.EscapeNamespace(containingNamespace);
-                source = useFileScopedNamespace
-                    ? $"namespace {renderedNamespace};\n\n{source}"
-                    : $"namespace {renderedNamespace}\n{{\n{Indent(source, 1)}\n}}";
+                rendered = useFileScopedNamespace
+                    ? rendered.Wrap($"namespace {renderedNamespace};\n\n", "")
+                    : rendered
+                        .Indent(1)
+                        .Wrap($"namespace {renderedNamespace}\n{{\n", "\n}");
             }
 
-            units.Add(new CSharpTypeSourceUnit(containingNamespace, source));
+            units.Add(new CSharpTypeSourceUnit(containingNamespace, rendered.Source));
+            renderedUnits.Add(rendered);
         }
 
         var unitList = units.ToImmutable();
+        var renderedUnitList = renderedUnits.ToImmutable();
         return new CSharpTypePrintResult(
             unitList,
-            diagnostics.ToImmutable(),
-            emittedUsings,
-            () => ComposeSource(unitList, emittedUsings, options));
+            effectiveUsings,
+            diagnostics.Distinct().ToImmutableArray(),
+            () => ComposeSource(
+                renderedUnitList,
+                effectiveUsings,
+                plannedAssemblyAttributes.Attributes,
+                plannedModuleAttributes.Attributes,
+                options));
     }
 
     /// <summary>
-    /// Derives the collision-safe namespaces to shorten against, excluding the
-    /// unit's own declaring namespaces (their references are already shortened by
-    /// the same-namespace rule, so importing them would be redundant).
+    /// Derives collision-safe namespaces and the namespace identities known to the
+    /// complete output unit.
     /// </summary>
-    static IReadOnlyList<string> ComputeDerivedUsings(
+    static (
+        IReadOnlyList<string> SafeUsings,
+        IReadOnlyList<string> KnownNamespaces,
+        IReadOnlyList<(string Namespace, string SimpleName)> ReferencedTypeNames) ComputeTypeNameContext(
         IReadOnlyList<PreparedType> preparedTypes,
         CSharpTypePrintOptions options)
     {
-        // Shortening is only sound when the enabling `using` directives are
-        // actually emitted. When usings are suppressed, keep references qualified
-        // so the composed source stays compilable.
-        if (options.TypeNamePolicy != CSharpTypeNamePolicy.ShortWithUsings
-            || !options.IncludeUsings)
-            return [];
-
-        var allTypes = new List<ApiType>();
-        var declaringNamespaces = new HashSet<string>(StringComparer.Ordinal);
-        void Flatten(PreparedType prepared)
+        var scopes = new List<(
+            ApiType Type,
+            IEnumerable<ApiMember> Members,
+            IEnumerable<ApiParameter> AdditionalParameters,
+            string DeclaredTypeFullName,
+            bool CanImportDeclaringNamespace)>();
+        void Flatten(PreparedType prepared, string? parentPath)
         {
-            allTypes.Add(prepared.Type);
-            declaringNamespaces.Add(prepared.Namespace);
+            string name = CSharpFormatter.StripArity(prepared.Type.Name);
+            string path = parentPath is null ? name : $"{parentPath}.{name}";
+            string fullName = prepared.Namespace.Length == 0
+                ? path
+                : $"{prepared.Namespace}.{path}";
+            scopes.Add((
+                prepared.Type,
+                prepared.Members.Select(member => member.Member),
+                prepared.PrimaryConstructorParameters,
+                fullName,
+                parentPath is null));
             foreach (var nested in prepared.NestedTypes)
-                Flatten(nested);
+                Flatten(nested, path);
         }
         foreach (var prepared in preparedTypes)
-            Flatten(prepared);
+            Flatten(prepared, parentPath: null);
 
-        return CSharpFormatter.DeriveContextualUsings(allTypes)
-            .Where(ns => !declaringNamespaces.Contains(ns))
-            .ToArray();
+        return CSharpDeclarationWriter.DeriveTypeNameContext(
+            scopes,
+            options.Usings,
+            options.AssemblyAttributes.Concat(options.ModuleAttributes));
     }
 
-    static string ComposeSource(
-        ImmutableArray<CSharpTypeSourceUnit> units,
+    static string NamespaceRoot(string @namespace)
+    {
+        int separator = @namespace.IndexOf('.');
+        return separator < 0 ? @namespace : @namespace[..separator];
+    }
+
+    static bool IsAncestorNamespace(string candidate, string descendant)
+        => candidate.Length < descendant.Length
+            && descendant.StartsWith(candidate, StringComparison.Ordinal)
+            && (candidate.Length == 0 || descendant[candidate.Length] == '.');
+
+    static IReadOnlyList<string> TypeNameContext(
+        CSharpTypePrintOptions options,
+        IReadOnlyList<string> configuredUsings,
+        IReadOnlyList<string> safeUsings)
+        => options.TypeNamePolicy switch
+        {
+            CSharpTypeNamePolicy.Qualified => [],
+            CSharpTypeNamePolicy.ShortWithUsings =>
+                options.IncludeUsings
+                    ? safeUsings
+                    : [],
+            CSharpTypeNamePolicy.ContextualShort =>
+                options.IncludeUsings
+                    ? configuredUsings
+                        .Where(safeUsings.Contains)
+                        .ToArray()
+                    : [],
+            _ => throw new InvalidOperationException()
+        };
+
+    static CSharpSourceArtifact ComposeSource(
+        ImmutableArray<RenderedFragment> units,
         IReadOnlyCollection<string> usings,
+        IReadOnlyList<string> assemblyAttributes,
+        IReadOnlyList<string> moduleAttributes,
         CSharpTypePrintOptions options)
     {
         var sb = new System.Text.StringBuilder();
+        CSharpSourceRange? bodyRange = null;
+        string? bodyIndent = null;
         if (options.EmitPragmaWarningDisable)
             sb.AppendLf("#pragma warning disable");
-        foreach (var attribute in options.AssemblyAttributes)
+        foreach (var attribute in assemblyAttributes)
             sb.AppendLf($"[assembly: {attribute}]");
-        foreach (var attribute in options.ModuleAttributes)
+        foreach (var attribute in moduleAttributes)
             sb.AppendLf($"[module: {attribute}]");
         if (options.IncludeUsings)
         {
-            foreach (var ns in usings.Select(CSharpFormatter.EscapeNamespace).Order(StringComparer.Ordinal))
+            foreach (var ns in usings
+                .Select(CSharpFormatter.EscapeNamespace)
+                .Order(StringComparer.Ordinal))
                 sb.AppendLf($"using {ns};");
         }
         foreach (var unit in units)
+        {
+            int unitStart = sb.Length;
             sb.AppendLf(unit.Source);
+            if (unit.ReplaceableBodyRange is { } range)
+            {
+                bodyRange = new CSharpSourceRange(unitStart + range.Start, range.Length);
+                bodyIndent = unit.ReplaceableBodyIndent;
+            }
+        }
 
-        return sb.ToString();
+        return new CSharpSourceArtifact(sb.ToString(), bodyRange, bodyIndent);
     }
+
+    static int CountReplacementTargets(CSharpTypePrintRequest request)
+    {
+        int count = request.MemberPolicyOverrides.Sum(policy => policy.Body switch
+        {
+            CSharpBlockBody { IsReplacementTarget: true } => 1,
+            CSharpPropertyBody property => CountReplacementTargets(property),
+            CSharpEventBody @event => CountReplacementTargets(@event),
+            _ => 0,
+        });
+        return count + request.NestedTypes.Sum(CountReplacementTargets);
+    }
+
+    static int CountReplacementTargets(CSharpPropertyBody body)
+        => (body.Getter?.IsReplacementTarget == true ? 1 : 0)
+            + (body.Setter?.IsReplacementTarget == true ? 1 : 0);
+
+    static int CountReplacementTargets(CSharpEventBody body)
+        => (body.Adder.IsReplacementTarget ? 1 : 0)
+            + (body.Remover.IsReplacementTarget ? 1 : 0);
 
     static string NormalizeNamespace(string? value)
         => string.IsNullOrWhiteSpace(value) ? "" : value;
@@ -267,58 +451,109 @@ public sealed class CSharpTypePrinter
         return overrides;
     }
 
-    static string RenderType(
+    static RenderedFragment RenderType(
         PreparedType prepared,
         int indent,
         CSharpTypePrintOptions options,
         IReadOnlyList<string> contextualUsings,
+        IReadOnlySet<string> inheritedShadowingNames,
+        IReadOnlySet<string> inheritedRootShadowingNames,
+        IReadOnlySet<string> unresolvableRootNames,
+        IReadOnlySet<string> declaredTypeFullNames,
+        IReadOnlySet<string> importedDeclaredTypeFullNames,
+        IReadOnlyCollection<string> knownNamespaces,
         ImmutableArray<CSharpTypePrintDiagnostic>.Builder diagnostics)
     {
-        var formatter = DeclarationFormatter(prepared.Namespace, options, contextualUsings);
+        var inScopeShadowingNames = inheritedShadowingNames.ToHashSet(StringComparer.Ordinal);
+        inScopeShadowingNames.UnionWith(prepared.Type.TypeParameters.Select(
+            parameter => parameter.Name));
+        inScopeShadowingNames.UnionWith(prepared.NestedTypes.Select(
+            nested => CSharpFormatter.StripArity(nested.Type.Name)));
+        var formatter = DeclarationFormatter(
+            prepared.Namespace,
+            options,
+            contextualUsings,
+            inScopeShadowingNames,
+            inheritedRootShadowingNames,
+            unresolvableRootNames,
+            declaredTypeFullNames,
+            importedDeclaredTypeFullNames,
+            knownNamespaces);
+        var diagnosticPass = DeclarationFormatter(
+            prepared.Namespace,
+            options,
+            contextualUsings,
+            inScopeShadowingNames,
+            inheritedRootShadowingNames,
+            unresolvableRootNames,
+            declaredTypeFullNames,
+            importedDeclaredTypeFullNames,
+            knownNamespaces,
+            terminateMemberDeclaration: true)
+            .FormatTypeUnit(
+                prepared.Type,
+                prepared.Members.Select(member => member.Member),
+                prepared.PrimaryConstructorParameters);
+        diagnostics.AddRange(diagnosticPass.Diagnostics.Select(
+            diagnostic => new CSharpTypePrintDiagnostic(prepared.Type.FullName, diagnostic)));
         if (prepared.Type.Kind == "delegate")
-            return RenderDelegate(prepared, formatter, indent);
+            return new RenderedFragment(RenderDelegate(prepared, formatter, indent));
 
         var propertyFormatter = DeclarationFormatter(
             prepared.Namespace,
             options,
             contextualUsings,
+            inScopeShadowingNames,
+            inheritedRootShadowingNames,
+            unresolvableRootNames,
+            declaredTypeFullNames,
+            importedDeclaredTypeFullNames,
+            knownNamespaces,
             omitPropertyAccessors: true);
-        var diagnosticPass = DeclarationFormatter(
-            prepared.Namespace,
-            options,
-            contextualUsings,
-            terminateMemberDeclaration: true)
-            .FormatTypeUnit(prepared.Type, prepared.Type.Members);
-        diagnostics.AddRange(diagnosticPass.Diagnostics.Select(
-            diagnostic => new CSharpTypePrintDiagnostic(prepared.Type.FullName, diagnostic)));
-
         string pad = new(' ', indent * 4);
         string declaration = formatter.FormatTypeDeclaration(
             prepared.Type,
             prepared.PrimaryConstructorParameters);
 
-        var lines = new List<string>
+        var fragments = new List<RenderedFragment>
         {
-            PadDeclaration(declaration, pad),
-            $"{pad}{{"
+            new(PadDeclaration(declaration, pad)),
+            new($"{pad}{{")
         };
         if (prepared.Type.Kind == "enum")
         {
-            lines.AddRange(prepared.Members.Select((member, index) =>
-                RenderEnumMember(member, indent + 1, index < prepared.Members.Length - 1)));
+            fragments.AddRange(prepared.Members.Select((member, index) =>
+                new RenderedFragment(
+                    RenderEnumMember(member, indent + 1, index < prepared.Members.Length - 1))));
         }
         else
         {
             foreach (var member in prepared.Members)
-                lines.AddRange(RenderMember(prepared, member, formatter, propertyFormatter, indent + 1));
+                fragments.Add(RenderMember(prepared, member, formatter, propertyFormatter, indent + 1));
             foreach (var nested in prepared.NestedTypes)
-                lines.Add(RenderType(nested, indent + 1, options, contextualUsings, diagnostics));
+            {
+                var nestedShadowingNames = inScopeShadowingNames.ToHashSet(StringComparer.Ordinal);
+                var nestedRootShadowingNames = inheritedRootShadowingNames.ToHashSet(StringComparer.Ordinal);
+                nestedRootShadowingNames.Add(CSharpFormatter.StripArity(prepared.Type.Name));
+                fragments.Add(RenderType(
+                    nested,
+                    indent + 1,
+                    options,
+                    contextualUsings,
+                    nestedShadowingNames,
+                    nestedRootShadowingNames,
+                    unresolvableRootNames,
+                    declaredTypeFullNames,
+                    importedDeclaredTypeFullNames,
+                    knownNamespaces,
+                    diagnostics));
+            }
         }
-        lines.Add($"{pad}}}");
-        return string.Join('\n', lines);
+        fragments.Add(new RenderedFragment($"{pad}}}"));
+        return Join(fragments, "\n");
     }
 
-    static IEnumerable<string> RenderMember(
+    static RenderedFragment RenderMember(
         PreparedType type,
         PreparedMember member,
         CSharpFormatter formatter,
@@ -330,8 +565,8 @@ public sealed class CSharpTypePrinter
         {
             string declaration = formatter.FormatMember(type.Type, member.Member);
             if (member.Body is CSharpFieldInitializer fieldInitializer)
-                return [$"{PadDeclaration(declaration, pad)} = {fieldInitializer.Source};"];
-            return [PadDeclaration(EnsureTerminated(declaration), pad)];
+                return new RenderedFragment($"{PadDeclaration(declaration, pad)} = {fieldInitializer.Source};");
+            return new RenderedFragment(PadDeclaration(EnsureTerminated(declaration), pad));
         }
 
         if (IsProperty(member.Member))
@@ -347,26 +582,36 @@ public sealed class CSharpTypePrinter
             || member.Member.IsAbstract
             || member.Policy == CSharpBodyPolicy.Skeleton)
         {
-            return [PadDeclaration(EnsureTerminated(memberDeclaration), pad)];
+            return new RenderedFragment(PadDeclaration(EnsureTerminated(memberDeclaration), pad));
         }
         string initializer = member.Body is CSharpBlockBody { ConstructorInitializer: { } constructorInitializer }
             ? " " + CSharpFormatter.FormatConstructorInitializer(constructorInitializer)
             : "";
         if (member.Body is null && member.Policy == CSharpBodyPolicy.Stub)
-            return [$"{PadDeclaration(memberDeclaration, pad)}{initializer} {{ throw null; }}"];
-
-        var body = member.Body switch
         {
-            CSharpBlockBody block => block.Source,
+            return new RenderedFragment(
+                $"{PadDeclaration(memberDeclaration, pad)}{initializer} {{ throw null; }}");
+        }
+
+        var block = member.Body switch
+        {
+            CSharpBlockBody body => body,
             _ => throw new InvalidOperationException(
                 $"Member '{member.Member.Name}' has no renderable block body."),
         };
-        if (member.Policy == CSharpBodyPolicy.Stub && body == "throw null;")
-            return [$"{PadDeclaration(memberDeclaration, pad)}{initializer} {{ throw null; }}"];
-        return RenderBlock(memberDeclaration + initializer, body, indent);
+        if (member.Policy == CSharpBodyPolicy.Stub && block.Source == "throw null;")
+        {
+            return new RenderedFragment(
+                $"{PadDeclaration(memberDeclaration, pad)}{initializer} {{ throw null; }}");
+        }
+        return RenderBlock(
+            memberDeclaration + initializer,
+            block.Source,
+            indent,
+            block.IsReplacementTarget);
     }
 
-    static IEnumerable<string> RenderProperty(
+    static RenderedFragment RenderProperty(
         PreparedType type,
         PreparedMember member,
         CSharpFormatter formatter,
@@ -377,7 +622,7 @@ public sealed class CSharpTypePrinter
         if (member.Policy == CSharpBodyPolicy.Skeleton)
         {
             string skeleton = formatter.FormatMember(type.Type, member.Member);
-            return [PadDeclaration(EnsureTerminated(skeleton), pad)];
+            return new RenderedFragment(PadDeclaration(EnsureTerminated(skeleton), pad));
         }
 
         var body = (CSharpPropertyBody)member.Body!;
@@ -389,21 +634,40 @@ public sealed class CSharpTypePrinter
         {
             var accessors = new List<string>();
             if (body.Getter is not null)
-                accessors.Add(AccessorHead(member.Member, "get") + ";");
+                accessors.Add(AccessorHead(type.Type, member.Member, "get", formatter) + ";");
             if (body.Setter is not null)
-                accessors.Add(AccessorHead(member.Member, SetterKeyword(member.Member)) + ";");
-            return [$"{PadDeclaration(declaration, pad)} {{ {string.Join(" ", accessors)} }}"];
+                accessors.Add(AccessorHead(
+                    type.Type,
+                    member.Member,
+                    SetterKeyword(member.Member),
+                    formatter) + ";");
+            return new RenderedFragment(
+                $"{PadDeclaration(declaration, pad)} {{ {string.Join(" ", accessors)} }}");
         }
 
-        var lines = new List<string>
+        var fragments = new List<RenderedFragment>
         {
-            PadDeclaration(declaration, pad),
-            $"{pad}{{"
+            new(PadDeclaration(declaration, pad)),
+            new($"{pad}{{")
         };
-        AddAccessor(lines, member.Member, "get", body.Getter, indent + 1);
-        AddAccessor(lines, member.Member, SetterKeyword(member.Member), body.Setter, indent + 1);
-        lines.Add($"{pad}}}");
-        return lines;
+        if (body.Getter is not null)
+        {
+            fragments.Add(
+                RenderAccessor(type.Type, member.Member, "get", body.Getter, formatter, indent + 1));
+        }
+        if (body.Setter is not null)
+        {
+            fragments.Add(
+                RenderAccessor(
+                    type.Type,
+                    member.Member,
+                    SetterKeyword(member.Member),
+                    body.Setter,
+                    formatter,
+                    indent + 1));
+        }
+        fragments.Add(new RenderedFragment($"{pad}}}"));
+        return Join(fragments, "\n");
     }
 
     // An init-only property's write accessor is spelled `init`, not `set`. Honor the
@@ -415,7 +679,7 @@ public sealed class CSharpTypePrinter
             ? "init"
             : "set";
 
-    static IEnumerable<string> RenderEvent(
+    static RenderedFragment RenderEvent(
         PreparedType type,
         PreparedMember member,
         CSharpFormatter formatter,
@@ -425,7 +689,7 @@ public sealed class CSharpTypePrinter
         if (member.Policy == CSharpBodyPolicy.Skeleton)
         {
             string skeleton = formatter.FormatMember(type.Type, member.Member);
-            return [PadDeclaration(EnsureTerminated(skeleton), pad)];
+            return new RenderedFragment(PadDeclaration(EnsureTerminated(skeleton), pad));
         }
 
         var body = (CSharpEventBody)member.Body!;
@@ -433,51 +697,69 @@ public sealed class CSharpTypePrinter
             type.Type,
             member.Member,
             body);
-        var lines = new List<string>
+        var fragments = new List<RenderedFragment>
         {
-            PadDeclaration(declaration, pad),
-            $"{pad}{{"
+            new(PadDeclaration(declaration, pad)),
+            new($"{pad}{{"),
+            RenderAccessor(type.Type, member.Member, "add", body.Adder, formatter, indent + 1),
+            RenderAccessor(type.Type, member.Member, "remove", body.Remover, formatter, indent + 1),
+            new($"{pad}}}")
         };
-        AddAccessor(lines, member.Member, "add", body.Adder, indent + 1);
-        AddAccessor(lines, member.Member, "remove", body.Remover, indent + 1);
-        lines.Add($"{pad}}}");
-        return lines;
+        return Join(fragments, "\n");
     }
 
-    static void AddAccessor(
-        List<string> lines,
+    static RenderedFragment RenderAccessor(
+        ApiType declaringType,
         ApiMember member,
         string kind,
-        CSharpAccessorBody? body,
+        CSharpAccessorBody body,
+        CSharpFormatter formatter,
         int indent)
     {
-        if (body is null)
-            return;
         string pad = new(' ', indent * 4);
-        string head = AccessorHead(member, kind);
+        string head = AccessorHead(declaringType, member, kind, formatter);
         if (body.Kind == CSharpAccessorBodyKind.Auto)
-        {
-            lines.Add($"{pad}{head};");
-            return;
-        }
+            return new RenderedFragment($"{pad}{head};");
 
-        lines.Add($"{pad}{head}");
-        lines.Add($"{pad}{{");
         string source = body.Kind == CSharpAccessorBodyKind.Throw
             ? "throw null;"
             : body.Source!;
-        foreach (var line in SourceLines(source))
-            lines.Add($"{pad}    {line}");
-        lines.Add($"{pad}}}");
+        var block = RenderBodyBlock(source, indent, body.IsReplacementTarget);
+        return block.Wrap($"{pad}{head}\n", "");
     }
 
-    static string AccessorHead(ApiMember member, string kind)
+    static string AccessorHead(
+        ApiType declaringType,
+        ApiMember member,
+        string kind,
+        CSharpFormatter formatter)
     {
         var accessor = member.SignatureModel?.Accessors
             .FirstOrDefault(candidate => candidate.Kind == kind);
         var parts = new List<string>();
         if (accessor?.ReturnAttributes is { Count: > 0 } returnAttributes)
-            parts.Add($"[return: {string.Join(", ", returnAttributes)}]");
+        {
+            var attributeProbe = new ApiMember
+            {
+                Name = "__AccessorAttributeProbe",
+                Kind = "method",
+                SignatureModel = new ApiSignature
+                {
+                    ReturnType = "void",
+                    MemberName = "__AccessorAttributeProbe",
+                    ReturnAttributes = returnAttributes
+                }
+            };
+            string formattedProbe = formatter.FormatMember(declaringType, attributeProbe);
+            attributeProbe.SignatureModel.ReturnAttributes = [];
+            string formattedDeclaration = formatter.FormatMember(declaringType, attributeProbe);
+            if (!formattedProbe.EndsWith(formattedDeclaration, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"C# accessor '{member.Name}.{kind}' return attributes were not rendered.");
+            }
+            parts.Add(formattedProbe[..^formattedDeclaration.Length].TrimEnd());
+        }
         if (!string.IsNullOrWhiteSpace(accessor?.Accessibility))
             parts.Add(accessor.Accessibility!);
         parts.Add(kind);
@@ -504,6 +786,12 @@ public sealed class CSharpTypePrinter
         string containingNamespace,
         CSharpTypePrintOptions options,
         IReadOnlyList<string> contextualUsings,
+        IReadOnlyCollection<string> additionalShadowingNames,
+        IReadOnlyCollection<string> additionalRootShadowingNames,
+        IReadOnlyCollection<string> additionalUnresolvableRootNames,
+        IReadOnlyCollection<string> additionalDeclaredTypeFullNames,
+        IReadOnlyCollection<string> additionalImportedDeclaredTypeFullNames,
+        IReadOnlyCollection<string> additionalKnownNamespaces,
         bool omitPropertyAccessors = false,
         bool terminateMemberDeclaration = false)
         => new(new CSharpFormatOptions
@@ -513,20 +801,42 @@ public sealed class CSharpTypePrinter
                 : CSharpTypeNamePolicy.ContextualShort,
             ContainingNamespace = containingNamespace.Length == 0 ? null : containingNamespace,
             Usings = contextualUsings,
+            AdditionalShadowingNames = additionalShadowingNames,
+            AdditionalRootShadowingNames = additionalRootShadowingNames,
+            AdditionalUnresolvableRootNames = additionalUnresolvableRootNames,
+            AdditionalDeclaredTypeFullNames = additionalDeclaredTypeFullNames,
+            AdditionalImportedDeclaredTypeFullNames = additionalImportedDeclaredTypeFullNames,
+            AdditionalKnownNamespaces = additionalKnownNamespaces,
             NamespacePolicy = CSharpNamespacePolicy.Omit,
             IncludeCustomAttributes = options.IncludeCustomAttributes,
             OmitPropertyAccessors = omitPropertyAccessors,
             TerminateMemberDeclaration = terminateMemberDeclaration
         });
 
-    static IEnumerable<string> RenderBlock(string declaration, string source, int indent)
+    static RenderedFragment RenderBlock(
+        string declaration,
+        string source,
+        int indent,
+        bool isReplacementTarget)
     {
         string pad = new(' ', indent * 4);
-        yield return PadDeclaration(declaration, pad);
-        yield return $"{pad}{{";
-        foreach (var line in SourceLines(source))
-            yield return $"{pad}    {line}";
-        yield return $"{pad}}}";
+        var body = RenderBodyBlock(source, indent, isReplacementTarget);
+        return body.Wrap(PadDeclaration(declaration, pad) + "\n", "");
+    }
+
+    static RenderedFragment RenderBodyBlock(
+        string source,
+        int indent,
+        bool isReplacementTarget)
+    {
+        string pad = new(' ', indent * 4);
+        string block = CSharpSourceLayout.RenderBlock(source, pad);
+        return isReplacementTarget
+            ? new RenderedFragment(
+                block,
+                new CSharpSourceRange(0, block.Length),
+                pad)
+            : new RenderedFragment(block);
     }
 
     // A rendered declaration may span several lines when leading attributes are
@@ -536,11 +846,6 @@ public sealed class CSharpTypePrinter
             ? string.Join('\n', declaration.Split('\n').Select(line => line.Length == 0 ? line : pad + line))
             : pad + declaration;
 
-    static IEnumerable<string> SourceLines(string source)
-        => source.Split('\n')
-            .Select(line => line.TrimEnd('\r'))
-            .Where(line => line.Length > 0);
-
     static bool AllAuto(CSharpPropertyBody body)
         => (body.Getter is null || body.Getter.Kind == CSharpAccessorBodyKind.Auto)
             && (body.Setter is null || body.Setter.Kind == CSharpAccessorBodyKind.Auto);
@@ -549,12 +854,6 @@ public sealed class CSharpTypePrinter
         => declaration.EndsWith(';') || declaration.EndsWith('}')
             ? declaration
             : declaration + ";";
-
-    static string Indent(string source, int depth)
-    {
-        string pad = new(' ', depth * 4);
-        return string.Join('\n', source.Split('\n').Select(line => line.Length == 0 ? line : pad + line));
-    }
 
     internal static ApiType SnapshotTypeForRendering(
         ApiType type,
@@ -743,6 +1042,13 @@ public sealed class CSharpTypePrinter
             throw new NotSupportedException(
                 $"C# member body policy '{policy.BodyPolicy}' for '{member.Name}' requires a body provider.");
         }
+        if (policy.Body is CSharpBlockBody { IsReplacementTarget: true }
+            && policy.BodyPolicy != CSharpBodyPolicy.Full)
+        {
+            throw new ArgumentException(
+                $"Replacement target '{member.Name}' must use full body policy.",
+                parameterName);
+        }
         if (member.IsAbstract && policy.BodyPolicy != CSharpBodyPolicy.Skeleton)
         {
             throw new ArgumentException(
@@ -845,6 +1151,69 @@ public sealed class CSharpTypePrinter
     static bool HasOnlyAccessors(ApiMember member, string first, string second)
         => member.SignatureModel?.Accessors is { Count: > 0 } accessors
             && accessors.All(accessor => accessor.Kind == first || accessor.Kind == second);
+
+    static RenderedFragment Join(IEnumerable<RenderedFragment> fragments, string separator)
+    {
+        var array = fragments.ToArray();
+        if (array.Length == 0)
+            return new RenderedFragment("");
+
+        var source = new System.Text.StringBuilder();
+        CSharpSourceRange? bodyRange = null;
+        string? bodyIndent = null;
+        for (int i = 0; i < array.Length; i++)
+        {
+            if (i > 0)
+                source.Append(separator);
+
+            var fragment = array[i];
+            int fragmentStart = source.Length;
+            source.Append(fragment.Source);
+            if (fragment.ReplaceableBodyRange is { } range)
+            {
+                if (bodyRange is not null)
+                    throw new InvalidOperationException("Rendered C# contains multiple replacement targets.");
+                bodyRange = new CSharpSourceRange(fragmentStart + range.Start, range.Length);
+                bodyIndent = fragment.ReplaceableBodyIndent;
+            }
+        }
+
+        return new RenderedFragment(source.ToString(), bodyRange, bodyIndent);
+    }
+
+    sealed record RenderedFragment(
+        string Source,
+        CSharpSourceRange? ReplaceableBodyRange = null,
+        string? ReplaceableBodyIndent = null)
+    {
+        internal RenderedFragment Indent(int depth)
+        {
+            string pad = new(' ', depth * 4);
+            string IndentSource(string source)
+                => string.Join(
+                    '\n',
+                    source.Split('\n').Select(line => line.Length == 0 ? line : pad + line));
+
+            if (ReplaceableBodyRange is not { } range)
+                return new RenderedFragment(IndentSource(Source));
+
+            string prefix = IndentSource(Source[..range.Start]);
+            string body = IndentSource(Source.Substring(range.Start, range.Length));
+            string suffix = IndentSource(Source[range.End..]);
+            return new RenderedFragment(
+                prefix + body + suffix,
+                new CSharpSourceRange(prefix.Length, body.Length),
+                pad + ReplaceableBodyIndent);
+        }
+
+        internal RenderedFragment Wrap(string prefix, string suffix)
+            => new(
+                prefix + Source + suffix,
+                ReplaceableBodyRange is { } range
+                    ? new CSharpSourceRange(prefix.Length + range.Start, range.Length)
+                    : null,
+                ReplaceableBodyIndent);
+    }
 
     sealed record PreparedType(
         string Namespace,

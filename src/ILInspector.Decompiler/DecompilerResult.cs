@@ -110,6 +110,11 @@ public sealed record DecompilerOptions
     /// </summary>
     public bool QualifyEventAccess { get; init; }
 
+    /// <summary>
+    /// Ordering used for named enum labels that share one switch-section body.
+    /// </summary>
+    public EnumCaseLabelOrder EnumCaseLabelOrder { get; init; } = EnumCaseLabelOrder.Alphabetical;
+
     public static DecompilerOptions Default { get; } = new();
 }
 

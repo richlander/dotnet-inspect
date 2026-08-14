@@ -592,6 +592,164 @@ public class IlToolsActivationTests
         }
     }
 
+    [Theory]
+    [InlineData("deep-inspect.yml", "test")]
+    [InlineData("release.yml", "deep-inspect-test")]
+    public void SlowWorkflows_FailAfterOracleRestoreFailure(
+        string workflowName,
+        string jobName)
+    {
+        string workflow = File.ReadAllText(
+            Path.Combine(RepoRoot, ".github", "workflows", workflowName));
+        int jobStart = workflow.IndexOf(
+            $"\n  {jobName}:\n",
+            StringComparison.Ordinal);
+        Assert.True(jobStart >= 0);
+        int nextJob = workflow.IndexOf(
+            "\n  decompiler-corpus:",
+            jobStart,
+            StringComparison.Ordinal);
+        Assert.True(jobStart < nextJob);
+        string job = workflow[jobStart..nextJob];
+        int stepsStart = job.IndexOf(
+            "\n    steps:\n",
+            StringComparison.Ordinal);
+        Assert.True(stepsStart >= 0);
+        string jobHeader = job[..stepsStart];
+        Assert.DoesNotContain("continue-on-error:", jobHeader);
+
+        int install = job.IndexOf(
+            "- name: Install ilasm/ildasm",
+            StringComparison.Ordinal);
+        int cliTests = job.IndexOf(
+            "- name: Run CLI tests (including slow integration)",
+            StringComparison.Ordinal);
+        int decompilerTests = job.IndexOf(
+            "- name: Run decompiler tests",
+            StringComparison.Ordinal);
+        int roundTrip = job.IndexOf(
+            "- name: Run IL round-trip tests (including slow sweep)",
+            StringComparison.Ordinal);
+        int nextInstallStep = job.IndexOf(
+            "\n      - ",
+            install + 1,
+            StringComparison.Ordinal);
+        int terminalCheck = job.IndexOf(
+            "- name: Check ilasm/ildasm result",
+            StringComparison.Ordinal);
+
+        Assert.True(install >= 0);
+        Assert.True(install < nextInstallStep);
+        Assert.True(nextInstallStep <= cliTests);
+        Assert.True(install < cliTests);
+        Assert.True(install < decompilerTests);
+        Assert.True(cliTests < roundTrip);
+        Assert.True(decompilerTests < roundTrip);
+        Assert.True(roundTrip < terminalCheck);
+
+        string installStep = job[install..nextInstallStep];
+        Assert.Equal(
+            1,
+            installStep.Split('\n')
+                .Count(line => line.Trim() == "id: iltools"));
+        Assert.Equal(
+            1,
+            job.Split('\n')
+                .Count(line => line.Trim() == "id: iltools"));
+        Assert.Equal(
+            ["continue-on-error: true"],
+            installStep.Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => line.StartsWith(
+                    "continue-on-error:",
+                    StringComparison.Ordinal)));
+        Assert.Contains(
+            "run: eng/restore-iltools.sh --rid linux-x64 >> \"$GITHUB_PATH\"",
+            installStep.Split('\n').Select(line => line.Trim()));
+        Assert.DoesNotContain(
+            installStep.Split('\n'),
+            line => line.TrimStart().StartsWith("if:", StringComparison.Ordinal));
+
+        string checkStep = job[terminalCheck..];
+        Assert.Equal(
+            ["if: steps.iltools.outcome != 'success'"],
+            checkStep.Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => line.StartsWith("if:", StringComparison.Ordinal)));
+        Assert.Contains(
+            "run: |",
+            checkStep.Split('\n').Select(line => line.Trim()));
+        Assert.Contains(
+            "exit 1",
+            checkStep.Split('\n').Select(line => line.Trim()));
+        Assert.DoesNotContain("continue-on-error:", checkStep);
+        Assert.DoesNotContain("\n      - ", checkStep);
+    }
+
+    [Fact]
+    public void ReleaseWorkflow_BuildsFixtureGraphBeforeCliTests()
+    {
+        string workflow = File.ReadAllText(
+            Path.Combine(RepoRoot, ".github", "workflows", "release.yml"));
+        int build = workflow.IndexOf(
+            "- name: Build product, tests, and fixtures",
+            StringComparison.Ordinal);
+        int cliTests = workflow.IndexOf(
+            "- name: Run CLI tests (including slow integration)",
+            StringComparison.Ordinal);
+
+        Assert.True(build >= 0);
+        Assert.True(build < cliTests);
+        Assert.Contains(
+            "run: dotnet build dotnet-inspect.slnx -c Release",
+            workflow[build..cliTests]);
+    }
+
+    [Fact]
+    public void ReleaseWorkflow_OracleTestLaneBlocksAllPackageJobs()
+    {
+        string workflow = File.ReadAllText(
+            Path.Combine(RepoRoot, ".github", "workflows", "release.yml"));
+
+        foreach (string jobName in new[] { "build-native", "build-portable", "publish" })
+        {
+            int jobStart = workflow.IndexOf(
+                $"\n  {jobName}:\n",
+                StringComparison.Ordinal);
+            Assert.True(jobStart >= 0);
+            int stepsStart = workflow.IndexOf(
+                "\n    steps:\n",
+                jobStart,
+                StringComparison.Ordinal);
+            Assert.True(jobStart < stepsStart);
+            string jobHeader = workflow[jobStart..stepsStart];
+            string needsLine = Assert.Single(
+                jobHeader.Split('\n').Select(line => line.Trim()),
+                line => line.StartsWith("needs:", StringComparison.Ordinal));
+            string[] needs = needsLine["needs:".Length..]
+                .Trim()
+                .Trim('[', ']')
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            string[] conditions = jobHeader.Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => line.StartsWith("if:", StringComparison.Ordinal))
+                .ToArray();
+
+            Assert.Contains("deep-inspect-test", needs);
+            Assert.DoesNotContain("continue-on-error:", jobHeader);
+            if (jobName == "publish")
+            {
+                Assert.Equal(
+                    ["if: github.event.inputs.confirm == 'publish'"],
+                    conditions);
+            }
+            else
+            {
+                Assert.Empty(conditions);
+            }
+        }
+    }
+
     static IEnumerable<string> FencedBashBlocks(string markdown)
     {
         var lines = markdown.Split('\n');

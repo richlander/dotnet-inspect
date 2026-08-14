@@ -13,10 +13,10 @@ namespace ILInspector.DecompilerHarness;
 /// trend table plus a movement table that pivots the most recent runs onto
 /// per-metric rows with goal (↑/↓) and per-step (✓/✗) glyphs.
 ///
-/// The headline metric is <c>invalidBreakdown.productBodyDefect</c>, not raw
-/// <c>invalid</c>: per #3079/#3096 the raw invalid population is ~92% harness
-/// shell-reconstruction noise that does not move on decompiler fixes, so the card
-/// surfaces the product sub-count as the signal that actually tracks progress.
+/// The headline metrics are the product-body-defect counts within invalid rows and
+/// the valid-different IL frontier, not their raw populations: per #3079/#3096 the
+/// raw buckets are dominated by harness shell-reconstruction noise, so the card
+/// surfaces the attributed product sub-counts that track decompiler progress.
 /// </summary>
 static class AuthoredCorpusHistoryCard
 {
@@ -66,11 +66,15 @@ static class AuthoredCorpusHistoryCard
             runs.Add(run);
         }
 
-        // A digest no run could have produced is a schema error, not a measurement
-        // defect, so it is refused at the boundary where the file is read rather than
-        // left for a consumer to walk past.
+        // A malformed or internally inconsistent run identity is a schema error, not
+        // a measurement defect, so it is refused at the boundary where the file is
+        // read rather than left for a consumer to walk past.
         if (AuthoredCorpusRatchet.RefuseMalformedIdentities(runs) is { } malformed)
-            throw new JsonException($"History row records an identity no run could produce: {malformed}");
+            throw new JsonException($"History row records a malformed run identity: {malformed}");
+        if (AuthoredCorpusRatchet.RefuseUnknownMethodologies(runs) is { } unknown)
+            throw new JsonException($"History row records an unknown methodology: {unknown}");
+        if (AuthoredCorpusRatchet.RefuseFrontierAttributionMethodologyMismatch(runs) is { } mismatch)
+            throw new JsonException($"History row does not match its methodology schema: {mismatch}");
 
         return runs;
     }
@@ -84,8 +88,9 @@ static class AuthoredCorpusHistoryCard
         var movement = BuildMovement(movementWindow);
 
         const string productSignalNote =
-            "Track product defects (target-body decompiler bugs), not raw invalid "
-            + "(~92% harness shell-reconstruction noise per #3079).";
+            "Track attributed product defects (target-body decompiler bugs), not "
+            + "raw invalid or the unpartitioned IL frontier. Frontier attribution "
+            + "is an informational census, not a raw-count ratchet.";
         string note;
         if (movement is not null)
         {
@@ -146,6 +151,14 @@ static class AuthoredCorpusHistoryCard
             ScalarRow("Invalid (raw)", Goal.Lower, window, cols, r => r.Invalid),
         };
         rows.AddRange(ProductDefectRows(window, cols));
+        if (window.Any(run => run.ValidDifferent?.FrontierIlDiffAttribution is not null))
+        {
+            rows.Add(InformationalNullableScalarRow(
+                "Frontier product defects (attributed)",
+                window,
+                cols,
+                run => run.ValidDifferent?.FrontierIlDiffAttribution?.ProductBodyDefect));
+        }
         return rows;
     }
 
@@ -158,45 +171,73 @@ static class AuthoredCorpusHistoryCard
         return new MultiSourceRow(label, sources) { Goal = goal };
     }
 
-    // Runs predating #3096 carry no invalid breakdown; render those columns as an absent cell so the
-    // product-defect signal stays honest (no fabricated zero) and Markout's pairwise chain skips them
-    // rather than charting a bogus step.
-    //
-    // productBodyDefect is also computed differently across methodology versions (v1 = substitution
-    // control only; v2 = substitution control plus span attribution). Both are lower bounds, but a
-    // tighter rule counts strictly more rows, so the two are not comparable. When the window straddles
-    // a version boundary the metric is split into one row per version — each populated only for its own
-    // columns — so Markout never charts a step across the boundary. When every populated run shares a
-    // version, a single "Product defects" row is emitted (unchanged output for uniform history).
-    static IEnumerable<MultiSourceRow> ProductDefectRows(IReadOnlyList<HistoryRun> window, string[] cols)
-    {
-        bool hasV1 = window.Any(run => run.InvalidBreakdown is not null && run.Methodology <= 1);
-        bool hasV2 = window.Any(run => run.InvalidBreakdown is not null && run.Methodology >= 2);
-        if (hasV1 && hasV2)
-        {
-            yield return ProductDefectRow("Product defects (v1 substitution lower bound)", window, cols, version: 1);
-            yield return ProductDefectRow("Product defects (v2 span-measured lower bound)", window, cols, version: 2);
-        }
-        else
-        {
-            yield return ProductDefectRow("Product defects", window, cols, version: null);
-        }
-    }
-
-    static MultiSourceRow ProductDefectRow(string label, IReadOnlyList<HistoryRun> window, string[] cols, int? version)
+    static MultiSourceRow InformationalNullableScalarRow(
+        string label,
+        IReadOnlyList<HistoryRun> window,
+        string[] cols,
+        Func<HistoryRun, int?> value)
     {
         var sources = new Source[window.Count];
         for (int i = 0; i < window.Count; i++)
         {
-            bool inVersion = version is null
-                || (version == 1 ? window[i].Methodology <= 1 : window[i].Methodology >= 2);
-            sources[i] = inVersion && window[i].InvalidBreakdown is { } breakdown
+            sources[i] = value(window[i]) is { } measured
+                ? new Source(cols[i], measured)
+                : new Source(cols[i], (IMarkoutCell?)null);
+        }
+
+        return new MultiSourceRow(label, sources);
+    }
+
+    // Runs predating #3096 carry no invalid breakdown; render those columns as an absent cell so the
+    // product-defect signal stays honest (no fabricated zero) and Markout's pairwise chain skips them
+    // rather than charting a bogus step.
+    //
+    // productBodyDefect is computed under an explicit invalid-attribution lineage.
+    // When the window straddles a lineage boundary the metric is split into one row
+    // per lineage, so Markout never charts an incomparable step.
+    static IEnumerable<MultiSourceRow> ProductDefectRows(IReadOnlyList<HistoryRun> window, string[] cols)
+    {
+        int[] lineages = window
+            .Where(run => run.InvalidBreakdown is not null)
+            .Select(run => AuthoredCorpusMethodology.InvalidAttributionLineage(run.Methodology))
+            .OfType<int>()
+            .Distinct()
+            .Order()
+            .ToArray();
+        if (lineages.Length > 1)
+        {
+            foreach (int lineage in lineages)
+                yield return ProductDefectRow(ProductDefectLabel(lineage), window, cols, lineage);
+        }
+        else
+        {
+            yield return ProductDefectRow("Product defects", window, cols, lineage: null);
+        }
+    }
+
+    static MultiSourceRow ProductDefectRow(string label, IReadOnlyList<HistoryRun> window, string[] cols, int? lineage)
+    {
+        var sources = new Source[window.Count];
+        for (int i = 0; i < window.Count; i++)
+        {
+            bool inLineage = lineage is null
+                || AuthoredCorpusMethodology.InvalidAttributionLineage(window[i].Methodology) == lineage;
+            sources[i] = inLineage && window[i].InvalidBreakdown is { } breakdown
                 ? new Source(cols[i], breakdown.ProductBodyDefect)
                 : new Source(cols[i], (IMarkoutCell?)null);
         }
 
         return new MultiSourceRow(label, sources) { Goal = Goal.Lower };
     }
+
+    static string ProductDefectLabel(int lineage)
+        => lineage switch
+        {
+            1 => "Product defects (v1 substitution lower bound)",
+            2 => "Product defects (v2 span-measured lower bound)",
+            3 => "Product defects (v3 final-shell lower bound)",
+            _ => $"Product defects (lineage {lineage})",
+        };
 
     // Column keys are the run dates (the pivoted table's headers). Disambiguate a repeated date with its
     // commit so each run stays a distinct column even when two runs share a day.
@@ -234,14 +275,16 @@ static class AuthoredCorpusHistoryCard
 /// that only grandfathered rows may omit them.
 /// </summary>
 internal sealed record HistoryRunValidDifferent(
-    int Total,
-    int FrontierIlExact,
-    int FrontierIlDiff,
+    [property: JsonRequired] int Total,
+    [property: JsonRequired] int FrontierIlExact,
+    [property: JsonRequired] int FrontierIlDiff,
     int? Lowering = null,
     int? KnownTaste = null,
-    int? FrontierIlNoVerdict = null)
+    int? FrontierIlNoVerdict = null,
+    HistoryRunFrontierIlDiffAttribution? FrontierIlDiffAttribution = null)
 {
     /// <summary>True when every sub-bucket was recorded, so the partition is checkable.</summary>
+    [JsonIgnore]
     public bool IsComplete => Lowering is not null && KnownTaste is not null && FrontierIlNoVerdict is not null;
 
     /// <summary>
@@ -252,18 +295,41 @@ internal sealed record HistoryRunValidDifferent(
     /// <c>int.MaxValue, int.MaxValue, 51</c> summed as <see cref="int"/> to exactly 49 —
     /// a partition that "closed" only because it overflowed.</para>
     /// </summary>
+    [JsonIgnore]
     public long? SubBucketSum => IsComplete
         ? (long)Lowering!.Value + KnownTaste!.Value + FrontierIlExact + FrontierIlDiff + FrontierIlNoVerdict!.Value
         : null;
 
     /// <summary>True when no recorded sub-bucket is a negative count.</summary>
+    [JsonIgnore]
     public bool CountsAreNonNegative
         => Total >= 0
             && FrontierIlExact >= 0
             && FrontierIlDiff >= 0
             && Lowering is not < 0
             && KnownTaste is not < 0
-            && FrontierIlNoVerdict is not < 0;
+            && FrontierIlNoVerdict is not < 0
+            && FrontierIlDiffAttribution is not { CountsAreNonNegative: false };
+}
+
+internal sealed record HistoryRunFrontierIlDiffAttribution(
+    [property: JsonRequired] int Total,
+    [property: JsonRequired] int ProductBodyDefect,
+    [property: JsonRequired] int HarnessShellReconstruction,
+    [property: JsonRequired] int CompileBackFloor,
+    [property: JsonRequired] int Unclassified)
+{
+    [JsonIgnore]
+    public long Sum
+        => (long)ProductBodyDefect + HarnessShellReconstruction + CompileBackFloor + Unclassified;
+
+    [JsonIgnore]
+    public bool CountsAreNonNegative
+        => Total >= 0
+            && ProductBodyDefect >= 0
+            && HarnessShellReconstruction >= 0
+            && CompileBackFloor >= 0
+            && Unclassified >= 0;
 }
 
 internal sealed record HistoryRunInvalidBreakdown(
@@ -272,16 +338,18 @@ internal sealed record HistoryRunInvalidBreakdown(
     [property: JsonRequired] int Unclassified)
 {
     /// <summary>Sum of the recorded reason buckets, to compare against <c>invalid</c>.</summary>
+    [JsonIgnore]
     public long Sum => (long)ProductBodyDefect + HarnessShellReconstruction + Unclassified;
 
     /// <summary>True when no recorded reason bucket is a negative count.</summary>
+    [JsonIgnore]
     public bool CountsAreNonNegative
         => ProductBodyDefect >= 0 && HarnessShellReconstruction >= 0 && Unclassified >= 0;
 }
 
 internal sealed record HistoryRun(
     [property: JsonRequired] string? Date,
-    string? Commit,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? Commit,
     int PoolMatched,
     int PoolTotal,
     int Evaluated,
@@ -289,7 +357,7 @@ internal sealed record HistoryRun(
     [property: JsonRequired] int Correct,
     HistoryRunValidDifferent? ValidDifferent,
     [property: JsonRequired] int Invalid,
-    HistoryRunInvalidBreakdown? InvalidBreakdown,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] HistoryRunInvalidBreakdown? InvalidBreakdown,
     int Unsupported,
     int Drift,
     [property: JsonPropertyName("inputsComplete")] bool InputsComplete,
@@ -312,14 +380,16 @@ internal sealed record HistoryRun(
     /// </summary>
     [property: JsonPropertyName("poolSha256")] string? PoolSha256 = null)
 {
-    // Rows predating the span-attribution change carry no methodologyVersion;
-    // treat them as v1 (substitution lower bound).
+    // Unidentified rows predating the span-attribution change carry no
+    // methodologyVersion; treat them as v1 (substitution lower bound).
+    [JsonIgnore]
     public int Methodology => MethodologyVersion ?? 1;
 
     /// <summary>
     /// True when every top-level bucket was recorded, so
     /// <see cref="TopLevelSum"/> can be compared against <see cref="Evaluated"/>.
     /// </summary>
+    [JsonIgnore]
     public bool TopLevelIsComplete => ValidDifferent is not null && NotFull is not null && UnknownOutcome is not null;
 
     /// <summary>
@@ -327,6 +397,7 @@ internal sealed record HistoryRun(
     /// to <see cref="long"/> for the same reason as <see cref="HistoryRunValidDifferent.SubBucketSum"/>:
     /// a sum that can wrap is not a partition check.
     /// </summary>
+    [JsonIgnore]
     public long? TopLevelSum => TopLevelIsComplete
         ? (long)Correct + ValidDifferent!.Total + Invalid + NotFull!.Value + Drift + Unsupported + UnknownOutcome!.Value
         : null;
@@ -341,6 +412,7 @@ internal sealed record HistoryRun(
     /// <c>productBodyDefect: 100</c>. Non-negativity is what makes closure mean every
     /// bucket is bounded by the run's own size.</para>
     /// </summary>
+    [JsonIgnore]
     public bool CountsAreNonNegative
         => Evaluated >= 0
             && PoolMatched >= 0

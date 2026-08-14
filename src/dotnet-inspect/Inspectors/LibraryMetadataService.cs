@@ -41,6 +41,8 @@ internal static class LibraryMetadataService
         InspectionQueryRegistry<ScannerContext>? queryRegistry = null,
         ResolvedAssemblyReference? assemblyReference = null,
         AssemblyIntegrationsEntry? integrationsEntry = null,
+        AssemblyIntegrationOpportunitiesEntry?
+            integrationOpportunitiesEntry = null,
         bool discoveryOnly = false,
         Sections.InspectionTrace? trace = null)
     {
@@ -50,9 +52,11 @@ internal static class LibraryMetadataService
         {
             // Expand declared scanner prerequisites before narrowing body-analysis features, so a
             // prerequisite that needs the body index is not missed by the narrowing.
-            var requiredScanners = scannerRegistry is not null && scanners is not null
-                ? scannerRegistry.ExpandRequired(scanners)
-                : scanners;
+            var requiredScanners =
+                scannerRegistry is not null
+                    && scanners is not null
+                    ? scannerRegistry.ExpandRequired(scanners)
+                    : scanners;
             if (requiredScanners is not null)
                 trace?.RecordClosure(requiredScanners);
             var requiredQueries = queryRegistry is not null && queries is not null
@@ -84,7 +88,8 @@ internal static class LibraryMetadataService
                 packageVersion,
                 isPlatformAssembly,
                 CoreSourceLinkQueryCache.Instance,
-                logger.Log);
+                logger.Log,
+                options.SourceOptions);
 
             if (!pdbContext.HasMetadata)
             {
@@ -106,6 +111,7 @@ internal static class LibraryMetadataService
                     using var queryContext = new Sections.ScannerContext
                     {
                         AssemblyPath = path,
+                        AssemblyReference = assemblyReference,
                         Model = nativeAudit,
                         Logger = logger,
                         MetadataContext = pdbContext,
@@ -154,7 +160,17 @@ internal static class LibraryMetadataService
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
 
             // Populate cheap presence flags for fast -s discovery
-            var presenceFlags = pdbContext.ScanPresenceFlags();
+            PresenceFlags presenceFlags = integrationsEntry switch
+            {
+                AssemblyIntegrationsEntry.Available available =>
+                    pdbContext.ScanPresenceFlags(available.Presence),
+                AssemblyIntegrationsEntry.Rejected
+                    or AssemblyIntegrationsEntry.Failed =>
+                    pdbContext.ScanPresenceFlagsWithoutIntegrations(),
+                null => pdbContext.ScanPresenceFlags(),
+                _ => throw new InvalidOperationException(
+                    $"Unknown assembly Integrations result '{integrationsEntry.GetType().Name}'."),
+            };
             inspection.HasExtensionTypes = presenceFlags.HasExtensionTypes;
             inspection.HasPInvokeImports = presenceFlags.HasPInvokeImports;
             inspection.HasUnsafeCode = presenceFlags.HasUnsafeCode;
@@ -195,14 +211,20 @@ internal static class LibraryMetadataService
                     logger,
                     integrationsEntry);
             }
+            if (integrationOpportunitiesEntry is not null)
+            {
+                ApplyAssemblyIntegrationOpportunitiesEntry(
+                    path,
+                    inspection,
+                    logger,
+                    integrationOpportunitiesEntry);
+            }
 
             // PE debug directory fields
             inspection.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
             inspection.HasEmbeddedPdb = pdbContext.HasEmbeddedPdb;
             inspection.PdbPath = pdbContext.CodeViewPdbPath;
-            inspection.HasNormalizedPaths = pdbContext.HasNormalizedPaths;
-            inspection.NonNormalizedPaths = pdbContext.NonNormalizedPaths;
-            inspection.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
+            ApplySourceLinkAudit(service, inspection);
 
             // Run legacy scanners and typed queries against one shared assembly context.
             var collectReferenceTree = options.CollectReferenceTree;
@@ -225,6 +247,7 @@ internal static class LibraryMetadataService
                 using var scannerContext = new Sections.ScannerContext
                 {
                     AssemblyPath = path,
+                    AssemblyReference = assemblyReference,
                     Model = inspection,
                     Logger = logger,
                     MetadataContext = pdbContext,
@@ -252,7 +275,8 @@ internal static class LibraryMetadataService
                 // Fallback for non-pipeline callers — open the assembly once for all bounded scans.
                 try
                 {
-                    using var session = AssemblyInspectionSession.Open(path);
+                    using var session =
+                        AssemblyInspectionSession.Borrow(pdbContext);
                     ApplyExtensionMethodsResult(
                         path,
                         inspection,
@@ -263,11 +287,24 @@ internal static class LibraryMetadataService
                         inspection,
                         logger,
                         CustomAttributesQuery.Execute(session));
+                    ApplyResourcesResult(
+                        path,
+                        inspection,
+                        logger,
+                        ResourcesQuery.Execute(session));
+                    ApplyTypeForwardersResult(
+                        path,
+                        inspection,
+                        logger,
+                        TypeForwardersQuery.Execute(session));
+                    ApplyUnionTypesResult(
+                        path,
+                        inspection,
+                        logger,
+                        UnionTypesQuery.Execute(session));
                     inspection.Apply(ScanClassifiedMethods(session, path, logger));
-                    inspection.ResourceInspection = ScanResources(session, path, logger);
-                    inspection.UnionTypeInspection = ScanUnionTypes(session, path, logger);
-                    inspection.TypeForwarderInspection = ScanTypeForwarders(session, path, logger);
                 }
+
                 catch (Exception ex)
                 {
                     logger.LogWarning($"Error opening {path} for scanning: {ex.Message}");
@@ -298,17 +335,17 @@ internal static class LibraryMetadataService
 
             // The query produces the flat direct-reference currency. Tree traversal remains a
             // path-owning CLI projection over that result.
-            if (collectReferenceTree && inspection.AssemblyInfo?.References is { } references)
+            if (collectReferenceTree
+                && inspection.AssemblyReferenceIdentities is { Count: > 0 } referenceIdentities)
             {
-                var sourceDir = Path.GetDirectoryName(path);
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 visited.Add(
                     inspection.AssemblyInfo.AssemblyName
                     ?? Path.GetFileNameWithoutExtension(path));
 
                 inspection.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
-                    references,
-                    sourceDir,
+                    referenceIdentities,
+                    path,
                     visited,
                     logger,
                     deduplicate: true,
@@ -346,7 +383,8 @@ internal static class LibraryMetadataService
                 isPlatformAssembly,
                 allowPdbDownload: sourcePlan.AllowPdbDownload && !sourceQueryCheckedPdb,
                 pdbAcquisitionAttempted: sourceQueryCheckedPdb,
-                readCachedPdb: sourcePlan.ReadCachedPdb);
+                readCachedPdb: sourcePlan.ReadCachedPdb,
+                sourceOptions: options.SourceOptions);
 
             var sourceSubject = FindingSubjectFor(path);
             inspection.SourceDocumentInspection ??= SourceLinkFindings.InspectSourceDocuments(
@@ -427,7 +465,8 @@ internal static class LibraryMetadataService
         bool isPlatformAssembly = false,
         bool allowPdbDownload = false,
         bool pdbAcquisitionAttempted = false,
-        bool readCachedPdb = false)
+        bool readCachedPdb = false,
+        NuGetSourceOptions? sourceOptions = null)
     {
         var pdbContext = service.Context;
 
@@ -450,7 +489,14 @@ internal static class LibraryMetadataService
         // If no local PDB, try downloading (only when a selected section authorizes remote acquisition)
         if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected && allowPdbDownload)
         {
-            await SourceEnricher.AcquirePdbAsync(pdbContext, httpClient, packageName, packageVersion, isPlatformAssembly, logger.Log);
+            await SourceEnricher.AcquirePdbAsync(
+                pdbContext,
+                httpClient,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                logger.Log,
+                sourceOptions: sourceOptions);
 
             if (pdbContext.HasPdb)
             {
@@ -474,7 +520,8 @@ internal static class LibraryMetadataService
         {
             await SourceEnricher.AcquirePdbAsync(
                 pdbContext, httpClient, packageName, packageVersion,
-                isPlatformAssembly, logger.Log, cacheOnly: true);
+                isPlatformAssembly, logger.Log, cacheOnly: true,
+                sourceOptions: sourceOptions);
 
             if (pdbContext.HasPdb)
             {
@@ -523,7 +570,28 @@ internal static class LibraryMetadataService
             }
         }
 
+        ApplySourceLinkAudit(service, inspection);
         inspection.Builder = InferBuilder(inspection);
+    }
+
+    private static void ApplySourceLinkAudit(
+        SourceLinkService service,
+        LibraryInspection inspection)
+    {
+        SourceLinkDebugAudit audit =
+            SourceLinkInspector.InspectDebugInformation(service);
+        inspection.HasSourceLink = audit.SourceLinkMap.IsPresent;
+        inspection.SourceLinkJson = service.SourceLinkJson;
+        inspection.SourceLinkMap = audit.SourceLinkMap.IsPresent
+            ? audit.SourceLinkMap
+            : null;
+        inspection.HasNormalizedPaths = audit.HasNormalizedPaths;
+        inspection.NonNormalizedPaths = audit.NonNormalizedPaths is null
+            ? null
+            : [.. audit.NonNormalizedPaths];
+        inspection.IsDeterministic =
+            service.Context.HasReproducibleFlag
+            && audit.HasNormalizedPaths != false;
     }
 
     /// <summary>
@@ -539,7 +607,8 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         bool isPlatformAssembly = false,
         string? packageName = null,
-        string? packageVersion = null)
+        string? packageVersion = null,
+        NuGetSourceOptions? sourceOptions = null)
     {
         try
         {
@@ -550,7 +619,8 @@ internal static class LibraryMetadataService
             {
                 await SourceEnricher.AcquirePdbAsync(
                     context, httpClient, packageName, packageVersion,
-                    isPlatformAssembly, logger.Log, cacheOnly: true);
+                    isPlatformAssembly, logger.Log, cacheOnly: true,
+                    sourceOptions: sourceOptions);
             }
 
             return context.HasPdb && service.HasSourceLink;
@@ -602,14 +672,72 @@ internal static class LibraryMetadataService
     /// Builds a recursive tree of assembly references with resolution.
     /// </summary>
     public static List<AssemblyReferenceNode> BuildTransitiveReferences(
-        List<AssemblyReference> references,
-        string? sourceDir,
+        IReadOnlyList<AssemblyReferenceIdentity> references,
+        string assemblyPath,
         HashSet<string> visited,
         VerboseLogger logger,
         int depth = 0,
         bool deduplicate = false,
         Dictionary<string, int>? globalSeen = null,
         int? maxDepth = null)
+    {
+        var bindingPolicies = new Dictionary<string, IAssemblyBindingPolicy>(
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal);
+        IAssemblyBindingPolicy bindingPolicy =
+            ReferenceTreeBindingPolicyFor(assemblyPath, bindingPolicies);
+        return BuildTransitiveReferences(
+            references,
+            bindingPolicy,
+            bindingPolicies,
+            visited,
+            logger,
+            depth,
+            deduplicate,
+            globalSeen,
+            maxDepth);
+    }
+
+    private static IAssemblyBindingPolicy ReferenceTreeBindingPolicyFor(
+        string assemblyPath,
+        Dictionary<string, IAssemblyBindingPolicy> bindingPolicies)
+    {
+        string fullPath = Path.GetFullPath(assemblyPath);
+        string directory = Path.GetDirectoryName(fullPath)
+            ?? throw new InvalidOperationException(
+                "The assembly path has no containing directory.");
+        if (bindingPolicies.TryGetValue(directory, out var existing))
+            return existing;
+
+        var created = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                // Preserve the tree's existing local-sibling and platform scope.
+                // Package/deps.json graph expansion belongs to the package resolver.
+                PackageRoots = [],
+                IncludeTrustedPlatformAssemblies = false,
+                IncludeAspNetCoreSharedFramework = false,
+                IncludeDepsJsonAssets = false,
+                IncludeInstalledPlatformFallback = true,
+                // The tree describes the available sibling or installed platform
+                // assembly, as it did before typed binding owned selection.
+                IgnoreAssemblyVersion = true,
+            });
+        bindingPolicies.Add(directory, created);
+        return created;
+    }
+
+    private static List<AssemblyReferenceNode> BuildTransitiveReferences(
+        IReadOnlyList<AssemblyReferenceIdentity> references,
+        IAssemblyBindingPolicy bindingPolicy,
+        Dictionary<string, IAssemblyBindingPolicy> bindingPolicies,
+        HashSet<string> visited,
+        VerboseLogger logger,
+        int depth,
+        bool deduplicate,
+        Dictionary<string, int>? globalSeen,
+        int? maxDepth)
     {
         globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<AssemblyReferenceNode> nodes = [];
@@ -624,7 +752,7 @@ internal static class LibraryMetadataService
             var node = new AssemblyReferenceNode
             {
                 Name = reference.Name,
-                Version = reference.Version,
+                Version = reference.Version?.ToString() ?? "",
                 PublicKeyToken = reference.PublicKeyToken,
                 Depth = depth
             };
@@ -646,46 +774,57 @@ internal static class LibraryMetadataService
 
             visited.Add(reference.Name);
 
-            string? resolvedPath = null;
-            string? resolvedFrom = null;
-
-            if (!string.IsNullOrEmpty(sourceDir))
+            AssemblyBindingSelection selection = bindingPolicy.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(reference),
+                    AssemblyBindingOrigin.Global(),
+                    AssemblyResolutionScope.Any));
+            ResolvedAssemblyReference? resolved =
+                (selection as AssemblyBindingSelection.Selected)?.Assembly;
+            if (selection is AssemblyBindingSelection.Unavailable)
             {
-                var localPath = Path.Combine(sourceDir, reference.Name + ".dll");
-                if (File.Exists(localPath))
-                {
-                    resolvedPath = localPath;
-                    resolvedFrom = "local";
-                }
+                node.ResolutionFailure =
+                    AssemblyReferenceResolutionFailure.Unavailable;
+                logger.LogWarning(
+                    "An assembly reference could not be resolved because a candidate was unavailable.");
+            }
+            else if (selection is AssemblyBindingSelection.Rejected)
+            {
+                node.ResolutionFailure =
+                    AssemblyReferenceResolutionFailure.Rejected;
+                logger.LogWarning(
+                    "An assembly reference could not be resolved because binding was rejected.");
             }
 
-            if (resolvedPath == null)
-            {
-                var (platformPath, _, _, error) = PlatformResolver.ResolveAssembly(reference.Name);
-                if (error == null && platformPath != null)
-                {
-                    resolvedPath = platformPath;
-                    resolvedFrom = "platform";
-                }
-            }
-
-            node.Path = resolvedPath;
-            node.ResolvedFrom = resolvedFrom;
+            node.Path = resolved?.Path;
+            node.ResolvedFrom = resolved?.Provenance is AssemblyResolutionProvenance.PlatformAsset
+                ? "platform"
+                : resolved is null
+                    ? null
+                    : "local";
             nodes.Add(node);
 
-            if (resolvedPath != null)
+            if (resolved != null)
             {
                 try
                 {
-                    var (childRefs, company) = AssemblyInspector.ExtractReferencesAndCompany(resolvedPath);
+                    var (childRefs, company) =
+                        AssemblyInspector.ExtractReferenceIdentitiesAndCompany(resolved);
                     node.Company = company;
                     if (childRefs.Count > 0
                         && (maxDepth is null || depth + 1 < maxDepth.Value))
                     {
                         var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
+                        IAssemblyBindingPolicy childBindingPolicy =
+                            resolved.Path is { } resolvedPath
+                                ? ReferenceTreeBindingPolicyFor(
+                                    resolvedPath,
+                                    bindingPolicies)
+                                : bindingPolicy;
                         var childNodes = BuildTransitiveReferences(
                             childRefs,
-                            Path.GetDirectoryName(resolvedPath),
+                            childBindingPolicy,
+                            bindingPolicies,
                             branchVisited,
                             logger,
                             depth + 1,
@@ -695,9 +834,13 @@ internal static class LibraryMetadataService
                         nodes.AddRange(childNodes);
                     }
                 }
-                catch
+                catch (Exception ex) when (
+                    ex is IOException
+                        or UnauthorizedAccessException
+                        or BadImageFormatException)
                 {
-                    // Couldn't read the assembly - just skip children
+                    logger.LogWarning(
+                        "A resolved assembly reference could not be read; its children were omitted.");
                 }
             }
         }
@@ -1503,78 +1646,6 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ScanIntegrationOpportunities(string path, LibraryInspection inspection, VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            ScanIntegrationOpportunities(session, path, inspection, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning integration opportunities in {path}: {ex.Message}");
-            MarkIntegrationFailuresIfMissing(path, inspection, ex);
-        }
-    }
-
-    internal static void ScanIntegrationOpportunities(AssemblyInspectionSession session, string path, LibraryInspection inspection, VerboseLogger logger)
-    {
-        try
-        {
-            var existing = new HashSet<string>(
-                LibraryIntegrationCatalog.All
-                    .Where(descriptor => descriptor.GetSignals(inspection).Count > 0)
-                    .Select(descriptor => descriptor.Name),
-                StringComparer.Ordinal);
-            var gaps = session.IntegrationOpportunities(existing);
-            inspection.IntegrationOpportunities = gaps.Count > 0 ? gaps : null;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning integration opportunities in {path}: {ex.Message}");
-            MarkIntegrationFailuresIfMissing(path, inspection, ex);
-        }
-    }
-
-    /// <summary>
-    /// Scans an assembly for manifest resources.
-    /// </summary>
-    internal static FindingInspection<MetadataResource> ScanResources(
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanResources(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning resources in {path}: {ex.Message}");
-            return FailedInspection<MetadataResource>(
-                path, MetadataFindings.ResourceDescriptor, ex);
-        }
-    }
-
-    internal static FindingInspection<MetadataResource> ScanResources(
-        AssemblyInspectionSession session,
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            return MetadataFindings.InspectResources(
-                session.Resources(),
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning resources in {path}: {ex.Message}");
-            return FailedInspection<MetadataResource>(
-                path, MetadataFindings.ResourceDescriptor, ex);
-        }
-    }
-
     internal static FindingInspection<SwitchInfo> ScanSwitches(
         string path,
         VerboseLogger logger)
@@ -1582,12 +1653,30 @@ internal static class LibraryMetadataService
         try
         {
             using var session = AssemblyInspectionSession.Open(path);
+            return ScanSwitches(session, path, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"Error scanning switches in {path}: {ex.Message}");
+            return FailedInspection<SwitchInfo>(
+                path, MetadataFindings.SwitchDescriptor, ex);
+        }
+    }
+
+    internal static FindingInspection<SwitchInfo> ScanSwitches(
+        AssemblyInspectionSession session,
+        string path,
+        VerboseLogger logger)
+    {
+        try
+        {
             HashSet<SwitchInfo> switches = [.. session.Switches()];
             if (session.HasMetadata)
             {
                 AddAppContextSwitches(
                     switches,
-                    AppContextSwitchProjectionProducer.Produce(session.MethodBodies));
+                    AppContextSwitchProjectionProducer.Produce(
+                        session.MethodBodies));
             }
 
             var orderedSwitches = switches
@@ -1601,9 +1690,12 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.LogWarning($"Error scanning switches in {path}: {ex.Message}");
+            logger.LogWarning(
+                $"Error scanning switches in {path}: {ex.Message}");
             return FailedInspection<SwitchInfo>(
-                path, MetadataFindings.SwitchDescriptor, ex);
+                path,
+                MetadataFindings.SwitchDescriptor,
+                ex);
         }
     }
 
@@ -1621,76 +1713,6 @@ internal static class LibraryMetadataService
             }
 
             switches.Add(new SwitchInfo("AppContext", occurrence.Switch, occurrence.Api));
-        }
-    }
-
-    internal static FindingInspection<UnionTypeInfo> ScanUnionTypes(
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanUnionTypes(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning union types in {path}: {ex.Message}");
-            return FailedInspection<UnionTypeInfo>(
-                path, MetadataFindings.UnionTypeDescriptor, ex);
-        }
-    }
-
-    internal static FindingInspection<UnionTypeInfo> ScanUnionTypes(
-        AssemblyInspectionSession session,
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            return MetadataFindings.InspectUnionTypes(
-                session.UnionTypes(),
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning union types in {path}: {ex.Message}");
-            return FailedInspection<UnionTypeInfo>(
-                path, MetadataFindings.UnionTypeDescriptor, ex);
-        }
-    }
-
-    /// <summary>
-    /// Scans an assembly for type forwarders.
-    /// </summary>
-    internal static FindingInspection<TypeForwarderInfo> ScanTypeForwarders(string path, VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanTypeForwarders(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning type forwarders in {path}: {ex.Message}");
-            return FailedInspection<TypeForwarderInfo>(
-                path, MetadataFindings.TypeForwarderDescriptor, ex);
-        }
-    }
-
-    internal static FindingInspection<TypeForwarderInfo> ScanTypeForwarders(AssemblyInspectionSession session, string path, VerboseLogger logger)
-    {
-        try
-        {
-            return MetadataFindings.InspectTypeForwarders(
-                session.TypeForwarders(),
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning type forwarders in {path}: {ex.Message}");
-            return FailedInspection<TypeForwarderInfo>(
-                path, MetadataFindings.TypeForwarderDescriptor, ex);
         }
     }
 
@@ -1732,6 +1754,27 @@ internal static class LibraryMetadataService
                 out CustomAttributesResult? customAttributes))
         {
             ApplyCustomAttributesResult(path, inspection, logger, customAttributes);
+        }
+
+        if (results.TryGet(
+                ResourcesQuery.Definition,
+                out ResourcesResult? resources))
+        {
+            ApplyResourcesResult(path, inspection, logger, resources);
+        }
+
+        if (results.TryGet(
+                TypeForwardersQuery.Definition,
+                out TypeForwardersResult? typeForwarders))
+        {
+            ApplyTypeForwardersResult(path, inspection, logger, typeForwarders);
+        }
+
+        if (results.TryGet(
+                UnionTypesQuery.Definition,
+                out UnionTypesResult? unionTypes))
+        {
+            ApplyUnionTypesResult(path, inspection, logger, unionTypes);
         }
 
         if (results.TryGet(
@@ -1834,6 +1877,7 @@ internal static class LibraryMetadataService
         switch (result)
         {
             case AssemblyReferencesResult.Available available:
+                inspection.AssemblyReferenceIdentities = available.Identities;
                 if (inspection.AssemblyInfo is not null)
                 {
                     inspection.AssemblyInfo.References = available.References.IsEmpty
@@ -1925,6 +1969,99 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown custom-attributes result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyResourcesResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        ResourcesResult result)
+    {
+        switch (result)
+        {
+            case ResourcesResult.Available available:
+                inspection.ResourceInspection =
+                    MetadataFindings.InspectResources(
+                        available.Resources,
+                        FindingSubjectFor(path));
+                break;
+
+            case ResourcesResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning resources in {path}: {failed.Error.Message}");
+                inspection.ResourceInspection =
+                    FailedInspection<MetadataResource>(
+                        path,
+                        MetadataFindings.ResourceDescriptor,
+                        failed.Error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown resources result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyTypeForwardersResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        TypeForwardersResult result)
+    {
+        switch (result)
+        {
+            case TypeForwardersResult.Available available:
+                inspection.TypeForwarderInspection =
+                    MetadataFindings.InspectTypeForwarders(
+                        available.Forwarders,
+                        FindingSubjectFor(path));
+                break;
+
+            case TypeForwardersResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning type forwarders in {path}: {failed.Error.Message}");
+                inspection.TypeForwarderInspection =
+                    FailedInspection<TypeForwarderInfo>(
+                        path,
+                        MetadataFindings.TypeForwarderDescriptor,
+                        failed.Error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown type-forwarders result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyUnionTypesResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        UnionTypesResult result)
+    {
+        switch (result)
+        {
+            case UnionTypesResult.Available available:
+                inspection.UnionTypeInspection =
+                    MetadataFindings.InspectUnionTypes(
+                        available.Unions,
+                        FindingSubjectFor(path));
+                break;
+
+            case UnionTypesResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning union types in {path}: {failed.Error.Message}");
+                inspection.UnionTypeInspection =
+                    FailedInspection<UnionTypeInfo>(
+                        path,
+                        MetadataFindings.UnionTypeDescriptor,
+                        failed.Error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown union-types result '{result.GetType().Name}'.");
         }
     }
 
@@ -2036,6 +2173,42 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown assembly integrations entry '{entry.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyAssemblyIntegrationOpportunitiesEntry(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        AssemblyIntegrationOpportunitiesEntry entry)
+    {
+        inspection.AssemblyIntegrationOpportunitiesEntry = entry;
+        switch (entry)
+        {
+            case AssemblyIntegrationOpportunitiesEntry.Available available:
+                inspection.IntegrationOpportunities =
+                    available.Opportunities.IsDefaultOrEmpty
+                        ? null
+                        : [.. available.Opportunities];
+                break;
+
+            case AssemblyIntegrationOpportunitiesEntry.Rejected rejected:
+                logger.LogWarning(
+                    $"Error acquiring integration opportunity metadata for {path}: "
+                    + $"{rejected.Failure.Kind}: {rejected.Failure.Detail}");
+                inspection.IntegrationOpportunities = null;
+                break;
+
+            case AssemblyIntegrationOpportunitiesEntry.Failed failed:
+                logger.LogWarning(
+                    $"Error reading integration opportunity metadata of {path}: "
+                    + failed.Error.Message);
+                inspection.IntegrationOpportunities = null;
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown assembly integration opportunities entry '{entry.GetType().Name}'.");
         }
     }
 

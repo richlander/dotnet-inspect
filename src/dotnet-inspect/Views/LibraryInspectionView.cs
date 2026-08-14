@@ -3,6 +3,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
+using InertText;
 using DotnetInspector.Output;
 using Markout;
 
@@ -197,6 +198,40 @@ public class LibraryInspectionView
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
             .Select(p => LibraryViewText.Contain(p))
             .ToList();
+
+    [MarkoutIgnore]
+    public bool HasSourceLinkDiagnostics =>
+        _data.SourceLinkMap?.HasDiagnostics == true;
+
+    [MarkoutSection(
+        Name = SectionNames.SourceLinkDiagnostics,
+        ShowWhenProperty = nameof(HasSourceLinkDiagnostics))]
+    public List<SourceLinkDiagnosticRow>? SourceLinkDiagnosticsSection
+    {
+        get
+        {
+            if (!HasSourceLinkDiagnostics || _data.SourceLinkMap is not { } map)
+                return null;
+
+            List<SourceLinkDiagnosticRow> rows = [];
+            if (map.Error is { } error)
+            {
+                rows.Add(new SourceLinkDiagnosticRow(
+                    "Map error",
+                    null,
+                    error));
+            }
+
+            rows.AddRange(
+                (map.RejectedKeys ?? [])
+                    .OrderBy(key => key, StringComparer.OrdinalIgnoreCase)
+                    .Select(key => new SourceLinkDiagnosticRow(
+                        "Rejected mapping",
+                        key,
+                        "entry does not conform to the SourceLink document-map schema")));
+            return rows;
+        }
+    }
 
     [MarkoutIgnore]
     public bool HasPInvokeMethods => _data.PInvokeMethodCount > 0;
@@ -979,9 +1014,7 @@ public class LibraryInspectionView
         while (index < nodes.Count && nodes[index].Depth == currentDepth)
         {
             var node = nodes[index];
-            var label = !string.IsNullOrEmpty(node.Company)
-                ? $"{node.Name} {node.Version} [{node.Company}]"
-                : $"{node.Name} {node.Version}";
+            var label = ReferenceTreeText(node);
             label = LibraryViewText.Contain(label);
             index++;
 
@@ -993,6 +1026,16 @@ public class LibraryInspectionView
 
             target.Add(children.Count > 0 ? new TreeNode(label) { Children = children } : new TreeNode(label));
         }
+    }
+
+    internal static string ReferenceTreeText(AssemblyReferenceNode node)
+    {
+        string label = !string.IsNullOrEmpty(node.Company)
+                ? $"{node.Name} {node.Version} [{node.Company}]"
+                : $"{node.Name} {node.Version}";
+        return node.ResolutionFailure is { } failure
+            ? $"{label} ({failure.ToString().ToLowerInvariant()})"
+            : label;
     }
 }
 
@@ -1608,13 +1651,18 @@ public record TypeForwarderRow(
     string TypeName,
     string TargetAssembly)
 {
-    /// <inheritdoc cref="LibraryViewText"/>
+    /// <summary>
+    /// Crosses exact forwarder identity into field-safe presentation text.
+    /// Gate: LibraryFindingConsumerTests.TypeForwardersQueryProjection_PreservesIdentityUntilInertViewBoundary.
+    /// </summary>
     [MarkoutPropertyName("Type")]
-    public string TypeName { get; init; } = LibraryViewText.Contain(TypeName);
+    public string TypeName { get; init; } =
+        new InertString(TextPolicy.Field, TypeName).ToString();
 
-    /// <inheritdoc cref="LibraryViewText"/>
+    /// <inheritdoc cref="TypeName"/>
     [MarkoutPropertyName("Target Assembly")]
-    public string TargetAssembly { get; init; } = LibraryViewText.Contain(TargetAssembly);
+    public string TargetAssembly { get; init; } =
+        new InertString(TextPolicy.Field, TargetAssembly).ToString();
 }
 
 [MarkoutSerializable]
@@ -1635,6 +1683,21 @@ public record AuditSignalRow(
 
     /// <inheritdoc cref="LibraryViewText"/>
     public string Evidence { get; init; } = LibraryViewText.Contain(Evidence);
+}
+
+[MarkoutSerializable]
+public record SourceLinkDiagnosticRow(
+    string Kind,
+    string? Document,
+    string Detail)
+{
+    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
+
+    [MarkoutSkipNull]
+    public string? Document { get; init; } = LibraryViewText.Contain(Document);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Detail { get; init; } = LibraryViewText.Contain(Detail);
 }
 
 [MarkoutSerializable]
@@ -1769,17 +1832,23 @@ public record UnionTypeRow(
     string IUnion,
     string Cases)
 {
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string Type { get; init; } = LibraryViewText.Contain(Type);
+    /// <summary>
+    /// Crosses exact union identity into field-safe presentation text.
+    /// Gate: LibraryFindingConsumerTests.UnionTypesQueryProjection_PreservesIdentityUntilInertViewBoundary.
+    /// </summary>
+    public string Type { get; init; } =
+        new InertString(TextPolicy.Field, Type).ToString();
 
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
+    /// <inheritdoc cref="Type"/>
+    public string Kind { get; init; } =
+        new InertString(TextPolicy.Field, Kind).ToString();
 
     [MarkoutPropertyName("IUnion")]
     public string IUnion { get; init; } = IUnion;
 
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string Cases { get; init; } = LibraryViewText.Contain(Cases);
+    /// <inheritdoc cref="Type"/>
+    public string Cases { get; init; } =
+        new InertString(TextPolicy.Field, Cases).ToString();
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]

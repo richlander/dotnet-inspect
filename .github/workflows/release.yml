@@ -60,16 +60,17 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Build managed tool
-        run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
-
-      - name: Run CLI tests (including slow integration)
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release
+      - name: Build product, tests, and fixtures
+        run: dotnet build dotnet-inspect.slnx -c Release
 
       - name: Install ilasm/ildasm
+        id: iltools
         continue-on-error: true
         shell: bash
         run: eng/restore-iltools.sh --rid linux-x64 >> "$GITHUB_PATH"
+
+      - name: Run CLI tests (including slow integration)
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release
 
       - name: Run decompiler tests (including slow, excluding corpus sweep)
         # The multi-hour corpus sweep runs in the decompiler-corpus job so it
@@ -85,6 +86,16 @@ jobs:
 
       - name: Run IL round-trip tests (including slow sweep)
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
+
+      # Deliberately last: the suites above still report their results when
+      # acquisition fails, but publishing must not proceed after replacing its
+      # oracle comparisons with skips.
+      - name: Check ilasm/ildasm result
+        if: steps.iltools.outcome != 'success'
+        run: |
+          echo "::error::Restoring ilasm/ildasm failed, so every test that uses them skipped." >&2
+          echo "This release cannot certify oracle-backed results. See the 'Install ilasm/ildasm' step." >&2
+          exit 1
 
   # The decompiler corpus sweep is multi-hour; give it its own 6h job budget
   # instead of sharing deep-inspect-test's budget with the CLI, analysis, and
@@ -177,7 +188,9 @@ jobs:
         # SelfContained=true forces the pack TFM segment to 'any', so the pointer
         # manifest lands at tools/any/any/DotnetToolSettings.xml. The pointer
         # carries no implementation, so SelfContained pulls in no runtime.
-        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true
+        # RID-specific packages are built by build-native; disabling inner RID
+        # packs keeps this portable job pointer-only on .NET 11 Preview 7+.
+        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false
 
       - name: Upload pointer package
         uses: actions/upload-artifact@v7

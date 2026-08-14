@@ -58,6 +58,7 @@ static class Program
         bool slotResidualCensus = false;
         bool slotUnifierCensus = false;
         bool fixtureSourceInventory = false;
+        string? structuralReview = null;
 
         string? dumpMethod = null;
         int dumpIndex = 0;
@@ -100,6 +101,8 @@ static class Program
         bool historyCard = false;
         string? historyCardPath = null;
         int historyCardWindow = 3;
+        string? appendAuthoredCorpusHistory = null;
+        bool verifyAuthoredCorpusHistory = false;
         bool verifyAuthoredCorpus = false;
         string? verifyCorpusPath = null;
         bool failOnDrift = false;
@@ -239,6 +242,12 @@ static class Program
                     case "--history-card": historyCard = true; break;
                     case "--history-path": historyCardPath = NextArg(args, ref i, flag); break;
                     case "--history-window": historyCardWindow = NextIntArg(args, ref i, flag); break;
+                    case "--append-authored-corpus-history":
+                        appendAuthoredCorpusHistory = NextArg(args, ref i, flag);
+                        break;
+                    case "--verify-authored-corpus-history":
+                        verifyAuthoredCorpusHistory = true;
+                        break;
                     case "--verify-authored-corpus":
                         verifyAuthoredCorpus = true;
                         verifyCorpusPath = NextArg(args, ref i, flag);
@@ -340,6 +349,7 @@ static class Program
                     case "--slot-residual-census": slotResidualCensus = true; break;
                     case "--slot-unifier-census": slotUnifierCensus = true; break;
                     case "--fixture-source-inventory": fixtureSourceInventory = true; break;
+                    case "--structural-review": structuralReview = NextArg(args, ref i, flag); break;
                     case "--help" or "-h": showHelp = true; break;
                     default: inputs.Add(args[i]); break;
                 }
@@ -354,13 +364,24 @@ static class Program
             return Fail(ex.Message);
         }
 
+        if (structuralReview is not null && showHelp)
+        {
+            return Fail("--structural-review is an exclusive mode and cannot be combined with other flags or inputs.");
+        }
+
         // --help is answered after flag validation, not during parsing: returning 0 from
         // the parse loop let a gate flag be silently ignored, which is a permanently
         // green gate. The rule is a function in AuthoredCorpusExitContract because this
         // file cannot be linked into the test project, and an unreachable rule is one
         // nothing notices the deletion of — see JudgeGateFlags.
         var flags = AuthoredCorpusExitContract.JudgeGateFlags(
-            showHelp, benchmarkAuthoredCorpus, verifyAuthoredCorpus, ratchetBaselinePath is not null, integrityOnly);
+            showHelp,
+            benchmarkAuthoredCorpus,
+            verifyAuthoredCorpus,
+            appendAuthoredCorpusHistory is not null,
+            verifyAuthoredCorpusHistory,
+            ratchetBaselinePath is not null,
+            integrityOnly);
         switch (flags.Disposition)
         {
             case AuthoredCorpusExitContract.FlagDisposition.PrintUsage:
@@ -398,6 +419,7 @@ static class Program
         // the first fix was written as a hand-maintained array next to one of them.
         (string Flag, bool Selected)[] dispatchOrder =
         [
+            ("--structural-review", structuralReview is not null),
             ("--fixture-source-inventory", fixtureSourceInventory),
             ("--history-card", historyCard),
             ("--generated-fixtures", generatedFixtures),
@@ -416,6 +438,8 @@ static class Program
             ("--harvest-evil-corpus", harvestEvilCorpus),
             ("--benchmark-authored-corpus", benchmarkAuthoredCorpus),
             ("--verify-authored-corpus", verifyAuthoredCorpus),
+            ("--append-authored-corpus-history", appendAuthoredCorpusHistory is not null),
+            ("--verify-authored-corpus-history", verifyAuthoredCorpusHistory),
         ];
 
         if (AuthoredCorpusExitContract.PreemptedGateRefusal(
@@ -423,6 +447,11 @@ static class Program
                 AuthoredCorpusExitContract.ProtectedGates) is { } preempted)
         {
             return Fail(preempted);
+        }
+        if (structuralReview is not null
+            && (args.Length != 2 || !string.Equals(args[0], "--structural-review", StringComparison.Ordinal)))
+        {
+            return Fail("--structural-review is an exclusive mode and cannot be combined with other flags or inputs.");
         }
 
         s_protectedGateRequested = dispatchOrder.Any(
@@ -440,6 +469,13 @@ static class Program
         if (emitHarnessReport is not null && harnessReportModes != 1)
         {
             return Fail("--emit-harness-report requires exactly one of --return-address, --not-my-type, --return-to-sender-catalog, or --source-correspondence-census.");
+        }
+
+        if (structuralReview is not null)
+        {
+            if (inputs.Count > 0 || packages.Count > 0)
+                return Fail("--structural-review reads its documents from the comparison artifact; do not pass assembly or package inputs.");
+            return StructuralReview.Run(structuralReview);
         }
 
         if (fixtureSourceInventory)
@@ -593,6 +629,17 @@ static class Program
             return benchmarkAuthoredCorpus
                 ? AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json, ratchetBaselinePath, integrityOnly)
                 : AuthoredCorpusDrift.Run(assemblies, verifyCorpusPath!, json, failOnDrift, sourceRepositories);
+        }
+
+        if (appendAuthoredCorpusHistory is not null || verifyAuthoredCorpusHistory)
+        {
+            if (inputs.Count > 0)
+                return Fail("Authored-corpus history commands do not accept assembly paths.");
+
+            s_protectedGateDispatched = true;
+            return appendAuthoredCorpusHistory is not null
+                ? AuthoredCorpusHistoryStore.Append(appendAuthoredCorpusHistory, historyCardPath)
+                : AuthoredCorpusHistoryStore.Verify(historyCardPath);
         }
 
         if (returnToSenderAb)
@@ -2067,6 +2114,12 @@ static class Program
                                 (GeneratedFixtureCatalog). Use --json for a
                                 machine-readable inventory. Migrated Dynamic
                                 sites must appear here as Built or Generated.
+          --structural-review <comparison.json>
+                                render full-body Before/After structural carets
+                                plus a rich diff from two C# annotated documents,
+                                selected node ids, and owner-issued correspondence.
+                                The JSON shape is CSharpStructuralComparisonInput;
+                                node ids remain local to their own document.
           --return-to-sender      prototype fact-planned compile-back harness:
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL
@@ -2195,7 +2248,8 @@ static class Program
                                 With it, the run fails only on a regression in
                                 valid (the exact row count, not the rounded
                                 percentage), correct, invalid, or
-                                productBodyDefect — strictly, no tolerance band. A baseline that is
+                                invalid productBodyDefect — strictly, no
+                                tolerance band. A baseline that is
                                 missing or unparseable is a hard error; a baseline
                                 that parses but holds no comparable row is a loud
                                 skip, never a silent pass.
@@ -2213,15 +2267,27 @@ static class Program
                                 EVIL run-history trend store: every run as a trend
                                 table plus a pivoted movement table over the last N
                                 runs with per-metric goal/step glyphs. Headline
-                                metric is product defects (#3079), not raw invalid
-                                (~92% harness noise). Reads no assemblies and runs
-                                no decompiler.
-          --history-path <file>  with --history-card: read a specific history.jsonl
+                                metrics are attributed invalid/frontier product
+                                defects (#3079), not their raw populations. Reads
+                                no assemblies and runs no decompiler.
+          --history-path <file>  with a history command: use a specific history.jsonl
                                 instead of the committed default
                                 (tools/DecompilerHarness/corpus/evil-runs/history.jsonl).
           --history-window <n>   with --history-card: bound the movement pivot to the
                                 last n runs (default 3; <= 0 uses every run). The
                                 Runs trend table always lists every run.
+          --append-authored-corpus-history <run.json>
+                                derive and append one canonical EVIL history row
+                                from a complete --benchmark-authored-corpus --json
+                                artifact. The artifact supplies every measured
+                                field, run date, and build commit; the command
+                                refuses dirty/non-main source, incomplete
+                                partitions, or methodology mismatches.
+          --verify-authored-corpus-history
+                                verify the complete EVIL history store through
+                                the same typed schema, partition, methodology,
+                                and Git-provenance rules used by append.
+                                Reads no assemblies and runs no decompiler.
           --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
                                 skeleton emit, parse, compilation create, emit, and opcode compare
           --fidelity-zero-signal-guard <n>

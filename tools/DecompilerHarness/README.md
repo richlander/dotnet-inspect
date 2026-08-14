@@ -37,6 +37,24 @@ dotnet run --project tools/HarnessReportDiff -c Release -- \
 
 ## Modes
 
+**Structural review** (`--structural-review <comparison.json>`): renders the
+complete Before and After C# documents with generated structural caret comments,
+then emits a compact rich-diff table from the same
+`CSharpStructuralComparison`. The JSON uses the
+`CSharpStructuralComparisonInput` shape: two C#-only
+`AnnotatedSourceDocument` values, explicit selected node ids, and owner-issued
+one-to-one correspondence. Node ids remain local to the document that minted
+them; the comparison never matches by coordinates, selected text, or display
+labels. Missing, duplicate, and unknown JSON properties are rejected. Optional
+`fidelity` retains an independently measured `OpcodeDiff -> Exact`-style
+transition and note. This is an exclusive mode; combine no other harness flag
+or assembly/package input with it.
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --structural-review /tmp/comparison.json
+```
+
 **Inverse ledger regeneration** (`--emit-inverse-ledger <path>`): evaluates `[InverseOf]` and `[NotInverted]` attributes on the decompiler's node schema and renders the Markdown representation to the specified path. Use this command to update the single-source-of-truth document at `docs/design/inverse-ledger.generated.md` after adding or changing inverse annotations in the IR types. A drift-gate test enforces that the committed file matches this command's output.
 
 **Inventory** (default): sweeps every method body in the given assemblies through the pipeline and reports the fidelity histogram plus stop-reason buckets — the prioritized slice roadmap. Exits nonzero if any importer bug (DEC0001) appears. `--max-examples N` sets how many example methods each bucket lists (default 5) — raise it to widen the candidate pool when picking the next target.
@@ -287,7 +305,7 @@ groups corpus rows by assembly, matches them to the supplied pinned assemblies b
 assembly name, feeds the vendored authored bodies into the same
 source-correspondence oracle the on-demand census uses (through an in-memory
 `ReturnToSenderSourceIndex`), and emits a taste card (`--json` for structured
-output). Before fault attribution is enabled, every row must match the supplied
+output). For fault attribution, every row must match the supplied
 assembly's module version ID, MethodDef token, type, method, overload, and
 normalized signature. A missing or inconsistent correlation fails the run
 instead of silently reducing the product-body-defect count. Each target is
@@ -308,7 +326,18 @@ PDB method spans.
 - **frontier, IL-exact (cosmetic)** — same semantics and identical IL; a pure
   surface-shape difference at the raise frontier.
 - **frontier, IL-diff (semantic)** — differs with an opcode/operand diff; worth
-  scrutiny.
+  scrutiny. Methodology v3 recompiles the exact authored body in the same final
+  RTS shell and compares it under the same Full-fidelity IL contract:
+  - authored IL exact: product body defect;
+  - authored IL also different, or authored body does not compile: harness shell
+    reconstruction;
+  - comparison unavailable: unclassified.
+
+  CompileBack-floor rows are a separate, explicit sub-bucket. The older
+  CompileBack result supplies their headline status, so neither its status nor
+  the superseded RTS failure attribution is counted as evidence from the
+  successful RTS fidelity control. IL-exact rows do not run the control because
+  there is no semantic IL difference to isolate.
 - **Not-Full (uncheckable at Full)** — the decompiler body could not be graded at
   Full fidelity (`fidelity-unavailable`/`NotFull`), so correspondence is not
   decidable. This is a decompiler limitation, not corpus drift, so it does not

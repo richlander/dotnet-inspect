@@ -31,6 +31,25 @@ namespace ILInspector.Decompiler.Pipeline;
 /// through <c>break;</c> (its join branch, or an appended one for a fall-through);
 /// the bodies are containers the structuring pass then raises.
 ///
+/// csc normalizes a dense enum range to zero before the IL <c>switch</c>, for
+/// example <c>switch (algorithm - 25)</c>. When the unchecked add/subtract has an
+/// enum operand, the pass reverses that lowering: the enum becomes the governing
+/// value and each jump-table index is translated back to its enum value with the
+/// same 32-bit wraparound. Checked arithmetic, non-enum arithmetic, and known
+/// 64-bit enum backing types retain the normalized selector.
+///
+/// A sparse enum switch may place a small contiguous case range in an unsigned
+/// pre-guard that branches directly to the shared continuation, then dispatch
+/// the remaining cases through the jump table. When that guard and the table
+/// read the same enum variable, the pass absorbs the guarded values as labels on
+/// the empty continuation section, restoring the original single switch.
+///
+/// A void switch may also target the enclosing container's final bare return
+/// directly for source cases that <c>break;</c> to the method exit. When no
+/// pre-switch predecessor identifies the sparse-guard shape above, that return
+/// remains the post-switch continuation and those labels receive empty
+/// <c>break;</c> bodies.
+///
 /// When that model leaves the switch flat, a second attempt
 /// (<see cref="RaiseCaseTargetJoin"/>) handles tables whose default routes into
 /// shared case bodies: one case target is the post-switch join, so cases reaching
@@ -65,9 +84,9 @@ public sealed class SwitchRaisingPass : IIrPass
             for (int s = 0; s < blocks.Count; s++)
             {
                 if (blocks[s].Children is [.., SwitchBranch sw]
-                    && (RaiseSwitchExpressionReturn(container, s, sw, leaveTargets, stepper)
-                        || Raise(container, s, sw, leaveTargets, stepper)
-                        || RaiseCaseTargetJoin(container, s, sw, leaveTargets, stepper)))
+                    && (RaiseSwitchExpressionReturn(function, container, s, sw, leaveTargets, stepper)
+                        || Raise(function, container, s, sw, leaveTargets, stepper)
+                        || RaiseCaseTargetJoin(function, container, s, sw, leaveTargets, stepper)))
                     return true;
                 if (blocks[s].Children is [.., ConditionalBranch]
                     && (RaiseComparisonChainSwitchExpression(container, s, leaveTargets, stepper)
@@ -81,7 +100,14 @@ public sealed class SwitchRaisingPass : IIrPass
         return false;
     }
 
-    static bool Raise(BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
+    static bool Raise(
+        IrFunction function,
+        BlockContainer container,
+        int s,
+        SwitchBranch sw,
+        HashSet<int> leaveTargets,
+        Stepper stepper,
+        bool recognizeTrailingReturn = true)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -103,15 +129,28 @@ public sealed class SwitchRaisingPass : IIrPass
         var preds = BuildPredecessors(blocks, s, caseTargets, offsetToIndex);
 
         var owned = new HashSet<int>();
-        int? join = null;
+        int? terminalReturnJoin = recognizeTrailingReturn
+            ? TrailingVoidReturnJoin(blocks, s, defaultIndex, caseTargets, preds)
+            : null;
+        int? join = terminalReturnJoin;
 
         // Each distinct case target grows into its single-entry region; the
         // region's exits unify to the shared join (or it terminates).
         var regions = new Dictionary<int, List<int>>();
         foreach (int target in caseTargets.Distinct())
+        {
+            if (target == terminalReturnJoin)
+                continue;
             if (!TryAddOwnedRegion(blocks, target, s, caseTargets, offsetToIndex,
                     preds, regions, owned, ref join))
                 return false;
+        }
+        // A case that jumps directly to the final return skips any earlier
+        // continuation block. If another section promotes such an earlier block
+        // to the join, the direct-return case cannot be rendered as `break;`;
+        // retry the established path that owns every target as a case region.
+        if (terminalReturnJoin is not null && join != terminalReturnJoin)
+            return Raise(function, container, s, sw, leaveTargets, stepper, recognizeTrailingReturn: false);
 
         // The default: a bare dispatch to a separate body laid out after the
         // cases, a bare jump to the join (omitted), an inline section, or — when
@@ -131,17 +170,17 @@ public sealed class SwitchRaisingPass : IIrPass
         else if (dispatch.Children is [Branch d] && offsetToIndex.TryGetValue(d.TargetOffset, out int dt) && dt > s)
         {
             bool isCase = caseTargets.Contains(dt);
-            if (isCase && regions.TryGetValue(dt, out var sharedRegion) && SectionTerminates(blocks, sharedRegion, offsetToIndex))
+            if (join is { } jn && dt == jn)
+            {
+                // Empty default — a bare jump to the trailing continuation.
+                owned.Add(defaultIndex);
+            }
+            else if (isCase && regions.TryGetValue(dt, out var sharedRegion) && SectionTerminates(blocks, sharedRegion, offsetToIndex))
             {
                 // Default jumps to a case body that returns/throws: fold the
                 // `default:` label onto that section (`case N: default: throw;`).
                 owned.Add(defaultIndex);
                 defaultSharesTarget = dt;
-            }
-            else if (!isCase && join is { } jn && dt == jn)
-            {
-                // Empty default — a bare jump to the join; C# omits it.
-                owned.Add(defaultIndex);
             }
             else if (!isCase)
             {
@@ -165,6 +204,8 @@ public sealed class SwitchRaisingPass : IIrPass
                 return false;
             defaultBodyHead = defaultIndex;
         }
+        if (terminalReturnJoin is not null && join != terminalReturnJoin)
+            return Raise(function, container, s, sw, leaveTargets, stepper, recognizeTrailingReturn: false);
 
         // The owned blocks must tile the contiguous span [s+1, regionEnd): the
         // join (if any) lies just past them, and no foreign block is interleaved.
@@ -186,8 +227,37 @@ public sealed class SwitchRaisingPass : IIrPass
         if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
             return false;
 
-        Build(container, s, sw, caseTargets, regions, defaultBodyHead, defaultSharesTarget, join, regionEnd, stepper);
+        Build(function, container, s, sw, caseTargets, regions, defaultBodyHead, defaultSharesTarget, join, regionEnd, stepper);
         return true;
+    }
+
+    /// <summary>
+    /// Recognizes csc's terminal <c>break;</c> layout for a void switch: one or
+    /// more table entries target the method's final bare <c>ret</c>, after every
+    /// materialized case/default body. The return is the post-switch
+    /// continuation, not a case body. With a following throwing default, a
+    /// source-level <c>return;</c> inside the case has a different lowering:
+    /// csc places the <c>ret</c> before the default body and emits an explicit
+    /// branch over it, so the final-block requirement keeps that close-negative
+    /// shape as a terminating case.
+    /// </summary>
+    static int? TrailingVoidReturnJoin(
+        IReadOnlyList<Block> blocks,
+        int switchIndex,
+        int defaultIndex,
+        IReadOnlyList<int> caseTargets,
+        IReadOnlyDictionary<int, List<int>> predecessors)
+    {
+        int candidate = blocks.Count - 1;
+        return candidate > defaultIndex
+            && caseTargets.Contains(candidate)
+            // A pre-switch predecessor is the sparse-enum guard shape owned by
+            // RaiseCaseTargetJoin, which absorbs the guarded values as labels.
+            && (!predecessors.TryGetValue(candidate, out var preds)
+                || preds.All(predecessor => predecessor >= switchIndex))
+            && blocks[candidate].Children is [Return { Value: null }]
+                ? candidate
+                : null;
     }
 
     /// <summary>
@@ -205,7 +275,7 @@ public sealed class SwitchRaisingPass : IIrPass
     /// continuation. These are the TraceLoggingMetadataCollector::AddArray and
     /// NLoptSolver::CheckInequalityConstraintAvailability shapes.
     /// </summary>
-    static bool RaiseCaseTargetJoin(BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
+    static bool RaiseCaseTargetJoin(IrFunction function, BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -224,7 +294,7 @@ public sealed class SwitchRaisingPass : IIrPass
         var preds = BuildPredecessors(blocks, s, caseTargets, offsetToIndex);
         foreach (int joinCandidate in caseTargets.Distinct())
         {
-            if (TryCaseTargetJoin(container, blocks, s, sw, caseTargets, defaultIndex,
+            if (TryCaseTargetJoin(function, container, blocks, s, sw, caseTargets, defaultIndex,
                     offsetToIndex, preds, leaveTargets, joinCandidate, stepper))
                 return true;
         }
@@ -232,7 +302,7 @@ public sealed class SwitchRaisingPass : IIrPass
     }
 
     static bool TryCaseTargetJoin(
-        BlockContainer container, IReadOnlyList<Block> blocks, int s, SwitchBranch sw,
+        IrFunction function, BlockContainer container, IReadOnlyList<Block> blocks, int s, SwitchBranch sw,
         int[] caseTargets, int defaultIndex, Dictionary<int, int> offsetToIndex,
         Dictionary<int, List<int>> preds, HashSet<int> leaveTargets, int join, Stepper stepper)
     {
@@ -325,8 +395,20 @@ public sealed class SwitchRaisingPass : IIrPass
         if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
             return false;
 
-        BuildCaseTargetJoin(container, s, sw, caseTargets, regions, defaultIndex,
-            defaultSharesTarget, join, fallThroughCase, regionEnd, stepper);
+        GuardRange? guardRange = TryGetPrecedingEnumGuardRange(
+            function,
+            blocks,
+            s,
+            sw,
+            preds,
+            leaveTargets,
+            joinOffset,
+            out var range)
+                ? range
+                : null;
+
+        BuildCaseTargetJoin(function, container, s, sw, caseTargets, regions, defaultIndex,
+            defaultSharesTarget, join, fallThroughCase, regionEnd, guardRange, stepper);
         return true;
     }
 
@@ -341,7 +423,7 @@ public sealed class SwitchRaisingPass : IIrPass
     /// between two value blocks (lowered to a <c>?:</c> arm). This is the
     /// AssemblyNameParser::IsWhiteSpace shape.
     /// </summary>
-    static bool RaiseSwitchExpressionReturn(BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
+    static bool RaiseSwitchExpressionReturn(IrFunction function, BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -460,7 +542,7 @@ public sealed class SwitchRaisingPass : IIrPass
         if (!JoinOnlyReachedByValueBlocks(blocks, owned, join, leaveTargets))
             return false;
 
-        BuildSwitchExpression(container, s, sw, caseTargets, defaultArm, join, stepper);
+        BuildSwitchExpression(function, container, s, sw, caseTargets, defaultArm, join, stepper);
         return true;
     }
 
@@ -493,9 +575,10 @@ public sealed class SwitchRaisingPass : IIrPass
     static IrExpression ValueBlockExpr(Block block) => ((StoreLocal)block.Children[0]).Value;
 
     /// <summary>Replaces a value-producing jump table with <c>return v switch { … };</c>: the arms group case labels by their value block, and the default arm is supplied by the recognizer.</summary>
-    static void BuildSwitchExpression(BlockContainer container, int s, SwitchBranch sw, int[] caseTargets, IrExpression defaultArm, int join, Stepper stepper)
+    static void BuildSwitchExpression(IrFunction function, BlockContainer container, int s, SwitchBranch sw, int[] caseTargets, IrExpression defaultArm, int join, Stepper stepper)
     {
         var all = container.Blocks.ToList();
+        var input = TakeSwitchInput(function, sw);
 
         var labelsByTarget = new Dictionary<int, List<int>>();
         for (int i = 0; i < caseTargets.Length; i++)
@@ -503,17 +586,21 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var arms = new List<SwitchExpressionArm>();
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
-            arms.Add(new SwitchExpressionArm([.. labels], isDefault: false, (IrExpression)ValueBlockExpr(all[target]).Clone()));
+        {
+            arms.Add(new SwitchExpressionArm(
+                TranslatedLabels(labels, input.LabelBase),
+                isDefault: false,
+                (IrExpression)ValueBlockExpr(all[target]).Clone()));
+        }
         arms.Add(new SwitchExpressionArm([], isDefault: true, defaultArm));
 
-        var value = (IrExpression)sw.DetachChildren()[0];
         sw.Detach();
 
         foreach (var block in all)
             block.Detach();
 
         var switchBlock = all[s];
-        switchBlock.Add(new Return(new SwitchExpression(value, arms)));
+        switchBlock.Add(new Return(new SwitchExpression(input.Value, arms)));
 
         var rebuilt = new BlockContainer();
         for (int idx = 0; idx <= s; idx++)
@@ -935,13 +1022,17 @@ public sealed class SwitchRaisingPass : IIrPass
         return true;
     }
 
-    /// <summary>Successor block indices (including the conditional / no-terminator fall-through), or false for an unsupported section shape.</summary>
-    static bool TrySuccessors(IReadOnlyList<Block> blocks, int idx, Dictionary<int, int> offsetToIndex, out List<int> succs)
+    /// <summary>
+    /// Successor block indices (including conditional/no-terminator fall-through),
+    /// or false for an unsupported section shape such as a direct structured transfer.
+    /// </summary>
+    internal static bool TrySuccessors(IReadOnlyList<Block> blocks, int idx, Dictionary<int, int> offsetToIndex, out List<int> succs)
     {
         succs = [];
         var block = blocks[idx];
         for (int i = 0; i < block.Children.Count - 1; i++)
-            if (block.Children[i] is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
+            if (block.Children[i] is Branch or ConditionalBranch or SwitchBranch
+                or Leave or EndFinally or EndFilter or Break or Continue)
                 return false;
 
         var last = block.Children.Count > 0 ? block.Children[^1] : null;
@@ -961,7 +1052,7 @@ public sealed class SwitchRaisingPass : IIrPass
                 if (idx + 1 < blocks.Count)
                     succs.Add(idx + 1);
                 return true;
-            case SwitchBranch or Leave or EndFinally or EndFilter:
+            case SwitchBranch or Leave or EndFinally or EndFilter or Break or Continue:
                 return false;
             default:
                 if (idx + 1 < blocks.Count)
@@ -1901,12 +1992,13 @@ public sealed class SwitchRaisingPass : IIrPass
     }
 
     static void Build(
-        BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
+        IrFunction function, BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
         Dictionary<int, List<int>> regions, int? defaultBodyHead, int? defaultSharesTarget,
         int? join, int regionEnd, Stepper stepper)
     {
         var all = container.Blocks.ToList();
         int? joinOffset = join is { } j ? all[j].StartOffset : null;
+        var input = TakeSwitchInput(function, sw);
 
         // Case labels grouped by target — the jump-table index is the label.
         var labelsByTarget = new Dictionary<int, List<int>>();
@@ -1918,16 +2010,17 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var sections = new List<SwitchSection>();
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
-            sections.Add(new SwitchSection(IntLabels(labels), isDefault: target == defaultSharesTarget,
-                SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
+            sections.Add(new SwitchSection(TranslatedConstants(labels, input.LabelBase), isDefault: target == defaultSharesTarget,
+                target == join
+                    ? EmptyBreakBody()
+                    : SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
         if (defaultBodyHead is { } dh)
             sections.Add(new SwitchSection([], isDefault: true,
                 SectionBody(regions[dh].Select(i => all[i]).ToList(), joinOffset)));
 
         var switchBlock = all[s];
-        var value = (IrExpression)sw.DetachChildren()[0];
         sw.Detach();
-        switchBlock.Add(new Switch(value, sections));
+        switchBlock.Add(new Switch(input.Value, sections));
 
         var rebuilt = new BlockContainer();
         for (int idx = 0; idx <= s; idx++)
@@ -1969,16 +2062,26 @@ public sealed class SwitchRaisingPass : IIrPass
     }
 
     static void BuildCaseTargetJoin(
-        BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
+        IrFunction function, BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
         Dictionary<int, List<int>> regions, int defaultIndex, bool defaultSharesTarget, int join,
-        int? fallThroughCase, int regionEnd, Stepper stepper)
+        int? fallThroughCase, int regionEnd, GuardRange? guardRange, Stepper stepper)
     {
         var all = container.Blocks.ToList();
         int joinOffset = all[join].StartOffset;
+        var input = TakeSwitchInput(function, sw);
 
         var labelsByTarget = new Dictionary<int, List<int>>();
         for (int i = 0; i < caseTargets.Length; i++)
-            (labelsByTarget.TryGetValue(caseTargets[i], out var list) ? list : labelsByTarget[caseTargets[i]] = []).Add(i);
+            (labelsByTarget.TryGetValue(caseTargets[i], out var list) ? list : labelsByTarget[caseTargets[i]] = [])
+                .Add(unchecked(input.LabelBase + i));
+        if (guardRange is { } guard)
+        {
+            guard.Branch.Detach();
+            var labels = labelsByTarget.TryGetValue(join, out var list)
+                ? list
+                : labelsByTarget[join] = [];
+            labels.InsertRange(0, guard.Labels);
+        }
 
         // Clone the shared terminator before detaching: the default falls into a
         // single-block terminating case, which C# cannot do, so its body is
@@ -1993,11 +2096,16 @@ public sealed class SwitchRaisingPass : IIrPass
         var sections = new List<SwitchSection>();
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
         {
+            var sectionLabels = guardRange is not null
+                && defaultSharesTarget
+                && target == defaultIndex
+                    ? ImmutableArray<Constant>.Empty
+                    : labels.Select(IntConst).ToImmutableArray();
             if (target == join)
-                sections.Add(new SwitchSection(IntLabels(labels),
+                sections.Add(new SwitchSection(sectionLabels,
                     isDefault: defaultSharesTarget && target == defaultIndex, EmptyBreakBody()));
             else
-                sections.Add(new SwitchSection(IntLabels(labels),
+                sections.Add(new SwitchSection(sectionLabels,
                     isDefault: defaultSharesTarget && target == defaultIndex,
                     SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
         }
@@ -2006,18 +2114,171 @@ public sealed class SwitchRaisingPass : IIrPass
                 DefaultSectionBody(regions[defaultIndex].Select(i => all[i]).ToList(), joinOffset, duplicatedTerminator)));
 
         var switchBlock = all[s];
-        var value = (IrExpression)sw.DetachChildren()[0];
         sw.Detach();
-        switchBlock.Add(new Switch(value, sections));
+        switchBlock.Add(new Switch(input.Value, sections));
 
         var rebuilt = new BlockContainer();
         for (int idx = 0; idx <= s; idx++)
             rebuilt.Add(all[idx]);
         for (int idx = regionEnd; idx < all.Count; idx++)
             rebuilt.Add(all[idx]);
-        stepper.StepOver("raise IL jump table to switch (case target is continuation)", container);
+        stepper.StepOver(
+            guardRange is null
+                ? "raise IL jump table to switch (case target is continuation)"
+                : "raise IL jump table and enum range guard to switch",
+            container);
         container.ReplaceWith(rebuilt);
     }
+
+    readonly record struct GuardRange(ConditionalBranch Branch, ImmutableArray<int> Labels);
+
+    readonly record struct SwitchInput(IrExpression Value, int LabelBase);
+
+    static bool TryGetPrecedingEnumGuardRange(
+        IrFunction function,
+        IReadOnlyList<Block> blocks,
+        int switchIndex,
+        SwitchBranch sw,
+        IReadOnlyDictionary<int, List<int>> predecessors,
+        HashSet<int> leaveTargets,
+        int joinOffset,
+        out GuardRange range)
+    {
+        range = default;
+        if (switchIndex == 0
+            || blocks[switchIndex].Children is not [SwitchBranch]
+            || !OnlyReachedFromPrecedingGuard(blocks, switchIndex, leaveTargets)
+            || !predecessors.TryGetValue(switchIndex, out var switchPredecessors)
+            || switchPredecessors.Count != 1
+            || switchPredecessors[0] != switchIndex - 1
+            || blocks[switchIndex - 1].Children is not [.., ConditionalBranch branch]
+            || branch.TargetOffset != joinOffset
+            || branch.Condition is not Comparison
+            {
+                Kind: ComparisonKind.LessThanOrEqual,
+                IsUnsigned: true,
+                Left: var normalizedGuardValue,
+                Right: Constant { Value: int lastIndex },
+            }
+            || lastIndex < 0
+            // Keep emitted source bounded by the jump table that justified the
+            // surrounding switch; hostile IL cannot expand a tiny table into a
+            // huge case list through its pre-guard.
+            || lastIndex >= sw.TargetOffsets.Length
+            || !TryRestoreEnumSwitchInput(
+                function,
+                sw.Value,
+                sw.TargetOffsets.Length,
+                out var switchValue,
+                out int switchLabelBase)
+            || !TryRestoreEnumSwitchInput(
+                function,
+                normalizedGuardValue,
+                lastIndex + 1,
+                out var guardValue,
+                out int guardLabelBase)
+            || switchValue.ResultType is not { } switchType
+            || guardValue.ResultType is not { } guardType
+            || !switchType.Equals(guardType)
+            || !PlaceIdentity.SameVariable(switchValue, guardValue))
+        {
+            return false;
+        }
+
+        var guardLabels = TranslatedLabels(Enumerable.Range(0, lastIndex + 1), guardLabelBase);
+        var tableLabels = TranslatedLabels(Enumerable.Range(0, sw.TargetOffsets.Length), switchLabelBase);
+        var guardLabelSet = guardLabels.ToHashSet();
+        if (tableLabels.Any(guardLabelSet.Contains))
+            return false;
+
+        range = new GuardRange(branch, guardLabels);
+        return true;
+    }
+
+    static bool OnlyReachedFromPrecedingGuard(
+        IReadOnlyList<Block> blocks,
+        int switchIndex,
+        HashSet<int> leaveTargets)
+    {
+        int switchOffset = blocks[switchIndex].StartOffset;
+        if (leaveTargets.Contains(switchOffset))
+            return false;
+
+        for (int index = 0; index < blocks.Count; index++)
+        {
+            if (index == switchIndex)
+                continue;
+            foreach (var child in blocks[index].Children)
+            {
+                foreach (var node in child.Descendants.Prepend(child))
+                {
+                    if (Targets(node).Contains(switchOffset))
+                        return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    static SwitchInput TakeSwitchInput(IrFunction function, SwitchBranch sw)
+    {
+        var value = (IrExpression)sw.DetachChildren()[0];
+        if (!TryRestoreEnumSwitchInput(
+                function,
+                value,
+                sw.TargetOffsets.Length,
+                out var enumValue,
+                out int labelBase))
+        {
+            return new SwitchInput(value, 0);
+        }
+        return new SwitchInput(enumValue, labelBase);
+    }
+
+    static bool TryRestoreEnumSwitchInput(
+        IrFunction function,
+        IrExpression value,
+        int labelCount,
+        out IrExpression enumValue,
+        out int labelBase)
+    {
+        enumValue = null!;
+        labelBase = 0;
+        if (value is not Binary
+            {
+                Kind: BinaryKind.Add or BinaryKind.Subtract,
+                IsChecked: false,
+                Left: var left,
+                Right: Constant { Value: int offset },
+            } binary
+            || SwitchTypeFacts.EnumType(function, left) is not { } enumType
+            || function.EnumUnderlyingTypes.GetValueOrDefault(enumType) is not { } underlying
+            || TypeFamilies.Of(underlying) != StackFamily.I4
+            || !SwitchTypeFacts.StorageMatchesBacking(function, left, enumType, underlying))
+        {
+            return false;
+        }
+
+        int restoredLabelBase = binary.Kind == BinaryKind.Subtract
+            ? offset
+            : unchecked(-offset);
+        if (underlying.Name is not ("Int32" or "UInt32")
+            && Enumerable.Range(0, labelCount)
+                .Select(index => unchecked(restoredLabelBase + index))
+                .Any(label => !CSharpConversionRules.ConstantFits(label, underlying)))
+        {
+            return false;
+        }
+        labelBase = restoredLabelBase;
+        enumValue = (IrExpression)left.Clone();
+        return true;
+    }
+
+    static ImmutableArray<int> TranslatedLabels(IEnumerable<int> indices, int labelBase)
+        => [.. indices.Select(index => unchecked(labelBase + index))];
+
+    static ImmutableArray<Constant> TranslatedConstants(IEnumerable<int> indices, int labelBase)
+        => [.. TranslatedLabels(indices, labelBase).Select(IntConst)];
 
     /// <summary>A case whose target is the join carries no body — just <c>break;</c>.</summary>
     static BlockContainer EmptyBreakBody()

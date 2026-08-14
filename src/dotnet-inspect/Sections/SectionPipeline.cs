@@ -1138,6 +1138,12 @@ public sealed class SectionPipeline<TModel>
 
     private bool IsInAutomaticScope(SectionEntry<TModel> entry)
     {
+        // Headless Summary is rendering context rather than selectable evidence, so it does not
+        // belong to an authored category. Commands that register one still need it at -v:q after
+        // adopting base categories.
+        if (IsHeadlessSummary(entry))
+            return true;
+
         if (!HasBaseCategoryScope)
             return true;
 

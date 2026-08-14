@@ -78,6 +78,78 @@ public sealed class CSharpFormatterTests
         Assert.Empty(declaration.Diagnostics);
     }
 
+    [Fact]
+    public void FormatsPrimaryConstructorParametersInTypeUnit()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class"
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings
+        });
+
+        var declaration = formatter.FormatTypeUnit(
+            type,
+            members: null,
+            primaryConstructorParameters:
+            [
+                new ApiParameter
+                {
+                    Type = "System.String",
+                    Name = "message",
+                    Attributes =
+                    [
+                        "Attributes.Other.Marker(typeof(External.Value))"
+                    ]
+                }
+            ]);
+
+        Assert.Contains(
+            "public class Worker([Marker(typeof(External.Value))] String message)",
+            declaration.Text,
+            StringComparison.Ordinal);
+        Assert.Contains("Attributes.Other", declaration.Usings);
+    }
+
+    [Fact]
+    public void PrimaryConstructorAttributeSuffixShadowKeepsQualifiedName()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class"
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+            AdditionalRootShadowingNames = ["MarkerAttribute"]
+        });
+
+        var declaration = formatter.FormatTypeUnit(
+            type,
+            members: null,
+            primaryConstructorParameters:
+            [
+                new ApiParameter
+                {
+                    Type = "int",
+                    Name = "value",
+                    Attributes = ["External.Marker"]
+                }
+            ]);
+
+        Assert.Contains(
+            "public class Worker([External.Marker] int value)",
+            declaration.Text,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("External", declaration.Usings);
+    }
+
     [Theory]
     [InlineData(CSharpTypeNamePolicy.Qualified, "public System.Threading.Tasks.Task Run()", false)]
     [InlineData(CSharpTypeNamePolicy.ShortWithUsings, "public Task Run()", true)]
@@ -110,6 +182,570 @@ public sealed class CSharpFormatterTests
 
         Assert.Contains(expectedDeclaration, declaration.Text, StringComparison.Ordinal);
         Assert.Equal(expectsGeneratedUsing, declaration.Usings.Contains("System.Threading.Tasks"));
+    }
+
+    [Fact]
+    public void FormatsBareMemberTypesWithNamespaceSet()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "FieldWriter",
+            Kind = "class"
+        };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter { Type = "System.IO.TextWriter", Name = "writer" },
+                    new ApiParameter { Type = "Markout.Formatting.IFieldFormatter", Name = "formatter" },
+                    new ApiParameter
+                    {
+                        Type = "Markout.MarkoutWriterOptions?",
+                        Name = "options",
+                        HasDefault = true,
+                        DefaultValueText = "null"
+                    }
+                ]
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, constructor);
+
+        Assert.Equal(
+            """
+            using Markout;
+            using Markout.Formatting;
+            using System.IO;
+
+            public FieldWriter(TextWriter writer, IFieldFormatter formatter, MarkoutWriterOptions? options = null)
+            """,
+            declaration.Text);
+        Assert.Equal(
+            ["Markout", "Markout.Formatting", "System.IO"],
+            declaration.Usings);
+        Assert.DoesNotContain(
+            declaration.Usings,
+            value => value.StartsWith("using ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ShortWithUsingsDerivesAlongsideCallerImports()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "CreateTimer",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Windows.Forms.Timer",
+                MemberName = "CreateTimer"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+            Usings = ["System.Threading"]
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public Timer CreateTimer()",
+            declaration.Text,
+            StringComparison.Ordinal);
+        Assert.Equal(["System.Windows.Forms"], declaration.Usings);
+    }
+
+    [Fact]
+    public void UnqualifiedTypePreventsCollidingImport()
+    {
+        var type = new ApiType { Namespace = "App", Name = "Client", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Get",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Lib.Node",
+                MemberName = "Get",
+                Parameters = [new ApiParameter { Type = "Node", Name = "ambient" }]
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public Lib.Node Get(Node ambient)",
+            declaration.Text,
+            StringComparison.Ordinal);
+        Assert.Empty(declaration.Usings);
+    }
+
+    [Theory]
+    [InlineData(CSharpTypeNamePolicy.ShortWithUsings)]
+    [InlineData(CSharpTypeNamePolicy.ContextualShort)]
+    public void DeclaredTypeNameKeepsCrossNamespaceReferenceQualified(
+        CSharpTypeNamePolicy policy)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Task", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Threading.Tasks.Task",
+                MemberName = "Run"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = policy,
+            Usings = policy == CSharpTypeNamePolicy.ContextualShort
+                ? ["System.Threading.Tasks"]
+                : []
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public System.Threading.Tasks.Task Run()",
+            declaration.Text,
+            StringComparison.Ordinal);
+        Assert.Empty(declaration.Usings);
+    }
+
+    [Fact]
+    public void NamespaceSegmentKeepsSameNamedReferenceQualified()
+    {
+        var type = new ApiType { Namespace = "Samples.Models", Name = "Worker", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Get",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "External.Models",
+                MemberName = "Get"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+            ContainingNamespace = type.Namespace
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public External.Models Get()",
+            declaration.Text,
+            StringComparison.Ordinal);
+        Assert.Empty(declaration.Usings);
+    }
+
+    [Fact]
+    public void KnownNamespaceRootKeepsSameNamedReferenceQualified()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "GetWidget",
+                    Kind = "method",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "Alpha.Beta.Widget",
+                        MemberName = "GetWidget"
+                    }
+                },
+                new ApiMember
+                {
+                    Name = "GetAlpha",
+                    Kind = "method",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "Zeta.Alpha",
+                        MemberName = "GetAlpha"
+                    }
+                }
+            ]
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+            ContainingNamespace = type.Namespace
+        });
+
+        var declaration = formatter.FormatTypeUnit(type, type.Members);
+
+        Assert.Contains("public Widget GetWidget();", declaration.Text, StringComparison.Ordinal);
+        Assert.Contains("public Zeta.Alpha GetAlpha();", declaration.Text, StringComparison.Ordinal);
+        Assert.Equal(["Alpha.Beta"], declaration.Usings);
+    }
+
+    [Fact]
+    public void EnclosingNamespaceChildKeepsSameNamedReferenceQualified()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Alpha.Beta",
+            Name = "Worker",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "GetThing",
+                    Kind = "method",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "Alpha.Gamma.Thing",
+                        MemberName = "GetThing"
+                    }
+                },
+                new ApiMember
+                {
+                    Name = "GetGamma",
+                    Kind = "method",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "Other.Gamma",
+                        MemberName = "GetGamma"
+                    }
+                }
+            ]
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+            ContainingNamespace = type.Namespace
+        });
+
+        var declaration = formatter.FormatTypeUnit(type, type.Members);
+
+        Assert.Contains("public Thing GetThing();", declaration.Text, StringComparison.Ordinal);
+        Assert.Contains("public Other.Gamma GetGamma();", declaration.Text, StringComparison.Ordinal);
+        Assert.Equal(["Alpha.Gamma"], declaration.Usings);
+    }
+
+    [Fact]
+    public void UnrelatedNamespaceChildDoesNotShadowSameNamedReference()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Alpha.Beta",
+            Name = "Worker",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "GetThing",
+                    Kind = "method",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "Zeta.Delta.Thing",
+                        MemberName = "GetThing"
+                    }
+                },
+                new ApiMember
+                {
+                    Name = "GetDelta",
+                    Kind = "method",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "Other.Delta",
+                        MemberName = "GetDelta"
+                    }
+                }
+            ]
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+            ContainingNamespace = type.Namespace
+        });
+
+        var declaration = formatter.FormatTypeUnit(type, type.Members);
+
+        Assert.Contains("public Thing GetThing();", declaration.Text, StringComparison.Ordinal);
+        Assert.Contains("public Delta GetDelta();", declaration.Text, StringComparison.Ordinal);
+        Assert.Equal(
+            ["Other", "Zeta.Delta"],
+            declaration.Usings.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void ContainingNamespaceChildShadowedRootUsesGlobalAlias()
+    {
+        var type = new ApiType { Namespace = "Alpha.System", Name = "Worker", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "GetUri",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Uri",
+                MemberName = "GetUri"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.Qualified,
+            ContainingNamespace = type.Namespace
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public global::System.Uri GetUri()",
+            declaration.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ContainingNamespaceRootDoesNotRequireGlobalAlias()
+    {
+        var type = new ApiType { Namespace = "System.Example", Name = "Worker", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "GetUri",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Uri",
+                MemberName = "GetUri"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.Qualified,
+            ContainingNamespace = type.Namespace
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains("public System.Uri GetUri()", declaration.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("global::System.Uri", declaration.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void QualifiedPolicyUsesGlobalAliasWhenNamespaceRootIsShadowed()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker`1",
+            Kind = "class",
+            TypeParameters = [new TypeParameter { Name = "System" }]
+        };
+        var member = new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Threading.Tasks.Task",
+                MemberName = "Run"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.Qualified
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public global::System.Threading.Tasks.Task Run()",
+            declaration.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void QualifiedPolicyEscapesShadowedKeywordNamespaceRoot()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker`1",
+            Kind = "class",
+            TypeParameters = [new TypeParameter { Name = "event" }]
+        };
+        var member = new ApiMember
+        {
+            Name = "GetWidget",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "event.Models.Widget",
+                MemberName = "GetWidget"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.Qualified
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public global::@event.Models.Widget GetWidget()",
+            declaration.Text,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("@global::", declaration.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void QualifiedPolicyEscapesKeywordRootInsideExistingGlobalAlias()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "GetWidget",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "global::event.Models.Widget",
+                MemberName = "GetWidget"
+            }
+        };
+
+        var declaration = new CSharpFormatter().FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public global::@event.Models.Widget GetWidget()",
+            declaration.Text,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("global::global::", declaration.Text, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(CSharpTypeNamePolicy.Qualified, "public @event.Models.Widget GetWidget()", false)]
+    [InlineData(CSharpTypeNamePolicy.ShortWithUsings, "public Widget GetWidget()", true)]
+    [InlineData(CSharpTypeNamePolicy.ContextualShort, "public Widget GetWidget()", false)]
+    public void KeywordNamespaceRootMatchesTypeNamePlan(
+        CSharpTypeNamePolicy policy,
+        string expectedDeclaration,
+        bool importNamespace)
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "GetWidget",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "event.Models.Widget",
+                MemberName = "GetWidget"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = policy,
+            Usings = policy == CSharpTypeNamePolicy.ContextualShort
+                ? ["event.Models"]
+                : []
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(expectedDeclaration, declaration.Text, StringComparison.Ordinal);
+        if (importNamespace)
+            Assert.Contains("using @event.Models;", declaration.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void QualifiedPolicyEscapesKeywordTypeWithShadowedRoot()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker`1",
+            Kind = "class",
+            TypeParameters = [new TypeParameter { Name = "Alpha" }]
+        };
+        var member = new ApiMember
+        {
+            Name = "GetEvent",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Alpha.event",
+                MemberName = "GetEvent"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.Qualified
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public global::Alpha.@event GetEvent()",
+            declaration.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShortPolicyEscapesKeywordType()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "GetEvent",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Alpha.event",
+                MemberName = "GetEvent"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains("Alpha", declaration.Usings);
+        Assert.Contains("public @event GetEvent()", declaration.Text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -175,6 +811,47 @@ public sealed class CSharpFormatterTests
         Assert.Equal(
             "private delegate void Callback();",
             new CSharpFormatter().FormatDelegate(type, type.Members.Single()));
+    }
+
+    [Fact]
+    public void FormatsDelegateWithContainedHostileName()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Call\nback",
+            Kind = "delegate",
+            Accessibility = "private"
+        };
+        var invoke = new ApiMember
+        {
+            Name = "Invoke",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "Invoke"
+            }
+        };
+
+        Assert.Equal(
+            "private delegate void Call_back();",
+            new CSharpFormatter().FormatDelegate(type, invoke));
+    }
+
+    [Fact]
+    public void FormatsNestedTypeNameWithoutFoldingItsNestingSeparator()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Outer.Inner",
+            Kind = "class"
+        };
+
+        Assert.Equal(
+            "public class Outer.Inner",
+            new CSharpFormatter().FormatTypeDeclaration(type));
     }
 
     [Fact]

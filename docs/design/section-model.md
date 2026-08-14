@@ -78,6 +78,17 @@ without mixing unrelated concepts.
 
 Type listings and single-type views use `@Surface` as their base category.
 
+The package command also has two base categories:
+
+| Category | Purpose |
+| --- | --- |
+| `@Package` | Identity, relationships, registry facts, diagnostics, and the whole-package listing |
+| `@Files` | Curated package document and file-kind views |
+
+The whole-package listing is unbounded, so it remains outside every automatic
+verbosity preset even though it belongs to `@Package`. Explicitly selecting
+`@Package` requests the complete package-native lens.
+
 ### Domain categories
 
 Domain categories are separate conceptual lenses. They are explicit doors and
@@ -100,6 +111,11 @@ participating in `@Audit`.
 
 The single-type view uses the same concept for `@Analysis`, `@Audit`,
 `@Performance`, `@Source`, and `@SourceLink`.
+
+At package scope, `@Dependencies` groups direct and runtime-specific package
+dependencies, while `@Audit` cross-lists package signals, signing,
+vulnerabilities, and SourceLink integrity evidence. `@SourceLink` remains a
+separate provenance domain.
 
 ### Category doors
 
@@ -164,7 +180,7 @@ package file family is the primary example:
 - `Package README file`
 
 The `@Files` category owns the curated subsets. The unfiltered `Package files`
-superset is deliberately not a member because selecting the door must not
+superset belongs to `@Package` instead because selecting `@Files` must not
 duplicate every matching path.
 
 Renamed sections keep their prior spellings in
@@ -367,7 +383,7 @@ The library command's current authored ownership is:
 | --- | --- |
 | `@Library` | `Library Info`, `Inspection Failures`, `References`, `Signals`, `Symbols` |
 | `@Surface` | `Async Methods`, `Custom Attributes`, `Extension Methods`, `Resources`, `Switches`, `Type Forwarders`, `Union Types`, `P/Invoke Methods` |
-| `@Audit` | `Unsafe Members`, `P/Invoke Methods`, `Non-normalized Paths`, `Signals`, `Symbols` |
+| `@Audit` | `Unsafe Members`, `P/Invoke Methods`, `Non-normalized Paths`, `SourceLink: Diagnostics`, `Signals`, `Symbols` |
 | `@Performance` | All `Performance:*` sections, `Array Pool Escapes`, `Top Leverage` |
 | `@SourceLink` | All `SourceLink:*` sections |
 | `@Integrations` | All integration sections |
@@ -375,6 +391,21 @@ The library command's current authored ownership is:
 | `@Context` | All `Context:*` sections |
 
 `@Library` and `@Surface` are base categories. The remaining categories are
+domains.
+
+## Package category map
+
+The package command's current authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Package files` |
+| `@Files` | `Package nuspec file`, `Package README file`, `Package skill files` |
+| `@Dependencies` | `Dependencies`, `Runtime Dependencies` |
+| `@Audit` | `Signals`, `Signature`, `Vulnerabilities`, `SourceLink: Availability`, `SourceLink: Missing Files`, `SourceLink: Integrity` |
+| `@SourceLink` | All `SourceLink:*` sections |
+
+`@Package` and `@Files` are base categories. The remaining categories are
 domains.
 
 ## Type category maps
@@ -402,13 +433,16 @@ respectively; quiet output retains compact inline identity fields.
 
 ## Registration invariants
 
-The section pipeline enforces these invariants:
+The section pipeline and derived catalog gates enforce these invariants:
 
 1. Section names are unique.
 2. Category names are unique and use the `@` prefix.
 3. Every category member names a registered section.
 4. Every selectable section in a curated catalog has authored category
-   ownership.
+   ownership. Gates include
+   `LibraryPipeline_EverySelectableSectionBelongsToAnAuthoredCategory` and
+   `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
+   `TypePipeline_AuthoredCategoriesOwnEverySection`.
 5. Base categories are explicitly marked; domain categories never enter
    automatic scope by accident.
 6. Every scanner key resolves, and a descriptor cannot understate scanner cost.
@@ -422,10 +456,10 @@ sets so stale and missing entries both fail.
 ## Migration
 
 The library model is the reference implementation. Package has adopted the
-same size/cost axes and curated discovery, but its category graph remains
-smaller. Type now uses typed query planning and authored categories for both
-listing and single-type views. Member, project, and remaining API paths should
-migrate incrementally.
+size/cost axes, base-category scope, authored ownership, and curated discovery.
+Type now uses typed query planning and authored categories for both listing and
+single-type views. Member, project, and remaining API paths should migrate
+incrementally.
 
 During migration:
 

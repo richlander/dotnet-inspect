@@ -35,6 +35,32 @@ family.
   members present on both sides. A disagreement is retained as a per-member
   `Failed` diagnostic; it does not abort healthy members in the same diff.
 
+### Structural body comparison
+
+`CSharpBodyDiff.CompareStructure` is the node/span extension of the same C# body
+diff owner. It accepts two C# `AnnotatedSourceDocument` values, explicit
+occurrence selections, and owner-issued one-to-one node correspondence. Node ids
+remain local to the document that minted them. Equal ids, coordinates, selected
+text, kind labels, and display order never establish cross-document identity.
+
+The result is one `CSharpStructuralComparison` with explicit `Added`, `Removed`,
+`Changed`, and `Moved` outcomes. Movement is orthogonal, so a node may be both
+changed and moved. Stable kind ids and display labels come from
+`AnnotatedSourceNodeKinds`; the comparison does not expose raw IR type names.
+Each row retains exact absolute UTF-16 spans and the smallest enclosing region
+role on both sides. Optional compile-back fidelity is separately supplied typed
+evidence, not a conclusion inferred from C# text.
+
+`CSharpStructuralDiffPrinter` projects that one result into complete-body caret
+overlays and compact rich-diff rows. It performs no correspondence. The
+DecompilerHarness `--structural-review` mode owns Markdown orchestration and
+consumes the same result for both presentations. This model exists only for
+node/span structure that the line-oriented `CSharpDiffRow` cannot represent; it
+does not introduce another generic diff-row hierarchy. Ordinary indented spans
+reuse the annotation comment gutter and its stacking rules. A span too close to
+the left edge for that gutter uses an exact gutter-free caret row instead; it is
+never shifted, widened, clipped, or silently dropped.
+
 ## Research comparison model
 
 `ResearchDiff` is the operation facade. It returns one `ResearchComparison`
@@ -207,6 +233,11 @@ unified line with `Member`, `Mechanism`, `Difference`, `Change`, and `Evidence`
 columns. `Difference` contains the IL body outcome for IL rows and is empty for
 C# rows, keeping mechanism, result, edit kind, and evidence as separate
 dimensions.
+The section binds `ImplementationComparisonQuery`, whose input carries retained
+assembly descriptors, reference resolvers, and body indexes. The query opens
+those descriptors for the offline C# and IL producers and returns
+`ImplementationDiffResult`; the CLI adapter's current path-backed descriptors
+are an acquisition boundary, not part of the query contract.
 With `--authored-source`, it acquires each changed implementation member's
 endpoint PDB and
 SourceLink body, verifies the document checksum, and adds a separately labeled

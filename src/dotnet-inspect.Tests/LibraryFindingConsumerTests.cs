@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
@@ -8,24 +10,66 @@ using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Views;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using InertText;
 
 namespace DotnetInspector.Tests;
 
 public class LibraryFindingConsumerTests
 {
     [Fact]
-    public void UnionScanner_RetainsMetadataFindingInspection()
+    public void UnionTypesQueryProjection_RetainsMetadataFindingInspection()
     {
-        var inspection = LibraryMetadataService.ScanUnionTypes(
-            typeof(SampleDiscoveredUnion).Assembly.Location,
-            new VerboseLogger(enabled: false));
+        string path = typeof(SampleDiscoveredUnion).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyUnionTypesResult(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            UnionTypesQuery.Execute(session));
 
         var finding = Assert.Single(
-            inspection.Findings(),
+            inspection.UnionTypeInspection.Findings(),
             finding => finding.Payload.TypeName == typeof(SampleDiscoveredUnion).FullName);
         Assert.Same(MetadataFindings.UnionTypeDescriptor, finding.Descriptor);
+    }
+
+    [Fact]
+    public void UnionTypesQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    {
+        const string TypeName = "Sample.\u200B\u001b[31mForged";
+        const string Kind = "str\U000E0074uct";
+        const string CaseType = "Sample.Case\nError: forged";
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyUnionTypesResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            new UnionTypesResult.Available(
+                ImmutableArray.Create(
+                    new UnionTypeInfo(TypeName, Kind, true, [CaseType]))));
+
+        UnionTypeInfo payload = Assert.Single(
+            inspection.UnionTypeInspection.Findings()).Payload;
+        UnionTypeRow row = Assert.Single(
+            new LibraryInspectionView(inspection).UnionTypesSection!);
+
+        Assert.Equal(TypeName, payload.TypeName);
+        Assert.Equal(Kind, payload.Kind);
+        Assert.Equal([CaseType], payload.CaseTypes);
+        Assert.NotEqual(TypeName, row.Type);
+        Assert.NotEqual(Kind, row.Kind);
+        Assert.NotEqual(CaseType, row.Cases);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Type));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Kind));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Cases));
+        Assert.DoesNotContain("\u200B", row.Type, StringComparison.Ordinal);
+        Assert.DoesNotContain("\U000E0074", row.Kind, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -99,6 +143,86 @@ public class LibraryFindingConsumerTests
         Assert.Equal(
             result.Attributes.Select(attribute => attribute.Name),
             inspection.CustomAttributes!.Select(attribute => attribute.Name));
+    }
+
+    [Fact]
+    public void ResourcesQueryProjection_RetainsFindingSemanticsAndDisplayProjection()
+    {
+        var inspection = new LibraryInspection();
+        string path = typeof(LibraryInspection).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
+
+        LibraryMetadataService.ApplyResourcesResult(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            ResourcesQuery.Execute(session));
+
+        var finding = Assert.Single(
+            inspection.ResourceInspection.Findings(),
+            finding => finding.Payload.Name.Contains("SKILL.md", StringComparison.Ordinal));
+        var row = Assert.Single(
+            inspection.Resources!,
+            resource => resource.Name.Contains("SKILL.md", StringComparison.Ordinal));
+
+        Assert.Same(MetadataFindings.ResourceDescriptor, finding.Descriptor);
+        Assert.True(finding.Payload.IsEmbedded);
+        Assert.True(row.Size > 0);
+    }
+
+    [Fact]
+    public void TypeForwardersQueryProjection_RetainsFindingSemanticsAndDisplayProjection()
+    {
+        var inspection = new LibraryInspection();
+        string path = typeof(AssemblyInspectionSession).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
+
+        LibraryMetadataService.ApplyTypeForwardersResult(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            TypeForwardersQuery.Execute(session));
+
+        var finding = Assert.Single(
+            inspection.TypeForwarderInspection.Findings(),
+            finding => finding.Payload.TypeName == "ILInspector.Metadata.SignatureBlobGuard");
+        var row = Assert.Single(
+            inspection.TypeForwarders!,
+            forwarder => forwarder.TypeName == "ILInspector.Metadata.SignatureBlobGuard");
+
+        Assert.Same(MetadataFindings.TypeForwarderDescriptor, finding.Descriptor);
+        Assert.Equal("ILInspector.MetadataPrimitives", finding.Payload.TargetAssembly);
+        Assert.Equal(finding.Payload, row);
+    }
+
+    [Fact]
+    public void TypeForwardersQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    {
+        const string TypeName = "Sample.\u200B\u001b[31mForged";
+        const string TargetAssembly = "Target\U000E0074\nError: forged";
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyTypeForwardersResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            new TypeForwardersResult.Available(
+                ImmutableArray.Create(
+                    new TypeForwarderInfo(TypeName, TargetAssembly))));
+
+        TypeForwarderInfo payload = Assert.Single(
+            inspection.TypeForwarderInspection.Findings()).Payload;
+        TypeForwarderRow row = Assert.Single(
+            new LibraryInspectionView(inspection).TypeForwardersSection!);
+
+        Assert.Equal(TypeName, payload.TypeName);
+        Assert.Equal(TargetAssembly, payload.TargetAssembly);
+        Assert.NotEqual(TypeName, row.TypeName);
+        Assert.NotEqual(TargetAssembly, row.TargetAssembly);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.TypeName));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.TargetAssembly));
+        Assert.DoesNotContain("\u200B", row.TypeName, StringComparison.Ordinal);
+        Assert.DoesNotContain("\U000E0074", row.TargetAssembly, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -200,8 +324,6 @@ public class LibraryFindingConsumerTests
         var logger = new VerboseLogger(enabled: false);
         var inspection = new LibraryInspection
         {
-            ResourceInspection = LibraryMetadataService.ScanResources(missingPath, logger),
-            UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(missingPath, logger),
             SwitchInspection = LibraryMetadataService.ScanSwitches(missingPath, logger),
         };
 
@@ -218,11 +340,24 @@ public class LibraryFindingConsumerTests
             logger,
             new CustomAttributesResult.Failed(
                 new FileNotFoundException("Custom attribute input was not found.", missingPath)));
-        inspection.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(missingPath, logger);
-        LibraryMetadataService.ScanIntegrationOpportunities(
+        LibraryMetadataService.ApplyResourcesResult(
             missingPath,
             inspection,
-            logger);
+            logger,
+            new ResourcesResult.Failed(
+                new FileNotFoundException("Resource input was not found.", missingPath)));
+        LibraryMetadataService.ApplyTypeForwardersResult(
+            missingPath,
+            inspection,
+            logger,
+            new TypeForwardersResult.Failed(
+                new FileNotFoundException("Type forwarder input was not found.", missingPath)));
+        LibraryMetadataService.ApplyUnionTypesResult(
+            missingPath,
+            inspection,
+            logger,
+            new UnionTypesResult.Failed(
+                new FileNotFoundException("Union type input was not found.", missingPath)));
 
         AssertFailure(inspection.ClassifiedMethodInspection, MetadataFindings.ClassifiedMethodDescriptor);
         AssertFailure(inspection.ExtensionMemberInspection, MetadataFindings.ExtensionMemberDescriptor);
@@ -231,9 +366,7 @@ public class LibraryFindingConsumerTests
         AssertFailure(inspection.TypeForwarderInspection, MetadataFindings.TypeForwarderDescriptor);
         AssertFailure(inspection.UnionTypeInspection, MetadataFindings.UnionTypeDescriptor);
         AssertFailure(inspection.SwitchInspection, MetadataFindings.SwitchDescriptor);
-        AssertFailure(inspection.EcosystemIntegrationInspection, MetadataFindings.EcosystemIntegrationDescriptor);
-        AssertFailure(inspection.OpenTelemetryInspection, MetadataFindings.OpenTelemetrySignalDescriptor);
-        Assert.Equal(9, inspection.InspectionFailures!.Count);
+        Assert.Equal(7, inspection.InspectionFailures!.Count);
     }
 
     [Fact]
@@ -279,12 +412,57 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void AssemblyContextIntegrationsRunner_ExecutesOpportunityClosureOnce()
+    {
+        string path = typeof(LibraryFindingConsumerTests).Assembly.Location;
+        HashSet<InspectionQueryDefinition> queries =
+            [AssemblyContextIntegrationOpportunitiesQuery.Definition];
+        var trace = new DotnetInspector.Sections.InspectionTrace();
+
+        AssemblyContextIntegrationsBatch batch =
+            Assert.IsType<AssemblyContextIntegrationsBatch>(
+                AssemblyContextIntegrationsRunner.RunIfRequested(
+                    queries,
+                    LibrarySections.CreateGroupQueryRegistry(),
+                    [
+                        new AssemblyContextIntegrationsInput(
+                            path,
+                            AssemblyResolutionProvenance.Local(
+                                "opportunity closure test")),
+                    ],
+                    trace));
+
+        Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            batch.EntryFor(path));
+        var opportunities = Assert.IsType<
+            AssemblyIntegrationOpportunitiesEntry.Available>(
+                batch.OpportunitiesEntryFor(path));
+        var inspection = new LibraryInspection();
+        LibraryMetadataService.ApplyAssemblyIntegrationOpportunitiesEntry(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            opportunities);
+
+        Assert.Same(
+            opportunities,
+            inspection.AssemblyIntegrationOpportunitiesEntry);
+        Assert.Empty(queries);
+        Assert.Equal(
+            [
+                AssemblyContextIntegrationsQuery.Definition,
+                AssemblyContextIntegrationOpportunitiesQuery.Definition,
+            ],
+            trace.QueryExecutions.Select(execution => execution.Query));
+    }
+
+    [Fact]
     public void AssemblyContextIntegrationsRunner_ProjectsBudgetFailureBesideAvailableEntry()
     {
         string firstPath = typeof(LibraryFindingConsumerTests).Assembly.Location;
         string secondPath = typeof(LibraryInspection).Assembly.Location;
         HashSet<InspectionQueryDefinition> queries =
-            [AssemblyContextIntegrationsQuery.Definition];
+            [AssemblyContextIntegrationOpportunitiesQuery.Definition];
 
         AssemblyContextIntegrationsBatch batch =
             Assert.IsType<AssemblyContextIntegrationsBatch>(
@@ -308,6 +486,9 @@ public class LibraryFindingConsumerTests
             batch.EntryFor(firstPath));
         var rejected = Assert.IsType<AssemblyIntegrationsEntry.Rejected>(
             batch.EntryFor(secondPath));
+        var rejectedOpportunities = Assert.IsType<
+            AssemblyIntegrationOpportunitiesEntry.Rejected>(
+                batch.OpportunitiesEntryFor(secondPath));
         Assert.Equal(CandidateOpenFailureKind.ResourceBudget, rejected.Failure.Kind);
 
         var inspection = new LibraryInspection();
@@ -318,12 +499,74 @@ public class LibraryFindingConsumerTests
             rejected);
 
         Assert.Same(rejected, inspection.AssemblyIntegrationsEntry);
+        LibraryMetadataService.ApplyAssemblyIntegrationOpportunitiesEntry(
+            secondPath,
+            inspection,
+            new VerboseLogger(enabled: false),
+            rejectedOpportunities);
         Assert.Equal(
             [
                 LibraryIntegrationCatalog.RollupName,
                 EcosystemIntegrationNames.OpenTelemetry,
+                IntegrationSectionNames.Opportunities,
             ],
             inspection.InspectionFailures!.Select(failure => failure.Section));
+    }
+
+    [Fact]
+    public void AssemblyIntegrationOpportunitiesFailure_ProjectsToItsSection()
+    {
+        string path = typeof(LibraryFindingConsumerTests).Assembly.Location;
+        HashSet<InspectionQueryDefinition> queries =
+            [AssemblyContextIntegrationsQuery.Definition];
+        AssemblyContextIntegrationsBatch batch =
+            Assert.IsType<AssemblyContextIntegrationsBatch>(
+                AssemblyContextIntegrationsRunner.RunIfRequested(
+                    queries,
+                    LibrarySections.CreateGroupQueryRegistry(),
+                    [
+                        new AssemblyContextIntegrationsInput(
+                            path,
+                            AssemblyResolutionProvenance.Local(
+                                "opportunity failure projection test")),
+                    ]));
+        var integrations = Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            batch.EntryFor(path));
+        var error = new BadImageFormatException("opportunity scan failed");
+        var failed = new AssemblyIntegrationOpportunitiesEntry.Failed(
+            integrations.Subject,
+            error);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyAssemblyIntegrationOpportunitiesEntry(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            failed);
+
+        Assert.Same(failed, inspection.AssemblyIntegrationOpportunitiesEntry);
+        var failure = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal(IntegrationSectionNames.Opportunities, failure.Section);
+        Assert.Equal(error.Message, failure.Reason);
+
+        string json = JsonSerializer.Serialize(
+            inspection,
+            JsonContext.Default.LibraryInspection);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement jsonFailure = Assert.Single(
+            document.RootElement
+                .GetProperty("inspection_failures")
+                .EnumerateArray());
+        Assert.Equal(
+            IntegrationSectionNames.Opportunities,
+            jsonFailure.GetProperty("section").GetString());
+        Assert.Equal(
+            error.Message,
+            jsonFailure.GetProperty("reason").GetString());
+        Assert.False(
+            document.RootElement.TryGetProperty(
+                "integration_opportunities",
+                out _));
     }
 
     [Fact]
@@ -333,7 +576,7 @@ public class LibraryFindingConsumerTests
         try
         {
             HashSet<InspectionQueryDefinition> queries =
-                [AssemblyContextIntegrationsQuery.Definition];
+                [AssemblyContextIntegrationOpportunitiesQuery.Definition];
 
             AssemblyContextIntegrationsBatch batch =
                 Assert.IsType<AssemblyContextIntegrationsBatch>(
@@ -366,7 +609,7 @@ public class LibraryFindingConsumerTests
         try
         {
             HashSet<InspectionQueryDefinition> queries =
-                [AssemblyContextIntegrationsQuery.Definition];
+                [AssemblyContextIntegrationOpportunitiesQuery.Definition];
 
             AssemblyContextIntegrationsBatch batch =
                 Assert.IsType<AssemblyContextIntegrationsBatch>(
@@ -478,6 +721,54 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void AssemblyContextIntegrationsRunner_SkipsMetadataOverflowBesideManagedInput()
+    {
+        string malformedPath = Path.GetTempFileName();
+        string managedPath =
+            typeof(LibraryFindingConsumerTests).Assembly.Location;
+        try
+        {
+            File.WriteAllBytes(
+                malformedPath,
+                CorruptMetadataStreamCount(
+                    File.ReadAllBytes(managedPath)));
+            Assert.Throws<OverflowException>(
+                () => ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    malformedPath,
+                    AssemblyResolutionProvenance.Local(
+                        "metadata overflow compatibility test")));
+            HashSet<InspectionQueryDefinition> queries =
+                [AssemblyContextIntegrationsQuery.Definition];
+
+            AssemblyContextIntegrationsBatch batch =
+                Assert.IsType<AssemblyContextIntegrationsBatch>(
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        LibrarySections.CreateGroupQueryRegistry(),
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                malformedPath,
+                                AssemblyResolutionProvenance.Local(
+                                    "metadata overflow compatibility test")),
+                            new AssemblyContextIntegrationsInput(
+                                managedPath,
+                                AssemblyResolutionProvenance.Local(
+                                    "managed compatibility test")),
+                        ]));
+
+            Assert.Null(batch.EntryFor(malformedPath));
+            Assert.Null(batch.AssemblyForInspection(malformedPath));
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                batch.EntryFor(managedPath));
+            Assert.NotNull(batch.AssemblyForInspection(managedPath));
+        }
+        finally
+        {
+            File.Delete(malformedPath);
+        }
+    }
+
+    [Fact]
     public async Task AssemblyContextIntegrationsRunner_LendsTheQueriedSnapshotToLibraryInspection()
     {
         string tempDir = Path.Combine(
@@ -497,7 +788,7 @@ public class LibraryFindingConsumerTests
         try
         {
             HashSet<InspectionQueryDefinition> queries =
-                [AssemblyContextIntegrationsQuery.Definition];
+                [AssemblyContextIntegrationOpportunitiesQuery.Definition];
             AssemblyContextIntegrationsBatch batch =
                 Assert.IsType<AssemblyContextIntegrationsBatch>(
                     AssemblyContextIntegrationsRunner.RunIfRequested(
@@ -512,6 +803,10 @@ public class LibraryFindingConsumerTests
             AssemblyIntegrationsEntry entry =
                 Assert.IsAssignableFrom<AssemblyIntegrationsEntry>(
                     batch.EntryFor(targetPath));
+            AssemblyIntegrationOpportunitiesEntry opportunitiesEntry =
+                Assert.IsAssignableFrom<
+                    AssemblyIntegrationOpportunitiesEntry>(
+                        batch.OpportunitiesEntryFor(targetPath));
 
             File.Copy(replacementPath, targetPath, overwrite: true);
             File.SetLastWriteTimeUtc(targetPath, replacementTimestamp);
@@ -528,7 +823,8 @@ public class LibraryFindingConsumerTests
                     httpClient,
                     assemblyReference: Assert.IsType<ResolvedAssemblyReference>(
                         batch.AssemblyForInspection(targetPath)),
-                    integrationsEntry: entry));
+                    integrationsEntry: entry,
+                    integrationOpportunitiesEntry: opportunitiesEntry));
 
             Assert.Equal(
                 entry.Subject.Identity.Name,
@@ -538,6 +834,9 @@ public class LibraryFindingConsumerTests
                 inspection.AssemblyInfo.AssemblyName);
             Assert.Equal(originalTimestamp, inspection.LastModified);
             Assert.Same(entry, inspection.AssemblyIntegrationsEntry);
+            Assert.Same(
+                opportunitiesEntry,
+                inspection.AssemblyIntegrationOpportunitiesEntry);
         }
         finally
         {
@@ -724,6 +1023,24 @@ public class LibraryFindingConsumerTests
 
         throw new InvalidOperationException(
             "The test assembly has no metadata table stream.");
+    }
+
+    static byte[] CorruptMetadataStreamCount(byte[] bytes)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes.AsSpan(metadataStart + 12, sizeof(int)));
+        int streamCountOffset =
+            metadataStart
+            + 16
+            + versionLength
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(streamCountOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        return bytes;
     }
 
     static int AlignTo4(int value)

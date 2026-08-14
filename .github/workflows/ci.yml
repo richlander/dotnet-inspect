@@ -58,6 +58,7 @@ jobs:
       ilroundtrip: ${{ steps.filter.outputs.ilroundtrip }}
       packaging: ${{ steps.filter.outputs.packaging }}
       shipped: ${{ steps.filter.outputs.shipped }}
+      skills: ${{ steps.filter.outputs.skills }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -73,9 +74,15 @@ jobs:
         with:
           dotnet-version: '11.0.x'
 
-      - name: Self-test change detection
+      # Trend rows are reproducible evidence only when their recorded commit
+      # landed on main and its source declared the recorded methodology. This
+      # job already has the full history needed to prove both, so keep the gate
+      # here rather than making test jobs deepen otherwise-shallow checkouts.
+      - name: Check EVIL history provenance
         shell: bash
-        run: dotnet run eng/test-ci-change-detection.cs
+        run: >
+          dotnet run --project tools/DecompilerHarness -c Release --
+          --verify-authored-corpus-history
 
       - name: Detect changes
         id: filter
@@ -104,21 +111,105 @@ jobs:
                 EXPECTED_FILES=$(
                   gh api \
                     "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
-                    --jq '.changed_files'
+                    --jq 'if ((.changed_files | type) == "number") and (.changed_files >= 0) and (.changed_files == (.changed_files | floor)) then (.changed_files | tostring) else error("invalid changed_files") end'
                 ) || exit 1
-                case "$EXPECTED_FILES" in
-                  ''|*[!0-9]*) exit 1 ;;
-                esac
+                NON_DIGITS=${EXPECTED_FILES//[0-9]/}
+                if [ -z "$EXPECTED_FILES" ] || [ -n "$NON_DIGITS" ]; then
+                  exit 1
+                fi
                 RECORDS=$(
                   gh api --paginate \
                     "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-                    --jq '.[] | ":file", ([.previous_filename?, .filename][] | select(. != null) | @base64)'
+                    --jq '
+                      def valid_file_record:
+                        type == "object"
+                        and (.filename | type) == "string"
+                        and (.filename | length) > 0
+                        and (.filename | index("\u0000")) == null
+                        and (
+                          (
+                            .status == "renamed"
+                            and (.previous_filename | type) == "string"
+                            and (.previous_filename | length) > 0
+                            and (.previous_filename | index("\u0000")) == null
+                            and .previous_filename != .filename
+                          )
+                          or (
+                            (
+                              .status == "added"
+                              or .status == "removed"
+                              or .status == "modified"
+                              or .status == "copied"
+                              or .status == "changed"
+                              or .status == "unchanged"
+                            )
+                            and (.previous_filename? == null)
+                          )
+                        );
+                      if type != "array" then
+                        error("pull request files response is not an array")
+                      elif any(.[]; valid_file_record | not) then
+                        error("pull request files response contains an invalid record")
+                      else
+                        .[]
+                        | @json
+                        | @base64
+                      end
+                    '
                 ) || exit 1
                 ACTUAL_FILES=0
-                while IFS= read -r encoded; do
-                  if [ "$encoded" = ":file" ]; then
-                    ACTUAL_FILES=$((ACTUAL_FILES + 1))
+                SEEN_FILES=""
+                SEEN_PREVIOUS_FILES=""
+                PATH_RECORDS=""
+                while IFS= read -r encoded_record; do
+                  if [ -z "$encoded_record" ]; then
+                    exit 1
                   fi
+                  record=$(
+                    printf '%s' "$encoded_record" | base64 --decode
+                  ) || exit 1
+                  fields=$(
+                    printf '%s' "$record" |
+                      jq -r '
+                        [.status, (.previous_filename // ""), .filename]
+                        | map(@base64)
+                        | join(":")
+                      '
+                  ) || exit 1
+                  status=${fields%%:*}
+                  remainder=${fields#*:}
+                  previous=${remainder%%:*}
+                  current=${remainder#*:}
+                  if [ -z "$status" ] || [ -z "$current" ] \
+                     || [ "$remainder" = "$fields" ] \
+                     || [ "$current" = "$remainder" ] \
+                     || [[ "$current" == *:* ]]; then
+                    exit 1
+                  fi
+                  if printf '%s' "$SEEN_FILES" | grep -Fqx "$current"; then
+                    exit 1
+                  else
+                    grep_status=$?
+                    if [ "$grep_status" -ne 1 ]; then
+                      exit 1
+                    fi
+                  fi
+                  SEEN_FILES="${SEEN_FILES}${current}"$'\n'
+                  if [ -n "$previous" ]; then
+                    if printf '%s' "$SEEN_PREVIOUS_FILES" |
+                         grep -Fqx "$previous"; then
+                      exit 1
+                    else
+                      grep_status=$?
+                      if [ "$grep_status" -ne 1 ]; then
+                        exit 1
+                      fi
+                    fi
+                    SEEN_PREVIOUS_FILES="${SEEN_PREVIOUS_FILES}${previous}"$'\n'
+                    PATH_RECORDS="${PATH_RECORDS}${previous}"$'\n'
+                  fi
+                  PATH_RECORDS="${PATH_RECORDS}${current}"$'\n'
+                  ACTUAL_FILES=$((ACTUAL_FILES + 1))
                 done <<< "$RECORDS"
                 # Compare the API's canonical decimal text without Bash integer
                 # coercion: an out-of-range value must fail closed, not turn the
@@ -127,14 +218,14 @@ jobs:
                   exit 1
                 fi
                 while IFS= read -r encoded; do
-                  if [ -z "$encoded" ] || [ "$encoded" = ":file" ]; then
+                  if [ -z "$encoded" ]; then
                     continue
                   fi
                   if ! printf '%s' "$encoded" | base64 --decode; then
                     exit 1
                   fi
                   printf '\0'
-                done <<< "$RECORDS"
+                done <<< "$PATH_RECORDS"
               } |
                 base64 -w0
             ) && [ -n "$FILES" ]; then
@@ -160,7 +251,41 @@ jobs:
               fi
             fi
           fi
+          DECODED_FILES=""
+          if [ "$RESOLVED" = "true" ]; then
+            DECODED_FILES=$(mktemp) || DECODED_FILES=""
+            if [ -z "$DECODED_FILES" ] \
+               || ! printf '%s' "$FILES" | base64 --decode > "$DECODED_FILES"; then
+              RESOLVED=false
+            elif [ -s "$DECODED_FILES" ]; then
+              LAST_BYTE=$(
+                tail -c 1 "$DECODED_FILES" | od -An -t u1 | tr -d '[:space:]'
+              ) || RESOLVED=false
+              if [ "$LAST_BYTE" != "0" ]; then
+                RESOLVED=false
+              fi
+            fi
+            if [ "$RESOLVED" = "true" ] && [ -s "$DECODED_FILES" ]; then
+              while IFS= read -r -d '' file; do
+                case "$file" in
+                  ""|/*|*/|*//*)
+                    RESOLVED=false
+                    break
+                    ;;
+                esac
+                case "/$file/" in
+                  */./*|*/../*)
+                    RESOLVED=false
+                    break
+                    ;;
+                esac
+              done < "$DECODED_FILES"
+            fi
+          fi
           if [ "$RESOLVED" != "true" ]; then
+            if [ -n "$DECODED_FILES" ]; then
+              rm -f "$DECODED_FILES" || true
+            fi
             # Force every gate on and stop here. Deliberately NOT "list every
             # tracked file and classify it": that would put another fallible
             # git call -- and a dependency on every case pattern below matching
@@ -168,7 +293,7 @@ jobs:
             # infallible. `git ls-files` exits 128 on an unreadable index.
             # Keep this list in sync with the `outputs:` block above.
             echo "::warning title=Change detection fell back::Could not determine the changed files for ${{ github.sha }}; running every job so that no validation is skipped."
-            for name in code csharpdiff decompiler docs ildiff ilroundtrip packaging shipped; do
+            for name in code csharpdiff decompiler docs ildiff ilroundtrip packaging shipped skills; do
               echo "$name=true" >> "$GITHUB_OUTPUT"
             done
             echo "Change detection fell back; every job filter forced true."
@@ -182,6 +307,7 @@ jobs:
           ILROUNDTRIP=false
           PACKAGING=false
           SHIPPED=false
+          SKILLS=false
           while IFS= read -r -d '' file; do
             case "$file" in
               src/*) CODE=true ;;
@@ -270,6 +396,14 @@ jobs:
               .markdownlint.*|.markdownlint-cli2.*) DOCS=true ;;
               */.markdownlint.*|*/.markdownlint-cli2.*) DOCS=true ;;
               *.md|*.txt|docs/*|skills/*) DOCS=true ;;
+            esac
+            # Shipped SKILL.md files are embedded resources. Their focused lane
+            # checks registry/resource parity without paying for the full
+            # product matrix. Other documents under skills/ need only linting.
+            case "$file" in
+              .github/workflows/ci.yml) SKILLS=true ;;
+              skills/*/*/SKILL.md) ;;
+              skills/*/SKILL.md) SKILLS=true ;;
             esac
             # The decompiler docket/byte-neutrality gates cost ~8 minutes, so
             # they run as their own job rather than in the hot `test` lane.
@@ -366,7 +500,8 @@ jobs:
               global.json) SHIPPED=true ;;
               .github/workflows/ci.yml) SHIPPED=true ;;
             esac
-          done < <(printf '%s' "$FILES" | base64 --decode)
+          done < "$DECODED_FILES"
+          rm -f "$DECODED_FILES" || true
           # `ilroundtrip` does not have a job of its own: its two steps live
           # inside the `test` job, which is gated on `code`. So an input that
           # sets only `ilroundtrip` computes an output nothing can act on --
@@ -389,10 +524,20 @@ jobs:
           echo "ilroundtrip=$ILROUNDTRIP" >> "$GITHUB_OUTPUT"
           echo "packaging=$PACKAGING" >> "$GITHUB_OUTPUT"
           echo "shipped=$SHIPPED" >> "$GITHUB_OUTPUT"
+          echo "skills=$SKILLS" >> "$GITHUB_OUTPUT"
           echo "Changed files were decoded and classified without logging raw path bytes."
-          echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED"
+          echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED skills=$SKILLS"
         env:
+          # The runner honors BASH_ENV even with --noprofile and --norc.
+          # Clear inherited workflow/job values before executing this gate.
+          BASH_ENV: ""
           GH_TOKEN: ${{ github.token }}
+
+      - name: Self-test change detection
+        shell: bash
+        run: dotnet run eng/test-ci-change-detection.cs
+        env:
+          BASH_ENV: ""
 
   # Lint markdown files
   markdownlint:
@@ -406,6 +551,44 @@ jobs:
         uses: DavidAnson/markdownlint-cli2-action@v19
         with:
           globs: '**/*.md'
+
+  # Shipped skills are embedded Markdown resources. A SKILL.md-only PR does
+  # not need the full product matrix, but it must still prove that every
+  # focused skill is registered and embedded and that every resource resolves.
+  skill-gate:
+    needs: changes
+    if: needs.changes.outputs.skills == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Run embedded skill tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/skill-tests.xml"
+          dotnet run --project src/dotnet-inspect.Tests -c Release -- \
+            -class "DotnetInspector.Tests.SkillCommandTests" \
+            -xml "$results"
+          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
+            echo "::error::Skill test filter selected no tests." >&2
+            exit 1
+          fi
 
   # Build and run the full test matrix on Ubuntu. A reduced Windows leg runs as
   # the separate `test-windows` job below; macOS is still uncovered by tests and
@@ -1101,7 +1284,9 @@ jobs:
         # tools/netX.0/any/. This makes the pointer TFM-agnostic: any SDK that
         # understands RID-specific tools can read it, regardless of TFM. The
         # pointer carries no implementation, so SelfContained pulls in no runtime.
-        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true
+        # RID-specific packages are built by their dedicated steps; disabling
+        # inner RID packs keeps this step pointer-only on .NET 11 Preview 7+.
+        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false
 
       - name: Upload pointer package
         uses: actions/upload-artifact@v7
@@ -1243,6 +1428,7 @@ jobs:
     needs:
       - changes
       - markdownlint
+      - skill-gate
       - test
       # Path-gated and PR-only, so it reports `skipped` on doc-only PRs and on
       # pushes to main. That passes the gate by design; the allow list below
@@ -1280,11 +1466,12 @@ jobs:
       # required set, and both directions fail -- a job missing from `needs`
       # and a `needs` entry naming a job that no longer exists.
       - name: Verify this gate depends on every other job
+        shell: bash
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
-          python3 -c '
+          python3 -I -c '
           import json, os, sys, yaml
           with open(".github/workflows/ci.yml") as f:
               workflow = yaml.safe_load(f)
@@ -1320,11 +1507,14 @@ jobs:
               if self_test.get("shell") != "bash":
                   self_test_errors.append(
                       "Self-test change detection must use shell: bash")
+              expected_env = {"BASH_ENV": ""}
+              if self_test.get("env") != expected_env:
+                  self_test_errors.append(
+                      "Self-test change detection must clear only BASH_ENV")
               forbidden_step = sorted(
                   key for key in (
                       "if",
                       "continue-on-error",
-                      "env",
                       "working-directory")
                   if key in self_test)
               if forbidden_step:
@@ -1349,6 +1539,7 @@ jobs:
       # This is that assertion: if the filter stops selecting bad results, this
       # step fails even when every real job is green.
       - name: Self-test the result filter
+        shell: bash
         run: |
           set -euo pipefail
           probe='{"changes":{"result":"skipped"},"ok":{"result":"success"},"gated":{"result":"skipped"},"broke":{"result":"failure"},"timeout":{"result":"cancelled"},"future":{"result":"neutral"}}'
@@ -1361,6 +1552,7 @@ jobs:
           echo "Filter discriminates correctly: [$got]"
 
       - name: Verify no required job failed or was cancelled
+        shell: bash
         env:
           # Passed through the environment rather than interpolated into the
           # script body so job outputs can never terminate the shell string.

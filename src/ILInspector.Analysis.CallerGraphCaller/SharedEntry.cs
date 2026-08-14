@@ -12,6 +12,10 @@ namespace Shared
         // (a package boundary), proving the forward map deepens a callee chain across assemblies.
         public static void RunOuter() => Run();
 
+        // CLI cross-library callee fixture (#3632). The target method has its own outbound
+        // call, so a scoped graph must continue after crossing the assembly boundary.
+        public static void RunAcrossBoundary() => Target.Api.Forward();
+
         // #3266 fan-out fixture: two call sites to the same callee. The cross-assembly callee tree
         // dedups to one Echo child but must still report a fan-out of 2 (true call-site count).
         // Echo is used so this does not perturb the exact-count caller-graph tests rooted at Ping.
@@ -50,6 +54,14 @@ namespace Shared
 
         public static void UseGenericStore() =>
             Target.ArityApi.Store<string>(1);
+
+        public static unsafe void UseCdeclStore(
+            delegate* unmanaged[Cdecl]<int, int> value) =>
+            Target.FunctionPointerApi.Store(value);
+
+        public static unsafe void UseStdcallStore(
+            delegate* unmanaged[Stdcall]<int, int> value) =>
+            Target.FunctionPointerApi.Store(value);
 
         public static void CallBodiless(Target.IBodilessApi target) =>
             target.Invoke();

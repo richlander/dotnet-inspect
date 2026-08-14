@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Globalization;
 using System.IO.Compression;
 using System.Reflection;
@@ -16,6 +17,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -114,6 +116,169 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
+    private static void WriteBlankAssemblyNameAssembly(string path)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(" "),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Azure.Test"),
+            metadata.GetOrAddString("ExampleClient"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
+    private static void WriteMalformedTypeNameAssembly(string path)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedIntegrations"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Example"),
+            metadata.GetOrAddString("BrokenType"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        byte[] bytes = image.ToArray();
+
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        int typeNameOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.TypeDef)
+            + reader.GetTableRowSize(TableIndex.TypeDef)
+            + sizeof(uint);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(typeNameOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        File.WriteAllBytes(path, bytes);
+    }
+
+    private static void WriteOverflowingMetadataStreamCountAssembly(
+        string sourcePath,
+        string destinationPath)
+    {
+        byte[] bytes = File.ReadAllBytes(sourcePath);
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes.AsSpan(metadataStart + 12, sizeof(int)));
+        int streamCountOffset =
+            metadataStart
+            + 16
+            + versionLength
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(streamCountOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        File.WriteAllBytes(destinationPath, bytes);
+    }
+
+    private static void WriteTruncatedMetadataTableAssembly(
+        string sourcePath,
+        string destinationPath)
+    {
+        byte[] bytes = File.ReadAllBytes(sourcePath);
+        int metadataStart;
+        using (var peReader = new PEReader(
+                   new MemoryStream(bytes, writable: false)))
+        {
+            metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        }
+
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes.AsSpan(metadataStart + 12, sizeof(int)));
+        int cursor =
+            metadataStart + 16 + AlignTo4(versionLength);
+        int streamCount = BinaryPrimitives.ReadUInt16LittleEndian(
+            bytes.AsSpan(cursor + 2, sizeof(ushort)));
+        cursor += 4;
+        for (int index = 0; index < streamCount; index++)
+        {
+            int sizeOffset = cursor + 4;
+            int nameStart = cursor + 8;
+            int nameEnd = Array.IndexOf(bytes, (byte)0, nameStart);
+            string name = Encoding.ASCII.GetString(
+                bytes,
+                nameStart,
+                nameEnd - nameStart);
+            if (name is "#~" or "#-")
+            {
+                BinaryPrimitives.WriteInt32LittleEndian(
+                    bytes.AsSpan(sizeOffset, sizeof(int)),
+                    sizeof(int));
+                File.WriteAllBytes(destinationPath, bytes);
+                return;
+            }
+
+            cursor = nameStart + AlignTo4(nameEnd - nameStart + 1);
+        }
+
+        throw new InvalidOperationException(
+            "The source assembly has no metadata table stream.");
+    }
+
+    private static int AlignTo4(int value)
+        => (value + 3) & ~3;
+
     private static void WriteHostileIlOperandAssembly(string path)
     {
         var assemblyName = new AssemblyName("HostileIlOperand");
@@ -164,6 +329,32 @@ public partial class CommandExecutionTests
         il.Emit(System.Reflection.Emit.OpCodes.Newobj, allocatedCtor);
         il.Emit(System.Reflection.Emit.OpCodes.Ret);
         allocated.CreateType();
+        typeBuilder.CreateType();
+        assemblyBuilder.Save(path);
+    }
+
+    private static void WriteApiDiffQueryAssembly(string path, bool includeAddedMethod)
+    {
+        var assemblyName = new AssemblyName("ApiDiffQueryFixture");
+        var assemblyBuilder = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = moduleBuilder.DefineType(
+            "Sample.Widget",
+            TypeAttributes.Public | TypeAttributes.Class);
+        typeBuilder.DefineDefaultConstructor(MethodAttributes.Public);
+
+        if (includeAddedMethod)
+        {
+            var method = typeBuilder.DefineMethod(
+                "Added",
+                MethodAttributes.Public,
+                typeof(void),
+                Type.EmptyTypes);
+            method.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+
         typeBuilder.CreateType();
         assemblyBuilder.Save(path);
     }
@@ -304,6 +495,26 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir)
+        CreateLocalIntegrationOpportunityPackage()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var libDir = Path.Combine(packageRoot, "lib", "net10.0");
+        Directory.CreateDirectory(libDir);
+        File.Copy(
+            typeof(Npgsql.NpgsqlConnection).Assembly.Location,
+            Path.Combine(libDir, "IntegrationOpportunityFixture.dll"));
+
+        var packagePath = Path.Combine(
+            tempDir,
+            "Test.IntegrationOpportunity.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
     private static (string PackagePath, string TempDir) CreateLocalLibPackage()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
@@ -321,6 +532,24 @@ public partial class CommandExecutionTests
         ZipFile.CreateFromDirectory(packageRoot, packagePath);
         return (packagePath, tempDir);
     }
+
+    private static (string PackagePath, string TempDir) CreateLocalDependencyPackage()
+        => CreateLocalReadmePackage(
+            "Test.DependencyGroups",
+            "README.md",
+            "readme",
+            extraNuspecMetadata:
+            """
+            <dependencies>
+              <group targetFramework="net8.0">
+                <dependency id="Test.Dependency.One" />
+              </group>
+              <group targetFramework="net9.0">
+                <dependency id="Test.Dependency.One" />
+                <dependency id="Test.Dependency.Two" />
+              </group>
+            </dependencies>
+            """);
 
     private static (string PackagePath, string TempDir) CreateLocalReadmePackage(
         string id,
@@ -1823,6 +2052,120 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleType_MemberLimitRestrictsShapeMembers()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new() { Kind = "property", Name = "First", Signature = "int First { get; }" },
+                new() { Kind = "property", Name = "Second", Signature = "int Second { get; }" },
+                new() { Kind = "method", Name = "Run", Signature = "void Run()" },
+            ]
+        };
+        var options = new TypeOptions
+        {
+            ShapeOutput = true,
+            Limit = 1,
+            MemberLimit = 1
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Properties (1)", output);
+        Assert.Contains("int First { get; }", output);
+        Assert.DoesNotContain("Second", output);
+        Assert.DoesNotContain("Methods", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_ZeroMemberLimitKeepsStructuralShape()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+            BaseType = "Example.Base",
+            Members =
+            [
+                new() { Kind = "method", Name = "Run", Signature = "void Run()" },
+            ]
+        };
+        var options = new TypeOptions
+        {
+            ShapeOutput = true,
+            KindFilter = ["method"],
+            Limit = 0,
+            MemberLimit = 0
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Inherits", output);
+        Assert.Contains("Example.Base", output);
+        Assert.DoesNotContain("Methods", output);
+
+        var unmatchedOptions = options with { KindFilter = ["event"] };
+        var unmatched = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                unmatchedOptions));
+
+        Assert.Equal(0, unmatched.ExitCode);
+        Assert.Empty(unmatched.Output);
+        Assert.Contains("No matching members for filter: event", unmatched.Error);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_TypeLimitDoesNotRestrictShapeMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.IO.MemoryStream",
+            "--platform",
+            "System.Private.CoreLib",
+            "-t",
+            "1",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Constructors", output);
+        Assert.Contains("Properties", output);
+        Assert.Contains("Methods", output);
+    }
+
+    [Fact]
     public async Task Type_Listing_MarkdownUsesLfThroughout()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2588,6 +2931,46 @@ public partial class CommandExecutionTests
         Assert.Contains("5 additive", output);
         Assert.Contains("JsonKnownReferenceHandler", output);
         Assert.DoesNotContain("JsonSerializer |", output);
+    }
+
+    [Fact]
+    public async Task Diff_Changes_LocalPair_RendersTypedApiComparisonInMarkdownAndJson()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"diff-query-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var oldPath = Path.Combine(tempDir, "old.dll");
+            var newPath = Path.Combine(tempDir, "new.dll");
+            WriteApiDiffQueryAssembly(oldPath, includeAddedMethod: false);
+            WriteApiDiffQueryAssembly(newPath, includeAddedMethod: true);
+            var range = $"{oldPath}..{newPath}";
+
+            var markdown = await RunAppAsync(
+                "diff", "--library", range,
+                "-S", DiffSections.Changes.Name,
+                "--tips", "q");
+            var json = await RunAppAsync(
+                "diff", "--library", range,
+                "-S", DiffSections.Changes.Name,
+                "--json", "--tips", "q");
+
+            Assert.Equal(0, markdown.Exit);
+            Assert.Empty(markdown.Error);
+            Assert.Contains("### Widget", markdown.Output);
+            Assert.Contains("Added", markdown.Output);
+            Assert.Equal(0, json.Exit);
+            Assert.Empty(json.Error);
+            Assert.Contains("\"changes\"", json.Output);
+            Assert.Contains("\"type\": \"Widget\"", json.Output);
+            Assert.Contains("Added", json.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -4309,12 +4692,12 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_BareSelect_KeepsTheInfoSet()
+    public async Task MemberList_BareSelect_KeepsTheInfoSet()
     {
         // `type` and `member` share ApiCommand's preamble and both run in singleTypeMode, so the
-        // fixed overview is scoped by the options record rather than by that flag. This is the
-        // negative case for that discriminator: `member` is a separate command with its own
-        // overview and converts on its own PR, so it must not pick up Type Info here. See #3547.
+        // fixed overview is scoped by the options record and member view rather than by that flag.
+        // This is the negative case for the detail-view conversion: a broad member list retains its
+        // compact summary preset and must not pick up Type Info. See #3547.
         var (exit, output, _) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
             "-S", "--tips", "q");
@@ -5251,6 +5634,7 @@ public partial class CommandExecutionTests
         var root = CommandLineBuilder.CreateRootCommand();
         var outer = root.Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
         var inner = root.Parse(["library", TestAssemblyPath, "-S", "References"]);
+        var diagnostics = new List<string>();
 
         try
         {
@@ -5258,11 +5642,14 @@ public partial class CommandExecutionTests
             {
                 using (ProjectionAudit.BeginRequest(inner))
                 {
-                    Assert.Equal(0, ProjectionAudit.Verify(0));
+                    Assert.Equal(0, ProjectionAudit.Verify(0, diagnostics.Add));
+                    Assert.Empty(diagnostics);
                 }
 
-                Assert.Equal(1, ProjectionAudit.Verify(0));
+                Assert.Equal(1, ProjectionAudit.Verify(0, diagnostics.Add));
             }
+
+            Assert.Contains("--count", Assert.Single(diagnostics));
         }
         finally
         {
@@ -5278,12 +5665,14 @@ public partial class CommandExecutionTests
         // its full payload and exited 0 with the projection silently discarded.
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["package", "--count", "search", "Newtonsoft.Json"]);
+        var diagnostics = new List<string>();
 
         try
         {
             ProjectionAudit.BeginRequest(result);
 
-            Assert.Equal(1, ProjectionAudit.Verify(0));
+            Assert.Equal(1, ProjectionAudit.Verify(0, diagnostics.Add));
+            Assert.Contains("--count", Assert.Single(diagnostics));
         }
         finally
         {
@@ -5296,8 +5685,10 @@ public partial class CommandExecutionTests
     {
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["package", "--count", "--print", "search", "Newtonsoft.Json"]);
+        var diagnostics = new List<string>();
 
-        Assert.False(ProjectionAudit.ValidateExclusive(result));
+        Assert.False(ProjectionAudit.ValidateExclusive(result, diagnostics.Add));
+        Assert.Contains("--count cannot be combined with --print", Assert.Single(diagnostics));
     }
 
     [Fact]
@@ -5307,13 +5698,15 @@ public partial class CommandExecutionTests
         // satisfy an unrelated recorded --count and let that drop escape.
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+        var diagnostics = new List<string>();
 
         try
         {
             ProjectionAudit.BeginRequest(result);
             ProjectionAudit.MarkHonored(ProjectionAudit.Print);
 
-            Assert.Equal(1, ProjectionAudit.Verify(0));
+            Assert.Equal(1, ProjectionAudit.Verify(0, diagnostics.Add));
+            Assert.Contains("--count", Assert.Single(diagnostics));
         }
         finally
         {
@@ -5326,13 +5719,15 @@ public partial class CommandExecutionTests
     {
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+        var diagnostics = new List<string>();
 
         try
         {
             ProjectionAudit.BeginRequest(result);
             ProjectionAudit.MarkHonored(ProjectionAudit.Count);
 
-            Assert.Equal(0, ProjectionAudit.Verify(0));
+            Assert.Equal(0, ProjectionAudit.Verify(0, diagnostics.Add));
+            Assert.Empty(diagnostics);
         }
         finally
         {
@@ -5347,12 +5742,14 @@ public partial class CommandExecutionTests
         // rather than option tokens would silently disable the audit for the invocation.
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["type", "--library", TestAssemblyPath, "-S", "Classes", "--value", "--type", "/h"]);
+        var diagnostics = new List<string>();
 
         try
         {
             ProjectionAudit.BeginRequest(result);
 
-            Assert.Equal(1, ProjectionAudit.Verify(0));
+            Assert.Equal(1, ProjectionAudit.Verify(0, diagnostics.Add));
+            Assert.Contains("--value", Assert.Single(diagnostics));
         }
         finally
         {
@@ -5463,7 +5860,7 @@ public partial class CommandExecutionTests
     public async Task Discover_UnsafeApplicability_IgnoresLegacyEffectiveCache()
     {
         const string legacyCategory = "effective-v19";
-        const string currentCategory = "effective-v21";
+        const string currentCategory = "effective-v22";
         string directory = Path.Combine(Path.GetTempPath(), $"unsafe-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         string assemblyPath = Path.Combine(directory, "Instructions.dll");
@@ -6170,11 +6567,18 @@ public partial class CommandExecutionTests
     {
         // Boundary: the row-oriented formats keep honoring column projection. Only document
         // --json is rejected.
-        var (exit, _, error) = await RunAppAsync(
-            "find", "Cache", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
+        var (exit, output, error) = await RunAppAsync(
+            "find", "ILSampleClass", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("cannot be combined with --json", error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.NotEmpty(lines);
+        foreach (var line in lines)
+        {
+            using var document = JsonDocument.Parse(line);
+            Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        }
     }
 
     [Fact]
@@ -6436,8 +6840,9 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("failed to fetch the document for row 2 from", error);
-            Assert.Contains("/Src/Newtonsoft.Json/JsonReader.Async.cs", error);
+            Assert.Contains("failed to fetch verified source for row 2", error);
+            Assert.Contains("Could not fetch SourceLink source", error);
+            Assert.DoesNotContain("/Src/Newtonsoft.Json/JsonReader.Async.cs", error);
         }
         finally
         {
@@ -6469,7 +6874,68 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("failed to fetch the document for row 2 from", error);
+            Assert.Contains("failed to fetch verified source for row 2", error);
+            Assert.Contains("Could not fetch SourceLink source", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_PrintRow_RejectsCrossOriginResponse()
+    {
+        using var client = new HttpClient(new SourceResponseHandler(
+            "redirected content"u8.ToArray(),
+            "https://spsprodeus27.vssps.visualstudio.com/_signin"));
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-cross-origin-source-{Guid.NewGuid():N}");
+        try
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Could not verify the final SourceLink response origin", error);
+            Assert.DoesNotContain("spsprodeus27", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_PrintRow_RejectsSameOriginChecksumMismatch()
+    {
+        using var client = new HttpClient(new SourceResponseHandler(
+            "same-origin but wrong content"u8.ToArray()));
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-source-checksum-{Guid.NewGuid():N}");
+        try
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("does not match the portable-PDB checksum", error);
         }
         finally
         {
@@ -6488,6 +6954,21 @@ public partial class CommandExecutionTests
             => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
             {
                 RequestMessage = request,
+            });
+    }
+
+    private sealed class SourceResponseHandler(byte[] body, string? finalUrl = null)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(body),
+                RequestMessage = finalUrl is null
+                    ? request
+                    : new HttpRequestMessage(HttpMethod.Get, finalUrl),
             });
     }
 
@@ -6662,6 +7143,51 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SourceEnrichment_VerboseProgressDoesNotDiscloseArtifactUrlOrPath()
+    {
+        const string Secret = "sup3rs3cret";
+        var sourceInfo = new ILInspector.SourceLink.SourceLinkResolver.TypeSourceInfo(
+            $"/hostile/{Secret}/Source.cs",
+            $"https://user:{Secret}@source.example/F/auth/{Secret}/Source.cs?sig={Secret}#{Secret}",
+            LineNumber: 42,
+            GitHubBrowseUrl: null);
+        var apiType = new ApiType { Name = "Source" };
+
+        var (_, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            await SourceEnricher.ApplySourceInfoAsync(
+                apiType,
+                sourceInfo,
+                new ApiOptions { ShowDocs = true },
+                new VerboseLogger(enabled: true),
+                fetchSourceContent: true);
+            SourceEnricher.MergePartialTypeDocumentation(
+                apiType,
+                [
+                    (
+                        "/// <summary>Primary.</summary>\npublic partial class Source { }",
+                        $"https://source.example/{Secret}/Primary.cs",
+                        $"/hostile/{Secret}/Primary.cs"),
+                    (
+                        "/// <summary>Additional.</summary>\npublic partial class Source { }",
+                        $"https://source.example/{Secret}/Additional.cs",
+                        $"/hostile/{Secret}/Additional.cs"),
+                ],
+                new CSharpText.DocCommentParser(),
+                new ApiOptions(),
+                new VerboseLogger(enabled: true));
+        });
+
+        Assert.Contains("Source (SourceLink) resolved at line 42.", error);
+        Assert.Contains("Fetching SourceLink source.", error);
+        Assert.Contains("Found type documentation.", error);
+        Assert.Contains("Merged additional type documentation.", error);
+        Assert.DoesNotContain(Secret, error, StringComparison.Ordinal);
+        Assert.DoesNotContain("source.example", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("/hostile/", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_DefaultShowsSignatureOnly()
     {
         var options = new MemberOptions
@@ -6816,6 +7342,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Signature | section |", output);
         Assert.Contains("| Decompiled Source | section |", output);
         Assert.Contains("| Annotated Source | section |", output);
+        Assert.Contains("| Annotated Source Document | section |", output);
         Assert.Contains("| Original Source | section |", output);
         Assert.Contains("| IL | section |", output);
         Assert.Contains("| Calls | section |", output);
@@ -6874,6 +7401,60 @@ public partial class CommandExecutionTests
         Assert.Contains("## Call Graph", output);
         Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
         Assert.DoesNotContain("Select value 'Call Graph' not found", error);
+    }
+
+    [Theory]
+    [InlineData("markdown")]
+    [InlineData("table")]
+    [InlineData("mermaid")]
+    public async Task Member_CallGraphTree_OverridesEnvironmentFormat(string environmentFormat)
+    {
+        string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", environmentFormat);
+            var (exit, output, error) = await RunAppAsync(
+                "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+                nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tree", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
+            Assert.DoesNotContain("| From |", output);
+            Assert.DoesNotContain("graph TD", output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task Member_EnvironmentMermaid_AppliesOnlyToCallGraphSelection()
+    {
+        string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
+            var graph = await RunAppAsync(
+                "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+                nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tips", "q");
+            var calls = await RunAppAsync(
+                "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+                nameof(MemberCallGraphFixture.Inner), "-S", "Calls", "--tips", "q");
+
+            Assert.Equal(0, graph.Exit);
+            Assert.Empty(graph.Error);
+            Assert.StartsWith("graph TD", graph.Output, StringComparison.Ordinal);
+            Assert.Equal(0, calls.Exit);
+            Assert.Empty(calls.Error);
+            Assert.Contains("## Calls", calls.Output);
+            Assert.DoesNotContain("graph TD", calls.Output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
     }
 
     [Fact]
@@ -6935,6 +7516,51 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Member_CallGraph_ScopeTraversesCalleesAcrossAssembly()
+    {
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+
+        var scoped = await RunAppAsync(
+            "member",
+            "Shared.Entry",
+            "RunAcrossBoundary:1",
+            "--library",
+            caller,
+            "-S",
+            "Call Graph",
+            "--bin",
+            Path.GetDirectoryName(target)!,
+            "--tips",
+            "q");
+        var unscoped = await RunAppAsync(
+            "member",
+            "Shared.Entry",
+            "RunAcrossBoundary:1",
+            "--library",
+            caller,
+            "-S",
+            "Call Graph",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, scoped.Exit);
+        Assert.Empty(scoped.Error);
+        Assert.Contains("Target.Api.Forward()", scoped.Output);
+        Assert.Contains("Target.Api.Leaf()", scoped.Output);
+        Assert.DoesNotContain("(external)", scoped.Output);
+
+        Assert.Equal(0, unscoped.Exit);
+        Assert.Empty(unscoped.Error);
+        Assert.Contains(
+            "Target.Api.Forward() (external)",
+            unscoped.Output);
+        Assert.DoesNotContain("Target.Api.Leaf()", unscoped.Output);
     }
 
     [Fact]
@@ -7064,6 +7690,287 @@ public partial class CommandExecutionTests
         Assert.Contains("## Annotated Source", output);
         Assert.Contains("```csharp", output);
         Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_AnnotatedSourceDocument_UsesStructuredJsonContract()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source Document", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var replayed = JsonSerializer.Deserialize(
+            output,
+            AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument);
+        Assert.NotNull(replayed);
+
+        using var document = JsonDocument.Parse(output);
+        var root = document.RootElement;
+
+        // The document is a text buffer plus overlays: one canonical rendering,
+        // and absolute spans into it. Lines and line ids are derived, not stored.
+        string text = root.GetProperty("text").GetString()!;
+        Assert.NotEmpty(text);
+        Assert.False(root.TryGetProperty("lines", out _));
+        Assert.False(root.TryGetProperty("placements", out _));
+        Assert.False(root.TryGetProperty("unplaced_annotations", out _));
+
+        var nodes = root.GetProperty("nodes").EnumerateArray().ToArray();
+        var regions = root.GetProperty("regions").EnumerateArray().ToArray();
+        Assert.NotEmpty(nodes);
+        Assert.NotEmpty(regions);
+        Assert.Contains(nodes, node => node.GetProperty("medium").GetString() == "CSharp");
+        Assert.Contains(nodes, node => node.GetProperty("medium").GetString() == "Il");
+        var csharpKinds = nodes
+            .Where(node => node.GetProperty("medium").GetString() == "CSharp")
+            .Select(node => node.GetProperty("kind").GetString()!)
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.All(csharpKinds, kind => Assert.True(
+            ILInspector.Decompiler.AnnotatedSourceNodeKinds.IsKnown(kind),
+            $"CLI emitted undocumented node kind {kind}."));
+        Assert.Contains("ForStatement", csharpKinds);
+        Assert.Contains("ObjectCreationExpression", csharpKinds);
+        Assert.DoesNotContain("ForLoop", csharpKinds);
+        Assert.DoesNotContain("NewObject", csharpKinds);
+
+        // Every coordinate is an absolute, end-exclusive UTF-16 span into that
+        // text, so a consumer slices it directly -- no medium filter, no
+        // line/column indirection, and multiple spans where the interleave
+        // splits a construct.
+        foreach (var element in nodes.Concat(regions))
+        {
+            var spans = element.GetProperty("spans").EnumerateArray().ToArray();
+            Assert.NotEmpty(spans);
+            int previousEnd = 0;
+            foreach (var span in spans)
+            {
+                int start = span.GetProperty("start").GetInt32();
+                int length = span.GetProperty("length").GetInt32();
+                Assert.True(length > 0);
+                Assert.InRange(start, previousEnd, text.Length - length);
+                previousEnd = start + length;
+            }
+        }
+        Assert.Contains(nodes, node => node.GetProperty("spans").GetArrayLength() > 1);
+
+        // An IL node is an exact-offset instruction; a C# node has no offset to
+        // carry, so the property is absent rather than a sentinel.
+        var instructions = nodes
+            .Where(node => node.GetProperty("medium").GetString() == "Il")
+            .ToArray();
+        Assert.NotEmpty(instructions);
+        Assert.All(instructions, node => Assert.Equal("Instruction", node.GetProperty("kind").GetString()));
+        var ilOffsets = instructions
+            .Select(node => node.GetProperty("il_offset").GetInt32())
+            .ToArray();
+        Assert.True(ilOffsets.SequenceEqual(ilOffsets.Order()));
+        Assert.Equal(ilOffsets.Length, ilOffsets.Distinct().Count());
+        Assert.All(
+            nodes.Where(node => node.GetProperty("medium").GetString() == "CSharp"),
+            node => Assert.False(node.TryGetProperty("il_offset", out _)));
+
+        var facts = root.GetProperty("facts").EnumerateArray().ToArray();
+        var targets = root.GetProperty("targets").EnumerateArray().ToArray();
+        Assert.NotEmpty(facts);
+        Assert.NotEmpty(targets);
+
+        // Ids are the join, so they must be contiguous from 0 in list order on
+        // both planes and must resolve from every target.
+        Assert.Equal(
+            Enumerable.Range(0, nodes.Length),
+            nodes.Select(node => node.GetProperty("id").GetInt32()));
+        Assert.Equal(
+            Enumerable.Range(0, facts.Length),
+            facts.Select(fact => fact.GetProperty("id").GetInt32()));
+        Assert.All(targets, target =>
+        {
+            Assert.InRange(target.GetProperty("fact_id").GetInt32(), 0, facts.Length - 1);
+            Assert.InRange(target.GetProperty("node_id").GetInt32(), 0, nodes.Length - 1);
+        });
+
+        var csharpFacts = MediumFacts("CSharp");
+        var ilFacts = MediumFacts("Il");
+        Assert.NotEmpty(csharpFacts);
+        Assert.Equal(csharpFacts, ilFacts);
+
+        string[] MediumFacts(string medium) =>
+        [
+            .. targets
+                .Where(target => nodes[target.GetProperty("node_id").GetInt32()]
+                    .GetProperty("medium").GetString() == medium)
+                .Select(target => FactIdentity(facts[target.GetProperty("fact_id").GetInt32()]))
+                .Distinct()
+                .Order(),
+        ];
+
+        static string FactIdentity(JsonElement fact) => string.Join(
+            "|",
+            fact.GetProperty("source_offset").GetInt32(),
+            fact.GetProperty("descriptor").GetString(),
+            fact.GetProperty("category").GetString(),
+            fact.GetProperty("conditionality").GetString(),
+            fact.TryGetProperty("detail", out var detail) ? detail.GetString() : null,
+            fact.GetProperty("origin").GetString());
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSourceDocument_UsesTheSyntaxThePrinterSelected()
+    {
+        await AssertNodeKind(
+            nameof(CommandCaretGestureFixture.StringEqual),
+            "left == right",
+            "BinaryExpression",
+            "InvocationExpression");
+        await AssertNodeKind(
+            nameof(CommandCaretGestureFixture.ReadMatrix),
+            "values[row, column]",
+            "ElementAccessExpression",
+            "InvocationExpression");
+        await AssertNodeKind(
+            nameof(CommandCaretGestureFixture.MakeMatrix),
+            "new int[2, 3]",
+            "ArrayCreationExpression",
+            "ObjectCreationExpression");
+
+        async Task AssertNodeKind(
+            string methodName,
+            string expectedText,
+            string expectedKind,
+            string rejectedKind)
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "member",
+                typeof(CommandCaretGestureFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                methodName,
+                "-S",
+                "Annotated Source Document",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            string text = document.RootElement.GetProperty("text").GetString()!;
+            var nodes = document.RootElement.GetProperty("nodes").EnumerateArray().ToArray();
+            var node = Assert.Single(nodes, candidate =>
+            {
+                if (candidate.GetProperty("medium").GetString() != "CSharp")
+                    return false;
+                var span = Assert.Single(candidate.GetProperty("spans").EnumerateArray());
+                int start = span.GetProperty("start").GetInt32();
+                int length = span.GetProperty("length").GetInt32();
+                return text.Substring(start, length) == expectedText;
+            });
+
+            Assert.Equal(expectedKind, node.GetProperty("kind").GetString());
+            Assert.DoesNotContain(
+                nodes,
+                candidate => candidate.GetProperty("kind").GetString() == rejectedKind
+                    && candidate.GetProperty("spans").EnumerateArray().Any(span =>
+                    {
+                        int start = span.GetProperty("start").GetInt32();
+                        int length = span.GetProperty("length").GetInt32();
+                        return text.Substring(start, length) == expectedText;
+                    }));
+        }
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSourceDocumentJson_RejectsAmbiguousDocumentComposition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Signature,Annotated Source Document", "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("must be the only selected section under --json", error);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSourceDocumentJson_RejectsImplicitCallerSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source Document", "--json",
+            "--bin", Path.GetDirectoryName(TestAssemblyPath)!, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("must be the only selected section under --json", error);
+    }
+
+    [Fact]
+    public async Task Member_DuplicateAnnotatedSourceDocumentSelectors_UseStructuredJsonContract()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1",
+            "-S", "Annotated Source Document",
+            "-S", "annotated source document",
+            "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("text", out _));
+        Assert.False(document.RootElement.TryGetProperty("namespace", out _));
+    }
+
+    [Theory]
+    [InlineData("@all")]
+    [InlineData("Annotated*")]
+    [InlineData("Annotated Source D*")]
+    public async Task Member_ExpandedSectionsJson_DoesNotTreatMapAsExplicitComposition(string selection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", selection, "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        Assert.True(document.RootElement.TryGetProperty("namespace", out _));
+        Assert.False(document.RootElement.TryGetProperty("text", out _));
+    }
+
+    [Fact]
+    public async Task Type_AnnotatedSourceDocument_IsNotAdvertisedAsATypeSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "-S", "Annotated Source Document", "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value 'Annotated Source Document' not found", error);
+    }
+
+    [Fact]
+    public void Member_AnnotatedSourceDocument_AuthorizesPdbResolution()
+    {
+        var type = new ApiType
+        {
+            Name = "Fixture",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.AnnotatedSourceDocument,
+            },
+        };
+
+        Assert.True(MemberCommand.NeedsMemberSourceResolution(type, options));
     }
 
     [Fact]
@@ -7813,7 +8720,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Cost Overlay        section", output);
+        Assert.Matches(@"Cost Overlay\s+section", output);
     }
 
     [Fact]
@@ -7867,7 +8774,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Semantics Overlay   section", output);
+        Assert.Matches(@"Semantics Overlay\s+section", output);
     }
 
     [Fact]
@@ -9195,8 +10102,14 @@ public partial class CommandExecutionTests
             "find", ".Serialize", "--platform", "System.Text.Json", "--json");
 
         Assert.Equal(0, exit);
-        Assert.Contains("\"member\":\"Serialize\"", output);
-        Assert.Contains("\"declaring_type\":\"System.Text.Json.JsonSerializer\"", output);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Contains(
+            document.RootElement.EnumerateArray(),
+            element =>
+                element.GetProperty("member").GetString() == "Serialize"
+                && element.GetProperty("declaring_type").GetString()
+                    == "System.Text.Json.JsonSerializer");
     }
 
     [Fact]
@@ -9463,6 +10376,51 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleSectionCount_WithPlainText_WritesInteger()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Methods"],
+            Count = true,
+            PlainText = true
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), output);
+        Assert.True(count > 0);
+        Assert.DoesNotContain("#", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task Member_SingleSectionCount_WithPlainText_WritesInteger()
+    {
+        var options = new MemberOptions
+        {
+            AssemblyPath = TestAssemblyPath,
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            Select = ["Calls"],
+            Count = true,
+            PlainText = true
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), output);
+        Assert.True(count > 0);
+        Assert.DoesNotContain("#", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task Assembly_LocalAssembly_ShowsInfo()
     {
         var options = new LibraryOptions { AssemblyName = TestAssemblyPath };
@@ -9588,7 +10546,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("--tree requires exactly -S References", error);
+        Assert.Contains("--tree requires exactly one tree-shaped section (-S References)", error);
     }
 
     [Fact]
@@ -9993,6 +10951,7 @@ public partial class CommandExecutionTests
         "Custom Attributes",
         "Decompiled Source",
         "Annotated Source",
+        "Annotated Source Document",
         "Cost Overlay",
         "Semantics Overlay",
         "Original Source",
@@ -10247,7 +11206,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_ScopedEffectiveDiscoveryDoesNotPoisonBareCache()
     {
-        const string currentCategory = "effective-v21";
+        const string currentCategory = "effective-v22";
         string directory = Path.Combine(
             Path.GetTempPath(), $"effective-scope-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -10450,6 +11409,68 @@ public partial class CommandExecutionTests
             Assert.Contains("callsite", output);
             Assert.Contains("return-address", output);
             Assert.Contains("return address", output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetsFile_PrefersExactOperationIdentity()
+    {
+        static (int Token, int Offset) Coordinate(Type type, string methodName, byte opcode)
+        {
+            var method = type.GetMethod(
+                methodName,
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly)!;
+            var il = method.GetMethodBody()!.GetILAsByteArray()!;
+            var offset = Array.IndexOf(il, opcode);
+            Assert.True(offset >= 0, $"opcode 0x{opcode:X2} not found in {methodName}");
+            return (method.MetadataToken, offset);
+        }
+
+        var (allSignalsToken, virtualCallOffset) = Coordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            0x6F);
+        var (_, allocationOffset) = Coordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            0x8D);
+        var (unsafeToken, unsafeCallOffset) = Coordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.UnsafeAs),
+            0x28);
+
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllLinesAsync(
+            path,
+            [
+                $"hot-virtual-call 0x{allSignalsToken:X8}+0x{virtualCallOffset:X}",
+                $"allocation 0x{allSignalsToken:X8}+0x{allocationOffset:X}",
+                $"unsafe-call 0x{unsafeToken:X8}+0x{unsafeCallOffset:X}"
+            ],
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--json", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            var rows = document.RootElement.GetProperty("rows").EnumerateArray().ToArray();
+
+            var callsite = Assert.Single(rows, row => row.GetProperty("label").GetString() == "hot-virtual-call");
+            Assert.Equal("callsite", callsite.GetProperty("meaning").GetString());
+            Assert.Contains("virtual dispatch", callsite.GetProperty("evidence").GetString());
+
+            var allocation = Assert.Single(rows, row => row.GetProperty("label").GetString() == "allocation");
+            Assert.Equal("allocation", allocation.GetProperty("meaning").GetString());
+
+            var safety = Assert.Single(rows, row => row.GetProperty("label").GetString() == "unsafe-call");
+            Assert.Equal("safety", safety.GetProperty("meaning").GetString());
         }
         finally
         {
@@ -11080,6 +12101,8 @@ public partial class CommandExecutionTests
         Assert.Contains("## Switches", all, StringComparison.Ordinal);
         Assert.Contains("| Kind | Switch | API |", all, StringComparison.Ordinal);
         Assert.Contains("| ---- | ------ | --- |", all, StringComparison.Ordinal);
+        Assert.DoesNotContain('\r', all);
+        Assert.DoesNotContain('\r', windowed);
 
         static int DataRows(string output) =>
             output.Split('\n').Count(line => line.StartsWith("| ", StringComparison.Ordinal))
@@ -11087,6 +12110,137 @@ public partial class CommandExecutionTests
 
         Assert.True(DataRows(all) > 2, $"expected an unwindowed table wider than the window, got {DataRows(all)} rows");
         Assert.Equal(2, DataRows(windowed));
+    }
+
+    /// <summary>
+    /// The <c>--all-libraries</c> document is assembled by hand, and every block boundary is
+    /// produced by one helper that appends a block plus its trailing blank line. That is easy to
+    /// break silently in either direction: #3963 doubled the blank before every section on Windows,
+    /// and a separator rewritten to emit one newline instead of two would run the sections
+    /// together. Neither produces a carriage return, so neither is visible to a line-ending
+    /// assertion.
+    /// <para>
+    /// The invariant asserted here is therefore two-sided -- each <c>##</c> heading is preceded by
+    /// exactly one blank line, so a missing blank and an extra blank both fail. The two ends of the
+    /// document are covered separately, because a heading loop cannot see them: it opens with the
+    /// package's title heading followed by one blank line, and it carries no trailing whitespace,
+    /// so the assembling <c>TrimEnd</c> cannot be dropped. All of these have teeth on every
+    /// platform. <see cref="PackageCommand_AllLibraries_MarkdownUsesLfThroughout"/> covers the
+    /// complementary property, the line ending itself, over the per-library path; that assertion
+    /// has teeth only on the <c>test-windows</c> leg.
+    /// </para>
+    /// <para>
+    /// Both producers are covered, because they fail differently. The aggregated path (#3951, which
+    /// the per-library test does not reach) is exercised by <c>-S Switches,Dependencies</c> against
+    /// a real package. The per-library path appears there only as the document's last block, where
+    /// a trailing newline it emitted would be absorbed by the assembling <c>TrimEnd</c> and go
+    /// unnoticed; it is therefore also run against a local two-library package, so that a boundary
+    /// between two per-library blocks is measured directly.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregatedSection_SeparatesBlocksWithOneBlankLine()
+    {
+        var (exit, aggregated, _) = await RunAppAsync(
+            "package", "System.Text.Json", "--all-libraries", "-S", "Switches,Dependencies");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Switches", aggregated, StringComparison.Ordinal);
+        AssertBlocksSeparatedByOneBlankLine(aggregated, "# system.text.json");
+
+        // The per-library producer, which the run above reaches only as the document's last block,
+        // where a trailing newline it emitted would be absorbed by the assembling TrimEnd. This
+        // package ships two libraries for the selected framework, so the boundary between two
+        // per-library blocks is measured rather than inferred.
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (localExit, perLibrary, _) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info");
+
+            Assert.Equal(0, localExit);
+            AssertBlocksSeparatedByOneBlankLine(perLibrary, "# test.libraryfiles");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Asserts the block-separation invariant over one rendered <c>--all-libraries</c> document:
+    /// it opens with its title heading, every <c>##</c> heading is preceded by exactly one blank
+    /// line, and it carries no trailing whitespace.
+    /// </summary>
+    private static void AssertBlocksSeparatedByOneBlankLine(string output, string expectedTitlePrefix)
+    {
+        Assert.DoesNotContain('\r', output);
+
+        // The document's own end, not the harness's. OutputFormatter.WriteLfLine appends the
+        // terminating newline itself, so asserting output ends with one asserts WriteLfLine;
+        // strip it and require what the assembling TrimEnd is actually for -- that the document
+        // carries no trailing whitespace. Every block contributes a trailing blank line, so
+        // without that TrimEnd the document would end "\n\n\n".
+        Assert.EndsWith("\n", output, StringComparison.Ordinal);
+        var document = output[..^1];
+        Assert.Equal(document.TrimEnd(), document);
+
+        var lines = document.Split('\n');
+
+        // The document's start, which the heading loop cannot reach: the title block is one
+        // heading line naming the package, followed by exactly one blank line. A bare
+        // StartsWith("# ") would admit anything prepended above the title that is itself a heading.
+        Assert.StartsWith(expectedTitlePrefix, lines[0], StringComparison.OrdinalIgnoreCase);
+        Assert.True(
+            lines[1].Length == 0,
+            $"expected a blank line after the title, found '{lines[1]}'");
+
+        var headings = 0;
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (!lines[i].StartsWith("## ", StringComparison.Ordinal))
+                continue;
+
+            headings++;
+            Assert.True(i >= 2, $"'{lines[i]}' has no room for a preceding blank line");
+            Assert.True(
+                lines[i - 1].Length == 0,
+                $"expected a blank line before '{lines[i]}', found '{lines[i - 1]}'");
+            Assert.True(
+                lines[i - 2].Length != 0,
+                $"expected exactly one blank line before '{lines[i]}', found more than one");
+        }
+
+        Assert.True(
+            headings >= 2,
+            $"expected at least two section headings, so that separation between blocks is "
+                + $"exercised and not just the boundary below the title, got:\n{output}");
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_MarkdownUsesLfThroughout()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info");
+            var (windowedExit, windowed, windowedError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info", "--rows", "20");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(0, windowedExit);
+            Assert.DoesNotContain("Tip:", error);
+            Assert.DoesNotContain("Tip:", windowedError);
+            Assert.Contains('\n', output);
+            Assert.Contains('\n', windowed);
+            Assert.DoesNotContain('\r', output);
+            Assert.DoesNotContain('\r', windowed);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -11213,6 +12367,47 @@ public partial class CommandExecutionTests
         Assert.Contains("## Integration: Opportunities", output);
         Assert.Contains("| Configuration | `Azure.Data.AppConfiguration.ConfigurationClient` | IConfigurationBuilder source | IConfigurationBuilder, AddAzureAppConfiguration |", output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_LocalFile_IntegrationOpportunities_UsesGroupQueryResult()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(Npgsql.NpgsqlConnection).Assembly.Location,
+            "-S",
+            "Integration: Opportunities",
+            "--rows",
+            "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integration: Opportunities", output);
+        Assert.Contains(
+            "| Aspire | `Npgsql.NpgsqlConnection` | AppHost resource builder |",
+            output);
+        Assert.Contains(
+            "| Health Checks | `Npgsql.NpgsqlConnection` | IHealthChecksBuilder registration |",
+            output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IntegrationOpportunities_TraceShowsIntegrationsPrerequisite()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Data.Common",
+            "-S",
+            "Integration: Opportunities",
+            "--trace",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integration: Opportunities", output);
+        Assert.Contains(
+            "query prerequisites  Assembly context integrations",
+            error);
     }
 
     [Fact]
@@ -12046,16 +13241,14 @@ public partial class CommandExecutionTests
     [InlineData("System.Runtime.InteropServices")]
     // System.Data.Common is the only offline assembly found that renders
     // "Integration: Opportunities" (two DbDataSource rows), so it is what gives that section any
-    // alone-vs-together coverage at all. It cannot catch a missing Integrations prerequisite —
-    // see IntegrationOpportunities_DeclaresIntegrationsPrerequisite for why.
+    // alone-vs-together coverage at all. The group-query registry contract separately gates the
+    // typed Integrations prerequisite and its transitive cost.
     [InlineData("System.Data.Common")]
     public async Task LibrarySections_RenderIdenticallyAloneAndTogether(string assembly)
     {
-        // The gate for removing the scanner fan-out. Every scanner-bound section must render the
-        // same content whether it is asked for alone or alongside all the others. Asking for a
-        // section alone runs only its declared scanner closure, so a scanner that reads data it
-        // did not declare a prerequisite for renders less in isolation — which is exactly the
-        // failure the old fan-out hid by re-scanning from inside the scanner body.
+        // Every generated section must render the same content whether it is asked for alone or
+        // alongside all the others. Asking for a section alone runs only its declared scanner or
+        // query closure, so undeclared dependencies render less in isolation.
         //
         // The section set is derived from the pipeline, not from the prerequisite declarations,
         // so deleting a declaration does not also delete the coverage that would catch it.
@@ -12701,41 +13894,239 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_TfmAll_PerformanceGroupTabular_IsKindLabeledPerAssembly()
+    public async Task PackageCommand_AllLibraries_TfmAllPreservesFrameworkFolder()
     {
-        // Regression: the multi-assembly renderer (WriteLibraryResults, reached via `library --tfm
-        // all` when a library ships under several TFMs) must apply the same @Performance flattening
-        // as the single-assembly path — each assembly emits one self-describing Kind-labeled table,
-        // never per-kind headers without a Kind column.
-        var tempDir = Path.Combine(Path.GetTempPath(), $"perf-multitfm-{Guid.NewGuid():N}");
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
         try
         {
             var content = Path.Combine(tempDir, "content");
-            foreach (var tfm in new[] { "net8.0", "net10.0" })
+            var uap = Path.Combine(content, "lib", "uap10.0");
+            var portable = Path.Combine(
+                content,
+                "lib",
+                "portable-net45+win8");
+            Directory.CreateDirectory(uap);
+            Directory.CreateDirectory(portable);
+            var (configuration, _, _, configurationError) =
+                PlatformResolver.ResolveAssembly(
+                    "Microsoft.Extensions.Configuration");
+            var (json, _, _, jsonError) =
+                PlatformResolver.ResolveAssembly(
+                    "Microsoft.Extensions.Configuration.Json");
+            Assert.True(
+                configurationError is null && configuration is not null,
+                configurationError);
+            Assert.True(
+                jsonError is null && json is not null,
+                jsonError);
+            foreach (string framework in new[] { uap, portable })
             {
-                var dir = Path.Combine(content, "lib", tfm);
-                Directory.CreateDirectory(dir);
-                File.Copy(TestAssemblyPath, Path.Combine(dir, "Lib.dll"));
+                File.Copy(
+                    configuration,
+                    Path.Combine(
+                        framework,
+                        "Microsoft.Extensions.Configuration.dll"));
+                File.Copy(
+                    json,
+                    Path.Combine(
+                        framework,
+                        "Microsoft.Extensions.Configuration.Json.dll"));
             }
-            var packagePath = Path.Combine(tempDir, "Perf.MultiTfm.1.0.0.nupkg");
+            var packagePath = Path.Combine(
+                tempDir,
+                "Test.FrameworkFolders.1.0.0.nupkg");
             ZipFile.CreateFromDirectory(content, packagePath);
 
-            var (exit, output, _) = await RunAppAsync(
-                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Performance:*", "--tsv", "--rows", "3", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "--tfm",
+                "all",
+                "-S",
+                "Integration: Configuration",
+                "--tsv");
 
             Assert.Equal(0, exit);
-            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            // One flattened Kind-labeled table per TFM assembly; no bare per-kind "member\t" header.
-            Assert.Contains(lines, l => l.StartsWith("kind\tmember\t", StringComparison.Ordinal));
-            Assert.DoesNotContain(lines, l => l.StartsWith("member\t", StringComparison.Ordinal));
-            var kindHeaders = lines.Count(l => l.StartsWith("kind\tmember\t", StringComparison.Ordinal));
-            Assert.Equal(2, kindHeaders);
-            // Every data row is self-describing: its first field is a real kind label.
-            var kindLabels = PerformanceKinds.Sections.Select(PerformanceKinds.KindLabel).ToHashSet(StringComparer.Ordinal);
-            var dataRows = lines.Where(l => !l.StartsWith("kind\t", StringComparison.Ordinal)).ToArray();
-            Assert.NotEmpty(dataRows);
-            Assert.All(dataRows, l => Assert.Contains(l.Split('\t')[0], kindLabels));
+            Assert.Contains("\tportable-net45+win8\t", output);
+            Assert.Contains("\tuap10.0\t", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--tree")]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("--plaintext")]
+    public async Task LibraryCommand_TfmAll_RejectsNonDocumentOutputBeforePackageAcquisition(string option)
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+        var arguments = new List<string>
+        {
+            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all",
+            "-S", option == "--tree" ? SectionNames.References : SectionNames.LibraryInfo,
+            option, "--tips", "q"
+        };
+
+        var (exit, output, error) = await RunAppAsync(arguments.ToArray());
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tfm all", error);
+        Assert.Contains("Markdown or JSON", error);
+        Assert.Contains(option, error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("--print")]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    public async Task LibraryCommand_TfmAll_RejectsUnaryProjections(string option)
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all",
+            "-S", SectionNames.LibraryInfo, option, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tfm all", error);
+        Assert.Contains(option, error);
+    }
+
+    [Theory]
+    [InlineData("--extract-resources")]
+    [InlineData("--il-offset")]
+    [InlineData("--il-offsets")]
+    [InlineData("--heap")]
+    public async Task LibraryCommand_TfmAll_CountDoesNotBypassSingleInspectionOperations(string option)
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+        var arguments = new List<string>
+        {
+            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all"
+        };
+        if (option == "--extract-resources")
+            arguments.AddRange(["-S", SectionNames.Resources]);
+        arguments.Add("--count");
+        arguments.Add(option);
+        arguments.Add(option switch
+        {
+            "--extract-resources" => Path.Combine(Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}"),
+            "--il-offset" => "0x06000001+0x0",
+            "--il-offsets" => Path.Combine(Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}.txt"),
+            "--heap" => "#Strings:0x1",
+            _ => throw new InvalidOperationException($"Unexpected option: {option}")
+        });
+        arguments.AddRange(["--tips", "q"]);
+
+        var (exit, output, error) = await RunAppAsync(arguments.ToArray());
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tfm all", error);
+        Assert.Contains(option, error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_TreeRejectionTakesPrecedenceOverSectionSelection()
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", "Missing.dll", "--package", missingPackagePath,
+            "--tfm", "all", "--tree", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tree requires exactly one tree shape", error);
+        Assert.Contains("Markdown or JSON", error);
+        Assert.DoesNotContain("-S References", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_DiscoveryDoesNotBypassILOffsetBatchRejection()
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+        var missingCoordinatesPath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.txt");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all",
+            "-D", "--il-offsets", missingCoordinatesPath, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tfm all", error);
+        Assert.Contains("--il-offsets", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_LocalFileRetainsSingleShapeOutput()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "--tfm", "all",
+            "-S", SectionNames.LibraryInfo, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_PlatformRouteRetainsSingleShapeOutput()
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json", "--package", missingPackagePath,
+            "--tfm", "all", "-S", SectionNames.LibraryInfo, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_SinglePackageInspectionRetainsDocumentFraming()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
+                "library", "System.Runtime.dll", "--package", packagePath, "--tfm", "all",
+                "-S", SectionNames.LibraryInfo, "--tips", "q");
+            var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
+                "library", "System.Runtime.dll", "--package", packagePath, "--tfm", "all",
+                "-S", SectionNames.LibraryInfo, "--json", "--tips", "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Contains("## Libraries", markdownOutput);
+            Assert.Empty(markdownError);
+            Assert.Equal(0, jsonExit);
+            using var document = JsonDocument.Parse(jsonOutput);
+            Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+            Assert.Single(document.RootElement.EnumerateArray());
+            Assert.Empty(jsonError);
         }
         finally
         {
@@ -12766,7 +14157,7 @@ public partial class CommandExecutionTests
             ZipFile.CreateFromDirectory(content, emptyPackagePath);
             var (emptyExit, emptyOutput, emptyError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", emptyPackagePath, "--tfm", "all",
-                "-S", "Async Methods", "--tsv", "--tips", "q");
+                "-S", "Async Methods", "--markdown", "--tips", "q");
             Assert.Equal(1, emptyExit);
             Assert.Empty(emptyOutput);
             Assert.Equal(
@@ -12775,18 +14166,19 @@ public partial class CommandExecutionTests
 
             var (wildcardExit, wildcardOutput, wildcardError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", emptyPackagePath, "--tfm", "all",
-                "-S", "Async*", "--tsv", "--tips", "q");
+                "-S", "Async*", "--markdown", "--tips", "q");
             Assert.Equal(0, wildcardExit);
-            Assert.Empty(wildcardOutput);
+            Assert.Contains("## Libraries", wildcardOutput);
             Assert.Equal(
                 "Note: 1 matched section has no data: Async Methods.",
                 wildcardError.Trim());
 
             var (exit, output, error) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods", "--tsv", "--tips", "q");
+                "-S", "Async Methods", "--markdown", "--tips", "q");
 
             Assert.Equal(0, exit);
+            Assert.Contains("## Libraries", output);
             Assert.Contains(
                 nameof(LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly),
                 output);
@@ -12794,22 +14186,34 @@ public partial class CommandExecutionTests
                 "This section (Async Methods) produced no output.",
                 error);
 
-            var (markdownExit, markdown, markdownError) = await RunAppAsync(
+            var (defaultExit, defaultOutput, defaultError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods", "--markdown", "--tips", "q");
+                "-S", "Async Methods", "--tips", "q");
 
-            Assert.Equal(0, markdownExit);
-            Assert.Contains("## Libraries", markdown);
+            Assert.Equal(0, defaultExit);
+            Assert.Contains("## Libraries", defaultOutput);
             Assert.Contains(
                 nameof(LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly),
-                markdown);
-            Assert.Empty(markdownError);
+                defaultOutput);
+            Assert.Empty(defaultError);
+
+            var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "Async Methods", "--json", "--tips", "q");
+
+            Assert.Equal(0, jsonExit);
+            using (var document = JsonDocument.Parse(jsonOutput))
+            {
+                Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+                Assert.Equal(2, document.RootElement.GetArrayLength());
+            }
+            Assert.Empty(jsonError);
 
             var (singleCountExit, singleCountOutput, singleCountError) = await RunAppAsync(
                 "library", TestAssemblyPath, "-S", "Async Methods", "--count", "--tips", "q");
             var (multiCountExit, multiCountOutput, multiCountError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods", "--count", "--tips", "q");
+                "-S", "Async Methods", "--count", "--tsv", "--tips", "q");
 
             Assert.Equal(0, singleCountExit);
             Assert.Equal(0, multiCountExit);
@@ -12899,6 +14303,508 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData("", "1.0.0")]
+    [InlineData("Test.BlankIdentity", " ")]
+    public async Task PackageCommand_AllLibraries_BlankNuspecIdentityFallsBack(
+        string packageId,
+        string packageVersion)
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration");
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry entry =
+                    archive.CreateEntry("Test.BlankIdentity.nuspec");
+                await using Stream stream = entry.Open();
+                await using var writer = new StreamWriter(stream);
+                await writer.WriteAsync($$"""
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <package>
+                      <metadata>
+                        <id>{{packageId}}</id>
+                        <version>{{packageVersion}}</version>
+                      </metadata>
+                    </package>
+                    """);
+            }
+
+            var (exit, output, _) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "## Integration: Configuration",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_BlankAssemblyNameDoesNotAbortHealthyParticipants()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration");
+        try
+        {
+            string malformedPath = Path.Combine(tempDir, "BlankName.dll");
+            WriteBlankAssemblyNameAssembly(malformedPath);
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry healthyEntry = archive.Entries.Single(
+                    entry => entry.FullName.EndsWith(
+                        "Microsoft.Extensions.Configuration.dll",
+                        StringComparison.Ordinal));
+                string directory = healthyEntry.FullName[..(
+                    healthyEntry.FullName.LastIndexOf('/') + 1)];
+                archive.CreateEntryFromFile(
+                    malformedPath,
+                    $"{directory}BlankName.dll");
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "## Integration: Configuration",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Value cannot be null or whitespace",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_BlankAssemblyNameSuppressesOpportunities()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"blank-name-opportunity-{Guid.NewGuid():N}");
+        try
+        {
+            string content = Path.Combine(tempDir, "content");
+            string framework = Path.Combine(content, "lib", "net8.0");
+            Directory.CreateDirectory(framework);
+            WriteBlankAssemblyNameAssembly(
+                Path.Combine(framework, "BlankName.dll"));
+            string packagePath = Path.Combine(
+                tempDir,
+                "BlankName.Opportunity.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain(
+                "Azure.Test.ExampleClient",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "matched sections have no data",
+                error,
+                StringComparison.Ordinal);
+            Assert.Equal(
+                1,
+                error.Split(
+                    "matched section",
+                    StringSplitOptions.None).Length - 1);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_BlankAssemblyNameSuppressesOpportunities()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"blank-name-opportunity-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            string path = Path.Combine(tempDir, "BlankName.dll");
+            WriteBlankAssemblyNameAssembly(path);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                path,
+                "-S",
+                "Integration: Opportunities",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.DoesNotContain(
+                "Azure.Test.ExampleClient",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "produced no output",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_GroupedFailureSurvivesHostFailureAcrossOutputPaths()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration");
+        try
+        {
+            string malformedPath = Path.Combine(
+                tempDir,
+                "MalformedIntegrations.dll");
+            WriteMalformedTypeNameAssembly(malformedPath);
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry healthyEntry = archive.Entries.Single(
+                    entry => entry.FullName.EndsWith(
+                        "Microsoft.Extensions.Configuration.dll",
+                        StringComparison.Ordinal));
+                string directory = healthyEntry.FullName[..(
+                    healthyEntry.FullName.LastIndexOf('/') + 1)];
+                archive.CreateEntryFromFile(
+                    malformedPath,
+                    $"{directory}MalformedIntegrations.dll");
+            }
+
+            string[][] outputOptions =
+            [
+                [],
+                ["--json"],
+                ["--count"],
+                ["--tsv"],
+            ];
+            foreach (string[] outputOption in outputOptions)
+            {
+                string[] arguments =
+                [
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    "Integration: Configuration",
+                    "--tips",
+                    "q",
+                    .. outputOption,
+                ];
+                var (exit, output, error) =
+                    await RunAppAsync(arguments);
+
+                Assert.Equal(1, exit);
+                switch (outputOption.FirstOrDefault())
+                {
+                    case null:
+                        Assert.Contains(
+                            "## Integration: Configuration",
+                            output,
+                            StringComparison.Ordinal);
+                        break;
+                    case "--json":
+                        Assert.StartsWith("[", output);
+                        break;
+                    case "--count":
+                        Assert.True(
+                            int.TryParse(
+                                output.Trim(),
+                                CultureInfo.InvariantCulture,
+                                out int count));
+                        Assert.True(count > 0);
+                        break;
+                    case "--tsv":
+                        Assert.Contains(
+                            "package\tversion\tlibrary\ttfm",
+                            output,
+                            StringComparison.Ordinal);
+                        break;
+                }
+                Assert.Contains(
+                    "Integrations inspection failed for",
+                    error,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "MalformedIntegrations.dll",
+                    error,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_MetadataOverflowPreservesHealthyOutput()
+    {
+        const string HealthyAssembly =
+            "Microsoft.Extensions.Configuration";
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            HealthyAssembly);
+        try
+        {
+            var (sourcePath, _, _, error) =
+                PlatformResolver.ResolveAssembly(HealthyAssembly);
+            Assert.Null(error);
+            Assert.NotNull(sourcePath);
+            string malformedPath = Path.Combine(
+                tempDir,
+                "Overflow.dll");
+            WriteOverflowingMetadataStreamCountAssembly(
+                sourcePath,
+                malformedPath);
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry healthyEntry = archive.Entries.Single(
+                    entry => entry.FullName.EndsWith(
+                        $"{HealthyAssembly}.dll",
+                        StringComparison.Ordinal));
+                string directory = healthyEntry.FullName[..(
+                    healthyEntry.FullName.LastIndexOf('/') + 1)];
+                archive.CreateEntryFromFile(
+                    malformedPath,
+                    $"{directory}Overflow.dll");
+            }
+
+            var (exit, output, commandError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains(
+                "## Integration: Configuration",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Integrations inspection failed for",
+                commandError,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Overflow.dll",
+                commandError,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                nameof(OverflowException),
+                commandError,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_MalformedMetadataPreflightIsIncompleteAcrossOutputPaths()
+    {
+        const string HealthyAssembly =
+            "Microsoft.Extensions.Configuration";
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            HealthyAssembly);
+        try
+        {
+            var (sourcePath, _, _, error) =
+                PlatformResolver.ResolveAssembly(HealthyAssembly);
+            Assert.Null(error);
+            Assert.NotNull(sourcePath);
+            string malformedPath = Path.Combine(
+                tempDir,
+                "MalformedMetadata.dll");
+            WriteTruncatedMetadataTableAssembly(
+                sourcePath,
+                malformedPath);
+            Assert.Throws<BadImageFormatException>(
+                () => ResolvedAssemblyReference
+                    .CreateFromPathIfManaged(
+                        malformedPath,
+                        AssemblyResolutionProvenance.Local(
+                            "malformed metadata preflight test")));
+
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry healthyEntry = archive.Entries.Single(
+                    entry => entry.FullName.EndsWith(
+                        $"{HealthyAssembly}.dll",
+                        StringComparison.Ordinal));
+                string directory = healthyEntry.FullName[..(
+                    healthyEntry.FullName.LastIndexOf('/') + 1)];
+                archive.CreateEntryFromFile(
+                    malformedPath,
+                    $"{directory}MalformedMetadata.dll");
+            }
+
+            string[][] outputOptions =
+            [
+                [],
+                ["--json"],
+                ["--count"],
+                ["--tsv"],
+            ];
+            foreach (string[] outputOption in outputOptions)
+            {
+                string[] arguments =
+                [
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    "Integration: Configuration",
+                    "--tips",
+                    "q",
+                    .. outputOption,
+                ];
+                var (exit, output, commandError) =
+                    await RunAppAsync(arguments);
+
+                Assert.Equal(1, exit);
+                Assert.False(string.IsNullOrWhiteSpace(output));
+                if (outputOption.Length == 0)
+                    Assert.DoesNotContain('\r', output);
+                Assert.Contains(
+                    "Integrations inspection failed for",
+                    commandError,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "MalformedMetadata.dll",
+                    commandError,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_IntegrationOpportunities_UsesGroupQueryResult()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalIntegrationOpportunityPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--rows",
+                "20");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Integration: Opportunities", output);
+            Assert.Contains(
+                "| Aspire | `Npgsql.NpgsqlConnection` | AppHost resource builder |",
+                output);
+            Assert.Contains(
+                "| Health Checks | `Npgsql.NpgsqlConnection` | IHealthChecksBuilder registration |",
+                output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_ReportsOpportunityFailure()
+    {
+        HashSet<InspectionQueryDefinition> queries =
+            [AssemblyContextIntegrationsQuery.Definition];
+        AssemblyContextIntegrationsBatch batch =
+            Assert.IsType<AssemblyContextIntegrationsBatch>(
+                AssemblyContextIntegrationsRunner.RunIfRequested(
+                    queries,
+                    LibrarySections.CreateGroupQueryRegistry(),
+                    [
+                        new AssemblyContextIntegrationsInput(
+                            TestAssemblyPath,
+                            AssemblyResolutionProvenance.Local(
+                                "all-libraries failure test")),
+                    ]));
+        var integrations = Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            batch.EntryFor(TestAssemblyPath));
+        var inspection = new LibraryInspection
+        {
+            FileName = "Broken.dll",
+            AssemblyIntegrationOpportunitiesEntry =
+                new AssemblyIntegrationOpportunitiesEntry.Failed(
+                    integrations.Subject,
+                    new BadImageFormatException("opportunity failure")),
+        };
+        var options = new LibraryOptions
+        {
+            IncludeSections = ["Integration: Opportunities"],
+        };
+        List<string>? sections = null;
+
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => sections = PackageCommand.GetAllLibrariesSections(
+                [inspection],
+                options,
+                LibrarySections.CreatePipeline()));
+
+        Assert.Empty(output);
+        Assert.Empty(Assert.IsType<List<string>>(sections));
+        Assert.Contains(
+            "Integration: Opportunities inspection failed "
+            + "(Assembly context integration opportunities): opportunity failure",
+            error);
     }
 
     [Fact]
@@ -13126,6 +15032,7 @@ public partial class CommandExecutionTests
             Assert.Contains("Manifest", output);
             // SourceLink: Files is reachable through its door rather than the top-level
             // catalog, so the door is what discovery has to advertise.
+            Assert.Contains("| @Package | category |", output);
             Assert.Contains("| @SourceLink | category |", output);
             Assert.DoesNotContain("| SourceLink: Files | section |", output);
             Assert.DoesNotContain("Vulnerabilities", output);
@@ -13186,7 +15093,10 @@ public partial class CommandExecutionTests
             Assert.Contains("Vulnerabilities", output);
             // @All/@Default/@Hidden are internal computed poles, not doors: curated discovery
             // advertises only the real category doors.
+            Assert.Contains("| @Audit | category |", output);
+            Assert.Contains("| @Dependencies | category |", output);
             Assert.Contains("| @Files | category |", output);
+            Assert.Contains("| @Package | category |", output);
             Assert.Contains("| @SourceLink | category |", output);
             Assert.DoesNotContain("@All", output);
             Assert.DoesNotContain("@Default", output);
@@ -13196,6 +15106,21 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Package_DiscoverPackageCategory_ListsPackageNativeSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "-D", "@Package", "--schema", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Package Info | section |", output);
+        Assert.Contains("| Dependencies | section |", output);
+        Assert.Contains("| Package files | section |", output);
+        Assert.DoesNotContain("| Package README file | section |", output);
+        Assert.DoesNotContain("| SourceLink: Files | section |", output);
     }
 
     [Fact]
@@ -13314,18 +15239,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_BareSelect_RendersInfoPreset()
+    public async Task MemberDetail_BareSelect_RendersFixedOverview()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer.SerializeToNode:1", "-S");
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer.SerializeToNode:1",
+            "-S", "--count", "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Signature", output);
-        Assert.Contains("## Decompiled Source", output);
+        Assert.Equal([SectionNames.Signature], SectionHeadings(output));
+        Assert.DoesNotContain("## Decompiled Source", output);
         Assert.DoesNotContain("## IL", output);
         Assert.DoesNotContain("## Original Source", output);
-        Assert.True(output.IndexOf("## Signature", StringComparison.Ordinal) < output.IndexOf("## Decompiled Source", StringComparison.Ordinal));
+        Assert.True(
+            output.Split('\n').Length <= 8,
+            $"Member detail overview grew to {output.Split('\n').Length} lines.");
         Assert.DoesNotContain("Tip:", error);
+        Assert.Equal(0, countExit);
+        Assert.Equal("1", countOutput.Trim());
+        Assert.Empty(countError);
     }
 
     [Fact]
@@ -13342,6 +15275,20 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("| Name | Signature | Description |", output);
         Assert.DoesNotContain("## Decompiled Source", output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task MemberOverloadInventory_BareSelect_KeepsMethodsPreset()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer",
+            "-m", "SerializeToNode", "-S", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal([SectionNames.Methods], SectionHeadings(output));
+        Assert.DoesNotContain("## Signature", output);
+        Assert.DoesNotContain("## Decompiled Source", output);
+        Assert.Empty(error);
     }
 
     [Fact]
@@ -16165,7 +18112,7 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain("Dependency groups", output);
             Assert.Contains("Direct dependencies", output);
             Assert.DoesNotContain("| Signals | Scope |", output);
-            Assert.Contains("Known vulnerabilities", output);
+            Assert.DoesNotContain("Known vulnerabilities", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -16194,7 +18141,97 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_Signals_RendersRegistryBackedRows()
+    public async Task Package_Signals_CountMatchesRenderedRows()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (renderExit, renderOutput, renderError) = await RunAppAsync(
+                "package", packagePath, "-S", "Signals");
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package", packagePath, "-S", "Signals", "--count");
+
+            Assert.Equal(0, renderExit);
+            Assert.Equal(0, countExit);
+            Assert.Empty(renderError);
+            Assert.Empty(countError);
+            var renderedRows = CountOutput.CountMarkdownTableRows(renderOutput);
+            Assert.True(renderedRows > 0);
+            Assert.Equal(
+                renderedRows.ToString(CultureInfo.InvariantCulture),
+                countOutput.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_SignalsCountAggregatesRenderedRows()
+    {
+        var (firstPackagePath, firstTempDir) = CreateLocalRefPackage("System.Runtime");
+        var (secondPackagePath, secondTempDir) = CreateLocalRefPackage("System.Collections");
+        try
+        {
+            var (firstExit, firstOutput, firstError) = await RunAppAsync(
+                "package", firstPackagePath, "-S", "Signals", "--count");
+            var (secondExit, secondOutput, secondError) = await RunAppAsync(
+                "package", secondPackagePath, "-S", "Signals", "--count");
+            var (combinedExit, combinedOutput, combinedError) = await RunAppAsync(
+                "package", firstPackagePath, secondPackagePath,
+                "-S", "Signals", "--count", "--json");
+
+            Assert.Equal(0, firstExit);
+            Assert.Equal(0, secondExit);
+            Assert.Equal(0, combinedExit);
+            Assert.Empty(firstError);
+            Assert.Empty(secondError);
+            Assert.Empty(combinedError);
+            var expected = int.Parse(firstOutput, CultureInfo.InvariantCulture)
+                + int.Parse(secondOutput, CultureInfo.InvariantCulture);
+            Assert.True(expected > 0);
+            Assert.Equal(
+                expected.ToString(CultureInfo.InvariantCulture),
+                combinedOutput.Trim());
+        }
+        finally
+        {
+            Directory.Delete(firstTempDir, recursive: true);
+            Directory.Delete(secondTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_SignalsUseSelectedTfm()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "--tfm", "net9.0", "-S", "Signals", "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            foreach (var package in document.RootElement.EnumerateArray())
+            {
+                var directDependencies = Assert.Single(
+                    package.GetProperty("audit_signals").EnumerateArray(),
+                    signal => signal.GetProperty("signal").GetString() == "Direct dependencies");
+                Assert.Equal("2", directDependencies.GetProperty("value").GetString());
+                Assert.Equal("net9.0", directDependencies.GetProperty("evidence").GetString());
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Signals_RendersAvailableRegistryBackedRows()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
@@ -16203,7 +18240,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("## Signals", output);
-            Assert.Contains("Known vulnerabilities", output);
+            Assert.DoesNotContain("Known vulnerabilities", output);
             Assert.Contains("Dependencies with vulnerabilities", output);
             Assert.Contains("Deprecated dependencies", output);
             Assert.DoesNotContain("| Signals | Scope |", output);
@@ -16252,6 +18289,12 @@ public sealed class CommandCaretGestureFixture
     }
 
     public string Make() => new object().ToString() ?? "";
+
+    public static bool StringEqual(string left, string right) => left == right;
+
+    public static int ReadMatrix(int[,] values, int row, int column) => values[row, column];
+
+    public static int[,] MakeMatrix() => new int[2, 3];
 
     // Four boxes on one line, at four distinct IL offsets: the shape that makes
     // a line's facts disagree about what to underline. System.Tuple`8.Equals is

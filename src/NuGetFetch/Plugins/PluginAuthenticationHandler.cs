@@ -35,6 +35,8 @@ namespace NuGetFetch.Plugins;
 /// </remarks>
 public sealed class PluginAuthenticationHandler : DelegatingHandler
 {
+    private const string AzureArtifactsHost = "pkgs.dev.azure.com";
+
     /// <summary>
     /// Maximum credential attempts for a single request, matching
     /// <c>AmbientAuthenticationState.MaxAuthRetries</c> in NuGet. Bounding this is what stops a
@@ -43,7 +45,8 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
     public const int MaxAuthRetries = 4;
 
     private readonly ICredentialSource _provider;
-    private readonly ConcurrentDictionary<string, AuthorityState> _authorities = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CredentialScopeState> _credentialScopes =
+        new(StringComparer.Ordinal);
 
     /// <summary>Creates the handler.</summary>
     /// <param name="provider">Supplies credentials for challenged sources.</param>
@@ -83,21 +86,23 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
             return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
         }
 
-        AuthorityState authority = _authorities.GetOrAdd(GetAuthority(request.RequestUri), static _ => new AuthorityState());
-
-        HttpResponseMessage? response = null;
-        bool acquiredCredentials = false;
+        Uri sourceUri = request.RequestUri;
+        CredentialScopeState credentialScope = _credentialScopes.GetOrAdd(
+            GetCredentialScope(sourceUri),
+            static _ => new CredentialScopeState());
         int attempts = 0;
 
         while (true)
         {
-            response?.Dispose();
-
             // Snapshot before sending, so that if a concurrent request refreshes the credential
             // while this one is in flight we can tell and simply retry rather than acquire again.
-            (PackageSourceCredential? credential, long version) = authority.Read();
+            (PackageSourceCredential? credential, long version) = credentialScope.Read();
 
-            using (HttpRequestMessage attempt = CloneRequest(request))
+            HttpRequestMessage attempt = CloneRequest(request);
+            HttpResponseMessage? response = null;
+            bool transferResponse = false;
+            bool transferAttempt = false;
+            try
             {
                 if (credential is not null && attempt.Headers.Authorization is null)
                 {
@@ -105,45 +110,62 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
                 }
 
                 response = await base.SendAsync(attempt, cancellationToken).ConfigureAwait(false);
-            }
 
-            if (!IsCredentialChallenge(response.StatusCode) || ++attempts >= MaxAuthRetries)
+                if (!IsCredentialChallenge(response.StatusCode) || ++attempts >= MaxAuthRetries)
+                {
+                    response.RequestMessage ??= attempt;
+                    transferAttempt = ReferenceEquals(response.RequestMessage, attempt);
+                    transferResponse = true;
+                    return response;
+                }
+
+                PackageSourceCredential? acquired = await AcquireAsync(
+                    credentialScope,
+                    sourceUri,
+                    version,
+                    isRetry: credential is not null,
+                    cancellationToken).ConfigureAwait(false);
+
+                if (acquired is null)
+                {
+                    // No plugin can serve this source. Surface the challenge unchanged so the caller
+                    // reports an authentication failure rather than a missing package.
+                    response.RequestMessage ??= attempt;
+                    transferAttempt = ReferenceEquals(response.RequestMessage, attempt);
+                    transferResponse = true;
+                    return response;
+                }
+            }
+            finally
             {
-                return response;
+                if (!transferResponse && response is not null)
+                {
+                    HttpRequestMessage? responseRequest = response.RequestMessage;
+                    response.Dispose();
+                    if (!ReferenceEquals(responseRequest, attempt))
+                        responseRequest?.Dispose();
+                }
+
+                if (!transferAttempt)
+                    attempt.Dispose();
             }
-
-            PackageSourceCredential? acquired = await AcquireAsync(
-                authority,
-                request.RequestUri,
-                version,
-                isRetry: acquiredCredentials,
-                cancellationToken).ConfigureAwait(false);
-
-            if (acquired is null)
-            {
-                // No plugin can serve this source. Surface the challenge unchanged so the caller
-                // reports an authentication failure rather than a missing package.
-                return response;
-            }
-
-            acquiredCredentials = true;
         }
     }
 
     private async Task<PackageSourceCredential?> AcquireAsync(
-        AuthorityState authority,
+        CredentialScopeState credentialScope,
         Uri uri,
         long observedVersion,
         bool isRetry,
         CancellationToken cancellationToken)
     {
-        // One acquisition at a time per authority: concurrent requests to the same feed should
+        // One acquisition at a time per credential scope: concurrent requests to the same feed should
         // trigger a single plugin round trip, not one each.
-        await authority.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await credentialScope.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
-            (PackageSourceCredential? current, long version) = authority.Read();
+            (PackageSourceCredential? current, long version) = credentialScope.Read();
 
             // Someone else refreshed while we waited. Their credential is untried by us, so
             // retry with it before asking for another.
@@ -158,14 +180,14 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
 
             if (credential is not null)
             {
-                authority.Set(credential);
+                credentialScope.Set(credential);
             }
 
             return credential;
         }
         finally
         {
-            authority.Gate.Release();
+            credentialScope.Gate.Release();
         }
     }
 
@@ -179,8 +201,42 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
         return new AuthenticationHeaderValue("Basic", encoded);
     }
 
-    /// <summary>Credentials are scoped to scheme, host and port, so one feed's token is never sent to another.</summary>
-    private static string GetAuthority(Uri uri) => uri.GetLeftPart(UriPartial.Authority);
+    /// <summary>
+    /// Returns the credential-sharing boundary for one request.
+    /// </summary>
+    /// <remarks>
+    /// Most feed hosts identify one credential realm, so their origin is the scope. Azure
+    /// Artifacts is different: every organization shares <c>pkgs.dev.azure.com</c>. Its first
+    /// path segment, the organization, therefore participates in identity while the remainder
+    /// does not. This also keeps one credential across Azure's name-to-GUID endpoint aliases:
+    /// configured indexes use project and feed names, while discovered endpoints use their GUIDs.
+    ///
+    /// An Azure URL without an organization path gets its own host-wide root slot. It cannot
+    /// collide with any organization slot.
+    /// </remarks>
+    private static string GetCredentialScope(Uri uri)
+    {
+        string origin =
+            $"{uri.Scheme.ToLowerInvariant()}://{uri.IdnHost.ToLowerInvariant()}:{uri.Port}";
+        if (!string.Equals(
+                uri.IdnHost,
+                AzureArtifactsHost,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return origin;
+        }
+
+        string[] segments =
+        [
+            .. uri.Segments
+                .Select(segment => segment.Trim('/'))
+                .Where(segment => segment.Length > 0),
+        ];
+        if (segments.Length == 0)
+            return origin;
+
+        return $"{origin}/{segments[0]}";
+    }
 
     /// <summary>
     /// Copies a request so it can be sent again. An <see cref="HttpRequestMessage"/> cannot be
@@ -213,22 +269,22 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
     {
         if (disposing)
         {
-            foreach (AuthorityState authority in _authorities.Values)
+            foreach (CredentialScopeState credentialScope in _credentialScopes.Values)
             {
-                authority.Gate.Dispose();
+                credentialScope.Gate.Dispose();
             }
 
-            _authorities.Clear();
+            _credentialScopes.Clear();
         }
 
         base.Dispose(disposing);
     }
 
     /// <summary>
-    /// The credential currently believed good for one authority, with a version stamp used to
+    /// The credential currently believed good for one scope, with a version stamp used to
     /// detect refreshes by concurrent requests.
     /// </summary>
-    private sealed class AuthorityState
+    private sealed class CredentialScopeState
     {
         private readonly Lock _sync = new();
         private PackageSourceCredential? _credential;

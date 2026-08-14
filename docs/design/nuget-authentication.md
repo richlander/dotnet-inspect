@@ -126,6 +126,10 @@ convention directory at all — it only puts `nuget-plugin-microsoft-artifacts-c
 on `PATH`. An implementation that scans `~/.nuget/plugins` alone finds nothing on such a machine
 while `dotnet restore` authenticates happily.
 
+Discovery itself is deferred until a feed first answers with an authentication challenge.
+Commands and public-feed requests therefore do not scan the convention directory or `PATH`.
+Once discovery runs, its result is kept for the process lifetime.
+
 Implementation: [`PluginDiscovery`](../../src/NuGetFetch/Plugins/PluginDiscovery.cs), mirroring
 `PluginDiscoverer.cs` and `PluginDiscoveryUtility.cs` in
 [NuGet.Client](https://github.com/NuGet/NuGet.Client/tree/dev/src/NuGet.Core/NuGet.Protocol/Plugins).
@@ -150,6 +154,11 @@ Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnecti
 Plugins are started lazily and kept for the process lifetime, because a launch costs a process
 start plus five round trips. A plugin that fails to start, or that does not claim the
 `Authentication` operation, is remembered as unusable rather than retried.
+
+A plugin process or pipe that dies during a request is likewise treated as no credential from
+that plugin. Timeouts, malformed responses, I/O failures, disposed pipes, and invalid process
+state are contained at the request boundary so another provider can answer or the feed's 401 can
+surface normally. Caller cancellation is not a plugin fault and continues to propagate.
 
 ### Unattended by default
 
@@ -299,9 +308,11 @@ The status is known inside
 between there and the caller return `string?` and `List<string>?`, so it cannot be returned
 without changing every one of them. Instead
 [`FeedFailureTelemetry`](../../src/DotnetInspector.Core/FeedFailureTelemetry.cs) follows the
-ambient-scope shape already used by `NetworkTelemetry`: a scope is opened around each package
-acquisition, nested async work records into the same collector, and the "nothing resolved" path
-consults it before choosing a message.
+ambient-scope shape already used by `NetworkTelemetry`: a scope is opened at each command
+boundary that turns those nullable results into an operator-facing answer. Package acquisition
+opens one around each acquisition hop; direct `--version`, `--latest-version`, and `--versions`
+queries open one around the complete query. Nested async work records into the same collector,
+and the "nothing resolved" path consults it before choosing a message.
 
 The scope is opened per *hop*, inside the tool-wrapper redirect loop, rather than once around
 the whole traversal. Each hop resolves a different package id, so a shared collector would let
@@ -311,16 +322,17 @@ a source and a package that had nothing to do with the failure.
 
 Two further rules keep the message honest:
 
-- **404 is never recorded.** It is the one status that genuinely means the package is absent,
-  so a real miss still reports *not found*. A recorder that captured every non-success status
-  would destroy that message, which is why the test suite pins the 404 case as a control.
+- **404 is never recorded as a source failure.** A 404 from package/version enumeration means the
+  package is absent, so a real miss still reports *not found*. A 404 from ancillary listing
+  metadata is instead carried by that operation's typed incomplete-metadata result; range
+  resolution fails closed without falsely declaring the package absent.
 - **A recorded failure is advisory, not fatal.** The collector is only consulted when the
   overall lookup produced nothing, so if one source 401s and another answers, the successful
   result stands. That is this codebase's answer to the third open design question in #3417.
 
 The phase (`reading the service index`, `listing versions`) is taken from the ambient
-`NetworkTrafficKind`, which the network telemetry scope already tracks, so no call site had to
-be taught to describe itself.
+`NetworkTrafficKind`, which the network telemetry scope already tracks, so command boundaries do
+not duplicate the phase labels.
 
 ### The URL is redacted before it is stored
 
@@ -428,6 +440,19 @@ second reason NuGet put the loop in a handler: no call site can forget to partic
 a fix for the `nuget.config` path, which still depends on the caller threading a credential
 through.
 
+Acquired credentials are normally cached by origin so the service index and discovered package
+endpoints share one challenge response. Azure Artifacts needs a narrower identity: every
+organization uses `pkgs.dev.azure.com`. For that host the cache key includes the first path
+segment, which is the organization. Organizations therefore acquire independently, while one
+organization's configured service-index URL and Azure's project/feed-GUID endpoint aliases reuse
+the same credential.
+
+When an automatic redirect ends in an authentication challenge, credential acquisition remains
+scoped to the caller-selected source URI and the retry starts again from that URI. A redirect
+target cannot choose the plugin query, credential cache slot, replay destination, or successful
+response body. This also matches feed authentication behavior: once the original source receives
+valid credentials, it can serve the requested resource instead of redirecting to sign-in.
+
 ## Tests
 
 Two tiers, in `src/NuGetFetch.Tests`:
@@ -439,7 +464,9 @@ Two tiers, in `src/NuGetFetch.Tests`:
   - `PluginDiscoveryTests` pins all three discovery routes and their precedence, over a temporary
     directory tree and `PATH`.
   - `PluginAuthenticationHandlerTests` pins the 401 loop: retry bound, `IsRetry` progression,
-    per-authority scoping, 403 opt-in, and that an existing credential is not overwritten.
+    origin scoping for ordinary hosts, organization scoping and GUID-alias reuse for Azure
+    Artifacts, redirect isolation from credential scope and returned content, 403 opt-in, and that
+    an existing credential is not overwritten.
   - `PluginProtocolTests` runs a **real plugin process** — a shell script that genuinely speaks
     the line protocol — so framing, the symmetric handshake, `Progress`-driven timeout extension,
     and shutdown are exercised end to end rather than mocked.

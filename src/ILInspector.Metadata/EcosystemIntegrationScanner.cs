@@ -95,6 +95,50 @@ public static class EcosystemIntegrationScanner
         return presence.ToImmutable();
     }
 
+    public static EcosystemIntegrationPresence SummarizePresence(
+        PEReader peReader,
+        IEnumerable<EcosystemIntegrationSignalInfo> signals,
+        bool hasOpenTelemetrySupport)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+        ArgumentNullException.ThrowIfNull(signals);
+
+        string[] integrations =
+        [
+            .. signals
+                .Select(static signal => signal.Integration)
+                .Distinct(StringComparer.Ordinal),
+        ];
+        var presence = new MutablePresence
+        {
+            HasOpenTelemetrySupport = hasOpenTelemetrySupport
+        };
+        foreach (string integration in integrations)
+            MarkIntegrationPresence(presence, integration);
+
+        presence.IntegrationCount =
+            integrations.Length
+            + (hasOpenTelemetrySupport ? 1 : 0);
+
+        if (peReader.HasMetadata)
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+            {
+                TypeDefinition typeDefinition =
+                    reader.GetTypeDefinition(handle);
+                if (!typeDefinition.IsPublic)
+                    continue;
+
+                MarkTypePresence(
+                    presence,
+                    reader.GetFullTypeName(typeDefinition));
+            }
+        }
+
+        return presence.ToImmutable();
+    }
+
     private static void MarkIntegrationPresence(MutablePresence presence, string integration)
     {
         switch (integration)

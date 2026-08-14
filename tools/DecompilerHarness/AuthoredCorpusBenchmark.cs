@@ -22,12 +22,10 @@ namespace ILInspector.DecompilerHarness;
 static class AuthoredCorpusBenchmark
 {
     /// <summary>
-    /// Methodology version for how <c>invalidBreakdown.productBodyDefect</c> is
-    /// computed. Defined by, and co-located with, the attribution rule it stamps
-    /// (see <see cref="SpanAttribution.MethodologyVersion"/>); this alias keeps
-    /// the serialization site readable.
+    /// Methodology version for the authored-corpus attribution fields. The
+    /// serialization alias keeps the report and ratchet call sites readable.
     /// </summary>
-    internal const int MethodologyVersion = SpanAttribution.MethodologyVersion;
+    internal const int MethodologyVersion = AuthoredCorpusMethodology.Version;
 
     /// <param name="output">
     /// Where the report is written. Defaults to standard output; tests pass their own
@@ -43,6 +41,20 @@ static class AuthoredCorpusBenchmark
         TextWriter? output = null)
     {
         output ??= Console.Out;
+
+        AuthoredCorpusHistoryStore.BenchmarkProvenance? provenance = null;
+        if (json)
+        {
+            try
+            {
+                provenance = AuthoredCorpusHistoryStore.CaptureBenchmarkProvenance();
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.Error.WriteLine($"Could not establish benchmark source provenance: {ex.Message}");
+                return 1;
+            }
+        }
 
         if (!File.Exists(corpusPath))
         {
@@ -154,7 +166,7 @@ static class AuthoredCorpusBenchmark
             corpusSha256);
 
         if (json)
-            return WriteJson(results, records.Count, inputs, baselines, integrityOnly, output);
+            return WriteJson(results, records.Count, inputs, baselines, integrityOnly, provenance!, output);
 
         return WriteCard(results, records.Count, inputs, baselines, integrityOnly, output);
     }
@@ -170,6 +182,88 @@ static class AuthoredCorpusBenchmark
         int MalformedRows,
         string? PoolSha256,
         string? CorpusSha256);
+
+    internal sealed record FrontierIlDiffAttributionReport(
+        [property: System.Text.Json.Serialization.JsonRequired] int Total,
+        [property: System.Text.Json.Serialization.JsonRequired] int ProductBodyDefect,
+        [property: System.Text.Json.Serialization.JsonRequired] int HarnessShellReconstruction,
+        [property: System.Text.Json.Serialization.JsonRequired] int CompileBackFloor,
+        [property: System.Text.Json.Serialization.JsonRequired] int Unclassified);
+
+    internal sealed record ValidBreakdownReport(
+        [property: System.Text.Json.Serialization.JsonRequired] int Total,
+        [property: System.Text.Json.Serialization.JsonRequired] int Lowering,
+        [property: System.Text.Json.Serialization.JsonRequired] int KnownTaste,
+        [property: System.Text.Json.Serialization.JsonRequired] int FrontierIlExact,
+        [property: System.Text.Json.Serialization.JsonRequired] int FrontierIlDiff,
+        [property: System.Text.Json.Serialization.JsonRequired] FrontierIlDiffAttributionReport FrontierIlDiffAttribution,
+        [property: System.Text.Json.Serialization.JsonRequired] int FrontierIlNoVerdict);
+
+    internal sealed record InvalidBreakdownReport(
+        [property: System.Text.Json.Serialization.JsonRequired] int ProductBodyDefect,
+        [property: System.Text.Json.Serialization.JsonRequired] int HarnessShellReconstruction,
+        [property: System.Text.Json.Serialization.JsonRequired] int Unclassified);
+
+    internal sealed record RatchetMetricReport(
+        [property: System.Text.Json.Serialization.JsonRequired] string Name,
+        [property: System.Text.Json.Serialization.JsonRequired] double Baseline,
+        [property: System.Text.Json.Serialization.JsonRequired] double Current,
+        [property: System.Text.Json.Serialization.JsonRequired] bool HigherIsBetter,
+        [property: System.Text.Json.Serialization.JsonRequired] bool Regressed);
+
+    internal sealed record RatchetReport(
+        [property: System.Text.Json.Serialization.JsonRequired] bool Skipped,
+        [property: System.Text.Json.Serialization.JsonRequired] string? SkipReason,
+        [property: System.Text.Json.Serialization.JsonRequired] string? BaselineDate,
+        [property: System.Text.Json.Serialization.JsonRequired] string? BaselineCommit,
+        [property: System.Text.Json.Serialization.JsonRequired] bool Regressed,
+        [property: System.Text.Json.Serialization.JsonRequired] IReadOnlyList<RatchetMetricReport> Metrics);
+
+    internal sealed record RowReport(
+        [property: System.Text.Json.Serialization.JsonRequired] string Type,
+        [property: System.Text.Json.Serialization.JsonRequired] string Method,
+        [property: System.Text.Json.Serialization.JsonRequired] int Overload,
+        [property: System.Text.Json.Serialization.JsonRequired] string Outcome,
+        [property: System.Text.Json.Serialization.JsonRequired] string TasteBucket,
+        [property: System.Text.Json.Serialization.JsonRequired] string? CompileBackStatus,
+        [property: System.Text.Json.Serialization.JsonRequired] string? InvalidKind,
+        [property: System.Text.Json.Serialization.JsonRequired] string? FaultIsolation,
+        [property: System.Text.Json.Serialization.JsonRequired] string? FaultIsolationMethod,
+        [property: System.Text.Json.Serialization.JsonRequired] bool UsedCompileBackFloor,
+        [property: System.Text.Json.Serialization.JsonRequired] string? SupersededFaultIsolation,
+        [property: System.Text.Json.Serialization.JsonRequired] string? SupersededFaultIsolationMethod,
+        [property: System.Text.Json.Serialization.JsonRequired] string Reason,
+        [property: System.Text.Json.Serialization.JsonRequired] string? Detail,
+        [property: System.Text.Json.Serialization.JsonRequired] string? SourceFile);
+
+    internal sealed record Report(
+        [property: System.Text.Json.Serialization.JsonRequired] string Date,
+        [property: System.Text.Json.Serialization.JsonRequired] string Commit,
+        [property: System.Text.Json.Serialization.JsonRequired] string SourceStateAtBuild,
+        [property: System.Text.Json.Serialization.JsonRequired] bool SourceRevisionMatchesHead,
+        [property: System.Text.Json.Serialization.JsonRequired] bool SourceDirty,
+        [property: System.Text.Json.Serialization.JsonRequired] int CorpusRows,
+        [property: System.Text.Json.Serialization.JsonRequired] int MatchedAssemblies,
+        [property: System.Text.Json.Serialization.JsonRequired] int CorpusAssemblies,
+        [property: System.Text.Json.Serialization.JsonRequired] int UnmatchedRows,
+        [property: System.Text.Json.Serialization.JsonRequired] int MalformedRows,
+        [property: System.Text.Json.Serialization.JsonRequired] string? PoolSha256,
+        [property: System.Text.Json.Serialization.JsonRequired] string? CorpusSha256,
+        [property: System.Text.Json.Serialization.JsonRequired] int TargetsEvaluated,
+        [property: System.Text.Json.Serialization.JsonRequired] int MethodologyVersion,
+        [property: System.Text.Json.Serialization.JsonRequired] bool InputsComplete,
+        [property: System.Text.Json.Serialization.JsonRequired] string QualityContract,
+        [property: System.Text.Json.Serialization.JsonRequired] int Correct,
+        [property: System.Text.Json.Serialization.JsonRequired] int ValidDifferent,
+        [property: System.Text.Json.Serialization.JsonRequired] ValidBreakdownReport ValidBreakdown,
+        [property: System.Text.Json.Serialization.JsonRequired] int Invalid,
+        [property: System.Text.Json.Serialization.JsonRequired] InvalidBreakdownReport InvalidBreakdown,
+        [property: System.Text.Json.Serialization.JsonRequired] int NotFull,
+        [property: System.Text.Json.Serialization.JsonRequired] int Drift,
+        [property: System.Text.Json.Serialization.JsonRequired] int Unsupported,
+        [property: System.Text.Json.Serialization.JsonRequired] int UnknownOutcome,
+        [property: System.Text.Json.Serialization.JsonRequired] RatchetReport? Ratchet,
+        [property: System.Text.Json.Serialization.JsonRequired] IReadOnlyList<RowReport> Rows);
 
     static ReturnToSenderSourceMember ToSourceMember(AuthoredSourceHarvest.CorpusRecord record)
         => new(
@@ -308,6 +402,7 @@ static class AuthoredCorpusBenchmark
         int evaluated = census.Evaluated;
         int valid = match + different;
         var invalidBreakdown = InvalidBreakdown(results);
+        var frontierBreakdown = FrontierIlDiffBreakdown(results);
 
         output.WriteLine($"AUTHORED-SOURCE CORPUS BENCHMARK");
         output.WriteLine();
@@ -328,6 +423,10 @@ static class AuthoredCorpusBenchmark
         output.WriteLine($"    known taste (documented decision) : {census.KnownTaste}");
         output.WriteLine($"    frontier, IL-exact (cosmetic)     : {census.FrontierIlExact}");
         output.WriteLine($"    frontier, IL-diff (semantic)      : {census.FrontierIlDiff}");
+        output.WriteLine($"      product body defects            : {frontierBreakdown.ProductBodyDefect}");
+        output.WriteLine($"      harness shell reconstruction    : {frontierBreakdown.HarnessShellReconstruction}");
+        output.WriteLine($"      CompileBack floor (not measured): {frontierBreakdown.CompileBackFloor}");
+        output.WriteLine($"      unclassified IL-diff            : {frontierBreakdown.Unclassified}");
         output.WriteLine($"    UNMEASURED (oracle no verdict)    : {census.FrontierIlNoVerdict}");
         output.WriteLine($"  Invalid  (does not round-trip)      : {invalid}");
         output.WriteLine($"    product body defects              : {invalidBreakdown.ProductBodyDefect}");
@@ -357,8 +456,17 @@ static class AuthoredCorpusBenchmark
 
         // Both output modes share one exit contract and one partition check, so a
         // malformed run cannot pass in text mode and fail in --json mode.
+        bool frontierPartitionClosed =
+            frontierBreakdown.PartitionClosed && frontierBreakdown.Total == census.FrontierIlDiff;
         if (!census.PartitionClosed)
             Console.Error.WriteLine(census.PartitionFailureMessage);
+        if (!frontierPartitionClosed)
+        {
+            Console.Error.WriteLine(
+                $"BLOCKER: frontier IL-diff attribution does not partition the run — "
+                + $"{frontierBreakdown.Sum} reasons / {frontierBreakdown.Total} attributed "
+                + $"vs {census.FrontierIlDiff} frontier rows.");
+        }
 
         var ratchet = Ratchet(census, invalidBreakdown, inputs, baselines);
         if (ratchet is not null)
@@ -367,7 +475,7 @@ static class AuthoredCorpusBenchmark
         var contract = AuthoredCorpusExitContract.ContractFor(integrityOnly, ratchet);
         ReportContract(contract, census.Invalid, output);
 
-        return ExitCode(census, inputs, ratchet, contract);
+        return ExitCode(census, inputs, ratchet, contract, frontierPartitionClosed);
     }
 
     /// <summary>
@@ -503,11 +611,12 @@ static class AuthoredCorpusBenchmark
         BucketCensus census,
         RunInputs inputs,
         AuthoredCorpusRatchet.Comparison? ratchet,
-        AuthoredCorpusExitContract.QualityContract contract)
+        AuthoredCorpusExitContract.QualityContract contract,
+        bool frontierPartitionClosed = true)
     {
         bool measurementIsSound = AuthoredCorpusExitContract.MeasurementIsSound(
             InputsComplete(census, inputs),
-            census.PartitionClosed,
+            census.PartitionClosed && frontierPartitionClosed,
             census.Drift,
             census.Unsupported,
             census.UnknownOutcome);
@@ -526,7 +635,7 @@ static class AuthoredCorpusBenchmark
             writer.WriteLine($"[integrity-only] Quality was not judged: {invalid} invalid rows stand unreviewed. This exit code reports measurement integrity only.");
     }
 
-    enum TasteBucket
+    internal enum TasteBucket
     {
         Correct,
         Lowering,
@@ -627,6 +736,65 @@ static class AuthoredCorpusBenchmark
         return new InvalidBreakdownCounts(productBodyDefect, harnessShellReconstruction, unclassified);
     }
 
+    internal sealed record FrontierIlDiffBreakdownCounts(
+        int Total,
+        int ProductBodyDefect,
+        int HarnessShellReconstruction,
+        int CompileBackFloor,
+        int Unclassified)
+    {
+        public long Sum
+            => (long)ProductBodyDefect + HarnessShellReconstruction + CompileBackFloor + Unclassified;
+
+        public bool PartitionClosed => Sum == Total;
+    }
+
+    internal static FrontierIlDiffBreakdownCounts FrontierIlDiffBreakdown(
+        IReadOnlyList<ReturnToSenderSourceProbeResult> results)
+    {
+        int productBodyDefect = 0;
+        int harnessShellReconstruction = 0;
+        int compileBackFloor = 0;
+        int unclassified = 0;
+        int total = 0;
+
+        foreach (var result in results.Where(result => ClassifyTaste(result) == TasteBucket.FrontierIlDiff))
+        {
+            total++;
+            if (result.UsedCompileBackFloor)
+            {
+                compileBackFloor++;
+                continue;
+            }
+
+            if (result.FaultIsolationMethod != ReturnToSender.FaultIsolationMethod.FidelityControl)
+            {
+                unclassified++;
+                continue;
+            }
+
+            switch (result.FaultIsolationKind)
+            {
+                case ReturnToSender.FaultIsolationKind.BodyDefect:
+                    productBodyDefect++;
+                    break;
+                case ReturnToSender.FaultIsolationKind.ShellOrClosureDefect:
+                    harnessShellReconstruction++;
+                    break;
+                default:
+                    unclassified++;
+                    break;
+            }
+        }
+
+        return new FrontierIlDiffBreakdownCounts(
+            total,
+            productBodyDefect,
+            harnessShellReconstruction,
+            compileBackFloor,
+            unclassified);
+    }
+
     static void WriteReasonBuckets(
         string title,
         IReadOnlyList<ReturnToSenderSourceProbeResult> results,
@@ -654,10 +822,12 @@ static class AuthoredCorpusBenchmark
         RunInputs inputs,
         IReadOnlyList<HistoryRun>? baselines,
         bool integrityOnly,
+        AuthoredCorpusHistoryStore.BenchmarkProvenance provenance,
         TextWriter output)
     {
         var census = Census(results);
         var invalidBreakdown = InvalidBreakdown(results);
+        var frontierBreakdown = FrontierIlDiffBreakdown(results);
         // Inputs-complete contract: an empty run, a row whose assembly was not
         // supplied, or a corpus row that failed to parse all mean the denominator is
         // not the one the corpus describes. This flag reports only that the inputs were
@@ -668,101 +838,112 @@ static class AuthoredCorpusBenchmark
         var ratchet = Ratchet(census, invalidBreakdown, inputs, baselines);
         var contract = AuthoredCorpusExitContract.ContractFor(integrityOnly, ratchet);
 
-        // `total` leads, and is emitted here rather than only as the sibling
-        // `validDifferent` field, because this object is what an author copies into the
-        // trend store's `validDifferent` row member — where the total is the number the
-        // ratchet's `valid` metric is built from. Emitting the parts without their sum
-        // invited a row that recorded 0, and a row whose partition does not close is
-        // rejected as unsound: a loud skip, but one caused by the shape of this output.
-        var validBreakdown = new
-        {
-            total = census.ValidDifferent,
-            lowering = census.Lowering,
-            knownTaste = census.KnownTaste,
-            frontierIlExact = census.FrontierIlExact,
-            frontierIlDiff = census.FrontierIlDiff,
-            frontierIlNoVerdict = census.FrontierIlNoVerdict,
-        };
-
-        var payload = new
-        {
+        var payload = new Report(
+            provenance.Date,
+            provenance.Commit,
+            provenance.SourceStateAtBuild,
+            provenance.SourceRevisionMatchesHead,
+            provenance.SourceDirty,
             corpusRows,
-            matchedAssemblies = inputs.MatchedAssemblies,
-            corpusAssemblies = inputs.CorpusAssemblies,
-            unmatchedRows = inputs.UnmatchedRows,
-            malformedRows = inputs.MalformedRows,
-            poolSha256 = inputs.PoolSha256,
-            corpusSha256 = inputs.CorpusSha256,
-            targetsEvaluated = census.Evaluated,
-            methodologyVersion = MethodologyVersion,
+            inputs.MatchedAssemblies,
+            inputs.CorpusAssemblies,
+            inputs.UnmatchedRows,
+            inputs.MalformedRows,
+            inputs.PoolSha256,
+            inputs.CorpusSha256,
+            census.Evaluated,
+            MethodologyVersion,
             inputsComplete,
             // Which quality claim this run's exit code makes. A consumer that sees
             // exit 0 must read this before treating the run as a quality pass:
             // "NotJudged" means no quality claim was made at all.
-            qualityContract = contract.ToString(),
-            correct = census.Correct,
-            validDifferent = census.ValidDifferent,
-            validBreakdown,
-            invalid = census.Invalid,
-            invalidBreakdown = new
-            {
-                productBodyDefect = invalidBreakdown.ProductBodyDefect,
-                harnessShellReconstruction = invalidBreakdown.HarnessShellReconstruction,
-                unclassified = invalidBreakdown.Unclassified,
-            },
-            notFull = census.NotFull,
-            drift = census.Drift,
-            unsupported = census.Unsupported,
-            unknownOutcome = census.UnknownOutcome,
-            ratchet = ratchet is null ? null : new
-            {
-                skipped = ratchet.Skipped,
-                skipReason = ratchet.SkipReason,
-                baselineDate = ratchet.Baseline?.Date,
-                baselineCommit = ratchet.Baseline?.Commit,
-                regressed = ratchet.Regressions.Count > 0,
-                metrics = ratchet.Metrics.Select(metric => new
-                {
-                    name = metric.Name,
-                    baseline = metric.Baseline,
-                    current = metric.Current,
-                    higherIsBetter = metric.HigherIsBetter,
-                    regressed = metric.Regressed,
-                }),
-            },
-            rows = results.Select(result => new
-            {
-                type = result.Target.Type,
-                method = result.Target.Method,
-                overload = result.Target.Overload,
-                outcome = result.Outcome.ToString(),
-                tasteBucket = ClassifyTaste(result).ToString(),
-                compileBackStatus = result.CompileBackStatus?.ToString(),
-                invalidKind = ReturnToSenderInvalidClassifier.Classify(result)?.ToString(),
-                faultIsolation = result.FaultIsolationKind?.ToString(),
-                faultIsolationMethod = result.FaultIsolationMethod?.ToString(),
-                usedCompileBackFloor = result.UsedCompileBackFloor,
-                supersededFaultIsolation = result.SupersededFaultIsolationKind?.ToString(),
-                supersededFaultIsolationMethod = result.SupersededFaultIsolationMethod?.ToString(),
-                reason = result.Reason,
-                detail = result.Detail,
-                sourceFile = result.SourcePath,
-            }),
-        };
+            contract.ToString(),
+            census.Correct,
+            census.ValidDifferent,
+            new ValidBreakdownReport(
+                census.ValidDifferent,
+                census.Lowering,
+                census.KnownTaste,
+                census.FrontierIlExact,
+                census.FrontierIlDiff,
+                new FrontierIlDiffAttributionReport(
+                    frontierBreakdown.Total,
+                    frontierBreakdown.ProductBodyDefect,
+                    frontierBreakdown.HarnessShellReconstruction,
+                    frontierBreakdown.CompileBackFloor,
+                    frontierBreakdown.Unclassified),
+                census.FrontierIlNoVerdict),
+            census.Invalid,
+            new InvalidBreakdownReport(
+                invalidBreakdown.ProductBodyDefect,
+                invalidBreakdown.HarnessShellReconstruction,
+                invalidBreakdown.Unclassified),
+            census.NotFull,
+            census.Drift,
+            census.Unsupported,
+            census.UnknownOutcome,
+            ratchet is null
+                ? null
+                : new RatchetReport(
+                    ratchet.Skipped,
+                    ratchet.SkipReason,
+                    ratchet.Baseline?.Date,
+                    ratchet.Baseline?.Commit,
+                    ratchet.Regressions.Count > 0,
+                    [.. ratchet.Metrics.Select(metric => new RatchetMetricReport(
+                        metric.Name,
+                        metric.Baseline,
+                        metric.Current,
+                        metric.HigherIsBetter,
+                        metric.Regressed))]),
+            [.. results.Select(result => new RowReport(
+                result.Target.Type,
+                result.Target.Method,
+                result.Target.Overload,
+                result.Outcome.ToString(),
+                ClassifyTaste(result).ToString(),
+                result.CompileBackStatus?.ToString(),
+                ReturnToSenderInvalidClassifier.Classify(result)?.ToString(),
+                result.FaultIsolationKind?.ToString(),
+                result.FaultIsolationMethod?.ToString(),
+                result.UsedCompileBackFloor,
+                result.SupersededFaultIsolationKind?.ToString(),
+                result.SupersededFaultIsolationMethod?.ToString(),
+                result.Reason,
+                result.Detail,
+                result.SourcePath))]);
 
-        output.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+        output.WriteLine(SerializeReport(payload));
 
         // Same partition check and exit contract as the text-report path. The ratchet
         // verdict goes to stderr here so it stays visible without corrupting the JSON
         // document that callers redirect to a file; it is also in the payload above.
+        bool frontierPartitionClosed =
+            frontierBreakdown.PartitionClosed && frontierBreakdown.Total == census.FrontierIlDiff;
         if (!census.PartitionClosed)
             Console.Error.WriteLine(census.PartitionFailureMessage);
+        if (!frontierPartitionClosed)
+        {
+            Console.Error.WriteLine(
+                $"BLOCKER: frontier IL-diff attribution does not partition the run — "
+                + $"{frontierBreakdown.Sum} reasons / {frontierBreakdown.Total} attributed "
+                + $"vs {census.FrontierIlDiff} frontier rows.");
+        }
 
         if (ratchet is not null)
             AuthoredCorpusRatchet.Report(ratchet, Console.Error);
 
         ReportContract(contract, census.Invalid, Console.Error);
 
-        return ExitCode(census, inputs, ratchet, contract);
+        return ExitCode(census, inputs, ratchet, contract, frontierPartitionClosed);
     }
+
+    internal static string SerializeReport(Report report)
+        => JsonSerializer.Serialize(
+            report,
+            new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = true,
+            });
 }

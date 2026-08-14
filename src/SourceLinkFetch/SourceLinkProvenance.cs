@@ -86,15 +86,32 @@ public readonly record struct SourceLinkOrigin
 /// <remarks>
 /// "Reported" here means reported to the caller. Every product call site currently takes
 /// <c>Origin?.RepositoryUrl</c> and drops the reason, so a user sees no repository and no
-/// explanation. Carrying the reason into output is tracked by
-/// <see href="https://github.com/richlander/dotnet-inspect/issues/3590">#3590</see>. That the
-/// reason is always populated is gated by
+/// explanation for a provenance-attribution failure. Map parse errors and rejected entries use
+/// the separate SourceLink map-inspection path; this reason remains available to programmatic
+/// provenance callers. That the reason is always populated is gated by
 /// <c>SourceLinkProvenanceTests.EveryUnestablishedResult_CarriesAReason</c>.
 /// </remarks>
 public readonly record struct SourceLinkProvenanceResult(SourceLinkOrigin? Origin, string Reason)
 {
     /// <summary>Whether an origin was established.</summary>
     public bool IsEstablished => Origin is not null;
+}
+
+public enum SourceLinkFetchOriginStatus
+{
+    Unattributed,
+    Preserved,
+    Changed,
+}
+
+/// <summary>
+/// The relationship between the SourceLink URL requested and the URL that supplied the response.
+/// </summary>
+public readonly record struct SourceLinkFetchOriginResult(
+    SourceLinkFetchOriginStatus Status,
+    string Reason)
+{
+    public bool IsAllowed => Status is not SourceLinkFetchOriginStatus.Changed;
 }
 
 /// <summary>
@@ -200,6 +217,67 @@ public static class SourceLinkProvenance
         }
 
         return new SourceLinkProvenanceResult(agreed, "");
+    }
+
+    /// <summary>
+    /// Checks that an attributed SourceLink request did not redirect to another repository,
+    /// revision, or unattributable destination.
+    /// </summary>
+    /// <remarks>
+    /// URLs outside the known provenance grammars remain fetchable: they carry no reported
+    /// repository claim, and checksum verification remains the content-authenticity boundary.
+    /// Once the requested URL is attributable, however, the final response URL must produce the
+    /// same complete origin tuple. Gated by
+    /// <c>SourceLinkProvenanceTests.FetchOrigin_AttributedResponseMustPreserveTheCompleteOrigin</c>,
+    /// <c>...FetchOrigin_AzureSignInRedirectIsNotTheAttributedRepository</c>, and
+    /// <c>...FetchOrigin_UnknownSourceLinkHostCarriesNoOriginClaim</c>.
+    /// </remarks>
+    public static SourceLinkFetchOriginResult ValidateFetchOrigin(
+        string requestedUrl,
+        string finalUrl)
+    {
+        ArgumentNullException.ThrowIfNull(requestedUrl);
+        ArgumentNullException.ThrowIfNull(finalUrl);
+
+        if (!TryReadOrigin(requestedUrl, out SourceLinkOrigin requestedOrigin, out _))
+        {
+            return new SourceLinkFetchOriginResult(
+                SourceLinkFetchOriginStatus.Unattributed,
+                "");
+        }
+
+        if (!TryReadOrigin(finalUrl, out SourceLinkOrigin finalOrigin, out _))
+        {
+            return new SourceLinkFetchOriginResult(
+                SourceLinkFetchOriginStatus.Changed,
+                "the response URL has no attributable origin");
+        }
+
+        if (requestedOrigin != finalOrigin)
+        {
+            return new SourceLinkFetchOriginResult(
+                SourceLinkFetchOriginStatus.Changed,
+                "the response URL names a different source origin");
+        }
+
+        return new SourceLinkFetchOriginResult(
+            SourceLinkFetchOriginStatus.Preserved,
+            "");
+    }
+
+    /// <summary>
+    /// Reports whether a resolved source URL names content at an immutable commit origin.
+    /// </summary>
+    /// <remarks>
+    /// This is the cache-policy view of the provenance grammar. A URL is immutable only when the
+    /// same host-specific reader that attributes its repository and revision establishes a full
+    /// commit selector. Unknown hosts, moving refs, ambiguous selectors, and malformed URLs remain
+    /// mutable. Gated by <c>SourceLinkUrlsTests</c>.
+    /// </remarks>
+    public static bool IsImmutableContentUrl(string url)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+        return TryReadOrigin(url, out _, out _);
     }
 
     /// <summary>
@@ -966,7 +1044,7 @@ public static class SourceLinkProvenance
             return false;
         }
 
-        if (ContainsEncodedSeparatorOrDotSegment(url, out string encoded))
+        if (ContainsEncodedSeparator(url, out string encoded))
         {
             // Uri preserves these verbatim through canonicalization, so a canonicalize-then-check
             // step passes while a server that percent-decodes before resolving dot segments still
@@ -1637,10 +1715,9 @@ public static class SourceLinkProvenance
     }
 
     /// <summary>
-    /// Detects percent-encoded path separators and percent-encoded dot segments, which survive
-    /// <see cref="Uri"/> canonicalization unchanged.
+    /// Detects percent-encoded path separators, which survive <see cref="Uri"/> canonicalization.
     /// </summary>
-    private static bool ContainsEncodedSeparatorOrDotSegment(string url, out string encoded)
+    private static bool ContainsEncodedSeparator(string url, out string encoded)
     {
         for (int i = 0; i + 2 < url.Length; i++)
         {
@@ -1651,8 +1728,7 @@ public static class SourceLinkProvenance
 
             ReadOnlySpan<char> pair = url.AsSpan(i + 1, 2);
             if (pair.Equals("2f", StringComparison.OrdinalIgnoreCase) ||
-                pair.Equals("5c", StringComparison.OrdinalIgnoreCase) ||
-                pair.Equals("2e", StringComparison.OrdinalIgnoreCase))
+                pair.Equals("5c", StringComparison.OrdinalIgnoreCase))
             {
                 encoded = url.Substring(i, 3);
                 return true;

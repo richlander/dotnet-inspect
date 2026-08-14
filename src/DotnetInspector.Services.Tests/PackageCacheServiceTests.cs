@@ -2,6 +2,7 @@ using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services.Tests;
 
+[Collection(CoreCacheCollection.Name)]
 public class PackageCacheServiceTests
 {
     [Fact]
@@ -31,32 +32,6 @@ public class PackageCacheServiceTests
         long freed = PackageCacheService.ClearCache();
 
         Assert.Equal(0, freed);
-    }
-
-    [Fact]
-    public void CacheSource_ThenRetrieve()
-    {
-        NuGetCache.Initialize("dotnet-inspect-cache-test-src-" + Guid.NewGuid().ToString("N")[..8]);
-        var testUrl = $"https://example.com/test-{Guid.NewGuid():N}.cs";
-        var content = "// test source content";
-
-        try
-        {
-            // Should not exist initially
-            Assert.Null(PackageCacheService.TryGetCachedSource(testUrl));
-
-            // Cache it
-            PackageCacheService.CacheSource(testUrl, content);
-
-            // Should now be retrievable
-            var cached = PackageCacheService.TryGetCachedSource(testUrl);
-            Assert.Equal(content, cached);
-        }
-        finally
-        {
-            // Clean up
-            try { PackageCacheService.ClearCache(); } catch { }
-        }
     }
 
     [Fact]

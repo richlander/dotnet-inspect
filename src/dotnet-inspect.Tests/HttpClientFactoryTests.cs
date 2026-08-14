@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
@@ -79,7 +81,8 @@ public class HttpClientFactoryTests : IDisposable
     {
         const string ClosedPort = "http://127.0.0.1:1/";
         var observeCreation = new AsyncLocal<bool>();
-        using var decoratorEntered = new ManualResetEventSlim();
+        var decoratorEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         using var continueCreation = new ManualResetEventSlim();
 
         DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
@@ -92,7 +95,7 @@ public class HttpClientFactoryTests : IDisposable
             if (!observeCreation.Value)
                 return handler;
 
-            decoratorEntered.Set();
+            decoratorEntered.SetResult();
             if (!continueCreation.Wait(
                 TimeSpan.FromSeconds(10),
                 TestContext.Current.CancellationToken))
@@ -103,7 +106,7 @@ public class HttpClientFactoryTests : IDisposable
         using HttpClient unrelated = await Task.Run(
             DotnetInspector.Core.HttpClientFactory.CreateClient,
             TestContext.Current.CancellationToken);
-        Assert.False(decoratorEntered.IsSet);
+        Assert.False(decoratorEntered.Task.IsCompleted);
 
         Task<HttpClient> creation = Task.Run(
             () =>
@@ -114,9 +117,9 @@ public class HttpClientFactoryTests : IDisposable
             TestContext.Current.CancellationToken);
         try
         {
-            Assert.True(decoratorEntered.Wait(
+            await decoratorEntered.Task.WaitAsync(
                 TimeSpan.FromSeconds(10),
-                TestContext.Current.CancellationToken));
+                TestContext.Current.CancellationToken);
 
             DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
             {
@@ -157,6 +160,77 @@ public class HttpClientFactoryTests : IDisposable
 
         Assert.Equal(HttpClientFactoryOptions.BaselineTimeout, untrusted.Timeout);
         Assert.Equal(TimeSpan.FromSeconds(600), standard.Timeout);
+    }
+
+    [Fact]
+    public void CreateUntrustedFetchClient_DoesNotUseAnAmbientProxy()
+    {
+        using SocketsHttpHandler handler =
+            DotnetInspector.Core.HttpClientFactory.CreateUntrustedSocketsHandler();
+
+        Assert.False(handler.UseProxy);
+    }
+
+    [Fact]
+    public void GetPackageSourceClient_ReusesOneClientPerOrigin()
+    {
+        HttpClient first =
+            DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
+                "https://private.example/v3/index.json");
+        HttpClient sameOrigin =
+            DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
+                "https://PRIVATE.example/query");
+        HttpClient differentPort =
+            DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
+                "https://private.example:8443/v3/index.json");
+
+        Assert.Same(first, sameOrigin);
+        Assert.NotSame(first, differentPort);
+    }
+
+    [Fact]
+    public async Task PackageSourceClient_AllowsConfiguredPrivateOriginButBlocksPrivateRedirect()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int sourcePort =
+            ((IPEndPoint)listener.LocalEndpoint).Port;
+        int redirectPort = sourcePort == ushort.MaxValue
+            ? sourcePort - 1
+            : sourcePort + 1;
+        string sourceUrl = $"http://127.0.0.1:{sourcePort}/index.json";
+        string response =
+            "HTTP/1.1 302 Found\r\n"
+            + $"Location: http://127.0.0.1:{redirectPort}/secret\r\n"
+            + "Content-Length: 0\r\n"
+            + "Connection: close\r\n\r\n";
+
+        Task server = Task.Run(
+            async () =>
+            {
+                using TcpClient connection = await listener.AcceptTcpClientAsync(
+                    TestContext.Current.CancellationToken);
+                await using NetworkStream stream = connection.GetStream();
+                var request = new byte[1024];
+                _ = await stream.ReadAsync(
+                    request,
+                    TestContext.Current.CancellationToken);
+                await stream.WriteAsync(
+                    Encoding.ASCII.GetBytes(response),
+                    TestContext.Current.CancellationToken);
+            },
+            TestContext.Current.CancellationToken);
+
+        using HttpClient client =
+            DotnetInspector.Core.HttpClientFactory.CreatePackageSourceClient(sourceUrl);
+        HttpRequestException exception =
+            await Assert.ThrowsAsync<HttpRequestException>(
+                () => client.GetAsync(
+                    sourceUrl,
+                    TestContext.Current.CancellationToken));
+        await server;
+
+        Assert.Contains("Blocked request to non-public address", exception.ToString());
     }
 
     /// <summary>
@@ -243,6 +317,48 @@ public class HttpClientFactoryTests : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// <see cref="Uri.Host"/> preserves format characters: an IDN host carrying
+    /// U+2066 or U+200B survives normalization intact and was emitted raw as
+    /// <c>server.address</c>, next to a URL the same record had already
+    /// contained.
+    /// </summary>
+    [Theory]
+    [InlineData("\u2066")]
+    [InlineData("\u200b")]
+    public void NetworkTelemetry_ContainsAHostileHost(string hostile)
+    {
+        using var activitySource = new System.Diagnostics.ActivitySource("test");
+        using var listener = new System.Diagnostics.ActivityListener
+        {
+            ShouldListenTo = source => source.Name == "test",
+            Sample = (ref System.Diagnostics.ActivityCreationOptions<System.Diagnostics.ActivityContext> _) =>
+                System.Diagnostics.ActivitySamplingResult.AllDataAndRecorded
+        };
+        System.Diagnostics.ActivitySource.AddActivityListener(listener);
+
+        using var activity = activitySource.StartActivity("command");
+        var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"https://ex{hostile}ample.test/source.cs");
+
+        // The request itself keeps the host exactly as written.
+        Assert.Contains(hostile, request.RequestUri!.Host, StringComparison.Ordinal);
+
+        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageDownload))
+        {
+            NetworkTelemetry.RecordRequestStarting(
+                request,
+                NetworkClientKinds.Shared);
+        }
+
+        var evt = Assert.Single(activity!.Events);
+        var tags = evt.Tags.ToDictionary(tag => tag.Key, tag => tag.Value);
+        var host = Assert.IsType<string>(tags["server.address"]);
+        Assert.DoesNotContain(hostile, host, StringComparison.Ordinal);
+        Assert.Contains("ample.test", host, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void NetworkTelemetry_AddsActivityEvent()
     {
@@ -275,8 +391,11 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Equal("package-download", tags["dotnet_inspect.network.kind"]);
         Assert.Equal(true, tags["dotnet_inspect.network.policy.allowed"]);
         var url = Assert.IsType<string>(tags["url.full"]);
-        Assert.Equal("https://example.test/source.cs?access_token=REDACTED&ok=1", url);
+        // The whole query goes, not the parameters a name list recognizes: a
+        // feed picks the names too, so "ok=1" is no safer than "access_token".
+        Assert.Equal("https://example.test/source.cs?REDACTED", url);
         Assert.DoesNotContain("secret", url);
+        Assert.DoesNotContain("ok=1", url);
         Assert.DoesNotContain("user:password", url);
     }
 
@@ -300,8 +419,9 @@ public class HttpClientFactoryTests : IDisposable
 
         var stderr = error.ToString();
         Assert.Contains(
-            "Network traffic [source-fetch]: GET https://example.test/source.cs?token=REDACTED&ok=1",
+            "Network traffic [source-fetch]: GET https://example.test/source.cs?REDACTED",
             stderr);
+        Assert.DoesNotContain("ok=1", stderr);
         Assert.DoesNotContain("Network policy error", stderr);
         Assert.DoesNotContain("secret", stderr);
         Assert.DoesNotContain("user:password", stderr);
@@ -414,8 +534,9 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Contains("flowchart TD", mermaid);
         Assert.Contains("n0[\"dotnet-inspect\"]", mermaid);
         Assert.Contains("cache miss<br/>versions markout", mermaid);
-        Assert.Contains("package-search<br/>GET https://azuresearch-usnc.nuget.org/query?q=packageid:markout", mermaid);
-        Assert.Contains("package-download<br/>GET https://api.nuget.org/v3-flatcontainer/markout/1.0.0/markout.1.0.0.nupkg?token=REDACTED", mermaid);
+        Assert.Contains("package-search<br/>GET https://azuresearch-usnc.nuget.org/query?REDACTED", mermaid);
+        Assert.Contains("package-download<br/>GET https://api.nuget.org/v3-flatcontainer/markout/1.0.0/markout.1.0.0.nupkg?REDACTED", mermaid);
+        Assert.DoesNotContain("token=", mermaid);
         Assert.Contains("n0 --> n1", mermaid);
         Assert.Contains("n1 --> n2", mermaid);
         Assert.Contains("n2 --> n3", mermaid);
@@ -450,8 +571,9 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Equal("package Markout", tags["dotnet_inspect.request.what"]);
         Assert.Equal("package versions", tags["dotnet_inspect.request.why"]);
         var key = Assert.IsType<string>(tags["dotnet_inspect.cache.key"]);
-        Assert.Contains("token=REDACTED", key);
+        Assert.Equal("https://api.nuget.org/v3/index.json?REDACTED", key);
         Assert.DoesNotContain("secret", key);
+        Assert.DoesNotContain("token=", key);
     }
 
     [Fact]

@@ -67,13 +67,31 @@ public static class FeedFailureTelemetry
     private static readonly AsyncLocal<FeedFailureCollector?> CurrentValue = new();
 
     /// <summary>
-    /// Begins collecting source failures. Disposing restores the previous collector.
+    /// Begins collecting source failures. Disposing restores the previous collector
+    /// and, by default, merges this scope's failures into it when a parent scope
+    /// is open.
     /// </summary>
-    public static IDisposable Scope()
+    /// <param name="mergeIntoParent">
+    /// When <see langword="true"/> (default), failures recorded here are copied
+    /// into the parent on dispose so hop-level diagnostics still see a nested
+    /// 401. When <see langword="false"/>, the scope is throwaway isolation for a
+    /// best-effort side path (for example nuget.org search before the
+    /// authoritative flat-container lookup) whose noise must not convert a later
+    /// authoritative absence into "source did not answer".
+    /// </param>
+    /// <remarks>
+    /// Nested scopes keep <see cref="Current"/> isolated while they run so a
+    /// per-source lookup can decide Failed vs Absent from only that source's
+    /// traffic. On dispose, recorded failures still reach the outer hop scope
+    /// that builds the operator-facing message — otherwise a 401 nested under
+    /// latest-version resolution is discarded and reported as "not found".
+    /// </remarks>
+    public static IDisposable Scope(bool mergeIntoParent = true)
     {
         var previous = CurrentValue.Value;
-        CurrentValue.Value = new FeedFailureCollector();
-        return new CollectorScope(previous);
+        var current = new FeedFailureCollector();
+        CurrentValue.Value = current;
+        return new CollectorScope(previous, current, mergeIntoParent);
     }
 
     /// <summary>The collector for the current scope, or null when nothing is collecting.</summary>
@@ -99,9 +117,34 @@ public static class FeedFailureTelemetry
             NetworkTelemetry.CurrentTrafficKind));
     }
 
-    private sealed class CollectorScope(FeedFailureCollector? previous) : IDisposable
+    /// <summary>
+    /// Records a failed request using the effective URI resolved by <see cref="HttpClient"/>.
+    /// </summary>
+    /// <param name="url">The effective request URI that failed.</param>
+    /// <param name="status">The status returned, or null when no response arrived.</param>
+    public static void Record(Uri url, HttpStatusCode? status)
     {
-        public void Dispose() => CurrentValue.Value = previous;
+        CurrentValue.Value?.Add(new FeedFailure(
+            NetworkRequestObservation.RedactSensitiveUrl(url),
+            status,
+            NetworkTelemetry.CurrentTrafficKind));
+    }
+
+    private sealed class CollectorScope(
+        FeedFailureCollector? previous,
+        FeedFailureCollector current,
+        bool mergeIntoParent) : IDisposable
+    {
+        public void Dispose()
+        {
+            if (mergeIntoParent && previous is not null)
+            {
+                foreach (FeedFailure failure in current.Failures)
+                    previous.Add(failure);
+            }
+
+            CurrentValue.Value = previous;
+        }
     }
 }
 

@@ -12,6 +12,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using Markout;
+using Markout.Formatting;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 
@@ -46,7 +47,8 @@ public class ApiCommand
             Tabular = options.Tabular, Tsv = options.Tsv, Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
-            NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
+            NoHeader = options.NoHeader, Limit = options.Limit, MemberLimit = options.Limit,
+            MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
             Print = options.Print, PrintRow = options.PrintRow,
@@ -247,30 +249,41 @@ public class ApiCommand
                 projection: options));
         }
 
-        // Bare -S renders the fixed overview: the sections whose length does not depend on which
-        // type you are looking at. For a single type that is Type Info, so `type X -S` reports the
-        // same shape for a 250-member class and an 8-member enum, where the member sections it used
-        // to render varied from one section to eight.
+        // Bare -S renders a bounded overview. Type keeps its authored Info preset: Type Info for a
+        // single type and API Info for a listing. This reports the same shape for a 250-member class
+        // and an 8-member enum, where the member sections it used to render varied from one section
+        // to eight.
         //
-        // Two neighbours are deliberately left alone. `member` shares this preamble but is a
-        // different command with its own overview (decompiled source, signature, learn order), so it
-        // is converted on its own. The deprecated `api` shim reaches this preamble too but renders
-        // nothing at all -- it prints a migration notice and returns -- so it has no bare -S to
-        // convert. See #3547.
+        // Selected member details join the fixed overview here: Signature is bounded, while the
+        // former info preset also included Decompiled Source and therefore grew with the method
+        // body. Broad member lists and member-name overload inventories retain their own compact
+        // summary presets; they need separate bounded overview designs. The deprecated `api` shim
+        // reaches this preamble too but renders nothing at all -- it prints a migration notice and
+        // returns -- so it has no bare -S to convert. See #3547.
         //
-        // Type publishes focused API Info and Type Info presets for bare -S. These stay bounded even
-        // when other structurally fixed sections are added to a command context.
-        var usesTypeInfoPreset = options is TypeOptions;
-        var bareSelectSections = singleTypeMode
-            ? memberPipeline.InfoSectionNames
-            : typePipeline.InfoSectionNames;
+        // Type listing joins here as of this slice. It previously had no Fixed section to offer --
+        // every section it published was a per-kind member table that grows with the assembly -- so
+        // its bare -S resolved to an empty set and fell through to the verbosity ladder, printing
+        // all five growing tables. #3648 gave it the bounded API Info section, so bare -S can now
+        // mean the same thing here that it means everywhere else.
+        var usesBoundedOverview = options is TypeOptions
+            || ApiMemberSectionPipelines.UsesDetailPipeline(options);
+        var bareSelectSections = options is TypeOptions
+            ? singleTypeMode
+                ? memberPipeline.InfoSectionNames
+                : typePipeline.InfoSectionNames
+            : usesBoundedOverview
+                ? memberPipeline.FixedOverviewSectionNames
+            : singleTypeMode
+                ? memberPipeline.InfoSectionNames
+                : typePipeline.InfoSectionNames;
 
         // A focused bare -S that resolves to no sections has to fail loudly. SelectResolver
         // hands back an empty-but-non-null set, and IsRequested's `include is { Count: > 0 }` reads
         // that as "no filter at all" and falls through to the verbosity ladder -- turning a request
         // for a bounded overview into the widest output the command has, with the scanner
         // backpressure -S exists to apply switched off.
-        if (usesTypeInfoPreset && HasNoBareSelectOverview(options, bareSelectSections))
+        if (usesBoundedOverview && HasNoBareSelectOverview(options, bareSelectSections))
         {
             CommandError.Write(
                 "this view publishes no bare -S overview sections.",
@@ -401,6 +414,15 @@ public class ApiCommand
             && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
             return (null!, 1);
 
+        if (options is MemberOptions memberFormat
+            && options.Discover is null)
+        {
+            memberFormat = NormalizeMemberGraphFormat(memberFormat, selectionSections);
+            options = memberFormat;
+            if (!ValidateMemberGraphFormat(memberFormat, selectionSections))
+                return (null!, 1);
+        }
+
         // Auto-promote verbosity when -S targets specific sections
         if (options.IncludeSections is { Count: > 0 })
         {
@@ -459,6 +481,79 @@ public class ApiCommand
             typePipeline,
             memberPipeline,
             typeCatalog.QueryRegistry), null);
+    }
+
+    private static bool ValidateMemberGraphFormat(
+        MemberOptions options,
+        IReadOnlyCollection<string>? sections)
+    {
+        if (options.Tree)
+        {
+            if (options.FormatFlagExplicitlySet)
+            {
+                CommandError.Write(
+                    "--tree is a standalone output format and cannot combine with another output format.");
+                return false;
+            }
+
+            if (sections is not { Count: 1 }
+                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase))
+            {
+                CommandError.Write(
+                    "--tree requires exactly one selected tree shape.",
+                    "Use -S \"Call Graph\" --tree.");
+                return false;
+            }
+        }
+
+        if (options.MermaidOutput
+            && (sections is not { Count: 1 }
+                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase)))
+        {
+            CommandError.Write(
+                "--mermaid requires exactly one selected graph.",
+                "Use -S \"Call Graph\" --mermaid.");
+            return false;
+        }
+
+        if (options.EmbeddedMermaid
+            && (sections is null
+                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase)))
+        {
+            CommandError.Write(
+                "--markdown --mermaid requires the Call Graph section.",
+                "Select it with -S \"Call Graph\"; other Markdown sections may be selected with it.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static MemberOptions NormalizeMemberGraphFormat(
+        MemberOptions options,
+        IReadOnlyCollection<string>? sections)
+    {
+        if (options.Tree && !options.FormatFlagExplicitlySet)
+        {
+            return options with
+            {
+                JsonOutput = false,
+                Tabular = false,
+                Tsv = false,
+                Jsonl = false,
+                TabularExplicitlySet = false,
+                PlainText = false,
+                MermaidOutput = false,
+            };
+        }
+
+        bool onlyCallGraph =
+            sections is { Count: 1 }
+            && sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase);
+        if (options.MermaidOutput && !options.FormatFlagExplicitlySet && !onlyCallGraph)
+            return options with { MermaidOutput = false };
+
+        return options;
     }
 
     static bool MightPeelDottedGenericMemberSelector(string? typeName)
@@ -648,6 +743,8 @@ public class ApiCommand
             SourceUrl = type.SourceUrl,
             GitHubBrowseUrl = type.GitHubBrowseUrl,
             SourceLineNumber = type.SourceLineNumber,
+            SourceChecksum = type.SourceChecksum,
+            SourceChecksumAlgorithm = type.SourceChecksumAlgorithm,
             SourceResolution = type.SourceResolution,
             AdditionalSourceFiles = type.AdditionalSourceFiles,
             IsForwarded = type.IsForwarded,
@@ -750,8 +847,13 @@ public class ApiCommand
     /// null when no PDB can be obtained (offline, Windows PDB, no symbols).
     /// </summary>
     internal static async Task<string?> TryAcquirePdbPathAsync(
-        string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+        string dllPath,
+        ApiOptions options,
+        VerboseLogger logger,
+        HttpClient httpClient,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             using var service = SourceLinkService.Open(dllPath, logger.Log);
@@ -762,9 +864,15 @@ public class ApiCommand
                     ? PackageExtractor.ParsePackageReference(options.PackagePath)
                     : (null, null);
                 await SourceEnricher.AcquirePdbAsync(context, httpClient, pkgName, pkgVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
+                    sourceOptions: options.SourceOptions,
+                    cancellationToken: cancellationToken);
             }
             return context.PortablePdbPath;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -1041,7 +1149,8 @@ public class ApiCommand
 
                 await SourceEnricher.AcquirePdbAsync(context, httpClient,
                     pkgName, pkgVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
+                    sourceOptions: options.SourceOptions);
             }
 
             // Capture the acquired portable PDB path now so the decompiler can reuse it for local
@@ -1088,7 +1197,14 @@ public class ApiCommand
             else if (methodInfo.SourceUrl != null)
             {
                 var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-                content = await fetcher.FetchSourceAsync(methodInfo.SourceUrl);
+                var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+                    fetcher,
+                    methodInfo.SourceUrl,
+                    methodInfo.ChecksumAlgorithm,
+                    methodInfo.Checksum);
+                content = fetch.Text?.ReplaceLineEndings("\n");
+                if (fetch.Failure is not null)
+                    logger.LogWarning(fetch.Failure);
             }
 
             if (content == null)
@@ -1194,9 +1310,24 @@ public class ApiCommand
     {
         var sink = output ?? Console.Out;
 
-        if (options is TypeOptions { ShapeOutput: true } && !options.Count)
+        if (IsInvalidAnnotatedSourceDocumentJsonSelection(options))
         {
-            ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter, options.Verbosity);
+            CommandError.Write(
+                $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.");
+            return 1;
+        }
+
+        if (options is TypeOptions { ShapeOutput: true } typeOptions && !options.Count)
+        {
+            ApiOutputFormatter.WriteShapeOutput(
+                type,
+                foundIn,
+                packageName,
+                packageVersion,
+                options.MemberFilter,
+                options.KindFilter,
+                options.Verbosity,
+                typeOptions.MemberLimit);
             return 0;
         }
 
@@ -1215,7 +1346,8 @@ public class ApiCommand
             }
         }
 
-        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options))
+        bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
+        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
             // --fields/--columns select table columns; document JSON has no column-slicing
             // facility, so the combination is rejected rather than silently dropped. A scalar
@@ -1393,6 +1525,22 @@ public class ApiCommand
 
         }
 
+        if (sourceDocumentJson)
+        {
+            if (view.MemberCode?.AnnotatedSourceDocument is not { } sourceDocument)
+            {
+                CommandError.Write(AnnotatedSourceDocumentError(view.MemberCode));
+                return 1;
+            }
+
+            JsonOutputHelper.Write(
+                sourceDocument,
+                AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument,
+                AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument,
+                options.CompactJson);
+            return 0;
+        }
+
         // Whole-type decompilation (type command; member flows populate per
         // member above). Explicit-only: requires -S "Decompiled Source".
         // Sits OUTSIDE the member-sections region so enum types (which
@@ -1450,6 +1598,18 @@ public class ApiCommand
 
         if (options.Count)
         {
+            // A call graph declares edge rows in its projection. Count those rows directly
+            // rather than scanning any rendered lowering, whose syntax cannot answer the
+            // row question.
+            if (options.IncludeSections is { Count: 1 } sections
+                && sections.Contains(SectionNames.CallGraph)
+                && view.MemberCode?.CallGraphRowCount is { } graphRows)
+            {
+                CountOutput.WriteCount(graphRows);
+                ApiOutputFormatter.WriteCallGraphWarning(view);
+                return 0;
+            }
+
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var sw = new StringWriter { NewLine = "\n" };
@@ -1459,6 +1619,35 @@ public class ApiCommand
                 explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
             writer.Flush();
             CountOutput.WriteCountFromMarkdown(sw.ToString().TrimEnd());
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return 0;
+        }
+
+        if (options is MemberOptions { Tree: true } or { MermaidOutput: true })
+        {
+            var graph = view.MemberCode?.CallGraph;
+            if (graph is null)
+            {
+                CommandError.Write(
+                    "Call Graph output requires exactly one selected method overload.",
+                    "Select an overload by Name:N, Name~digest, or --index N.");
+                return 1;
+            }
+
+            if (graph.IsEmpty)
+            {
+                sink.WriteLine("No inbound callers or outbound calls found for this method.");
+            }
+            else
+            {
+                IMarkoutFormatter formatter = options.Tree
+                    ? new PlainTextFormatter()
+                    : new MermaidFormatter();
+                var graphWriter = new MarkoutWriter(sink, formatter);
+                graphWriter.WriteGraph(graph);
+                graphWriter.Flush();
+            }
+
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }
@@ -1530,7 +1719,7 @@ public class ApiCommand
 
                 writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var sw = new StringWriter { NewLine = "\n" };
-                var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
+                var writer = new Markout.MarkoutWriter(sw, options.CreateFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
@@ -1551,7 +1740,12 @@ public class ApiCommand
         {
             return await PrintUrlProjectionAsync(
                 section,
-                view.SourceFileRows?.Select((row, index) => (Row: index + 1, Label: (string?)row.Url, Url: (string?)row.Url)),
+                view.SourceFileRows?.Select((row, index) => (
+                    Row: index + 1,
+                    Label: (string?)row.Url,
+                    Url: (string?)row.Url,
+                    row.Checksum,
+                    row.ChecksumAlgorithm)),
                 options);
         }
 
@@ -1559,7 +1753,12 @@ public class ApiCommand
         {
             return await PrintUrlProjectionAsync(
                 section,
-                view.SourceLocationRows?.Select((row, index) => (Row: index + 1, Label: (string?)row.File ?? row.Url, Url: row.Url)),
+                view.SourceLocationRows?.Select((row, index) => (
+                    Row: index + 1,
+                    Label: (string?)row.File ?? row.Url,
+                    Url: row.Url,
+                    row.Checksum,
+                    row.ChecksumAlgorithm)),
                 options);
         }
 
@@ -1750,10 +1949,19 @@ public class ApiCommand
 
     private static async Task<int> PrintUrlProjectionAsync(
         string section,
-        IEnumerable<(int Row, string? Label, string? Url)>? rows,
+        IEnumerable<(
+            int Row,
+            string? Label,
+            string? Url,
+            byte[]? Checksum,
+            string? ChecksumAlgorithm)>? rows,
         ApiOptions options)
     {
-        var selection = SelectPrintableRow((rows ?? []).ToList(), options.PrintRow, out var selectionError);
+        var materialized = (rows ?? []).ToList();
+        var selection = SelectPrintableRow(
+            materialized.Select(row => (row.Row, row.Label, row.Url)).ToList(),
+            options.PrintRow,
+            out var selectionError);
         if (selection is not { } selectedRow)
         {
             CommandError.Write(selectionError);
@@ -1761,11 +1969,18 @@ public class ApiCommand
         }
 
         var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
+        var selectedSource = materialized.Single(row => row.Row == selectedRow.Row);
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var content = await fetcher.FetchSourceAsync(rawUrl);
-        if (content == null)
+        var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+            fetcher,
+            rawUrl,
+            selectedSource.ChecksumAlgorithm,
+            selectedSource.Checksum);
+        if (fetch.Text is null)
         {
-            CommandError.Write($"failed to fetch the document for row {selectedRow.Row} from {rawUrl}.");
+            CommandError.Write(
+                $"failed to fetch verified source for row {selectedRow.Row}: "
+                + (fetch.Failure ?? "source is unavailable."));
             return 1;
         }
 
@@ -1775,7 +1990,7 @@ public class ApiCommand
             string.IsNullOrWhiteSpace(selectedRow.Label) ? rawUrl : selectedRow.Label!,
             null,
             rawUrl,
-            content);
+            fetch.Text);
 
         return PrintProjectionOutput.Write(
             [document],
@@ -2300,6 +2515,7 @@ public class ApiCommand
         {
             outputType = ProjectTypeToSections(type, members, sections);
         }
+
         else if (members != type.Members)
         {
             outputType = new ApiType
@@ -2319,6 +2535,9 @@ public class ApiCommand
                 SourceUrl = type.SourceUrl,
                 GitHubBrowseUrl = type.GitHubBrowseUrl,
                 SourceLineNumber = type.SourceLineNumber,
+                SourceChecksum = type.SourceChecksum,
+                SourceChecksumAlgorithm = type.SourceChecksumAlgorithm,
+                AdditionalSourceFiles = type.AdditionalSourceFiles,
                 Documentation = type.Documentation
             };
         }
@@ -2339,11 +2558,45 @@ public class ApiCommand
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
     }
 
+    private static bool IsAnnotatedSourceDocumentJson(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && options.IncludeSections is { Count: 1 } sections
+           && sections.Contains(SectionNames.AnnotatedSourceDocument)
+           && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options);
+
+    private static bool IsInvalidAnnotatedSourceDocumentJsonSelection(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && options.IncludeSections is { Count: > 0 } sections
+           && sections.Contains(SectionNames.AnnotatedSourceDocument)
+           && options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true
+           && (sections.Count != 1
+               || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
+
+    private static bool HasOnlyExplicitAnnotatedSourceDocumentSelectors(ApiOptions options)
+        => options.Select is { Length: > 0 } selectors
+           && selectors.All(IsExplicitAnnotatedSourceDocumentSelector);
+
+    private static bool IsExplicitAnnotatedSourceDocumentSelector(string selector)
+        => selector.Equals(
+            SectionNames.AnnotatedSourceDocument,
+            StringComparison.OrdinalIgnoreCase);
+
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;
 
     private static bool ShouldRenderSourceLocations(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
+
+    internal static string AnnotatedSourceDocumentError(MemberCodeView? memberCode)
+        => memberCode?.AnnotatedSourceDocumentFailure is { } failure
+            ? string.Join(
+                "; ",
+                failure.Diagnostics.Select(diagnostic => diagnostic.ToString()))
+            : $"section '{SectionNames.AnnotatedSourceDocument}' produced no payload.";
 
     private static readonly HashSet<string> SemanticFactSections = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -2426,6 +2679,8 @@ public class ApiCommand
             GitHubBrowseUrl = sourceFiles ? type.GitHubBrowseUrl : null,
             SourceLineNumber = sourceFiles ? type.SourceLineNumber : null,
             SourceResolution = sourceFiles ? type.SourceResolution : null,
+            SourceChecksum = sourceFiles ? type.SourceChecksum : null,
+            SourceChecksumAlgorithm = sourceFiles ? type.SourceChecksumAlgorithm : null,
             AdditionalSourceFiles = sourceFiles ? type.AdditionalSourceFiles : [],
             IsForwarded = type.IsForwarded,
             Documentation = type.Documentation,

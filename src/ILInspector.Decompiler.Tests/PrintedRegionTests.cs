@@ -18,27 +18,27 @@ public class PrintedRegionTests
     {
         {
             nameof(PrintedRegionFixture.ForLoop),
-            nameof(ForLoop),
+            "ForStatement",
             [PrintedRegionRole.Header, PrintedRegionRole.Body]
         },
         {
             nameof(PrintedRegionFixture.WhileLoop),
-            nameof(WhileLoop),
+            "WhileStatement",
             [PrintedRegionRole.Header, PrintedRegionRole.Body]
         },
         {
             nameof(PrintedRegionFixture.DoWhileLoop),
-            nameof(DoWhileLoop),
+            "DoStatement",
             [PrintedRegionRole.Header, PrintedRegionRole.Body]
         },
         {
             nameof(PrintedRegionFixture.TryCatch),
-            nameof(TryCatch),
+            "TryStatement",
             [PrintedRegionRole.Body, PrintedRegionRole.Catch]
         },
         {
             nameof(PrintedRegionFixture.Lock),
-            "Lock",
+            "LockStatement",
             [PrintedRegionRole.Header, PrintedRegionRole.Body]
         },
         {
@@ -53,12 +53,12 @@ public class PrintedRegionTests
         },
         {
             nameof(PrintedRegionFixture.TryFinally),
-            nameof(TryFinally),
+            "TryStatement",
             [PrintedRegionRole.Body, PrintedRegionRole.Finally]
         },
         {
             nameof(PrintedRegionFixture.Switch),
-            nameof(Switch),
+            "SwitchStatement",
             [PrintedRegionRole.Header, PrintedRegionRole.Body, PrintedRegionRole.Case]
         },
     };
@@ -131,7 +131,7 @@ public class PrintedRegionTests
         var construct = Assert.Single(
             map.Regions,
             region => region.Role == PrintedRegionRole.Construct
-                && map.Nodes.Any(node => node.Kind == nameof(SwitchBranch)
+                && map.Nodes.Any(node => node.Kind == "SwitchDispatchStatement"
                     && node.Extent == region.Extent));
         Assert.Contains("__switchValue", Text(map, construct.Extent));
 
@@ -164,7 +164,7 @@ public class PrintedRegionTests
         var construct = Assert.Single(
             map.Regions,
             region => region.Role == PrintedRegionRole.Construct
-                && map.Nodes.Any(node => node.Kind == nameof(Fixed)
+                && map.Nodes.Any(node => node.Kind == "FixedStatement"
                     && node.Extent == region.Extent));
         Assert.StartsWith("fixed (", Text(map, construct.Extent));
         Assert.Contains(map.Regions, region => region.Role == PrintedRegionRole.Header);
@@ -263,7 +263,7 @@ public class PrintedRegionTests
         // neither contains the other.
         var exception = Assert.Throws<ArgumentException>(() => new PrintedBodyMap(
             ["abcdefghij"],
-            [new PrintedNodeSpan("Outer", new PrintedExtent(0, 0, 0, 6))],
+            [new PrintedNodeSpan(0, "Outer", new PrintedExtent(0, 0, 0, 6))],
             [new PrintedRegion(
                 PrintedRegionRole.Body,
                 new PrintedExtent(0, 4, 0, 8))],
@@ -278,7 +278,7 @@ public class PrintedRegionTests
         var outer = new PrintedExtent(0, 0, 0, 10);
         var map = new PrintedBodyMap(
             ["abcdefghij"],
-            [new PrintedNodeSpan("IfStatement", outer)],
+            [new PrintedNodeSpan(0, "IfStatement", outer)],
             [
                 new PrintedRegion(PrintedRegionRole.Construct, outer),
                 new PrintedRegion(PrintedRegionRole.Header, new PrintedExtent(0, 0, 0, 4)),
@@ -295,7 +295,7 @@ public class PrintedRegionTests
         var lines = new List<string> { "abc" };
         var nodes = new List<PrintedNodeSpan>
         {
-            new("LoadLocal", new PrintedExtent(0, 0, 0, 3)),
+            new(0, "LoadLocal", new PrintedExtent(0, 0, 0, 3)),
         };
         var regions = new List<PrintedRegion>();
         var annotations = new List<PrintedAnnotationSpan>();
@@ -334,16 +334,16 @@ public class PrintedRegionTests
     static string ExpectedConstructPrefix(string nodeKind)
         => nodeKind switch
         {
-            nameof(ForLoop) => "for (",
-            nameof(WhileLoop) => "while (",
-            nameof(DoWhileLoop) => "do\n",
-            nameof(TryCatch) or nameof(TryFinally) => "try\n",
-            "Lock" => "lock (",
-            nameof(Fixed) => "fixed (",
+            "ForStatement" => "for (",
+            "WhileStatement" => "while (",
+            "DoStatement" => "do\n",
+            "TryStatement" => "try\n",
+            "LockStatement" => "lock (",
+            "FixedStatement" => "fixed (",
             nameof(UsingStatement) => "using (",
             nameof(ForeachStatement) => "foreach (",
             nameof(IfStatement) => "if (",
-            nameof(Switch) => "switch (",
+            "SwitchStatement" => "switch (",
             _ => throw new ArgumentOutOfRangeException(nameof(nodeKind)),
         };
 

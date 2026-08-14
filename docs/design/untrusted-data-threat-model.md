@@ -249,6 +249,35 @@ session boundary are copied or reduced to immutable tokens and shapes. This
 prevents use-after-dispose and avoids lending privileged readers to higher
 layers.
 
+Assembly-reference names remain metadata identity rather than filesystem path
+components. Reference-tree traversal resolves `AssemblyReferenceIdentity`
+through the shared resolver's enumerated candidate catalog. Its tree-specific
+policy preserves sibling-first, version-tolerant selection relative to each
+resolved parent before falling back to installed platform assets; supplied
+culture and public-key-token constraints still bind, while omitted constraints
+remain wildcards because typed identity travels through the inspection model
+rather than being reconstructed from display text. It excludes the inspecting
+process's own trusted platform assembly closure. Platform lookup matches
+requested names against enumerated file names. An unreadable name-matching
+candidate blocks fallback to lower-priority candidate tiers, while other
+case-distinct candidates in the same tier remain eligible. A readable
+same-name sibling that does not satisfy identity likewise owns the local tier
+and blocks installed-platform fallback. The decompiler's
+default sibling-only resolver follows the same boundary: it resolves the owner
+path before enumerating neighboring assemblies, then selects by metadata
+identity rather than deriving a path from the requested name. The
+`AssemblyReferenceTreeResolutionTests.TraversingAssemblyRefName_IsIdentityAndCannotEscapeTheAssemblyDirectory`
+and the sibling/platform/culture/failure-state tests in that class,
+`AssemblyDependencyResolverTests.Select_UnreadableSiblingDoesNotFallThroughToTpa`,
+`AssemblyDependencyResolverTests.Select_ReadableMismatchingSiblingShadowsInstalledPlatformFallback`,
+`AssemblyDependencyResolverTests.Select_CaseDistinctSameTierCandidateIsMatchedAfterUnavailableCandidate`,
+`AssemblyReferenceTreeResolutionTests.MismatchingPlatformNamedSibling_ShadowsInstalledPlatformFallback`,
+`AssemblyReferenceResolverTests.SiblingResolver_BareOwnerPathUsesCurrentDirectory`,
+`AssemblyReferenceResolverTests.SiblingResolver_AssemblyReferenceNameCannotEscapeDirectory`,
+and
+`PlatformResolverTests.ResolveAssembly_AssemblyNameCannotEscapeReferencePack`
+gate these seams.
+
 ### Package archives use traversal-aware extraction
 
 NuGet package extraction uses `ZipFile.ExtractToDirectory`, which rejects
@@ -308,6 +337,17 @@ inputs directly. Nothing gates the invariant, which is why the gaps persisted; s
 
 ### SourceLink provenance is read off the URL source is fetched from
 
+SourceLink map presence is not reported as successful usability. The
+SourceLink-aware audit retains whole-map parse failures and individually
+rejected keys, reports unusable and partially usable states in `Signals`, and
+exposes details through `SourceLink: Diagnostics`. Authored document keys also
+participate in `Non-normalized Paths`; a normalized CodeView path cannot hide a
+non-normalized SourceLink key. This fail-visible boundary is gated by
+`CommandExecutionTests.Library_MalformedSourceLink_ReportsMapAndPathDiagnostics`,
+`OutputFormatterTests.SingleAudit_Signals_UnusableSourceLink_ReportsTheParseError`,
+and
+`CommandExecutionTests.SourceLinkAudit_NormalizedFixtureStaysClean`.
+
 Reported provenance must describe the origin that source content is actually
 fetched from, for every document the assembly resolves. When that cannot be
 established for all of them, report no repository.
@@ -340,8 +380,16 @@ one that was here, and it had gone stale by two.
 - `System.Uri` preserves percent-encoded separators verbatim: `..%2f` and
   `..%5c` survive canonicalization, so a "canonicalize, then prefix-check" step
   passes while a server that percent-decodes before resolving dot segments still
-  traverses out. Encoded separators and encoded dot segments are rejected rather
-  than assumed resolved.
+  traverses out. Encoded separators are rejected rather than assumed resolved.
+  Encoded dots are different: `System.Uri` decodes them, removes encoded parent
+  segments from the path before the origin is read, and sends that canonical
+  path. Provenance therefore follows the final origin exactly as it does for
+  literal `..`; an encoded dot in a file name is not treated as traversal.
+  Measured against `dotnet/runtime` commit `9904b934...`, GitHub serves
+  `README%2Emd` as the same 4800 bytes and SHA-256 as `README.md`. Gated by
+  `SourceLinkProvenanceTests.AnEncodedDotOutsideAParentSegment_RemainsAttributable`,
+  `...AnEncodedParentSegment_ReportsWhereContentIsReallyServedFrom`, and
+  `...AnEncodedDotInAnAzureContentPath_RemainsAttributable`.
 - `https://raw.githubusercontent.com@evil.example/...` parses with host
   `evil.example` and user info `raw.githubusercontent.com`. The host allow list
   rejects it, since `Uri` takes the authority after the last `@`; user info is
@@ -562,11 +610,12 @@ that changing them is visible:
   repository segment ends. Gated by
   `SourceLinkProvenanceTests.AnEncodedSeparatorInTheAzureRepositorySegment_IsNotAttributable`.
 
-One consequence is a real gap, tracked rather than closed here. Attribution is
-decided from the URL's text, offline; the fetch that follows is a separate step
-and does not compare where it *landed* with what was attributed.
+Attribution is decided from the URL's text, offline; the fetch that follows is
+a separate step. That fetch must compare where it *landed* with what was
+attributed.
 `CreateUntrustedFetchClient` follows redirects (five hops, SSRF-guarded per hop)
-and any 2xx is accepted, so a syntactically valid but nonexistent, private, or
+and an HTTP client otherwise accepts any 2xx, so a syntactically valid but
+nonexistent, private, or
 unauthenticated Azure route redirects to a sign-in page on another host and
 answers 203:
 
@@ -576,35 +625,65 @@ code=203
 type=text/html; charset=utf-8
 ```
 
-The reported repository URL is still `https://dev.azure.com/contoso/widgets/_git/core`,
-so "read off the URL source is actually fetched from" is not true after a
-cross-host redirect.
+`SourceLinkProvenance.ValidateFetchOrigin` now compares the complete attributed
+origin tuple from the requested URL with the tuple read from
+`HttpResponseMessage.RequestMessage.RequestUri`. A final URL with no
+attributable origin, or one naming another repository or revision, is rejected
+before its body is read or cached. Browser/Wasm's HTTP transport does not expose
+the final URL after an automatic redirect, so attributed SourceLink fetches fail
+closed there; unattributed URLs remain fetchable because no repository is
+reported for them, and checksum verification remains their
+content-authenticity boundary.
 
-Content is **not** protected across the board. The authored-source path verifies:
-`AuthoredSourceAcquisition` re-checks the PDB checksum in `FromContent` and
-returns `Failed` on a mismatch, so redirected HTML cannot be shown as authored
-source there. But five CLI call sites fetch with `SourceFetcher.FetchSourceAsync`
-and render the result without any checksum check —
-`ApiCommand.cs:648` (the rendered **Original Source** section, whose text goes
-straight into `BodySlicer.ExtractMethodBody`), `ApiCommand.cs:1239`,
-`LibraryCommand.cs:1243`, and `SourceEnricher.cs:210` and `:333`. In
-`ApiCommand`, the *local repository* branch immediately above verifies a
-checksum and the network branch does not, so the asymmetry is visible in one
-screen. The slicer is a heuristic over line spans the PDB supplies, and the PDB
-is attacker-controlled, so it is not an authenticity boundary.
+Header-first source fetches keep the untrusted-fetch timeout active through the
+body read, retry transient mid-body failures, and count decoded bytes against
+the download limit even when `Content-Length` is absent or describes compressed
+content. Source bodies are capped at 16 MB each, including decoded bytes.
+Bounded fetches require Browser/Wasm's streaming-response mode so the browser
+transport cannot buffer an unbounded body before that loop; a browser without
+streaming support fails before body acquisition.
 
-Fixing this means comparing the post-redirect `RequestMessage.RequestUri`
-against the attributed origin, and requiring verification — or an explicit
-"unverified" label — at every consumer that renders fetched source. Both belong
-to the fetch and CLI layers: `Determine` is deliberately offline, and making a
-static metadata read depend on a network round trip is a design change. Tracked
-by **#3618**.
+Source fetch progress and bounded-retry failure diagnostics are content-free:
+they report the operation, status, and safe counts, not artifact-derived URLs,
+paths, credentials, fragments, or transport exception text. This is gated by
+`CommandExecutionTests.SourceEnrichment_VerboseProgressDoesNotDiscloseArtifactUrlOrPath`
+and
+`HttpRetryHelperTests.HeaderFirstBodyRead_FailureLogsCarryNoUrlOrExceptionText`.
 
-This entry previously claimed `AuthoredSourceAcquisition` was the only consumer
-of fetched source and concluded that redirected HTML could never be rendered.
-That was false, and it was written while fixing a finding about ungated claims;
-round 18 caught it by enumerating `FetchSourceAsync` rather than the
-`…SourceBytesAsync` overloads the original search covered.
+Every product consumer that renders or derives output from fetched source now
+uses `AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync`. Original Source,
+printed Source Files and Source Locations, IL-offset source lines, and
+documentation/sample enrichment all require the portable-PDB checksum before
+using network content. `SourceAvailabilityService` and
+`SourceIntegrityService` apply the same final-origin check before recording
+reachability or reading bytes. The source-byte, availability, and integrity
+cache categories were versioned when this rule landed, so entries created
+without final-origin evidence cannot satisfy the new path.
+
+Checksum evidence follows the portable-PDB document row rather than a display
+or canonical path. Direct member, type, and IL-offset projections join on row
+identity and verify the authored path; path-only heuristic projections attach a
+checksum only when that path names one document row. This is gated by
+`AuthoredSourceAcquisitionTests.SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated`,
+`...SelectMappedDocument_RejectsAMismatchedRowPathPair`, and
+`MetadataSourceFindingsTests.DocumentChecksumIndexes_PreserveRowsAndRejectAmbiguousPathFallback`.
+
+The fetch-origin grammar is gated by
+`SourceLinkProvenanceTests.FetchOrigin_AttributedResponseMustPreserveTheCompleteOrigin`,
+`...FetchOrigin_AzureSignInRedirectIsNotTheAttributedRepository`, and
+`...FetchOrigin_UnknownSourceLinkHostCarriesNoOriginClaim`. The Services gate
+exercises the response boundary, pre-fix cache invalidation, and the
+availability/integrity projections in
+`AuthoredSourceAcquisitionTests.FetchSourceBytes_RejectsRedirectOutsideAttributedOrigin`,
+`...FetchSourceBytes_IgnoresPreOriginValidationCache`,
+`HttpRetryHelperTests.HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody`,
+`...HeaderFirstBodyRead_CapsAChunkedBodyByDecodedBytes`,
+`...HeaderFirstBodyRead_RetriesAMidBodyIoFailure`,
+`...HeaderFirstBodyRead_RequiresBrowserStreamingResponse`,
+`SourceLinkQueryServiceTests.Availability_DoesNotCountCrossOriginRedirectAsReachable`,
+`...BrowserTransport_FailsClosedOnlyForAttributedSourceUrls`,
+and
+`...Integrity_DoesNotAcceptMatchingBytesFromCrossOriginRedirect`.
 
 Gates. `SourceLinkProvenanceTests` covers all twenty-one as named tests, plus the
 cache-identity distinction between forks and the requirement that every
@@ -915,10 +994,12 @@ Disabling the check fails nine of them.
 
 `SourceLinkProvenanceResult.Reason` is the *latent* half of the same exposure.
 Its messages quote artifact text throughout — the query, the path, the host, a
-revision, a rejected map key — and today no caller renders it: all six read
-`Origin?.RepositoryUrl` and drop the reason. Issue #3590 exists to report it,
-which is exactly the change that turns these into a live path, so #3590 must
-adopt visual encoding rather than merely surfacing the strings.
+revision, a rejected map key — and today no caller renders it: current callers read
+`Origin?.RepositoryUrl` and drop the reason. The library map-diagnostics path
+does not render that composite provenance reason: it projects map errors and
+rejected keys separately, and its view records apply visual containment. Any
+future surface for the provenance reason must do the same rather than merely
+printing the string.
 
 A test framework is a sink too. xUnit builds its row labels from the theory
 arguments, so the runner prints a raw `U+202E` from a hostile fixture to the
@@ -936,7 +1017,7 @@ only ordinary compiler output.
 | Resource extraction | Traversal and rooted names rejected before writes; valid nested and empty resources retained; malformed ranges rejected; separator/case aliases collide; existing file preserved; device/control names rejected |
 | Archive extraction | Zip-slip fixture; expanded-size and entry-count policy tests once budgets exist |
 | Metadata and signatures | Malformed table/blob fixtures, depth/size limits, no process crash |
-| SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
+| SourceLink | Private/loopback targets rejected per hop; attributed redirects must preserve the complete repository/revision origin; rendered network source requires the portable-PDB checksum; pre-origin-validation caches are ignored; allowed public targets and checksum paths retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
 | Cache paths | Traversal/separator components rejected; content-addressed keys deterministic |
 | Structured output | Untrusted non-graphic scalars cannot escape the selected format. `MdiContainmentTests` splices a payload reaching past any single predicate's notion of "control" (a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, a C1 control, the bidi override `U+202E`, the line separator `U+2028`, the zero-width space `U+200B`, and the supplementary tag character `U+E0074`) into both a real `#Strings` entry and the metadata version stamp, then renders that assembly in every format through the three views that carry artifact text — table, heap, and overview — asserting no raw non-graphic scalar survives and every contained form is present. The `--references` view carries no artifact text, so it is asserted only against raw scalars, as a regression net. Mutation-checked by restoring the pre-#3628 range predicate (dies naming `U+202E`) and by a category-correct but `char`-based predicate (dies naming `U+E0074`). Until #3628 this row named a payload that was `Cc` only, so a bidi override would not have been noticed; the payload and the assertion helper had both been scoped to the projector's own predicate, which is why the gate stayed green while `U+202E` reached the terminal. Both now classify by Unicode general category over scalars. Two limits remain: the assertion deliberately permits raw `CR`/`LF`/`TAB`, and format *delimiters* are not covered by this gate at all |

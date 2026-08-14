@@ -18,7 +18,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class PackageIndexCache
 {
-    internal const string Category = "pkg-index-v12";
+    internal const string Category = "pkg-index-v13";
     private static ReadOnlySpan<byte> DescriptionLengthPrefix => "description-bytes: "u8;
     private static readonly UTF8Encoding StrictUtf8 =
         new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
@@ -32,9 +32,12 @@ internal static class PackageIndexCache
     /// Tries to load a cached InspectionResult for a package version.
     /// Returns null on cache miss.
     /// </summary>
-    public static InspectionResult? TryGet(string packageName, string version)
+    public static InspectionResult? TryGet(
+        string packageName,
+        string version,
+        string producerKey)
     {
-        string key = $"{packageName.ToLowerInvariant()}@{version}";
+        string key = CacheKey(packageName, version, producerKey);
         var bytes = CoreCache.TryGetBytes(Category, key, extension: "md");
         if (bytes == null) return null;
 
@@ -128,9 +131,13 @@ internal static class PackageIndexCache
     /// Stores the encoded description in a length-delimited UTF-8 envelope followed by plain
     /// fields (<c>key: value</c>).
     /// </summary>
-    public static void Set(string packageName, string version, InspectionResult result)
+    public static void Set(
+        string packageName,
+        string version,
+        string producerKey,
+        InspectionResult result)
     {
-        string key = $"{packageName.ToLowerInvariant()}@{version}";
+        string key = CacheKey(packageName, version, producerKey);
 
         var buf = new ArrayBufferWriter<byte>(1024);
         WriteDescriptionEnvelope(buf, result.Description);
@@ -197,6 +204,12 @@ internal static class PackageIndexCache
 
         CoreCache.SetBytes(Category, key, buf.WrittenSpan.ToArray(), extension: "md");
     }
+
+    internal static string CacheKey(
+        string packageName,
+        string version,
+        string producerKey)
+        => $"{producerKey}:{packageName.ToLowerInvariant()}@{version}";
 
     // ── Description envelope + field serialization ──
 

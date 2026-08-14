@@ -116,6 +116,8 @@
              Link="ReturnToSender.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\SpanAttribution.cs"
              Link="SpanAttribution.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusMethodology.cs"
+             Link="AuthoredCorpusMethodology.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderTypePlanner.cs"
              Link="ReturnToSenderTypePlanner.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderEvidence.cs"
@@ -174,6 +176,8 @@
              Link="TypeBindCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusHistoryCard.cs"
              Link="AuthoredCorpusHistoryCard.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusHistoryStore.cs"
+             Link="AuthoredCorpusHistoryStore.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\IlDifficultyScorer.cs"
              Link="IlDifficultyScorer.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\RealMethodTargetEnumerator.cs"
@@ -185,5 +189,8 @@
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusRatchet.cs"
              Link="AuthoredCorpusRatchet.cs" />
   </ItemGroup>
+
+  <!-- The benchmark sources execute in this assembly during in-process tests. -->
+  <Import Project="..\..\tools\DecompilerHarness\RepositoryBuildState.targets" />
 
 </Project>

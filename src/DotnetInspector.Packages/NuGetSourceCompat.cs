@@ -6,6 +6,7 @@ using System.Xml;
 using System.Xml.Linq;
 using NuGetFetch;
 using DotnetInspector.Core;
+using InertText;
 using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;
@@ -18,8 +19,36 @@ public record NuGetSourceOptions
     public string[] Sources { get; init; } = [];
     public string[] AdditionalSources { get; init; } = [];
     public string? ConfigFile { get; init; }
-    internal string[]? AuthorizedSourceUrls { get; init; }
+    internal string[]? AuthorizedSourceKeys { get; init; }
     public static NuGetSourceOptions Default { get; } = new();
+}
+
+/// <summary>
+/// Identifies why package source mapping could not authorize a producer.
+/// </summary>
+public enum PackageSourceMappingFailure
+{
+    /// <summary>The package id matched no configured pattern.</summary>
+    NoPattern,
+
+    /// <summary>No active source carries a configured name selected by mapping.</summary>
+    InactiveSource,
+
+    /// <summary>Eligible aliases for one producer use different credentials.</summary>
+    ConflictingCredentials,
+}
+
+/// <summary>
+/// Thrown when package source mapping cannot authorize a producer for a package id.
+/// </summary>
+public sealed class PackageSourceMappingException(
+    PackageSourceMappingFailure failure,
+    string message) : InvalidOperationException(message)
+{
+    /// <summary>
+    /// Gets the mapping failure category.
+    /// </summary>
+    public PackageSourceMappingFailure Failure { get; } = failure;
 }
 
 /// <summary>
@@ -38,35 +67,50 @@ public static class NuGetSourceResolver
         IReadOnlyList<string> sourceUrls)
     {
         ArgumentNullException.ThrowIfNull(sourceUrls);
+        return RestrictToSourceKeys(
+            original,
+            [.. sourceUrls.Select(NuGetCache.GetSourceKey)]);
+    }
+
+    /// <summary>
+    /// Restricts payload or metadata fulfillment to canonical producer identities established
+    /// by an earlier package acquisition.
+    /// </summary>
+    public static NuGetSourceOptions? RestrictToSourceKeys(
+        NuGetSourceOptions? original,
+        IReadOnlyList<string> sourceKeys)
+    {
+        ArgumentNullException.ThrowIfNull(sourceKeys);
         return (original ?? NuGetSourceOptions.Default) with
         {
-            AuthorizedSourceUrls = [.. sourceUrls],
+            AuthorizedSourceKeys = [.. sourceKeys],
         };
     }
 
-    internal static IReadOnlyList<NuGetSource> ResolveAuthorizedSources(
+    /// <summary>
+    /// Applies a producer restriction established by an earlier coordinate resolution to an
+    /// already package-mapped source set.
+    /// </summary>
+    public static IReadOnlyList<NuGetSource> ResolveAuthorizedSources(
         NuGetSourceOptions? options,
         IReadOnlyList<NuGetSource> activeSources)
     {
-        if (options?.AuthorizedSourceUrls is not { } authorizedUrls)
+        if (options?.AuthorizedSourceKeys is not { } authorizedKeys)
             return activeSources;
 
-        HashSet<string> authorizedKeys =
-        [
-            .. authorizedUrls.Select(NuGetCache.GetSourceKey),
-        ];
+        HashSet<string> authorizedKeySet = [.. authorizedKeys];
         return
         [
             .. activeSources.Where(source =>
-                authorizedKeys.Contains(NuGetCache.GetSourceKey(source.Url))),
+                authorizedKeySet.Contains(NuGetCache.GetSourceKey(source.Url))),
         ];
     }
 
     internal static NuGetSourceOptions? WithoutSourceRestriction(
         NuGetSourceOptions? options)
-        => options?.AuthorizedSourceUrls is null
+        => options?.AuthorizedSourceKeys is null
             ? options
-            : options with { AuthorizedSourceUrls = null };
+            : options with { AuthorizedSourceKeys = null };
 
     /// <summary>
     /// Resolves sources and reduces them to the identities the package content
@@ -77,6 +121,16 @@ public static class NuGetSourceResolver
         NuGetSourceOptions? options,
         string? workingDirectory = null)
         => SourceKeys(ResolveSources(options, workingDirectory));
+
+    /// <summary>
+    /// Resolves the producers eligible to serve <paramref name="packageId"/> and reduces them to
+    /// the identities recorded by the package-content cache.
+    /// </summary>
+    public static IReadOnlyList<string> ResolveSourceKeysForPackage(
+        NuGetSourceOptions? options,
+        string packageId,
+        string? workingDirectory = null)
+        => SourceKeys(ResolveSourcesForPackage(options, packageId, workingDirectory));
 
     /// <summary>
     /// Reduces already-resolved sources to their cache identities, preserving
@@ -114,18 +168,120 @@ public static class NuGetSourceResolver
             ValidateExplicitConfig(options.ConfigFile);
         }
 
-        if (options.Sources.Length > 0)
-        {
-            return SelectExplicitSources(options, workingDirectory);
-        }
-
-        IReadOnlyList<NuGetSource> sources = SourceResolver.ResolveSources(
+        IReadOnlyList<NuGetSource> configured = SourceResolver.ResolveSources(
             explicitSource: null,
             configPath: options.ConfigFile,
-            additionalSources: options.AdditionalSources.Length > 0 ? options.AdditionalSources : null,
+            additionalSources: null,
             workingDirectory: workingDirectory);
+        IReadOnlyList<NuGetSource> configuredAliases =
+            options.Sources.Length > 0 || options.AdditionalSources.Length > 0
+                ? SourceResolver.ResolveConfiguredSourceAliases(
+                    options.ConfigFile,
+                    workingDirectory)
+                : configured;
 
-        return [.. sources];
+        List<NuGetSource> selected = options.Sources.Length > 0
+            ? SelectExplicitSources(options.Sources, configuredAliases)
+            : [.. configured];
+        AddExplicitSources(selected, options.AdditionalSources, configuredAliases);
+        return selected;
+    }
+
+    /// <summary>
+    /// Resolves active source aliases, applies package source mapping for
+    /// <paramref name="packageId"/>, and collapses eligible aliases to canonical producers.
+    /// </summary>
+    /// <remarks>
+    /// Mapping names configured aliases, while package payloads and caches name canonical
+    /// producer endpoints. Aliases therefore remain distinct until mapping has selected the
+    /// package-specific set. Eligible aliases for one producer must agree on credentials.
+    /// </remarks>
+    /// <exception cref="PackageSourceMappingException">
+    /// Mapping is enabled but the package id matches no pattern, none of the mapped names is
+    /// active, or eligible aliases for one producer disagree on credentials.
+    /// </exception>
+    public static List<NuGetSource> ResolveSourcesForPackage(
+        NuGetSourceOptions? options,
+        string packageId,
+        string? workingDirectory = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+
+        List<NuGetSource> activeAliases = ResolveSources(options, workingDirectory);
+        PackageSourceMapping mapping = ResolvePackageSourceMapping(options, workingDirectory);
+
+        IReadOnlyList<NuGetSource> eligibleAliases = activeAliases;
+        if (mapping.IsEnabled)
+        {
+            IReadOnlyList<string> mappedNames =
+                mapping.GetConfiguredPackageSources(packageId);
+            if (mappedNames.Count == 0)
+            {
+                throw new PackageSourceMappingException(
+                    PackageSourceMappingFailure.NoPattern,
+                    $"Package source mapping has no pattern for package '{packageId}'.");
+            }
+
+            var allowedNames = new HashSet<string>(
+                mappedNames,
+                StringComparer.OrdinalIgnoreCase);
+            eligibleAliases =
+            [
+                .. activeAliases.Where(source => allowedNames.Contains(source.Name)),
+            ];
+            if (eligibleAliases.Count == 0)
+            {
+                throw new PackageSourceMappingException(
+                    PackageSourceMappingFailure.InactiveSource,
+                    $"Package '{packageId}' maps to source"
+                    + $"{(mappedNames.Count == 1 ? "" : "s")} "
+                    + $"'{string.Join("', '", mappedNames)}', but "
+                    + $"{(mappedNames.Count == 1 ? "it is not" : "none are")} active.");
+            }
+        }
+
+        return CollapseAliases(eligibleAliases, packageId);
+    }
+
+    internal static PackageSourceMapping ResolvePackageSourceMapping(
+        NuGetSourceOptions? options,
+        string? workingDirectory = null)
+        => SourceResolver.ResolvePackageSourceMapping(
+            options?.ConfigFile,
+            workingDirectory);
+
+    internal static bool IsAliasEligibleForPackage(
+        NuGetSource source,
+        IReadOnlyList<NuGetSource> activeAliases,
+        PackageSourceMapping mapping,
+        string packageId)
+    {
+        if (!mapping.IsEnabled)
+        {
+            return true;
+        }
+
+        IReadOnlyList<string> mappedNames =
+            mapping.GetConfiguredPackageSources(packageId);
+        if (mappedNames.Count == 0)
+        {
+            return false;
+        }
+
+        var allowedNames = new HashSet<string>(
+            mappedNames,
+            StringComparer.OrdinalIgnoreCase);
+        List<NuGetSource> eligibleAliases =
+        [
+            .. activeAliases.Where(alias => allowedNames.Contains(alias.Name)),
+        ];
+        if (eligibleAliases.Count == 0)
+        {
+            return false;
+        }
+
+        _ = CollapseAliases(eligibleAliases, packageId);
+        return allowedNames.Contains(source.Name);
     }
 
     /// <summary>
@@ -168,7 +324,7 @@ public static class NuGetSourceResolver
         // layer rather than inheriting the ambient NuGet.org default.
         try
         {
-            if (SourceResolver.ResolveConfiguredSources(configFile).Count == 0)
+            if (SourceResolver.ResolveConfiguredSourceAliases(configFile).Count == 0)
             {
                 return $"NuGet config file '{configFile}' declares no usable package sources.";
             }
@@ -222,15 +378,29 @@ public static class NuGetSourceResolver
     /// same URL, and NuGet's own client matches them the same way.
     /// </remarks>
     private static List<NuGetSource> SelectExplicitSources(
-        NuGetSourceOptions options,
-        string? workingDirectory)
+        IEnumerable<string> urls,
+        IReadOnlyList<NuGetSource> configured)
     {
-        IReadOnlyList<NuGetSource> configured =
-            SourceResolver.ResolveConfiguredSources(options.ConfigFile, workingDirectory);
-
-        List<NuGetSource> selected = [.. options.Sources.Select(url => Match(url, configured))];
-        selected.AddRange(options.AdditionalSources.Select(url => Match(url, configured)));
+        List<NuGetSource> selected = [];
+        AddExplicitSources(selected, urls, configured);
         return selected;
+    }
+
+    private static void AddExplicitSources(
+        List<NuGetSource> selected,
+        IEnumerable<string> urls,
+        IReadOnlyList<NuGetSource> configured)
+    {
+        foreach (string url in urls)
+        {
+            foreach (NuGetSource match in Match(url, configured))
+            {
+                if (!selected.Contains(match))
+                {
+                    selected.Add(match);
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -244,29 +414,50 @@ public static class NuGetSourceResolver
     /// case-insensitively because scheme and host are case-insensitive by definition; path and
     /// query are compared ordinally on their escaped form because they are not.
     ///
-    /// An exact spelling wins outright. A trailing slash is not a distinction any feed makes, so
-    /// it is tolerated only as a fallback, and only when exactly one configured source matches
-    /// that way: if two entries differ solely by a trailing slash they are separate entries with
-    /// potentially separate credentials, and picking either one would be a guess that could send
-    /// one entry's secret to the other's spelling.
+    /// Every configured alias for the endpoint is retained. Package source mapping names those
+    /// aliases, so selecting one before the package id is known would either bypass mapping or
+    /// discard the credential attached to the alias mapping later selects.
     ///
     /// On a match only the credentials are adopted. The URL stays exactly as the user spelled it,
     /// so a request never silently goes somewhere other than where it was pointed.
     /// </remarks>
-    private static NuGetSource Match(string url, IReadOnlyList<NuGetSource> configured)
+    private static IReadOnlyList<NuGetSource> Match(
+        string url,
+        IReadOnlyList<NuGetSource> configured)
     {
-        NuGetSource? match = configured.FirstOrDefault(
-            s => string.Equals(s.Url, url, StringComparison.Ordinal));
+        List<NuGetSource> matches =
+        [
+            .. configured
+                .Where(source => NuGetCredentialScope.IsSameEndpoint(source.Url, url))
+                .Select(source => source with { Url = url }),
+        ];
+        return matches.Count == 0
+            ? [new NuGetSource(url, url)]
+            : matches;
+    }
 
-        if (match is null)
+    private static List<NuGetSource> CollapseAliases(
+        IReadOnlyList<NuGetSource> eligibleAliases,
+        string packageId)
+    {
+        List<NuGetSource> producers = [];
+        foreach (IGrouping<string, NuGetSource> aliases in eligibleAliases.GroupBy(
+            source => NuGetCache.GetSourceKey(source.Url),
+            StringComparer.Ordinal))
         {
-            List<NuGetSource> tolerant =
-                [.. configured.Where(s => NuGetCredentialScope.IsSameEndpoint(s.Url, url))];
+            NuGetSource first = aliases.First();
+            if (aliases.Any(alias => alias.Credential != first.Credential))
+            {
+                throw new PackageSourceMappingException(
+                    PackageSourceMappingFailure.ConflictingCredentials,
+                    $"Package '{packageId}' is eligible from multiple configured names for "
+                    + $"'{UrlRedaction.ForDiagnostics(first.Url)}', but those names use conflicting credentials.");
+            }
 
-            match = tolerant.Count == 1 ? tolerant[0] : null;
+            producers.Add(first);
         }
 
-        return match is null ? new NuGetSource("explicit", url) : match with { Url = url };
+        return producers;
     }
 }
 
@@ -316,9 +507,12 @@ public static class NuGetSearchService
         NuGetSourceOptions? sourceOptions = null)
     {
         List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+        PackageSourceMapping mapping =
+            NuGetSourceResolver.ResolvePackageSourceMapping(sourceOptions);
         return await SearchResolvedAsync(
             client,
             sources,
+            mapping,
             query,
             take,
             prerelease,
@@ -329,6 +523,7 @@ public static class NuGetSearchService
     private static async Task<NuGetSearchOutcome> SearchResolvedAsync(
         HttpClient client,
         List<NuGetSource> sources,
+        PackageSourceMapping mapping,
         string query,
         int take,
         bool prerelease,
@@ -354,7 +549,13 @@ public static class NuGetSearchService
                 ? await service.SearchAsync(query, take, prerelease)
                 : await service.SearchByPrefixAsync(query, take, prerelease);
             IEnumerable<NuGetSearchResult> projected = results
-                .Where(result => resultFilter?.Invoke(result) ?? true)
+                .Where(result =>
+                    (resultFilter?.Invoke(result) ?? true)
+                    && NuGetSourceResolver.IsAliasEligibleForPackage(
+                        only,
+                        sources,
+                        mapping,
+                        result.Id))
                 .Select(NuGetSearchResult.From);
             if (resultFilter is not null)
             {
@@ -371,6 +572,7 @@ public static class NuGetSearchService
         return await SearchSourcesAsync(
             client,
             sources,
+            mapping,
             query,
             take,
             prerelease,
@@ -381,6 +583,7 @@ public static class NuGetSearchService
     private static async Task<NuGetSearchOutcome> SearchSourcesAsync(
         HttpClient client,
         List<NuGetSource> sources,
+        PackageSourceMapping mapping,
         string query,
         int take,
         bool prerelease,
@@ -402,7 +605,10 @@ public static class NuGetSearchService
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
             {
-                failures.Add($"{source.Name}: service index unavailable ({ex.Message})");
+                failures.Add(
+                    $"{PackageSourceDisplay.ForDiagnostics(source)}: service index unavailable "
+                    + $"at {UrlRedaction.ForDiagnostics(source.Url)} "
+                    + $"({DescribeTransportFailure(ex)})");
                 continue;
             }
 
@@ -412,13 +618,14 @@ public static class NuGetSearchService
                     FeedFailureTelemetry.Current!.Failures;
                 failures.Add(sourceFailures.Count > 0
                     ? DescribeServiceIndexFailure(source, sourceFailures)
-                    : $"{source.Name}: no searchable endpoint for '{source.Url}' "
+                    : $"{PackageSourceDisplay.ForDiagnostics(source)}: no searchable endpoint for '{UrlRedaction.ForDiagnostics(source.Url)}' "
                         + "(service index unavailable, or advertises no SearchQueryService)");
                 continue;
             }
 
             var auth = NuGetCredentialScope.AuthFor(source, searchUrl, log);
-            log?.Invoke($"Searching {source.Name}: {searchUrl}");
+            log?.Invoke(
+                $"Searching {PackageSourceDisplay.ForDiagnostics(source)}: {UrlRedaction.ForDiagnostics(searchUrl)}");
 
             IReadOnlyList<SearchResult> found;
             try
@@ -434,7 +641,14 @@ public static class NuGetSearchService
             }
             catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
             {
-                failures.Add($"{source.Name}: {ex.Message}");
+                // The remote controls both the response that produced this
+                // exception and the endpoint URL its message embeds, so the
+                // failure names the endpoint this product resolved and the
+                // category of what went wrong, not the message.
+                failures.Add(
+                    $"{PackageSourceDisplay.ForDiagnostics(source)}: search failed "
+                    + $"at {UrlRedaction.ForDiagnostics(searchUrl)} "
+                    + $"({DescribeTransportFailure(ex)})");
                 continue;
             }
 
@@ -442,6 +656,11 @@ public static class NuGetSearchService
             foreach (SearchResult result in found)
             {
                 if ((resultFilter?.Invoke(result) ?? true)
+                    && NuGetSourceResolver.IsAliasEligibleForPackage(
+                        source,
+                        sources,
+                        mapping,
+                        result.Id)
                     && seen.Add((result.Id, result.Version)))
                 {
                     results.Add(NuGetSearchResult.From(result));
@@ -470,6 +689,21 @@ public static class NuGetSearchService
         return new NuGetSearchOutcome(limited.Take(take).ToList(), failures);
     }
 
+    /// <summary>
+    /// The part of a transport failure that may be printed.
+    /// </summary>
+    /// <remarks>
+    /// A timeout's wording is generated by the client from this product's own
+    /// configured <c>HttpClient.Timeout</c> and names no endpoint, so it is
+    /// kept: it is how an operator learns which timeout fired. Every other
+    /// message here is written by a layer that saw the remote's response or the
+    /// feed-declared URL, so only the exception's category survives.
+    /// </remarks>
+    private static string DescribeTransportFailure(Exception error) =>
+        error is TaskCanceledException or TimeoutException
+            ? $"{error.GetType().Name}: {error.Message}"
+            : error.GetType().Name;
+
     private static string DescribeServiceIndexFailure(
         NuGetSource source,
         IReadOnlyList<FeedFailure> failures)
@@ -483,7 +717,7 @@ public static class NuGetSearchService
             "; ",
             failures.Select(f => $"{f.Url} — {f.StatusText} while {f.PhaseText}"));
 
-        return $"{source.Name}: {reason} ({observations})";
+        return $"{PackageSourceDisplay.ForDiagnostics(source)}: {reason} ({observations})";
     }
 
     public static async Task<List<NuGetSearchResult>> SearchByPrefixAsync(
@@ -496,9 +730,12 @@ public static class NuGetSearchService
     {
         log?.Invoke($"Searching packages by prefix: {prefix}");
         List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+        PackageSourceMapping mapping =
+            NuGetSourceResolver.ResolvePackageSourceMapping(sourceOptions);
         NuGetSearchOutcome outcome = await SearchResolvedAsync(
             client,
             sources,
+            mapping,
             prefix,
             take,
             prerelease,

@@ -34,6 +34,12 @@ public abstract record AssemblyResolutionProvenance
     public static AssemblyResolutionProvenance Local(string resolverSource) =>
         new LocalAsset(resolverSource);
 
+    public static AssemblyResolutionProvenance Embedded(
+        string contentRef,
+        string digest,
+        string declaredName) =>
+        new EmbeddedAsset(contentRef, digest, declaredName);
+
     public sealed record PackageAsset : AssemblyResolutionProvenance
     {
         public PackageAsset(
@@ -106,6 +112,27 @@ public abstract record AssemblyResolutionProvenance
 
         private protected override int Discriminator => 3;
         public string ResolverSource { get; }
+    }
+
+    public sealed record EmbeddedAsset : AssemblyResolutionProvenance
+    {
+        public EmbeddedAsset(
+            string contentRef,
+            string digest,
+            string declaredName)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(contentRef);
+            ArgumentException.ThrowIfNullOrWhiteSpace(digest);
+            ArgumentException.ThrowIfNullOrWhiteSpace(declaredName);
+            ContentRef = contentRef;
+            Digest = digest;
+            DeclaredName = declaredName;
+        }
+
+        private protected override int Discriminator => 4;
+        public string ContentRef { get; }
+        public string Digest { get; }
+        public string DeclaredName { get; }
     }
 }
 
@@ -205,6 +232,9 @@ public sealed class ResolvedAssemblyReference
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
                     peReader.GetMetadataReader());
+            if (string.IsNullOrWhiteSpace(identity.Name))
+                return null;
+
             return Create(
                 identity,
                 fullPath,
@@ -214,10 +244,86 @@ public sealed class ResolvedAssemblyReference
         }
     }
 
+    /// <summary>
+    /// Creates a descriptor for a managed assembly served by a repeatable
+    /// stream factory, or returns <see langword="null"/> when the image has no
+    /// managed metadata. Malformed managed metadata remains a visible failure.
+    /// </summary>
+    /// <remarks>
+    /// This is the stream-only peer of
+    /// <see cref="CreateFromPathIfManaged"/>, for acquisition owners whose
+    /// content has no filesystem path (package archive entries, bundle
+    /// content). <paramref name="openRead"/> must return a fresh, readable,
+    /// seekable stream on every call for as long as the descriptor is used;
+    /// the identity read here is revalidated against the image the consumer
+    /// opens.
+    /// </remarks>
+    public static ResolvedAssemblyReference? CreateFromStreamIfManaged(
+        Func<Stream> openRead,
+        AssemblyResolutionProvenance provenance,
+        DateTime? lastWriteTimeUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(openRead);
+        ArgumentNullException.ThrowIfNull(provenance);
+
+        Stream? source = openRead();
+        if (source is null || !source.CanRead)
+        {
+            source?.Dispose();
+            throw new IOException(
+                "The assembly opener did not return a readable stream.");
+        }
+
+        using Stream stream = source;
+        System.Reflection.PortableExecutable.PEReader? peReader = null;
+        try
+        {
+            peReader =
+                new System.Reflection.PortableExecutable.PEReader(stream);
+            if (!peReader.HasMetadata)
+            {
+                peReader.Dispose();
+                return null;
+            }
+        }
+        catch (BadImageFormatException)
+        {
+            peReader?.Dispose();
+            return null;
+        }
+
+        using (peReader)
+        {
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            if (string.IsNullOrWhiteSpace(identity.Name))
+                return null;
+
+            return Create(
+                identity,
+                path: null,
+                openRead,
+                provenance,
+                lastWriteTimeUtc);
+        }
+    }
+
     public static bool TryCreateFromPath(
         string path,
         AssemblyResolutionProvenance provenance,
         [NotNullWhen(true)] out ResolvedAssemblyReference? reference)
+        => TryCreateFromPath(
+            path,
+            provenance,
+            out reference,
+            out _);
+
+    public static bool TryCreateFromPath(
+        string path,
+        AssemblyResolutionProvenance provenance,
+        [NotNullWhen(true)] out ResolvedAssemblyReference? reference,
+        out Exception? failure)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(provenance);
@@ -225,14 +331,20 @@ public sealed class ResolvedAssemblyReference
         try
         {
             reference = CreateFromPath(path, provenance);
+            failure = null;
             return true;
         }
         catch (Exception ex) when (
             ex is IOException
                 or UnauthorizedAccessException
-                or BadImageFormatException)
+                or NotSupportedException
+                or ObjectDisposedException
+                or BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
             reference = null;
+            failure = ex;
             return false;
         }
     }
