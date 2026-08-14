@@ -41,15 +41,6 @@ public class FindCommand
                 return 1;
             }
 
-            // Fail closed, like the type/member paths (#3386): --fields/--columns select table
-            // columns, but find's --json emits the full per-result objects and has no column-
-            // slicing facility, so the combination silently dropped the column filter. Reject it
-            // rather than emitting an unfiltered document. --count reduces to a scalar and is
-            // handled below, so it is excluded. Placed after the -D discovery branch, which honors
-            // projection itself. The row-oriented formats (--tsv/--jsonl/--table) project columns.
-            if (options.JsonOutput && !options.Count && IsColumnProjectionRequested(options))
-                return RejectColumnProjectionUnderJson();
-
             if (!options.HasAnyScope)
             {
                 logger.Log("No scope specified, defaulting to all platform frameworks");
@@ -76,11 +67,22 @@ public class FindCommand
             }
             else if (options.JsonOutput)
             {
-                JsonOutputHelper.Write(
-                    results,
-                    TypeFindResultJsonContext.Default.ListTypeFindResult,
-                    TypeFindResultCompactJsonContext.Default.ListTypeFindResult,
-                    options.CompactJson);
+                // --fields/--columns name post-lowering vocabulary (computed table columns), so
+                // naming one opts into the lowered display view; plain --json keeps the typed
+                // result document (#3494). This combination used to fail closed (#3386) only
+                // because the lowered JSON view did not exist yet.
+                if (IsColumnProjectionRequested(options))
+                {
+                    WriteProjectedJson(results, title, options);
+                }
+                else
+                {
+                    JsonOutputHelper.Write(
+                        results,
+                        TypeFindResultJsonContext.Default.ListTypeFindResult,
+                        TypeFindResultCompactJsonContext.Default.ListTypeFindResult,
+                        options.CompactJson);
+                }
             }
             else
             {
@@ -124,11 +126,19 @@ public class FindCommand
         }
         else if (options.JsonOutput)
         {
-            JsonOutputHelper.Write(
-                results,
-                MemberFindResultJsonContext.Default.ListMemberFindResult,
-                MemberFindResultCompactJsonContext.Default.ListMemberFindResult,
-                options.CompactJson);
+            // See the type-search branch: a projection request lowers --json to the display view.
+            if (IsColumnProjectionRequested(options))
+            {
+                WriteMemberProjectedJson(results, title, options);
+            }
+            else
+            {
+                JsonOutputHelper.Write(
+                    results,
+                    MemberFindResultJsonContext.Default.ListMemberFindResult,
+                    MemberFindResultCompactJsonContext.Default.ListMemberFindResult,
+                    options.CompactJson);
+            }
         }
         else
         {
@@ -141,12 +151,45 @@ public class FindCommand
     private static bool IsColumnProjectionRequested(FindOptions options)
         => options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
 
-    private static int RejectColumnProjectionUnderJson()
+    /// <summary>
+    /// Writes the lowered JSON view of a type search: the same section and column projection the
+    /// table formats apply, emitted as JSON (#3494).
+    /// </summary>
+    private static void WriteProjectedJson(List<TypeFindResult> rawData, string title, FindOptions options)
     {
-        CommandError.Write(
-            "--fields/--columns select table columns and cannot be combined with --json, "
-            + "which emits the full result objects. Use --tsv, --jsonl, or --table to project columns.");
-        return 1;
+        var view = FindOutputFormatter.BuildView(rawData, title);
+
+        if (view.Results == null && view.Description != null)
+        {
+            CommandError.WriteLine(view.Description);
+            return;
+        }
+
+        OutputFormatter.WriteProjectedJson(Console.Out, options.Columns, options.Fields,
+            (writer, formatter, writerOptions) =>
+                MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
+            !options.CompactJson,
+            options.Rows);
+    }
+
+    /// <summary>
+    /// Writes the lowered JSON view of a member search. See <see cref="WriteProjectedJson"/>.
+    /// </summary>
+    private static void WriteMemberProjectedJson(List<MemberFindResult> rawData, string title, FindOptions options)
+    {
+        var view = FindOutputFormatter.BuildMemberView(rawData, title);
+
+        if (view.Results == null && view.Description != null)
+        {
+            CommandError.WriteLine(view.Description);
+            return;
+        }
+
+        OutputFormatter.WriteProjectedJson(Console.Out, options.Columns, options.Fields,
+            (writer, formatter, writerOptions) =>
+                MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
+            !options.CompactJson,
+            options.Rows);
     }
 
     private static void WriteOutput(List<TypeFindResult> rawData, string title, FindOptions options)
