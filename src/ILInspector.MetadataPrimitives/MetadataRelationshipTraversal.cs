@@ -7,10 +7,71 @@ namespace ILInspector.Metadata;
 public static class MetadataSafetyPolicy
 {
     /// <summary>
+    /// Maximum encoded characters in one structural type or method key.
+    /// Gated by <c>OversizedStructuralSignature_FailsClosed</c>.
+    /// </summary>
+    public const int MaxStructuralSignatureChars = 1024 * 1024;
+
+    /// <summary>
+    /// Maximum encoded characters produced across one structural-signature
+    /// builder's lifetime. Gated by
+    /// <c>BuildMethodKey_CumulativeWorkBudgetFailsBeforeRepeatingDecode</c>.
+    /// </summary>
+    public const int MaxStructuralSignatureWorkChars = 4 * 1024 * 1024;
+
+    /// <summary>
+    /// Maximum type nodes examined before decoding one metadata signature.
+    /// This bounds the iterative guard stack and SRM's decoded parameter/type
+    /// materialization for structurally shallow but hostile signatures. Gated by
+    /// <c>Resolve_OversizedShallowSignatureRejectsBeforeLargeAllocation</c>.
+    /// </summary>
+    public const int MaxSignatureTypeNodes = 64 * 1024;
+
+    /// <summary>
+    /// Maximum MethodDef rows scanned by one correspondence operation.
+    /// Gated by <c>Resolve_DuplicateRowsStayWithinAllocationBudget</c>.
+    /// </summary>
+    public const int MaxCorrespondenceMethodRows = 256 * 1024;
+
+    /// <summary>
+    /// Maximum matching MethodDef addresses materialized before malformed
+    /// duplicate metadata is rejected. Gated by
+    /// <c>Resolve_DuplicateCandidatesFailClosedAtCap</c>.
+    /// </summary>
+    public const int MaxCorrespondenceCandidates = 1024;
+
+    /// <summary>
     /// Maximum unique handles in one TypeDef, TypeRef, or ExportedType
     /// relationship chain.
     /// </summary>
     public const int MaxRelationshipNodes = 256;
+
+    /// <summary>
+    /// Decodes one metadata string only after its UTF-8 storage is within the
+    /// structural-signature ceiling. Projected virtual strings may be materialized
+    /// by SRM while their storage length is obtained, but remain subject to the
+    /// same decoded-length ceiling. Gated by
+    /// <c>Resolve_OversizedMethodNameRejectsBeforeLargeAllocation</c>.
+    /// </summary>
+    public static string ReadStructuralString(
+        MetadataReader reader,
+        StringHandle handle)
+    {
+        if (reader.GetBlobReader(handle).Length
+            > MaxStructuralSignatureChars)
+        {
+            throw new BadImageFormatException(
+                "The metadata string exceeds the structural-signature budget.");
+        }
+
+        string value = reader.GetString(handle);
+        if (value.Length > MaxStructuralSignatureChars)
+        {
+            throw new BadImageFormatException(
+                "The metadata string exceeds the structural-signature budget.");
+        }
+        return value;
+    }
 }
 
 /// <summary>Bounded iterative walks over SRM metadata relationships.</summary>
