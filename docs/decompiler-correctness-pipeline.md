@@ -299,16 +299,16 @@ does not satisfy Deep Inspect's `if: ... && failure()` notifier, so no
 notification was ever sent. Detection latency was unbounded, not weekly
 (#3432), and five regressions (#3489–#3493) accumulated unseen.
 
-The `decompiler-gates` CI job closes that hole. It is path-gated on the
-evaluated project-reference closure rooted at `ILInspector.Decompiler.Tests`,
-runs as its own job so it never serializes with the hot `test` lane, and runs
-`--gate pre-merge`. The committed closure is
-`eng/decompiler-gate-projects.txt`;
-`test-ci-change-detection.cs` asserts set equality with MSBuild's restore graph,
-so adding or removing a transitive project cannot silently stale the filter.
-Global build inputs and the gate's own scripts and pins remain explicit
-triggers. If the manifest cannot be loaded, detection fails safe by running the
-gate for every source, test, or tool change.
+The `decompiler-gates` CI job closes that hole. Source, test, and tool projects
+run it by default, except for measured false positives in
+`eng/decompiler-gate-skip-projects.txt`. The initial exemptions are the CLI and
+its tests, which do not feed the gate. `test-ci-change-detection.cs` asserts
+that no exempted project appears in MSBuild's evaluated project-reference
+closure rooted at `ILInspector.Decompiler.Tests`. New projects therefore run
+the gate without a list update; an unreadable or invalid skip list exempts
+nothing. Global build inputs and the gate's own scripts and pins remain
+explicit triggers. The job runs separately so it never serializes with the hot
+`test` lane, and executes `--gate pre-merge`.
 
 ```bash
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \

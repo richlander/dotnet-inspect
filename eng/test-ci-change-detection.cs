@@ -287,20 +287,20 @@ AssertRouting(
     selected: "decompiler",
     notSelected: "packaging");
 
-Dictionary<string, string> missingDecompilerManifest = RunDetection(
+Dictionary<string, string> missingDecompilerSkipList = RunDetection(
     repository,
     body.Replace(
-        "eng/decompiler-gate-projects.txt",
-        "eng/missing-decompiler-gate-projects.txt",
+        "eng/decompiler-gate-skip-projects.txt",
+        "eng/missing-decompiler-gate-skip-projects.txt",
         StringComparison.Ordinal),
     "pull_request",
     "src/dotnet-inspect/Program.cs",
     outputs);
-if (missingDecompilerManifest["decompiler"] != "true")
+if (missingDecompilerSkipList["decompiler"] != "true")
 {
     throw new InvalidOperationException(
-        "Missing decompiler project manifest did not fail safe: " +
-        FormatValues(missingDecompilerManifest));
+        "Missing decompiler project skip list did not fail safe: " +
+        FormatValues(missingDecompilerSkipList));
 }
 
 Dictionary<string, string> multipleFiles = RunDetection(
@@ -519,26 +519,26 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
             $"Expected one workflow document, found {yaml.Documents.Count}.");
     }
 
-    static void ValidateDecompilerProjectManifest(string repository)
+    static void ValidateDecompilerProjectSkipList(string repository)
     {
         string manifestPath = Path.Combine(
             repository,
             "eng",
-            "decompiler-gate-projects.txt");
+            "decompiler-gate-skip-projects.txt");
         string[] manifestLines = File.ReadAllLines(manifestPath);
         var actual = manifestLines.ToHashSet(StringComparer.Ordinal);
-        if (manifestLines.Length == 0
-            || actual.Count != manifestLines.Length
+        if (actual.Count != manifestLines.Length
             || manifestLines.Any(line =>
                 string.IsNullOrWhiteSpace(line)
                 || line != line.Trim()
                 || Path.IsPathRooted(line)
                 || line.EndsWith('/')
-                || line.Split('/').Any(part => part is "" or "." or "..")))
+                || line.Split('/').Any(part => part is "" or "." or "..")
+                || !Directory.Exists(Path.Combine(repository, line))))
         {
             throw new InvalidOperationException(
-                "eng/decompiler-gate-projects.txt must contain unique, canonical " +
-                "repository-relative project directories.");
+                "eng/decompiler-gate-skip-projects.txt must contain unique, " +
+                "existing, canonical repository-relative project directories.");
         }
 
         string graphPath = Path.Combine(
@@ -581,7 +581,7 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
 
             using JsonDocument graph = JsonDocument.Parse(
                 File.ReadAllText(graphPath));
-            var expected = graph.RootElement
+            var projectClosure = graph.RootElement
                 .GetProperty("projects")
                 .EnumerateObject()
                 .Select(project =>
@@ -602,14 +602,16 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
                 })
                 .ToHashSet(StringComparer.Ordinal);
 
-            if (!actual.SetEquals(expected))
+            string[] unsafeExemptions = actual
+                .Intersect(projectClosure)
+                .Order()
+                .ToArray();
+            if (unsafeExemptions.Length != 0)
             {
-                string missing = string.Join(", ", expected.Except(actual).Order());
-                string stale = string.Join(", ", actual.Except(expected).Order());
                 throw new InvalidOperationException(
-                    "eng/decompiler-gate-projects.txt does not match the evaluated " +
-                    $"ILInspector.Decompiler.Tests project graph. Missing: [{missing}]. " +
-                    $"Stale: [{stale}].");
+                    "eng/decompiler-gate-skip-projects.txt exempts projects in " +
+                    "the evaluated ILInspector.Decompiler.Tests graph: [" +
+                    string.Join(", ", unsafeExemptions) + "].");
             }
         }
         finally
@@ -618,7 +620,7 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         }
     }
 
-    ValidateDecompilerProjectManifest(repository);
+    ValidateDecompilerProjectSkipList(repository);
 
     YamlMappingNode root = RequireMapping(
         yaml.Documents[0].RootNode,
