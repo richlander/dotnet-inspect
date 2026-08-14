@@ -3,6 +3,12 @@ using System.Text;
 
 namespace DotnetInspector.Tests;
 
+// Git inventories the entire working tree for this gate. Keep that external process out of
+// the suite's parallel phase so its timeout detects a stuck Git process, not CPU contention.
+[CollectionDefinition("RepositoryWorkingTreeGuard", DisableParallelization = true)]
+public sealed class RepositoryWorkingTreeGuardCollection;
+
+[Collection("RepositoryWorkingTreeGuard")]
 public sealed class RepositoryLineEndingTests
 {
     /// <summary>

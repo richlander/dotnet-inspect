@@ -9184,7 +9184,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         var replayed = JsonSerializer.Deserialize(
             output,
-            AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument);
+            ILInspector.Decompiler.AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument);
         Assert.NotNull(replayed);
 
         using var document = JsonDocument.Parse(output);

@@ -56,8 +56,9 @@
        It does not exclude file-based apps, which is the reading it invites: a
        file-based app builds through a generated project whose
        MSBuildProjectExtension is .csproj, so it inherits the rule. Every
-       file-based app in this repository lives under eng/, which declares the
-       opt-out for exactly that reason.
+       File-based apps that legitimately own stderr declare the opt-out in their
+       nearest Directory.Build.props. eng/ does so directory-wide; standalone
+       tools may make the same declaration at their own boundary.
 
        The rule is repository-wide, not solution-wide. Six projects are outside
        dotnet-inspect.slnx — tests/DotnetInspector.ILRoundtrip.Tests, four
