@@ -33,6 +33,35 @@ public static class UnraisedLocalFunctionSamples
     }
 }
 
+public static class LocalFunctionArgumentSamples
+{
+    public static int RefArgument(int value)
+    {
+        return Read(ref value);
+        static int Read(ref int source) => source + 1;
+    }
+
+    public static bool OutArgument(out int value)
+    {
+        return Assign(out value);
+        static bool Assign(out int target) => TryValue("42", out target);
+    }
+
+    static bool TryValue(string text, out int value) => int.TryParse(text, out value);
+
+    public static int InArgument(int value)
+    {
+        return Read(in value);
+        static int Read(in int source) => source + 1;
+    }
+
+    public static int ValueArgument(int value)
+    {
+        return Read(value);
+        static int Read(int source) => source + 1;
+    }
+}
+
 // Two local functions in DISJOINT scopes sharing one source name, so the compiler emits
 // <M>g__Pick|0_0 and <M>g__Pick|0_1. One is raised and one is declined: the declined
 // call must not be spelled `Pick`, which would silently bind to the raised function.
