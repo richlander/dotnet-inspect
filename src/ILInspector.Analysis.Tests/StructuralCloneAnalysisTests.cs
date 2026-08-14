@@ -264,6 +264,10 @@ public class StructuralCloneAnalysisTests
             BuildCalliTwinAssembly(
                 calli,
                 signature: [0x01, 0x00, 0x01]));
+        using PEReader nestedPropertyImage = OpenImage(
+            BuildCalliTwinAssembly(
+                calli,
+                signature: [0x00, 0x00, 0x1B, 0x08, 0x00, 0x01]));
 
         StructuralCloneComparison invalid =
             StructuralCloneAnalysis.Compare(
@@ -302,6 +306,7 @@ public class StructuralCloneAnalysisTests
             valid.Relation);
         AssertFailedMetadataOperand(propertyImage);
         AssertFailedMetadataOperand(trailingImage);
+        AssertFailedMetadataOperand(nestedPropertyImage);
         Assert.Equal(
             StructuralCloneRelation.Exact,
             StructuralCloneAnalysis.Compare(
@@ -343,8 +348,8 @@ public class StructuralCloneAnalysisTests
     }
 
     [Theory]
-    [MemberData(nameof(ValidNestedMethodSignatures))]
-    public void Compare_ValidNestedMethodSignatureShapesRemainSupported(
+    [MemberData(nameof(ValidMethodSignatures))]
+    public void Compare_ValidMethodSignatureShapesRemainSupported(
         byte[] signature)
     {
         using PEReader image = OpenImage(
@@ -394,17 +399,49 @@ public class StructuralCloneAnalysisTests
                     == StructuralCloneBlockerKind.UnsupportedMethodSignature);
     }
 
+    [Fact]
+    public void Compare_CustomModifiedVoidPreservesVoidReturnShape()
+    {
+        using PEReader image = OpenImage(
+            BuildMethodSignaturePairAssembly(
+                [0x2A],
+                [0x00, 0x00, 0x01],
+                [0x00, 0x00, 0x1F, 0x05, 0x01]));
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneRelation.Exact,
+            comparison.Relation);
+    }
+
     public static TheoryData<byte[]> InvalidMethodSignatures =>
         new()
         {
             { new byte[] { 0x08, 0x00, 0x01 } },
+            { new byte[] { 0x01, 0x00, 0x01 } },
+            { new byte[] { 0x02, 0x00, 0x01 } },
+            { new byte[] { 0x03, 0x00, 0x01 } },
+            { new byte[] { 0x04, 0x00, 0x01 } },
+            { new byte[] { 0x09, 0x00, 0x01 } },
+            {
+                new byte[]
+                {
+                    0x00, 0x00, 0x1B, 0x08, 0x00, 0x01,
+                }
+            },
             { new byte[] { 0x00, 0x00, 0x01, 0xFF } },
             { new byte[] { 0x00, 0x00, 0xFF } },
         };
 
-    public static TheoryData<byte[]> ValidNestedMethodSignatures =>
+    public static TheoryData<byte[]> ValidMethodSignatures =>
         new()
         {
+            { new byte[] { 0x05, 0x00, 0x01 } },
             { new byte[] { 0x00, 0x00, 0x1B, 0x00, 0x00, 0x01 } },
             { new byte[] { 0x00, 0x00, 0x1F, 0x05, 0x01 } },
         };
@@ -576,13 +613,51 @@ public class StructuralCloneAnalysisTests
         Assert.Equal(0, localLimited.Receipt.LeftInstructions);
     }
 
-    [Fact]
-    public void Compare_LocalSignatureFailureRetainsMeasuredReceiptCounts()
+    [Theory]
+    [MemberData(nameof(InvalidLocalSignatures))]
+    public void Compare_MalformedLocalSignatureFailsAndRetainsMeasuredReceiptCounts(
+        byte[] signature)
     {
         using PEReader image = OpenImage(
             BuildLocalSignaturePairAssembly(
-                [0x07, 0x01],
-                [0x07, 0x01]));
+                signature,
+                signature));
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneDisposition.Failed,
+            comparison.Disposition);
+        Assert.Contains(
+            comparison.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneBlockerKind.MetadataReadFailure);
+        Assert.Equal(5, comparison.Receipt.LeftBodyBytes);
+        Assert.Equal(5, comparison.Receipt.RightBodyBytes);
+        Assert.Equal(1, comparison.Receipt.LeftLocals);
+        Assert.Equal(1, comparison.Receipt.RightLocals);
+        Assert.Equal(0, comparison.Receipt.LeftInstructions);
+        Assert.Equal(0, comparison.Receipt.RightInstructions);
+    }
+
+    [Fact]
+    public void Compare_ValidOverDepthLocalSignatureIsUnsupported()
+    {
+        byte[] signature =
+            new byte[3 + SignatureBlobGuard.DefaultMaxDepth];
+        signature[0] = 0x07;
+        signature[1] = 0x01;
+        signature.AsSpan(2, signature.Length - 3).Fill(0x0F);
+        signature[^1] = 0x08;
+        using PEReader image = OpenImage(
+            BuildLocalSignaturePairAssembly(
+                signature,
+                signature));
 
         StructuralCloneComparison comparison =
             StructuralCloneAnalysis.Compare(
@@ -593,13 +668,19 @@ public class StructuralCloneAnalysisTests
         Assert.Equal(
             StructuralCloneDisposition.Unsupported,
             comparison.Disposition);
-        Assert.Equal(5, comparison.Receipt.LeftBodyBytes);
-        Assert.Equal(5, comparison.Receipt.RightBodyBytes);
-        Assert.Equal(1, comparison.Receipt.LeftLocals);
-        Assert.Equal(1, comparison.Receipt.RightLocals);
-        Assert.Equal(0, comparison.Receipt.LeftInstructions);
-        Assert.Equal(0, comparison.Receipt.RightInstructions);
+        Assert.Contains(
+            comparison.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneBlockerKind.UnsupportedLocalSignature);
     }
+
+    public static TheoryData<byte[]> InvalidLocalSignatures =>
+        new()
+        {
+            { new byte[] { 0x07, 0x01 } },
+            { new byte[] { 0x07, 0x01, 0x08, 0xFF } },
+        };
 
     [Fact]
     public void Compare_NormalizesLocalSlotsWithExplicitTypedBijection()
@@ -1362,6 +1443,41 @@ public class StructuralCloneAnalysisTests
             "Right",
             AddBody(bodyEncoder, il, localSignature: default),
             methodSignature);
+        return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildMethodSignaturePairAssembly(
+        byte[] il,
+        byte[] leftSignature,
+        byte[] rightSignature)
+    {
+        MetadataBuilder metadata = AssemblyMetadata();
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString(
+                "System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("IsExternalInit"));
+        AddFixtureType(metadata);
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        AddMethod(
+            metadata,
+            "Left",
+            AddBody(bodyEncoder, il, localSignature: default),
+            metadata.GetOrAddBlob(leftSignature));
+        AddMethod(
+            metadata,
+            "Right",
+            AddBody(bodyEncoder, il, localSignature: default),
+            metadata.GetOrAddBlob(rightSignature));
         return Serialize(metadata, bodies);
     }
 

@@ -45,8 +45,9 @@ It preserves as exact discriminators:
   multidimensional array sizes and lower bounds, and `InitLocals` when locals
   exist;
 - branch roles, switch target order, and duplicate switch targets;
-- method calling convention, instance/static shape, generic arity, argument
-  count, and void/value return shape;
+- method-definition calling convention, instance/static shape, generic arity,
+  argument count, and void/value return shape, including through custom
+  modifiers;
 - `nop` instructions and redundant branches.
 
 Declared parameter and non-void return type identities do not define body
@@ -58,10 +59,12 @@ Exception-handling bodies, region-leaving or external control flow, unsupported
 local type shapes, non-IL implementations, and methods without IL are
 unsupported. Malformed or incomplete bodies fail visibly, including invalid
 local/argument slots, invalid metadata or user-string operands, non-method
-or incomplete method and `calli` signatures, and terminal fallthrough. Valid
-function-pointer and custom-modifier signature shapes remain supported within
-the guarded decode policy. Body-byte, instruction, block, CFG-edge, local, and
-witness-search limits produce `LimitReached`, not `Different`.
+or incomplete method, local, and `calli` signatures, standalone-only calling
+conventions on method definitions, non-method nested function-pointer
+signatures, and terminal fallthrough. Valid standalone unmanaged call sites,
+function-pointer signatures, and custom-modifier shapes remain supported
+within the guarded decode policy. Body-byte, instruction, block, CFG-edge,
+local, and witness-search limits produce `LimitReached`, not `Different`.
 The body-byte bound applies before instruction/CFG materialization; receipts
 retain every count measured before a comparison stops, including CFG edges,
 refinement rounds, and witness-search steps.

@@ -554,15 +554,21 @@ public static class StructuralCloneAnalysis
             }
             BlobReader methodSignatureReader =
                 reader.GetBlobReader(definition.Signature);
-            if (methodSignatureReader.ReadSignatureHeader().Kind
-                != SignatureKind.Method)
+            SignatureHeader methodSignatureHeader =
+                methodSignatureReader.ReadSignatureHeader();
+            if (methodSignatureHeader.Kind != SignatureKind.Method
+                || methodSignatureHeader.CallingConvention
+                    is not (
+                        SignatureCallingConvention.Default
+                        or SignatureCallingConvention.VarArgs))
             {
                 return BodyProduction.NotCompleted(
                     StructuralCloneDisposition.Failed,
                     new StructuralCloneBlocker(
                         StructuralCloneBlockerKind.MetadataReadFailure,
                         side,
-                        "A method definition does not have a method signature."));
+                        "A method definition does not have a valid "
+                        + "MethodDef signature header."));
             }
             if (!SignatureBlobGuard.IsSafeToDecode(
                     reader,
@@ -678,12 +684,37 @@ public static class StructuralCloneAnalysis
                         localSignature.Signature,
                         SignatureBlobGuard.Kind.LocalVariables))
                 {
+                    bool malformed = IsMalformedUnsafeSignature(
+                        reader,
+                        localSignature.Signature,
+                        SignatureBlobGuard.Kind.LocalVariables);
                     return BodyProduction.NotCompleted(
-                        StructuralCloneDisposition.Unsupported,
+                        malformed
+                            ? StructuralCloneDisposition.Failed
+                            : StructuralCloneDisposition.Unsupported,
                         new StructuralCloneBlocker(
-                            StructuralCloneBlockerKind.UnsupportedLocalSignature,
+                            malformed
+                                ? StructuralCloneBlockerKind.MetadataReadFailure
+                                : StructuralCloneBlockerKind.UnsupportedLocalSignature,
                             side,
-                            "The local signature exceeds the guarded decode policy."),
+                            malformed
+                                ? "The local signature grammar is invalid."
+                                : "The local signature exceeds the guarded "
+                                    + "decode policy."),
+                        measurements);
+                }
+                if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                        reader,
+                        localSignature.Signature,
+                        SignatureBlobGuard.Kind.LocalVariables))
+                {
+                    return BodyProduction.NotCompleted(
+                        StructuralCloneDisposition.Failed,
+                        new StructuralCloneBlocker(
+                            StructuralCloneBlockerKind.MetadataReadFailure,
+                            side,
+                            "The local signature is incomplete or has "
+                            + "trailing data."),
                         measurements);
                 }
                 locals = localSignature.DecodeLocalSignature(
@@ -2374,20 +2405,26 @@ sealed class StructuralCloneSignatureTypeProvider
 
     public StructuralCloneSignatureType GetFunctionPointerType(
         MethodSignature<StructuralCloneSignatureType> signature)
-        => new(
-            signature.Header.Kind == SignatureKind.Method
-                && signature.ReturnType.IsValid
+    {
+        if (signature.Header.Kind != SignatureKind.Method)
+        {
+            throw new BadImageFormatException(
+                "A function pointer does not have a method signature.");
+        }
+        return new(
+            signature.ReturnType.IsValid
                 && signature.ParameterTypes.All(
                     static type => type.IsValid),
             false);
+    }
 
     public StructuralCloneSignatureType GetModifiedType(
         StructuralCloneSignatureType modifier,
         StructuralCloneSignatureType unmodifiedType,
         bool isRequired)
-        => StructuralCloneSignatureType.Combine(
-            modifier,
-            unmodifiedType);
+        => new(
+            modifier.IsValid && unmodifiedType.IsValid,
+            unmodifiedType.IsVoid);
 }
 
 sealed class InvalidLocalSlotException(string message)
