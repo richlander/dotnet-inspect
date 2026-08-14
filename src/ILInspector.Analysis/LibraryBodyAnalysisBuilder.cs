@@ -1126,12 +1126,13 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         sourceOwner = null;
         sourceGenerated = false;
         string liftedName = _reader.GetString(liftedMethod.Name);
-        int close = liftedName.IndexOf('>');
+        int close = liftedName.IndexOf(">g__", StringComparison.Ordinal);
+        if (close < 0)
+            close = liftedName.IndexOf(">b__", StringComparison.Ordinal);
         if (liftedName.Length < 4
             || liftedName[0] != '<'
             || close <= 1
-            || !(liftedName.AsSpan(close + 1).StartsWith("g__", StringComparison.Ordinal)
-                || liftedName.AsSpan(close + 1).StartsWith("b__", StringComparison.Ordinal)))
+            || close + 4 >= liftedName.Length)
         {
             return false;
         }
@@ -1183,10 +1184,14 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             return false;
 
         var definition = _reader.GetMethodDefinition(ownerHandle);
+        bool topLevelEntryPoint =
+            _reader.StringComparer.Equals(definition.Name, "<Main>$");
         sourceGenerated =
             HasGeneratedCodeAttribute(definition.GetCustomAttributes())
-            || HasCompilerGeneratedAttribute(definition.GetCustomAttributes())
-            || IsCompilerGeneratedSourceTypeOrEnclosing(ownerType);
+            || !topLevelEntryPoint
+                && (HasCompilerGeneratedAttribute(
+                        definition.GetCustomAttributes())
+                    || IsCompilerGeneratedSourceTypeOrEnclosing(ownerType));
         sourceOwner = CreateMethodIdentity(
             ownerType,
             ownerHandle,

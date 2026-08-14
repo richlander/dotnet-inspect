@@ -4390,6 +4390,22 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_TopLevelLocalFunction_IsReported()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath());
+
+        var row = Assert.Single(index.OptimizationOpportunities.Where(
+            opportunity =>
+                opportunity.Shape == "generic-parameter-object-box"
+                && opportunity.Method.Name.Contains(
+                    "TopLevelEqual",
+                    StringComparison.Ordinal)));
+
+        Assert.Equal("<Main>$", row.SourceOwner?.Name);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_SourceGeneratedLiftedMethods_AreNotReported()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
