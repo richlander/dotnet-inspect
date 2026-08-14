@@ -4458,6 +4458,41 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_ClassicAsyncDottedStateMachineName_IsSuppressed()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-classic-async-dotted-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "DottedStateMachine.dll");
+        try
+        {
+            byte[] image = File.ReadAllBytes(
+                FixtureCatalog.AnalysisTopLevelClassicAsync.AssemblyPath());
+            ReplaceUniqueAscii(
+                image,
+                "Program+<<Main>$>d__0",
+                "Program.<<Main>$>d__0");
+            File.WriteAllBytes(path, image);
+
+            var index = LibraryBodyIndex.Open(path);
+
+            Assert.DoesNotContain(
+                index.OptimizationOpportunities,
+                opportunity =>
+                    opportunity.Shape == "generic-parameter-object-box"
+                    && opportunity.Method.Name.Contains(
+                        "TopLevelClassicAsyncEqual",
+                        StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void OptimizationOpportunities_TopLevelNameWithoutEntryPoint_IsSuppressed()
     {
         string directory = Path.Combine(

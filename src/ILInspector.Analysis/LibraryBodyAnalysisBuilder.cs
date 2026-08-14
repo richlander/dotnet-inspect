@@ -1327,7 +1327,9 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                     _reader,
                     attribute.Constructor)
                 != "System.Runtime.CompilerServices.AsyncStateMachineAttribute"
-                || AttributeDecoder.TryDecode(_reader, attribute)
+                || AttributeDecoder.TryDecodePreservingSerializedTypeNames(
+                        _reader,
+                        attribute)
                     is not { FixedArguments.Length: 1 } decoded
                 || decoded.FixedArguments[0].Value is not string typeName)
             {
@@ -1339,15 +1341,12 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         }
         if (stateMachineName is null)
             return false;
-        string metadataTypeName =
-            stateMachineName.Replace('+', '.');
 
         foreach (TypeDefinitionHandle typeHandle in _reader.TypeDefinitions)
         {
-            if (TypeResolver.GetTypeNameFromDefinition(
-                    _reader,
-                    typeHandle)
-                != metadataTypeName)
+            if (!SerializedTypeNameMatchesDefinition(
+                    stateMachineName,
+                    typeHandle))
             {
                 continue;
             }
@@ -1364,6 +1363,152 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             stateMachineHandle = typeHandle;
         }
         return !stateMachineHandle.IsNil;
+    }
+
+    bool SerializedTypeNameMatchesDefinition(
+        string serializedName,
+        TypeDefinitionHandle typeHandle)
+    {
+        if (serializedName.Length
+            > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+        {
+            return false;
+        }
+
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                _reader,
+                typeHandle,
+                chain,
+                out int count,
+                out _,
+                out _))
+        {
+            return false;
+        }
+
+        int firstNestedSeparator = -1;
+        int lastNamespaceSeparator = -1;
+        bool escaped = false;
+        for (int i = 0; i < serializedName.Length; i++)
+        {
+            char current = serializedName[i];
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+            if (current == '\\')
+            {
+                escaped = true;
+            }
+            else if (current == ',')
+            {
+                // The authenticated state machine must be defined in this image.
+                return false;
+            }
+            else if (current == '+' && firstNestedSeparator < 0)
+            {
+                firstNestedSeparator = i;
+            }
+            else if (current == '.' && firstNestedSeparator < 0)
+            {
+                lastNamespaceSeparator = i;
+            }
+        }
+        if (escaped)
+            return false;
+
+        int rootEnd = firstNestedSeparator < 0
+            ? serializedName.Length
+            : firstNestedSeparator;
+        var root = _reader.GetTypeDefinition(chain[0]);
+        ReadOnlySpan<char> namespacePart = lastNamespaceSeparator < 0
+            ? []
+            : serializedName.AsSpan(0, lastNamespaceSeparator);
+        ReadOnlySpan<char> rootNamePart = serializedName.AsSpan(
+            lastNamespaceSeparator + 1,
+            rootEnd - lastNamespaceSeparator - 1);
+        if (!SerializedIdentifierEquals(
+                namespacePart,
+                MetadataSafetyPolicy.ReadStructuralString(
+                    _reader,
+                    root.Namespace))
+            || !SerializedIdentifierEquals(
+                rootNamePart,
+                MetadataSafetyPolicy.ReadStructuralString(
+                    _reader,
+                    root.Name)))
+        {
+            return false;
+        }
+
+        int cursor = rootEnd;
+        for (int chainIndex = 1; chainIndex < count; chainIndex++)
+        {
+            if (cursor >= serializedName.Length
+                || serializedName[cursor] != '+')
+            {
+                return false;
+            }
+
+            int segmentStart = ++cursor;
+            while (cursor < serializedName.Length)
+            {
+                if (serializedName[cursor] == '\\')
+                {
+                    cursor += 2;
+                    continue;
+                }
+                if (serializedName[cursor] == '+')
+                    break;
+                cursor++;
+            }
+
+            var nested = _reader.GetTypeDefinition(chain[chainIndex]);
+            if (!_reader.StringComparer.Equals(nested.Namespace, "")
+                || !SerializedIdentifierEquals(
+                    serializedName.AsSpan(
+                        segmentStart,
+                        cursor - segmentStart),
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        _reader,
+                        nested.Name)))
+            {
+                return false;
+            }
+        }
+        return cursor == serializedName.Length;
+    }
+
+    static bool SerializedIdentifierEquals(
+        ReadOnlySpan<char> serialized,
+        string metadataName)
+    {
+        int metadataIndex = 0;
+        for (int i = 0; i < serialized.Length; i++)
+        {
+            char current = serialized[i];
+            if (current == '\\')
+            {
+                if (++i >= serialized.Length)
+                    return false;
+                current = serialized[i];
+            }
+            else if (current is ',' or '+' or '[' or ']' or '&' or '*')
+            {
+                return false;
+            }
+
+            if (metadataIndex >= metadataName.Length
+                || metadataName[metadataIndex++] != current)
+            {
+                return false;
+            }
+        }
+        return metadataIndex == metadataName.Length;
     }
 
     bool MethodReferencesLiftedBody(
