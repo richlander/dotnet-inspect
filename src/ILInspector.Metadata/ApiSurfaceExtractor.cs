@@ -1166,7 +1166,8 @@ public static class ApiSurfaceExtractor
         {
             var method = reader.GetMethodDefinition(methodHandle);
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-            bool isExplicitImplementation = explicitImplementationBodies.Contains(methodHandle);
+            bool isExplicitImplementation =
+                explicitImplementationBodies.ContainsKey(methodHandle);
             if (methodAccess != MethodAttributes.Public && !isExplicitImplementation)
                 continue;
 
