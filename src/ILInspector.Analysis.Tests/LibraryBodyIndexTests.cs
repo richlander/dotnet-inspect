@@ -4390,6 +4390,38 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_LiftedOwnerBody_IsIndexedOnce()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle ownerHandle = reader.MethodDefinitions
+            .Single(handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                nameof(OptimizationOpportunityFixtures.MultipleLiftedFunctions)));
+        int indexed = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            methodBodyReferenceIndexed: handle =>
+            {
+                if (handle == ownerHandle)
+                    Interlocked.Increment(ref indexed);
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+
+        Assert.Equal(1, indexed);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_TopLevelLocalFunction_IsReported()
     {
         var index = LibraryBodyIndex.Open(
@@ -6009,6 +6041,14 @@ public class OptimizationOpportunityFixtures
         return EqualsCore(left, right);
 
         static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+
+    public static int MultipleLiftedFunctions(int value)
+    {
+        return AddOne(value) + AddTwo(value);
+
+        static int AddOne(int item) => item + 1;
+        static int AddTwo(int item) => item + 2;
     }
 
     [System.CodeDom.Compiler.GeneratedCode("test", "1.0")]
