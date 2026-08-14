@@ -16,7 +16,7 @@ string workflowPath = Path.Combine(
 string workflowText = File.ReadAllText(workflowPath);
 if (args is ["--refresh-evil-provenance-pin"])
 {
-    string refreshed = RefreshEvilProvenancePin(workflowText);
+    string refreshed = RefreshEvilProvenancePin(repository, workflowText);
     if (refreshed == workflowText)
     {
         Console.WriteLine("EVIL provenance pin is already current.");
@@ -34,8 +34,8 @@ if (args.Length != 0)
         "Usage: dotnet run eng/test-ci-change-detection.cs [-- --refresh-evil-provenance-pin]");
 }
 
-var (body, outputs, _, _) = LoadDetectionBody(workflowText);
-AssertEvilProvenancePinMutations(workflowText);
+var (body, outputs, _, _) = LoadDetectionBody(repository, workflowText);
+AssertEvilProvenancePinMutations(repository, workflowText);
 
 AssertAll(RunDetection(repository, body, "pull_request", "", outputs), "true");
 AssertAll(RunDetection(repository, body, "push", "", outputs), "false");
@@ -548,6 +548,7 @@ static (
     string[] Outputs,
     string ProvenanceRunSha256,
     string ProvenancePin) LoadDetectionBody(
+        string repository,
         string workflowText,
         bool validateProvenancePin = true)
 {
@@ -940,7 +941,9 @@ static (
         provenancePin);
 }
 
-static void AssertEvilProvenancePinMutations(string workflowText)
+static void AssertEvilProvenancePinMutations(
+    string repository,
+    string workflowText)
 {
     const string command = "--verify-authored-corpus-history";
     string stale = ReplaceExactlyOnce(
@@ -949,17 +952,22 @@ static void AssertEvilProvenancePinMutations(string workflowText)
         command + " --history-path /tmp/ci-pin-mutation.jsonl",
         "EVIL provenance command");
     AssertInvalidOperation(
-        () => _ = LoadDetectionBody(stale),
+        () => _ = LoadDetectionBody(repository, stale),
         "jobs.changes EVIL_PROVENANCE_RUN_SHA256 is stale");
 
-    string refreshed = RefreshEvilProvenancePin(stale);
-    _ = LoadDetectionBody(refreshed);
+    string refreshed = RefreshEvilProvenancePin(repository, stale);
+    _ = LoadDetectionBody(repository, refreshed);
 }
 
-static string RefreshEvilProvenancePin(string workflowText)
+static string RefreshEvilProvenancePin(
+    string repository,
+    string workflowText)
 {
     (_, _, string actual, string expected) =
-        LoadDetectionBody(workflowText, validateProvenancePin: false);
+        LoadDetectionBody(
+            repository,
+            workflowText,
+            validateProvenancePin: false);
     return actual == expected
         ? workflowText
         : ReplaceExactlyOnce(
