@@ -8,6 +8,9 @@ namespace NuGetFetch.Tests;
 public sealed class NuGetMetadataLimitTests
 {
     private const string SearchUrl = "https://feed.example/query";
+    private static readonly HttpRequestOptionsKey<bool> BrowserStreamingResponse =
+        new("WebAssemblyEnableStreamingResponse");
+
 
     [Fact]
     public async Task Search_AdvertisedOversizeRejectsBeforeReadingTheBody()
@@ -126,6 +129,54 @@ public sealed class NuGetMetadataLimitTests
     }
 
     [Fact]
+    public async Task MetadataGets_RequestBrowserStreaming()
+    {
+        string[] bodies =
+        [
+            """{"data":[]}""",
+            """{"versions":["1.0.0"]}""",
+            """
+            {"resources":[{"@id":"https://feed.example/flat/",
+            "@type":"PackageBaseAddress/3.0.0"}]}
+            """,
+            """{"data":[]}""",
+        ];
+        int responseIndex = 0;
+        var streamingRequests = new List<bool>();
+        var handler = new SingleResponseHandler(
+            request =>
+            {
+                streamingRequests.Add(
+                    request.Options.TryGetValue(
+                        BrowserStreamingResponse,
+                        out bool enabled)
+                    && enabled);
+                return Response(
+                    request,
+                    new StringContent(bodies[responseIndex++]));
+            });
+        using var client = new HttpClient(handler);
+        var search = new SearchService(client, SearchUrl);
+        var nuget = new NuGetClient(client);
+
+        await search.SearchAsync(
+            "package",
+            cancellationToken: TestContext.Current.CancellationToken);
+        await nuget.GetVersionsAsync(
+            "package",
+            cancellationToken: TestContext.Current.CancellationToken);
+        await nuget.GetPackageBaseAddressAsync(
+            "https://feed.example/index.json",
+            TestContext.Current.CancellationToken);
+        await nuget.GetLatestVersionAsync(
+            "package",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(4, handler.RequestCount);
+        Assert.All(streamingRequests, Assert.True);
+    }
+
+    [Fact]
     public async Task OversizeDoesNotFallThroughToAnotherSource()
     {
         byte[] body = Encoding.UTF8.GetBytes(
@@ -186,16 +237,14 @@ public sealed class NuGetMetadataLimitTests
         using var client = new HttpClient(new SingleResponseHandler(
             request => Response(
                 request,
-                new StreamBackedContent(() => new StallingStream()))))
-        {
-            Timeout = TimeSpan.FromMilliseconds(50),
-        };
+                new StreamBackedContent(() => new StallingStream()))));
         var service = new SearchService(
             client,
             SearchUrl,
             Options(
                 maximumBytes: 1024,
                 bodyTimeout: TimeSpan.FromSeconds(5)));
+        client.Timeout = TimeSpan.FromMilliseconds(50);
         using var guard = CancellationTokenSource.CreateLinkedTokenSource(
             TestContext.Current.CancellationToken);
         guard.CancelAfter(TimeSpan.FromSeconds(2));

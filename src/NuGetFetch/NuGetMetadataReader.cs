@@ -2,15 +2,26 @@ namespace NuGetFetch;
 
 internal static class NuGetMetadataReader
 {
+    private static readonly HttpRequestOptionsKey<bool> BrowserStreamingResponse =
+        new("WebAssemblyEnableStreamingResponse");
+
+    public static HttpRequestMessage CreateGetRequest(string requestUri)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Options.Set(BrowserStreamingResponse, true);
+        return request;
+    }
+
     public static async ValueTask<T> ReadResponseAsync<T>(
         HttpResponseMessage response,
         Func<Stream, CancellationToken, ValueTask<T>> deserialize,
         NuGetFetchOptions options,
+        TimeSpan clientTimeout,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(response);
         ArgumentNullException.ThrowIfNull(deserialize);
-        options = NuGetFetchOptions.Validate(options);
+        options = NuGetFetchOptions.ForClient(options, clientTimeout);
 
         if (response.Content.Headers.ContentLength is long advertised
             && advertised > options.MaxMetadataResponseBytes)
