@@ -86,6 +86,26 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Fact]
+    public void ProduceMember_RendersStaticAutoPropertyWithoutRecursiveBodies()
+    {
+        var type = Specimen();
+        var property = Assert.Single(type.Members, member => member.Name == "StaticName");
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            property,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            "public static string StaticName { get; set; }",
+            rendered.Text,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("return StaticName", rendered.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ProduceMembers_DelegatesMapEveryMemberToAbsent()
     {
         var constructor = new ApiMember { Name = ".ctor", Kind = "constructor" };
@@ -450,6 +470,8 @@ public sealed class MemberRenderSpecimen
     public int Value { get; }
 
     public string Name { get; private set; } = "";
+
+    public static string StaticName { get; set; } = "";
 
     public int Increment(int n) => n + 1;
 

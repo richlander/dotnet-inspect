@@ -1399,6 +1399,47 @@ public static class MemberBodyProducer
             : body?.Trim() == $"this.{escapedName} = value;";
     }
 
+    static bool IsCompilerGeneratedAutoProperty(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        ApiMember member,
+        MethodDefinitionHandle? getterHandle,
+        MethodDefinitionHandle? setterHandle)
+    {
+        bool hasAccessor = false;
+        foreach (var handle in new[] { getterHandle, setterHandle })
+        {
+            if (handle is not { } accessor)
+                continue;
+            hasAccessor = true;
+            if (!AttributeReader.HasAttribute(
+                    reader,
+                    reader.GetMethodDefinition(accessor).GetCustomAttributes(),
+                    KnownAttributeNames.CompilerGeneratedAttribute))
+            {
+                return false;
+            }
+        }
+        if (!hasAccessor)
+            return false;
+
+        string backingFieldName = $"<{member.Name}>k__BackingField";
+        foreach (var fieldHandle in reader.GetTypeDefinition(typeHandle).GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (reader.GetString(field.Name) == backingFieldName
+                && AttributeReader.HasAttribute(
+                    reader,
+                    field.GetCustomAttributes(),
+                    KnownAttributeNames.CompilerGeneratedAttribute))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     static void ComposeProperty(
         StringBuilder sb, Pipeline.MetadataSource pipelineSource,
         MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type, ApiMember member,
@@ -1470,7 +1511,13 @@ public static class MemberBodyProducer
         // passthrough (the body printer de-mangled <Name>k__BackingField to
         // this.Name). Render `{ get; set; }` with no bodies — decompiling them
         // would recurse (a getter that returns the property itself).
-        if (accessors.All(a => IsTrivialAutoAccessor(a.Keyword, a.Body, member.Name)))
+        if (IsCompilerGeneratedAutoProperty(
+                reader,
+                typeHandle,
+                member,
+                getterHandle,
+                setterHandle)
+            || accessors.All(a => IsTrivialAutoAccessor(a.Keyword, a.Body, member.Name)))
         {
             sb.AppendLf($"    {head} {{ {string.Join(" ", accessors.Select(a => $"{a.Head};"))} }}");
             return;
