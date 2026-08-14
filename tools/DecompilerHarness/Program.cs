@@ -1252,8 +1252,10 @@ static class Program
     /// </summary>
     static int StructuringStops(List<string> assemblies, int cap)
     {
-        long total = 0, crashes = 0, structured = 0, stoppedContainers = 0, methodsWithStop = 0;
+        long total = 0, crashes = 0, structured = 0, retainedRegions = 0, stoppedContainers = 0, methodsWithStop = 0;
         var reasons = new Dictionary<string, (long Count, string Example)>(StringComparer.Ordinal);
+        var retainedDeclines = new Dictionary<string, long>(StringComparer.Ordinal);
+        var retainedMethods = new SortedDictionary<string, int>(StringComparer.Ordinal);
         bool capped = false;
 
         using var metadata = CorpusMetadata.Create(assemblies);
@@ -1283,6 +1285,16 @@ static class Program
                 }
 
                 structured += diagnostics.Structured;
+                retainedRegions += diagnostics.RetainedRegions;
+                if (diagnostics.RetainedRegions > 0)
+                {
+                    string signature = CorpusMethodIdentity.SignatureText(function.Signature);
+                    string identity =
+                        $"{Path.GetFileName(assemblyPath)}!{typeName}::{methodName}{signature}";
+                    retainedMethods[identity] =
+                        retainedMethods.GetValueOrDefault(identity)
+                        + diagnostics.RetainedRegions;
+                }
                 if (diagnostics.Stops.Count > 0)
                     methodsWithStop++;
                 foreach (var reason in diagnostics.Stops)
@@ -1292,6 +1304,8 @@ static class Program
                     reasons[reason] = (prior.Count + 1,
                         prior.Example ?? $"{typeName}::{methodName}");
                 }
+                foreach (var reason in diagnostics.RetainedDeclines)
+                    retainedDeclines[reason] = retainedDeclines.GetValueOrDefault(reason) + 1;
             }
             if (capped) break;
         }
@@ -1300,10 +1314,25 @@ static class Program
         Console.WriteLine();
         Console.WriteLine($"structuring stops over {scope} ({crashes} pass bugs):");
         Console.WriteLine($"  {structured} containers structured; " +
+            $"{retainedRegions} retained-label regions; " +
             $"{stoppedContainers} left flat across {methodsWithStop} methods");
         Console.WriteLine();
         foreach (var entry in reasons.OrderByDescending(e => e.Value.Count))
             Console.WriteLine($"  {entry.Value.Count,8}  {entry.Key,-30}  e.g. {entry.Value.Example}");
+        if (retainedMethods.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("retained-region methods:");
+            foreach (var (identity, count) in retainedMethods)
+                Console.WriteLine($"  {count,8}  {identity}");
+        }
+        if (retainedDeclines.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("retained-region declines:");
+            foreach (var entry in retainedDeclines.OrderByDescending(e => e.Value))
+                Console.WriteLine($"  {entry.Value,8}  {entry.Key}");
+        }
         return crashes > 0 ? 1 : 0;
     }
 
@@ -2409,7 +2438,9 @@ static class Program
                                 hunk under each changed method.
           --structuring-stops   tally why StructuringPass leaves containers flat:
                                 a per-container histogram of stop reasons (the
-                                common-exit merge docket). Honors --cap.
+                                common-exit merge docket), plus stable identities
+                                for methods with retained-label regions. Honors
+                                --cap.
           --postdom-probe       step-4 prototype (#1175): classify each residual
                                 conditional-branch method by its post-dominator
                                 merge shape (single-merge / return-tail / multi-
