@@ -9,8 +9,10 @@ namespace CSharpText;
 public static class MemberSignatureShapeCodec
 {
     const string Prefix = "mss1:";
-    const int MaxTextLength = 64 * 1024;
-    const int MaxNodes = 4096;
+    internal const int MaxTextLength = 64 * 1024;
+    internal const int MaxNodes = 4096;
+    internal const int MaxDepth = 128;
+    internal const int MaxCollectionElements = 4096;
 
     public static string Encode(MemberSignatureShape shape)
     {
@@ -24,13 +26,21 @@ public static class MemberSignatureShapeCodec
         }
 
         var writer = new Writer();
+        writer.Collection(shape.Parameters.Count, shape);
         writer.Integer(shape.GenericArity);
         writer.Character('(');
         writer.Integer(shape.Parameters.Count);
         writer.Character(':');
         foreach (MemberParameterSignatureShape parameter in shape.Parameters)
         {
-            writer.Character(parameter.Passing == ParameterPassingKind.Value ? 'v' : 'r');
+            writer.Character(parameter.Passing switch
+            {
+                ParameterPassingKind.Value => 'v',
+                ParameterPassingKind.ByReference => 'r',
+                _ => throw new ArgumentException(
+                    "The parameter passing kind is invalid.",
+                    nameof(shape)),
+            });
             writer.Type(parameter.Type);
         }
         writer.Character(')');
@@ -57,7 +67,14 @@ public static class MemberSignatureShapeCodec
         try
         {
             if (!text.StartsWith(Prefix, StringComparison.Ordinal))
-                return LegacyMemberSignatureShape.Decode(text);
+            {
+                MemberSignatureShapeResult legacy = LegacyMemberSignatureShape.Decode(text);
+                if (legacy.Shape is null)
+                    return legacy;
+
+                _ = Encode(legacy.Shape);
+                return legacy;
+            }
 
             var reader = new Reader(text.AsSpan(Prefix.Length));
             int genericArity = reader.Integer();
@@ -67,6 +84,7 @@ public static class MemberSignatureShapeCodec
             if (genericArity < 0 || parameterCount < 0 || parameterCount > MaxNodes)
                 throw new FormatException();
 
+            reader.Collection(parameterCount);
             var parameters = new MemberParameterSignatureShape[parameterCount];
             for (int i = 0; i < parameters.Length; i++)
             {
@@ -96,6 +114,11 @@ public static class MemberSignatureShapeCodec
         {
             return MemberSignatureShapeResult.Unavailable("The signature text is malformed.");
         }
+        catch (ArgumentException)
+        {
+            return MemberSignatureShapeResult.Unavailable(
+                "The signature text is invalid or exceeds the safety limit.");
+        }
     }
 
     public static MemberSignatureShapeResult Normalize(string text, out string? canonicalText)
@@ -109,10 +132,12 @@ public static class MemberSignatureShapeCodec
     {
         readonly StringBuilder _builder = new();
         int _nodes;
+        int _collectionElements;
 
-        internal void Type(TypeSignatureShape type)
+        internal void Type(TypeSignatureShape type, int depth = 1)
         {
-            if (++_nodes > MaxNodes)
+            ArgumentNullException.ThrowIfNull(type);
+            if (depth > MaxDepth || ++_nodes > MaxNodes)
                 throw new ArgumentException("The signature shape exceeds the safety limit.", nameof(type));
 
             switch (type)
@@ -124,13 +149,19 @@ public static class MemberSignatureShapeCodec
                     break;
                 case GenericParameterTypeSignatureShape parameter:
                     NonNegative(parameter.Position, type);
-                    Character(parameter.Kind == SignatureGenericParameterKind.Type ? 't' : 'm');
+                    Character(parameter.Kind switch
+                    {
+                        SignatureGenericParameterKind.Type => 't',
+                        SignatureGenericParameterKind.Method => 'm',
+                        _ => throw Invalid(type),
+                    });
                     Integer(parameter.Position);
                     Character(';');
                     break;
                 case NamedTypeSignatureShape named:
                     if (named.Segments.Count == 0 || named.Segments.Count > MaxNodes)
                         throw Invalid(type);
+                    Collection(named.Segments.Count, type);
                     Character('n');
                     Text(named.Namespace);
                     Integer(named.Segments.Count);
@@ -141,25 +172,27 @@ public static class MemberSignatureShapeCodec
                         NonNegative(segment.Arity, type);
                         if (segment.TypeArguments.Count > MaxNodes)
                             throw Invalid(type);
+                        Collection(segment.TypeArguments.Count, type);
                         Text(segment.Name);
                         Integer(segment.Arity);
                         Character(':');
                         Integer(segment.TypeArguments.Count);
                         Character(':');
                         foreach (TypeSignatureShape argument in segment.TypeArguments)
-                            Type(argument);
+                            Type(argument, depth + 1);
                     }
                     break;
                 case UnresolvedNamedTypeSignatureShape unresolved:
                     NonEmpty(unresolved.Name, type);
                     if (unresolved.TypeArguments.Count > MaxNodes)
                         throw Invalid(type);
+                    Collection(unresolved.TypeArguments.Count, type);
                     Character('x');
                     Text(unresolved.Name);
                     Integer(unresolved.TypeArguments.Count);
                     Character(':');
                     foreach (TypeSignatureShape argument in unresolved.TypeArguments)
-                        Type(argument);
+                        Type(argument, depth + 1);
                     break;
                 case ArrayTypeSignatureShape array:
                     if (array.Rank <= 0 || (array.IsSzArray && array.Rank != 1))
@@ -167,40 +200,42 @@ public static class MemberSignatureShapeCodec
                     Character(array.IsSzArray ? 'z' : 'a');
                     Integer(array.Rank);
                     Character(':');
-                    Type(array.ElementType);
+                    Type(array.ElementType, depth + 1);
                     break;
                 case PointerTypeSignatureShape pointer:
                     Character('*');
-                    Type(pointer.ElementType);
+                    Type(pointer.ElementType, depth + 1);
                     break;
                 case ByReferenceTypeSignatureShape byReference:
                     Character('&');
-                    Type(byReference.ElementType);
+                    Type(byReference.ElementType, depth + 1);
                     break;
                 case NullableTypeSignatureShape nullable:
                     Character('?');
-                    Type(nullable.UnderlyingType);
+                    Type(nullable.UnderlyingType, depth + 1);
                     break;
                 case TupleTypeSignatureShape tuple:
                     if (tuple.ElementTypes.Count < 2 || tuple.ElementTypes.Count > MaxNodes)
                         throw Invalid(type);
+                    Collection(tuple.ElementTypes.Count, type);
                     Character('u');
                     Integer(tuple.ElementTypes.Count);
                     Character(':');
                     foreach (TypeSignatureShape element in tuple.ElementTypes)
-                        Type(element);
+                        Type(element, depth + 1);
                     break;
                 case FunctionPointerTypeSignatureShape functionPointer:
                     NonEmpty(functionPointer.CallingConvention, type);
                     if (functionPointer.ParameterTypes.Count > MaxNodes)
                         throw Invalid(type);
+                    Collection(functionPointer.ParameterTypes.Count, type);
                     Character('f');
                     Text(functionPointer.CallingConvention);
-                    Type(functionPointer.ReturnType);
+                    Type(functionPointer.ReturnType, depth + 1);
                     Integer(functionPointer.ParameterTypes.Count);
                     Character(':');
                     foreach (TypeSignatureShape parameter in functionPointer.ParameterTypes)
-                        Type(parameter);
+                        Type(parameter, depth + 1);
                     break;
                 default:
                     throw new ArgumentException("Unknown signature-shape node.", nameof(type));
@@ -224,25 +259,46 @@ public static class MemberSignatureShapeCodec
                 $"The {type.GetType().Name} node is invalid or exceeds the safety limit.",
                 nameof(type));
 
+        internal void Collection(int count, object value)
+        {
+            if (count < 0 || count > MaxCollectionElements - _collectionElements)
+            {
+                throw new ArgumentException(
+                    "The signature shape exceeds the collection safety limit.",
+                    value is MemberSignatureShape ? "shape" : "type");
+            }
+            _collectionElements += count;
+        }
+
         internal void Text(string text)
         {
             ArgumentNullException.ThrowIfNull(text);
             Integer(text.Length);
             Character(':');
+            EnsureAdditional(text.Length);
             _builder.Append(text);
         }
 
         internal void Integer(int value)
-            => _builder.Append(value.ToString(CultureInfo.InvariantCulture));
-
-        internal void Character(char value) => _builder.Append(value);
-
-        public override string ToString()
         {
-            if (_builder.Length > MaxTextLength - Prefix.Length)
-                throw new ArgumentException("The signature shape exceeds the safety limit.");
-            return _builder.ToString();
+            string text = value.ToString(CultureInfo.InvariantCulture);
+            EnsureAdditional(text.Length);
+            _builder.Append(text);
         }
+
+        internal void Character(char value)
+        {
+            EnsureAdditional(1);
+            _builder.Append(value);
+        }
+
+        void EnsureAdditional(int count)
+        {
+            if (count < 0 || count > MaxTextLength - Prefix.Length - _builder.Length)
+                throw new ArgumentException("The signature shape exceeds the safety limit.");
+        }
+
+        public override string ToString() => _builder.ToString();
     }
 
     ref struct Reader
@@ -250,6 +306,7 @@ public static class MemberSignatureShapeCodec
         readonly ReadOnlySpan<char> _text;
         int _offset;
         int _nodes;
+        int _collectionElements;
 
         internal Reader(ReadOnlySpan<char> text)
         {
@@ -297,27 +354,35 @@ public static class MemberSignatureShapeCodec
             return value;
         }
 
-        internal TypeSignatureShape Type()
+        internal TypeSignatureShape Type(int depth = 1)
         {
-            if (++_nodes > MaxNodes)
+            if (depth > MaxDepth || ++_nodes > MaxNodes)
                 throw new FormatException();
 
             return Take() switch
             {
-                'p' => new PrimitiveTypeSignatureShape(Text()),
+                'p' => Primitive(),
                 't' => Generic(SignatureGenericParameterKind.Type),
                 'm' => Generic(SignatureGenericParameterKind.Method),
-                'n' => Named(),
-                'x' => UnresolvedNamed(),
-                'z' => Array(isSzArray: true),
-                'a' => Array(isSzArray: false),
-                '*' => new PointerTypeSignatureShape(Type()),
-                '&' => new ByReferenceTypeSignatureShape(Type()),
-                '?' => new NullableTypeSignatureShape(Type()),
-                'u' => Tuple(),
-                'f' => FunctionPointer(),
+                'n' => Named(depth),
+                'x' => UnresolvedNamed(depth),
+                'z' => Array(isSzArray: true, depth),
+                'a' => Array(isSzArray: false, depth),
+                '*' => new PointerTypeSignatureShape(Type(depth + 1)),
+                '&' => new ByReferenceTypeSignatureShape(Type(depth + 1)),
+                '?' => new NullableTypeSignatureShape(Type(depth + 1)),
+                'u' => Tuple(depth),
+                'f' => FunctionPointer(depth),
                 _ => throw new FormatException(),
             };
+        }
+
+        TypeSignatureShape Primitive()
+        {
+            string name = Text();
+            if (string.IsNullOrEmpty(name))
+                throw new FormatException();
+            return new PrimitiveTypeSignatureShape(name);
         }
 
         TypeSignatureShape Generic(SignatureGenericParameterKind kind)
@@ -329,7 +394,7 @@ public static class MemberSignatureShapeCodec
             return new GenericParameterTypeSignatureShape(kind, position);
         }
 
-        TypeSignatureShape Named()
+        TypeSignatureShape Named(int depth)
         {
             string @namespace = Text();
             int count = Integer();
@@ -337,6 +402,7 @@ public static class MemberSignatureShapeCodec
             if (count <= 0 || count > MaxNodes)
                 throw new FormatException();
 
+            Collection(count);
             var segments = new NamedTypeSegment[count];
             for (int i = 0; i < segments.Length; i++)
             {
@@ -353,63 +419,76 @@ public static class MemberSignatureShapeCodec
                     throw new FormatException();
                 }
 
+                Collection(argumentCount);
                 var arguments = new TypeSignatureShape[argumentCount];
                 for (int j = 0; j < arguments.Length; j++)
-                    arguments[j] = Type();
+                    arguments[j] = Type(depth + 1);
                 segments[i] = new(name, arity, new(arguments));
             }
             return new NamedTypeSignatureShape(@namespace, new(segments));
         }
 
-        TypeSignatureShape UnresolvedNamed()
+        TypeSignatureShape UnresolvedNamed(int depth)
         {
             string name = Text();
             int count = Integer();
             Character(':');
             if (string.IsNullOrEmpty(name) || count < 0 || count > MaxNodes)
                 throw new FormatException();
+            Collection(count);
             var arguments = new TypeSignatureShape[count];
             for (int i = 0; i < arguments.Length; i++)
-                arguments[i] = Type();
+                arguments[i] = Type(depth + 1);
             return new UnresolvedNamedTypeSignatureShape(name, new(arguments));
         }
 
-        TypeSignatureShape Array(bool isSzArray)
+        TypeSignatureShape Array(bool isSzArray, int depth)
         {
             int rank = Integer();
             Character(':');
             if (rank <= 0 || (isSzArray && rank != 1))
                 throw new FormatException();
-            return new ArrayTypeSignatureShape(Type(), rank, isSzArray);
+            return new ArrayTypeSignatureShape(Type(depth + 1), rank, isSzArray);
         }
 
-        TypeSignatureShape Tuple()
+        TypeSignatureShape Tuple(int depth)
         {
             int count = Integer();
             Character(':');
             if (count < 2 || count > MaxNodes)
                 throw new FormatException();
+            Collection(count);
             var elements = new TypeSignatureShape[count];
             for (int i = 0; i < elements.Length; i++)
-                elements[i] = Type();
+                elements[i] = Type(depth + 1);
             return new TupleTypeSignatureShape(new(elements));
         }
 
-        TypeSignatureShape FunctionPointer()
+        TypeSignatureShape FunctionPointer(int depth)
         {
             string callingConvention = Text();
-            TypeSignatureShape returnType = Type();
+            if (string.IsNullOrEmpty(callingConvention))
+                throw new FormatException();
+            TypeSignatureShape returnType = Type(depth + 1);
             int count = Integer();
             Character(':');
             if (count < 0 || count > MaxNodes)
                 throw new FormatException();
+            Collection(count);
             var parameters = new TypeSignatureShape[count];
             for (int i = 0; i < parameters.Length; i++)
-                parameters[i] = Type();
+                parameters[i] = Type(depth + 1);
             return new FunctionPointerTypeSignatureShape(
                 callingConvention,
                 returnType,
                 new(parameters));
+        }
+
+        internal void Collection(int count)
+        {
+            if (count < 0 || count > MaxCollectionElements - _collectionElements)
+                throw new FormatException();
+            _collectionElements += count;
         }
 
         internal void End()

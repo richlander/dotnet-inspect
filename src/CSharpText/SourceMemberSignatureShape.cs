@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace CSharpText;
 
 /// <summary>
@@ -858,19 +860,29 @@ static class LegacyMemberSignatureShape
 
         string arityText = text[..open];
         if (!arityText.StartsWith('`')
-            || !int.TryParse(arityText.AsSpan(1), out int arity)
+            || !int.TryParse(
+                arityText.AsSpan(1),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out int arity)
             || arity < 0)
         {
             return MemberSignatureShapeResult.Unavailable("The legacy generic arity is malformed.");
         }
 
+        var budget = new LegacyParseBudget();
         string parameterText = text[(open + 1)..close];
         var parameters = new List<MemberParameterSignatureShape>();
         if (parameterText.Length > 0)
         {
             foreach (string parameter in Split(parameterText))
             {
-                if (!TryParseLegacyType(parameter, out TypeSignatureShape? type))
+                if (!budget.TryReserveCollectionElements(1)
+                    || !TryParseLegacyType(
+                        parameter,
+                        ref budget,
+                        depth: 1,
+                        out TypeSignatureShape? type))
                 {
                     return MemberSignatureShapeResult.Unavailable(
                         $"The legacy type '{parameter}' cannot be normalized safely.");
@@ -888,7 +900,11 @@ static class LegacyMemberSignatureShape
         TypeSignatureShape? returnType = null;
         if (close + 1 < text.Length)
         {
-            if (!TryParseLegacyType(text[(close + 2)..], out returnType))
+            if (!TryParseLegacyType(
+                    text[(close + 2)..],
+                    ref budget,
+                    depth: 1,
+                    out returnType))
             {
                 return MemberSignatureShapeResult.Unavailable(
                     "The legacy conversion return type cannot be normalized safely.");
@@ -920,7 +936,11 @@ static class LegacyMemberSignatureShape
         yield return text[start..];
     }
 
-    static bool TryParseLegacyType(string text, out TypeSignatureShape? type)
+    static bool TryParseLegacyType(
+        string text,
+        ref LegacyParseBudget budget,
+        int depth,
+        out TypeSignatureShape? type)
     {
         text = text.Trim();
         bool byReference = text.StartsWith("ref ", StringComparison.Ordinal);
@@ -957,20 +977,46 @@ static class LegacyMemberSignatureShape
             break;
         }
 
+        int wrapperCount = suffixes.Count + (byReference ? 1 : 0);
+        if (depth > MemberSignatureShapeCodec.MaxDepth - wrapperCount
+            || !budget.TryReserveNodes(1 + wrapperCount))
+        {
+            type = null;
+            return false;
+        }
+
         if (PrimitiveTypeNames.TryToClrFullName(text, out string primitive))
         {
             type = new PrimitiveTypeSignatureShape(primitive);
         }
-        else if (text.StartsWith("``", StringComparison.Ordinal)
-            && int.TryParse(text.AsSpan(2), out int methodPosition))
+        else if (text.StartsWith("``", StringComparison.Ordinal))
         {
+            if (!int.TryParse(
+                    text.AsSpan(2),
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out int methodPosition)
+                || methodPosition < 0)
+            {
+                type = null;
+                return false;
+            }
             type = new GenericParameterTypeSignatureShape(
                 SignatureGenericParameterKind.Method,
                 methodPosition);
         }
-        else if (text.StartsWith('`')
-            && int.TryParse(text.AsSpan(1), out int typePosition))
+        else if (text.StartsWith('`'))
         {
+            if (!int.TryParse(
+                    text.AsSpan(1),
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out int typePosition)
+                || typePosition < 0)
+            {
+                type = null;
+                return false;
+            }
             type = new GenericParameterTypeSignatureShape(
                 SignatureGenericParameterKind.Type,
                 typePosition);
@@ -987,10 +1033,20 @@ static class LegacyMemberSignatureShape
                 }
 
                 string name = text[..genericOpen];
+                if (string.IsNullOrEmpty(name))
+                {
+                    type = null;
+                    return false;
+                }
                 var arguments = new List<TypeSignatureShape>();
                 foreach (string argumentText in Split(text[(genericOpen + 1)..^1]))
                 {
-                    if (!TryParseLegacyType(argumentText, out TypeSignatureShape? argument))
+                    if (!budget.TryReserveCollectionElements(1)
+                        || !TryParseLegacyType(
+                            argumentText,
+                            ref budget,
+                            depth + wrapperCount + 1,
+                            out TypeSignatureShape? argument))
                     {
                         type = null;
                         return false;
@@ -1042,6 +1098,31 @@ static class LegacyMemberSignatureShape
         if (byReference)
             type = new ByReferenceTypeSignatureShape(type);
         return true;
+    }
+
+    struct LegacyParseBudget
+    {
+        int _nodes;
+        int _collectionElements;
+
+        internal bool TryReserveNodes(int count)
+        {
+            if (count < 0 || count > MemberSignatureShapeCodec.MaxNodes - _nodes)
+                return false;
+            _nodes += count;
+            return true;
+        }
+
+        internal bool TryReserveCollectionElements(int count)
+        {
+            if (count < 0
+                || count > MemberSignatureShapeCodec.MaxCollectionElements - _collectionElements)
+            {
+                return false;
+            }
+            _collectionElements += count;
+            return true;
+        }
     }
 
     static int FindGenericOpen(string text)

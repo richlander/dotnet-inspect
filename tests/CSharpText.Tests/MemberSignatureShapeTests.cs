@@ -307,6 +307,110 @@ public class MemberSignatureShapeTests
         Assert.Equal(canonical, normalized);
     }
 
+    [Theory]
+    [InlineData("mss1:0(1:vp0:)n")]
+    [InlineData("mss1:0(1:vf0:p12:System.Int320:)n")]
+    public void Codec_MalformedCanonicalTextIsUnavailable(string text)
+    {
+        MemberSignatureShapeResult result = MemberSignatureShapeCodec.Decode(text);
+
+        Assert.False(result.IsAvailable);
+    }
+
+    [Theory]
+    [InlineData("`0(`-1)")]
+    [InlineData("`0(``-1)")]
+    public void Codec_MalformedLegacyGenericPositionIsUnavailable(string text)
+    {
+        MemberSignatureShapeResult decoded = MemberSignatureShapeCodec.Decode(text);
+        MemberSignatureShapeResult normalized =
+            MemberSignatureShapeCodec.Normalize(text, out string? canonical);
+
+        Assert.False(decoded.IsAvailable);
+        Assert.False(normalized.IsAvailable);
+        Assert.Null(canonical);
+    }
+
+    [Fact]
+    public void Codec_RejectsDeepLegacyInputWithinTheTextLimit()
+    {
+        string text = "`0("
+            + string.Concat(Enumerable.Repeat("A<", 5_000))
+            + "B"
+            + new string('>', 5_000)
+            + ")";
+
+        MemberSignatureShapeResult result = MemberSignatureShapeCodec.Decode(text);
+
+        Assert.False(result.IsAvailable);
+    }
+
+    [Fact]
+    public void Codec_RejectsCollectionAmplificationBeforeAllocatingIt()
+    {
+        string text = "mss1:0(1:v"
+            + string.Concat(Enumerable.Repeat("u4096:", 4_096));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        MemberSignatureShapeResult result = MemberSignatureShapeCodec.Decode(text);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.False(result.IsAvailable);
+        Assert.True(allocated < 1024 * 1024, $"Decode allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void Codec_RejectsOversizedOutputBeforeGrowingTheBuilder()
+    {
+        string name = new('A', 5_000_000);
+        var shape = new MemberSignatureShape(
+            0,
+            new(
+            [
+                new MemberParameterSignatureShape(
+                    ParameterPassingKind.Value,
+                    new PrimitiveTypeSignatureShape(name)),
+            ]),
+            null);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Throws<ArgumentException>(() => MemberSignatureShapeCodec.Encode(shape));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(allocated < 1024 * 1024, $"Encode allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void Codec_RejectsUndefinedEnumValues()
+    {
+        var type = new PrimitiveTypeSignatureShape("System.Int32");
+        var invalidPassing = new MemberSignatureShape(
+            0,
+            new(
+            [
+                new MemberParameterSignatureShape(
+                    (ParameterPassingKind)int.MaxValue,
+                    type),
+            ]),
+            null);
+        var invalidGenericKind = new MemberSignatureShape(
+            0,
+            new(
+            [
+                new MemberParameterSignatureShape(
+                    ParameterPassingKind.Value,
+                    new GenericParameterTypeSignatureShape(
+                        (SignatureGenericParameterKind)int.MaxValue,
+                        0)),
+            ]),
+            null);
+
+        Assert.Throws<ArgumentException>(
+            () => MemberSignatureShapeCodec.Encode(invalidPassing));
+        Assert.Throws<ArgumentException>(
+            () => MemberSignatureShapeCodec.Encode(invalidGenericKind));
+    }
+
     [Fact]
     public void Codec_IsInjectiveForMixedArrayRanks()
     {
