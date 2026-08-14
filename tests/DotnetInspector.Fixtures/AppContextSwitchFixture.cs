@@ -26,6 +26,16 @@ public static class AppContextSwitchFixture
             "DotnetInspector.Fixtures.Lookalike",
             out var enabled)
             && enabled;
+
+    public static bool CallsIgnoredSwitches()
+    {
+        AppContext.TryGetSwitch("TestSwitch.Ignored", out var test);
+        AppContext.TryGetSwitch("Switch.Ignored", out var generic);
+        AppContext.TryGetSwitch(
+            "System.Resources.UseSystemResourceKeys.Ignored",
+            out var resource);
+        return test || generic || resource;
+    }
 }
 
 static class AppContextSwitchLookalike

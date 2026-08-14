@@ -134,7 +134,10 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// outside this metadata-only facet.
     /// </summary>
     public List<SwitchInfo> Switches()
-        => SwitchScanner.Scan(_image.PEReader);
+    {
+        _image.EnsureAlive();
+        return SwitchScanner.Scan(_image.PEReader);
+    }
 
     /// <summary>Classified methods (unsafe / P-Invoke / async).</summary>
     public List<ClassifiedMethodInfo> ClassifiedMethods()
