@@ -962,7 +962,13 @@ static class FidelityCheck
                         if (!rootDef.GetDeclaringType().IsNil)
                             continue; // each top-level root walks its own nested tree once
 
-                        foreach (var (fullType, entries, treeHandle) in EnumerateTypeTree(reader, pe, source, typeHandle, render))
+                        foreach (var (fullType, entries, treeHandle) in EnumerateTypeTree(
+                            reader,
+                            pe,
+                            source,
+                            typeHandle,
+                            render,
+                            assemblyTargets.ContainsKey))
                         {
                             if (pending.Count == 0)
                                 break;
@@ -3171,7 +3177,7 @@ static class FidelityCheck
             foreach (var propertyHandle in current.GetProperties())
                 if (reader.GetString(reader.GetPropertyDefinition(propertyHandle).Name) == propertyName)
                     return true;
-            if (current.BaseType.Kind != HandleKind.TypeDefinition)
+            if (current.BaseType.IsNil || current.BaseType.Kind != HandleKind.TypeDefinition)
                 return false;
             current = reader.GetTypeDefinition((TypeDefinitionHandle)current.BaseType);
         }
@@ -3184,7 +3190,7 @@ static class FidelityCheck
             foreach (var methodHandle in current.GetMethods())
                 if (reader.GetString(reader.GetMethodDefinition(methodHandle).Name) == methodName)
                     return true;
-            if (current.BaseType.Kind != HandleKind.TypeDefinition)
+            if (current.BaseType.IsNil || current.BaseType.Kind != HandleKind.TypeDefinition)
                 return false;
             current = reader.GetTypeDefinition((TypeDefinitionHandle)current.BaseType);
         }
@@ -3286,7 +3292,18 @@ static class FidelityCheck
             {
                 var accessors = reader.GetPropertyDefinition(targetProperty).GetAccessors();
                 if (mh == (!accessors.Getter.IsNil ? accessors.Getter : accessors.Setter))
-                    EmitTargetProperty(reader, typeDef, targetProperty, targets, accessibility, sb, pad + "    ");
+                {
+                    if (TryGetProductWholeProperty(accessors, targets, out var wholeProperty, out var targetAccessors))
+                    {
+                        EmitPrerenderedMember(wholeProperty, sb, pad + "    ");
+                        foreach (var targetAccessor in targetAccessors)
+                            productWholeMembers.Add(targetAccessor);
+                    }
+                    else
+                    {
+                        EmitTargetProperty(reader, typeDef, targetProperty, targets, accessibility, sb, pad + "    ");
+                    }
+                }
                 continue; // emitted once, at its first accessor's metadata position
             }
             if (mh == primaryConstructorTarget.Key)
@@ -3514,6 +3531,13 @@ static class FidelityCheck
             string pname = reader.GetString(prop.Name);
             if (pname.Contains('<') || pname.Contains('.'))
                 continue; // compiler-generated / explicit interface impl
+            if (!requireAutoProperty
+                && TryGetProductWholeProperty(pa, targets, out _, out _))
+            {
+                if (!pa.Getter.IsNil) orderedTargetProperties[pa.Getter] = ph;
+                if (!pa.Setter.IsNil) orderedTargetProperties[pa.Setter] = ph;
+                continue;
+            }
             try
             {
                 if (!accessibility.CanSpellProperty(reader, prop, typeContext))
@@ -3545,6 +3569,13 @@ static class FidelityCheck
                 bool isAutoProperty = hasGet
                     && AccessorsAreCompilerGenerated(reader, pa)
                     && HasAutoPropertyBackingField(reader, typeDef, pname, ret, isStatic);
+                if (isAutoProperty
+                    && TryGetProductWholeProperty(pa, targets, out _, out _))
+                {
+                    if (!pa.Getter.IsNil) orderedTargetProperties[pa.Getter] = ph;
+                    if (!pa.Setter.IsNil) orderedTargetProperties[pa.Setter] = ph;
+                    continue;
+                }
                 bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
                     || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
                 if (accessorIsTarget && !isAutoProperty)
@@ -3577,6 +3608,39 @@ static class FidelityCheck
                 if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException) { }
+        }
+    }
+
+    static bool TryGetProductWholeProperty(
+        PropertyAccessors accessors,
+        IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        out string wholeProperty,
+        out IReadOnlyList<MethodDefinitionHandle> targetAccessors)
+    {
+        var handles = new List<MethodDefinitionHandle>(2);
+        var renders = new List<string>(2);
+        Add(accessors.Getter);
+        Add(accessors.Setter);
+
+        wholeProperty = "";
+        targetAccessors = handles;
+        if (handles.Count == 0
+            || renders.Count != handles.Count
+            || !renders.All(render => string.Equals(render, renders[0], StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        wholeProperty = renders[0];
+        return true;
+
+        void Add(MethodDefinitionHandle handle)
+        {
+            if (handle.IsNil || !targets.TryGetValue(handle, out var target))
+                return;
+            handles.Add(handle);
+            if (!target.RequiresAsync && target.WholeMember is { } render)
+                renders.Add(render);
         }
     }
 
@@ -3822,8 +3886,23 @@ static class FidelityCheck
                 // emitter this change replaces (#3062 review).
                 foreach (var type in ApiSurfaceExtractor.Extract(p, includeAll: true).Types)
                     foreach (var member in type.Members)
+                    {
                         if (member.MetadataToken is { } token)
-                            index[token] = (type, member);
+                        {
+                            if (member.Kind == "extension-method")
+                                index.TryAdd(token, (type, member));
+                            else
+                                index[token] = (type, member);
+                        }
+                        if (member.Kind == "property"
+                            && !member.Name.Contains('.', StringComparison.Ordinal))
+                        {
+                            if (member.GetterToken is { } getterToken)
+                                index.TryAdd(getterToken, (type, member));
+                            if (member.SetterToken is { } setterToken)
+                                index.TryAdd(setterToken, (type, member));
+                        }
+                    }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -3835,16 +3914,16 @@ static class FidelityCheck
     /// <summary>
     /// The product's whole-member render for a target method — the CSharp-owned
     /// signature (from Metadata's model) composed with the decompiler body —
-    /// replacing the harness's self-spelled signature. Ordinary constructors are
-    /// safe to migrate because the scaffold already applies the decompiler's
-    /// separately captured lifted field initializers to the reconstructed fields.
+    /// replacing the harness's self-spelled signature. Ordinary constructors and
+    /// properties are safe to migrate because the scaffold already applies the
+    /// decompiler's separately captured lifted field initializers to reconstructed
+    /// fields, while a property render owns both accessor declarations and bodies.
     /// Non-essential custom attributes are omitted because the skeleton does not
     /// reproduce arbitrary attribute inheritance; compilation-required attributes
     /// such as <c>SkipLocalsInit</c> remain.
     /// A detected primary constructor remains type-header-owned and therefore
-    /// declines the member render. Accessors still decline because the product
-    /// renders their containing property. Broad evaluation renders the whole type
-    /// once and memoizes the batch; method-filtered evaluation uses the product's
+    /// declines the member render. Broad evaluation renders the whole type once
+    /// and memoizes the batch; method-filtered evaluation uses the product's
     /// targeted member path so unselected siblings are not rendered.
     /// </summary>
     internal static (string Text, IReadOnlySet<string> Namespaces)? TryRenderTargetMember(
@@ -3858,8 +3937,17 @@ static class FidelityCheck
         if (!TargetApiIndex(pe).TryGetValue(token, out var entry))
             return null;
         if (isPrimaryConstructor
-            || entry.Member.Kind is not ("method" or "operator" or "constructor"))
+            || entry.Member.Kind is not ("method" or "operator" or "constructor" or "property"))
             return null;
+        if (entry.Member.Kind == "property"
+            && entry.Type.Kind == "struct"
+            && !MemberBodyProducer.IsCompilerGeneratedAutoPropertyAccessor(
+                source,
+                entry.Member,
+                mh))
+        {
+            return null;
+        }
 
         var result = targeted
             ? RenderTargetMember(entry.Type, entry.Member, source)
@@ -3869,6 +3957,12 @@ static class FidelityCheck
         if (entry.Member.Kind == "constructor"
             && SyntaxFactory.ParseMemberDeclaration(result.Text)
                 is not ConstructorDeclarationSyntax)
+        {
+            return null;
+        }
+        if (entry.Member.Kind == "property"
+            && SyntaxFactory.ParseMemberDeclaration(result.Text)
+                is not (PropertyDeclarationSyntax or IndexerDeclarationSyntax))
         {
             return null;
         }
@@ -4282,12 +4376,18 @@ static class FidelityCheck
         };
     }
 
-    static string BaseTypeName(MetadataReader reader, EntityHandle handle) => handle.Kind switch
+    static string BaseTypeName(MetadataReader reader, EntityHandle handle)
     {
-        HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)handle)),
-        HandleKind.TypeDefinition => FullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)handle)),
-        _ => "",
-    };
+        if (handle.IsNil)
+            return "";
+
+        return handle.Kind switch
+        {
+            HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)handle)),
+            HandleKind.TypeDefinition => FullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)handle)),
+            _ => "",
+        };
+    }
 
     static string FullName(MetadataReader reader, TypeReference t)
     {

@@ -325,12 +325,14 @@ public sealed record CompileBackTypeParameter(
     string Name,
     IReadOnlyList<string> Constraints,
     string? Variance = null,
-    IReadOnlyList<TypeParameterConstraint>? StructuredConstraints = null);
+    IReadOnlyList<TypeParameterConstraint>? StructuredConstraints = null,
+    TypeParameterTypeKind TypeKind = TypeParameterTypeKind.Undetermined);
 
 public enum CompileBackStubBodyKind
 {
     None,
     Throw,
+    ThrowInit,
     ThrowGetSet,
     ThrowGetInit,
     TargetBody,
@@ -343,6 +345,7 @@ public enum CompileBackStubBodyKind
     AutoProperty,
     AutoPropertyGetSet,
     AutoPropertyGetInit,
+    InitOnlyProperty,
     FieldInitializer,
 }
 
@@ -1124,14 +1127,15 @@ public static class CompileBackSourceComposer
                 // A read-write auto-property targeted at its getter must render both accessors so
                 // the compiler-synthesized sibling accessor faithfully reproduces the original
                 // setter rather than being silently dropped while still reported Complete (issue
-                // #3000 class). An init-only setter renders a get/init auto-property under Full so
-                // the init accessor is represented; the getter-only A/B path (Selected) keeps the
-                // minimal get-only shell (records rely on this).
+                // #3000 class). An init-only setter renders a get/init auto-property under Full.
+                // Selected keeps ordinary properties minimal (records rely on this), but explicit
+                // implementations must retain init to satisfy the interface contract.
                 targetIsAutoProperty
                     ? accessors.Setter.IsNil
                         ? CompileBackStubBodyKind.AutoProperty
                         : SetterIsInitOnly(reader, accessors.Setter)
                             ? bodyPolicy == RoundTripBodyPolicy.Full
+                                || explicitInterfaceMemberName is not null
                                 ? CompileBackStubBodyKind.AutoPropertyGetInit
                                 : CompileBackStubBodyKind.AutoProperty
                             : CompileBackStubBodyKind.AutoPropertyGetSet
@@ -1649,8 +1653,7 @@ public static class CompileBackSourceComposer
             CompileBackStubBodyKind.Throw,
             null,
             [new CompileBackFact("metadata", "external-interface-stub", explicitName)],
-            ExplicitInterfaceMemberName: explicitName,
-            DeclarationSignature: declarationSignature);
+            ExplicitInterfaceMemberName: explicitName);
     }
 
     // A decoded signature type is unspellable when it carries a metadata artifact that
@@ -2835,14 +2838,6 @@ public static class CompileBackSourceComposer
         string? explicitInterfaceMemberName =
             sameAssemblyExplicitInterfaceMemberName
             ?? externalExplicitInterfaceMethod?.ExplicitInterfaceMemberName;
-        string? explicitInterfaceDeclarationSignature = explicitInterfaceMemberName is null
-            ? null
-            : ExplicitInterfaceMethodDeclarationSignature(
-                explicitInterfaceMemberName,
-                targetReturnType!,
-                targetTypeParameters,
-                targetParameters);
-
         var targetMembers = isConstructor && primaryConstructor is not null
             ? primaryConstructor.FieldInitializers.ToList()
             :
@@ -2868,7 +2863,6 @@ public static class CompileBackSourceComposer
                         || function.IsRuntimeAsync == MetadataFactState.Yes),
                 ConstructorInitializer: targetConstructorInitializer,
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName,
-                DeclarationSignature: explicitInterfaceDeclarationSignature,
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function))
         ];
         if (externalExplicitInterfaceMethod is { AdditionalInterfaceStubs.Count: > 0 })
@@ -3072,293 +3066,95 @@ public static class CompileBackSourceComposer
         return new CompileBackSourceResult(enrichedPlan, rendered.SourceArtifact);
     }
 
-    static ApiMember ToApiMember(CompileBackMemberRequirement member)
-    {
-        string? returnType = member.ReturnType?.DisplayName;
-        bool isExplicitInterfaceProperty = member.ExplicitInterfaceMemberName is not null
-            && member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet;
-        bool isEvent = member.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove;
-        bool isExplicitInterfaceEvent = member.ExplicitInterfaceMemberName is not null && isEvent;
-        bool isExplicitInterfaceMethod = member.ExplicitInterfaceMemberName is not null
-            && member.Kind is CompileBackMemberKind.Method;
-        var apiMember = new ApiMember
-        {
-            Name = member.ExplicitInterfaceMemberName ?? member.Identity.Method,
-            Kind = isExplicitInterfaceProperty || isExplicitInterfaceEvent || isExplicitInterfaceMethod
-                ? "explicit-interface-implementation"
-                : member.Kind switch
-                {
-                    CompileBackMemberKind.PropertyGet => "property",
-                    CompileBackMemberKind.PropertySet => "property",
-                    CompileBackMemberKind.EventAdd => "event",
-                    CompileBackMemberKind.EventRemove => "event",
-                    CompileBackMemberKind.Constructor => "constructor",
-                    CompileBackMemberKind.Method => "method",
-                    CompileBackMemberKind.Field => "field",
-                    _ => throw new NotSupportedException($"Unsupported member declaration kind '{member.Kind}'."),
-                },
-            ReturnType = returnType,
-            Signature = member.DeclarationSignature,
-            IsStatic = member.IsStatic,
-            IsAbstract = member.IsAbstract,
-            IsVirtual = member.IsVirtual,
-            IsOverride = member.IsOverride,
-            IsSealed = member.IsSealed,
-            Accessibility = AccessibilityText(member.Accessibility),
-            Attributes = member.Attributes?.ToList() ?? [],
-            IsUnsafe = member.RequiresUnsafeModifier || RequiresUnsafe(member),
-            IsAsync = member.IsAsync,
-            IsExtension = member.IsExtension,
-            IsConst = member.Kind == CompileBackMemberKind.Field
-                && member.StubBody == CompileBackStubBodyKind.TargetBody,
-            MetadataToken = member.MetadataToken,
-            GetterToken = member.GetterToken,
-            SetterToken = member.SetterToken,
-            AdderToken = member.AdderToken,
-            RemoverToken = member.RemoverToken,
-        };
-        if (member.Kind != CompileBackMemberKind.Field)
-        {
-            apiMember.SignatureModel = new ApiSignature
-            {
-                ReturnType = returnType,
-                ReturnAttributes = member.Kind == CompileBackMemberKind.Method
-                    ? member.ReturnAttributes?.ToList() ?? []
-                    : [],
-                MemberName = member.TypeParameters.Count == 0
-                    ? member.Identity.Method
-                    : $"{member.Identity.Method}<{string.Join(", ", member.TypeParameters.Select(parameter => parameter.Name))}>",
-                TypeParameters = member.TypeParameters
-                    .Select(parameter => new TypeParameter
-                    {
-                        Name = parameter.Name,
-                        Constraints = parameter.Constraints.ToList(),
-                        StructuredConstraints = parameter.StructuredConstraints,
-                    })
-                    .ToList(),
-                Parameters = member.Parameters
-                    .Select(parameter =>
-                    {
-                        var (type, modifier) = NormalizeParameter(parameter);
-                        return new ApiParameter
-                        {
-                            Attributes = parameter.Attributes?.ToList() ?? [],
-                            Name = parameter.Name,
-                            Type = type,
-                            Modifier = modifier,
-                            HasDefault = parameter.HasDefault,
-                            DefaultValueText = parameter.DefaultValueText,
-                        };
-                    })
-                    .ToList(),
-            };
-            if (member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet)
-            {
-                apiMember.SignatureModel.MemberName = member.Parameters.Count > 0
-                    ? "this[]"
-                    : apiMember.Name;
-                apiMember.SignatureModel.Accessors = PropertyAccessors(member);
-            }
-            else if (isEvent)
-            {
-                apiMember.SignatureModel.MemberName = apiMember.Name;
-                apiMember.SignatureModel.Accessors =
-                [
-                    new ApiAccessor { Kind = "add" },
-                    new ApiAccessor { Kind = "remove" },
-                ];
-            }
-        }
-        return apiMember;
-    }
-
-    static List<ApiAccessor> PropertyAccessors(CompileBackMemberRequirement member)
-    {
-        // AutoPropertyGetInit renders a get/init auto-property. The compiler-synthesized init
-        // accessor faithfully reproduces the original init setter body, so the sibling/target
-        // setter stays represented (not dropped) while remaining honest about its init-only shape.
-        bool isAutoGetInit = member.StubBody is CompileBackStubBodyKind.AutoPropertyGetInit;
-        // Explicit-body init accessors must be spelled `init`, not `set`; otherwise the round-trip
-        // silently downgrades an init-only property to a public setter (dropping the required
-        // modreq(IsExternalInit)) while still reporting the body Complete.
-        bool setterIsInit = member.StubBody is CompileBackStubBodyKind.TargetGetterWithInitSetter
-            or CompileBackStubBodyKind.TargetInitSetterWithGetter
-            or CompileBackStubBodyKind.TargetInitBody
-            or CompileBackStubBodyKind.ThrowGetInit;
-        bool hasGetter = isAutoGetInit
-            || member.Kind == CompileBackMemberKind.PropertyGet
-            || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
-                or CompileBackStubBodyKind.ThrowGetSet
-                or CompileBackStubBodyKind.ThrowGetInit
-                or CompileBackStubBodyKind.TargetSetterWithGetter
-                or CompileBackStubBodyKind.TargetInitSetterWithGetter;
-        bool hasSetter = !isAutoGetInit
-            && (member.Kind == CompileBackMemberKind.PropertySet
-                || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
-                    or CompileBackStubBodyKind.ThrowGetSet
-                    or CompileBackStubBodyKind.ThrowGetInit
-                    or CompileBackStubBodyKind.TargetGetterWithSetter
-                    or CompileBackStubBodyKind.TargetGetterWithInitSetter);
-        var accessors = new List<ApiAccessor>();
-        if (hasGetter)
-        {
-            accessors.Add(new ApiAccessor
-            {
-                Kind = "get",
-                ReturnAttributes = member.ReturnAttributes?.ToList() ?? [],
-            });
-        }
-        if (hasSetter)
-            accessors.Add(new ApiAccessor { Kind = setterIsInit ? "init" : "set" });
-        if (isAutoGetInit)
-            accessors.Add(new ApiAccessor { Kind = "init" });
-        return accessors;
-    }
-
     static CSharpMemberPolicy ToMemberPolicy(
         CompileBackMemberRequirement requirement,
         int primaryConstructorParameterCount)
-    {
-        var member = ToApiMember(requirement);
-        return requirement.StubBody switch
-        {
-            CompileBackStubBodyKind.None
-                => new(member, CSharpBodyPolicy.Skeleton),
-            CompileBackStubBodyKind.AutoProperty
-                => new(member, CSharpBodyPolicy.Skeleton),
-            CompileBackStubBodyKind.AutoPropertyGetSet
-                => new(member, CSharpBodyPolicy.Skeleton),
-            CompileBackStubBodyKind.AutoPropertyGetInit
-                => new(member, CSharpBodyPolicy.Skeleton),
-            CompileBackStubBodyKind.Throw when requirement.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
-                => new(member, CSharpBodyPolicy.Stub, PropertyBody(requirement, CSharpAccessorBody.Throw)),
-            CompileBackStubBodyKind.Throw when requirement.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove
-                => new(
-                    member,
-                    CSharpBodyPolicy.Stub,
-                    new CSharpEventBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw)),
-            CompileBackStubBodyKind.Throw when requirement.Kind == CompileBackMemberKind.Constructor
-                && primaryConstructorParameterCount > 0
-                => new(
-                    member,
-                    CSharpBodyPolicy.Stub,
-                    new CSharpBlockBody(
-                        "throw null;",
-                        new CSharpConstructorInitializer(
-                            CSharpConstructorInitializerKind.This,
-                            Enumerable.Repeat("default", primaryConstructorParameterCount).ToArray()))),
-            CompileBackStubBodyKind.Throw
-                => new(member, CSharpBodyPolicy.Stub),
-            CompileBackStubBodyKind.ThrowGetSet
-                => new(
-                    member,
-                    CSharpBodyPolicy.Stub,
-                    new CSharpPropertyBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw)),
-            CompileBackStubBodyKind.ThrowGetInit
-                => new(
-                    member,
-                    CSharpBodyPolicy.Stub,
-                    new CSharpPropertyBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw)),
-            CompileBackStubBodyKind.TargetBody when requirement.Kind == CompileBackMemberKind.Field
-                => new(member, CSharpBodyPolicy.Full, new CSharpFieldInitializer(requirement.TargetBody!)),
-            CompileBackStubBodyKind.TargetBody when requirement.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
-                => new(
-                    member,
-                    CSharpBodyPolicy.Full,
-                    PropertyBody(requirement, TargetAccessorBody(requirement.TargetBody!))),
-            CompileBackStubBodyKind.TargetInitBody
-                => new(
-                    member,
-                    CSharpBodyPolicy.Full,
-                    PropertyBody(requirement, TargetAccessorBody(requirement.TargetBody!))),
-            CompileBackStubBodyKind.TargetBody when requirement.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove
-                => new(
-                    member,
-                    CSharpBodyPolicy.Full,
-                    EventBody(requirement, TargetAccessorBody(requirement.TargetBody!))),
-            CompileBackStubBodyKind.TargetEventAccessorWithSibling
-                => new(
-                    member,
-                    CSharpBodyPolicy.Full,
-                    EventBody(
-                        requirement,
-                        TargetAccessorBody(requirement.TargetBody!),
-                        CSharpAccessorBody.Block(requirement.SiblingTargetBody!))),
-            CompileBackStubBodyKind.TargetBody when requirement.Kind == CompileBackMemberKind.Constructor
-                && primaryConstructorParameterCount > 0
-                => new(
-                    member,
-                    CSharpBodyPolicy.Full,
-                    TargetBlockBody(
-                        requirement.TargetBody!,
-                        new CSharpConstructorInitializer(
-                            CSharpConstructorInitializerKind.This,
-                            Enumerable.Repeat("default", primaryConstructorParameterCount).ToArray()))),
-            CompileBackStubBodyKind.TargetBody when requirement.Kind == CompileBackMemberKind.Constructor
-                && CSharpFormatter.ParseConstructorInitializer(requirement.ConstructorInitializer) is { } capturedInitializer
-                => new(
-                    member,
-                    CSharpBodyPolicy.Full,
-                    TargetBlockBody(requirement.TargetBody!, capturedInitializer)),
-            CompileBackStubBodyKind.TargetBody
-                => new(member, CSharpBodyPolicy.Full, TargetBlockBody(requirement.TargetBody!)),
-            CompileBackStubBodyKind.TargetGetterWithSetter
-                => new(
-                    member,
-                    CSharpBodyPolicy.Full,
-                    new CSharpPropertyBody(
-                        TargetAccessorBody(requirement.TargetBody!),
-                        CSharpAccessorBody.Throw)),
-            CompileBackStubBodyKind.TargetGetterWithInitSetter
-                => new(
-                    member,
-                    CSharpBodyPolicy.Full,
-                    new CSharpPropertyBody(
-                        TargetAccessorBody(requirement.TargetBody!),
-                        CSharpAccessorBody.Throw)),
-            CompileBackStubBodyKind.TargetSetterWithGetter
-                => new(
-                    member,
-                    CSharpBodyPolicy.Full,
-                    new CSharpPropertyBody(
-                        CSharpAccessorBody.Throw,
-                        TargetAccessorBody(requirement.TargetBody!))),
-            CompileBackStubBodyKind.TargetInitSetterWithGetter
-                => new(
-                    member,
-                    CSharpBodyPolicy.Full,
-                    new CSharpPropertyBody(
-                        CSharpAccessorBody.Throw,
-                        TargetAccessorBody(requirement.TargetBody!))),
-            CompileBackStubBodyKind.FieldInitializer
-                => new(member, CSharpBodyPolicy.Full, new CSharpFieldInitializer(requirement.TargetBody!)),
-            _ => throw new NotSupportedException(
-                $"Unsupported RTS member body shape '{requirement.StubBody}'."),
-        };
-    }
+        => CSharpMemberShellProducer.BuildPolicy(
+            ToMemberShellSpec(requirement),
+            primaryConstructorParameterCount);
 
-    static CSharpBlockBody TargetBlockBody(
-        string source,
-        CSharpConstructorInitializer? constructorInitializer = null)
-        => new(source, constructorInitializer) { IsReplacementTarget = true };
+    static CSharpMemberShellSpec ToMemberShellSpec(CompileBackMemberRequirement requirement)
+        => new(
+            Name: requirement.Identity.Method,
+            Kind: requirement.Kind switch
+            {
+                CompileBackMemberKind.PropertyGet => CSharpShellMemberKind.PropertyGet,
+                CompileBackMemberKind.PropertySet => CSharpShellMemberKind.PropertySet,
+                CompileBackMemberKind.EventAdd => CSharpShellMemberKind.EventAdd,
+                CompileBackMemberKind.EventRemove => CSharpShellMemberKind.EventRemove,
+                CompileBackMemberKind.Constructor => CSharpShellMemberKind.Constructor,
+                CompileBackMemberKind.Method => CSharpShellMemberKind.Method,
+                CompileBackMemberKind.Field => CSharpShellMemberKind.Field,
+                _ => throw new NotSupportedException(
+                    $"Unsupported member declaration kind '{requirement.Kind}'."),
+            },
+            IsStatic: requirement.IsStatic,
+            Parameters: requirement.Parameters.Select(ToShellParameter).ToArray(),
+            ReturnType: requirement.ReturnType?.DisplayName,
+            TypeParameters: requirement.TypeParameters
+                .Select(parameter => new CSharpShellTypeParameter(
+                    parameter.Name,
+                    parameter.Constraints,
+                    parameter.StructuredConstraints,
+                    parameter.TypeKind))
+                .ToArray(),
+            BodyKind: requirement.StubBody switch
+            {
+                CompileBackStubBodyKind.None => CSharpShellBodyKind.None,
+                CompileBackStubBodyKind.Throw => CSharpShellBodyKind.Throw,
+                CompileBackStubBodyKind.ThrowInit => CSharpShellBodyKind.ThrowInit,
+                CompileBackStubBodyKind.ThrowGetSet => CSharpShellBodyKind.ThrowGetSet,
+                CompileBackStubBodyKind.ThrowGetInit => CSharpShellBodyKind.ThrowGetInit,
+                CompileBackStubBodyKind.TargetBody => CSharpShellBodyKind.TargetBody,
+                CompileBackStubBodyKind.TargetGetterWithSetter => CSharpShellBodyKind.TargetGetterWithSetter,
+                CompileBackStubBodyKind.TargetGetterWithInitSetter => CSharpShellBodyKind.TargetGetterWithInitSetter,
+                CompileBackStubBodyKind.TargetSetterWithGetter => CSharpShellBodyKind.TargetSetterWithGetter,
+                CompileBackStubBodyKind.TargetInitSetterWithGetter => CSharpShellBodyKind.TargetInitSetterWithGetter,
+                CompileBackStubBodyKind.TargetInitBody => CSharpShellBodyKind.TargetInitBody,
+                CompileBackStubBodyKind.TargetEventAccessorWithSibling => CSharpShellBodyKind.TargetEventAccessorWithSibling,
+                CompileBackStubBodyKind.AutoProperty => CSharpShellBodyKind.AutoProperty,
+                CompileBackStubBodyKind.AutoPropertyGetSet => CSharpShellBodyKind.AutoPropertyGetSet,
+                CompileBackStubBodyKind.AutoPropertyGetInit => CSharpShellBodyKind.AutoPropertyGetInit,
+                CompileBackStubBodyKind.InitOnlyProperty => CSharpShellBodyKind.InitOnlyProperty,
+                CompileBackStubBodyKind.FieldInitializer => CSharpShellBodyKind.FieldInitializer,
+                _ => throw new NotSupportedException(
+                    $"Unsupported RTS member body shape '{requirement.StubBody}'."),
+            },
+            Body: requirement.TargetBody,
+            Attributes: requirement.Attributes,
+            ReturnAttributes: requirement.ReturnAttributes,
+            IsAbstract: requirement.IsAbstract,
+            IsVirtual: requirement.IsVirtual,
+            IsOverride: requirement.IsOverride,
+            IsSealed: requirement.IsSealed,
+            IsAsync: requirement.IsAsync,
+            IsExtension: requirement.IsExtension,
+            Accessibility: requirement.Accessibility switch
+            {
+                CompileBackAccessibility.Public => CSharpShellAccessibility.Public,
+                CompileBackAccessibility.Protected => CSharpShellAccessibility.Protected,
+                _ => throw new NotSupportedException(
+                    $"Unsupported compile-back accessibility '{requirement.Accessibility}'."),
+            },
+            ConstructorInitializer: requirement.ConstructorInitializer,
+            ExplicitInterfaceMemberName: requirement.ExplicitInterfaceMemberName,
+            DeclarationSignature: requirement.DeclarationSignature,
+            RequiresUnsafeModifier: requirement.RequiresUnsafeModifier,
+            SiblingBody: requirement.SiblingTargetBody,
+            MetadataToken: requirement.MetadataToken,
+            GetterToken: requirement.GetterToken,
+            SetterToken: requirement.SetterToken,
+            AdderToken: requirement.AdderToken,
+            RemoverToken: requirement.RemoverToken);
 
-    static CSharpAccessorBody TargetAccessorBody(string source)
-        => CSharpAccessorBody.Block(source) with { IsReplacementTarget = true };
-
-    static CSharpPropertyBody PropertyBody(
-        CompileBackMemberRequirement requirement,
-        CSharpAccessorBody body)
-        => requirement.Kind == CompileBackMemberKind.PropertyGet
-            ? new CSharpPropertyBody(body, null)
-            : new CSharpPropertyBody(null, body);
-
-    static CSharpEventBody EventBody(
-        CompileBackMemberRequirement requirement,
-        CSharpAccessorBody body,
-        CSharpAccessorBody? siblingBody = null)
-        => requirement.Kind == CompileBackMemberKind.EventAdd
-            ? new CSharpEventBody(body, siblingBody ?? CSharpAccessorBody.Throw)
-            : new CSharpEventBody(siblingBody ?? CSharpAccessorBody.Throw, body);
+    static CSharpShellParameter ToShellParameter(CompileBackParameter parameter)
+        => new(
+            parameter.Name,
+            parameter.Type.DisplayName,
+            parameter.Modifier,
+            parameter.Attributes,
+            parameter.HasDefault,
+            parameter.DefaultValueText);
 
     static CompileBackParameter ToCompileBackParameter(ApiParameter parameter)
         => new(
@@ -3370,18 +3166,7 @@ public static class CompileBackSourceComposer
             parameter.DefaultValueText);
 
     static ApiParameter ToApiParameter(CompileBackParameter parameter)
-    {
-        var (type, modifier) = NormalizeParameter(parameter);
-        return new ApiParameter
-        {
-            Attributes = parameter.Attributes?.ToList() ?? [],
-            Name = parameter.Name,
-            Type = type,
-            Modifier = modifier,
-            HasDefault = parameter.HasDefault,
-            DefaultValueText = parameter.DefaultValueText,
-        };
-    }
+        => CSharpMemberShellProducer.BuildParameter(ToShellParameter(parameter));
 
     static IReadOnlyList<CompileBackParameter> ToCompileBackParameters(IEnumerable<ApiParameter> parameters)
         => parameters.Select(ToCompileBackParameter).ToArray();
@@ -3392,25 +3177,9 @@ public static class CompileBackSourceComposer
                 parameter.Name,
                 parameter.Constraints,
                 parameter.Variance,
-                parameter.StructuredConstraints))
+                parameter.StructuredConstraints,
+                parameter.TypeKind))
             .ToArray();
-
-    static string AccessibilityText(CompileBackAccessibility accessibility)
-        => accessibility switch
-        {
-            CompileBackAccessibility.Public => "public",
-            CompileBackAccessibility.Protected => "protected",
-            _ => "public",
-        };
-
-    static bool RequiresUnsafe(CompileBackMemberRequirement member)
-        => (member.ReturnType is { } returnType
-                && CSharpFormatter.TypeRequiresUnsafeModifier(returnType.DisplayName))
-            || member.Parameters.Any(parameter =>
-                CSharpFormatter.TypeRequiresUnsafeModifier(parameter.Type.DisplayName))
-            || (member.TargetBody is { } body && CSharpFormatter.RequiresUnsafeModifier(body))
-            || (member.DeclarationSignature?.StartsWith("fixed ", StringComparison.Ordinal) == true);
-
 
     static IReadOnlyList<CompileBackParameter> MethodParameters(
         MetadataReader reader,
@@ -3913,28 +3682,15 @@ public static class CompileBackSourceComposer
 
     static string RenderParameter(CompileBackParameter parameter)
     {
-        var (type, modifier) = NormalizeParameter(parameter);
-        var declaration = string.IsNullOrWhiteSpace(modifier)
-            ? $"{type} {parameter.Name}"
-            : $"{modifier} {type} {parameter.Name}";
-        if (parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 })
-            declaration = $"{declaration} = {parameter.DefaultValueText}";
-        return parameter.Attributes is { Count: > 0 }
-            ? $"[{string.Join(", ", parameter.Attributes)}] {declaration}"
+        var apiParameter = CSharpMemberShellProducer.BuildParameter(ToShellParameter(parameter));
+        var declaration = string.IsNullOrWhiteSpace(apiParameter.Modifier)
+            ? $"{apiParameter.Type} {apiParameter.Name}"
+            : $"{apiParameter.Modifier} {apiParameter.Type} {apiParameter.Name}";
+        if (apiParameter.HasDefault && apiParameter.DefaultValueText is { Length: > 0 })
+            declaration = $"{declaration} = {apiParameter.DefaultValueText}";
+        return apiParameter.Attributes is { Count: > 0 }
+            ? $"[{string.Join(", ", apiParameter.Attributes)}] {declaration}"
             : declaration;
-    }
-
-    static (string Type, string? Modifier) NormalizeParameter(CompileBackParameter parameter)
-    {
-        string type = parameter.Type.DisplayName;
-        string? modifier = parameter.Modifier;
-        if (type.StartsWith("ref ", StringComparison.Ordinal))
-        {
-            type = type["ref ".Length..];
-            modifier ??= "ref";
-        }
-
-        return (type, modifier);
     }
 
     static Dictionary<int, string> ParameterNames(MetadataReader reader, MethodDefinition method)
@@ -4631,6 +4387,11 @@ public static class CompileBackSourceComposer
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
             var accessors = property.GetAccessors();
+            bool hasGetter = !accessors.Getter.IsNil;
+            bool hasSetter = !accessors.Setter.IsNil;
+            if (!hasGetter && !hasSetter)
+                return null;
+
             string propertyName = reader.GetString(property.Name);
             if (propertyName.Contains('<', StringComparison.Ordinal))
                 return null;
@@ -4654,32 +4415,20 @@ public static class CompileBackSourceComposer
             var accessorMethod = accessor.IsNil ? default : reader.GetMethodDefinition(accessor);
             bool isStatic = !accessor.IsNil && accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
             var returnType = CompileBackTypeSignature.Display(propertyReturnType);
-            bool isAutoProperty = !accessors.Getter.IsNil
+            bool isAutoProperty = hasGetter
                 && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
-            bool hasSetter = !accessors.Setter.IsNil;
             bool isInitSetter = hasSetter && SetterIsInitOnly(reader, accessors.Setter);
             bool isAbstractAccessor = !accessor.IsNil && propertyDeclaration.IsAbstract;
             var noBodyProperty = (typeDef.Attributes & TypeAttributes.Interface) != 0 || isAbstractAccessor;
-            var stubBody = noBodyProperty
-                ? hasSetter
-                    ? isInitSetter
-                        ? CompileBackStubBodyKind.AutoPropertyGetInit
-                        : CompileBackStubBodyKind.AutoPropertyGetSet
-                    : CompileBackStubBodyKind.None
-                : hasSetter && isAutoProperty
-                    ? isInitSetter
-                        ? CompileBackStubBodyKind.AutoPropertyGetInit
-                        : CompileBackStubBodyKind.AutoPropertyGetSet
-                    : isAutoProperty
-                        ? CompileBackStubBodyKind.AutoProperty
-                        : hasSetter
-                            ? isInitSetter
-                                ? CompileBackStubBodyKind.ThrowGetInit
-                                : CompileBackStubBodyKind.ThrowGetSet
-                            : CompileBackStubBodyKind.Throw;
+            var stubBody = PropertyStubBody(
+                hasGetter,
+                hasSetter,
+                isInitSetter,
+                isAutoProperty,
+                noBodyProperty);
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, Identifier(propertyName), 0, $"property {propertyReturnType}"),
-                CompileBackMemberKind.PropertyGet,
+                hasGetter ? CompileBackMemberKind.PropertyGet : CompileBackMemberKind.PropertySet,
                 isStatic,
                 ToCompileBackParameters(propertyDeclaration.Signature.Parameters),
                 returnType,
@@ -4692,6 +4441,42 @@ public static class CompileBackSourceComposer
                 IsAbstract: isAbstractAccessor,
                 IsVirtual: !accessor.IsNil && propertyDeclaration.IsVirtual,
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName);
+        }
+
+        static CompileBackStubBodyKind PropertyStubBody(
+            bool hasGetter,
+            bool hasSetter,
+            bool isInitSetter,
+            bool isAutoProperty,
+            bool noBodyProperty)
+        {
+            if (!hasGetter)
+            {
+                return noBodyProperty
+                    ? isInitSetter
+                        ? CompileBackStubBodyKind.InitOnlyProperty
+                        : CompileBackStubBodyKind.None
+                    : isInitSetter
+                        ? CompileBackStubBodyKind.ThrowInit
+                        : CompileBackStubBodyKind.Throw;
+            }
+            if (!hasSetter)
+            {
+                return noBodyProperty
+                    ? CompileBackStubBodyKind.None
+                    : isAutoProperty
+                        ? CompileBackStubBodyKind.AutoProperty
+                        : CompileBackStubBodyKind.Throw;
+            }
+            if (noBodyProperty || isAutoProperty)
+            {
+                return isInitSetter
+                    ? CompileBackStubBodyKind.AutoPropertyGetInit
+                    : CompileBackStubBodyKind.AutoPropertyGetSet;
+            }
+            return isInitSetter
+                ? CompileBackStubBodyKind.ThrowGetInit
+                : CompileBackStubBodyKind.ThrowGetSet;
         }
 
         internal static CompileBackMemberRequirement? EventRequirement(
@@ -5457,37 +5242,30 @@ public static class CompileBackSourceComposer
                     continue;
 
                 var accessor = accessors.Getter.IsNil ? accessors.Setter : accessors.Getter;
+                bool hasGetter = !accessors.Getter.IsNil;
+                bool hasSetter = !accessors.Setter.IsNil;
+                if (!hasGetter && !hasSetter)
+                    continue;
+
                 var accessorMethod = accessor.IsNil ? default : reader.GetMethodDefinition(accessor);
                 bool isStatic = !accessor.IsNil && accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
                 if (requirement.RequiredKind == CompileBackTypeKind.Interface && isStatic)
                     continue;
                 var returnType = CompileBackTypeSignature.Display(propertyReturnType);
-                bool isAutoProperty = !accessors.Getter.IsNil
+                bool isAutoProperty = hasGetter
                     && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
-                bool hasSetter = !accessors.Setter.IsNil;
                 bool isInitSetter = hasSetter && SetterIsInitOnly(reader, accessors.Setter);
                 bool isAbstractAccessor = !accessor.IsNil && propertyDeclaration.IsAbstract;
                 var noBodyProperty = requirement.RequiredKind == CompileBackTypeKind.Interface || isAbstractAccessor;
-                var stubBody = noBodyProperty
-                    ? hasSetter
-                        ? isInitSetter
-                            ? CompileBackStubBodyKind.AutoPropertyGetInit
-                            : CompileBackStubBodyKind.AutoPropertyGetSet
-                        : CompileBackStubBodyKind.None
-                    : hasSetter && isAutoProperty
-                        ? isInitSetter
-                            ? CompileBackStubBodyKind.AutoPropertyGetInit
-                            : CompileBackStubBodyKind.AutoPropertyGetSet
-                        : isAutoProperty
-                            ? CompileBackStubBodyKind.AutoProperty
-                            : hasSetter
-                                ? isInitSetter
-                                    ? CompileBackStubBodyKind.ThrowGetInit
-                                    : CompileBackStubBodyKind.ThrowGetSet
-                                : CompileBackStubBodyKind.Throw;
+                var stubBody = PropertyStubBody(
+                    hasGetter,
+                    hasSetter,
+                    isInitSetter,
+                    isAutoProperty,
+                    noBodyProperty);
                 members.Add(new CompileBackMemberRequirement(
                     new CompileBackMethodIdentity(requirement.Type.FullName, Identifier(propertyName), 0, $"property {propertyReturnType}"),
-                    CompileBackMemberKind.PropertyGet,
+                    hasGetter ? CompileBackMemberKind.PropertyGet : CompileBackMemberKind.PropertySet,
                     IsStatic: isStatic,
                     Parameters: [],
                     ReturnType: returnType,

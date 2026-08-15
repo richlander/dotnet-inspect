@@ -25,7 +25,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 static class DefiniteAssignment
 {
-    enum DefiniteFlow { FallThrough, Break, Return, Bail }
+    enum DefiniteFlow { FallThrough, Break, Return, Goto, Bail }
 
     /// <summary>
     /// Computes the locals that may be read before they are definitely assigned
@@ -43,6 +43,9 @@ static class DefiniteAssignment
     {
         var readEarly = new HashSet<int>();
         bool bailed = false;
+        Dictionary<int, List<HashSet<int>>>? structuredGotoReaching = null;
+        IReadOnlyDictionary<int, int>? structuredGotoTargetIndices = null;
+        int structuredGotoSourceIndex = -1;
 
         void BailAll()
         {
@@ -333,6 +336,13 @@ static class DefiniteAssignment
 
         DefiniteFlow Container(BlockContainer container, HashSet<int> assigned)
         {
+            if (HasOnlyForwardStructuredGotos(container))
+                return StructuredGotoContainer(container, assigned);
+            if (container.ContainsRetainedBranches && HasNestedStructuredGotos(container))
+            {
+                BailAll();
+                return DefiniteFlow.Bail;
+            }
             if (IsFlat(container))
                 return CfgContainer(container, assigned);
             foreach (var block in container.Blocks)
@@ -342,6 +352,103 @@ static class DefiniteAssignment
                     return flow;
             }
             return DefiniteFlow.FallThrough;
+        }
+
+        bool HasOnlyForwardStructuredGotos(BlockContainer container)
+        {
+            var blocks = container.Blocks;
+            if (!TryBuildTargetIndices(blocks, out var targets))
+                return false;
+            bool found = false;
+            for (int source = 0; source < blocks.Count; source++)
+            {
+                foreach (var node in blocks[source].DescendantsOutsideNestedFunctions)
+                {
+                    if (node is ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
+                        return false;
+                    if (node is not Branch branch)
+                        continue;
+                    found = true;
+                    if (!targets.TryGetValue(branch.TargetOffset, out int target) || target <= source)
+                        return false;
+                }
+            }
+            return found;
+        }
+
+        static bool HasNestedStructuredGotos(BlockContainer container)
+        {
+            foreach (var block in container.Blocks)
+            {
+                foreach (var node in block.DescendantsOutsideNestedFunctions)
+                {
+                    if (node is Branch
+                        && !block.Children.Any(child => ReferenceEquals(child, node)))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        DefiniteFlow StructuredGotoContainer(BlockContainer container, HashSet<int> entryAssigned)
+        {
+            var blocks = container.Blocks;
+            if (!TryBuildTargetIndices(blocks, out var targetIndices))
+            {
+                BailAll();
+                return DefiniteFlow.Bail;
+            }
+            var reaching = new Dictionary<int, List<HashSet<int>>>();
+            HashSet<int>? fallthrough = new(entryAssigned);
+            DefiniteFlow finalFlow = DefiniteFlow.Return;
+
+            for (int index = 0; index < blocks.Count; index++)
+            {
+                var incoming = reaching.GetValueOrDefault(blocks[index].StartOffset) ?? [];
+                if (fallthrough is not null)
+                    incoming.Add(fallthrough);
+                if (incoming.Count == 0)
+                {
+                    fallthrough = null;
+                    continue;
+                }
+
+                var assigned = new HashSet<int>(incoming[0]);
+                foreach (var predecessor in incoming.Skip(1))
+                    assigned.IntersectWith(predecessor);
+
+                structuredGotoReaching = reaching;
+                structuredGotoTargetIndices = targetIndices;
+                structuredGotoSourceIndex = index;
+                var flow = Sequence(blocks[index].Children, assigned);
+                structuredGotoReaching = null;
+                structuredGotoTargetIndices = null;
+                structuredGotoSourceIndex = -1;
+                if (flow == DefiniteFlow.Bail)
+                    return flow;
+
+                fallthrough = flow == DefiniteFlow.FallThrough ? assigned : null;
+                finalFlow = flow;
+            }
+
+            if (fallthrough is not null)
+            {
+                entryAssigned.Clear();
+                entryAssigned.UnionWith(fallthrough);
+                return DefiniteFlow.FallThrough;
+            }
+            return finalFlow == DefiniteFlow.Goto ? DefiniteFlow.Return : finalFlow;
+        }
+
+        static bool TryBuildTargetIndices(
+            IReadOnlyList<Block> blocks,
+            out Dictionary<int, int> targetIndices)
+        {
+            targetIndices = new Dictionary<int, int>(blocks.Count);
+            for (int index = 0; index < blocks.Count; index++)
+                if (!targetIndices.TryAdd(blocks[index].StartOffset, index))
+                    return false;
+            return true;
         }
 
         // Forward must-dataflow over a goto-connected container: a local is
@@ -563,6 +670,15 @@ static class DefiniteAssignment
                     assigned.Add(usingNode.LocalIndex);
                     return Container(usingNode.Body, assigned);
                 // Unmodeled control flow: stop trusting the program order.
+                case Branch branch
+                    when structuredGotoReaching is not null
+                    && structuredGotoTargetIndices is not null
+                    && structuredGotoTargetIndices.TryGetValue(branch.TargetOffset, out int target)
+                    && target > structuredGotoSourceIndex:
+                    if (!structuredGotoReaching.TryGetValue(branch.TargetOffset, out var reaching))
+                        structuredGotoReaching[branch.TargetOffset] = reaching = [];
+                    reaching.Add(new HashSet<int>(assigned));
+                    return DefiniteFlow.Goto;
                 case Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter:
                     BailAll();
                     return DefiniteFlow.Bail;
@@ -594,6 +710,8 @@ static class DefiniteAssignment
                 return DefiniteFlow.FallThrough;
             if (thenFlow == DefiniteFlow.Bail || elseFlow == DefiniteFlow.Bail)
                 return DefiniteFlow.Bail;
+            if (thenFlow == DefiniteFlow.Goto || elseFlow == DefiniteFlow.Goto)
+                return DefiniteFlow.Goto;
             // Neither arm falls through; treat a mixed leave as the one that may
             // reach an enclosing switch/loop (break), which is the safe choice.
             return thenFlow == DefiniteFlow.Break || elseFlow == DefiniteFlow.Break

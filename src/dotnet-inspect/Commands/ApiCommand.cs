@@ -1526,8 +1526,8 @@ public class ApiCommand
 
             JsonOutputHelper.Write(
                 sourceDocument,
-                AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument,
-                AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument,
+                Decompiler.AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument,
+                Decompiler.AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument,
                 options.CompactJson);
             return 0;
         }

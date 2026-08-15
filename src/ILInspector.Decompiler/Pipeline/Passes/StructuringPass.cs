@@ -151,9 +151,11 @@ internal sealed class StructuringFlowFacts
 /// of T's statements, dissolving shared-terminator joins that otherwise break
 /// strict nesting. The pass is two-phase: the whole function is validated
 /// against the slice (forward branches plus explicit EH path terminators;
-/// loops and switch stay flat) before any mutation, so a function either
-/// structures completely or keeps the always-correct flat form. Conditions
-/// render the fallthrough arm first, matching the current emitter's guard style.
+/// loops and switch stay flat) before any mutation. When that whole-container
+/// path declines, a second transactional path may structure proven acyclic,
+/// non-crossing forward regions while retaining their shared merge labels and
+/// gotos; every selected range is planned before mutation. Conditions render
+/// the fallthrough arm first, matching the current emitter's guard style.
 /// </summary>
 public sealed class StructuringPass : IIrPass
 {
@@ -195,6 +197,7 @@ public sealed class StructuringPass : IIrPass
         /// </summary>
         public required HashSet<int> ScatteredReturnDispatchTargets { get; init; }
         public int? RegionExitLeaveTarget { get; init; }
+        public int? RetainedMergeIndex { get; init; }
 
         /// <summary>
         /// First-wins recorder for the deepest direct stop reason, populated only
@@ -213,6 +216,7 @@ public sealed class StructuringPass : IIrPass
     }
 
     readonly record struct WhileShape(int ContinueAt, ConditionalBranch BackBranch, ConditionalBranch? ExitBranch);
+    readonly record struct RetainedRange(int Start, int Merge);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -336,6 +340,7 @@ public sealed class StructuringPass : IIrPass
             IsComparisonTree = isComparisonTree,
             ScatteredReturnDispatchTargets = scatteredReturnDispatchTargets,
             RegionExitLeaveTarget = NormalEhContinuationTarget(container),
+            RetainedMergeIndex = null,
             Recorder = recorder,
         };
 
@@ -349,6 +354,8 @@ public sealed class StructuringPass : IIrPass
 
         if (!Validate(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null, continueTarget: null))
         {
+            if (TryStructureRetainedRegions(container, ctx, context))
+                return;
             context.StructuringDiagnostics?.RecordStop(recorder?.Reason ?? "unknown");
             return;
         }
@@ -364,6 +371,305 @@ public sealed class StructuringPass : IIrPass
         replacement.Add(structured);
         container.ReplaceWith(replacement);
     }
+
+    static bool TryStructureRetainedRegions(BlockContainer container, Ctx sourceCtx, PassContext context)
+    {
+        if (sourceCtx.FlowFacts.OffsetToIndex.Count != sourceCtx.Blocks.Count)
+        {
+            context.StructuringDiagnostics?.RecordRetainedDecline("retained-duplicate-offset");
+            return false;
+        }
+
+        var plan = StructuringJoinAnalysis.Analyze(sourceCtx.Blocks);
+        foreach (var _ in plan.BackEdgeRegions)
+            context.StructuringDiagnostics?.RecordRetainedDecline("retained-back-edge-region");
+
+        var ranges = PlanRetainedRanges(sourceCtx, plan, context.StructuringDiagnostics);
+        if (ranges.Count == 0)
+        {
+            if (!plan.UnrootedDecisions.IsEmpty)
+                context.StructuringDiagnostics?.RecordRetainedDecline("retained-unrooted");
+            if (!plan.VirtualExitDecisions.IsEmpty)
+                context.StructuringDiagnostics?.RecordRetainedDecline("retained-virtual-exit");
+            return false;
+        }
+
+        var clonedBlocks = sourceCtx.Blocks.Select(CloneBlock).ToList();
+        var template = CreateRetainedCtx(sourceCtx, clonedBlocks, retainedMergeIndex: null);
+        var buildContexts = ranges
+            .Select(range => CopyRetainedCtx(template, range.Merge))
+            .ToList();
+
+        context.Stepper.StepOver(
+            $"structure {ranges.Count} retained-merge region(s) in container at IL_{sourceCtx.Blocks[0].StartOffset:X4}",
+            container);
+
+        var replacement = new BlockContainer
+        {
+            ContainsRetainedBranches = true,
+        };
+        int cursor = 0;
+        for (int rangeIndex = 0; rangeIndex < ranges.Count; rangeIndex++)
+        {
+            var range = ranges[rangeIndex];
+            while (cursor < range.Start)
+                replacement.Add(clonedBlocks[cursor++]);
+
+            replacement.Add(BuildRegion(
+                buildContexts[rangeIndex],
+                range.Start,
+                range.Merge,
+                joinIndex: range.Merge,
+                breakTarget: null,
+                continueTarget: null));
+            cursor = range.Merge;
+            context.StructuringDiagnostics?.RecordRetainedRegion();
+        }
+
+        while (cursor < clonedBlocks.Count)
+            replacement.Add(clonedBlocks[cursor++]);
+
+        context.StructuringDiagnostics?.RecordStructured();
+        container.ReplaceWith(replacement);
+        return true;
+    }
+
+    static List<RetainedRange> PlanRetainedRanges(
+        Ctx sourceCtx,
+        StructuringJoinPlan plan,
+        StructuringDiagnostics? diagnostics)
+    {
+        var ranges = new List<RetainedRange>();
+        int cursor = 0;
+        while (cursor < sourceCtx.Blocks.Count)
+        {
+            int start = plan.ForwardRegions
+                .Where(region => region.Start >= cursor)
+                .Select(region => region.Start)
+                .DefaultIfEmpty(-1)
+                .Min();
+            if (start < 0)
+                break;
+
+            StructuringJoinRegion? selected = null;
+            foreach (var candidate in plan.ForwardRegions
+                .Where(region => region.Start == start)
+                .OrderByDescending(region => region.Merge))
+            {
+                string? decline = RetainedCandidateDecline(sourceCtx, candidate);
+                if (decline is null
+                    && ValidateRetainedCandidate(sourceCtx, candidate, retained: false))
+                {
+                    decline = "retained-not-required";
+                }
+                if (decline is null
+                    && !ValidateRetainedCandidate(sourceCtx, candidate, retained: true))
+                {
+                    decline = "retained-validation-failed";
+                }
+
+                if (decline is null)
+                {
+                    selected = candidate;
+                    break;
+                }
+
+                diagnostics?.RecordRetainedDecline(decline);
+            }
+
+            if (selected is { } accepted)
+            {
+                ranges.Add(new RetainedRange(accepted.Start, accepted.Merge));
+                cursor = accepted.Merge;
+            }
+            else
+            {
+                cursor = start + 1;
+            }
+        }
+
+        return ranges;
+    }
+
+    static string? RetainedCandidateDecline(Ctx ctx, StructuringJoinRegion candidate)
+    {
+        if (RegionHasExternalEntry(ctx, candidate.Start, candidate.Merge))
+            return "retained-external-entry";
+        if (!candidate.IsNonCrossing)
+            return "retained-crossing";
+        if (candidate.IsBackEdgeEntangled)
+            return "retained-back-edge-entangled";
+        if (candidate.Merge <= candidate.Start || candidate.Merge >= ctx.Blocks.Count)
+            return "retained-merge-outside-container";
+
+        for (int source = candidate.Start; source < candidate.Merge; source++)
+        {
+            foreach (var node in ctx.Blocks[source].DescendantsOutsideNestedFunctions)
+            {
+                if (node is TryCatch or TryFinally or Leave or EndFinally or EndFilter)
+                    return "retained-eh-unsupported";
+                if (node is SwitchBranch)
+                    return "retained-switch-unsupported";
+                if (!ReferenceEquals(node.Parent, ctx.Blocks[source])
+                    && node is Branch branch
+                    && branch.TargetOffset != ctx.Blocks[candidate.Merge].StartOffset)
+                {
+                    return "retained-nested-transfer-unsupported";
+                }
+                if (!ReferenceEquals(node.Parent, ctx.Blocks[source])
+                    && node is ConditionalBranch)
+                {
+                    return "retained-nested-transfer-unsupported";
+                }
+            }
+
+            foreach (int targetOffset in TransferTargets(ctx.Blocks[source]))
+            {
+                if (!ctx.FlowFacts.OffsetToIndex.TryGetValue(targetOffset, out int target))
+                    return "retained-transfer-external";
+                if (target <= source)
+                    return "retained-back-edge-entangled";
+                if ((target < candidate.Start || target >= candidate.Merge)
+                    && target != candidate.Merge)
+                {
+                    return "retained-transfer-outside-region";
+                }
+            }
+        }
+
+        if (!IsSharedMerge(ctx, candidate.Start, candidate.Merge))
+            return "retained-merge-not-shared";
+        return null;
+    }
+
+    static bool RegionHasExternalEntry(Ctx ctx, int start, int merge)
+    {
+        for (int source = 0; source < ctx.Blocks.Count; source++)
+        {
+            if (source >= start && source < merge)
+                continue;
+            foreach (int targetOffset in TransferTargets(ctx.Blocks[source]))
+            {
+                if (ctx.FlowFacts.OffsetToIndex.TryGetValue(targetOffset, out int target)
+                    && target > start
+                    && target < merge)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static bool IsSharedMerge(Ctx ctx, int start, int merge)
+    {
+        var predecessors = new HashSet<int>();
+        int mergeOffset = ctx.Blocks[merge].StartOffset;
+        for (int source = start; source < merge; source++)
+        {
+            if (TransferTargets(ctx.Blocks[source]).Contains(mergeOffset))
+                predecessors.Add(source);
+        }
+        return predecessors.Count >= 2;
+    }
+
+    static IEnumerable<int> TransferTargets(Block block)
+    {
+        foreach (var node in block.DescendantsOutsideNestedFunctions)
+        {
+            switch (node)
+            {
+                case Branch branch:
+                    yield return branch.TargetOffset;
+                    break;
+                case ConditionalBranch conditional:
+                    yield return conditional.TargetOffset;
+                    break;
+                case SwitchBranch switchBranch:
+                    foreach (int target in switchBranch.TargetOffsets)
+                        yield return target;
+                    break;
+                case Leave leave:
+                    yield return leave.TargetOffset;
+                    break;
+            }
+        }
+    }
+
+    static bool ValidateRetainedCandidate(Ctx sourceCtx, StructuringJoinRegion candidate, bool retained)
+    {
+        var clonedBlocks = sourceCtx.Blocks.Select(CloneBlock).ToList();
+        var ctx = CreateRetainedCtx(
+            sourceCtx,
+            clonedBlocks,
+            retained ? candidate.Merge : null);
+        return Validate(
+            ctx,
+            candidate.Start,
+            candidate.Merge,
+            joinIndex: candidate.Merge,
+            breakTarget: null,
+            continueTarget: null);
+    }
+
+    static Ctx CreateRetainedCtx(Ctx sourceCtx, IReadOnlyList<Block> blocks, int? retainedMergeIndex)
+    {
+        var flowFacts = StructuringFlowFacts.Collect(blocks);
+        var fallenInto = new HashSet<int>();
+        for (int i = 1; i < blocks.Count; i++)
+            if (FallsThrough(blocks[i - 1]))
+                fallenInto.Add(blocks[i].StartOffset);
+
+        var snapshots = BuildTerminatorSnapshots(
+            blocks,
+            flowFacts.UnconditionalTargets,
+            flowFacts.ConditionalTargetCounts,
+            fallenInto,
+            sourceCtx.IsComparisonTree,
+            sourceCtx.ScatteredReturnDispatchTargets);
+        var droppable = new HashSet<int>();
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            if (snapshots.ContainsKey(i)
+                && i > 0
+                && !FallsThrough(blocks[i - 1])
+                && !(sourceCtx.ScatteredReturnDispatchTargets.Contains(blocks[i].StartOffset)
+                    && flowFacts.UnconditionalTargets.Contains(blocks[i].StartOffset)))
+            {
+                droppable.Add(i);
+            }
+        }
+
+        return new Ctx
+        {
+            Blocks = blocks,
+            FlowFacts = flowFacts,
+            DroppableBlocks = droppable,
+            CloneOwnerIndices = [],
+            TerminatorSnapshots = snapshots,
+            FallenInto = fallenInto,
+            IsComparisonTree = sourceCtx.IsComparisonTree,
+            ScatteredReturnDispatchTargets = sourceCtx.ScatteredReturnDispatchTargets,
+            RegionExitLeaveTarget = sourceCtx.RegionExitLeaveTarget,
+            RetainedMergeIndex = retainedMergeIndex,
+            Recorder = null,
+        };
+    }
+
+    static Ctx CopyRetainedCtx(Ctx template, int retainedMergeIndex) => new()
+    {
+        Blocks = template.Blocks,
+        FlowFacts = template.FlowFacts,
+        DroppableBlocks = [.. template.DroppableBlocks],
+        CloneOwnerIndices = [],
+        TerminatorSnapshots = template.TerminatorSnapshots,
+        FallenInto = template.FallenInto,
+        IsComparisonTree = template.IsComparisonTree,
+        ScatteredReturnDispatchTargets = template.ScatteredReturnDispatchTargets,
+        RegionExitLeaveTarget = template.RegionExitLeaveTarget,
+        RetainedMergeIndex = retainedMergeIndex,
+        Recorder = null,
+    };
 
     /// <summary>
     /// Phase 1: pure shape check over block indices — no mutation until the
@@ -394,6 +700,17 @@ public sealed class StructuringPass : IIrPass
             // (continueTarget == i) so the body walk does not re-enter the loop.
             if (continueTarget != i && FindInfiniteLoopShape(ctx, i, stop) is { } latch)
             {
+                if (ProspectiveLoopOwnershipIsUnsafe(
+                    ctx,
+                    i,
+                    latch + 1,
+                    blocks[i].StartOffset,
+                    cloneContinueTarget: i,
+                    breakTargetOffsets: null))
+                {
+                    ctx.Recorder?.Record("loop-changes-control-flow-owner");
+                    return false;
+                }
                 if (!Validate(ctx, i, latch + 1, joinIndex: latch + 1, breakTarget: latch + 1, continueTarget: i))
                     return false;
                 i = latch + 1;
@@ -491,20 +808,43 @@ public sealed class StructuringPass : IIrPass
                         var loopRegionExitBreakTarget = LoopExitReachesRegionExit(ctx, loop.ContinueAt, stop)
                             ? loop.ContinueAt
                             : (int?)null;
+                        var breakTargetOffsets = new HashSet<int>();
+                        if (loop.ContinueAt < blocks.Count)
+                            breakTargetOffsets.Add(blocks[loop.ContinueAt].StartOffset);
+                        if (loopRegionExitBreakTarget is not null && ctx.RegionExitLeaveTarget is { } regionExitTarget)
+                            breakTargetOffsets.Add(regionExitTarget);
+                        if (ProspectiveLoopOwnershipIsUnsafe(
+                            ctx,
+                            i + 1,
+                            branchTarget,
+                            blocks[branchTarget].StartOffset,
+                            cloneContinueTarget: continueTarget,
+                            breakTargetOffsets))
+                        {
+                            ctx.Recorder?.Record("loop-changes-control-flow-owner");
+                            return false;
+                        }
                         if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget, loopRegionExitBreakTarget))
                             return false;
                         i = loop.ContinueAt;
                         break;
                     }
-                    // Otherwise only the region-exit goto is in the slice; it
-                    // must be the region's last block.
-                    if (branchTarget != joinIndex || i + 1 != stop)
+                    // The region-exit goto dissolves into structured fallthrough.
+                    if (branchTarget == joinIndex && i + 1 == stop)
                     {
-                        ctx.Recorder?.Record("forward-branch-not-region-exit");
-                        return false;
+                        i = stop;
+                        break;
                     }
-                    i = stop;
-                    break;
+                    // A branch to the retained merge from a nested lexical range
+                    // remains an explicit goto. The enclosing selected range owns
+                    // the merge label.
+                    if (ctx.RetainedMergeIndex == branchTarget)
+                    {
+                        i++;
+                        break;
+                    }
+                    ctx.Recorder?.Record("forward-branch-not-region-exit");
+                    return false;
                 }
                 case ConditionalBranch conditional:
                 {
@@ -554,6 +894,11 @@ public sealed class StructuringPass : IIrPass
                         if (!Validate(ctx, i + 1, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget))
                             return false;
                         i = stop;
+                        break;
+                    }
+                    if (ctx.RetainedMergeIndex == target)
+                    {
+                        i++;
                         break;
                     }
                     if (target > stop)
@@ -631,6 +976,119 @@ public sealed class StructuringPass : IIrPass
             }
         }
         return true;
+    }
+
+    static bool ProspectiveLoopOwnershipIsUnsafe(
+        Ctx ctx,
+        int start,
+        int stop,
+        int retryTargetOffset,
+        int? cloneContinueTarget,
+        HashSet<int>? breakTargetOffsets)
+    {
+        var blocks = ctx.Blocks;
+        for (int index = start; index < stop; index++)
+        {
+            var root = blocks[index];
+            if (LoopBodyOwnershipIsUnsafe(root, retryTargetOffset, breakTargetOffsets))
+                return true;
+
+            if (root.Children.Count == 0
+                || root.Children[^1] is not ConditionalBranch branch
+                || !ctx.FlowFacts.OffsetToIndex.TryGetValue(branch.TargetOffset, out int target)
+                || target <= stop)
+            {
+                continue;
+            }
+
+            if (IsInlinableTerminator(ctx, target))
+            {
+                var clonedSnapshot = CloneTerminatorSnapshot(
+                    ctx,
+                    target,
+                    blocks[target].StartOffset);
+                if (LoopBodyOwnershipIsUnsafe(clonedSnapshot, retryTargetOffset, breakTargetOffsets))
+                    return true;
+                continue;
+            }
+
+            if (cloneContinueTarget is { } cloneLoopHead
+                && IsLeaveRetryLoopHead(ctx, cloneLoopHead)
+                && TryClonePastRegionTerminator(ctx, target, out var clonedTerminator))
+            {
+                if (LoopBodyOwnershipIsUnsafe(clonedTerminator, retryTargetOffset, breakTargetOffsets))
+                    return true;
+                continue;
+            }
+
+            if (TryBuildPastRegionTarget(ctx, target, out var pastRegion, out int inlinedStop)
+                && CanDuplicatePastRegionBody(ctx, target, inlinedStop, index, pastRegion)
+                && LoopBodyOwnershipIsUnsafe(pastRegion, retryTargetOffset, breakTargetOffsets))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool LoopBodyOwnershipIsUnsafe(
+        IrNode root,
+        int retryTargetOffset,
+        HashSet<int>? breakTargetOffsets)
+    {
+        foreach (var node in root.DescendantsOutsideNestedFunctions)
+        {
+            if (node is Continue)
+            {
+                if (!HasOwnerBeforeRoot(
+                    node,
+                    root,
+                    static ancestor => ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
+                {
+                    return true;
+                }
+                continue;
+            }
+            if (node is Break)
+            {
+                if (!HasOwnerBeforeRoot(
+                    node,
+                    root,
+                    static ancestor => ancestor is Switch or WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
+                {
+                    return true;
+                }
+                continue;
+            }
+            if (node is not Leave leave || !CanRaiseRetryLeave(leave))
+                continue;
+
+            if (leave.TargetOffset == retryTargetOffset
+                && HasOwnerBeforeRoot(
+                    leave,
+                    root,
+                    static ancestor => ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
+            {
+                return true;
+            }
+            if (breakTargetOffsets?.Contains(leave.TargetOffset) == true
+                && HasOwnerBeforeRoot(
+                    leave,
+                    root,
+                    static ancestor => ancestor is Switch or WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool HasOwnerBeforeRoot(IrNode node, IrNode root, Func<IrNode, bool> isOwner)
+    {
+        for (var ancestor = node.Parent; ancestor is not null && !ReferenceEquals(ancestor, root); ancestor = ancestor.Parent)
+            if (isOwner(ancestor))
+                return true;
+        return false;
     }
 
     /// <summary>
@@ -1084,6 +1542,7 @@ public sealed class StructuringPass : IIrPass
             IsComparisonTree = isComparisonTree,
             ScatteredReturnDispatchTargets = scatteredReturnDispatchTargets,
             RegionExitLeaveTarget = null,
+            RetainedMergeIndex = null,
             Recorder = null,
         };
     }
@@ -1490,6 +1949,14 @@ public sealed class StructuringPass : IIrPass
     static bool IsInlinableTerminator(Ctx ctx, int index) =>
         ctx.TerminatorSnapshots.ContainsKey(index);
 
+    static Block CloneTerminatorSnapshot(Ctx ctx, int index, int startOffset)
+    {
+        var clone = new Block(startOffset);
+        foreach (var statement in ctx.TerminatorSnapshots[index])
+            clone.Add(statement.Clone());
+        return clone;
+    }
+
     /// <summary>Whether control reaching the end of this block continues into its successor (vs. returning, throwing, or branching away).</summary>
     static bool FallsThrough(Block block) =>
         block.Children.Count == 0
@@ -1642,8 +2109,18 @@ public sealed class StructuringPass : IIrPass
                         i = loop.ContinueAt;
                         break;
                     }
-                    i = stop;  // the region-exit goto disappears into structure
-                    break;
+                    if (branchTarget == joinIndex && i + 1 == stop)
+                    {
+                        i = stop;  // the region-exit goto disappears into structure
+                        break;
+                    }
+                    if (ctx.RetainedMergeIndex == branchTarget)
+                    {
+                        result.Add(last);
+                        i++;
+                        break;
+                    }
+                    throw new InvalidOperationException("Validated branch shape was not buildable.");
                 }
                 case ConditionalBranch conditional:
                 {
@@ -1664,9 +2141,7 @@ public sealed class StructuringPass : IIrPass
                     // from the pre-mutation snapshot.
                     if (target > i && IsInlinableTerminator(ctx, target))
                     {
-                        var guardArm = new Block(block.StartOffset);
-                        foreach (var statement in ctx.TerminatorSnapshots[target])
-                            guardArm.Add(statement.Clone());
+                        var guardArm = CloneTerminatorSnapshot(ctx, target, block.StartOffset);
                         result.Add(new IfStatement(condition, guardArm, null));
                         i++;
                         break;
@@ -1688,6 +2163,16 @@ public sealed class StructuringPass : IIrPass
                         var exitArm = BuildRegion(ctx, i + 1, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget);
                         result.Add(new IfStatement(Negate(condition), exitArm, null));
                         i = stop;
+                        break;
+                    }
+                    if (ctx.RetainedMergeIndex == target)
+                    {
+                        var gotoArm = new Block(block.StartOffset);
+                        var retainedBranch = new Branch(conditional.TargetOffset);
+                        retainedBranch.InheritSourceOffset(conditional);
+                        gotoArm.Add(retainedBranch);
+                        result.Add(new IfStatement(condition, gotoArm, null));
+                        i++;
                         break;
                     }
                     if (target > stop
@@ -1778,7 +2263,7 @@ public sealed class StructuringPass : IIrPass
 
     static void ReplaceRetryLeavesWithContinues(IrNode root, int targetOffset)
     {
-        foreach (var leave in RaisableLeavesTargeting(root, targetOffset))
+        foreach (var leave in RaisableLeavesTargeting(root, targetOffset, replacementIsContinue: true))
         {
             var next = new Continue();
             next.InheritSourceOffset(leave);
@@ -1788,7 +2273,7 @@ public sealed class StructuringPass : IIrPass
 
     static void ReplaceRetryLeavesWithBreaks(IrNode root, int targetOffset)
     {
-        foreach (var leave in RaisableLeavesTargeting(root, targetOffset))
+        foreach (var leave in RaisableLeavesTargeting(root, targetOffset, replacementIsContinue: false))
         {
             var next = new Break();
             next.InheritSourceOffset(leave);
@@ -1799,13 +2284,30 @@ public sealed class StructuringPass : IIrPass
     // Raisable descendant Leave nodes targeting a given offset, materialized so the tree can be
     // rewritten during iteration. Collected in one pooled-DFS pass with inline filtering, avoiding
     // the per-call closure/delegate/iterator allocations of the equivalent LINQ chain.
-    static List<Leave> RaisableLeavesTargeting(IrNode root, int targetOffset)
+    static List<Leave> RaisableLeavesTargeting(
+        IrNode root,
+        int targetOffset,
+        bool replacementIsContinue)
     {
         var result = new List<Leave>();
-        foreach (var node in root.Descendants)
+        foreach (var node in root.DescendantsOutsideNestedFunctions)
         {
-            if (node is Leave leave && leave.TargetOffset == targetOffset && CanRaiseRetryLeave(leave))
-                result.Add(leave);
+            if (node is not Leave leave
+                || leave.TargetOffset != targetOffset
+                || !CanRaiseRetryLeave(leave))
+            {
+                continue;
+            }
+            if (HasOwnerBeforeRoot(
+                leave,
+                root,
+                replacementIsContinue
+                    ? static ancestor => ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement
+                    : static ancestor => ancestor is Switch or WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
+            {
+                continue;
+            }
+            result.Add(leave);
         }
         return result;
     }
