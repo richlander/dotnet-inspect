@@ -5195,11 +5195,45 @@ public class CfgSampleClass
 
     // Span on the resource of a using statement (the body is a separate block, so
     // the using statement itself is the span consumer) — exercises
-    // `UsingStatement.Resource`.
+    // `UsingStatement.Resource`. SpanScope.Dispose() is a no-op and the body
+    // never reads the resource, so this is also the real compiled witness for
+    // the disposed-only variable-less `using` raise (#3346): the idiomatic
+    // endpoint is `using (DisposableFromObjectSpan([a, b]))`, not
+    // `using (IDisposable V_n = ...)`.
     public static int InlineArraySpanUsingResource(object a, object b)
     {
         int n = 0;
         using (DisposableFromObjectSpan([a, b])) { n = 1; }
+        return n;
+    }
+
+    // The body does not read `scope`, but the portable PDB records it as an
+    // authored local. The using raise must retain that positive source identity
+    // instead of canonicalizing this to the expression form (#4113 review).
+    public static int NamedDisposedOnlyUsingResource()
+    {
+        int n = 0;
+        using (System.IDisposable scope = new SpanScope(0)) { n = 1; }
+        return n;
+    }
+
+    // Portable PDB stores an escaped C# identifier without its `@`. Although
+    // the current printer falls back to V_n, that name still proves the source
+    // declared a resource variable and therefore vetoes expression-form elision.
+    public static int KeywordNamedDisposedOnlyUsingResource()
+    {
+        int n = 0;
+        using (System.IDisposable @class = new SpanScope(0)) { n = 1; }
+        return n;
+    }
+
+    // The expression form deliberately converts a value type to IDisposable.
+    // Eliding the compiler temp must preserve that boxing conversion rather than
+    // changing the resource to value-type constrained disposal (#4113 review).
+    public static int BoxedDisposedOnlyUsingResource()
+    {
+        int n = 0;
+        using ((System.IDisposable)default(System.Threading.CancellationTokenRegistration)) { n = 1; }
         return n;
     }
 
