@@ -107,7 +107,7 @@ public class SearchService
             async requestToken =>
             {
                 using HttpRequestMessage request =
-                    NuGetMetadataReader.CreateGetRequest(url);
+                    NuGetHttpRequest.CreateGet(url);
                 if (auth is not null)
                 {
                     request.Headers.Authorization = auth;

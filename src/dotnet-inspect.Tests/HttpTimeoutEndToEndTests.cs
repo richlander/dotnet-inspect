@@ -84,6 +84,19 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     }
 
     /// <summary>
+    /// A value above the default extends the request instead of being clamped back to 30 seconds.
+    /// </summary>
+    [Fact]
+    public void HttpTimeout_AboveDefaultExtendsTheSearchRequest()
+    {
+        string error = RunSearch(
+            ["--http-timeout", "31"],
+            environmentValue: null);
+
+        Assert.Contains(31, TimeoutSeconds(error));
+    }
+
+    /// <summary>
     /// The flag outranks the variable, so a stale export in a shell profile cannot quietly
     /// override what the operator typed.
     /// </summary>

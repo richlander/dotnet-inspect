@@ -129,7 +129,7 @@ public sealed class NuGetMetadataLimitTests
     }
 
     [Fact]
-    public async Task MetadataGets_RequestBrowserStreaming()
+    public async Task NuGetGets_RequestBrowserStreaming()
     {
         string[] bodies =
         [
@@ -140,6 +140,7 @@ public sealed class NuGetMetadataLimitTests
             "@type":"PackageBaseAddress/3.0.0"}]}
             """,
             """{"data":[]}""",
+            "package bytes",
         ];
         int responseIndex = 0;
         var streamingRequests = new List<bool>();
@@ -171,8 +172,12 @@ public sealed class NuGetMetadataLimitTests
         await nuget.GetLatestVersionAsync(
             "package",
             cancellationToken: TestContext.Current.CancellationToken);
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.Equal(4, handler.RequestCount);
+        Assert.Equal(5, handler.RequestCount);
         Assert.All(streamingRequests, Assert.True);
     }
 

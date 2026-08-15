@@ -31,6 +31,17 @@ public class NuGetSearchSourcesTests
         """;
 
     [Fact]
+    public void SearchTimeoutOptions_DeriveFourRequestDeadlines()
+    {
+        NuGetFetchOptions options =
+            NuGetFetchOptions.FromRequestTimeout(
+                TimeSpan.FromSeconds(60));
+
+        Assert.Equal(TimeSpan.FromSeconds(60), options.RequestTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(240), options.OperationTimeout);
+    }
+
+    [Fact]
     public async Task GetSearchQueryServiceAsync_DiscoversVersionedSearchResource()
     {
         var handler = new RouteHandler { [IndexUrl] = ServiceIndex(SearchUrl) };

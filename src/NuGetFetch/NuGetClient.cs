@@ -57,7 +57,7 @@ public class NuGetClient(HttpClient client)
                 async requestToken =>
                 {
                     using HttpRequestMessage request =
-                        NuGetMetadataReader.CreateGetRequest(url);
+                        NuGetHttpRequest.CreateGet(url);
                     ApplyCredential(request, credential);
                     using HttpResponseMessage response = await client.SendAsync(
                         request,
@@ -175,7 +175,7 @@ public class NuGetClient(HttpClient client)
                 async requestToken =>
                 {
                     using HttpRequestMessage request =
-                        new(HttpMethod.Get, url);
+                        NuGetHttpRequest.CreateGet(url);
                     ApplyCredential(request, credential);
                     HttpResponseMessage response = await client.SendAsync(
                         request,
@@ -234,7 +234,7 @@ public class NuGetClient(HttpClient client)
             async requestToken =>
             {
                 using HttpRequestMessage request =
-                    NuGetMetadataReader.CreateGetRequest(serviceIndexUrl);
+                    NuGetHttpRequest.CreateGet(serviceIndexUrl);
                 ApplyCredential(request, credential);
                 using HttpResponseMessage response = await client.SendAsync(
                     request,

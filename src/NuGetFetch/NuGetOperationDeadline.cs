@@ -121,6 +121,10 @@ internal sealed class NuGetOperationDeadline : IDisposable
         CancellationTokenSource requestCancellation,
         NuGetOperationDeadline operation) : Stream
     {
+        private readonly CancellationTokenRegistration _deadlineRegistration =
+            requestCancellation.Token.UnsafeRegister(
+                static state => ((IDisposable)state!).Dispose(),
+                owner);
         private bool _disposed;
 
         public override bool CanRead => inner.CanRead;
@@ -136,13 +140,33 @@ internal sealed class NuGetOperationDeadline : IDisposable
         public override int Read(byte[] buffer, int offset, int count)
         {
             ThrowIfDeadlineExpired();
-            return inner.Read(buffer, offset, count);
+            try
+            {
+                int read = inner.Read(buffer, offset, count);
+                ThrowIfDeadlineExpired();
+                return read;
+            }
+            catch (Exception ex) when (IsDeadlineAbort(ex))
+            {
+                ThrowTranslated(ex);
+                throw;
+            }
         }
 
         public override int Read(Span<byte> buffer)
         {
             ThrowIfDeadlineExpired();
-            return inner.Read(buffer);
+            try
+            {
+                int read = inner.Read(buffer);
+                ThrowIfDeadlineExpired();
+                return read;
+            }
+            catch (Exception ex) when (IsDeadlineAbort(ex))
+            {
+                ThrowTranslated(ex);
+                throw;
+            }
         }
 
         public override async ValueTask<int> ReadAsync(
@@ -155,8 +179,12 @@ internal sealed class NuGetOperationDeadline : IDisposable
                     requestCancellation.Token);
             try
             {
-                return await inner.ReadAsync(buffer, linked.Token)
+                int read = await inner.ReadAsync(buffer, linked.Token)
                     .ConfigureAwait(false);
+                if (cancellationToken.IsCancellationRequested)
+                    throw new OperationCanceledException(cancellationToken);
+                ThrowIfDeadlineExpired();
+                return read;
             }
             catch (OperationCanceledException ex)
             {
@@ -164,6 +192,11 @@ internal sealed class NuGetOperationDeadline : IDisposable
                     throw;
 
                 operation.ThrowTranslated(ex, requestCancellation);
+                throw;
+            }
+            catch (Exception ex) when (IsDeadlineAbort(ex))
+            {
+                ThrowTranslated(ex);
                 throw;
             }
         }
@@ -179,7 +212,17 @@ internal sealed class NuGetOperationDeadline : IDisposable
         public override int ReadByte()
         {
             ThrowIfDeadlineExpired();
-            return inner.ReadByte();
+            try
+            {
+                int value = inner.ReadByte();
+                ThrowIfDeadlineExpired();
+                return value;
+            }
+            catch (Exception ex) when (IsDeadlineAbort(ex))
+            {
+                ThrowTranslated(ex);
+                throw;
+            }
         }
 
         public override void Flush() => inner.Flush();
@@ -262,9 +305,29 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         private void DisposeDeadlineState()
         {
+            _deadlineRegistration.Dispose();
             requestCancellation.Dispose();
             operation._disposed = true;
             operation._operationCancellation.Dispose();
+        }
+
+        private bool IsDeadlineAbort(Exception exception) =>
+            requestCancellation.IsCancellationRequested
+            && exception is IOException or ObjectDisposedException;
+
+        private void ThrowTranslated(Exception exception)
+        {
+            if (operation._callerToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(
+                    operation._callerToken);
+            }
+
+            var cancellation = new OperationCanceledException(
+                "NuGet response stream was aborted after its deadline expired.",
+                exception,
+                requestCancellation.Token);
+            operation.ThrowTranslated(cancellation, requestCancellation);
         }
     }
 }

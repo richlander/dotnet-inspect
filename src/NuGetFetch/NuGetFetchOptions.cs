@@ -56,6 +56,28 @@ public sealed record NuGetFetchOptions
     public TimeSpan MetadataBodyTimeout { get; init; } =
         Timeout.InfiniteTimeSpan;
 
+    /// <summary>
+    /// Creates the CLI timeout policy whose operation ceiling is four request deadlines.
+    /// </summary>
+    public static NuGetFetchOptions FromRequestTimeout(
+        TimeSpan requestTimeout)
+    {
+        ValidateTimeout(requestTimeout, nameof(requestTimeout));
+        if (requestTimeout > MaximumCancellationTimeout / 4)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requestTimeout),
+                requestTimeout,
+                "The derived operation timeout exceeds the supported cancellation range.");
+        }
+
+        return new NuGetFetchOptions
+        {
+            RequestTimeout = requestTimeout,
+            OperationTimeout = requestTimeout * 4,
+        };
+    }
+
     internal static NuGetFetchOptions Validate(NuGetFetchOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);

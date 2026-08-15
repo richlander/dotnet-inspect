@@ -202,6 +202,37 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task RequestDeadline_BoundsSynchronousPackageStreamConsumption()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    StreamResponse(
+                        message,
+                        new DisposeAwareStallingStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(40),
+                operation: TimeSpan.FromSeconds(1)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        byte[] buffer = new byte[1];
+        Task<int> read = Task.Run(
+            () => package.Read(buffer, 0, buffer.Length),
+            TestContext.Current.CancellationToken);
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                async () => _ = await read);
+
+        Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+    }
+
+    [Fact]
     public async Task OperationCeiling_IncludesPackageStreamConsumption()
     {
         using var client = new HttpClient(new DelayedHandler(
@@ -288,6 +319,40 @@ public sealed class NuGetDeadlineTests
         Assert.IsNotType<NuGetOperationTimeoutException>(error);
     }
 
+    [Fact]
+    public async Task SynchronousPackageCallerCancellation_RemainsCancellation()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    StreamResponse(
+                        message,
+                        new DisposeAwareStallingStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(1),
+                operation: TimeSpan.FromSeconds(2)));
+        using var cancellation = new CancellationTokenSource();
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: cancellation.Token);
+        byte[] buffer = new byte[1];
+        Task<int> read = Task.Run(
+            () => package.Read(buffer, 0, buffer.Length),
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        OperationCanceledException error =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => _ = await read);
+
+        Assert.IsNotType<NuGetRequestTimeoutException>(error);
+        Assert.IsNotType<NuGetOperationTimeoutException>(error);
+    }
+
     private static NuGetFetchOptions Options(
         TimeSpan request,
         TimeSpan operation) =>
@@ -346,6 +411,42 @@ public sealed class NuGetDeadlineTests
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             return 0;
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class DisposeAwareStallingStream : Stream
+    {
+        private readonly ManualResetEventSlim _disposed = new();
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            _disposed.Wait();
+            throw new ObjectDisposedException(nameof(DisposeAwareStallingStream));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                _disposed.Set();
+            base.Dispose(disposing);
         }
 
         public override void Flush() => throw new NotSupportedException();

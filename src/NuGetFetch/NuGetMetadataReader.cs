@@ -2,16 +2,6 @@ namespace NuGetFetch;
 
 internal static class NuGetMetadataReader
 {
-    private static readonly HttpRequestOptionsKey<bool> BrowserStreamingResponse =
-        new("WebAssemblyEnableStreamingResponse");
-
-    public static HttpRequestMessage CreateGetRequest(string requestUri)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Options.Set(BrowserStreamingResponse, true);
-        return request;
-    }
-
     public static async ValueTask<T> ReadResponseAsync<T>(
         HttpResponseMessage response,
         Func<Stream, CancellationToken, ValueTask<T>> deserialize,
