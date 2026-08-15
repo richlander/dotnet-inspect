@@ -4,21 +4,21 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
-using ILInspector.ControlFlow;
 using ILInspector.Findings;
-using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
 /// <summary>
-/// Decodes one assembly's IL bodies and metadata into a
+/// Schedules one assembly's method analyses and aggregates them into a
 /// <see cref="LibraryBodyAnalysisResult"/> bundle. It consumes one caller-owned
-/// <see cref="MetadataReader"/>/<see cref="PEReader"/> pair and owns the lifetime
-/// of the cross-assembly reference-resolution service created for that
-/// acquisition.
+/// <see cref="MetadataReader"/>/<see cref="PEReader"/> pair and owns the
+/// primary-image infrastructure and cross-assembly reference-resolution
+/// service lifetimes for that acquisition.
 /// </summary>
-internal sealed class LibraryBodyAnalysisBuilder : IDisposable
+internal sealed class LibraryBodyAnalysisBuilder :
+    IDisposable,
+    ILibraryMethodAnalysisInfrastructure
 {
     readonly string _path;
     readonly MetadataReader _reader;
@@ -47,6 +47,88 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     public void Dispose() =>
         _referenceMetadataResolver?.Dispose();
 
+    MetadataReader ILibraryMethodAnalysisInfrastructure.Reader =>
+        _reader;
+
+    PEReader ILibraryMethodAnalysisInfrastructure.PeReader =>
+        _peReader;
+
+    string ILibraryMethodAnalysisInfrastructure.AssemblyName =>
+        _assemblyName;
+
+    Guid ILibraryMethodAnalysisInfrastructure.Mvid =>
+        _mvid;
+
+    GenericScope ILibraryMethodAnalysisInfrastructure.CreateScope(
+        TypeDefinition typeDefinition,
+        MethodDefinition methodDefinition) =>
+        CreateScope(
+            typeDefinition,
+            methodDefinition);
+
+    MethodIdentity
+        ILibraryMethodAnalysisInfrastructure.CreateMethodIdentity(
+            TypeDefinitionHandle typeHandle,
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition methodDefinition,
+            GenericScope scope) =>
+        CreateMethodIdentity(
+            typeHandle,
+            methodHandle,
+            methodDefinition,
+            scope);
+
+    ILibraryMethodAnalysisResolver
+        ILibraryMethodAnalysisInfrastructure.CreateMethodAnalysisResolver(
+            GenericScope scope,
+            MethodIdentity caller,
+            byte[] il,
+            IReadOnlyCollection<ExceptionRegion> exceptionRegions) =>
+        new MethodAnalysisResolver(
+            this,
+            scope,
+            caller,
+            il,
+            exceptionRegions);
+
+    IMethodCallResolver
+        ILibraryMethodAnalysisInfrastructure.CreateCallResolver(
+            GenericScope scope) =>
+        new CallResolver(
+            this,
+            scope);
+
+    string? ILibraryMethodAnalysisInfrastructure.CalliReturnDetail(
+        int token,
+        GenericScope scope) =>
+        CalliReturnDetail(
+            token,
+            scope);
+
+    bool ILibraryMethodAnalysisInfrastructure.IsAllocatingValueTypeBox(
+        int token,
+        GenericScope scope) =>
+        IsAllocatingValueTypeBox(
+            token,
+            ResolveTypeToken(
+                token,
+                scope));
+
+    bool ILibraryMethodAnalysisInfrastructure.HasGeneratedCodeAttribute(
+        CustomAttributeHandleCollection attributes) =>
+        HasGeneratedCodeAttribute(attributes);
+
+    bool ILibraryMethodAnalysisInfrastructure.HasCompilerGeneratedAttribute(
+        CustomAttributeHandleCollection attributes) =>
+        HasCompilerGeneratedAttribute(attributes);
+
+    bool ILibraryMethodAnalysisInfrastructure.DispatchCanTargetOverride(
+        TypeDefinition declaringType,
+        MethodDefinition method) =>
+        DispatchCanTargetOverride(
+            declaringType,
+            method);
+
     internal (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
         TryResolveExternalTypeDefinition(TypeReferenceHandle handle) =>
         _referenceMetadataResolver?.TryResolveExternalTypeDefinition(
@@ -56,50 +138,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     // when MemorySafetyRulesAttribute is applied (emitted [module:], like
     // RefSafetyRulesAttribute). Check the module and assembly scopes.
     public bool MemorySafetyRulesEnabled => _memorySafetyRulesEnabled;
-
-    static MethodInstructions DecodeBody(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
-    {
-        // The substrate decode contract is BadImageFormatException for malformed IL (normalized
-        // at InstructionDecoder.Decode), which the per-method IsRecoverableMethodFailure gate
-        // catches — so no InvalidProgramException shim is needed here.
-        // Do not use MethodInstructions.Decode: its fail-closed contract would hide the throw
-        // from that gate and turn a malformed method into success-shaped empty evidence.
-        var instructions = InstructionDecoder.Decode(il);
-        return new MethodInstructions(
-            instructions,
-            BlockGraph.Build(
-                il.Length,
-                instructions,
-                exceptionRegions));
-    }
-
-    // Analysis-owned loop regions over the shared Layer-0 blocks: a backward branch
-    // whose target block is a real successor of the branching block. Computed once
-    // per body and carried on the context, so no topic producer recomputes it.
-    static IReadOnlyList<(int Start, int End)> CollectLoopRegions(MethodInstructions body)
-    {
-        var regions = new List<(int Start, int End)>();
-        var blockGraph = body.Blocks;
-        foreach (var instruction in body.Instructions)
-        {
-            if (instruction.OpCode == ILOpCode.Switch)
-                continue;
-            int sourceBlock = blockGraph.BlockIndexAt(instruction.Offset);
-            foreach (int target in instruction.BranchTargets)
-            {
-                if (target >= instruction.Offset)
-                    continue;
-                int targetBlock = blockGraph.BlockIndexAt(target);
-                if (sourceBlock >= 0
-                    && targetBlock >= 0
-                    && blockGraph.Blocks[sourceBlock].Edges.Successors.Contains(targetBlock))
-                {
-                    regions.Add((target, instruction.Offset));
-                }
-            }
-        }
-        return regions;
-    }
 
     bool DetectMemorySafetyRules()
     {
@@ -123,6 +161,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             LibraryBodyAnalysisFeatures.LeakTriage);
         bool includeOwnershipFlow = plan.Includes(
             LibraryBodyAnalysisFeatures.OwnershipFlow);
+        var methodRunner =
+            new LibraryMethodAnalysisRunner(this);
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         Func<TypeRef, bool>? bodyTypeScope = plan.TypeScope;
         var declaredMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -166,7 +206,8 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
                 workItems.Add((typeHandle, typeDef, typeSourceGenerated, methodHandle));
         }
 
-        var results = new MethodBuildResult[workItems.Count];
+        var results =
+            new LibraryMethodAnalysisResult[workItems.Count];
         // Only full builds are worth parallelizing: scoped (member/type) builds decode a handful
         // of bodies, where thread overhead would dominate. The threshold also keeps trivial
         // assemblies sequential.
@@ -180,10 +221,12 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             Parallel.For(0, workItems.Count, i =>
             {
                 var w = workItems[i];
-                results[i] = ProcessMethod(w.TypeHandle, w.TypeDef, w.TypeSourceGenerated, w.MethodHandle,
-                    includeMethodEvidence, includeAllocations, includeOpportunities,
-                    includeLeakTriage, includeOwnershipFlow,
-                    bodyScope, bodyTypeScope);
+                results[i] = methodRunner.Analyze(
+                    w.TypeHandle,
+                    w.TypeDef,
+                    w.TypeSourceGenerated,
+                    w.MethodHandle,
+                    plan);
             });
         }
         else
@@ -191,10 +234,12 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             for (int i = 0; i < workItems.Count; i++)
             {
                 var w = workItems[i];
-                results[i] = ProcessMethod(w.TypeHandle, w.TypeDef, w.TypeSourceGenerated, w.MethodHandle,
-                    includeMethodEvidence, includeAllocations, includeOpportunities,
-                    includeLeakTriage, includeOwnershipFlow,
-                    bodyScope, bodyTypeScope);
+                results[i] = methodRunner.Analyze(
+                    w.TypeHandle,
+                    w.TypeDef,
+                    w.TypeSourceGenerated,
+                    w.MethodHandle,
+                    plan);
             }
         }
 
@@ -299,277 +344,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     // Assemblies with at least this many methods use the parallel per-method analysis path.
     // Below it (and for all scoped member/type builds) the sequential path avoids thread overhead.
     const int ParallelBuildMethodThreshold = 200;
-
-    // Per-method analysis output, accumulated into method-local builders so the parallel build
-    // never mutates shared Build() state. Merged back in metadata order by Build(). Field-set
-    // points mirror the exact shared-state mutations of the original sequential loop (including
-    // the ordering across the RVA/scope early-returns), so the merged result is byte-identical —
-    // and a recoverable per-method failure carries whatever partial contributions preceded the
-    // throw (UnsafeEvidence/Calls captured after the catch) plus the Diagnostic.
-    sealed class MethodBuildResult
-    {
-        public bool HasCaller;
-        public MethodIdentity? Caller;
-        public int Token;
-        public CallerUnsafeMode Mode;
-        public bool IsLeverage;
-        public bool HasBody;
-        public ImmutableArray<UnsafeEvidence> UnsafeEvidence;
-        public ImmutableArray<DirectCall> Calls;
-        public ImmutableArray<AllocationOccurrence> Allocations;
-        public ImmutableArray<UnsafetyOccurrence> Unsafety;
-        public ImmutableArray<OptimizationOpportunity> Opportunities;
-        public bool Suppressed;
-        public bool HasSignals;
-        public BodySignals Signals;
-        public LeakTriageResult? LeakTriage;
-        public ArrayPoolOwnershipMethodEvidence? OwnershipFlow;
-        public AnalysisDiagnostic? Diagnostic;
-    }
-
-    // Analyze a single method into a MethodBuildResult. Mirrors the original per-method loop body
-    // statement-for-statement, writing to method-local builders instead of the shared Build()
-    // builders. Safe to run concurrently: metadata/PE reads are thread-safe on the prefetched
-    // image, and its lazily-populated AsyncStateMachineTypes cache is prewarmed.
-    MethodBuildResult ProcessMethod(TypeDefinitionHandle typeHandle, TypeDefinition typeDef, bool typeSourceGenerated,
-        MethodDefinitionHandle methodHandle, bool includeMethodEvidence,
-        bool includeAllocations, bool includeOpportunities, bool includeLeakTriage,
-        bool includeOwnershipFlow,
-        IReadOnlySet<int>? bodyScope, Func<TypeRef, bool>? bodyTypeScope)
-    {
-        if (!includeMethodEvidence)
-        {
-            return includeLeakTriage
-                ? ProcessLeakTriageMethod(
-                    typeHandle,
-                    typeDef,
-                    methodHandle)
-                : new MethodBuildResult();
-        }
-
-        var result = new MethodBuildResult();
-        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
-        var calls = ImmutableArray.CreateBuilder<DirectCall>();
-        try
-        {
-            var methodDef = _reader.GetMethodDefinition(methodHandle);
-            var scope = CreateScope(typeDef, methodDef);
-            var caller = CreateMethodIdentity(typeHandle, methodHandle, methodDef, scope);
-            result.HasCaller = true;
-            result.Caller = caller;
-            result.Token = caller.MetadataToken;
-            // Tally the unsafe mode for every method, including bodiless
-            // extern/abstract members (P/Invokes are a major source).
-            result.Mode = caller.CallerUnsafeMode;
-            var declarationSafety =
-                MethodSafetyAnalysis.InspectDeclaration(
-                    caller,
-                    evidence);
-            bool hasUnsafeApiMember =
-                declarationSafety.HasUnsafeApiMember;
-            bool hasUnsafeSignature =
-                declarationSafety.HasUnsafeSignature;
-            if (caller.CallerUnsafeMode != CallerUnsafeMode.None
-                || hasUnsafeApiMember)
-            {
-                result.IsLeverage = true;
-            }
-            if (methodDef.RelativeVirtualAddress == 0)
-                return result;
-
-            result.HasBody = true;
-            // Scoped builds decode only selected method bodies; every other method is still
-            // indexed as an identity (above) but its body is not decoded/scanned. bodyScope
-            // selects by method token (single-member queries); bodyTypeScope selects by declaring
-            // type (single-type queries). Reverse/aggregate sections pass null (full build).
-            if (bodyScope is not null && !bodyScope.Contains(caller.MetadataToken))
-                return result;
-            if (bodyTypeScope is not null && !bodyTypeScope(caller.DeclaringType))
-                return result;
-            var body = _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
-            var il = body.GetILBytes() ?? [];
-            if (includeLeakTriage
-                && SignatureBlobGuard.IsSafeToDecode(
-                    _reader,
-                    methodDef.Signature,
-                    SignatureBlobGuard.Kind.Method))
-            {
-                result.LeakTriage = LeakTriageAnalyzer.AnalyzeMethodDetailed(
-                    LeakTriageAnalyzer.CreateAssemblyScanMethodIdentity(caller),
-                    il,
-                    body.ExceptionRegions,
-                    token => MemberResolver.ResolveMethod(
-                        _reader,
-                        MetadataTokens.EntityHandle(token),
-                        scope),
-                    token => LeakTriageAnalyzer.ResolveCatchTypeRef(
-                        _reader,
-                        MetadataTokens.EntityHandle(token),
-                        scope));
-            }
-            var methodInstructions = DecodeBody(il, body.ExceptionRegions);
-            var loopRegions = CollectLoopRegions(methodInstructions);
-            var localTypes = DecodeLocalTypes(body, scope);
-            var context = new MethodBodyAnalysisContext(
-                caller,
-                methodInstructions,
-                body.ExceptionRegions,
-                loopRegions,
-                localTypes);
-            // Build allocation's Layer-1 indexes before other topic producers,
-            // then keep every result and query bound to this exact context.
-            var allocationFacts = MethodAllocationFacts.Create(context);
-            var methodAnalysisResolver = new MethodAnalysisResolver(
-                this,
-                scope,
-                caller,
-                il,
-                body.ExceptionRegions);
-            var localSafety = MethodSafetyAnalysis.InspectLocals(
-                context,
-                evidence);
-            bool hasUnsafeLocals = localSafety.HasUnsafeLocals;
-            // Discover allocation occurrences once. The main allocation output
-            // needs escape classification, while Performance Triage's optimization-opportunity pass
-            // reuses the same discovered occurrences (it keys them by IL offset and does not read escape
-            // state). Refining once and sharing the discovery scan avoids a second full instruction/
-            // token scan per method whenever opportunities are computed.
-            if (includeAllocations)
-            {
-                allocationFacts.Collect(methodAnalysisResolver);
-            }
-            result.Allocations =
-                allocationFacts.ClassifiedOccurrences;
-            result.Unsafety = MethodSafetyAnalysis.CollectOccurrences(
-                context,
-                token => CalliReturnDetail(token, scope));
-            var methodAttributes = methodDef.GetCustomAttributes();
-            if (includeOpportunities)
-            {
-                if (!typeSourceGenerated
-                    && !HasGeneratedCodeAttribute(methodAttributes)
-                    && !HasCompilerGeneratedAttribute(methodAttributes)
-                    && !IsBlazorRenderMethod(caller))
-                    result.Opportunities =
-                        OptimizationOpportunityAnalysis.Collect(
-                            allocationFacts,
-                            methodAnalysisResolver);
-                else
-                    result.Suppressed = true;
-            }
-            var signals = BodySignalAnalysis.Collect(
-                context,
-                token => IsAllocatingValueTypeBox(
-                    token,
-                    ResolveTypeToken(token, scope)));
-            if (signals.Newarr > 0 || signals.Throws > 0 || signals.Catches > 0 || signals.Finallys > 0 || signals.Boxes > 0)
-            {
-                result.Signals = signals;
-                result.HasSignals = true;
-            }
-            MethodCallAnalysis.Collect(
-                context,
-                new CallResolver(this, scope),
-                offset => allocationFacts.MultiplicityAt(offset),
-                calls,
-                evidence,
-                includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals);
-            if (includeOwnershipFlow)
-            {
-                result.OwnershipFlow = ArrayPoolOwnershipFlow.Analyze(
-                    context,
-                    calls.ToImmutable());
-            }
-        }
-        catch (Exception ex) when (IsRecoverableMethodFailure(ex))
-        {
-            result.Diagnostic = new AnalysisDiagnostic(
-                MetadataTokens.GetToken(methodHandle),
-                MethodLabel(typeHandle, methodHandle),
-                $"{ex.GetType().Name}: {ex.Message}");
-        }
-        finally
-        {
-            // Runs on every exit path (early returns at the RVA/scope gates, a recoverable
-            // failure, or normal completion) so the method-local evidence/calls accumulated so
-            // far always reach the result — including bodiless members whose only contribution
-            // is unsafe-API/signature evidence recorded before the RVA==0 early return.
-            result.UnsafeEvidence = evidence.ToImmutable();
-            result.Calls = calls.ToImmutable();
-        }
-        return result;
-    }
-
-    MethodBuildResult ProcessLeakTriageMethod(
-        TypeDefinitionHandle typeHandle,
-        TypeDefinition typeDef,
-        MethodDefinitionHandle methodHandle)
-    {
-        var result = new MethodBuildResult();
-        try
-        {
-            var methodDef = _reader.GetMethodDefinition(methodHandle);
-            if (methodDef.RelativeVirtualAddress == 0)
-                return result;
-
-            var scope = CreateScope(typeDef, methodDef);
-            if (!SignatureBlobGuard.IsSafeToDecode(
-                _reader,
-                methodDef.Signature,
-                SignatureBlobGuard.Kind.Method))
-            {
-                return result;
-            }
-
-            var signature =
-                methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
-            var method = new MethodIdentity(
-                _assemblyName,
-                _mvid,
-                TypeRefDecoder.Instance.GetTypeFromDefinition(
-                    _reader,
-                    typeHandle,
-                    0),
-                _reader.GetString(methodDef.Name),
-                signature.ParameterTypes,
-                signature.ReturnType,
-                MetadataTokens.GetToken(methodHandle),
-                (methodDef.Attributes & MethodAttributes.Static) != 0)
-            {
-                SignatureHeader = signature.Header.RawValue,
-                RequiredParameterCount =
-                    signature.RequiredParameterCount,
-                IsVirtualDispatchOpen =
-                    DispatchCanTargetOverride(
-                        typeDef,
-                        methodDef),
-            };
-
-            var body =
-                _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
-            result.LeakTriage = LeakTriageAnalyzer.AnalyzeMethodDetailed(
-                method,
-                body.GetILBytes() ?? [],
-                body.ExceptionRegions,
-                token => MemberResolver.ResolveMethod(
-                    _reader,
-                    MetadataTokens.EntityHandle(token),
-                    scope),
-                token => LeakTriageAnalyzer.ResolveCatchTypeRef(
-                    _reader,
-                    MetadataTokens.EntityHandle(token),
-                    scope));
-        }
-        catch (Exception ex)
-            when (LeakTriageAnalyzer.IsRecoverable(ex))
-        {
-            // Preserve the standalone assembly sensor's per-method fail-closed
-            // contract without suppressing other methods in the shared walk.
-        }
-
-        return result;
-    }
-
 
     // (struct/enum) and therefore do not allocate on the heap (#1804). Classified here,
     // during Build, where the metadata reader is available — the lazy signal and
@@ -873,32 +647,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
     bool HasCompilerGeneratedAttribute(CustomAttributeHandleCollection attributes)
         => HasAttributeNamed(attributes, "CompilerGeneratedAttribute", "System.Runtime.CompilerServices");
 
-    // True when the method is Razor/Blazor-generated render plumbing: any method that
-    // takes a Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder parameter
-    // (the component BuildRenderTree override and the Create*_N render-fragment helpers
-    // the Razor compiler emits). These are emitted from .razor markup, carry no
-    // [GeneratedCode]/[CompilerGenerated] attribute, and their allocations (event-handler
-    // delegates, EventCallback boxing, RenderFragment closures) are intrinsic to the
-    // component model — not user-actionable source-shape fixes. Hand-written code
-    // essentially never takes a RenderTreeBuilder, so the parameter is a precise signal.
-    //
-    // The match is trust-gated (public-key-token, #1708): only the real framework
-    // RenderTreeBuilder counts, so a user-defined type that merely reuses the namespace and
-    // name does not silently suppress that method's genuine allocation findings.
-    static bool IsBlazorRenderMethod(MethodIdentity caller)
-    {
-        foreach (var parameter in caller.ParameterTypes)
-        {
-            if (FrameworkIdentity.IsKnownFrameworkType(
-                    parameter,
-                    "Microsoft.AspNetCore.Components",
-                    "Microsoft.AspNetCore.Components.Rendering",
-                    "RenderTreeBuilder"))
-                return true;
-        }
-        return false;
-    }
-
     (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
     {
         if (constructor.Kind == HandleKind.MemberReference
@@ -925,8 +673,7 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         MethodIdentity caller,
         byte[] il,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions)
-        : IMethodAllocationResolver,
-          IOptimizationOpportunityResolver
+        : ILibraryMethodAnalysisResolver
     {
         public TypeRef ResolveType(int token)
             => owner.ResolveTypeToken(token, scope);
@@ -1108,23 +855,6 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
             }
         }
         return false;
-    }
-
-    ImmutableArray<TypeRef> DecodeLocalTypes(MethodBodyBlock body, GenericScope scope)
-    {
-        if (body.LocalSignature.IsNil)
-            return [];
-        var signature = _reader.GetStandaloneSignature(body.LocalSignature);
-        if (!SignatureBlobGuard.IsSafeToDecode(
-                _reader,
-                signature.Signature,
-                SignatureBlobGuard.Kind.LocalVariables))
-        {
-            return [];
-        }
-        return signature.DecodeLocalSignature(
-            TypeRefDecoder.Instance,
-            scope);
     }
 
     string? CalliReturnDetail(int token, GenericScope scope)
@@ -1410,24 +1140,4 @@ internal sealed class LibraryBodyAnalysisBuilder : IDisposable
         return names.MoveToImmutable();
     }
 
-    string MethodLabel(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle)
-    {
-        try
-        {
-            var typeDef = _reader.GetTypeDefinition(typeHandle);
-            string ns = _reader.GetString(typeDef.Namespace);
-            string typeName = _reader.GetString(typeDef.Name);
-            string methodName = _reader.GetString(_reader.GetMethodDefinition(methodHandle).Name);
-            string fullTypeName = ns.Length == 0 ? typeName : $"{ns}.{typeName}";
-            return $"{fullTypeName}::{methodName}";
-        }
-        catch (Exception ex) when (IsRecoverableMethodFailure(ex))
-        {
-            return $"0x{MetadataTokens.GetToken(methodHandle):X8}";
-        }
-    }
-
-    static bool IsRecoverableMethodFailure(Exception ex)
-        => ex is BadImageFormatException or InvalidOperationException or ArgumentException
-            or ArgumentOutOfRangeException or IndexOutOfRangeException;
 }

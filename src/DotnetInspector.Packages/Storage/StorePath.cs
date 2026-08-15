@@ -85,12 +85,5 @@ public static class StorePath
     /// (<c>:</c>), or null character, and not otherwise rooted.
     /// </summary>
     public static bool IsSafeSegment(string segment)
-        => segment.Length != 0
-            && segment != "."
-            && segment != ".."
-            && !segment.Contains('/')
-            && !segment.Contains('\\')
-            && !segment.Contains(':')
-            && !segment.Contains('\0')
-            && !Path.IsPathRooted(segment);
+        => PackageEntryPath.IsSafeSegment(segment);
 }

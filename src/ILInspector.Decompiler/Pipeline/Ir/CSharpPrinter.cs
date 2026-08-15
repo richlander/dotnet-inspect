@@ -588,32 +588,32 @@ public sealed partial class CSharpPrinter
     {
         var sb = new StringBuilder();
         _labelTargets = CollectBranchTargets(function);
-        foreach (var usingNode in DescendantsOutsideNestedFunctions(function).OfType<UsingStatement>())
+        foreach (var usingNode in function.DescendantsOutsideNestedFunctions.OfType<UsingStatement>())
             _usingLocals.Add(usingNode.LocalIndex);
-        foreach (var foreachNode in DescendantsOutsideNestedFunctions(function).OfType<ForeachStatement>())
+        foreach (var foreachNode in function.DescendantsOutsideNestedFunctions.OfType<ForeachStatement>())
             _foreachLocals.Add(foreachNode.LocalIndex);
-        foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<IsPattern>())
+        foreach (var pattern in function.DescendantsOutsideNestedFunctions.OfType<IsPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
-        foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<RecursivePropertyDeclarationPattern>())
+        foreach (var pattern in function.DescendantsOutsideNestedFunctions.OfType<RecursivePropertyDeclarationPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
-        foreach (var arm in DescendantsOutsideNestedFunctions(function).OfType<UnionSwitchExpressionArm>())
+        foreach (var arm in function.DescendantsOutsideNestedFunctions.OfType<UnionSwitchExpressionArm>())
             if (arm.LocalIndex is { } localIndex)
                 _isPatternLocals.Add(localIndex);
-        foreach (var arm in DescendantsOutsideNestedFunctions(function).OfType<PatternSwitchExpressionArm>())
+        foreach (var arm in function.DescendantsOutsideNestedFunctions.OfType<PatternSwitchExpressionArm>())
         {
             if (arm.LocalIndex is { } localIndex)
                 _isPatternLocals.Add(localIndex);
             if (arm.Subpattern is { } subpattern)
                 _isPatternLocals.Add(subpattern.LocalIndex);
         }
-        foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
+        foreach (var deconstruction in function.DescendantsOutsideNestedFunctions.OfType<DeconstructionAssignment>())
             foreach (var target in deconstruction.Targets)
                 if (target is { Kind: DeconstructionTargetKind.Local, IsDeclared: true })
                     _deconstructionLocals.Add(target.LocalIndex);
         CollectDeclaringStores(function);
         CollectInlineReceiverTempStores(function);
         CollectStackSlotNames(function);
-        foreach (var fixedNode in DescendantsOutsideNestedFunctions(function).OfType<Fixed>())
+        foreach (var fixedNode in function.DescendantsOutsideNestedFunctions.OfType<Fixed>())
         {
             if (fixedNode.LocalIsStackSlot)
                 _fixedStackSlotNames.Add(FixedLocalName(fixedNode));
@@ -675,9 +675,9 @@ public sealed partial class CSharpPrinter
         => returnType is not { Namespace: "System", Name: "Void" }
             && returnType.Kind != TypeRefKind.ByRef
             && !AsyncReturnForbidsValue(returnType, requiresAsyncBodyModifier)
-            && !DescendantsOutsideNestedFunctions(bodyRoot).Any(static n => n is YieldReturn or YieldBreak)
-            && DescendantsOutsideNestedFunctions(bodyRoot).Any(static n => n is UnsupportedNode)
-            && !DescendantsOutsideNestedFunctions(bodyRoot).Any(static n => n is Return);
+            && !bodyRoot.DescendantsOutsideNestedFunctions.Any(static n => n is YieldReturn or YieldBreak)
+            && bodyRoot.DescendantsOutsideNestedFunctions.Any(static n => n is UnsupportedNode)
+            && !bodyRoot.DescendantsOutsideNestedFunctions.Any(static n => n is Return);
 
     static bool AsyncReturnForbidsValue(TypeRef type, bool requiresAsyncBodyModifier)
     {
@@ -784,7 +784,7 @@ public sealed partial class CSharpPrinter
     static HashSet<int> CollectBranchTargets(IrFunction function)
     {
         var targets = new HashSet<int>();
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             switch (node)
             {
@@ -805,7 +805,7 @@ public sealed partial class CSharpPrinter
             .Where(clause => clause.VariableIndex is not null)
             .Select(clause => clause.VariableIndex!.Value)
             .ToHashSet();
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             switch (node)
             {
@@ -822,7 +822,7 @@ public sealed partial class CSharpPrinter
             }
         }
         int switchIndex = 0;
-        foreach (var switchBranch in DescendantsOutsideNestedFunctions(function).OfType<SwitchBranch>())
+        foreach (var switchBranch in function.DescendantsOutsideNestedFunctions.OfType<SwitchBranch>())
         {
             string name = ReserveName($"__switchValue{switchIndex++}", new HashSet<string>(CurrentScopeNames(), StringComparer.Ordinal));
             _switchTemps.TryAdd(switchBranch, name);
@@ -884,7 +884,7 @@ public sealed partial class CSharpPrinter
         _stackSlotUnifiedTypes.Clear();
         _stackSlotDeclarations.Clear();
 
-        var nodes = DescendantsOutsideNestedFunctions(function).ToList();
+        var nodes = function.DescendantsOutsideNestedFunctions.ToList();
         var storesBySlot = new Dictionary<int, List<IrExpression>>();
         var loadsBySlot = new Dictionary<int, List<LoadStackSlot>>();
         var extraLoadTargetsBySlot = new Dictionary<int, List<TypeRef>>();
@@ -1330,9 +1330,9 @@ public sealed partial class CSharpPrinter
         // once, up front, with its merged type — declaring it at one store would
         // type it from that branch's value and strand the other branch's store.
         var slotStoreCounts = new Dictionary<int, int>();
-        foreach (var store in DescendantsOutsideNestedFunctions(function).OfType<StoreStackSlot>())
+        foreach (var store in function.DescendantsOutsideNestedFunctions.OfType<StoreStackSlot>())
             slotStoreCounts[store.Slot] = slotStoreCounts.GetValueOrDefault(store.Slot) + 1;
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             switch (node)
             {
@@ -1454,7 +1454,7 @@ public sealed partial class CSharpPrinter
 
     /// <summary>True when the local slot is read (loaded by value or address) anywhere in the body.</summary>
     static bool LocalIsRead(IrFunction function, int index)
-        => DescendantsOutsideNestedFunctions(function).Any(n =>
+        => function.DescendantsOutsideNestedFunctions.Any(n =>
             (n is LoadLocal load && load.Index == index)
             || (n is LoadLocalAddress address && address.Index == index));
 
@@ -1470,7 +1470,7 @@ public sealed partial class CSharpPrinter
         while (end + 1 < container.Children.Count && HasUnsafeOperation(container.Children[end + 1]))
             end++;
 
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             if (node is LoadLocal load && load.Index == store.Index
                 || node is LoadLocalAddress address && address.Index == store.Index)
@@ -1578,7 +1578,7 @@ public sealed partial class CSharpPrinter
         if (HasBranchTargetAfterStatement(store))
             return false;
         bool sawLoad = false;
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             if (node is StoreStackSlot s && s.Slot == store.Slot
                 || node is LoadStackSlot l && l.Slot == store.Slot)
@@ -1599,7 +1599,7 @@ public sealed partial class CSharpPrinter
         if (statement.Parent is not Block block || statement.ChildIndex < 0)
             return false;
         return block.Children.Skip(statement.ChildIndex + 1)
-            .SelectMany(DescendantsAndSelfOutsideNestedFunctions)
+            .SelectMany(node => node.DescendantsAndSelfOutsideNestedFunctions)
             .Any(n => n.SourceOffset >= 0 && _labelTargets.Contains(n.SourceOffset));
     }
 
@@ -1607,7 +1607,7 @@ public sealed partial class CSharpPrinter
     {
         if (IsLocalReference(node, index))
             return true;
-        return DescendantsOutsideNestedFunctions(node).Any(n => IsLocalReference(n, index));
+        return node.DescendantsOutsideNestedFunctions.Any(n => IsLocalReference(n, index));
     }
 
     static bool ReferencesLocalIncludingSharedNestedScopes(IrNode node, int index)
@@ -1634,7 +1634,7 @@ public sealed partial class CSharpPrinter
     {
         if (IsStackSlotReference(node, slot))
             return true;
-        return DescendantsOutsideNestedFunctions(node).Any(n => IsStackSlotReference(n, slot));
+        return node.DescendantsOutsideNestedFunctions.Any(n => IsStackSlotReference(n, slot));
     }
 
     static bool IsLocalReference(IrNode node, int index)
@@ -1656,18 +1656,9 @@ public sealed partial class CSharpPrinter
         return false;
     }
 
-    static IEnumerable<IrNode> DescendantsAndSelfOutsideNestedFunctions(IrNode node)
-    {
-        yield return node;
-        if (node is Lambda or LocalFunctionStatement)
-            yield break;
-        foreach (var descendant in DescendantsOutsideNestedFunctions(node))
-            yield return descendant;
-    }
-
     void CollectInlineReceiverTempStores(IrFunction function)
     {
-        foreach (var block in DescendantsOutsideNestedFunctions(function).OfType<Block>())
+        foreach (var block in function.DescendantsOutsideNestedFunctions.OfType<Block>())
         {
             for (int i = 0; i + 1 < block.Children.Count; i++)
             {
@@ -1744,7 +1735,7 @@ public sealed partial class CSharpPrinter
     static bool LastReferenceIsInside(IrFunction function, int localIndex, IrNode subtree)
     {
         IrNode? last = null;
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             if (node is LoadLocal load && load.Index == localIndex
                 || node is StoreLocal store && store.Index == localIndex
@@ -1759,18 +1750,6 @@ public sealed partial class CSharpPrinter
                 return true;
         }
         return false;
-    }
-
-    static IEnumerable<IrNode> DescendantsOutsideNestedFunctions(IrNode node)
-    {
-        foreach (var child in node.Children)
-        {
-            yield return child;
-            if (child is Lambda or LocalFunctionStatement)
-                continue;
-            foreach (var descendant in DescendantsOutsideNestedFunctions(child))
-                yield return descendant;
-        }
     }
 
     // internal so IrFunction.MarkLocalEliminated can reuse the exact shared-vs-isolated
@@ -4072,12 +4051,12 @@ public sealed partial class CSharpPrinter
                 // per-imported-function, so a nested local function / lambda can
                 // reuse this slot independently and must not count as a second
                 // definition (that would disable the provenance and reprint `!x`).
-                var stores = DescendantsOutsideNestedFunctions(_function).OfType<StoreStackSlot>().Where(s => s.Slot == load.Slot).ToList();
+                var stores = _function.DescendantsOutsideNestedFunctions.OfType<StoreStackSlot>().Where(s => s.Slot == load.Slot).ToList();
                 return stores.Count == 1 ? stores[0].Value : null;
             }
             case LoadLocal load:
             {
-                var stores = DescendantsOutsideNestedFunctions(_function).OfType<StoreLocal>().Where(s => s.Index == load.Index).ToList();
+                var stores = _function.DescendantsOutsideNestedFunctions.OfType<StoreLocal>().Where(s => s.Index == load.Index).ToList();
                 return stores.Count == 1 ? stores[0].Value : null;
             }
             default:
@@ -5670,7 +5649,7 @@ public sealed partial class CSharpPrinter
     Dictionary<int, (object Switch, object Arm)> ArmScopedPatternLocals()
     {
         var owners = new Dictionary<int, (object, object)>();
-        foreach (var arm in DescendantsOutsideNestedFunctions(_function).OfType<PatternSwitchExpressionArm>())
+        foreach (var arm in _function.DescendantsOutsideNestedFunctions.OfType<PatternSwitchExpressionArm>())
         {
             object owningSwitch = arm.Parent ?? arm;
             if (arm.LocalIndex is { } localIndex)
@@ -5678,7 +5657,7 @@ public sealed partial class CSharpPrinter
             if (arm.Subpattern is { } subpattern)
                 owners[subpattern.LocalIndex] = (owningSwitch, arm);
         }
-        foreach (var arm in DescendantsOutsideNestedFunctions(_function).OfType<UnionSwitchExpressionArm>())
+        foreach (var arm in _function.DescendantsOutsideNestedFunctions.OfType<UnionSwitchExpressionArm>())
             if (arm.LocalIndex is { } localIndex)
                 owners[localIndex] = (arm.Parent ?? arm, arm);
         return owners;
@@ -5704,7 +5683,7 @@ public sealed partial class CSharpPrinter
     HashSet<int> LoopCounterLocals()
     {
         var counters = new HashSet<int>();
-        foreach (var loop in DescendantsOutsideNestedFunctions(_function).OfType<ForLoop>())
+        foreach (var loop in _function.DescendantsOutsideNestedFunctions.OfType<ForLoop>())
         {
             var increment = loop.Increment;
             if (increment is StoreLocal direct)
