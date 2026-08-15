@@ -101,7 +101,39 @@ public sealed class VarWhenApparentSpecimen
         return Pick(value) + Pick(value);
     }
 
+    // Nested dynamic positions erase to object in local signatures too. The member
+    // signatures retain DynamicAttribute and render the initializer as List<dynamic>
+    // or dynamic[], so `var` would restore dynamic binding at the element access.
+    public static int NestedDynamicParameterToObjects(List<dynamic> input)
+    {
+        List<object> values = input;
+        return Pick(values[0]) + Pick(values[0]);
+    }
+
+    public static int NestedDynamicReturnToObjects()
+    {
+        List<object> values = GetDynamicValues();
+        return Pick(values[0]) + Pick(values[0]);
+    }
+
+    public static int NestedDynamicArrayToObjects(dynamic[] input)
+    {
+        object[] values = input;
+        return Pick(values[0]) + Pick(values[0]);
+    }
+
+    // Close positive: the explicit constructed type proves static object at the
+    // nested position, so the apparent bucket may still use var.
+    public static int NestedObjectCreation()
+    {
+        List<object> values = new List<object>();
+        values.Add("text");
+        return values.Count;
+    }
+
     static dynamic GetDynamic() => "text";
+
+    static List<dynamic> GetDynamicValues() => new() { "text" };
 
     static int Pick(object value) => 1;
 

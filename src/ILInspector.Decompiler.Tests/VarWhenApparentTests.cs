@@ -231,6 +231,30 @@ public sealed class VarWhenApparentTests
         Assert.DoesNotContain("var ", text);
     }
 
+    [Theory]
+    [InlineData(nameof(VarWhenApparentSpecimen.NestedDynamicParameterToObjects), "List<object> ")]
+    [InlineData(nameof(VarWhenApparentSpecimen.NestedDynamicReturnToObjects), "List<object> ")]
+    [InlineData(nameof(VarWhenApparentSpecimen.NestedDynamicArrayToObjects), "object[] ")]
+    public void ElsewhereBucket_DeclinesDynamicErasedInsideTypeShape(string method, string declaration)
+    {
+        var defaultText = Render(method);
+        var text = Render(method, VarElsewhere);
+
+        Assert.Equal(defaultText, text);
+        Assert.Contains(declaration, text);
+        Assert.DoesNotContain("var ", text);
+    }
+
+    [Fact]
+    public void ApparentBucket_AllowsNestedObjectWhenSyntaxProvesStaticType()
+    {
+        var text = Render(nameof(VarWhenApparentSpecimen.NestedObjectCreation), VarWhenApparent);
+
+        Assert.Contains("var ", text);
+        Assert.Contains("= new List<object>();", text);
+        Assert.DoesNotContain("List<object> values", text);
+    }
+
     [Fact]
     public void BuiltInBucket_DeclinesNull()
     {

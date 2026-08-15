@@ -6346,13 +6346,10 @@ public sealed partial class CSharpPrinter
     /// </summary>
     static bool VarInfersDeclaredType(TypeRef type, IrExpression initializer)
     {
-        // `dynamic` erases to System.Object. Calls and member reads do not yet retain
-        // top-level dynamic return provenance, so an object ResultType is not proof
-        // that `var` will infer object. Admit only shapes whose emitted syntax proves
-        // a static object type.
-        if (IsSystemObjectType(type)
-            && initializer is not (NewObject or ObjectInitializerExpression or CastClass
-                or DefaultValue or LoadLocal or LoadArgument { IsDynamic: false }))
+        // `dynamic` erases to System.Object at every nesting depth. Calls and member
+        // reads do not yet retain the full DynamicAttribute transform, so matching
+        // erased TypeRefs are not proof that `var` preserves the authored static type.
+        if (ContainsSystemObjectType(type) && !ErasedObjectTypeIsProvenBySyntax(type, initializer))
         {
             return false;
         }
@@ -6375,6 +6372,21 @@ public sealed partial class CSharpPrinter
         };
         return inferred?.Equals(type) == true;
     }
+
+    static bool ContainsSystemObjectType(TypeRef type)
+    {
+        if (IsSystemObjectType(type))
+            return true;
+        if (type.ElementType is { } element && ContainsSystemObjectType(element))
+            return true;
+        return type.TypeArguments.Any(ContainsSystemObjectType);
+    }
+
+    static bool ErasedObjectTypeIsProvenBySyntax(TypeRef type, IrExpression initializer)
+        => initializer is NewObject or ObjectInitializerExpression
+            or NewArray or ArrayLiteral or CastClass or UnboxAny
+            or DefaultValue or DelegateCreation or LoadLocal
+            || IsSystemObjectType(type) && initializer is LoadArgument { IsDynamic: false };
 
     /// <summary>The type C# infers for the literal text emitted by <see cref="ConstantText"/>.</summary>
     static TypeRef? ConstantNaturalType(Constant constant)

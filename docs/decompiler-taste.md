@@ -183,13 +183,16 @@ forms. A tuple node records its contextual sink type, while emitted `(e1, e2)`
 derives its type from the elements, so it is not proof of exact inference.
 Unknown and future IR nodes keep the explicit type.
 
-Top-level `dynamic` also erases to `System.Object` in metadata. Until every call
-and member-return path carries dynamic provenance, an object-typed result is
-not enough to prove that `var` infers `object` rather than `dynamic`. Object
-declarations therefore keep their explicit type unless the initializer syntax
-itself proves static `object` (for example `new object()`, an explicit
-`(object)` cast, a non-dynamic parameter, an already explicit local, or
-`default(object)`).
+`dynamic` erases to `System.Object` in metadata at every nesting depth:
+`List<dynamic>` and `dynamic[]` become `List<object>` and `object[]`. Until
+every call and member-return path carries the complete `DynamicAttribute`
+transform, equality between erased types is not enough to prove that `var`
+preserves the authored static type. Any declaration type containing `object`
+therefore keeps its explicit type unless the initializer syntax itself proves
+the erased static type (for example `new List<object>()`, an explicit cast,
+`default(List<object>)`, a typed delegate construction, or an already explicit
+local). A non-dynamic parameter is also proof for a top-level `object`, where
+the IR carries that exact provenance; it is not proof for nested positions.
 
 `var` and target-typed `new()` are mutually exclusive at a declaration:
 `var x = new()` has no target type and is CS8754. When a bucket selects `var`,
