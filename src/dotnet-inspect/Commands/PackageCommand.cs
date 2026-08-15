@@ -1275,28 +1275,33 @@ public class PackageCommand
         if (options.Columns is not { Length: > 0 })
             return true;
 
-        bool includesPackageInfo = countSections?.Contains(PackageSections.PackageInfo) == true
-            || string.Equals(
-                rowSection,
-                PackageSections.PackageInfo,
-                StringComparison.OrdinalIgnoreCase);
-        if (!includesPackageInfo)
-            return true;
-
         var schema = PackageDiscoverySchema();
-        var selectedColumnSections = countSections?
-            .Where(section => schema.GetSection(section)?.ItemKind.Equals(
-                "column",
-                StringComparison.OrdinalIgnoreCase) == true)
-            .ToArray() ?? [];
-        if (selectedColumnSections.Length > 0)
-        {
-            return ProjectionDiagnostics.ValidateProjection(
-                schema,
-                selectedColumnSections,
-                fields: null,
-                columns: options.Columns);
-        }
+        var columnSchema = PackageCountColumnSchema(
+            schema,
+            combinedRows: true);
+        IReadOnlyCollection<string> selectedSections =
+            countSections is { Count: > 0 }
+                ? countSections
+                : rowSection is not null
+                    ? [rowSection]
+                    : [];
+        bool anyColumnMatches = options.Columns.Any(pattern =>
+            selectedSections.Any(section =>
+            {
+                if (IsMultiPackageFieldSection(section)
+                    && ResolveProjectionNames(
+                        GetMultiPackageFieldNames(section),
+                        [pattern]).Length > 0)
+                {
+                    return false;
+                }
+
+                return columnSchema.ValidateProjection(
+                    section,
+                    [pattern]).Resolved.Length > 0;
+            }));
+        if (anyColumnMatches)
+            return true;
 
         CommandError.Write(
             $"No columns matched projection: {string.Join(", ", options.Columns)}");
@@ -2925,7 +2930,6 @@ public class PackageCommand
             }
             writer.WriteEndObject();
         }
-        Console.WriteLine(Encoding.UTF8.GetString(buffer.WrittenSpan));
         Console.WriteLine(Encoding.UTF8.GetString(buffer.WrittenSpan));
     }
 
