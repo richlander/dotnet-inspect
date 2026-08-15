@@ -1352,6 +1352,37 @@ public sealed class CSharpDeclarationWriterTests
         Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
     }
 
+    [Fact]
+    public void MemberDeclaration_UsesDeclaringInventoryForSelectedOperatorSibling()
+    {
+        var equality = new ApiMember
+        {
+            Name = "op_Equality",
+            Kind = "operator",
+            Signature = "bool op_Equality(Samples.Tuples left, Samples.Tuples right)",
+            IsStatic = true,
+        };
+        var inequality = new ApiMember
+        {
+            Name = "op_Inequality",
+            Kind = "operator",
+            Signature = "bool op_Inequality(Samples.Tuples left, Samples.Tuples right)",
+            IsStatic = true,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Tuples",
+            Kind = "class",
+            Members = [equality],
+            DeclaringMembers = [equality, inequality],
+        };
+
+        Assert.Equal(
+            "public static bool operator ==(Samples.Tuples left, Samples.Tuples right)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, equality));
+    }
+
     [Theory]
     [InlineData(
         "op_AdditionAssignment",

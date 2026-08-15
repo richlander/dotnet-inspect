@@ -195,6 +195,7 @@ public static class MemberCommand
 
                 var target = memberResolution.Target!;
                 var selected = target.ApiMember.Member;
+                apiType.DeclaringMembers ??= apiType.Members;
                 apiType.Members = [selected];
                 var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
                 effectiveOptions = effectiveOptions with

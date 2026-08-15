@@ -2259,7 +2259,7 @@ internal static class CSharpDeclarationWriter
             return true;
         }
 
-        return type.Members.Any(candidate =>
+        return (type.DeclaringMembers ?? type.Members).Any(candidate =>
             candidate.Kind == "operator"
             && candidate.Name == siblingName
             && SameOperatorSignature(member.SignatureModel, candidate.SignatureModel));

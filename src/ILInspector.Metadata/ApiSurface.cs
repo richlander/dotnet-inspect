@@ -478,6 +478,13 @@ public class ApiType
 
     public List<ApiMember> Members { get; set; } = [];
 
+    /// <summary>
+    /// Complete declaring-type member inventory retained when <see cref="Members"/>
+    /// is narrowed for a selected-member projection.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<ApiMember>? DeclaringMembers { get; set; }
+
     // Source information (populated with --source-url)
     public string? SourceFilePath { get; set; }
 
