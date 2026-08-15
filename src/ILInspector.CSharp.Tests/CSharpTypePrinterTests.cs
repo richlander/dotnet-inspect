@@ -302,6 +302,7 @@ public sealed class CSharpTypePrinterTests
         {
             Name = "Samples.IEvents.Changed",
             Kind = "explicit-interface-implementation",
+            Accessibility = "private",
             SignatureModel = new ApiSignature
             {
                 ReturnType = "System.EventHandler",
@@ -3163,12 +3164,90 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void ExplicitInterfacePropertyWithNonPrivateAccessibilityFailsClosed()
+    {
+        var property = new ApiMember
+        {
+            Name = "Samples.IValue.Value",
+            Kind = "property",
+            Accessibility = "internal",
+            IsExplicitInterfaceImplementation = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Samples.IValue.Value",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Interfaces.Add("Samples.IValue");
+        type.Members.Add(property);
+        var request = new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    property,
+                    CSharpBodyPolicy.Full,
+                    new CSharpPropertyBody(
+                        CSharpAccessorBody.Block("return 42;"),
+                        null))
+            ]);
+
+        var exception = Assert.Throws<NotSupportedException>(() => _printer.Print(request));
+
+        Assert.Contains("metadata accessibility 'internal'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("C# cannot represent", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceEventWithNonPrivateAccessibilityFailsClosed()
+    {
+        var explicitEvent = new ApiMember
+        {
+            Name = "Samples.IEvents.Changed",
+            Kind = "event",
+            Accessibility = "protected",
+            IsExplicitInterfaceImplementation = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Samples.IEvents.Changed",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "add" },
+                    new ApiAccessor { Kind = "remove" }
+                ]
+            }
+        };
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(explicitEvent);
+        var request = new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    explicitEvent,
+                    CSharpBodyPolicy.Full,
+                    new CSharpEventBody(
+                        CSharpAccessorBody.Block("_changed += value;"),
+                        CSharpAccessorBody.Block("_changed -= value;")))
+            ]);
+
+        var exception = Assert.Throws<NotSupportedException>(() => _printer.Print(request));
+
+        Assert.Contains("metadata accessibility 'protected'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("C# cannot represent", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExplicitInterfaceIndexerPreservesQualifierAndOmitsAccessibility()
     {
         var indexer = new ApiMember
         {
             Name = "Samples.IValues.Item",
             Kind = "explicit-interface-implementation",
+            Accessibility = "private",
             SignatureModel = new ApiSignature
             {
                 ReturnType = "int",
@@ -3219,6 +3298,7 @@ public sealed class CSharpTypePrinterTests
         {
             Name = "Samples.IValue.Value",
             Kind = "explicit-interface-implementation",
+            Accessibility = "private",
             SignatureModel = new ApiSignature
             {
                 ReturnType = "int",
@@ -3506,6 +3586,7 @@ public sealed class CSharpTypePrinterTests
         {
             Name = "Contracts.IValue.Value",
             Kind = "explicit-interface-implementation",
+            Accessibility = "private",
             SignatureModel = new ApiSignature
             {
                 ReturnType = "Contracts.IValue",
@@ -3536,6 +3617,7 @@ public sealed class CSharpTypePrinterTests
         {
             Name = "Contracts.IValue.Value",
             Kind = "explicit-interface-implementation",
+            Accessibility = "private",
             SignatureModel = new ApiSignature
             {
                 ReturnType = "Other.IValue",

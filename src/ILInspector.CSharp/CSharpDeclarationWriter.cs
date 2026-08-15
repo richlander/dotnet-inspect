@@ -1042,6 +1042,8 @@ internal static class CSharpDeclarationWriter
         CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters = null)
     {
+        EnsureExplicitInterfaceAccessibilityIsRepresentable(member);
+
         string signature;
         var renderedFromModel = false;
         if (member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType))
@@ -1913,6 +1915,22 @@ internal static class CSharpDeclarationWriter
     static bool IsExplicitInterfaceImplementation(ApiMember member)
         => member.Kind == "explicit-interface-implementation"
             || member.IsExplicitInterfaceImplementation;
+
+    static void EnsureExplicitInterfaceAccessibilityIsRepresentable(ApiMember member)
+    {
+        if (member.IsFinalizer
+            || !IsExplicitInterfaceImplementation(member)
+            || !member.Name.Contains('.', StringComparison.Ordinal)
+            || string.Equals(member.Accessibility, "private", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        string accessibility = member.Accessibility ?? "public";
+        throw new NotSupportedException(
+            $"Explicit interface member '{member.Name}' has metadata accessibility "
+            + $"'{accessibility}', which C# cannot represent.");
+    }
 
     static bool IsEvent(ApiMember member)
         => member.Kind == "event" || IsExplicitInterfaceEvent(member);

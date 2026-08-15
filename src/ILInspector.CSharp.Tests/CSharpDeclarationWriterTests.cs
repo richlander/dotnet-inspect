@@ -807,6 +807,7 @@ public sealed class CSharpDeclarationWriterTests
         {
             Name = "Some.@event.IEvents.Changed",
             Kind = "explicit-interface-implementation",
+            Accessibility = "private",
             IsStatic = true,
             IsUnsafe = true,
             SignatureModel = new ApiSignature
@@ -836,6 +837,7 @@ public sealed class CSharpDeclarationWriterTests
         {
             Name = "Some.IEvents.Changed",
             Kind = "explicit-interface-implementation",
+            Accessibility = "private",
             SignatureModel = new ApiSignature
             {
                 ReturnType = "System.EventHandler",
@@ -1188,6 +1190,7 @@ public sealed class CSharpDeclarationWriterTests
         {
             Name = "Samples.ICounter.Count",
             Kind = "explicit-interface-implementation",
+            Accessibility = "private",
             IsStatic = true,
             SignatureModel = new ApiSignature
             {
@@ -1210,6 +1213,7 @@ public sealed class CSharpDeclarationWriterTests
         {
             Name = "IFoo.Bar",
             Kind = "explicit-interface-implementation",
+            Accessibility = "private",
             Signature = "void IFoo.Bar(int* p)",
             IsUnsafe = true
         };
@@ -1227,12 +1231,45 @@ public sealed class CSharpDeclarationWriterTests
         {
             Name = "event.class",
             Kind = "explicit-interface-implementation",
+            Accessibility = "private",
             Signature = "void event.class()"
         };
 
         var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
 
         Assert.Equal("void @event.@class()", declaration);
+    }
+
+    [Theory]
+    [InlineData(null, "public")]
+    [InlineData("internal", "internal")]
+    [InlineData("protected", "protected")]
+    public void ExplicitInterfaceImplementation_NonPrivateAccessibilityFailsClosed(
+        string? accessibility,
+        string expectedAccessibility)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Samples.IValue.Value",
+            Kind = "explicit-interface-implementation",
+            Accessibility = accessibility,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Samples.IValue.Value",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+
+        Assert.Contains(
+            $"metadata accessibility '{expectedAccessibility}'",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains("C# cannot represent", exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1675,6 +1712,7 @@ public sealed class CSharpDeclarationWriterTests
         var (type, member) = CreateConstrainedGenericMethod();
         member.IsStatic = false;
         member.Kind = "explicit-interface-implementation";
+        member.Accessibility = "private";
         member.Name = "Samples.IComparer.Compare";
         member.Signature = "int Samples.IComparer.Compare<T>(T a, T b)";
         member.SignatureModel!.MemberName = "Samples.IComparer.Compare<T>";

@@ -100,10 +100,12 @@ its accessibility fact and typed MethodImpl identity in the model and structured
 output, including for aggregate properties and events. Human-facing renderers
 suppress metadata-private accessibility for explicit implementations, and
 suppress finalizer accessibility, because those prefixes are redundant with the
-product-owned identity or illegal in the corresponding C# spelling; other raw
-accessibility values remain visible. Property accessor accessibility is likewise
-a metadata fact and does not change with the disclosure mode used to select the
-property.
+product-owned identity or illegal in the corresponding C# spelling. Other raw
+accessibility values remain visible in lowered labels and structured output;
+C# projection fails closed for a non-private explicit implementation because
+C# has no legal spelling that preserves both facts. Property accessor
+accessibility is likewise a metadata fact and does not change with the
+disclosure mode used to select the property.
 
 #### `ILInspector.Analysis`
 
