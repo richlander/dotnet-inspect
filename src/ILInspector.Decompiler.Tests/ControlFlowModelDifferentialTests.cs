@@ -9,14 +9,9 @@ namespace ILInspector.Decompiler.Tests;
 /// <see cref="ControlFlowViews_AgreeOverCoreLib"/> is the gate for their shared
 /// edge semantics; intentional region-aware differences remain explicit.
 /// </summary>
-[Trait("Speed", "Slow")]
-[Trait("Area", "Corpus")]
 public class ControlFlowModelDifferentialTests
 {
     const int SampleCap = 20;
-
-    static readonly ImmutableArray<IIrPass> PreSwitchPasses =
-        [.. IrPasses.Default.TakeWhile(pass => pass is not SwitchRaisingPass)];
 
     sealed class Comparison
     {
@@ -31,12 +26,19 @@ public class ControlFlowModelDifferentialTests
         public long EndFinallyTerminators;
         public long EndFilterTerminators;
         public long DirectStructuredTransferBlocks;
+        public long DirectBreakBlocks;
+        public long DirectContinueBlocks;
+        public long AcceptedTerminalContinueBlocks;
         public long NestedStructuredTransferBlocks;
+        public long NestedStructuredTransferBlocksExpectedBySwitch;
+        public long NestedStructuredTransferBlocksModeledBySwitch;
         public long DifferenceCount;
         public readonly List<string> Differences = [];
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    [Trait("Area", "Corpus")]
     public void ControlFlowViews_AgreeOverCoreLib()
     {
         var comparison = CompareCoreLib();
@@ -62,8 +64,16 @@ public class ControlFlowModelDifferentialTests
             "The corpus did not exercise EndFinally terminators.");
         Assert.True(comparison.DirectStructuredTransferBlocks > 0,
             "The corpus did not expose direct structured-transfer terminators.");
+        Assert.Equal(
+            comparison.DirectStructuredTransferBlocks,
+            comparison.DirectBreakBlocks);
+        Assert.Equal(0, comparison.DirectContinueBlocks);
+        Assert.Equal(0, comparison.AcceptedTerminalContinueBlocks);
         Assert.True(comparison.NestedStructuredTransferBlocks > 0,
             "The corpus did not expose conditional structured-transfer paths.");
+        Assert.Equal(
+            comparison.NestedStructuredTransferBlocksExpectedBySwitch,
+            comparison.NestedStructuredTransferBlocksModeledBySwitch);
         AssertNoDifferences(comparison);
 
         Console.WriteLine(
@@ -77,12 +87,22 @@ public class ControlFlowModelDifferentialTests
             + $"end-finally-terminators={comparison.EndFinallyTerminators} "
             + $"end-filter-terminators={comparison.EndFilterTerminators} "
             + $"direct-structured-transfer-blocks={comparison.DirectStructuredTransferBlocks} "
-            + $"nested-structured-transfer-blocks={comparison.NestedStructuredTransferBlocks}");
+            + $"direct-break-blocks={comparison.DirectBreakBlocks} "
+            + $"direct-continue-blocks={comparison.DirectContinueBlocks} "
+            + $"accepted-terminal-continue-blocks={comparison.AcceptedTerminalContinueBlocks} "
+            + $"nested-structured-transfer-blocks={comparison.NestedStructuredTransferBlocks} "
+            + "nested-structured-transfer-blocks-expected-by-switch="
+            + $"{comparison.NestedStructuredTransferBlocksExpectedBySwitch} "
+            + "nested-structured-transfer-blocks-modeled-by-switch="
+            + $"{comparison.NestedStructuredTransferBlocksModeledBySwitch}");
     }
 
     [Fact]
+    [Trait("Area", "Pass")]
     public void ControlFlowViews_AgreeOnSyntheticBoundaryTerminators()
     {
+        Assert.NotEmpty(PassesBeforeSwitchRaising());
+
         var comparison = new Comparison();
         var int32 = TypeRef.CoreLib("System", "Int32");
 
@@ -100,22 +120,44 @@ public class ControlFlowModelDifferentialTests
         externalBranch.Add(new Branch(0xDEAD));
         CompareContainer([externalBranch], "synthetic/external-branch", comparison);
 
+        var conditionalToNext = new Block(0x1A);
+        conditionalToNext.Add(new ConditionalBranch(
+            new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+            0x1B));
+        var conditionalToNextTarget = new Block(0x1B);
+        conditionalToNextTarget.Add(new Return(null));
+        Block[] conditionalToNextBlocks = [conditionalToNext, conditionalToNextTarget];
+        CompareContainer(
+            conditionalToNextBlocks,
+            "synthetic/conditional-targets-next",
+            comparison);
+        AssertSwitchSuccessors(conditionalToNextBlocks, 0, [1, 1]);
+
         var breakBlock = new Block(0x20);
         breakBlock.Add(new Break());
         var afterBreak = new Block(0x28);
         afterBreak.Add(new Return(null));
-        CompareContainer([breakBlock, afterBreak], "synthetic/structured-break", comparison);
+        Block[] breakBlocks = [breakBlock, afterBreak];
+        CompareContainer(breakBlocks, "synthetic/structured-break", comparison);
+        AssertSwitchDeclines(breakBlocks, 0);
 
         var continueBlock = new Block(0x30);
         continueBlock.Add(new Continue());
         var afterContinue = new Block(0x38);
         afterContinue.Add(new Return(null));
-        CompareContainer([continueBlock, afterContinue], "synthetic/structured-continue", comparison);
+        Block[] continueBlocks = [continueBlock, afterContinue];
+        CompareContainer(continueBlocks, "synthetic/structured-continue", comparison);
+        AssertSwitchSuccessors(continueBlocks, 0, []);
 
         var nonFinalBreak = new Block(0x40);
         nonFinalBreak.Add(new Break());
         nonFinalBreak.Add(new Return(null));
-        CompareContainer([nonFinalBreak], "synthetic/non-final-structured-break", comparison);
+        Block[] nonFinalBreakBlocks = [nonFinalBreak];
+        CompareContainer(
+            nonFinalBreakBlocks,
+            "synthetic/non-final-structured-break",
+            comparison);
+        AssertSwitchDeclines(nonFinalBreakBlocks, 0);
 
         var conditionalBreakArm = new Block(0x48);
         conditionalBreakArm.Add(new Break());
@@ -130,37 +172,65 @@ public class ControlFlowModelDifferentialTests
         CompareContainer(conditionalBreakBlocks, "synthetic/conditional-break", comparison);
         AssertSwitchSuccessors(conditionalBreakBlocks, 0, [1]);
 
+        var nestedBreakArm = new Block(0x60);
+        nestedBreakArm.Add(new Break());
+        var nestedBreakThenEndFinally = new Block(0x68);
+        nestedBreakThenEndFinally.Add(new IfStatement(
+            new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+            nestedBreakArm,
+            elseArm: null));
+        nestedBreakThenEndFinally.Add(new EndFinally());
+        Block[] nestedBreakThenEndFinallyBlocks = [nestedBreakThenEndFinally];
+        CompareContainer(
+            nestedBreakThenEndFinallyBlocks,
+            "synthetic/nested-break-before-end-finally",
+            comparison);
+        AssertSwitchDeclines(nestedBreakThenEndFinallyBlocks, 0);
+
         var loopBody = new BlockContainer();
-        var ownedBreak = new Block(0x60);
+        var ownedBreak = new Block(0x70);
         ownedBreak.Add(new Break());
         loopBody.Add(ownedBreak);
-        var loopBlock = new Block(0x68);
+        var loopBlock = new Block(0x78);
         loopBlock.Add(new DoWhileLoop(
             loopBody,
             new Constant(false, TypeRef.CoreLib("System", "Boolean"))));
-        var afterLoop = new Block(0x70);
+        var afterLoop = new Block(0x80);
         afterLoop.Add(new Return(null));
         Block[] loopBlocks = [loopBlock, afterLoop];
         CompareContainer(loopBlocks, "synthetic/owned-break", comparison);
         AssertSwitchSuccessors(loopBlocks, 0, [1]);
 
+        var branchToNext = new Block(0x88);
+        branchToNext.Add(new Branch(0x90));
+        var nextBlock = new Block(0x90);
+        nextBlock.Add(new Return(null));
+        CompareContainer([branchToNext, nextBlock], "synthetic/branch-to-next", comparison);
+
         Assert.Equal(1, comparison.EndFilterTerminators);
+        Assert.Equal(1, comparison.EndFinallyTerminators);
         Assert.Equal(1, comparison.ExternalExplicitEdges);
         Assert.Equal(3, comparison.DirectStructuredTransferBlocks);
-        Assert.Equal(1, comparison.NestedStructuredTransferBlocks);
+        Assert.Equal(2, comparison.DirectBreakBlocks);
+        Assert.Equal(1, comparison.DirectContinueBlocks);
+        Assert.Equal(1, comparison.AcceptedTerminalContinueBlocks);
+        Assert.Equal(2, comparison.NestedStructuredTransferBlocks);
+        Assert.Equal(1, comparison.NestedStructuredTransferBlocksExpectedBySwitch);
+        Assert.Equal(1, comparison.NestedStructuredTransferBlocksModeledBySwitch);
         AssertNoDifferences(comparison);
     }
 
     static Comparison CompareCoreLib()
     {
         var comparison = new Comparison();
+        var preSwitchPasses = PassesBeforeSwitchRaising();
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
 
         foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
         {
             long methodOrdinal = comparison.Methods;
             comparison.Methods++;
-            IrPasses.Run(function, PreSwitchPasses);
+            IrPasses.Run(function, preSwitchPasses);
 
             int containerOrdinal = 0;
             foreach (var container in function.Descendants.OfType<BlockContainer>())
@@ -187,13 +257,19 @@ public class ControlFlowModelDifferentialTests
         var facts = StructuringFlowFacts.Collect(blocks);
         var resolvedFactEdges = new HashSet<(int From, int To)>();
         var externalFactEdges = new HashSet<(int From, int TargetOffset)>();
+        var resolvedFactSuccessors = Enumerable.Range(0, blocks.Count)
+            .Select(_ => new List<int>())
+            .ToArray();
 
         foreach (var (targetOffset, predecessors) in facts.JumpPredecessorIndices)
         {
             foreach (int predecessor in predecessors)
             {
                 if (facts.OffsetToIndex.TryGetValue(targetOffset, out int target))
+                {
                     resolvedFactEdges.Add((predecessor, target));
+                    resolvedFactSuccessors[predecessor].Add(target);
+                }
                 else
                     externalFactEdges.Add((predecessor, targetOffset));
             }
@@ -237,36 +313,49 @@ public class ControlFlowModelDifferentialTests
             }
 
             bool hasStructuredTransfer = ContainsStructuredTransferLeavingBlock(blocks[from]);
-            bool hasDirectStructuredTransfer =
-                blocks[from].Children.Any(child => child is Break or Continue);
+            bool hasDirectBreak = blocks[from].Children.Any(child => child is Break);
+            bool hasDirectContinue = blocks[from].Children.Any(child => child is Continue);
+            bool hasDirectStructuredTransfer = hasDirectBreak || hasDirectContinue;
             if (hasDirectStructuredTransfer)
             {
                 comparison.DirectStructuredTransferBlocks++;
-                if (switchModelsBlock)
+                if (hasDirectBreak)
+                    comparison.DirectBreakBlocks++;
+                if (hasDirectContinue)
+                    comparison.DirectContinueBlocks++;
+
+                bool expectsTerminalContinue = terminator is Continue
+                    && !HasTopLevelSwitchDeclineReason(
+                        blocks[from],
+                        facts.OffsetToIndex);
+                if (switchModelsBlock != expectsTerminalContinue)
                 {
                     AddDifference(comparison,
-                        $"{identity}: switch successor view accepts a direct "
-                            + $"Break/Continue transfer in block {from}");
+                        $"{identity}: switch successor view "
+                            + $"{(switchModelsBlock ? "accepts" : "declines")} direct structured "
+                            + $"transfer block {from}; expected "
+                            + $"{(expectsTerminalContinue ? "terminal Continue acceptance" : "decline")}");
                 }
+                if (switchModelsBlock && terminator is Continue)
+                    comparison.AcceptedTerminalContinueBlocks++;
                 continue;
             }
             if (hasStructuredTransfer)
             {
                 comparison.NestedStructuredTransferBlocks++;
-                if (!switchModelsBlock)
+                bool expectsSwitchModel = !HasTopLevelSwitchDeclineReason(
+                    blocks[from],
+                    facts.OffsetToIndex);
+                if (expectsSwitchModel)
+                    comparison.NestedStructuredTransferBlocksExpectedBySwitch++;
+                if (switchModelsBlock)
+                    comparison.NestedStructuredTransferBlocksModeledBySwitch++;
+                if (!switchModelsBlock && expectsSwitchModel)
                 {
                     AddDifference(comparison,
                         $"{identity}: switch successor view declines block {from}, whose conditional "
                             + "structured transfer retains an in-container fall-through");
                 }
-            }
-
-            foreach (int to in cfg[from].Successors.Distinct())
-            {
-                if (to != from + 1 && !resolvedFactEdges.Contains((from, to)))
-                    AddDifference(comparison,
-                        $"{identity}: Cfg.Build non-fallthrough edge {from}->{to} "
-                            + "is absent from StructuringFlowFacts");
             }
 
             foreach (int targetOffset in cfg[from].ExternalTargets.Distinct())
@@ -291,40 +380,35 @@ public class ControlFlowModelDifferentialTests
                 }
             }
 
-            if (from + 1 < blocks.Count)
+            bool hasImplicitFallthrough = HasImplicitFallthrough(terminator);
+            var expectedSuccessors = new List<int>(resolvedFactSuccessors[from]);
+            if (hasImplicitFallthrough && from + 1 < blocks.Count)
             {
-                int nextOffset = blocks[from + 1].StartOffset;
-                int explicitEdgesToNext =
-                    facts.JumpPredecessorIndices.TryGetValue(nextOffset, out var nextOwners)
-                        ? nextOwners.Count(owner => owner == from)
-                        : 0;
-                bool hasImplicitFallthrough = HasImplicitFallthrough(terminator);
-                int expectedEdgesToNext = explicitEdgesToNext + (hasImplicitFallthrough ? 1 : 0);
-                int actualEdgesToNext = cfg[from].Successors.Count(to => to == from + 1);
+                expectedSuccessors.Add(from + 1);
+                comparison.ImplicitFallthroughEdges++;
+                if (terminator is SwitchBranch)
+                    comparison.SwitchFallthroughEdges++;
+            }
 
-                if (hasImplicitFallthrough)
-                {
-                    comparison.ImplicitFallthroughEdges++;
-                    if (terminator is SwitchBranch)
-                        comparison.SwitchFallthroughEdges++;
-                }
-
-                if (actualEdgesToNext != expectedEdgesToNext)
-                {
-                    AddDifference(comparison,
-                        $"{identity}: Cfg.Build has {actualEdgesToNext} edge(s) from block {from} "
-                            + $"to fall-through block {from + 1}; expected {explicitEdgesToNext} explicit "
-                            + $"and {(hasImplicitFallthrough ? 1 : 0)} implicit edge(s)");
-                }
+            int[] actualSuccessors = [.. cfg[from].Successors.Order()];
+            int[] orderedExpectedSuccessors = [.. expectedSuccessors.Order()];
+            if (!actualSuccessors.SequenceEqual(orderedExpectedSuccessors))
+            {
+                AddDifference(comparison,
+                    $"{identity}: Cfg.Build successors for block {from} "
+                        + $"[{string.Join(",", actualSuccessors)}] disagree with "
+                        + $"StructuringFlowFacts plus fall-through "
+                        + $"[{string.Join(",", orderedExpectedSuccessors)}]");
             }
 
             if (switchModelsBlock)
             {
                 comparison.SwitchSuccessorBlocks++;
+                int[] orderedSwitchSuccessors = [.. switchSuccessors.Order()];
                 if (switchSuccessors.Any(successor => (uint)successor >= (uint)blocks.Count)
                     || cfg[from].LeavesRegion
                     || cfg[from].ExternalTargets.Count > 0
-                    || !switchSuccessors.ToHashSet().SetEquals(cfg[from].Successors))
+                    || !orderedSwitchSuccessors.SequenceEqual(actualSuccessors))
                 {
                     AddDifference(comparison,
                         $"{identity}: switch successor view for block {from} "
@@ -407,6 +491,38 @@ public class ControlFlowModelDifferentialTests
             _ => true,
         };
 
+    static bool HasTopLevelSwitchDeclineReason(
+        Block block,
+        IReadOnlyDictionary<int, int> offsetToIndex)
+    {
+        for (int i = 0; i < block.Children.Count - 1; i++)
+        {
+            if (block.Children[i] is Branch or ConditionalBranch or SwitchBranch
+                or Leave or EndFinally or EndFilter or Break or Continue)
+            {
+                return true;
+            }
+        }
+
+        return block.Children.LastOrDefault() switch
+        {
+            Branch branch => !offsetToIndex.ContainsKey(branch.TargetOffset),
+            ConditionalBranch conditional =>
+                !offsetToIndex.ContainsKey(conditional.TargetOffset),
+            SwitchBranch or Leave or EndFinally or EndFilter or Break => true,
+            Continue => false,
+            _ => false,
+        };
+    }
+
+    static ImmutableArray<IIrPass> PassesBeforeSwitchRaising()
+    {
+        var switchPass = Assert.Single(IrPasses.Default.OfType<SwitchRaisingPass>());
+        int switchIndex = IrPasses.Default.IndexOf(switchPass);
+        Assert.True(switchIndex > 0, "SwitchRaisingPass must remain anchored in the default pipeline.");
+        return [.. IrPasses.Default.Take(switchIndex)];
+    }
+
     static void AssertSwitchSuccessors(
         IReadOnlyList<Block> blocks,
         int blockIndex,
@@ -421,6 +537,18 @@ public class ControlFlowModelDifferentialTests
             offsetToIndex,
             out var successors));
         Assert.Equal(expected, successors);
+    }
+
+    static void AssertSwitchDeclines(IReadOnlyList<Block> blocks, int blockIndex)
+    {
+        var offsetToIndex = blocks
+            .Select((block, index) => (block.StartOffset, index))
+            .ToDictionary(pair => pair.StartOffset, pair => pair.index);
+        Assert.False(SwitchRaisingPass.TrySuccessors(
+            blocks,
+            blockIndex,
+            offsetToIndex,
+            out _));
     }
 
     static void AssertNoDifferences(Comparison comparison)

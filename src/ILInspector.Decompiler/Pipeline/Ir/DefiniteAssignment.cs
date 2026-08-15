@@ -362,7 +362,7 @@ static class DefiniteAssignment
             bool found = false;
             for (int source = 0; source < blocks.Count; source++)
             {
-                foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(blocks[source]))
+                foreach (var node in blocks[source].DescendantsOutsideNestedFunctions)
                 {
                     if (node is ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
                         return false;
@@ -380,7 +380,7 @@ static class DefiniteAssignment
         {
             foreach (var block in container.Blocks)
             {
-                foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(block))
+                foreach (var node in block.DescendantsOutsideNestedFunctions)
                 {
                     if (node is Branch
                         && !block.Children.Any(child => ReferenceEquals(child, node)))
