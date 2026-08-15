@@ -220,6 +220,16 @@ Only canonical `mss1:` transport participates in candidate correspondence.
 Legacy signature text is accepted solely to validate an already selected
 exact-token record; it is not candidate-selection currency.
 
+Metadata projection fails closed when the MethodDef signature header and its
+owned, contiguous GenericParam rows disagree. One cumulative work budget covers
+the full projection, including custom-modifier subtrees erased from the final
+shape and generic-parameter names read for legacy exact-token validation.
+`MetadataAdapter_RefusesGenericHeaderWithoutOwnedRows`,
+`MetadataAdapter_RefusesNonContiguousGenericParameterRows`,
+`MetadataAdapter_RefusesErasedModifierAmplificationBeforeLargeAllocation`, and
+`LegacyCompatibility_RefusesGenericNameAmplificationBeforeLargeAllocation`
+gate those properties.
+
 ## Motivating scenarios
 
 Find your question here; the shape census below says what to use.

@@ -18,63 +18,10 @@ public static class MetadataMemberSignatureShape
         if (methodHandle.IsNil)
             return MemberSignatureShapeResult.Unavailable("The method handle is nil.");
 
+        var workBudget = new SignatureShapeWorkBudget();
         try
         {
-            MethodDefinition method = reader.GetMethodDefinition(methodHandle);
-            var provider = new Provider();
-            var fallback = TypeResult.Unavailable("The metadata signature is malformed.");
-            GuardedProviderDecode.DecodeResult<MethodSignature<TypeResult>> decoded =
-                GuardedProviderDecode.MethodResult(
-                    reader,
-                    method,
-                    provider,
-                    context: (object?)null,
-                    fallback);
-            if (decoded.IsDegraded)
-                return MemberSignatureShapeResult.Unavailable(
-                    "The metadata signature exceeds the decode safety limits.");
-
-            var parameters =
-                new MemberParameterSignatureShape[decoded.Value.ParameterTypes.Length];
-            for (int i = 0; i < parameters.Length; i++)
-            {
-                TypeResult parameter = decoded.Value.ParameterTypes[i];
-                if (parameter.Shape is null)
-                {
-                    return MemberSignatureShapeResult.Unavailable(
-                        parameter.Reason ?? "A metadata parameter type is unavailable.");
-                }
-
-                ParameterPassingKind passing = ParameterPassingKind.Value;
-                TypeSignatureShape parameterType = parameter.Shape;
-                if (parameterType is ByReferenceTypeSignatureShape byReference)
-                {
-                    passing = ParameterPassingKind.ByReference;
-                    parameterType = byReference.ElementType;
-                }
-                parameters[i] = new(passing, parameterType);
-            }
-
-            TypeSignatureShape? conversionReturnType = null;
-            string name = reader.GetString(method.Name);
-            if (name is "op_Implicit" or "op_Explicit"
-                or "op_CheckedImplicit" or "op_CheckedExplicit")
-            {
-                if (decoded.Value.ReturnType.Shape is null)
-                {
-                    return MemberSignatureShapeResult.Unavailable(
-                        decoded.Value.ReturnType.Reason
-                        ?? "The conversion return type is unavailable.");
-                }
-                conversionReturnType = decoded.Value.ReturnType.Shape;
-            }
-
-            var shape = new MemberSignatureShape(
-                method.GetGenericParameters().Count,
-                new(parameters),
-                conversionReturnType);
-            _ = MemberSignatureShapeCodec.Encode(shape);
-            return MemberSignatureShapeResult.Available(shape);
+            return CreateCore(reader, methodHandle, workBudget);
         }
         catch (BadImageFormatException ex)
         {
@@ -98,6 +45,81 @@ public static class MetadataMemberSignatureShape
         }
     }
 
+    static MemberSignatureShapeResult CreateCore(
+        MetadataReader reader,
+        MethodDefinitionHandle methodHandle,
+        SignatureShapeWorkBudget workBudget)
+    {
+        MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+        var provider = new Provider(workBudget);
+        var fallback = TypeResult.Unavailable("The metadata signature is malformed.");
+        GuardedProviderDecode.DecodeResult<MethodSignature<TypeResult>> decoded =
+            GuardedProviderDecode.MethodResult(
+                reader,
+                method,
+                provider,
+                context: (object?)null,
+                fallback);
+        if (decoded.IsDegraded)
+            return MemberSignatureShapeResult.Unavailable(
+                "The metadata signature exceeds the decode safety limits.");
+
+        GenericParameterHandleCollection genericParameters =
+            method.GetGenericParameters();
+        if (!GenericParametersAreConsistent(
+                reader,
+                methodHandle,
+                genericParameters,
+                decoded.Value.GenericParameterCount,
+                workBudget))
+        {
+            return MemberSignatureShapeResult.Unavailable(
+                "The MethodDef generic-parameter rows do not match its signature header.");
+        }
+
+        var parameters =
+            new MemberParameterSignatureShape[decoded.Value.ParameterTypes.Length];
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            TypeResult parameter = decoded.Value.ParameterTypes[i];
+            if (parameter.Shape is null)
+            {
+                return MemberSignatureShapeResult.Unavailable(
+                    parameter.Reason ?? "A metadata parameter type is unavailable.");
+            }
+
+            ParameterPassingKind passing = ParameterPassingKind.Value;
+            TypeSignatureShape parameterType = parameter.Shape;
+            if (parameterType is ByReferenceTypeSignatureShape byReference)
+            {
+                passing = ParameterPassingKind.ByReference;
+                parameterType = byReference.ElementType;
+            }
+            parameters[i] = new(passing, parameterType);
+        }
+
+        TypeSignatureShape? conversionReturnType = null;
+        string name = workBudget.ReadString(reader, method.Name);
+        if (name is "op_Implicit" or "op_Explicit"
+            or "op_CheckedImplicit" or "op_CheckedExplicit")
+        {
+            if (decoded.Value.ReturnType.Shape is null)
+            {
+                return MemberSignatureShapeResult.Unavailable(
+                    decoded.Value.ReturnType.Reason
+                    ?? "The conversion return type is unavailable.");
+            }
+            conversionReturnType = decoded.Value.ReturnType.Shape;
+        }
+
+        var shape = new MemberSignatureShape(
+            decoded.Value.GenericParameterCount,
+            new(parameters),
+            conversionReturnType);
+        _ = MemberSignatureShapeCodec.Encode(shape);
+        return MemberSignatureShapeResult.Available(shape);
+    }
+
     /// <summary>
     /// Checks whether a decoded legacy, simple-name shape can describe an already identified
     /// MethodDef. This compatibility check is only for migrating persisted exact-token records;
@@ -110,51 +132,78 @@ public static class MetadataMemberSignatureShape
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(legacyShape);
-
-        MemberSignatureShapeResult exact = Create(reader, methodHandle);
-        if (exact.Shape is null
-            || exact.Shape.GenericArity != legacyShape.GenericArity
-            || exact.Shape.Parameters.Count != legacyShape.Parameters.Count)
-        {
+        if (methodHandle.IsNil)
             return false;
-        }
 
-        MethodDefinition method = reader.GetMethodDefinition(methodHandle);
-        if (!TryTypeParameterNames(
-                reader,
-                method.GetDeclaringType(),
-                out IReadOnlyDictionary<int, string> typeParameters))
+        var workBudget = new SignatureShapeWorkBudget();
+        try
         {
-            return false;
-        }
-        IReadOnlyDictionary<int, string> methodParameters =
-            ParameterNames(reader, method.GetGenericParameters());
-
-        for (int i = 0; i < exact.Shape.Parameters.Count; i++)
-        {
-            MemberParameterSignatureShape legacyParameter = legacyShape.Parameters[i];
-            MemberParameterSignatureShape exactParameter = exact.Shape.Parameters[i];
-            if (legacyParameter.Passing != exactParameter.Passing
-                || !LegacyTypeCanDescribe(
-                    legacyParameter.Type,
-                    exactParameter.Type,
-                    typeParameters,
-                    methodParameters))
+            MemberSignatureShapeResult exact =
+                CreateCore(reader, methodHandle, workBudget);
+            if (exact.Shape is null
+                || exact.Shape.GenericArity != legacyShape.GenericArity
+                || exact.Shape.Parameters.Count != legacyShape.Parameters.Count)
             {
                 return false;
             }
-        }
 
-        return (legacyShape.ConversionReturnType, exact.Shape.ConversionReturnType) switch
+            MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+            if (!TryTypeParameterNames(
+                    reader,
+                    method.GetDeclaringType(),
+                    workBudget,
+                    out IReadOnlyDictionary<int, string> typeParameters))
+            {
+                return false;
+            }
+            IReadOnlyDictionary<int, string> methodParameters =
+                ParameterNames(
+                    reader,
+                    method.GetGenericParameters(),
+                    workBudget);
+
+            for (int i = 0; i < exact.Shape.Parameters.Count; i++)
+            {
+                MemberParameterSignatureShape legacyParameter = legacyShape.Parameters[i];
+                MemberParameterSignatureShape exactParameter = exact.Shape.Parameters[i];
+                if (legacyParameter.Passing != exactParameter.Passing
+                    || !LegacyTypeCanDescribe(
+                        legacyParameter.Type,
+                        exactParameter.Type,
+                        typeParameters,
+                        methodParameters))
+                {
+                    return false;
+                }
+            }
+
+            return (legacyShape.ConversionReturnType, exact.Shape.ConversionReturnType) switch
+            {
+                (null, null) => true,
+                ({ } legacyReturn, { } exactReturn) => LegacyTypeCanDescribe(
+                    legacyReturn,
+                    exactReturn,
+                    typeParameters,
+                    methodParameters),
+                _ => false,
+            };
+        }
+        catch (BadImageFormatException)
         {
-            (null, null) => true,
-            ({ } legacyReturn, { } exactReturn) => LegacyTypeCanDescribe(
-                legacyReturn,
-                exactReturn,
-                typeParameters,
-                methodParameters),
-            _ => false,
-        };
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     static bool LegacyTypeCanDescribe(
@@ -278,6 +327,7 @@ public static class MetadataMemberSignatureShape
     static bool TryTypeParameterNames(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
+        SignatureShapeWorkBudget workBudget,
         out IReadOnlyDictionary<int, string> names)
     {
         Span<TypeDefinitionHandle> hierarchy =
@@ -303,7 +353,9 @@ public static class MetadataMemberSignatureShape
                 reader.GetTypeDefinition(hierarchy[i]).GetGenericParameters())
             {
                 GenericParameter parameter = reader.GetGenericParameter(handle);
-                collected[parameter.Index] = reader.GetString(parameter.Name);
+                workBudget.ChargeNode();
+                collected[parameter.Index] =
+                    workBudget.ReadString(reader, parameter.Name);
             }
         }
         names = collected;
@@ -312,15 +364,42 @@ public static class MetadataMemberSignatureShape
 
     static IReadOnlyDictionary<int, string> ParameterNames(
         MetadataReader reader,
-        GenericParameterHandleCollection handles)
+        GenericParameterHandleCollection handles,
+        SignatureShapeWorkBudget workBudget)
     {
         var names = new Dictionary<int, string>();
         foreach (GenericParameterHandle handle in handles)
         {
             GenericParameter parameter = reader.GetGenericParameter(handle);
-            names[parameter.Index] = reader.GetString(parameter.Name);
+            workBudget.ChargeNode();
+            names[parameter.Index] =
+                workBudget.ReadString(reader, parameter.Name);
         }
         return names;
+    }
+
+    static bool GenericParametersAreConsistent(
+        MetadataReader reader,
+        MethodDefinitionHandle methodHandle,
+        GenericParameterHandleCollection handles,
+        int signatureCount,
+        SignatureShapeWorkBudget workBudget)
+    {
+        if (signatureCount < 0 || handles.Count != signatureCount)
+            return false;
+
+        int expectedIndex = 0;
+        foreach (GenericParameterHandle handle in handles)
+        {
+            workBudget.ChargeNode();
+            GenericParameter parameter = reader.GetGenericParameter(handle);
+            if (parameter.Parent != methodHandle
+                || parameter.Index != expectedIndex++)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     sealed record TypeResult(TypeSignatureShape? Shape, string? Reason)
@@ -330,12 +409,59 @@ public static class MetadataMemberSignatureShape
         internal static TypeResult Unavailable(string reason) => new(null, reason);
     }
 
+    /// <summary>
+    /// Charges artifact-authored names before materialization and every decoded
+    /// type node, including erased modifier subtrees. The same instance covers
+    /// legacy generic-name reads. Gated by
+    /// <c>MetadataAdapter_RefusesErasedModifierAmplificationBeforeLargeAllocation</c>
+    /// and
+    /// <c>LegacyCompatibility_RefusesGenericNameAmplificationBeforeLargeAllocation</c>.
+    /// </summary>
+    sealed class SignatureShapeWorkBudget
+    {
+        const int MinimumNodeCharge = 64;
+        int _remaining =
+            MetadataSafetyPolicy.MaxMemberSignatureShapeWorkChars;
+
+        internal void ChargeNode() => Charge(MinimumNodeCharge);
+
+        internal string ReadString(
+            MetadataReader reader,
+            StringHandle handle)
+        {
+            int encodedLength = reader.GetBlobReader(handle).Length;
+            Charge(Math.Max(encodedLength, MinimumNodeCharge));
+            return MetadataSafetyPolicy.ReadStructuralString(reader, handle);
+        }
+
+        void Charge(int units)
+        {
+            if (units < 0 || units > _remaining)
+            {
+                _remaining = 0;
+                throw new BadImageFormatException(
+                    "The member signature shape exceeds the cumulative metadata work budget.");
+            }
+            _remaining -= units;
+        }
+    }
+
     sealed class Provider : ISignatureTypeProvider<TypeResult, object?>
     {
+        readonly SignatureShapeWorkBudget _workBudget;
+
+        internal Provider(SignatureShapeWorkBudget workBudget)
+        {
+            _workBudget = workBudget;
+        }
+
         public TypeResult GetPrimitiveType(PrimitiveTypeCode typeCode)
-            => PrimitiveName(typeCode) is { } name
+        {
+            _workBudget.ChargeNode();
+            return PrimitiveName(typeCode) is { } name
                 ? TypeResult.Available(new PrimitiveTypeSignatureShape(name))
                 : TypeResult.Unavailable($"Primitive type code '{typeCode}' is unsupported.");
+        }
 
         public TypeResult GetTypeFromDefinition(
             MetadataReader reader,
@@ -362,27 +488,40 @@ public static class MetadataMemberSignatureShape
         }
 
         public TypeResult GetSZArrayType(TypeResult elementType)
-            => Wrap(
+        {
+            _workBudget.ChargeNode();
+            return Wrap(
                 elementType,
                 static type => new ArrayTypeSignatureShape(type, 1, IsSzArray: true));
+        }
 
         public TypeResult GetArrayType(TypeResult elementType, ArrayShape shape)
-            => shape.Rank <= 0
+        {
+            _workBudget.ChargeNode();
+            return shape.Rank <= 0
                 ? TypeResult.Unavailable("The metadata array rank is invalid.")
                 : Wrap(
                     elementType,
                     type => new ArrayTypeSignatureShape(type, shape.Rank, IsSzArray: false));
+        }
 
         public TypeResult GetByReferenceType(TypeResult elementType)
-            => Wrap(elementType, static type => new ByReferenceTypeSignatureShape(type));
+        {
+            _workBudget.ChargeNode();
+            return Wrap(elementType, static type => new ByReferenceTypeSignatureShape(type));
+        }
 
         public TypeResult GetPointerType(TypeResult elementType)
-            => Wrap(elementType, static type => new PointerTypeSignatureShape(type));
+        {
+            _workBudget.ChargeNode();
+            return Wrap(elementType, static type => new PointerTypeSignatureShape(type));
+        }
 
         public TypeResult GetGenericInstantiation(
             TypeResult genericType,
             ImmutableArray<TypeResult> typeArguments)
         {
+            _workBudget.ChargeNode();
             if (genericType.Shape is not NamedTypeSignatureShape named)
             {
                 return TypeResult.Unavailable(
@@ -449,23 +588,30 @@ public static class MetadataMemberSignatureShape
         }
 
         public TypeResult GetGenericMethodParameter(object? context, int index)
-            => index < 0
+        {
+            _workBudget.ChargeNode();
+            return index < 0
                 ? TypeResult.Unavailable("A method generic-parameter position is invalid.")
                 : TypeResult.Available(
                     new GenericParameterTypeSignatureShape(
                         SignatureGenericParameterKind.Method,
                         index));
+        }
 
         public TypeResult GetGenericTypeParameter(object? context, int index)
-            => index < 0
+        {
+            _workBudget.ChargeNode();
+            return index < 0
                 ? TypeResult.Unavailable("A type generic-parameter position is invalid.")
                 : TypeResult.Available(
                     new GenericParameterTypeSignatureShape(
                         SignatureGenericParameterKind.Type,
                         index));
+        }
 
         public TypeResult GetFunctionPointerType(MethodSignature<TypeResult> signature)
         {
+            _workBudget.ChargeNode();
             if (signature.ReturnType.Shape is null)
             {
                 return TypeResult.Unavailable(
@@ -496,12 +642,21 @@ public static class MetadataMemberSignatureShape
             TypeResult modifier,
             TypeResult unmodifiedType,
             bool isRequired)
-            => unmodifiedType;
+        {
+            _ = modifier;
+            _ = isRequired;
+            _workBudget.ChargeNode();
+            return unmodifiedType;
+        }
 
         public TypeResult GetPinnedType(TypeResult elementType)
-            => TypeResult.Unavailable("Pinned types are not source member parameter types.");
+        {
+            _ = elementType;
+            _workBudget.ChargeNode();
+            return TypeResult.Unavailable("Pinned types are not source member parameter types.");
+        }
 
-        static TypeResult NamedFromDefinition(
+        TypeResult NamedFromDefinition(
             MetadataReader reader,
             TypeDefinitionHandle handle)
         {
@@ -527,8 +682,11 @@ public static class MetadataMemberSignatureShape
             for (int i = 0; i < count; i++)
             {
                 TypeDefinition definition = reader.GetTypeDefinition(hierarchy[i]);
-                segments[i] = Segment(reader.GetString(definition.Name));
-                string candidateNamespace = reader.GetString(definition.Namespace);
+                _workBudget.ChargeNode();
+                segments[i] = Segment(
+                    _workBudget.ReadString(reader, definition.Name));
+                string candidateNamespace =
+                    _workBudget.ReadString(reader, definition.Namespace);
                 if (string.IsNullOrEmpty(@namespace)
                     && !string.IsNullOrEmpty(candidateNamespace))
                 {
@@ -538,7 +696,7 @@ public static class MetadataMemberSignatureShape
             return NormalizeNamed(@namespace, segments);
         }
 
-        static TypeResult NamedFromReference(
+        TypeResult NamedFromReference(
             MetadataReader reader,
             TypeReferenceHandle handle)
         {
@@ -563,8 +721,11 @@ public static class MetadataMemberSignatureShape
             for (int i = 0; i < count; i++)
             {
                 TypeReference reference = reader.GetTypeReference(hierarchy[i]);
-                segments[i] = Segment(reader.GetString(reference.Name));
-                string candidateNamespace = reader.GetString(reference.Namespace);
+                _workBudget.ChargeNode();
+                segments[i] = Segment(
+                    _workBudget.ReadString(reader, reference.Name));
+                string candidateNamespace =
+                    _workBudget.ReadString(reader, reference.Namespace);
                 if (string.IsNullOrEmpty(@namespace)
                     && !string.IsNullOrEmpty(candidateNamespace))
                 {

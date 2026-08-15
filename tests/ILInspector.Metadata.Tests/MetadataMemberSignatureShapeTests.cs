@@ -186,6 +186,33 @@ public unsafe class MetadataMemberSignatureShapeTests
     }
 
     [Fact]
+    public void LegacyCompatibility_RefusesGenericNameAmplificationBeforeLargeAllocation()
+    {
+        byte[] image = BuildGenericMethodWithLongNames(
+            genericParameterCount: 5,
+            genericParameterNameLength: 900_000);
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        var legacyShape = new MemberSignatureShape(
+            5,
+            SignatureShapeList<MemberParameterSignatureShape>.Empty,
+            ConversionReturnType: null);
+
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        bool describes = MetadataMemberSignatureShape.LegacyShapeCanDescribe(
+            reader,
+            MetadataTokens.MethodDefinitionHandle(1),
+            legacyShape);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.False(describes);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Legacy generic-name rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void MetadataAdapter_RefusesShapeBeyondTransportDepthLimit()
     {
         using var stream = File.OpenRead(typeof(MetadataMemberSignatureShapeTests).Assembly.Location);
@@ -278,6 +305,84 @@ public unsafe class MetadataMemberSignatureShapeTests
     }
 
     [Fact]
+    public void MetadataAdapter_RefusesErasedModifierAmplificationBeforeLargeAllocation()
+    {
+        byte[] image = BuildModifiedParameterImage(
+            modifierCount: 500,
+            modifierNameLength: 900_000);
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        MemberSignatureShapeResult result =
+            MetadataMemberSignatureShape.Create(
+                reader,
+                MetadataTokens.MethodDefinitionHandle(1));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("cumulative metadata work budget", result.UnavailableReason);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"Erased custom-modifier rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void MetadataAdapter_AllowsBoundedErasedModifiers()
+    {
+        byte[] image = BuildModifiedParameterImage(
+            modifierCount: 64,
+            modifierNameLength: 128);
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.True(result.IsAvailable, result.UnavailableReason);
+        Assert.Equal(
+            new PrimitiveTypeSignatureShape("System.Int32"),
+            result.Shape!.Parameters.Single().Type);
+    }
+
+    [Fact]
+    public void MetadataAdapter_RefusesGenericHeaderWithoutOwnedRows()
+    {
+        byte[] image = BuildGenericMethodImage(
+            signatureGenericCount: 1,
+            genericParameterIndices: []);
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("generic-parameter rows", result.UnavailableReason);
+    }
+
+    [Fact]
+    public void MetadataAdapter_RefusesNonContiguousGenericParameterRows()
+    {
+        byte[] image = BuildGenericMethodImage(
+            signatureGenericCount: 2,
+            genericParameterIndices: [0, 2]);
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("generic-parameter rows", result.UnavailableReason);
+    }
+
+    [Fact]
+    public void MetadataAdapter_AllowsConsistentGenericParameterRows()
+    {
+        byte[] image = BuildGenericMethodImage(
+            signatureGenericCount: 2,
+            genericParameterIndices: [0, 1]);
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.True(result.IsAvailable, result.UnavailableReason);
+        Assert.Equal(2, result.Shape!.GenericArity);
+    }
+
+    [Fact]
     public void LegacyCompatibility_RefusesCyclicDeclaringType()
     {
         byte[] image = BuildMethodOnCyclicDeclaringType();
@@ -330,6 +435,108 @@ public unsafe class MetadataMemberSignatureShapeTests
             MetadataTokens.FieldDefinitionHandle(1),
             method);
         return Serialize(metadata);
+    }
+
+    static byte[] BuildModifiedParameterImage(
+        int modifierCount,
+        int modifierNameLength)
+    {
+        var metadata = CreateMetadataBuilder();
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Referenced"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            0,
+            default);
+        TypeReferenceHandle modifier = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(new string('M', modifierNameLength)));
+        int modifierCodedIndex =
+            (MetadataTokens.GetRowNumber(modifier) << 2) | 1;
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < modifierCount; i++)
+        {
+            signature.WriteByte(0x20);
+            signature.WriteCompressedInteger(modifierCodedIndex);
+        }
+        signature.WriteByte(0x08);
+        AddMethodAndType(metadata, metadata.GetOrAddBlob(signature));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGenericMethodImage(
+        int signatureGenericCount,
+        int[] genericParameterIndices)
+    {
+        var metadata = CreateMetadataBuilder();
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x10);
+        signature.WriteCompressedInteger(signatureGenericCount);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x01);
+        MethodDefinitionHandle method =
+            AddMethodAndType(metadata, metadata.GetOrAddBlob(signature));
+        foreach (int index in genericParameterIndices)
+        {
+            metadata.AddGenericParameter(
+                method,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString($"T{index}"),
+                index);
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGenericMethodWithLongNames(
+        int genericParameterCount,
+        int genericParameterNameLength)
+    {
+        var metadata = CreateMetadataBuilder();
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x10);
+        signature.WriteCompressedInteger(genericParameterCount);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x01);
+        MethodDefinitionHandle method =
+            AddMethodAndType(metadata, metadata.GetOrAddBlob(signature));
+        StringHandle name = metadata.GetOrAddString(
+            new string('T', genericParameterNameLength));
+        for (int i = 0; i < genericParameterCount; i++)
+        {
+            metadata.AddGenericParameter(
+                method,
+                GenericParameterAttributes.None,
+                name,
+                i);
+        }
+        return Serialize(metadata);
+    }
+
+    static MethodDefinitionHandle AddMethodAndType(
+        MetadataBuilder metadata,
+        BlobHandle signature)
+    {
+        MethodDefinitionHandle method = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            signature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Interface,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        return method;
     }
 
     static byte[] BuildMethodOnCyclicDeclaringType()
@@ -450,11 +657,13 @@ public unsafe class ShapeSpecimens
     public void SupplementalTupleSyntax(
         delegate* unmanaged[SuppressGCTransition]<
             (int, int, int, int, int, int, int, (short, byte)),
-            void> callback) { }
+            void> callback)
+    { }
     public void ExplicitValueTupleRest(
         delegate* unmanaged<
             ValueTuple<int, int, int, int, int, int, int, (short, byte)>,
-            void> callback) { }
+            void> callback)
+    { }
     public void LegacyNamed(IReadOnlyList<string> values) { }
     public void LegacyGeneric<T>(T value) { }
     public void DeepArray(
@@ -462,7 +671,8 @@ public unsafe class ShapeSpecimens
             [][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]
             [][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]
             [][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]
-            [] value) { }
+            [] value)
+    { }
     public static implicit operator int(ShapeSpecimens value) => 0;
 
     public class Outer<T>
