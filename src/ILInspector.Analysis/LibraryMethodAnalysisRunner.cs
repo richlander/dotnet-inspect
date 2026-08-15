@@ -60,6 +60,11 @@ internal interface ILibraryMethodAnalysisInfrastructure
     bool HasCompilerGeneratedAttribute(
         CustomAttributeHandleCollection attributes);
 
+    void ValidateAsyncSource(
+        MethodIdentity method,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated);
+
     ImmutableArray<OptimizationOpportunity>
         CollectAsyncSiblingOpportunities(
             MethodBodyAnalysisContext context,
@@ -174,7 +179,16 @@ internal sealed class LibraryMethodAnalysisRunner(
                 result.IsLeverage = true;
             }
             if (methodDefinition.RelativeVirtualAddress == 0)
+            {
+                if (includeOpportunities)
+                {
+                    _infrastructure.ValidateAsyncSource(
+                        caller,
+                        methodDefinition,
+                        typeSourceGenerated);
+                }
                 return result;
+            }
 
             result.HasBody = true;
             // Scoped builds decode only selected method bodies; every other method is still
@@ -311,21 +325,34 @@ internal sealed class LibraryMethodAnalysisRunner(
                     result.Suppressed = true;
                 }
 
-                ImmutableArray<OptimizationOpportunity>
-                    asyncOpportunities =
-                        _infrastructure
-                            .CollectAsyncSiblingOpportunities(
-                                context,
-                                calls,
-                                methodDefinition,
-                                typeSourceGenerated);
-                if (!asyncOpportunities.IsDefaultOrEmpty)
+                try
                 {
-                    result.Opportunities =
-                        result.Opportunities.IsDefaultOrEmpty
-                            ? asyncOpportunities
-                            : result.Opportunities.AddRange(
-                                asyncOpportunities);
+                    ImmutableArray<OptimizationOpportunity>
+                        asyncOpportunities =
+                            _infrastructure
+                                .CollectAsyncSiblingOpportunities(
+                                    context,
+                                    calls,
+                                    methodDefinition,
+                                    typeSourceGenerated);
+                    if (!asyncOpportunities.IsDefaultOrEmpty)
+                    {
+                        result.Opportunities =
+                            result.Opportunities.IsDefaultOrEmpty
+                                ? asyncOpportunities
+                                : result.Opportunities.AddRange(
+                                    asyncOpportunities);
+                    }
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    result.Diagnostic = new AnalysisDiagnostic(
+                        MetadataTokens.GetToken(methodHandle),
+                        MethodLabel(
+                            typeHandle,
+                            methodHandle),
+                        $"{ex.GetType().Name}: {ex.Message}");
                 }
             }
             if (includeOwnershipFlow)

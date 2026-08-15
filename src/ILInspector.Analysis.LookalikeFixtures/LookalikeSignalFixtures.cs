@@ -14,6 +14,8 @@ namespace ILInspector.Analysis.LookalikeFixtures
         public static int MalformedAsyncAttributeEvidence(
             int value)
         {
+            byte[] buffer =
+                global::System.Buffers.ArrayPool<byte>.Shared.Rent(1);
             int captured = value;
             Func<int> read = () => captured;
             try
@@ -28,6 +30,8 @@ namespace ILInspector.Analysis.LookalikeFixtures
             }
             finally
             {
+                global::System.Buffers.ArrayPool<byte>.Shared.Return(
+                    buffer);
                 captured++;
             }
         }

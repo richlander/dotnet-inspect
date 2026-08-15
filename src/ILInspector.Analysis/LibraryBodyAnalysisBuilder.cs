@@ -149,6 +149,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         CustomAttributeHandleCollection attributes) =>
         HasCompilerGeneratedAttribute(attributes);
 
+    void ILibraryMethodAnalysisInfrastructure.ValidateAsyncSource(
+        MethodIdentity method,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated) =>
+        _ = AsyncSourceMethod(
+            method,
+            methodDefinition,
+            typeSourceGenerated);
+
     ImmutableArray<OptimizationOpportunity>
         ILibraryMethodAnalysisInfrastructure
             .CollectAsyncSiblingOpportunities(
@@ -1104,6 +1113,17 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         if (stateMachineAttribute.Ignored)
             return null;
 
+        if (methodDefinition.RelativeVirtualAddress == 0
+            && (classification
+                    == MethodClassification.RuntimeAsync
+                || stateMachineAttribute.Present
+                    && classification
+                        == MethodClassification.StateMachineAsync))
+        {
+            throw new BadImageFormatException(
+                "The async source method does not have an executable body.");
+        }
+
         if (stateMachineAttribute.Present
             && classification
                 == MethodClassification.StateMachineAsync)
@@ -1219,6 +1239,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                                 _reader,
                                 methodDefinition)
                             == MethodClassification.RuntimeAsync
+                        || methodDefinition.RelativeVirtualAddress
+                            == 0
                         || attribute.SerializedType is not
                             { } serializedType
                         || StateMachineTypeDefinitionName(serializedType)

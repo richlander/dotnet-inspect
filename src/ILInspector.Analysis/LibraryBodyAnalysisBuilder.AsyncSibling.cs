@@ -1464,12 +1464,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     }
 
                     TypeRelation relation =
-                        OverridesCandidateSlot(
-                            sourceTypeHandle,
-                            body.Reader,
-                            body.DeclaringType,
-                            body.Method,
-                            body.Member);
+                        SourceMethodOverridesBodySlot(
+                            sourceHandle,
+                            sourceMethod,
+                            sourceType,
+                            scope,
+                            body);
                     if (relation != TypeRelation.No)
                         return true;
                 }
@@ -1488,6 +1488,60 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         TypeDefinitionHandle DeclaringType,
         MethodDefinitionHandle Method,
         MemberRef Member);
+
+    TypeRelation SourceMethodOverridesBodySlot(
+        EntityHandle sourceHandle,
+        MethodDefinition sourceMethod,
+        TypeDefinition sourceType,
+        GenericScope sourceScope,
+        ResolvedMethodImplBody body)
+    {
+        foreach (var handle
+            in sourceType.GetMethodImplementations())
+        {
+            var implementation =
+                _reader.GetMethodImplementation(handle);
+            if (!MethodImplBodyMatchesSource(
+                    implementation.MethodBody,
+                    sourceHandle,
+                    sourceScope))
+            {
+                continue;
+            }
+
+            MemberRef declaration =
+                MemberResolver.ResolveMethod(
+                    _reader,
+                    implementation.MethodDeclaration,
+                    sourceScope);
+            return AsyncSiblingMethodsMatch(
+                    declaration,
+                    body.Member)
+                ? TypeRelation.Yes
+                : TypeRelation.Unknown;
+        }
+
+        if ((sourceMethod.Attributes
+                & MethodAttributes.NewSlot) != 0)
+        {
+            return TypeRelation.No;
+        }
+
+        MemberRef source =
+            MemberResolver.ResolveMethod(
+                _reader,
+                sourceHandle,
+                sourceScope);
+        if (!SameVirtualSignature(source, body.Member))
+            return TypeRelation.No;
+
+        return OverridesCandidateSlot(
+            sourceMethod.GetDeclaringType(),
+            body.Reader,
+            body.DeclaringType,
+            body.Method,
+            body.Member);
+    }
 
     ResolvedMethodImplBody? ResolveMethodImplBody(
         MetadataReader reader,

@@ -978,7 +978,8 @@ public class LibraryBodyIndexTests
     {
         var index = LibraryBodyIndex.Open(
             FixtureCatalog.AnalysisLookalike
-                .AssemblyPath());
+                .AssemblyPath(),
+            LibraryBodyAnalysisFeatures.All);
         const string MethodName =
             "MalformedAsyncAttributeEvidence";
         MethodIdentity method = Assert.Single(
@@ -1000,6 +1001,12 @@ public class LibraryBodyIndexTests
                     == method.MetadataToken
                 && opportunity.Shape
                     == "capturing-delegate");
+        Assert.Contains(
+            index.ArrayPoolOwnership,
+            ownership => ownership.Method.MetadataToken
+                    == method.MetadataToken
+                && ownership.Rents.Length == 1
+                && ownership.IsComplete);
         Assert.True(signals.Throws >= 1);
         Assert.True(signals.Catches >= 1);
         Assert.True(signals.Finallys >= 1);
@@ -1236,6 +1243,25 @@ public class LibraryBodyIndexTests
                 BuildMethodImplAsyncSourceAssembly(
                     includeMethodImpl: true,
                     inheritedMethodImpl: true,
+                    inheritedMethodImplBodyName:
+                        "CoreAsync"));
+            var unrelatedOverride =
+                LibraryBodyIndex.Open(path);
+            Assert.Single(
+                unrelatedOverride
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Empty(
+                unrelatedOverride.Diagnostics);
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: true,
+                    inheritedMethodImpl: true,
                     sourceStartsNewSlot: true));
             var inheritedNewSlot =
                 LibraryBodyIndex.Open(path);
@@ -1312,6 +1338,26 @@ public class LibraryBodyIndexTests
                         == "AnalyzeAsync");
             Assert.Contains(
                 invalidStateMachine.Diagnostics,
+                diagnostic => diagnostic.Method.Contains(
+                    "AnalyzeAsync",
+                    StringComparison.Ordinal));
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: false,
+                    sourceHasBody: false));
+            var bodilessSource =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                bodilessSource
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Contains(
+                bodilessSource.Diagnostics,
                 diagnostic => diagnostic.Method.Contains(
                     "AnalyzeAsync",
                     StringComparison.Ordinal));
@@ -1532,7 +1578,9 @@ public class LibraryBodyIndexTests
         byte attributeConstructorHeader = 0x20,
         bool inheritedMethodImpl = false,
         bool validStateMachine = true,
-        bool sourceStartsNewSlot = false)
+        bool sourceStartsNewSlot = false,
+        string? inheritedMethodImplBodyName = null,
+        bool sourceHasBody = true)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1622,7 +1670,10 @@ public class LibraryBodyIndexTests
                 : default;
         TypeDefinitionHandle sourceType =
             metadata.AddTypeDefinition(
-                TypeAttributes.Public,
+                TypeAttributes.Public
+                    | (!sourceHasBody
+                        ? TypeAttributes.Abstract
+                        : 0),
                 metadata.GetOrAddString("Sample"),
                 metadata.GetOrAddString("Reader"),
                 baseType,
@@ -1711,7 +1762,8 @@ public class LibraryBodyIndexTests
                         | MethodAttributes.NewSlot,
                     MethodImplAttributes.IL,
                     metadata.GetOrAddString(
-                        sourceMethodName),
+                        inheritedMethodImplBodyName
+                            ?? sourceMethodName),
                     taskSignature,
                     sourceBody,
                     MetadataTokens.ParameterHandle(1));
@@ -1720,6 +1772,9 @@ public class LibraryBodyIndexTests
             metadata.AddMethodDefinition(
                 MethodAttributes.Public
                     | MethodAttributes.Virtual
+                    | (!sourceHasBody
+                        ? MethodAttributes.Abstract
+                        : 0)
                     | (inheritedMethodImpl
                         ? sourceStartsNewSlot
                             ? MethodAttributes.NewSlot
@@ -1729,7 +1784,7 @@ public class LibraryBodyIndexTests
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(sourceMethodName),
                 taskSignature,
-                sourceBody,
+                sourceHasBody ? sourceBody : -1,
                 MetadataTokens.ParameterHandle(1));
 
         var moveNextIl = new BlobBuilder();
