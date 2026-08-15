@@ -719,6 +719,8 @@ static class FidelityCheck
     sealed record CompilerReference(
         ResolvedAssemblyReference Reference,
         string Alias,
+        string Path,
+        ImmutableArray<string> AdditionalAliases,
         bool PlatformTrusted);
 
     sealed class CompilerReferenceResolver(IEnumerable<CompilerReference> references) : IAssemblyReferenceResolver
@@ -726,13 +728,91 @@ static class FidelityCheck
         readonly IReadOnlyList<CompilerReference> _references = references.ToList();
 
         public IEnumerable<string> Aliases =>
-            _references.Select(reference => reference.Alias);
+            _references
+                .SelectMany(reference =>
+                    reference.AdditionalAliases.Prepend(reference.Alias))
+                .Distinct(StringComparer.Ordinal);
 
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
             => Match(identity, scope)?.Reference;
 
         public string? ResolveAlias(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
             => Match(identity, scope)?.Alias;
+
+        public CompilerReferenceResolver BindExplicitInterfaceAliases(
+            IEnumerable<ApiMember> members)
+        {
+            var aliases = new HashSet<string>?[_references.Count];
+            foreach (ApiMember member in members)
+            {
+                if (member.ExplicitInterfaceProvenance is not
+                    {
+                        Kind: ApiExplicitInterfaceProvenanceKind.External,
+                        ExternalAssembly: { } assembly
+                    }
+                    || ExplicitInterfaceSourceAlias(member.Name) is not
+                        { } sourceAlias)
+                {
+                    continue;
+                }
+
+                for (int i = 0; i < _references.Count; i++)
+                {
+                    CompilerReference candidate = _references[i];
+                    if (!IdentityMatches(
+                            assembly,
+                            candidate.Reference.Identity,
+                            candidate.PlatformTrusted))
+                    {
+                        continue;
+                    }
+
+                    (aliases[i] ??= new HashSet<string>(
+                        StringComparer.Ordinal)).Add(sourceAlias);
+                    break;
+                }
+            }
+
+            return new CompilerReferenceResolver(
+                _references.Select((reference, index) =>
+                    reference with
+                    {
+                        AdditionalAliases = aliases[index] is { } additions
+                            ? additions
+                                .Where(alias =>
+                                    alias != reference.Alias
+                                    && alias != "global")
+                                .Order(StringComparer.Ordinal)
+                                .ToImmutableArray()
+                            : []
+                    }));
+        }
+
+        public ImmutableArray<MetadataReference> MetadataReferences()
+            => _references
+                .Select(reference =>
+                    MetadataReference.CreateFromFile(
+                        reference.Path,
+                        new MetadataReferenceProperties(
+                            MetadataImageKind.Assembly,
+                            aliases:
+                            [
+                                "global",
+                                reference.Alias,
+                                .. reference.AdditionalAliases
+                            ])))
+                .Cast<MetadataReference>()
+                .ToImmutableArray();
+
+        static string? ExplicitInterfaceSourceAlias(string memberName)
+        {
+            int separator = memberName.IndexOf(
+                "::",
+                StringComparison.Ordinal);
+            return separator > 0
+                ? memberName[..separator]
+                : null;
+        }
 
         CompilerReference? Match(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
         {
@@ -4923,6 +5003,11 @@ static class FidelityCheck
                 or "event"
                 or "explicit-interface-implementation"))
             return null;
+        if (entry.Member.ExplicitInterfaceProvenance is not null
+            && IsPropertyAccessor(pe.GetMetadataReader(), mh))
+        {
+            return null;
+        }
         if (entry.Member.Kind == "property"
             && entry.Type.Kind == "struct"
             && !MemberBodyProducer.IsCompilerGeneratedAutoPropertyAccessor(
@@ -4969,6 +5054,27 @@ static class FidelityCheck
             return null;
         }
         return (result.Text, new HashSet<string>(result.Namespaces, StringComparer.Ordinal));
+    }
+
+    static bool IsPropertyAccessor(
+        MetadataReader reader,
+        MethodDefinitionHandle methodHandle)
+    {
+        TypeDefinition declaringType = reader.GetTypeDefinition(
+            reader.GetMethodDefinition(methodHandle).GetDeclaringType());
+        foreach (PropertyDefinitionHandle propertyHandle
+            in declaringType.GetProperties())
+        {
+            PropertyAccessors accessors =
+                reader.GetPropertyDefinition(propertyHandle).GetAccessors();
+            if (accessors.Getter == methodHandle
+                || accessors.Setter == methodHandle)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     static MemberRenderResult? RenderTargetMember(ApiType type, ApiMember member, MetadataSource source)
@@ -6205,20 +6311,15 @@ static class FidelityCheck
                 string? alias = identity is null
                     ? null
                     : $"__di_ref_{resolvedReferences.Count}";
-                var reference = alias is null
-                    ? MetadataReference.CreateFromFile(fullPath)
-                    : MetadataReference.CreateFromFile(
-                        fullPath,
-                        new MetadataReferenceProperties(
-                            MetadataImageKind.Assembly,
-                            aliases: ImmutableArray.Create(
-                                "global",
-                                alias)));
                 if (seen.Add(simple))
                 {
-                    builder.Add(reference);
-                    if (identity is not null
-                        && alias is not null)
+                    if (identity is null
+                        || alias is null)
+                    {
+                        builder.Add(
+                            MetadataReference.CreateFromFile(fullPath));
+                    }
+                    else
                     {
                         resolvedReferences.Add(new CompilerReference(
                             ResolvedAssemblyReference.Create(
@@ -6228,6 +6329,8 @@ static class FidelityCheck
                                 AssemblyResolutionProvenance.Local(
                                     provenance?.ToString() ?? "CompilerReference")),
                             alias,
+                            fullPath,
+                            [],
                             PlatformTrusted: provenance is AssemblyDependencyProvenance.TrustedPlatformAssembly
                                 or AssemblyDependencyProvenance.SharedFramework));
                     }
@@ -6247,7 +6350,7 @@ static class FidelityCheck
         foreach (var dependency in resolver.ResolveAll())
             Add(dependency.Path, dependency.Provenance);
 
-        var compilerResolver =
+        var discoveryResolver =
             new CompilerReferenceResolver(resolvedReferences);
         var (
             targetApi,
@@ -6256,7 +6359,11 @@ static class FidelityCheck
             ResolutionAwareTargetApiIndex(
                 target,
                 targetPath,
-                compilerResolver);
+                discoveryResolver);
+        var compilerResolver =
+            discoveryResolver.BindExplicitInterfaceAliases(
+                targetApi.Values.Select(entry => entry.Member));
+        builder.AddRange(compilerResolver.MetadataReferences());
         TargetApiIndexCache.AddOrUpdate(target, targetApi);
         return new ReferenceSet(
             builder.ToImmutable(),

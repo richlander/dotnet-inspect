@@ -869,6 +869,8 @@ public sealed class CSharpTypePrinter
             IsUnsafe = member.IsUnsafe,
             IsAsync = member.IsAsync,
             Accessibility = member.Accessibility,
+            ExplicitInterfaceProvenance =
+                member.ExplicitInterfaceProvenance,
             IsExtension = member.IsExtension,
             IsObsolete = member.IsObsolete,
             ObsoleteMessage = member.ObsoleteMessage

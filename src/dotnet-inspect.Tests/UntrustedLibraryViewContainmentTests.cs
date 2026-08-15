@@ -1434,6 +1434,9 @@ public class LibraryViewShapeDerivedContainmentTests
     /// <item><description>
     /// <c>TypeRef</c> and <c>MetadataTypeDefinitionName</c> have no public
     /// constructors; they are factory-built from metadata relationships.
+    /// <c>ApiMember.ExplicitInterfaceProvenance</c> is transient,
+    /// <c>[JsonIgnore]</c> inspection currency whose constructor rejects the
+    /// walk's empty declaration-context array.
     /// </description></item>
     /// <item><description>
     /// <c>ApiSignature.PublicAccessorsSummary</c> and
@@ -1450,6 +1453,7 @@ public class LibraryViewShapeDerivedContainmentTests
     /// </remarks>
     private static readonly string[] OutOfReach =
     [
+        "ApiMember.ExplicitInterfaceProvenance (ApiExplicitInterfaceProvenance): constructor threw ArgumentException",
         "ApiSignature.PublicAccessorsSummary (String): string with no setter",
         "ApiSurfaceInspectionFailure.OwningTypeDefinition (MetadataTypeDefinitionName): no public constructor",
         "ApiType.DefinitionName (MetadataTypeDefinitionName): no public constructor",

@@ -1171,7 +1171,7 @@ internal static class CSharpDeclarationWriter
             if (member.IsUnsafe || options.ForceUnsafe)
                 modifiers.Add("unsafe");
         }
-        else if (member.Kind != "explicit-interface-implementation")
+        else if (!IsExplicitInterfaceMember(member))
         {
             var omitInterfaceModifiers = options.OmitInterfaceMemberModifiers
                 && type.Kind == "interface"
@@ -1849,7 +1849,7 @@ internal static class CSharpDeclarationWriter
                     : model.MemberName!;
             signature = options.OmitPropertyAccessors
                 ? $"{head} {propertyMemberName}"
-                : $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(accessor => AccessorDeclaration(accessor, options.IncludeSignatureAttributes)))} }}";
+                : $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(accessor => AccessorDeclaration(accessor, options.IncludeSignatureAttributes, IsExplicitInterfaceProperty(member))))} }}";
             return true;
         }
         if ((member.Kind == "event" || IsExplicitInterfaceEvent(member))
@@ -1880,13 +1880,15 @@ internal static class CSharpDeclarationWriter
 
         static string AccessorDeclaration(
             ApiAccessor accessor,
-            bool includeSignatureAttributes)
+            bool includeSignatureAttributes,
+            bool omitAccessibility)
         {
             var attributePrefix = !includeSignatureAttributes
                 || accessor.ReturnAttributes.Count == 0
                 ? ""
                 : $"[return: {string.Join(", ", accessor.ReturnAttributes)}] ";
-            return string.IsNullOrWhiteSpace(accessor.Accessibility)
+            return omitAccessibility
+                || string.IsNullOrWhiteSpace(accessor.Accessibility)
                 ? $"{attributePrefix}{accessor.Kind};"
                 : $"{attributePrefix}{accessor.Accessibility} {accessor.Kind};";
         }
@@ -1898,14 +1900,21 @@ internal static class CSharpDeclarationWriter
     }
 
     static bool IsExplicitInterfaceProperty(ApiMember member)
-        => member.Kind == "explicit-interface-implementation"
-            && member.Name.Contains('.', StringComparison.Ordinal)
-            && HasOnlyAccessors(member, "get", "set", "init");
+        => IsExplicitInterfaceMember(member)
+            && (member.Kind == "property"
+                || member.Kind == "explicit-interface-implementation"
+                    && member.Name.Contains('.', StringComparison.Ordinal)
+                    && HasOnlyAccessors(member, "get", "set", "init"));
 
     static bool IsExplicitInterfaceEvent(ApiMember member)
-        => member.Kind == "explicit-interface-implementation"
-            && member.Name.Contains('.', StringComparison.Ordinal)
-            && HasOnlyAccessors(member, "add", "remove");
+        => IsExplicitInterfaceMember(member)
+            && (member.Kind == "event"
+                || member.Kind == "explicit-interface-implementation"
+                    && HasOnlyAccessors(member, "add", "remove"));
+
+    static bool IsExplicitInterfaceMember(ApiMember member)
+        => member.ExplicitInterfaceProvenance is not null
+            || member.Kind == "explicit-interface-implementation";
 
     static bool IsEvent(ApiMember member)
         => member.Kind == "event" || IsExplicitInterfaceEvent(member);
