@@ -3888,7 +3888,12 @@ static class FidelityCheck
                     foreach (var member in type.Members)
                     {
                         if (member.MetadataToken is { } token)
-                            index[token] = (type, member);
+                        {
+                            if (member.Kind == "extension-method")
+                                index.TryAdd(token, (type, member));
+                            else
+                                index[token] = (type, member);
+                        }
                         if (member.Kind == "property"
                             && !member.Name.Contains('.', StringComparison.Ordinal))
                         {
@@ -3936,7 +3941,10 @@ static class FidelityCheck
             return null;
         if (entry.Member.Kind == "property"
             && entry.Type.Kind == "struct"
-            && !IsAutoPropertyAccessor(pe.GetMetadataReader(), mh))
+            && !MemberBodyProducer.IsCompilerGeneratedAutoPropertyAccessor(
+                source,
+                entry.Member,
+                mh))
         {
             return null;
         }
@@ -3959,39 +3967,6 @@ static class FidelityCheck
             return null;
         }
         return (result.Text, new HashSet<string>(result.Namespaces, StringComparer.Ordinal));
-    }
-
-    static bool IsAutoPropertyAccessor(
-        MetadataReader reader,
-        MethodDefinitionHandle accessorHandle)
-    {
-        var accessor = reader.GetMethodDefinition(accessorHandle);
-        var type = reader.GetTypeDefinition(accessor.GetDeclaringType());
-        foreach (var propertyHandle in type.GetProperties())
-        {
-            var property = reader.GetPropertyDefinition(propertyHandle);
-            var accessors = property.GetAccessors();
-            if (accessors.Getter != accessorHandle && accessors.Setter != accessorHandle)
-                continue;
-            if (accessors.Getter.IsNil
-                || !AccessorsAreCompilerGenerated(reader, accessors))
-            {
-                return false;
-            }
-
-            var signature = property.DecodeSignature(
-                SignatureDecoder.Instance,
-                GenericContext.ForType(reader, type));
-            bool isStatic = accessor.Attributes.HasFlag(MethodAttributes.Static);
-            return HasAutoPropertyBackingField(
-                reader,
-                type,
-                reader.GetString(property.Name),
-                Clean(signature.ReturnType),
-                isStatic);
-        }
-
-        return false;
     }
 
     static MemberRenderResult? RenderTargetMember(ApiType type, ApiMember member, MetadataSource source)

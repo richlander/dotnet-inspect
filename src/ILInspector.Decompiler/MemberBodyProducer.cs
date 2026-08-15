@@ -1580,6 +1580,96 @@ public static class MemberBodyProducer
             && operandDeclaringType?.Equals(backingField.DeclaringType) == true;
     }
 
+    /// <summary>
+    /// Product-owned proof that an accessor belongs to a compiler auto-property
+    /// whose bodies are safe to replace with accessor semicolons. The compile-back
+    /// struct gate consumes this instead of reconstructing the proof; gated by
+    /// <c>StructFalseAutoProperty_RemainsOnLegacyFallback</c>.
+    /// </summary>
+    internal static bool IsCompilerGeneratedAutoPropertyAccessor(
+        Pipeline.MetadataSource source,
+        ApiMember member,
+        MethodDefinitionHandle accessorHandle)
+    {
+        try
+        {
+            var reader = source.Reader;
+            var typeHandle = reader.GetMethodDefinition(accessorHandle).GetDeclaringType();
+            var getterHandle = ResolveAccessorHandle(
+                reader,
+                typeHandle,
+                member.GetterToken,
+                $"get_{member.Name}");
+            var setterHandle = ResolveAccessorHandle(
+                reader,
+                typeHandle,
+                member.SetterToken,
+                $"set_{member.Name}");
+            if (accessorHandle != getterHandle && accessorHandle != setterHandle
+                || !IsCompilerGeneratedAutoProperty(
+                    source,
+                    reader,
+                    typeHandle,
+                    member,
+                    getterHandle,
+                    setterHandle))
+            {
+                return false;
+            }
+
+            var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+            if (getterHandle is { } getter)
+            {
+                string? body = DecompileAccessor(
+                    source,
+                    getter,
+                    "",
+                    "",
+                    bodyNamespaces,
+                    out _,
+                    out bool requiresAsync,
+                    out _,
+                    printerOptions: null,
+                    failOnDiagnostic: true);
+                if (requiresAsync
+                    || !IsTrivialAutoAccessor("get", body, member.Name, member.IsStatic))
+                {
+                    return false;
+                }
+            }
+
+            if (setterHandle is { } setter)
+            {
+                string keyword = member.SignatureModel?.Accessors.Any(
+                    accessor => accessor.Kind == "init") == true
+                        ? "init"
+                        : "set";
+                string? body = DecompileAccessor(
+                    source,
+                    setter,
+                    "",
+                    "",
+                    bodyNamespaces,
+                    out _,
+                    out bool requiresAsync,
+                    out _,
+                    printerOptions: null,
+                    failOnDiagnostic: true);
+                if (requiresAsync
+                    || !IsTrivialAutoAccessor(keyword, body, member.Name, member.IsStatic))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return false;
+        }
+    }
+
     static void ComposeProperty(
         StringBuilder sb, Pipeline.MetadataSource pipelineSource,
         MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type, ApiMember member,

@@ -5,6 +5,8 @@ using ILInspector.DecompilerHarness;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -416,22 +418,32 @@ public class FidelityCheckGeneratedFilterTests
         }
     }
 
-    [Fact]
-    public void TargetApiIndex_PreservesDeclaringExtensionMethodEntry()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TargetApiIndex_PreservesDeclaringExtensionMethodEntry(
+        bool extensionDeclaredFirst)
     {
-        var assemblyPath = CompileFixture("""
-            // Declaration order is load-bearing: the extended-type projection
-            // precedes the declaring method entry for the shared MethodDef token.
+        const string widget = """
+            // Both source orderings are intentional: the extended-type projection
+            // and declaring method share one MethodDef token in either order.
             public sealed class Widget
             {
                 public int Value;
             }
+            """;
 
+        const string extensions = """
             public static class WidgetExtensions
             {
                 public static int Twice(this Widget value) => value.Value * 2;
             }
-            """);
+            """;
+
+        var assemblyPath = CompileFixture(
+            extensionDeclaredFirst
+                ? $"{extensions}{Environment.NewLine}{widget}"
+                : $"{widget}{Environment.NewLine}{extensions}");
         try
         {
             using var pe = new PEReader(File.OpenRead(assemblyPath));
@@ -455,6 +467,85 @@ public class FidelityCheckGeneratedFilterTests
 
             Assert.NotNull(rendered);
             Assert.Contains("Twice", rendered.Value.Text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void StructFalseAutoProperty_RemainsOnLegacyFallback()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "fixture.dll");
+        try
+        {
+            var assemblyName = new AssemblyName("FalseStructAutoProperty");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+            var typeBuilder = module.DefineType(
+                "FalseAutoStruct",
+                TypeAttributes.Public
+                    | TypeAttributes.Sealed
+                    | TypeAttributes.SequentialLayout,
+                typeof(ValueType));
+            var compilerGenerated = new CustomAttributeBuilder(
+                typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute)
+                    .GetConstructor(Type.EmptyTypes)!,
+                []);
+            var backingField = typeBuilder.DefineField(
+                "<Value>k__BackingField",
+                typeof(int),
+                FieldAttributes.Private);
+            backingField.SetCustomAttribute(compilerGenerated);
+            var getter = typeBuilder.DefineMethod(
+                "get_Value",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(int),
+                Type.EmptyTypes);
+            getter.SetCustomAttribute(compilerGenerated);
+            var il = getter.GetILGenerator();
+            il.Emit(OpCodes.Ldc_I4_S, (sbyte)42);
+            il.Emit(OpCodes.Ret);
+            typeBuilder
+                .DefineProperty("Value", PropertyAttributes.None, typeof(int), null)
+                .SetGetMethod(getter);
+            typeBuilder.CreateType();
+            assemblyBuilder.Save(assemblyPath);
+
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "FalseAutoStruct"));
+            var accessor = Assert.Single(
+                type.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "get_Value");
+            using var source = MetadataSource.Open(assemblyPath);
+
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                accessor,
+                targeted: true,
+                isPrimaryConstructor: false));
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "FalseAutoStruct",
+                    method => method.Method == "get_Value"));
+            Assert.False(result.UsedProductWholeMember);
         }
         finally
         {
