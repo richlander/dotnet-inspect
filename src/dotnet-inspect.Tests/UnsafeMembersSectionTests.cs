@@ -218,6 +218,22 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
+    public async Task TypeUnsafeMembers_JsonFailsClosedInsteadOfReturningAnUnrelatedTypeProjection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(SampleUnsafeClass).FullName,
+            AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
+            IncludeSections = [SectionNames.UnsafeMembers],
+            JsonOutput = true,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("cannot represent the analysis rows", result.Error);
+        Assert.Contains("--jsonl", result.Error);
+    }
+
+    [Fact]
     public void TypeUnsafeMembers_RendersDeclarationWhenAnalysisHasNoEvidence()
     {
         var type = new ApiType
@@ -247,6 +263,77 @@ public class UnsafeMembersSectionTests
         Assert.Equal("Unsafe declaration", row.Reason);
         Assert.Equal("<code>int Risky()</code>", row.Detail);
         Assert.Equal("metadata", row.Kind);
+    }
+
+    [Fact]
+    public void TypeUnsafeMembers_RendersAnalysisFailuresInsteadOfAFalseCleanResult()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "OnlySafe",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    Signature = "void Run()",
+                    MetadataToken = 0x06000001,
+                    HasMethodBody = true
+                }
+            ]
+        };
+        var index = LibraryBodyIndex.Open(typeof(SampleUnsafeClass).Assembly.Location);
+        var view = new TypeView();
+
+        ApiOutputFormatter.PopulateUnsafeMembers(
+            view,
+            type,
+            index,
+            [
+                new AnalysisDiagnostic(
+                    0x06000001,
+                    "Samples.OnlySafe.Run()",
+                    "BadImageFormatException: malformed body")
+            ]);
+
+        var row = Assert.Single(view.UnsafeMemberRows!);
+        Assert.Equal("Analysis failed", row.Reason);
+        Assert.Equal("diagnostic", row.Kind);
+        Assert.Contains("malformed body", row.Detail);
+    }
+
+    [Fact]
+    public void TypeUnsafeMembers_FieldFallbackPreservesPointerType()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "UnsafeFields",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Callback",
+                    Kind = "field",
+                    ReturnType = "delegate*<int, int>",
+                    IsUnsafe = true
+                }
+            ]
+        };
+        var view = new TypeView();
+
+        ApiOutputFormatter.PopulateUnsafeMembers(
+            view,
+            type,
+            LibraryBodyIndex.Open(typeof(SampleUnsafeClass).Assembly.Location));
+
+        Assert.Equal(
+            "<code>delegate*&lt;int, int&gt; Callback</code>",
+            Assert.Single(view.UnsafeMemberRows!).Detail);
     }
 
     [Fact]

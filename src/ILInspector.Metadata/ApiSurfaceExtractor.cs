@@ -543,7 +543,7 @@ public static class ApiSurfaceExtractor
                     ReturnType = ApiMemberIdentity.IsConversionOperator(methodName) ? signature.Model?.ReturnType : null,
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
                     HasMethodBody = method.RelativeVirtualAddress != 0,
-                    IsUnsafe = HasUnsafeSignature(signature.Text)
+                    IsUnsafe = HasUnsafeSignature(reader, method)
                         || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
@@ -629,7 +629,7 @@ public static class ApiSurfaceExtractor
                     IsAbstract = isAbstractProperty,
                     IsOverride = isOverrideProperty,
                     IsSealed = isSealedProperty,
-                    IsUnsafe = HasUnsafeSignature(propertySignature.Text)
+                    IsUnsafe = HasUnsafeSignature(reader, prop)
                         || AttributeReader.HasRequiresUnsafeAttribute(reader, prop.GetCustomAttributes()),
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
@@ -718,7 +718,7 @@ public static class ApiSurfaceExtractor
                     IsStatic = (field.Attributes & FieldAttributes.Static) != 0,
                     IsReadOnly = (field.Attributes & FieldAttributes.InitOnly) != 0,
                     IsConst = (field.Attributes & FieldAttributes.Literal) != 0,
-                    IsUnsafe = HasUnsafeSignature(fieldType)
+                    IsUnsafe = HasUnsafeSignature(reader, field)
                         || AttributeReader.HasRequiresUnsafeAttribute(reader, field.GetCustomAttributes()),
                     Accessibility = GetFieldAccessibility(fieldAccess),
                     IsObsolete = isObsolete,
@@ -864,7 +864,7 @@ public static class ApiSurfaceExtractor
                     IsAbstract = (adderAttributes & MethodAttributes.Abstract) != 0,
                     IsOverride = isOverrideEvent,
                     IsSealed = isOverrideEvent && (adderAttributes & MethodAttributes.Final) != 0,
-                    IsUnsafe = HasUnsafeSignature(eventType)
+                    IsUnsafe = HasUnsafeSignature(reader, evt)
                         || AttributeReader.HasRequiresUnsafeAttribute(reader, evt.GetCustomAttributes()),
                     Accessibility = GetAccessibility(adderAccess),
                     IsObsolete = isObsolete,
@@ -2980,21 +2980,44 @@ public static class ApiSurfaceExtractor
                     : null;
     }
 
-    /// <summary>
-    /// Checks if a method signature contains unsafe constructs (pointers). This
-    /// catches members whose signature renders a pointer; members declared
-    /// <c>unsafe</c> with no pointer in the signature are detected separately via
-    /// <see cref="AttributeReader.HasRequiresUnsafeAttribute"/>.
-    /// </summary>
-    internal static bool HasUnsafeSignature(string? signature)
+    internal static bool HasUnsafeSignature(MetadataReader reader, MethodDefinition method)
     {
-        if (string.IsNullOrEmpty(signature))
-            return false;
-
-        // Check for pointer types (e.g., int*, void*, byte*)
-        // and function pointers (delegate*)
-        return signature.Contains('*');
+        var decoded = GuardedProviderDecode.MethodResult(
+            reader,
+            method,
+            PointerDetector.Instance,
+            (object?)null,
+            PointerDetection.Degraded);
+        return PointerDetection.Combine(decoded.Value.ReturnType, decoded.Value.ParameterTypes).HasPointer;
     }
+
+    internal static bool HasUnsafeSignature(MetadataReader reader, PropertyDefinition property)
+    {
+        var decoded = GuardedProviderDecode.PropertyResult(
+            reader,
+            property,
+            PointerDetector.Instance,
+            (object?)null,
+            PointerDetection.Degraded);
+        return PointerDetection.Combine(decoded.Value.ReturnType, decoded.Value.ParameterTypes).HasPointer;
+    }
+
+    internal static bool HasUnsafeSignature(MetadataReader reader, FieldDefinition field)
+        => GuardedProviderDecode.Field(
+            reader,
+            field,
+            PointerDetector.Instance,
+            (object?)null,
+            PointerDetection.Degraded).HasPointer;
+
+    internal static bool HasUnsafeSignature(MetadataReader reader, EventDefinition evt)
+        => evt.Type.Kind == HandleKind.TypeSpecification
+            && GuardedProviderDecode.TypeSpec(
+                reader,
+                (TypeSpecificationHandle)evt.Type,
+                PointerDetector.Instance,
+                (object?)null,
+                PointerDetection.Degraded).HasPointer;
 
     /// <summary>
     /// Maps MethodAttributes access level to C# keyword. Returns null for public.

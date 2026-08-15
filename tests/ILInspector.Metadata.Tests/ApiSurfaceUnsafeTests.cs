@@ -100,6 +100,15 @@ public sealed class ApiSurfaceUnsafeTests
         // No pointer and not declared unsafe at the member level.
         Assert.False(Method(nameof(NewFixtures.StackAllocDefault)).IsUnsafe);
     }
+
+    [Fact]
+    public void DefaultValueAsterisks_AreNotUnsafeSignatures()
+    {
+        var members = Type(typeof(SafeStarDefaultsFixture)).Members;
+
+        Assert.False(members.Single(member => member.Name == nameof(SafeStarDefaultsFixture.Glob)).IsUnsafe);
+        Assert.False(members.Single(member => member.Name == "Item").IsUnsafe);
+    }
 }
 
 public unsafe class FunctionPointerNullabilityFixture
@@ -117,4 +126,16 @@ public unsafe class FunctionPointerShapeFixture
     public delegate*<int, int> PointerProperty { get; set; }
 
     public delegate*<int, int> Ret(delegate*<int, int> f) => f;
+}
+
+public sealed class SafeStarDefaultsFixture
+{
+    public string Glob(string pattern = "*.txt") => pattern;
+    public string this[[StarValue("*")] string key] => key;
+}
+
+[AttributeUsage(AttributeTargets.Parameter)]
+public sealed class StarValueAttribute(string value) : Attribute
+{
+    public string Value { get; } = value;
 }

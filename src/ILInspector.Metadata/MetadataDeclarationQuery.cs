@@ -132,7 +132,7 @@ public static class MetadataDeclarationQuery
                 IsVirtual = declaration.IsVirtual,
                 IsOverride = declaration.IsOverride,
                 IsSealed = declaration.IsSealed,
-                IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(signatureText)
+                IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(reader, property)
                     || AttributeReader.HasRequiresUnsafeAttribute(reader, property.GetCustomAttributes()),
                 Accessibility = NonPublicAccessibility(declaration.Accessibility),
                 Attributes = declaration.Attributes.ToList(),
@@ -140,6 +140,86 @@ public static class MetadataDeclarationQuery
                 SetterToken = declaration.Setter.IsNil ? null : MetadataTokens.GetToken(declaration.Setter),
                 HasMethodBody = HasMethodBody(reader, declaration.Getter)
                     || HasMethodBody(reader, declaration.Setter),
+            });
+        }
+
+        foreach (var eventHandle in typeDef.GetEvents())
+        {
+            var evt = reader.GetEventDefinition(eventHandle);
+            var accessors = evt.GetAccessors();
+            if (!accessors.Adder.IsNil)
+                accessorMethods.Add(accessors.Adder);
+            if (!accessors.Remover.IsNil)
+                accessorMethods.Add(accessors.Remover);
+            if (accessors.Adder.IsNil && accessors.Remover.IsNil)
+                continue;
+
+            MethodAttributes bestAccess = 0;
+            bool isStatic = false;
+            bool isVirtual = false;
+            bool isAbstract = false;
+            bool isOverride = false;
+            bool isSealed = false;
+            foreach (var accessorHandle in new[] { accessors.Adder, accessors.Remover })
+            {
+                if (accessorHandle.IsNil)
+                    continue;
+                var accessor = reader.GetMethodDefinition(accessorHandle);
+                var accessorAttributes = accessor.Attributes;
+                var access = accessorAttributes & MethodAttributes.MemberAccessMask;
+                if (access > bestAccess)
+                    bestAccess = access;
+                bool accessorVirtual = (accessorAttributes & MethodAttributes.Virtual) != 0;
+                bool accessorOverride = accessorVirtual && (accessorAttributes & MethodAttributes.NewSlot) == 0;
+                isStatic |= (accessorAttributes & MethodAttributes.Static) != 0;
+                isVirtual |= accessorVirtual;
+                isAbstract |= (accessorAttributes & MethodAttributes.Abstract) != 0;
+                isOverride |= accessorOverride;
+                isSealed |= accessorOverride && (accessorAttributes & MethodAttributes.Final) != 0;
+            }
+
+            string accessibility = AccessibilityKeyword(bestAccess);
+            if (!includeNonPublicMembers && accessibility != "public")
+                continue;
+
+            var context = GenericContext.ForType(reader, typeDef);
+            string? eventType = ConstraintTypeName(reader, evt.Type, context);
+            bool degraded = eventType is null;
+            eventType ??= "<unsupported: event type>";
+            string eventName = reader.GetString(evt.Name);
+            type.Members.Add(new ApiMember
+            {
+                Name = eventName,
+                Kind = "event",
+                ReturnType = eventType,
+                Signature = $"{eventType} {SanitizeIdentifier(eventName)}",
+                SignatureModel = new ApiSignature
+                {
+                    ReturnType = eventType,
+                    MemberName = SanitizeIdentifier(eventName),
+                    Accessors =
+                    [
+                        .. (accessors.Adder.IsNil ? [] : new[] { new ApiAccessor { Kind = "add" } }),
+                        .. (accessors.Remover.IsNil ? [] : new[] { new ApiAccessor { Kind = "remove" } }),
+                    ]
+                },
+                SignatureDecodeStatus = degraded ? SignatureDecodeStatus.Degraded : null,
+                IsStatic = isStatic,
+                IsVirtual = isVirtual,
+                IsAbstract = isAbstract,
+                IsOverride = isOverride,
+                IsSealed = isSealed,
+                IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(reader, evt)
+                    || AttributeReader.HasRequiresUnsafeAttribute(reader, evt.GetCustomAttributes()),
+                Accessibility = NonPublicAccessibility(accessibility),
+                Attributes = AttributeReader.RenderAttributes(
+                    reader,
+                    evt.GetCustomAttributes(),
+                    qualifyNames: true),
+                AdderToken = accessors.Adder.IsNil ? null : MetadataTokens.GetToken(accessors.Adder),
+                RemoverToken = accessors.Remover.IsNil ? null : MetadataTokens.GetToken(accessors.Remover),
+                HasMethodBody = HasMethodBody(reader, accessors.Adder)
+                    || HasMethodBody(reader, accessors.Remover),
             });
         }
 
@@ -172,7 +252,7 @@ public static class MetadataDeclarationQuery
                 IsOverride = declaration.IsOverride,
                 IsSealed = declaration.IsSealed,
                 HasMethodBody = method.RelativeVirtualAddress != 0,
-                IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(signatureText)
+                IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(reader, method)
                     || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
                 Accessibility = NonPublicAccessibility(declaration.Accessibility),
                 Attributes = declaration.Attributes.ToList(),
@@ -202,7 +282,7 @@ public static class MetadataDeclarationQuery
                 IsStatic = declaration.IsStatic,
                 IsReadOnly = declaration.IsReadOnly,
                 IsConst = declaration.IsConst,
-                IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(declaration.ReturnType)
+                IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(reader, field)
                     || AttributeReader.HasRequiresUnsafeAttribute(reader, field.GetCustomAttributes()),
                 Accessibility = NonPublicAccessibility(declaration.Accessibility),
                 Attributes = declaration.Attributes.ToList(),

@@ -2175,7 +2175,11 @@ public static class ApiOutputFormatter
                 ? columns
                 : [];
 
-    internal static void PopulateUnsafeMembers(TypeView view, ApiType type, Analysis.LibraryBodyIndex index)
+    internal static void PopulateUnsafeMembers(
+        TypeView view,
+        ApiType type,
+        Analysis.LibraryBodyIndex index,
+        IReadOnlyList<Analysis.AnalysisDiagnostic>? diagnostics = null)
     {
         var findings = index
             .UnsafeEvidence
@@ -2191,6 +2195,9 @@ public static class ApiOutputFormatter
             .ToList();
         var evidencedTokens = findings
             .Select(finding => finding.Payload.Member.MetadataToken)
+            .ToHashSet();
+        var memberTokens = type.Members
+            .SelectMany(MemberEvidenceTokens)
             .ToHashSet();
         var rows = findings
             .Select(static finding => finding.Payload)
@@ -2225,6 +2232,24 @@ public static class ApiOutputFormatter
                         ILOffset: -1,
                         Reason: reason,
                         Detail: detail,
+                        Row: row);
+                }))
+            .Concat((diagnostics ?? index.Diagnostics)
+                .Where(diagnostic => memberTokens.Contains(diagnostic.MethodToken))
+                .Select(diagnostic =>
+                {
+                    var row = new UnsafeMemberRow(
+                        MarkoutInline.Code(diagnostic.Method),
+                        "Analysis failed",
+                        MarkoutInline.Code(diagnostic.Message),
+                        "diagnostic",
+                        IL: null,
+                        Token: MarkoutInline.Code($"0x{diagnostic.MethodToken:X8}"));
+                    return (
+                        Name: diagnostic.Method,
+                        ILOffset: -1,
+                        Reason: "Analysis failed",
+                        Detail: diagnostic.Message,
                         Row: row);
                 }))
             .OrderBy(entry => entry.Name, StringComparer.Ordinal)
@@ -2801,7 +2826,10 @@ public static class ApiOutputFormatter
     /// </remarks>
     internal static string GetMemberDisplaySignature(ApiType type, ApiMember member)
         => CSharpIdentifier.ContainRenderedText(
-            member.Signature ?? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(member.Name)}");
+            member.Signature
+                ?? (member.ReturnType is { Length: > 0 } returnType
+                    ? $"{returnType} {OperatorNames.FormatDisplayName(member.Name)}"
+                    : $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(member.Name)}"));
 
     private static string GetMemberSelectorName(ApiMember member)
         => ApiMemberIdentity.GetMemberSelectorName(member);

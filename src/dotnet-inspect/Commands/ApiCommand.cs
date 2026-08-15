@@ -1279,6 +1279,14 @@ public class ApiCommand
 
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
+            if (GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
+            {
+                CommandError.Write(
+                    $"Document --json cannot represent the analysis rows in section "
+                    + $"'{SectionNames.UnsafeMembers}'. Use --jsonl for its table rows.");
+                return 1;
+            }
+
             // --fields/--columns select table columns; document JSON has no column-slicing
             // facility, so the combination is rejected rather than silently dropped. A scalar
             // payload projection (--value/--print) does compose, and is handled above.

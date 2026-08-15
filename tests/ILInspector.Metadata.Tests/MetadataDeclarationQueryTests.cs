@@ -153,6 +153,10 @@ public sealed class MetadataDeclarationQueryTests
         Assert.True(method.IsUnsafe);
         Assert.True(Assert.Single(classSurface.Members, member => member.Name == "Pointer").IsUnsafe);
         Assert.True(Assert.Single(classSurface.Members, member => member.Name == "Value").IsUnsafe);
+        var changed = Assert.Single(classSurface.Members, member => member.Name == "Changed");
+        Assert.Equal("event", changed.Kind);
+        Assert.True(changed.HasMethodBody);
+        Assert.DoesNotContain(classSurface.Members, member => member.Name is "add_Changed" or "remove_Changed");
     }
 
     [Fact]
@@ -490,6 +494,11 @@ public class MetadataDeclarationQueryFixtures
     {
         public int* Pointer;
         public int* Value { get; set; }
+        public event EventHandler? Changed
+        {
+            add { }
+            remove { }
+        }
     }
 
     public class Container<T>
