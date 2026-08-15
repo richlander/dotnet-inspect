@@ -3508,6 +3508,9 @@ public static class ApiSurfaceExtractor
     private sealed class ExtractionBudget(ApiSurfaceExtractionBounds bounds)
     {
         const int DecodeWorkWeight = 16;
+        // Small exact retention budgets still need enough work room to decode one ordinary type.
+        // The hostile-shape allocation tests gate this floor below their 64 MiB ceiling.
+        const int MinimumDecodeWorkLimit = 32_000_000;
         int _types;
         int _members;
         int _pendingMembers;
@@ -3633,7 +3636,10 @@ public static class ApiSurfaceExtractor
                 throw new ArgumentOutOfRangeException(nameof(encodedCharacters));
             long next =
                 (long)encodedCharacters * DecodeWorkWeight + _pendingDecodeWork;
-            if (next > bounds.MaxRetainedTextCharacters || next < 0)
+            long limit = Math.Max(
+                bounds.MaxRetainedTextCharacters,
+                MinimumDecodeWorkLimit);
+            if (next > limit || next < 0)
             {
                 throw new ExtractionBoundExceededException(
                     ApiSurfaceExtractionBound.RetainedTextCharacters);
