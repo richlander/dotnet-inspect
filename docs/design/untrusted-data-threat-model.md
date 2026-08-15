@@ -381,26 +381,41 @@ reservations and retained cache entries share the same 12-package/128 MB limit.
 Before assembly identity decoding, each workspace role also rejects more than
 256 selected assemblies or a declared expanded total above that role's 32/64 MB
 retained-image budget.
-Browser API-surface projection additionally spends one shared 8,000,000-character
-retained-text budget across its selected assemblies. The extractor charges every
-string-bearing model field as it retains each member, type, inspection failure,
-type forwarder, and late canonical identity; repeated references are charged per
-field. An assembly that would exceed the remaining budget is abandoned whole,
-and the Browser reports typed truncation rather than presenting a shortened
-surface as complete.
+Browser API-surface projection additionally spends one shared
+32,000,000-character retained-text budget across its selected assemblies. The
+extractor charges every string-bearing model field as it retains each member,
+type, inspection failure, type forwarder, and late canonical identity; repeated
+references are charged per field. It observes text incrementally while decoding
+type nodes, parameters, attributes, generic constraints, and interfaces, so one
+wide signature or interface-heavy type cannot allocate its complete amplified
+model before the check. The Browser separately applies the same bound while
+deriving type/member transport records, including canonical signatures,
+documentation IDs, and graph selectors that repeat declaring-type identity. An
+assembly that would exceed either remaining budget is abandoned whole, and the
+Browser reports truncation rather than presenting a shortened surface as
+complete.
 `BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
 gates aggregate ownership and eviction; its oversized-role case gates
 pre-decoding rejection.
 `ApiSurfaceExtractorBoundsTests.RetainedTextBudget_IsExact`,
 `RepeatedLongMemberName_StopsBeforeLargeAllocationAmplification`,
+`OneWideSignature_StopsBeforeLargeAllocationAmplification`,
+`OneInterfaceHeavyType_StopsBeforeLargeAllocationAmplification`,
 `AssemblyContextApiSurfaceQueryTests.ExecuteBounded_SpendsRetainedTextAcrossParticipants`,
 and
 `BrowserEngineBoundaryTests.ApiSurfaceProjection_IsBoundedAndReportsTruncation`
-gate the extraction, measured allocation, shared-budget, and host-reporting
-layers respectively. The allocation gate uses a 146 KB synthetic PE containing
-10,000 methods with one repeated 4,000-character name: unbounded extraction
-allocated approximately 335 MB on the measuring host, while the bounded path
-allocated approximately 22 MB and returned typed truncation.
+gate exact extraction, three distinct allocation-amplification shapes,
+shared-budget spending, and host reporting. The original allocation gate uses a
+146 KB synthetic PE containing 10,000 methods with one repeated 4,000-character
+name: unbounded extraction allocated approximately 335 MB on the measuring
+host, while the bounded path allocated approximately 22 MB and returned typed
+truncation. The wide-signature and interface-heavy gates concentrate repeated
+4,000-character names inside one member and one type respectively and require
+each bounded path to allocate less than 64 MB.
+`BrowserEngineBoundaryTests.SurfaceProjection_LongDeclaringTypeStopsIncrementally`
+gates the derived-identity transport budget, and
+`ApiSurfacePolicy_AcceptsCoreLibraryAtEveryBrowserScope` pins the 32-million
+policy against CoreLib at both Browser extraction scopes.
 `PackageArchiveEntryFlood_IsRejectedBeforeArchiveEnumeration` gates the
 host-specific central-directory entry limit.
 `PackagePayloadAcquisitionTests.TransferPolicy_ReservesBeforeBodyReadAndCompletesAfterCommit`,

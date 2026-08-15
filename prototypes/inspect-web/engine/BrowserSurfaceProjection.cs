@@ -24,7 +24,8 @@ internal static class BrowserSurfaceProjection
         ApiType type,
         string assembly,
         string assemblyId,
-        string assemblyName)
+        string assemblyName,
+        BrowserSurfaceTextBudget? textBudget = null)
     {
         // C#-spelled name for display (List<T>, Dictionary<TKey, TValue>) using the real generic
         // parameter names the surface carries. Identity stays the metadata form so deep links,
@@ -42,10 +43,13 @@ internal static class BrowserSurfaceProjection
         modifiers.Add(type.Kind);
         modifiers.Add(displayName);
 
-        BrowserMemberSurface[] members = [.. type.Members.Select(member => Member(type, member))];
+        BrowserMemberSurface[] members =
+        [
+            .. type.Members.Select(member => Member(type, member, textBudget)),
+        ];
         string metadataId = MetadataId(type);
         string definitionId = type.DefinitionName?.ToEscapedFullName() ?? metadataId;
-        return new BrowserTypeSurface(
+        var projected = new BrowserTypeSurface(
             definitionId,
             definitionId,
             type.FullName,
@@ -62,12 +66,17 @@ internal static class BrowserSurfaceProjection
             members.Length,
             string.Join(' ', modifiers),
             members);
+        textBudget?.Retain(projected);
+        return projected;
     }
 
-    internal static BrowserMemberSurface Member(ApiType type, ApiMember member)
+    internal static BrowserMemberSurface Member(
+        ApiType type,
+        ApiMember member,
+        BrowserSurfaceTextBudget? textBudget = null)
     {
         MemberAnchor anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
-        return new BrowserMemberSurface(
+        var projected = new BrowserMemberSurface(
             member.Name,
             member.Kind,
             member.Signature ?? member.Name,
@@ -99,6 +108,101 @@ internal static class BrowserSurfaceProjection
                         selector.MemberName,
                         selector.SelectorKey)),
             ]);
+        textBudget?.Retain(projected);
+        return projected;
+    }
+
+    /// <summary>
+    /// The Browser transport's shared text budget. A participant spends pending text while its
+    /// transport records are built and commits only after every type succeeds, so an over-budget
+    /// assembly is omitted whole.
+    /// </summary>
+    [SupportedOSPlatform("browser")]
+    internal sealed class BrowserSurfaceTextBudget(int maxCharacters)
+    {
+        int _committed;
+        int _pending;
+
+        internal int MaxCharacters { get; } = maxCharacters > 0
+            ? maxCharacters
+            : throw new ArgumentOutOfRangeException(nameof(maxCharacters));
+
+        internal int CommittedCharacters => _committed;
+
+        internal void BeginParticipant() => _pending = 0;
+
+        internal void CommitParticipant()
+        {
+            _committed += _pending;
+            _pending = 0;
+        }
+
+        internal void AbandonParticipant() => _pending = 0;
+
+        internal void Retain(BrowserTypeSurface type)
+        {
+            Retain(type.Id);
+            Retain(type.DefinitionId);
+            Retain(type.QueryId);
+            Retain(type.MetadataId);
+            Retain(type.Name);
+            Retain(type.DisplayName);
+            Retain(type.Namespace);
+            Retain(type.Kind);
+            Retain(type.Accessibility);
+            Retain(type.AccessibilityId);
+            Retain(type.Assembly);
+            Retain(type.AssemblyId);
+            Retain(type.AssemblyName);
+            Retain(type.Signature);
+        }
+
+        internal void Retain(BrowserMemberSurface member)
+        {
+            Retain(member.Name);
+            Retain(member.Kind);
+            Retain(member.Signature);
+            Retain(member.ReturnType);
+            Retain(member.DocumentationId);
+            Retain(member.Summary);
+            Retain(member.Returns);
+            Retain(member.StableSelector);
+            Retain(member.AnchorDigest);
+            Retain(member.CanonicalSignature);
+            Retain(member.GraphSelectorKey);
+            foreach (BrowserParameterSurface parameter in member.Parameters)
+            {
+                Retain(parameter.Name);
+                Retain(parameter.Type);
+                Retain(parameter.Modifier);
+                Retain(parameter.DefaultValue);
+                Retain(parameter.Description);
+            }
+            foreach (BrowserExceptionSurface exception in member.Exceptions)
+            {
+                Retain(exception.Type);
+                Retain(exception.Description);
+            }
+            foreach (BrowserMemberBodySelector selector in member.BodySelectors)
+            {
+                Retain(selector.MemberName);
+                Retain(selector.SelectorKey);
+            }
+        }
+
+        void Retain(string? text)
+        {
+            if (text is null)
+                return;
+            if (text.Length > MaxCharacters - _committed - _pending)
+                throw new BrowserSurfaceTextBoundExceededException();
+            _pending += text.Length;
+        }
+    }
+
+    internal sealed class BrowserSurfaceTextBoundExceededException()
+        : Exception("The Browser API-surface transport exceeded its text budget.")
+    {
     }
 
     /// <summary>

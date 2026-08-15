@@ -10,6 +10,10 @@ namespace ILInspector.Metadata;
 internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, GenericContext?>
 {
     public static TypeNodeProvider Instance { get; } = new();
+    readonly Action<string>? _beforeRetain;
+
+    public TypeNodeProvider(Action<string>? beforeRetain = null)
+        => _beforeRetain = beforeRetain;
 
     // Delegate to existing SignatureDecoder for name resolution to avoid duplication.
     private static readonly SignatureDecoder NameDecoder = SignatureDecoder.Instance;
@@ -17,6 +21,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetPrimitiveType(PrimitiveTypeCode typeCode)
     {
         string name = NameDecoder.GetPrimitiveType(typeCode);
+        _beforeRetain?.Invoke(name);
         bool isRef = typeCode is PrimitiveTypeCode.String or PrimitiveTypeCode.Object;
         return new PrimitiveTypeNode(name, isRef);
     }
@@ -24,6 +29,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
     {
         string name = NameDecoder.GetTypeFromDefinition(reader, handle, rawTypeKind);
+        _beforeRetain?.Invoke(name);
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
         return new NamedTypeNode(name, isRef);
     }
@@ -31,6 +37,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
         string name = NameDecoder.GetTypeFromReference(reader, handle, rawTypeKind);
+        _beforeRetain?.Invoke(name);
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
         return new NamedTypeNode(name, isRef);
     }
@@ -80,6 +87,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetGenericMethodParameter(GenericContext? context, int index)
     {
         string name = NameDecoder.GetGenericMethodParameter(context, index);
+        _beforeRetain?.Invoke(name);
         return new GenericParameterNode(
             name,
             hasValueTypeConstraint: context?.HasMethodParameterValueTypeConstraint(index) == true);
@@ -88,6 +96,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetGenericTypeParameter(GenericContext? context, int index)
     {
         string name = NameDecoder.GetGenericTypeParameter(context, index);
+        _beforeRetain?.Invoke(name);
         return new GenericParameterNode(
             name,
             hasValueTypeConstraint: context?.HasTypeParameterValueTypeConstraint(index) == true);

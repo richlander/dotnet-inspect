@@ -272,6 +272,20 @@ public sealed class ApiSurfaceExtractorBoundsTests
             $"bounded extraction allocated {allocated:N0} bytes");
     }
 
+    [Fact]
+    public void OneWideSignature_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildWideSignatureImage(parameterCount: 10_000, nameLength: 4_000));
+    }
+
+    [Fact]
+    public void OneInterfaceHeavyType_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildInterfaceFloodImage(interfaceCount: 10_000, nameLength: 4_000));
+    }
+
     static ApiSurface Unbounded()
     {
         using var stream = File.OpenRead(SelfPath);
@@ -293,6 +307,33 @@ public sealed class ApiSurfaceExtractorBoundsTests
             ApiSurfaceExtractionScope.Public,
             bounds,
             typesOnly);
+    }
+
+    static void AssertTextAmplificationIsBounded(byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                maxTypes: 100_000,
+                maxMembers: 1_000_000,
+                maxInspectionFailures: 1_024,
+                maxTypeForwarders: 100_000,
+                maxMetadataRows: 250_000,
+                maxRetainedTextCharacters: 8_000_000));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(result);
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharacters,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 64L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
     }
 
     static byte[] BuildRepeatedLongMethodNameImage(
@@ -348,6 +389,115 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 MetadataTokens.ParameterHandle(1));
         }
 
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildWideSignatureImage(int parameterCount, int nameLength)
+    {
+        var metadata = Metadata("Wide");
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle parameterType = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString(new string('P', nameLength)));
+        AddModuleAndPublicType(metadata, "Wide");
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature().Parameters(
+            parameterCount,
+            returnType => returnType.Void(),
+            parameters =>
+            {
+                for (int index = 0; index < parameterCount; index++)
+                    parameters.AddParameter().Type().Type(parameterType, isValueType: false);
+            });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.Abstract,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Wide"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildInterfaceFloodImage(int interfaceCount, int nameLength)
+    {
+        var metadata = Metadata("Interfaces");
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle interfaceType = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString(new string('I', nameLength)));
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "Interfaces",
+            TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+        for (int index = 0; index < interfaceCount; index++)
+            metadata.AddInterfaceImplementation(type, interfaceType);
+        return Serialize(metadata);
+    }
+
+    static MetadataBuilder Metadata(string assemblyName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString($"{assemblyName}.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        return metadata;
+    }
+
+    static TypeDefinitionHandle AddModuleAndPublicType(
+        MetadataBuilder metadata,
+        string name,
+        TypeAttributes attributes = TypeAttributes.Public | TypeAttributes.Abstract)
+    {
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        return metadata.AddTypeDefinition(
+            attributes,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString(name),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+    }
+
+    static byte[] Serialize(MetadataBuilder metadata)
+    {
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata, suppressValidation: true),

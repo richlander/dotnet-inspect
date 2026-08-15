@@ -89,6 +89,11 @@ public static partial class BrowserInspectionEngine
 
         var assemblies = new List<BrowserAssemblySurface>();
         var types = new List<BrowserTypeSurface>();
+        var transportTextBudget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(
+                BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
+        string? transportTruncation = null;
+        int noticeEntryCount = surfaces.Assemblies.Assemblies.Length;
         for (int index = 0; index < surfaces.Assemblies.Assemblies.Length; index++)
         {
             if (surfaces.Assemblies.Assemblies[index]
@@ -107,15 +112,33 @@ public static partial class BrowserInspectionEngine
                     + "participant order, so per-assembly attribution cannot be trusted.");
             }
 
-            BrowserTypeSurface[] assemblyTypes =
-            [
-                .. available.Value.Surface.Types
-                    .Select(type => BrowserSurfaceProjection.Type(
-                        type,
-                        participant.Asset.AssemblyName,
-                        participant.Asset.Id,
-                        participant.Assembly.Identity.Name)),
-            ];
+            BrowserTypeSurface[] assemblyTypes;
+            transportTextBudget.BeginParticipant();
+            try
+            {
+                assemblyTypes =
+                [
+                    .. available.Value.Surface.Types
+                        .Select(type => BrowserSurfaceProjection.Type(
+                            type,
+                            participant.Asset.AssemblyName,
+                            participant.Asset.Id,
+                            participant.Assembly.Identity.Name,
+                            transportTextBudget)),
+                ];
+                transportTextBudget.CommitParticipant();
+            }
+            catch (BrowserSurfaceProjection.BrowserSurfaceTextBoundExceededException)
+            {
+                transportTextBudget.AbandonParticipant();
+                transportTruncation =
+                    BrowserApiSurfacePolicy.TransportTruncationNotice(
+                        assemblies.Count,
+                        requested.Length - index,
+                        transportTextBudget.CommittedCharacters);
+                noticeEntryCount = index;
+                break;
+            }
             BrowserTypeSurface[] publicTypes =
             [
                 .. assemblyTypes.Where(type => IsDefaultBucket(surfaces, type)),
@@ -133,9 +156,18 @@ public static partial class BrowserInspectionEngine
             types.AddRange(assemblyTypes);
         }
 
+        string? extractionTruncation =
+            BrowserApiSurfacePolicy.TruncationNotice(surfaces.Truncation);
+        string? truncation = (extractionTruncation, transportTruncation) switch
+        {
+            (null, null) => null,
+            ({ } only, null) => only,
+            (null, { } only) => only,
+            var (left, right) => $"{left}; {right}",
+        };
         string? notice = BrowserSurfaceProjection.Notice(
-            surfaces.Assemblies.Assemblies,
-            BrowserApiSurfacePolicy.TruncationNotice(surfaces.Truncation));
+            [.. surfaces.Assemblies.Assemblies.Take(noticeEntryCount)],
+            truncation);
         if (assemblies.Count == 0)
         {
             throw new InvalidOperationException(

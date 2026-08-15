@@ -331,7 +331,8 @@ public static class AttributeReader
     public static List<string> RenderAttributes(
         MetadataReader reader, CustomAttributeHandleCollection attributes, SortedSet<string>? namespaces = null,
         Func<string, bool>? skipAttribute = null,
-        bool qualifyNames = false)
+        bool qualifyNames = false,
+        Action<string>? beforeRetain = null)
     {
         var result = new List<string>();
         foreach (var attrHandle in attributes)
@@ -347,6 +348,7 @@ public static class AttributeReader
             int lastDot = typeName.LastIndexOf('.');
             if (lastDot > 0)
                 namespaces?.Add(typeName[..lastDot]);
+            beforeRetain?.Invoke(rendered);
             result.Add(rendered);
         }
         return result;
@@ -380,18 +382,26 @@ public static class AttributeReader
     public static List<string> RenderAttributes(MetadataReader reader, ParameterHandle parameter, SortedSet<string>? namespaces = null)
         => RenderAttributes(reader, reader.GetParameter(parameter).GetCustomAttributes(), namespaces);
 
-    public static List<string> RenderParameterAttributes(MetadataReader reader, ParameterHandle parameter, SortedSet<string>? namespaces = null)
+    public static List<string> RenderParameterAttributes(
+        MetadataReader reader,
+        ParameterHandle parameter,
+        SortedSet<string>? namespaces = null,
+        Action<string>? beforeRetain = null)
     {
         var result = RenderAttributes(
             reader,
             reader.GetParameter(parameter).GetCustomAttributes(),
             namespaces,
             IsParameterSyntaxAttribute,
-            qualifyNames: true);
+            qualifyNames: true,
+            beforeRetain: beforeRetain);
         try
         {
             if (TryRenderMarshalAsAttribute(reader, parameter) is { } marshalAs)
+            {
+                beforeRetain?.Invoke(marshalAs);
                 result.Add(marshalAs);
+            }
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {

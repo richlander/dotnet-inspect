@@ -60,7 +60,10 @@ public enum ApiSurfaceExtractionBound
 /// caller spending one shared budget across several images has left when it is full.
 /// Retained text is the sum of the character lengths in every string-bearing model field. Two
 /// fields that reference the same string are charged separately because both fields survive into
-/// the projected object graph and serialized shape.
+/// the projected object graph and serialized shape. The extractor also observes text
+/// incrementally while decoding nested signatures, attributes, generic constraints, and
+/// interfaces, so concentrating the same output inside one member or type cannot defer the check
+/// until after that complete model has been allocated.
 /// </remarks>
 public sealed record ApiSurfaceExtractionBounds
 {
@@ -330,6 +333,8 @@ public static class ApiSurfaceExtractor
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
         budget?.AdmitMetadataRows(reader);
+        Action<string>? observeText =
+            budget is null ? null : budget.ObservePendingText;
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -391,7 +396,11 @@ public static class ApiSurfaceExtractor
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
-                Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
+                Attributes = AttributeReader.RenderAttributes(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    qualifyNames: true,
+                    beforeRetain: observeText),
             };
 
             // Determine kind
@@ -446,7 +455,13 @@ public static class ApiSurfaceExtractor
             // Get type's generic context for resolving interface type parameters
             var typeContext = GenericContext.ForType(reader, typeDef);
 
-            apiType.TypeParameters = GenericParameters(reader, typeDef.GetGenericParameters(), typeContext, typeNullableContext, includeVariance: true);
+            apiType.TypeParameters = GenericParameters(
+                reader,
+                typeDef.GetGenericParameters(),
+                typeContext,
+                typeNullableContext,
+                includeVariance: true,
+                observeText);
 
             // Get interfaces
             var interfaces = typeDef.GetInterfaceImplementations();
@@ -466,6 +481,7 @@ public static class ApiSurfaceExtractor
                         iface.GetCustomAttributes(),
                         typeContext,
                         ifaceName);
+                    budget?.ObservePendingText(ifaceName);
                     apiType.Interfaces.Add(ifaceName);
                 }
             }
@@ -510,7 +526,12 @@ public static class ApiSurfaceExtractor
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, method.GetCustomAttributes(), out var obsoleteMessage);
 
-                var signature = GetMethodSignature(reader, typeDef, method, typeNullableContext);
+                var signature = GetMethodSignature(
+                    reader,
+                    typeDef,
+                    method,
+                    typeNullableContext,
+                    observeText);
                 var isOperator = IsOperatorMethodName(methodName);
                 var methodAttributes = method.Attributes;
                 var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
@@ -579,7 +600,10 @@ public static class ApiSurfaceExtractor
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
-                    Attributes = RenderMemberAttributes(reader, method.GetCustomAttributes())
+                    Attributes = RenderMemberAttributes(
+                        reader,
+                        method.GetCustomAttributes(),
+                        observeText)
                 };
 
                 // Check for extension method
@@ -645,7 +669,14 @@ public static class ApiSurfaceExtractor
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, prop.GetCustomAttributes(), out var obsoleteMessage);
 
-                var propertySignature = GetPropertySignature(reader, typeDef, prop, accessors, typeNullableContext, includeAll);
+                var propertySignature = GetPropertySignature(
+                    reader,
+                    typeDef,
+                    prop,
+                    accessors,
+                    typeNullableContext,
+                    includeAll,
+                    observeText);
                 var member = new ApiMember
                 {
                     Name = reader.GetString(prop.Name),
@@ -664,7 +695,10 @@ public static class ApiSurfaceExtractor
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
-                    Attributes = RenderMemberAttributes(reader, prop.GetCustomAttributes()),
+                    Attributes = RenderMemberAttributes(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeText),
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
                     SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
                 };
@@ -749,7 +783,10 @@ public static class ApiSurfaceExtractor
                     Accessibility = GetFieldAccessibility(fieldAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
-                    Attributes = RenderMemberAttributes(reader, field.GetCustomAttributes())
+                    Attributes = RenderMemberAttributes(
+                        reader,
+                        field.GetCustomAttributes(),
+                        observeText)
                 };
 
                 // Read enum constant value
@@ -1147,7 +1184,8 @@ public static class ApiSurfaceExtractor
         GenericParameterHandleCollection handles,
         GenericContext context,
         byte nullableContext,
-        bool includeVariance)
+        bool includeVariance,
+        Action<string>? beforeRetain = null)
     {
         var parameters = new List<TypeParameter>();
 
@@ -1162,11 +1200,15 @@ public static class ApiSurfaceExtractor
             {
                 Name = reader.GetString(param.Name)
             };
+            beforeRetain?.Invoke(typeParam.Name);
             var structured = new List<TypeParameterConstraint>();
 
             var attrs = param.Attributes;
             if (includeVariance && GenericConstraintKeywords.VarianceKeyword(attrs) is { } variance)
+            {
+                beforeRetain?.Invoke(variance);
                 typeParam.Variance = variance;
+            }
 
             var nullable = GetEffectiveNullable(reader, param.GetCustomAttributes(), nullableContext);
             var isUnmanaged = AttributeReader.HasAttribute(reader, param.GetCustomAttributes(),
@@ -1174,6 +1216,8 @@ public static class ApiSurfaceExtractor
 
             if (GenericConstraintKeywords.PrimaryKeyword(attrs, nullable ?? 0, isUnmanaged) is { } primaryKeyword)
             {
+                beforeRetain?.Invoke(primaryKeyword);
+                beforeRetain?.Invoke(primaryKeyword);
                 typeParam.Constraints.Add(primaryKeyword);
                 structured.Add(new TypeParameterConstraint(primaryKeyword, IsTypeName: false));
             }
@@ -1188,17 +1232,23 @@ public static class ApiSurfaceExtractor
                 if (constraintTypeName is "System.ValueType" or "System.Object")
                     continue;
                 var formatted = FormatConstraintType(reader, constraint, constraintTypeName, nullableContext);
+                beforeRetain?.Invoke(formatted);
+                beforeRetain?.Invoke(formatted);
                 typeParam.Constraints.Add(formatted);
                 structured.Add(new TypeParameterConstraint(formatted, IsTypeName: true));
             }
 
             if (GenericConstraintKeywords.NewConstraintKeyword(attrs) is { } newConstraint)
             {
+                beforeRetain?.Invoke(newConstraint);
+                beforeRetain?.Invoke(newConstraint);
                 typeParam.Constraints.Add(newConstraint);
                 structured.Add(new TypeParameterConstraint(newConstraint, IsTypeName: false));
             }
             if (GenericConstraintKeywords.AllowsRefStructKeyword(attrs) is { } allowsRefStruct)
             {
+                beforeRetain?.Invoke(allowsRefStruct);
+                beforeRetain?.Invoke(allowsRefStruct);
                 typeParam.Constraints.Add(allowsRefStruct);
                 structured.Add(new TypeParameterConstraint(allowsRefStruct, IsTypeName: false));
             }
@@ -2034,14 +2084,18 @@ public static class ApiSurfaceExtractor
         MetadataReader reader,
         TypeDefinition typeDef,
         MethodDefinition method,
-        byte typeNullableContext)
+        byte typeNullableContext,
+        Action<string>? beforeRetainText = null)
     {
         string name = reader.GetString(method.Name);
         var context = GenericContext.ForMethod(reader, typeDef, method);
+        var typeNodeProvider = beforeRetainText is null
+            ? TypeNodeProvider.Instance
+            : new TypeNodeProvider(beforeRetainText);
         var treeSignature = GuardedProviderDecode.Method(
             reader,
             method,
-            TypeNodeProvider.Instance,
+            typeNodeProvider,
             context,
             (TypeNode)new DegradedTypeNode());
 
@@ -2082,7 +2136,12 @@ public static class ApiSurfaceExtractor
 
             // Parameter handles may include return parameter at SequenceNumber 0
             // Actual parameters have SequenceNumber 1, 2, 3...
-            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) = GetParameterInfo(reader, paramHandles, i + 1);
+            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) =
+                GetParameterInfo(
+                    reader,
+                    paramHandles,
+                    i + 1,
+                    beforeRetainText);
             paramName ??= $"arg{i}";
 
             var isByRef = type.StartsWith("ref ", StringComparison.Ordinal);
@@ -2107,8 +2166,8 @@ public static class ApiSurfaceExtractor
                 defaultValue,
                 AcceptsNullDefault(paramTypes[i]));
 
-            parameters.Add(paramStr);
-            parameterModels.Add(new ApiParameter
+            beforeRetainText?.Invoke(paramStr);
+            var parameterModel = new ApiParameter
             {
                 Attributes = attributes,
                 Name = paramName,
@@ -2117,14 +2176,26 @@ public static class ApiSurfaceExtractor
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = DefaultValueText(reader, defaultValue, type, hasDefault, AcceptsNullDefault(paramTypes[i]))
-            });
+            };
+            ObserveText(parameterModel, beforeRetainText);
+            parameters.Add(paramStr);
+            parameterModels.Add(parameterModel);
         }
 
         string paramStr2 = string.Join(", ", parameters);
         var returnType = FormatMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
         var canonicalReturnType = FormatCanonicalMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
-        var returnAttributes = ReturnParameterAttributes(reader, paramHandles);
-        var methodTypeParameters = GenericParameters(reader, method.GetGenericParameters(), context, nullableDefault, includeVariance: false);
+        var returnAttributes = ReturnParameterAttributes(
+            reader,
+            paramHandles,
+            beforeRetainText);
+        var methodTypeParameters = GenericParameters(
+            reader,
+            method.GetGenericParameters(),
+            context,
+            nullableDefault,
+            includeVariance: false,
+            beforeRetainText);
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
@@ -2146,23 +2217,33 @@ public static class ApiSurfaceExtractor
             || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
     }
 
-    private static List<string> ReturnParameterAttributes(MetadataReader reader, ParameterHandleCollection handles)
+    private static List<string> ReturnParameterAttributes(
+        MetadataReader reader,
+        ParameterHandleCollection handles,
+        Action<string>? beforeRetain = null)
     {
         foreach (var handle in handles)
         {
             if (reader.GetParameter(handle).SequenceNumber == 0)
-                return AttributeReader.RenderParameterAttributes(reader, handle);
+                return AttributeReader.RenderParameterAttributes(
+                    reader,
+                    handle,
+                    beforeRetain: beforeRetain);
         }
 
         return [];
     }
 
-    private static List<string> RenderMemberAttributes(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    private static List<string> RenderMemberAttributes(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<string>? beforeRetain = null)
         => AttributeReader.RenderAttributes(
             reader,
             attributes,
             skipAttribute: static name => name == "System.ObsoleteAttribute",
-            qualifyNames: true);
+            qualifyNames: true,
+            beforeRetain: beforeRetain);
 
     private static string FormatMethodReturnType(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
     {
@@ -2213,7 +2294,10 @@ public static class ApiSurfaceExtractor
             || AttributeReader.HasAttribute(reader, attributes, "System.Runtime.CompilerServices.RequiresLocationAttribute");
 
     private static (string? name, bool isParams, string? refKind, bool hasDefault, object? defaultValue, List<string> attributes) GetParameterInfo(
-        MetadataReader reader, ParameterHandleCollection handles, int sequenceNumber)
+        MetadataReader reader,
+        ParameterHandleCollection handles,
+        int sequenceNumber,
+        Action<string>? beforeRetain = null)
     {
         foreach (var handle in handles)
         {
@@ -2224,7 +2308,10 @@ public static class ApiSurfaceExtractor
                 var attributes = param.GetCustomAttributes();
                 bool isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
                     || AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.ParamCollectionAttribute);
-                var renderedAttributes = AttributeReader.RenderParameterAttributes(reader, handle);
+                var renderedAttributes = AttributeReader.RenderParameterAttributes(
+                    reader,
+                    handle,
+                    beforeRetain: beforeRetain);
                 // An interop-marshalled `ref` parameter sets both In and Out, so
                 // neither flag alone identifies a C# `out`/`in`. Spelling such a
                 // parameter `out` breaks definite assignment in the body.
@@ -2742,14 +2829,18 @@ public static class ApiSurfaceExtractor
         PropertyDefinition prop,
         PropertyAccessors accessors,
         byte typeNullableContext,
-        bool includeAll = false)
+        bool includeAll = false,
+        Action<string>? beforeRetainText = null)
     {
         string name = reader.GetString(prop.Name);
         var context = GenericContext.ForType(reader, typeDef);
+        var typeNodeProvider = beforeRetainText is null
+            ? TypeNodeProvider.Instance
+            : new TypeNodeProvider(beforeRetainText);
         var treeSignature = GuardedProviderDecode.Property(
             reader,
             prop,
-            TypeNodeProvider.Instance,
+            typeNodeProvider,
             context,
             (TypeNode)new DegradedTypeNode());
 
@@ -2797,14 +2888,20 @@ public static class ApiSurfaceExtractor
                 {
                     Kind = "get",
                     Accessibility = AccessorAccessibility(getterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        beforeRetainText)
                 });
             if (hasSetter)
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
                     Accessibility = AccessorAccessibility(setterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
+                        beforeRetainText)
                 });
             accessorStr = (getStr, setStr) switch
             {
@@ -2819,28 +2916,55 @@ public static class ApiSurfaceExtractor
             if (hasPublicGetter && hasPublicSetter)
             {
                 accessorStr = "{ get; set; }";
-                accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "get",
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        beforeRetainText)
+                });
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
+                        beforeRetainText)
                 });
             }
             else if (hasPublicGetter && hasSetter)
             {
                 accessorStr = "{ get; private set; }";
-                accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "get",
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        beforeRetainText)
+                });
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
                     Accessibility = "private",
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
+                        beforeRetainText)
                 });
             }
             else if (hasPublicGetter)
             {
                 accessorStr = "{ get; }";
-                accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "get",
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        beforeRetainText)
+                });
             }
             else if (hasPublicSetter)
             {
@@ -2848,7 +2972,10 @@ public static class ApiSurfaceExtractor
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
+                        beforeRetainText)
                 });
             }
             else
@@ -2893,7 +3020,12 @@ public static class ApiSurfaceExtractor
                 TupleElementNamesReader.GetParameterTupleElementNames(reader, paramHandles, i + 1));
             var paramType = paramTypes[i].Render();
             var canonicalParamType = paramTypes[i].RenderCanonical();
-            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) = GetParameterInfo(reader, paramHandles, i + 1);
+            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) =
+                GetParameterInfo(
+                    reader,
+                    paramHandles,
+                    i + 1,
+                    beforeRetainText);
             paramName ??= $"arg{i}";
 
             var isByRef = paramType.StartsWith("ref ", StringComparison.Ordinal);
@@ -2917,8 +3049,8 @@ public static class ApiSurfaceExtractor
                 hasDefault,
                 defaultValue,
                 AcceptsNullDefault(paramTypes[i]));
-            indexerParameters.Add(parameter);
-            parameterModels.Add(new ApiParameter
+            beforeRetainText?.Invoke(parameter);
+            var parameterModel = new ApiParameter
             {
                 Attributes = attributes,
                 Name = paramName,
@@ -2927,7 +3059,10 @@ public static class ApiSurfaceExtractor
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = DefaultValueText(reader, defaultValue, paramType, hasDefault, AcceptsNullDefault(paramTypes[i]))
-            });
+            };
+            ObserveText(parameterModel, beforeRetainText);
+            indexerParameters.Add(parameter);
+            parameterModels.Add(parameterModel);
         }
 
         var returnType = FormatMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
@@ -3053,6 +3188,25 @@ public static class ApiSurfaceExtractor
         return count;
     }
 
+    static void ObserveText(ApiParameter parameter, Action<string>? observe)
+    {
+        if (observe is null)
+            return;
+        foreach (string attribute in parameter.Attributes)
+            observe(attribute);
+        ObserveText(parameter.Name, observe);
+        ObserveText(parameter.Type, observe);
+        ObserveText(parameter.CanonicalType, observe);
+        ObserveText(parameter.Modifier, observe);
+        ObserveText(parameter.DefaultValueText, observe);
+    }
+
+    static void ObserveText(string? text, Action<string> observe)
+    {
+        if (text is not null)
+            observe(text);
+    }
+
     static void AddText(ref long count, ApiSignature? signature)
     {
         if (signature is null)
@@ -3161,6 +3315,7 @@ public static class ApiSurfaceExtractor
         int _typeForwarders;
         int _retainedTextCharacters;
         int _pendingTextCharacters;
+        int _pendingObservedTextCharacters;
 
         public int MetadataRows { get; private set; }
         public int RetainedTextCharacters => _retainedTextCharacters;
@@ -3187,6 +3342,7 @@ public static class ApiSurfaceExtractor
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
             _pendingMembers = 0;
             _pendingTextCharacters = 0;
+            _pendingObservedTextCharacters = 0;
         }
 
         /// <summary>Counts one member of the type currently being built.</summary>
@@ -3209,6 +3365,7 @@ public static class ApiSurfaceExtractor
             _retainedTextCharacters += _pendingTextCharacters;
             _pendingMembers = 0;
             _pendingTextCharacters = 0;
+            _pendingObservedTextCharacters = 0;
         }
 
         /// <summary>Counts one member attached to a type that is already committed.</summary>
@@ -3256,16 +3413,34 @@ public static class ApiSurfaceExtractor
 
         public void RetainCommittedText(string text) => RetainCommittedText(text.Length);
 
+        public void ObservePendingText(string text)
+        {
+            ArgumentNullException.ThrowIfNull(text);
+            ObservePendingText(text.Length);
+        }
+
         void RetainPendingText(long characters)
         {
-            if (characters > bounds.MaxRetainedTextCharacters
-                    - _retainedTextCharacters
-                    - _pendingTextCharacters)
+            long next = characters + _pendingTextCharacters;
+            if (next > bounds.MaxRetainedTextCharacters - _retainedTextCharacters
+                || next < 0)
             {
                 throw new ExtractionBoundExceededException(
                     ApiSurfaceExtractionBound.RetainedTextCharacters);
             }
             _pendingTextCharacters += (int)characters;
+        }
+
+        void ObservePendingText(long characters)
+        {
+            long next = characters + _pendingObservedTextCharacters;
+            if (next > bounds.MaxRetainedTextCharacters - _retainedTextCharacters
+                || next < 0)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.RetainedTextCharacters);
+            }
+            _pendingObservedTextCharacters += (int)characters;
         }
 
         void RetainCommittedText(long characters)
