@@ -153,7 +153,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
             && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
     }
 
-    bool ScopeMayRequireStateMachineBody(
+    internal bool ScopeMayRequireStateMachineBody(
         IReadOnlySet<int> bodyScope)
     {
         foreach (int token in bodyScope)
@@ -167,30 +167,32 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
             }
             try
             {
-                foreach (var attributeHandle
-                    in _reader.GetMethodDefinition(
-                            (MethodDefinitionHandle)handle)
-                        .GetCustomAttributes())
-                {
-                    string? name =
-                        AttributeDecoder.GetAttributeTypeName(
+                MethodDefinition method =
+                    _reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)handle);
+                if (MethodClassificationScanner
+                        .ClassifyAsyncMethod(
                             _reader,
-                            _reader.GetCustomAttribute(
-                                attributeHandle).Constructor);
-                    if (name is
-                        KnownAttributeNames
-                            .AsyncStateMachineAttribute
-                        or KnownAttributeNames
-                            .AsyncIteratorStateMachineAttribute)
-                    {
-                        return true;
-                    }
+                            method)
+                    == MethodClassification.RuntimeAsync)
+                {
+                    continue;
+                }
+
+                AsyncStateMachineAttributeInfo attribute =
+                    AsyncStateMachineAttribute(
+                        method.GetCustomAttributes());
+                if (attribute.SerializedType is { } serializedType
+                    && StateMachineTypeDefinitionName(
+                        serializedType) is not null)
+                {
+                    return true;
                 }
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
             {
-                return true;
+                continue;
             }
         }
         return false;
@@ -1308,6 +1310,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
     IReadOnlyDictionary<
         int,
         MethodIdentity>? _asyncStateMachineSourceMethods;
+    IReadOnlySet<int>? _classicAsyncSourceMethodTokens;
     IReadOnlySet<MetadataTypeDefinitionName>?
         _ambiguousAsyncStateMachineTypes;
 
@@ -1386,14 +1389,24 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
             && classification
                 == MethodClassification.StateMachineAsync)
         {
-            return !typeSourceGenerated
-                && !HasGeneratedCodeAttribute(
+            if (typeSourceGenerated
+                || HasGeneratedCodeAttribute(
                     methodDefinition.GetCustomAttributes())
-                && !HasCompilerGeneratedAttribute(
+                || HasCompilerGeneratedAttribute(
                     methodDefinition.GetCustomAttributes())
-                && !IsBlazorRenderMethod(physicalMethod)
-                    ? physicalMethod
-                    : null;
+                || IsBlazorRenderMethod(physicalMethod))
+            {
+                return null;
+            }
+
+            _ = AsyncStateMachineSourceMethods();
+            if (_classicAsyncSourceMethodTokens!.Contains(
+                    physicalMethod.MetadataToken))
+            {
+                return null;
+            }
+            throw new BadImageFormatException(
+                "The classic async source does not map to a unique valid state-machine body.");
         }
 
         if (physicalMethod.DeclaringType.Resolution?.Type
@@ -1562,6 +1575,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder : IDisposable
         }
 
         _ambiguousAsyncStateMachineTypes = ambiguous;
+        _classicAsyncSourceMethodTokens =
+            new HashSet<int>(
+                methods.Values.Select(
+                    source => source.MetadataToken));
         _asyncStateMachineSourceMethods = methods;
         return methods;
     }

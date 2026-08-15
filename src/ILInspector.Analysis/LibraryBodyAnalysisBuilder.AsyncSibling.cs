@@ -207,6 +207,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     (declaringDefinition.Attributes
                         & TypeAttributes.Interface) != 0)
                 || ImplementsCandidateSlot(
+                    methodDefinition,
                     candidate,
                     asyncSource))
             {
@@ -1315,6 +1316,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         };
 
     bool ImplementsCandidateSlot(
+        MethodDefinition candidateDefinition,
         MemberRef candidate,
         MethodIdentity asyncSource)
     {
@@ -1359,13 +1361,236 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                         candidate))
                     return true;
             }
-            return false;
+
+            if ((candidateDefinition.Attributes
+                    & MethodAttributes.Virtual) == 0
+                || (sourceMethod.Attributes
+                    & MethodAttributes.Virtual) == 0
+                || (sourceMethod.Attributes
+                    & MethodAttributes.NewSlot) != 0)
+            {
+                return false;
+            }
+
+            MetadataReader reader = _reader;
+            TypeDefinitionHandle current = sourceTypeHandle;
+            ImmutableArray<TypeRef> typeArguments = [];
+            var visited =
+                new Dictionary<MetadataReader, HashSet<int>>(
+                    ReferenceEqualityComparer.Instance);
+            int visitedCount = 0;
+            while (visitedCount
+                < MetadataSafetyPolicy.MaxRelationshipNodes)
+            {
+                if (!TryVisitTypeDefinition(
+                        visited,
+                        reader,
+                        current,
+                        ref visitedCount))
+                {
+                    return true;
+                }
+
+                TypeDefinition currentDefinition =
+                    reader.GetTypeDefinition(current);
+                EntityHandle baseHandle =
+                    currentDefinition.BaseType;
+                if (baseHandle.IsNil)
+                    return false;
+
+                TypeRef baseType = DecodeType(
+                        reader,
+                        baseHandle)
+                    .Instantiate(typeArguments, []);
+                if (FrameworkIdentity.IsCoreLibraryType(
+                        DefinitionType(baseType),
+                        "System",
+                        "Object"))
+                {
+                    return false;
+                }
+                if (TryResolveTypeDefinition(
+                        reader,
+                        baseType)
+                    is not { } resolvedBase)
+                {
+                    return true;
+                }
+
+                reader = resolvedBase.DefiningReader;
+                current = resolvedBase.Definition;
+                typeArguments =
+                    baseType.Kind == TypeRefKind.GenericInstance
+                        ? baseType.TypeArguments
+                        : [];
+                currentDefinition =
+                    reader.GetTypeDefinition(current);
+                var currentScope = new GenericScope(
+                    GenericParameterNames(
+                        reader,
+                        currentDefinition
+                            .GetGenericParameters()),
+                    []);
+                foreach (var handle
+                    in currentDefinition
+                        .GetMethodImplementations())
+                {
+                    var implementation =
+                        reader.GetMethodImplementation(handle);
+                    MemberRef declaration =
+                        MemberResolver.ResolveMethod(
+                            reader,
+                            implementation.MethodDeclaration,
+                            currentScope);
+                    declaration = InConstructedTypeFrame(
+                        declaration,
+                        typeArguments,
+                        constructDefinition: false);
+                    if (!AsyncSiblingDeclarationsMatch(
+                            declaration,
+                            candidate))
+                    {
+                        continue;
+                    }
+
+                    if (ResolveMethodImplBody(
+                            reader,
+                            implementation.MethodBody,
+                            currentScope,
+                            typeArguments)
+                        is not { } body)
+                    {
+                        return true;
+                    }
+
+                    TypeRelation relation =
+                        OverridesCandidateSlot(
+                            sourceTypeHandle,
+                            body.Reader,
+                            body.DeclaringType,
+                            body.Method,
+                            body.Member);
+                    if (relation != TypeRelation.No)
+                        return true;
+                }
+            }
+            return true;
         }
         catch (Exception ex)
             when (IsRecoverableMethodFailure(ex))
         {
             return true;
         }
+    }
+
+    readonly record struct ResolvedMethodImplBody(
+        MetadataReader Reader,
+        TypeDefinitionHandle DeclaringType,
+        MethodDefinitionHandle Method,
+        MemberRef Member);
+
+    ResolvedMethodImplBody? ResolveMethodImplBody(
+        MetadataReader reader,
+        EntityHandle bodyHandle,
+        GenericScope scope,
+        ImmutableArray<TypeRef> typeArguments)
+    {
+        MemberRef body = MemberResolver.ResolveMethod(
+            reader,
+            bodyHandle,
+            scope);
+        if (bodyHandle.Kind == HandleKind.MethodDefinition)
+        {
+            body = InConstructedTypeFrame(
+                body,
+                typeArguments,
+                constructDefinition: true);
+            var method = reader.GetMethodDefinition(
+                (MethodDefinitionHandle)bodyHandle);
+            return (method.Attributes
+                    & MethodAttributes.Virtual) != 0
+                ? new(
+                    reader,
+                    method.GetDeclaringType(),
+                    (MethodDefinitionHandle)bodyHandle,
+                    body)
+                : null;
+        }
+        if (bodyHandle.Kind != HandleKind.MemberReference
+            || TryResolveTypeDefinition(
+                    reader,
+                    body.DeclaringType)
+                is not { } resolvedType)
+        {
+            return null;
+        }
+        bool bodyDeclaringTypeIsGeneric =
+            resolvedType.DefiningReader
+                .GetTypeDefinition(
+                    resolvedType.Definition)
+                .GetGenericParameters()
+                .Count > 0;
+        body = InConstructedTypeFrame(
+            body,
+            typeArguments,
+            constructDefinition:
+                bodyDeclaringTypeIsGeneric);
+
+        MethodDefinitionHandle methodHandle =
+            MatchingVirtualSlot(
+                resolvedType.DefiningReader,
+                resolvedType.Definition,
+                body.DeclaringType.TypeArguments,
+                body,
+                out bool ambiguous);
+        return ambiguous || methodHandle.IsNil
+            ? null
+            : new(
+                resolvedType.DefiningReader,
+                resolvedType.Definition,
+                methodHandle,
+                body);
+    }
+
+    static MemberRef InConstructedTypeFrame(
+        MemberRef member,
+        ImmutableArray<TypeRef> typeArguments,
+        bool constructDefinition)
+    {
+        if (typeArguments.Length == 0)
+            return member;
+
+        TypeRef declaringType =
+            member.DeclaringType.Kind
+                == TypeRefKind.GenericInstance
+                ? member.DeclaringType.Instantiate(
+                    typeArguments,
+                    [])
+                : constructDefinition
+                    ? TypeRef.GenericInstance(
+                        member.DeclaringType,
+                        typeArguments)
+                    : member.DeclaringType;
+        ImmutableArray<TypeRef> declaringArguments =
+            declaringType.Kind
+                == TypeRefKind.GenericInstance
+                    ? declaringType.TypeArguments
+                    : [];
+        return member with
+        {
+            DeclaringType = declaringType,
+            ParameterTypes =
+            [
+                .. member.OpenSignatureParameters.Select(
+                    parameter => parameter.Instantiate(
+                        declaringArguments,
+                        [])),
+            ],
+            ReturnType =
+                member.OpenSignatureReturn.Instantiate(
+                    declaringArguments,
+                    []),
+        };
     }
 
     bool MethodImplBodyMatchesSource(

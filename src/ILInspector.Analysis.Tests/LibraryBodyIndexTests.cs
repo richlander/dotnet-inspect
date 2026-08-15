@@ -1084,6 +1084,77 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void ScopedStateMachineExpansion_RequiresTrustedClassicSource()
+    {
+        AssertScopeExpansion(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .CallsSyncSiblingFromAsync),
+            expected: true);
+        AssertScopeExpansion(
+            FixtureCatalog.AnalysisSpoofSystemRuntime
+                .AssemblyPath(),
+            "Analyze",
+            expected: false);
+
+        byte[] runtimeAsync =
+            BuildDirectionProbeCaller(
+                byRef: false,
+                addStateMachineAttribute: true);
+        using var peReader = new PEReader(
+            new MemoryStream(
+                runtimeAsync,
+                writable: false));
+        MetadataReader reader =
+            peReader.GetMetadataReader();
+        MethodDefinitionHandle method =
+            reader.MethodDefinitions.Single(
+                handle => reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    "AnalyzeAsync"));
+        using var builder =
+            new LibraryBodyAnalysisBuilder(
+                "DirectionProbeCaller.dll",
+                reader,
+                peReader);
+        Assert.False(
+            builder.ScopeMayRequireStateMachineBody(
+                new HashSet<int>
+                {
+                    MetadataTokens.GetToken(method),
+                }));
+
+        static void AssertScopeExpansion(
+            string path,
+            string methodName,
+            bool expected)
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            MetadataReader reader =
+                peReader.GetMetadataReader();
+            MethodDefinitionHandle method =
+                reader.MethodDefinitions.Single(
+                    handle => reader.StringComparer.Equals(
+                        reader.GetMethodDefinition(handle).Name,
+                        methodName));
+            using var builder =
+                new LibraryBodyAnalysisBuilder(
+                    path,
+                    reader,
+                    peReader);
+            Assert.Equal(
+                expected,
+                builder.ScopeMayRequireStateMachineBody(
+                    new HashSet<int>
+                    {
+                        MetadataTokens.GetToken(method),
+                    }));
+        }
+    }
+
+    [Fact]
     public void OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed()
     {
         string path = Path.Combine(
@@ -1123,6 +1194,59 @@ public class LibraryBodyIndexTests
                         == "AnalyzeAsync");
             Assert.Empty(
                 memberReferenceBody.Diagnostics);
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: true,
+                    inheritedMethodImpl: true));
+            var inheritedMethodImpl =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                inheritedMethodImpl
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Empty(
+                inheritedMethodImpl.Diagnostics);
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: true,
+                    methodImplBodyAsMemberReference:
+                        true,
+                    inheritedMethodImpl: true));
+            var inheritedMemberReference =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                inheritedMemberReference
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Empty(
+                inheritedMemberReference.Diagnostics);
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: true,
+                    inheritedMethodImpl: true,
+                    sourceStartsNewSlot: true));
+            var inheritedNewSlot =
+                LibraryBodyIndex.Open(path);
+            Assert.Single(
+                inheritedNewSlot
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Empty(inheritedNewSlot.Diagnostics);
 
             File.WriteAllBytes(
                 path,
@@ -1168,6 +1292,26 @@ public class LibraryBodyIndexTests
                         == "AnalyzeAsync");
             Assert.Contains(
                 malformedAttributeConstructor.Diagnostics,
+                diagnostic => diagnostic.Method.Contains(
+                    "AnalyzeAsync",
+                    StringComparison.Ordinal));
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: false,
+                    validStateMachine: false));
+            var invalidStateMachine =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                invalidStateMachine
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Contains(
+                invalidStateMachine.Diagnostics,
                 diagnostic => diagnostic.Method.Contains(
                     "AnalyzeAsync",
                     StringComparison.Ordinal));
@@ -1385,7 +1529,10 @@ public class LibraryBodyIndexTests
         bool methodImplBodyAsMemberReference = false,
         bool finalInterfaceSibling = false,
         string sourceMethodName = "AnalyzeAsync",
-        byte attributeConstructorHeader = 0x20)
+        byte attributeConstructorHeader = 0x20,
+        bool inheritedMethodImpl = false,
+        bool validStateMachine = true,
+        bool sourceStartsNewSlot = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1463,14 +1610,25 @@ public class LibraryBodyIndexTests
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle baseType =
+            inheritedMethodImpl
+                ? metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Sample"),
+                    metadata.GetOrAddString("ReaderBase"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(3))
+                : default;
         TypeDefinitionHandle sourceType =
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
                 metadata.GetOrAddString("Sample"),
                 metadata.GetOrAddString("Reader"),
-                default,
+                baseType,
                 MetadataTokens.FieldDefinitionHandle(1),
-                MetadataTokens.MethodDefinitionHandle(3));
+                MetadataTokens.MethodDefinitionHandle(
+                    inheritedMethodImpl ? 4 : 3));
         TypeDefinitionHandle stateMachineType =
             metadata.AddTypeDefinition(
                 TypeAttributes.NestedPrivate
@@ -1480,14 +1638,20 @@ public class LibraryBodyIndexTests
                     "<AnalyzeAsync>d__0"),
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
-                MetadataTokens.MethodDefinitionHandle(4));
+                MetadataTokens.MethodDefinitionHandle(
+                    inheritedMethodImpl ? 5 : 4));
         metadata.AddNestedType(stateMachineType, sourceType);
         metadata.AddInterfaceImplementation(
-            sourceType,
+            inheritedMethodImpl
+                ? baseType
+                : sourceType,
             interfaceType);
-        metadata.AddInterfaceImplementation(
-            stateMachineType,
-            asyncStateMachine);
+        if (validStateMachine)
+        {
+            metadata.AddInterfaceImplementation(
+                stateMachineType,
+                asyncStateMachine);
+        }
 
         BlobHandle voidSignature = metadata.GetOrAddBlob(
             new byte[]
@@ -1537,12 +1701,31 @@ public class LibraryBodyIndexTests
         int sourceBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(sourceIl),
             maxStack: 1);
+        MethodDefinitionHandle methodImplBody = default;
+        if (inheritedMethodImpl)
+        {
+            methodImplBody =
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Virtual
+                        | MethodAttributes.NewSlot,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString(
+                        sourceMethodName),
+                    taskSignature,
+                    sourceBody,
+                    MetadataTokens.ParameterHandle(1));
+        }
         MethodDefinitionHandle source =
             metadata.AddMethodDefinition(
                 MethodAttributes.Public
                     | MethodAttributes.Virtual
-                    | MethodAttributes.Final
-                    | MethodAttributes.NewSlot,
+                    | (inheritedMethodImpl
+                        ? sourceStartsNewSlot
+                            ? MethodAttributes.NewSlot
+                            : 0
+                        : MethodAttributes.Final
+                            | MethodAttributes.NewSlot),
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(sourceMethodName),
                 taskSignature,
@@ -1568,18 +1751,25 @@ public class LibraryBodyIndexTests
             MetadataTokens.ParameterHandle(1));
         if (includeMethodImpl)
         {
-            EntityHandle methodBody = source;
+            EntityHandle methodBody =
+                inheritedMethodImpl
+                    ? methodImplBody
+                    : source;
             if (methodImplBodyAsMemberReference)
             {
                 methodBody =
                     metadata.AddMemberReference(
-                        sourceType,
+                        inheritedMethodImpl
+                            ? baseType
+                            : sourceType,
                         metadata.GetOrAddString(
-                            "AnalyzeAsync"),
+                            sourceMethodName),
                         taskSignature);
             }
             metadata.AddMethodImplementation(
-                sourceType,
+                inheritedMethodImpl
+                    ? baseType
+                    : sourceType,
                 methodBody,
                 readAsync);
         }
