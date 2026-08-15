@@ -3484,6 +3484,38 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle getterHandle = reader.MethodDefinitions
+            .Single(handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                "get_StableFactory"));
+        int classified = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            stableReceiverGetterClassified: handle =>
+            {
+                if (handle == getterHandle)
+                    Interlocked.Increment(ref classified);
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+
+        Assert.Equal(1, classified);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_UserDisplayClassName_IsInstanceMethodGroupDelegate()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -4533,6 +4565,43 @@ public class LibraryBodyIndexTests
             typeScope: null));
 
         Assert.Equal(1, indexed);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_RepeatedMemberRef_IsResolvedOnce()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition fixture = reader.TypeDefinitions
+            .Select(reader.GetTypeDefinition)
+            .Single(type => reader.StringComparer.Equals(
+                type.Name,
+                "MemberRefLiftedOverloadFixture`1"));
+        MethodDefinitionHandle ownerHandle = fixture.GetMethods()
+            .First(handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                "Owner"));
+        int resolved = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            methodReferenceResolved: (method, _) =>
+            {
+                if (method == ownerHandle)
+                    Interlocked.Increment(ref resolved);
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+
+        Assert.Equal(1, resolved);
     }
 
     [Fact]
@@ -5941,6 +6010,16 @@ public class OptimizationOpportunityFixtures
             key,
             StableFactory.Create);
 
+    public int ConcurrentDictionaryStableGetterFactoryTwice(
+        string first,
+        string second)
+        => _concurrentCache.GetOrAdd(
+                first,
+                StableFactory.Create)
+            + _concurrentCache.GetOrAdd(
+                second,
+                StableFactory.Create);
+
     private FreshFactory StableFactory => _stableFactory;
 
     public int ConcurrentDictionaryVirtualGetterFactory(string key)
@@ -6675,7 +6754,7 @@ public static class MemberRefLiftedOverloadFixture<TOuter>
 {
     public static bool Owner<T>(T left, T right, int marker)
     {
-        return Core(left, right);
+        return Core(left, right) & Core(left, right);
 
         static bool Core(T x, T y) => x!.Equals(y);
     }

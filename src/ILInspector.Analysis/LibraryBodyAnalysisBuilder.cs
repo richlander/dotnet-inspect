@@ -31,6 +31,8 @@ internal sealed class LibraryBodyAnalysisBuilder :
     readonly Guid _mvid;
     readonly bool _memorySafetyRulesEnabled;
     readonly Action<MethodDefinitionHandle>? _methodBodyReferenceIndexed;
+    readonly Action<MethodDefinitionHandle>? _stableReceiverGetterClassified;
+    readonly Action<MethodDefinitionHandle, int>? _methodReferenceResolved;
     readonly ConcurrentDictionary<
         TypeDefinitionHandle,
         Lazy<IReadOnlyDictionary<string, ImmutableArray<MethodDefinitionHandle>>>>
@@ -49,6 +51,15 @@ internal sealed class LibraryBodyAnalysisBuilder :
         _liftedOwnerGroups = new();
     readonly ConcurrentDictionary<BlobHandle, Lazy<SignatureIdentity>>
         _methodReferenceSignatures = new();
+    readonly ConcurrentDictionary<
+        MethodDefinitionHandle,
+        Lazy<bool>>
+        _stableReceiverGetters = new();
+    readonly ConcurrentDictionary<
+        string,
+        Lazy<TypeDefinitionHandle?>>
+        _serializedAsyncStateMachineTypes =
+            new(StringComparer.Ordinal);
     long _methodReferenceSignatureWork;
 
     internal LibraryBodyAnalysisBuilder(
@@ -56,7 +67,9 @@ internal sealed class LibraryBodyAnalysisBuilder :
         MetadataReader reader,
         PEReader peReader,
         IAssemblyReferenceResolver? resolver = null,
-        Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null)
+        Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null,
+        Action<MethodDefinitionHandle>? stableReceiverGetterClassified = null,
+        Action<MethodDefinitionHandle, int>? methodReferenceResolved = null)
     {
         _path = path;
         _reader = reader;
@@ -65,6 +78,9 @@ internal sealed class LibraryBodyAnalysisBuilder :
         _mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         _memorySafetyRulesEnabled = DetectMemorySafetyRules();
         _methodBodyReferenceIndexed = methodBodyReferenceIndexed;
+        _stableReceiverGetterClassified =
+            stableReceiverGetterClassified;
+        _methodReferenceResolved = methodReferenceResolved;
         if (resolver is not null && reader.IsAssembly)
             _referenceMetadataResolver =
                 new LibraryBodyReferenceMetadataResolver(
@@ -1115,6 +1131,11 @@ internal sealed class LibraryBodyAnalysisBuilder :
         var referencedDefinitions = new HashSet<int>();
         var referencedMembers = new HashSet<MethodReferenceKey>(
             MethodReferenceKeyComparer.Instance);
+        var memberReferencesByOperand =
+            new Dictionary<int, MethodReferenceKey>();
+        var unsupportedMemberReferenceOperands = new HashSet<int>();
+        var invalidDefinitionOperands =
+            new Dictionary<int, ExceptionDispatchInfo>();
         ExceptionDispatchInfo? callFailure = null;
         ExceptionDispatchInfo? referenceFailure = null;
         TypeDefinition ownerType = _reader.GetTypeDefinition(
@@ -1135,6 +1156,14 @@ internal sealed class LibraryBodyAnalysisBuilder :
 
             int operandToken =
                 MethodInstructionFacts.OperandInt32(instruction);
+            if (invalidDefinitionOperands.TryGetValue(
+                    operandToken,
+                    out ExceptionDispatchInfo? definitionFailure))
+            {
+                if (call)
+                    callFailure ??= definitionFailure;
+                continue;
+            }
             try
             {
                 int definitionToken =
@@ -1147,14 +1176,26 @@ internal sealed class LibraryBodyAnalysisBuilder :
                 when (LibraryMethodAnalysisRunner
                     .IsRecoverableMethodFailure(ex))
             {
-                referenceFailure ??= ExceptionDispatchInfo.Capture(ex);
+                var failure = ExceptionDispatchInfo.Capture(ex);
+                invalidDefinitionOperands.Add(operandToken, failure);
+                referenceFailure ??= failure;
                 if (call)
-                    callFailure ??= ExceptionDispatchInfo.Capture(ex);
+                    callFailure ??= failure;
                 continue;
             }
 
             try
             {
+                if (memberReferencesByOperand.TryGetValue(
+                        operandToken,
+                        out MethodReferenceKey cachedMember))
+                {
+                    referencedMembers.Add(cachedMember);
+                    continue;
+                }
+                if (unsupportedMemberReferenceOperands.Contains(operandToken))
+                    continue;
+
                 EntityHandle handle =
                     MetadataTokens.EntityHandle(operandToken);
                 if (handle.Kind == HandleKind.MethodSpecification)
@@ -1163,8 +1204,14 @@ internal sealed class LibraryBodyAnalysisBuilder :
                         (MethodSpecificationHandle)handle).Method;
                 }
                 if (handle.Kind != HandleKind.MemberReference)
+                {
+                    unsupportedMemberReferenceOperands.Add(operandToken);
                     continue;
+                }
 
+                _methodReferenceResolved?.Invoke(
+                    methodHandle,
+                    operandToken);
                 MemberRef target = MemberResolver.ResolveMethod(
                     _reader,
                     MetadataTokens.EntityHandle(operandToken),
@@ -1173,16 +1220,19 @@ internal sealed class LibraryBodyAnalysisBuilder :
                     target.DeclaringType.Kind == TypeRefKind.GenericInstance
                         ? target.DeclaringType.ElementType!
                         : target.DeclaringType;
-                referencedMembers.Add(new(
+                var member = new MethodReferenceKey(
                     target.Name,
                     targetDefinition,
                     Signature(_reader.GetMemberReference(
-                        (MemberReferenceHandle)handle).Signature)));
+                        (MemberReferenceHandle)handle).Signature));
+                memberReferencesByOperand.Add(operandToken, member);
+                referencedMembers.Add(member);
             }
             catch (Exception ex)
                 when (LibraryMethodAnalysisRunner
                     .IsRecoverableMethodFailure(ex))
             {
+                unsupportedMemberReferenceOperands.Add(operandToken);
                 referenceFailure ??= ExceptionDispatchInfo.Capture(ex);
             }
         }
@@ -1203,20 +1253,41 @@ internal sealed class LibraryBodyAnalysisBuilder :
 
     SignatureIdentity BuildSignature(BlobHandle handle)
     {
+        int length = _reader.GetBlobReader(handle).Length;
+        ReserveMethodReferenceSignatureWork(Math.Max(length, 1));
         byte[] bytes = _reader.GetBlobBytes(handle);
-        long work = Interlocked.Add(
-            ref _methodReferenceSignatureWork,
-            Math.Max(bytes.Length, 1));
-        if (work > MetadataSafetyPolicy.MaxStructuralSignatureWorkChars)
-        {
-            throw new BadImageFormatException(
-                "Lifted owner reference signatures exceed the structural work budget.");
-        }
-
         var hash = new HashCode();
         foreach (byte value in bytes)
             hash.Add(value);
         return new(bytes, hash.ToHashCode());
+    }
+
+    void ReserveMethodReferenceSignatureWork(int charge)
+    {
+        while (true)
+        {
+            long current = Volatile.Read(
+                ref _methodReferenceSignatureWork);
+            if (current < 0
+                || charge
+                    > MetadataSafetyPolicy.MaxStructuralSignatureWorkChars
+                        - current)
+            {
+                Interlocked.Exchange(
+                    ref _methodReferenceSignatureWork,
+                    -1);
+                throw new BadImageFormatException(
+                    "Lifted owner reference signatures exceed the structural work budget.");
+            }
+            if (Interlocked.CompareExchange(
+                    ref _methodReferenceSignatureWork,
+                    current + charge,
+                    current)
+                == current)
+            {
+                return;
+            }
+        }
     }
 
     bool TryGetAsyncStateMachineType(
@@ -1249,6 +1320,23 @@ internal sealed class LibraryBodyAnalysisBuilder :
         if (stateMachineName is null)
             return false;
 
+        TypeDefinitionHandle? resolved =
+            _serializedAsyncStateMachineTypes.GetOrAdd(
+                stateMachineName,
+                name => new Lazy<TypeDefinitionHandle?>(
+                    () => ResolveSerializedAsyncStateMachineType(name),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        if (resolved is not { } handle)
+        {
+            return false;
+        }
+        stateMachineHandle = handle;
+        return true;
+    }
+
+    TypeDefinitionHandle? ResolveSerializedAsyncStateMachineType(
+        string stateMachineName)
+    {
         if (MetadataTypeDefinitionName.ParseSerialized(stateMachineName)
                 is not MetadataTypeDefinitionNameResult.Valid valid
             || MetadataTypeDeclarationProbe.ProbeDefinition(
@@ -1256,16 +1344,17 @@ internal sealed class LibraryBodyAnalysisBuilder :
                     valid.Name)
                 is not TypeDeclarationResult.Defined defined)
         {
-            return false;
+            return null;
         }
 
         EntityHandle resolved =
             MetadataTokens.EntityHandle(defined.Definition.Value);
         if (resolved.Kind != HandleKind.TypeDefinition)
-            return false;
-        stateMachineHandle = (TypeDefinitionHandle)resolved;
-        return AsyncStateMachineTypeHandles().Contains(
-            stateMachineHandle);
+            return null;
+        var handle = (TypeDefinitionHandle)resolved;
+        return AsyncStateMachineTypeHandles().Contains(handle)
+            ? handle
+            : null;
     }
 
     bool IsCompilerGeneratedSourceTypeOrEnclosing(
@@ -1707,8 +1796,9 @@ internal sealed class LibraryBodyAnalysisBuilder :
             if (methodHandle.Kind != HandleKind.MethodDefinition)
                 return false;
 
-            var method = _reader.GetMethodDefinition(
-                (MethodDefinitionHandle)methodHandle);
+            var definitionHandle =
+                (MethodDefinitionHandle)methodHandle;
+            var method = _reader.GetMethodDefinition(definitionHandle);
             bool overridableVirtualCall = instruction.OpCode == ILOpCode.Callvirt
                 && (method.Attributes & MethodAttributes.Virtual) != 0
                 && (method.Attributes & MethodAttributes.Final) == 0
@@ -1723,30 +1813,11 @@ internal sealed class LibraryBodyAnalysisBuilder :
                 return false;
             }
 
-            var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
-            DecodedInstruction[] instructions =
-                LibraryMethodAnalysisRunner.DecodeBody(
-                    body.GetILBytes() ?? [],
-                    body.ExceptionRegions)
-                .Instructions
-                .Where(static candidate => candidate.OpCode != ILOpCode.Nop)
-                .ToArray();
-            if (instructions is not
-                [
-                    { OpCode: ILOpCode.Ldarg_0 },
-                    { OpCode: ILOpCode.Ldfld } fieldLoad,
-                    { OpCode: ILOpCode.Ret },
-                ])
-            {
-                return false;
-            }
-
-            EntityHandle fieldHandle = MetadataTokens.EntityHandle(
-                MethodInstructionFacts.OperandInt32(fieldLoad));
-            return fieldHandle.Kind == HandleKind.FieldDefinition
-                && (_reader.GetFieldDefinition(
-                        (FieldDefinitionHandle)fieldHandle).Attributes
-                    & FieldAttributes.InitOnly) != 0;
+            return _stableReceiverGetters.GetOrAdd(
+                definitionHandle,
+                handle => new Lazy<bool>(
+                    () => ClassifyStableReceiverGetter(handle),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or InvalidOperationException
@@ -1756,6 +1827,55 @@ internal sealed class LibraryBodyAnalysisBuilder :
         {
             return false;
         }
+    }
+
+    bool ClassifyStableReceiverGetter(
+        MethodDefinitionHandle methodHandle)
+    {
+        _stableReceiverGetterClassified?.Invoke(methodHandle);
+        MethodDefinition method =
+            _reader.GetMethodDefinition(methodHandle);
+        var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
+        if (body.ExceptionRegions.Length != 0)
+            return false;
+        DecodedInstruction? first = null;
+        DecodedInstruction? fieldLoad = null;
+        DecodedInstruction? third = null;
+        int count = 0;
+        foreach (DecodedInstruction instruction
+            in InstructionDecoder.Decode(body.GetILBytes() ?? []))
+        {
+            if (instruction.OpCode == ILOpCode.Nop)
+                continue;
+            switch (count++)
+            {
+                case 0:
+                    first = instruction;
+                    break;
+                case 1:
+                    fieldLoad = instruction;
+                    break;
+                case 2:
+                    third = instruction;
+                    break;
+                default:
+                    return false;
+            }
+        }
+        if (count != 3
+            || first is not { OpCode: ILOpCode.Ldarg_0 }
+            || fieldLoad is not { OpCode: ILOpCode.Ldfld }
+            || third is not { OpCode: ILOpCode.Ret })
+        {
+            return false;
+        }
+
+        EntityHandle fieldHandle = MetadataTokens.EntityHandle(
+            MethodInstructionFacts.OperandInt32(fieldLoad));
+        return fieldHandle.Kind == HandleKind.FieldDefinition
+            && (_reader.GetFieldDefinition(
+                    (FieldDefinitionHandle)fieldHandle).Attributes
+                & FieldAttributes.InitOnly) != 0;
     }
 
     bool ConstraintCanIncludeValueType(EntityHandle constraint)
