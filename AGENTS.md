@@ -14,16 +14,6 @@ rules. Detailed design, subsystem mechanics, version requirements, and
 historical context belong with their owning code, workflow, or focused
 documentation.
 
-### Nightshift is opt-in
-
-`NIGHTSHIFT.md`, the `nightshift` skills, and the
-`nightshift`/`turnstile`/`octoshift` tools describe a separate multi-agent
-operating model with its own vocabulary and its own stricter gates. **They apply
-only when you have been explicitly told that you are working in Nightshift mode
-for this session.** Otherwise they are inapplicable: follow this file, and do
-not adopt Nightshift roles, orders, gates, or tooling merely because you noticed
-those documents exist.
-
 ### Markout changes use the co-development loop
 
 When a change needs new or altered Markout behavior, read

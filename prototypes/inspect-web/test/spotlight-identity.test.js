@@ -7,6 +7,14 @@ import {
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetTypeId,
+  createDependencyGraphPendingState,
+  createDependencyGraphRenderSequence,
+  dependencyGroupSelectionMessage,
+  dependencyGraphGroupSelectionIndex,
+  dependencyGraphExternalKey,
+  dependencyGraphPackageKey,
+  dependencyGraphRenderSignature,
+  ensureBoundedGraphNode,
   graphTargetNavigationDisposition,
   graphMemberSelection,
   MARKDOWN_SANITIZE_OPTIONS,
@@ -24,9 +32,11 @@ import {
   resolveLoadedGraphTargetCandidate,
   shareStateLengthError,
   scopedRequestState,
+  selectedDependencyGroup,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
+  uniqueCompatiblePackage,
   workspaceCoordinatesMatch
 } from "../src/data.js";
 
@@ -37,7 +47,169 @@ const packageAt = (version, framework, types = 1) => ({
   types: Array.from({ length: types }, (_, index) => ({ id: `Type${index}` }))
 });
 
+test("dependency coordinates require one compatible open package", () => {
+  const packages = [
+    packageAt("1.0.0", "net8.0"),
+    packageAt("2.0.0", "net8.0"),
+    packageAt("2.0.0", "net9.0")
+  ];
+  const satisfies = (version, range) =>
+    range === "2.*" ? version.startsWith("2.") : version === range;
+
+  assert.equal(
+    uniqueCompatiblePackage(packages, "example.package", "1.0.0", satisfies),
+    packages[0]);
+  assert.equal(
+    uniqueCompatiblePackage(packages, "Example.Package", "2.*", satisfies),
+    null);
+  assert.equal(
+    uniqueCompatiblePackage(packages, "Example.Package", "3.0.0", satisfies),
+    null);
+});
+
+test("runtime pseudo-packages do not satisfy NuGet dependency coordinates", () => {
+  const runtimePack = {
+    ...packageAt("10.0.10", "net10.0"),
+    id: "Microsoft.NETCore.App",
+    isRuntimePack: true
+  };
+  const satisfies = (version, minimum) =>
+    version.localeCompare(minimum, undefined, { numeric: true }) >= 0;
+
+  assert.equal(
+    uniqueCompatiblePackage(
+      [runtimePack],
+      "Microsoft.NETCore.App",
+      "1.0.5",
+      satisfies),
+    null);
+});
+
+test("dependency graph keys preserve complete coordinates and declared ranges", () => {
+  assert.notEqual(
+    dependencyGraphPackageKey(packageAt("1.0.0", "net8.0")),
+    dependencyGraphPackageKey(packageAt("2.0.0", "net8.0")));
+  assert.notEqual(
+    dependencyGraphPackageKey(packageAt("2.0.0", "net8.0")),
+    dependencyGraphPackageKey(packageAt("2.0.0", "net9.0")));
+  assert.notEqual(
+    dependencyGraphExternalKey("Example.Package", "[1.0.0]"),
+    dependencyGraphExternalKey("Example.Package", "2.*"));
+});
+
+test("dependency graph node insertion is bounded", () => {
+  const nodes = new Map();
+  let truncated = false;
+  for (let index = 0; index < 8000; index++) {
+    const result = ensureBoundedGraphNode(
+      nodes,
+      `node-${index}`,
+      () => ({ index }),
+      80);
+    truncated ||= result.truncated;
+  }
+
+  assert.equal(nodes.size, 80);
+  assert.equal(truncated, true);
+  assert.equal(
+    ensureBoundedGraphNode(nodes, "node-1", () => null, 80).node,
+    nodes.get("node-1"));
+});
+
 const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+
+test("dependency graph render identity includes truncation and navigation", () => {
+  const graph = {
+    definition: "flowchart TD\n  d0[Example]",
+    nodeInfoById: new Map([[
+      "d0",
+      {
+        kind: "open",
+        packageKey: "Example.Package|1.0.0|net8.0",
+        id: "Example.Package",
+        versionRange: ""
+      }
+    ]]),
+    truncated: false,
+    nodeLimit: 80
+  };
+  const signature = dependencyGraphRenderSignature(graph);
+
+  assert.notEqual(
+    signature,
+    dependencyGraphRenderSignature({ ...graph, truncated: true }));
+  assert.notEqual(
+    signature,
+    dependencyGraphRenderSignature({
+      ...graph,
+      nodeInfoById: new Map([[
+        "d0",
+        {
+          ...graph.nodeInfoById.get("d0"),
+          packageKey: "Example.Package|2.0.0|net8.0"
+        }
+      ]])
+    }));
+});
+
+test("empty dependency graph invalidates an in-flight render", () => {
+  const sequence = createDependencyGraphRenderSequence();
+  const stale = sequence.begin();
+
+  sequence.invalidate();
+
+  assert.equal(sequence.isCurrent(stale), false);
+  assert.match(
+    appSource,
+    /if \(!built\) \{\s*depGraphRenderSequence\.invalidate\(\);/);
+});
+
+test("stale dependency graph cleanup preserves a replacement with the same signature", () => {
+  const sequence = createDependencyGraphRenderSequence();
+  const dataset = {};
+  const pending = createDependencyGraphPendingState(dataset);
+  const signature = "same graph";
+
+  const stale = sequence.begin();
+  pending.begin(signature, stale);
+  sequence.invalidate();
+  pending.invalidate();
+  const replacement = sequence.begin();
+  pending.begin(signature, replacement);
+
+  assert.equal(pending.complete(signature, stale), false);
+  assert.equal(pending.isPending(signature), true);
+  assert.equal(pending.complete(signature, replacement), true);
+  assert.equal(pending.isPending(signature), false);
+});
+
+test("dependency graph binds navigation to generated node identities", () => {
+  assert.match(
+    appSource,
+    /const nodeInfoById = new Map\(\s+keys\.map\(key => \[idOf\.get\(key\), nodeInfo\.get\(key\)\]\)\)/);
+  assert.match(
+    appSource,
+    /built\.nodeInfoById\.get\(dataId \|\| idMatch\?\.\[1\]\)/);
+  assert.doesNotMatch(appSource, /nodeInfoByLabel/);
+  assert.match(
+    appSource,
+    /Dependency graph truncated at \$\{built\.nodeLimit\} nodes/);
+  assert.match(
+    appSource,
+    /const signature = dependencyGraphRenderSignature\(built\)/);
+});
+
+test("dependency navigation reserves identity and surfaces resolution failures", () => {
+  assert.match(
+    appSource,
+    /const navigationSeq = \+\+state\.navigationSeq;\s+state\.loading = true;[\s\S]*?await resolveDependencyVersion/);
+  assert.match(
+    appSource,
+    /if \(navigationSeq !== state\.navigationSeq\) return;\s+state\.loading = false;\s+appendQueryNotice/);
+  assert.match(
+    appSource,
+    /packageIdentityKey\(uniqueCompatiblePackage\(\s+state\.packages,\s+dependency\.id,\s+dependency\.versionRange,\s+dependencyVersionSatisfies\)\) === target\.packageKey/);
+});
 
 test("spotlight candidate identity includes version and framework", () => {
   const net8 = packageAt("1.0.0", "net8.0");
@@ -505,6 +677,98 @@ test("member documentation state is scoped to the exact request", () => {
   assert.deepEqual(
     scopedRequestState("same", "same", true, ""),
     { loading: true, error: "" });
+});
+
+test("dependency selection exposes a missing exact framework", () => {
+  assert.equal(
+    dependencyGroupSelectionMessage({
+      dependencyGroupError: "No exact dependency group."
+    }),
+    "No exact dependency group.");
+  assert.equal(dependencyGroupSelectionMessage({}), "");
+});
+
+test("dependency group selection resets when package identity changes", () => {
+  assert.match(
+    appSource,
+    /const changed = !packageIdentityEquals\(state\.package, pkg\);\s+state\.package = pkg;\s+if \(changed\)\s+state\.dependenciesGroupIndex = null;/);
+});
+
+test("missing exact dependency groups never create graph edges", () => {
+  const data = {
+    dependencyGroupError: "No exact dependency group.",
+    dependencyGroups: [{
+      framework: "net9.0",
+      isActive: false,
+      dependencies: [{ id: "Wrong.Dependency", versionRange: "1.0.0" }]
+    }]
+  };
+
+  assert.equal(selectedDependencyGroup(data), null);
+});
+
+test("dependency graph honors explicit selection after an exact group miss", () => {
+  const data = {
+    dependencyGroupError: "No exact dependency group.",
+    dependencyGroups: [
+      { index: 0, framework: "net8.0", isActive: false, dependencies: [] },
+      { index: 1, framework: "net9.0", isActive: false, dependencies: [] }
+    ]
+  };
+
+  assert.equal(
+    selectedDependencyGroup(data, 0),
+    data.dependencyGroups[0]);
+});
+
+test("dependency graph does not turn display fallback into explicit selection", () => {
+  const missingExact = {
+    dependencyGroupError: "No exact dependency group."
+  };
+
+  assert.equal(
+    dependencyGraphGroupSelectionIndex(missingExact, null, 0),
+    null);
+  assert.equal(
+    dependencyGraphGroupSelectionIndex(missingExact, 1, 0),
+    1);
+  assert.equal(
+    dependencyGraphGroupSelectionIndex({}, null, 1),
+    1);
+  assert.match(
+    appSource,
+    /dependencyGraphGroupSelectionIndex\(\s*state\.packageDependencies,\s*state\.dependenciesGroupIndex,\s*resolveDependenciesGroupIndex\(groups\)\)/);
+});
+
+test("dependency graph uses each cached package's product-selected group", () => {
+  const data = {
+    dependencyGroupError: "",
+    dependencyGroups: [
+      { index: 0, framework: "any", isActive: false, dependencies: [] },
+      { index: 1, framework: "any", isActive: true, dependencies: [] }
+    ]
+  };
+
+  assert.equal(
+    selectedDependencyGroup(data),
+    data.dependencyGroups[1]);
+});
+
+test("dependency graph uses the active package's explicitly selected group", () => {
+  const data = {
+    dependencyGroupError: "",
+    dependencyGroups: [
+      { index: 0, framework: "net8.0", isActive: false, dependencies: [] },
+      { index: 1, framework: "net9.0", isActive: true, dependencies: [] }
+    ]
+  };
+
+  assert.equal(
+    selectedDependencyGroup(data, 0),
+    data.dependencyGroups[0]);
+  assert.match(
+    appSource,
+    /selectedDependencyGroup\(\s*state\.packageDependencies,\s*selectedGroupIndex\)/);
 });
 
 test("Mermaid labels contain grammar-significant metadata", () => {

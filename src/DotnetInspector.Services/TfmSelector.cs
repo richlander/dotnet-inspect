@@ -38,7 +38,12 @@ public static class TfmSelector
 
     public static int GetTfmPriority(string? tfm)
     {
-        return TfmResolver.GetTfmPriority(NormalizeTfmForPriority(tfm));
+        string normalized = NormalizeTfm(tfm);
+        int qualifierIndex = normalized.IndexOf('-');
+        return TfmResolver.GetTfmPriority(
+            qualifierIndex < 0
+                ? normalized
+                : normalized[..qualifierIndex]);
     }
 
     public static string? SelectHighestTfm(IEnumerable<string> tfms)
@@ -46,7 +51,11 @@ public static class TfmSelector
         return OrderByTfmPriorityDescending(tfms, tfm => tfm).FirstOrDefault();
     }
 
-    private static string NormalizeTfmForPriority(string? tfm)
+    /// <summary>
+    /// Normalizes short and NuGet long-form framework monikers to the product's package-layout
+    /// spelling.
+    /// </summary>
+    public static string NormalizeTfm(string? tfm)
     {
         if (string.IsNullOrWhiteSpace(tfm))
             return "";
@@ -60,12 +69,18 @@ public static class TfmSelector
         if (commaIndex >= 0)
         {
             var frameworkName = value[..commaIndex];
-            var version = value[(commaIndex + 1)..]
+            string[] attributes = value[(commaIndex + 1)..]
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .FirstOrDefault(part => part.StartsWith("Version=", StringComparison.OrdinalIgnoreCase));
+                .ToArray();
+            string? version = AttributeValue(attributes, "Version");
             if (version != null)
             {
-                return NormalizeLongFormTfm(frameworkName, version["Version=".Length..].TrimStart('v', 'V')) ?? value;
+                string? normalized = NormalizeLongFormTfm(
+                    frameworkName,
+                    version.TrimStart('v', 'V'));
+                return normalized is null
+                    ? value
+                    : AppendLongFormQualifiers(normalized, attributes);
             }
         }
 
@@ -77,29 +92,140 @@ public static class TfmSelector
             }
         }
 
-        return value;
+        return NormalizeShortFormPlatformVersion(value);
     }
+
+    private static string NormalizeShortFormPlatformVersion(string value)
+    {
+        int qualifierIndex = value.IndexOf('-');
+        if (qualifierIndex < 0)
+            return value;
+
+        int versionIndex = qualifierIndex + 1;
+        while (versionIndex < value.Length
+            && !char.IsAsciiDigit(value[versionIndex]))
+        {
+            versionIndex++;
+        }
+
+        if (versionIndex == value.Length
+            || !TryNormalizeVersion(
+                value[versionIndex..],
+                out _,
+                out string dotted,
+                out _))
+        {
+            return value;
+        }
+
+        return value[..versionIndex] + dotted;
+    }
+
+    private static string? AttributeValue(
+        IEnumerable<string> attributes,
+        string name)
+        => attributes
+            .Select(attribute => attribute.Split('=', 2))
+            .Where(parts => parts.Length == 2)
+            .FirstOrDefault(parts => parts[0].Equals(
+                name,
+                StringComparison.OrdinalIgnoreCase))?[1];
+
+    private static string AppendLongFormQualifiers(
+        string normalized,
+        IEnumerable<string> attributes)
+    {
+        string? profile = AttributeValue(attributes, "Profile");
+        if (!string.IsNullOrWhiteSpace(profile))
+            normalized += "-" + NormalizeQualifier(profile);
+
+        string? platform = AttributeValue(attributes, "Platform");
+        if (!string.IsNullOrWhiteSpace(platform))
+        {
+            normalized += "-" + NormalizeQualifier(platform);
+            string? platformVersion = AttributeValue(
+                attributes,
+                "PlatformVersion");
+            if (!string.IsNullOrWhiteSpace(platformVersion))
+            {
+                string version = platformVersion
+                    .Trim()
+                    .TrimStart('v', 'V');
+                normalized += TryNormalizeVersion(
+                    version,
+                    out _,
+                    out string dotted,
+                    out _)
+                        ? dotted
+                        : version;
+            }
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizeQualifier(string value)
+        => value
+            .Trim()
+            .Replace(" ", "", StringComparison.Ordinal)
+            .ToLowerInvariant();
 
     private static string? NormalizeLongFormTfm(string frameworkName, string version)
     {
-        if (string.IsNullOrWhiteSpace(version))
+        if (!TryNormalizeVersion(
+                version,
+                out int major,
+                out string dotted,
+                out string compact))
             return null;
 
         if (frameworkName.Equals(".NETStandard", StringComparison.OrdinalIgnoreCase))
-            return "netstandard" + version;
+            return "netstandard" + dotted;
 
         if (frameworkName.Equals(".NETFramework", StringComparison.OrdinalIgnoreCase))
-            return "net" + version.Replace(".", "", StringComparison.Ordinal);
+            return "net" + compact;
 
         if (frameworkName.Equals(".NETCoreApp", StringComparison.OrdinalIgnoreCase))
         {
-            var majorText = version.Split('.', 2)[0];
-            return int.TryParse(majorText, out var major) && major >= 5
-                ? "net" + version
-                : "netcoreapp" + version;
+            return major >= 5
+                ? "net" + dotted
+                : "netcoreapp" + dotted;
         }
 
         return null;
+    }
+
+    private static bool TryNormalizeVersion(
+        string value,
+        out int major,
+        out string dotted,
+        out string compact)
+    {
+        major = 0;
+        dotted = "";
+        compact = "";
+        string[] parts = value.Trim().Split('.');
+        if (parts.Length is 0 or > 4)
+            return false;
+
+        int[] numbers = new int[parts.Length];
+        for (int index = 0; index < parts.Length; index++)
+        {
+            if (!int.TryParse(parts[index], out numbers[index])
+                || numbers[index] < 0)
+            {
+                return false;
+            }
+        }
+
+        int last = numbers.Length - 1;
+        while (last > 1 && numbers[last] == 0)
+            last--;
+
+        major = numbers[0];
+        dotted = string.Join('.', numbers[..(last + 1)]);
+        compact = string.Concat(numbers[..(last + 1)]);
+        return true;
     }
 
     public static List<string> GetPackageDlls(string extractPath)

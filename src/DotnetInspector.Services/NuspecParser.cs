@@ -59,6 +59,28 @@ public static class NuspecParser
         }
     }
 
+    /// <summary>
+    /// Parses package metadata from a bounded stream with DTD processing prohibited and an
+    /// explicit decoded-character budget.
+    /// </summary>
+    public static NuspecData Parse(
+        Stream nuspecStream,
+        long maxCharactersInDocument)
+    {
+        ArgumentNullException.ThrowIfNull(nuspecStream);
+        try
+        {
+            return ParseDocument(
+                HardenedXml.LoadXDocument(
+                    nuspecStream,
+                    maxCharactersInDocument));
+        }
+        catch (System.Xml.XmlException ex)
+        {
+            throw NuspecParseException.From(ex);
+        }
+    }
+
     private static NuspecData ParseDocument(XDocument doc)
     {
         var result = new NuspecData();
@@ -138,44 +160,53 @@ public static class NuspecParser
         var dependencies = metadata.Element(ns + "dependencies");
         if (dependencies != null)
         {
-            foreach (var group in dependencies.Elements(ns + "group"))
+            DependencyGroup? ungrouped = null;
+            foreach (var element in dependencies.Elements())
             {
-                string? tfm = group.Attribute("targetFramework")?.Value;
-                var depGroup = new DependencyGroup { TargetFramework = tfm ?? "any" };
-
-                foreach (var dep in group.Elements(ns + "dependency"))
+                if (element.Name == ns + "group")
                 {
-                    depGroup.Dependencies.Add(new PackageDependency
+                    string? tfm = element.Attribute("targetFramework")?.Value;
+                    var group = new DependencyGroup
                     {
-                        Id = dep.Attribute("id")?.Value ?? "",
-                        Version = dep.Attribute("version")?.Value ?? ""
-                    });
+                        TargetFramework = tfm ?? "any",
+                    };
+                    foreach (var dependency in element.Elements(
+                        ns + "dependency"))
+                    {
+                        group.Dependencies.Add(ParseDependency(dependency));
+                    }
+
+                    result.DependencyGroups ??= [];
+                    result.DependencyGroups.Add(group);
+                    ungrouped = null;
                 }
-
-                result.DependencyGroups ??= [];
-                result.DependencyGroups.Add(depGroup);
-            }
-
-            // Handle dependencies without groups
-            var ungroupedDeps = dependencies.Elements(ns + "dependency").ToList();
-            if (ungroupedDeps.Count > 0)
-            {
-                var depGroup = new DependencyGroup { TargetFramework = "any" };
-                foreach (var dep in ungroupedDeps)
+                else if (element.Name == ns + "dependency")
                 {
-                    depGroup.Dependencies.Add(new PackageDependency
+                    if (ungrouped is null)
                     {
-                        Id = dep.Attribute("id")?.Value ?? "",
-                        Version = dep.Attribute("version")?.Value ?? ""
-                    });
+                        ungrouped = new DependencyGroup
+                        {
+                            TargetFramework = "any",
+                            IsImplicitManifestGroup = true,
+                        };
+                        result.DependencyGroups ??= [];
+                        result.DependencyGroups.Add(ungrouped);
+                    }
+
+                    ungrouped.Dependencies.Add(ParseDependency(element));
                 }
-                result.DependencyGroups ??= [];
-                result.DependencyGroups.Add(depGroup);
             }
         }
 
         return result;
     }
+
+    private static PackageDependency ParseDependency(XElement dependency)
+        => new()
+        {
+            Id = dependency.Attribute("id")?.Value ?? "",
+            Version = dependency.Attribute("version")?.Value ?? "",
+        };
 
     private static string GetManifestVersion(XNamespace ns)
     {
