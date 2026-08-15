@@ -5187,10 +5187,13 @@ function showToast(message, duration = 2200) {
 function friendlyLoadError(error, packageId, version) {
   const raw = String(error?.message || error || "");
   if (raw.includes("[package-source-unreachable]")) {
+    const message = state.packageSource.isDefault
+      ? "The browser could not reach nuget.org. Configure an anonymous, CORS-enabled mirror in Settings and try again."
+      : "The configured mirror rejected or could not complete the package request. Some upstream proxies require the package to be warmed by a non-browser client before a browser can download it.";
     return {
       notFound: false,
       title: "NuGet source unavailable",
-      message: "The browser could not reach the active NuGet source. Configure an anonymous, CORS-enabled mirror in Settings and try again."
+      message
     };
   }
   if (/\b404\b|not\s*found/i.test(raw)) {
@@ -7201,6 +7204,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
     // real target; drop it silently (the tab simply won't appear).
     if (background) return null;
     if (!options.sourceFallbackAttempted
+        && state.packageSource.isDefault
         && isPackageSourceUnavailable(error)
         && await promptForNuGetMirror()) {
       return loadPackage(packageId, version, framework, {
@@ -7368,6 +7372,7 @@ async function loadRuntimePack(framework, sourceFallbackAttempted = false) {
   } catch (error) {
     state.runtimePackLoading = false;
     if (!sourceFallbackAttempted
+        && state.packageSource.isDefault
         && isPackageSourceUnavailable(error)
         && await promptForNuGetMirror()) {
       return loadRuntimePack(framework, true);
@@ -7429,6 +7434,7 @@ async function loadRuntimePackAssembly(
   } catch (error) {
     state.runtimePackLoading = false;
     if (!sourceFallbackAttempted
+        && state.packageSource.isDefault
         && isPackageSourceUnavailable(error)
         && await promptForNuGetMirror()) {
       return loadRuntimePackAssembly(framework, assemblyFileName, pack, true);

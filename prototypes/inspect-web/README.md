@@ -61,7 +61,9 @@ active source, the app asks for an anonymous, CORS-enabled NuGet v3 mirror
 service-index URL, validates its `PackageBaseAddress`, and retries through the
 mirror. The service-index URL is stored in browser local storage and can be
 replaced or cleared under Settings. Package search uses the mirror's
-`SearchQueryService` when it publishes one.
+`SearchQueryService` when it publishes one. Symbol packages remain a separate
+NuGet.org capability because `PackageBaseAddress` does not serve `.snupkg`
+payloads; when that endpoint is blocked, Source falls back to decompilation.
 
 ## Run the .NET 11 browser-WASM prototype
 
@@ -83,7 +85,11 @@ For a network that blocks nuget.org, open Settings and enter its permitted
 mirror's NuGet v3 service index, for example
 `https://mirror.example/nuget/v3/index.json`. The mirror must allow anonymous
 browser requests and CORS from the site's origin; credential-bearing URLs are
-rejected and are never written to local storage.
+rejected and are never written to local storage. Some upstream proxies also
+refuse to ingest a cold package from a browser request. Such a mirror must be
+warmed by a non-browser client before the browser can download that package;
+the app reports this as a mirror failure rather than prompting for another
+mirror.
 
 Create a deployable static bundle with:
 

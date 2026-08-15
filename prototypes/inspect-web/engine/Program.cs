@@ -1038,10 +1038,9 @@ public static partial class BrowserInspectionEngine
                 normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: true);
 
             var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
-            var symbolPackageUrl = BuildPackageContentUrl(
+            var symbolPackageUrl = BuildNuGetOrgSymbolPackageUrl(
                 normalizedId,
-                normalizedVersion,
-                "snupkg");
+                normalizedVersion);
             await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
 
             using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
@@ -1114,10 +1113,9 @@ public static partial class BrowserInspectionEngine
                 normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: false);
 
             var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
-            var symbolPackageUrl = BuildPackageContentUrl(
+            var symbolPackageUrl = BuildNuGetOrgSymbolPackageUrl(
                 normalizedId,
-                normalizedVersion,
-                "snupkg");
+                normalizedVersion);
             await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
 
             using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
@@ -2463,10 +2461,9 @@ public static partial class BrowserInspectionEngine
                 normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: true);
 
             var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
-            var symbolPackageUrl = BuildPackageContentUrl(
+            var symbolPackageUrl = BuildNuGetOrgSymbolPackageUrl(
                 normalizedId,
-                normalizedVersion,
-                "snupkg");
+                normalizedVersion);
             await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
 
             using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
@@ -2541,10 +2538,9 @@ public static partial class BrowserInspectionEngine
                 normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: true);
 
             var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
-            var symbolPackageUrl = BuildPackageContentUrl(
+            var symbolPackageUrl = BuildNuGetOrgSymbolPackageUrl(
                 normalizedId,
-                normalizedVersion,
-                "snupkg");
+                normalizedVersion);
             await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
 
             using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
@@ -3030,11 +3026,11 @@ public static partial class BrowserInspectionEngine
         return actual.Length > 0 && CryptographicOperations.FixedTimeEquals(actual, expected);
     }
 
-    // WASM PDB-acquisition policy: the active NuGet source's .snupkg only.
+    // WASM PDB-acquisition policy: NuGet.org's dedicated .snupkg endpoint only.
     //
-    // This runs inside the browser, so every fetch is subject to CORS. PackageBaseAddress
-    // serves both .nupkg and .snupkg payloads. Packages that publish no symbols simply 404
-    // here and we fall back to decompiling with pdb=null — that is expected, not an error.
+    // PackageBaseAddress is a package-content resource and does not serve symbol packages.
+    // NuGet.org's CORS-open symbol endpoint works for packages that publish symbols. If it is
+    // blocked, or a package publishes no snupkg, we fall back to decompiling with pdb=null.
     //
     // Do NOT add the Microsoft symbol server (MSDL) as a fallback in this engine.
     // MSDL answers with a cross-origin 302 to an Azure blob (SAS-signed, expiring,
@@ -4052,6 +4048,13 @@ public static partial class BrowserInspectionEngine
             + $"{Uri.EscapeDataString(normalizedId)}."
             + $"{Uri.EscapeDataString(normalizedVersion)}.{extension}")
         .AbsoluteUri;
+
+    static string BuildNuGetOrgSymbolPackageUrl(
+        string normalizedId,
+        string normalizedVersion) =>
+        "https://globalcdn.nuget.org/symbol-packages/"
+        + $"{Uri.EscapeDataString(normalizedId)}."
+        + $"{Uri.EscapeDataString(normalizedVersion)}.snupkg";
 
     static async Task<byte[]> GetPackageSourceBytesAsync(string url)
     {
