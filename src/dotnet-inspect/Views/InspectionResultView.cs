@@ -578,6 +578,16 @@ public class SigningSection
     private readonly InertString? _repository;
     private readonly InertString? _status;
 
+    internal static readonly string[] FieldNames =
+    [
+        "Author Verified",
+        "Publisher",
+        "Repository",
+        "Repository Verified",
+        "Signed",
+        "Status",
+    ];
+
     public SigningSection(
         string? authorVerified,
         InertString? publisher,
@@ -602,6 +612,21 @@ public class SigningSection
     public string? RepositoryVerified { get; }
     public string Signed { get; }
     public string? Status => PackageViewText.Render(_status);
+
+    internal IEnumerable<MarkoutField> ToMarkoutFields()
+    {
+        if (AuthorVerified is not null)
+            yield return new("Author Verified", AuthorVerified);
+        if (Publisher is not null)
+            yield return new("Publisher", Publisher);
+        if (Repository is not null)
+            yield return new("Repository", Repository);
+        if (RepositoryVerified is not null)
+            yield return new("Repository Verified", RepositoryVerified);
+        yield return new("Signed", Signed);
+        if (Status is not null)
+            yield return new("Status", Status);
+    }
 }
 
 /// <inheritdoc cref="PackageViewText"/>
