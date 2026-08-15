@@ -42,6 +42,7 @@ public class DependencyResolutionServiceTests
         Assert.Equal(TfmResolver.GetTfmPriority("net8.0"), TfmSelector.GetTfmPriority(".NETCoreApp,Version=v8.0/linux-x64"));
         Assert.Equal(TfmResolver.GetTfmPriority("netstandard2.0"), TfmSelector.GetTfmPriority(".NETStandard2.0"));
         Assert.Equal(TfmResolver.GetTfmPriority("net472"), TfmSelector.GetTfmPriority(".NETFramework4.7.2"));
+        Assert.Equal(TfmResolver.GetTfmPriority("net40"), TfmSelector.GetTfmPriority(".NETFramework,Version=v4.0,Profile=Client"));
     }
 
     [Fact]
@@ -266,6 +267,76 @@ public class DependencyResolutionServiceTests
     }
 
     [Fact]
+    public void FindBestMatchingTfmGroup_PrefersCompatibleFrameworkOverUniversal()
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = "any" },
+            new() { TargetFramework = "netstandard2.0" }
+        };
+
+        var result = DependencyResolutionService.FindBestMatchingTfmGroup(
+            groups,
+            "net8.0");
+
+        Assert.Equal("netstandard2.0", result?.TargetFramework);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_PreservesLegacyExplicitGroupPrecedence()
+    {
+        NuspecData nuspec = NuspecParser.ParseContent(
+            """
+            <package>
+              <metadata>
+                <dependencies>
+                  <dependency id="Before" version="1.0.0" />
+                  <group targetFramework="any">
+                    <dependency id="Middle" version="2.0.0" />
+                  </group>
+                  <dependency id="After" version="3.0.0" />
+                </dependencies>
+              </metadata>
+            </package>
+            """);
+
+        DependencyGroup? result =
+            DependencyResolutionService.FindBestMatchingTfmGroup(
+                nuspec.DependencyGroups!,
+                "net8.0");
+
+        Assert.Equal(
+            "Middle",
+            Assert.Single(result!.Dependencies).Id);
+    }
+
+    [Fact]
+    public void FindBestMatchingTfmGroup_MergesLegacyImplicitDependencies()
+    {
+        NuspecData nuspec = NuspecParser.ParseContent(
+            """
+            <package>
+              <metadata>
+                <dependencies>
+                  <dependency id="Before" version="1.0.0" />
+                  <group targetFramework="net9.0" />
+                  <dependency id="After" version="3.0.0" />
+                </dependencies>
+              </metadata>
+            </package>
+            """);
+
+        DependencyGroup? result =
+            DependencyResolutionService.FindBestMatchingTfmGroup(
+                nuspec.DependencyGroups!,
+                "net8.0");
+
+        Assert.Equal(
+            ["Before", "After"],
+            result!.Dependencies.Select(dependency => dependency.Id));
+    }
+
+    [Fact]
     public void SelectDependencyGroup_NoGroups_ReturnsNoDependencyGroups()
     {
         var result = DependencyResolutionService.SelectDependencyGroup(null, null);
@@ -358,6 +429,142 @@ public class DependencyResolutionServiceTests
         Assert.Null(result.Group);
         Assert.Equal("net6.0", result.TargetFramework);
         Assert.Equal(["net8.0", "net9.0"], result.AvailableTargetFrameworks);
+    }
+
+    [Theory]
+    [InlineData(".NETStandard2.0", "netstandard2.0")]
+    [InlineData(".NETFramework4.5", "net45")]
+    [InlineData(".NETCoreApp,Version=v8.0", "net8.0")]
+    [InlineData(".NETCoreApp,Version=v8.0.0", "net8.0")]
+    [InlineData(
+        ".NETFramework,Version=v4.0.0,Profile=Client",
+        "net40-client")]
+    [InlineData(
+        ".NETCoreApp,Version=v8.0.0,Platform=Windows,PlatformVersion=7.0.0",
+        "net8.0-windows7.0")]
+    [InlineData(
+        ".NETCoreApp,Version=v8.0.0,Platform=Windows,PlatformVersion=10.0.19041.0",
+        "net8.0-windows10.0.19041.0")]
+    public void SelectDependencyGroup_ExactMode_NormalizesNuGetLongForm(
+        string declared,
+        string requested)
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = declared }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            requested,
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal(declared, result.Group?.TargetFramework);
+        Assert.Equal(requested, result.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_RejectsOverlongFrameworkVersion()
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = ".NETCoreApp,Version=v8.0.0.0.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net8.0",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.Equal(
+            DependencyResolutionService.DependencyGroupSelectionStatus
+                .NoMatchingTargetFramework,
+            result.Status);
+        Assert.Null(result.Group);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_DoesNotConflateFrameworkProfile()
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new()
+            {
+                TargetFramework =
+                    ".NETFramework,Version=v4.0,Profile=Client",
+            },
+            new() { TargetFramework = "net40" },
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net40",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.Equal("net40", result.Group?.TargetFramework);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("net45")]
+    public void SelectDependencyGroup_QualifiedGroupOutranksUniversal(
+        string? requested)
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = "any" },
+            new()
+            {
+                TargetFramework =
+                    ".NETFramework,Version=v4.0,Profile=Client",
+            },
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            requested);
+
+        Assert.Equal(
+            ".NETFramework,Version=v4.0,Profile=Client",
+            result.Group?.TargetFramework);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("any")]
+    public void SelectDependencyGroup_ExactMode_UniversalGroupMatchesAnyTarget(
+        string declared)
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = declared }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net9.0",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal(declared, result.Group?.TargetFramework);
+    }
+
+    [Fact]
+    public void SelectDependencyGroup_ExactMode_PrefersExactGroupOverUniversal()
+    {
+        var groups = new List<DependencyGroup>
+        {
+            new() { TargetFramework = "any" },
+            new() { TargetFramework = ".NETCoreApp,Version=v8.0.0" }
+        };
+
+        var result = DependencyResolutionService.SelectDependencyGroup(
+            groups,
+            "net8.0",
+            allowCompatibleFallbackForRequestedTfm: false);
+
+        Assert.Equal(".NETCoreApp,Version=v8.0.0", result.Group?.TargetFramework);
     }
 
     [Fact]
