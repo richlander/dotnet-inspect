@@ -956,6 +956,41 @@ internal sealed partial class LibraryBodyAnalysisBuilder
 
             var definition =
                 reader.GetTypeDefinition(current);
+            TypeRelation currentRelation =
+                TypeDefinitionRelation(
+                    reader,
+                    current,
+                    candidateReader,
+                    candidateType);
+            if (currentRelation == TypeRelation.Yes)
+            {
+                TypeRef currentType =
+                    TypeRefDecoder.Instance
+                        .GetTypeFromDefinition(
+                            reader,
+                            current,
+                            0);
+                if (currentTypeArguments.Length > 0)
+                {
+                    currentType = TypeRef.GenericInstance(
+                        currentType,
+                        currentTypeArguments);
+                }
+                TypeRelation argumentRelation =
+                    ConstructedTypeArgumentsRelation(
+                        reader,
+                        current,
+                        currentType,
+                        candidateDeclaringType);
+                if (argumentRelation == TypeRelation.Yes)
+                    return TypeRelation.Yes;
+                if (argumentRelation == TypeRelation.Unknown)
+                    incomplete = true;
+            }
+            else if (currentRelation == TypeRelation.Unknown)
+            {
+                incomplete = true;
+            }
             foreach (var handle
                 in definition.GetInterfaceImplementations())
             {
@@ -1469,6 +1504,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                             sourceMethod,
                             sourceType,
                             scope,
+                            TypeRefDecoder.Instance
+                                .GetTypeFromDefinition(
+                                    _reader,
+                                    sourceTypeHandle,
+                                    0),
                             body);
                     if (relation != TypeRelation.No)
                         return true;
@@ -1494,6 +1534,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         MethodDefinition sourceMethod,
         TypeDefinition sourceType,
         GenericScope sourceScope,
+        TypeRef sourceDeclaringType,
         ResolvedMethodImplBody body)
     {
         foreach (var handle
@@ -1513,6 +1554,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 ResolvedMethodImplDeclarationRelation(
                     implementation.MethodDeclaration,
                     sourceScope,
+                    sourceMethod.GetDeclaringType(),
+                    sourceDeclaringType,
                     body.Member);
             if (relation != TypeRelation.No)
             {
@@ -1545,6 +1588,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder
     TypeRelation ResolvedMethodImplDeclarationRelation(
         EntityHandle declarationHandle,
         GenericScope sourceScope,
+        TypeDefinitionHandle sourceType,
+        TypeRef sourceDeclaringType,
         MemberRef target)
     {
         MemberRef declaration =
@@ -1561,6 +1606,22 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         if (declarationHandle.Kind
             == HandleKind.MethodDefinition)
         {
+            var definition = _reader.GetMethodDefinition(
+                (MethodDefinitionHandle)declarationHandle);
+            if ((definition.Attributes
+                    & MethodAttributes.Virtual) == 0)
+            {
+                return TypeRelation.Unknown;
+            }
+            TypeRelation ownerRelation =
+                SourceTypeRelation(
+                    sourceType,
+                    sourceDeclaringType,
+                    _reader,
+                    definition.GetDeclaringType(),
+                    declaration.DeclaringType);
+            if (ownerRelation != TypeRelation.Yes)
+                return TypeRelation.Unknown;
             return AsyncSiblingMethodsMatch(
                     declaration,
                     target)
@@ -1585,6 +1646,21 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 declaration,
                 out bool ambiguous);
         if (ambiguous || resolvedMethod.IsNil)
+            return TypeRelation.Unknown;
+        MethodAttributes attributes =
+            resolvedType.DefiningReader
+                .GetMethodDefinition(resolvedMethod)
+                .Attributes;
+        if ((attributes & MethodAttributes.Virtual) == 0)
+            return TypeRelation.Unknown;
+        TypeRelation owner =
+            SourceTypeRelation(
+                sourceType,
+                sourceDeclaringType,
+                resolvedType.DefiningReader,
+                resolvedType.Definition,
+                declaration.DeclaringType);
+        if (owner != TypeRelation.Yes)
             return TypeRelation.Unknown;
 
         return AsyncSiblingMethodsMatch(

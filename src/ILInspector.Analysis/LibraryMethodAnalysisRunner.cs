@@ -207,7 +207,13 @@ internal sealed class LibraryMethodAnalysisRunner(
                 return result;
             }
             if (bodyTypeScope is not null
-                && !bodyTypeScope(caller.DeclaringType))
+                && !bodyTypeScope(caller.DeclaringType)
+                && !(plan.TypeScopeEvidenceSources
+                        ?.TryGetValue(
+                            caller.MetadataToken,
+                            out TypeRef? sourceType)
+                    == true
+                    && bodyTypeScope(sourceType)))
             {
                 return result;
             }

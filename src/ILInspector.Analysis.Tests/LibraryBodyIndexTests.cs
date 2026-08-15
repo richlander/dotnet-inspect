@@ -648,6 +648,36 @@ public class LibraryBodyIndexTests
                     == "sync-call-in-async"
                 && candidate.Method.MetadataToken
                     == opportunity.Method.MetadataToken);
+        string sourceTypeName =
+            opportunity.Method.DeclaringType
+                .ToQualifiedDisplayString();
+        Func<TypeRef, bool> sourceTypeScope =
+            type => type.ToQualifiedDisplayString()
+                == sourceTypeName;
+        var typeScoped = LibraryBodyIndex.Open(
+            path,
+            bodyTypeScope: sourceTypeScope);
+        Assert.Single(
+            typeScoped.OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == "sync-call-in-async"
+                && candidate.Method.MetadataToken
+                    == opportunity.Method.MetadataToken);
+        var memberAndTypeScoped =
+            LibraryBodyIndex.Open(
+                path,
+                bodyScope: new HashSet<int>
+                {
+                    opportunity.Method.MetadataToken,
+                },
+                bodyTypeScope: sourceTypeScope);
+        Assert.Single(
+            memberAndTypeScoped
+                .OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == "sync-call-in-async"
+                && candidate.Method.MetadataToken
+                    == opportunity.Method.MetadataToken);
 
         Assert.DoesNotContain(
             index.OptimizationOpportunities,
@@ -1302,6 +1332,28 @@ public class LibraryBodyIndexTests
                 BuildMethodImplAsyncSourceAssembly(
                     includeMethodImpl: true,
                     inheritedMethodImpl: true,
+                    inheritedMethodImplBodyName:
+                        "CoreAsync",
+                    sourceImplementsOtherInterface:
+                        false,
+                    unrelatedSourceMethodImpl: true));
+            var invalidDeclarationOwner =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                invalidDeclarationOwner
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Empty(
+                invalidDeclarationOwner.Diagnostics);
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: true,
+                    inheritedMethodImpl: true,
                     sourceStartsNewSlot: true));
             var inheritedNewSlot =
                 LibraryBodyIndex.Open(path);
@@ -1654,7 +1706,8 @@ public class LibraryBodyIndexTests
         bool sourceHasBody = true,
         bool unrelatedSourceMethodImpl = false,
         bool runtimeAsyncSource = false,
-        bool malformedSourceMethodImpl = false)
+        bool malformedSourceMethodImpl = false,
+        bool sourceImplementsOtherInterface = true)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1782,15 +1835,18 @@ public class LibraryBodyIndexTests
                 ? baseType
                 : sourceType,
             interfaceType);
+        if (sourceImplementsOtherInterface)
+        {
+            metadata.AddInterfaceImplementation(
+                sourceType,
+                otherInterfaceType);
+        }
         if (validStateMachine)
         {
             metadata.AddInterfaceImplementation(
                 stateMachineType,
                 asyncStateMachine);
         }
-        metadata.AddInterfaceImplementation(
-            sourceType,
-            otherInterfaceType);
 
         BlobHandle voidSignature = metadata.GetOrAddBlob(
             new byte[]

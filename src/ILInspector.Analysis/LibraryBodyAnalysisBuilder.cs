@@ -286,31 +286,51 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         bool includeOwnershipFlow = plan.Includes(
             LibraryBodyAnalysisFeatures.OwnershipFlow);
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
+        IReadOnlyDictionary<int, TypeRef>?
+            typeScopeEvidenceSources = null;
         if (includeOpportunities
-            && bodyScope is not null)
+            && (bodyScope is not null
+                || plan.TypeScope is not null))
         {
-            if (ScopeMayRequireStateMachineBody(
-                    bodyScope))
+            bool mapRequired =
+                plan.TypeScope is not null
+                || bodyScope is not null
+                    && ScopeMayRequireStateMachineBody(
+                        bodyScope);
+            if (mapRequired)
             {
-                var expandedScope = new HashSet<int>(
-                    bodyScope);
+                var expandedScope =
+                    bodyScope is null
+                        ? new HashSet<int>()
+                        : new HashSet<int>(bodyScope);
+                var evidenceSources =
+                    new Dictionary<int, TypeRef>();
                 foreach ((
                     int moveNextToken,
                     MethodIdentity source)
                     in AsyncStateMachineSourceMethods())
                 {
-                    if (bodyScope.Contains(
-                            source.MetadataToken))
+                    evidenceSources.Add(
+                        moveNextToken,
+                        source.DeclaringType);
+                    if (bodyScope?.Contains(
+                            source.MetadataToken)
+                        == true)
                     {
                         expandedScope.Add(moveNextToken);
                     }
                 }
-                bodyScope = expandedScope;
+                if (bodyScope is not null)
+                    bodyScope = expandedScope;
+                typeScopeEvidenceSources =
+                    evidenceSources;
             }
         }
         plan = plan with
         {
             MethodScope = bodyScope,
+            TypeScopeEvidenceSources =
+                typeScopeEvidenceSources,
         };
         var methodRunner =
             new LibraryMethodAnalysisRunner(this);

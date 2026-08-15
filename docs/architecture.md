@@ -742,7 +742,12 @@ Research overlay bridge, and the application layer:
   `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gates partial failure
   publication, and
   `LibraryBodyIndex_PrefetchedImageScopeSkipsMalformedUnselectedBody` gates
-  scoped decode through the runner. The assembly builder retains the
+  scoped decode through the runner. `LibraryBodyAnalysisPlan` carries the
+  source type for mapped classic `MoveNext` tokens so method/type scope
+  intersection admits only the selected source's evidence body;
+  `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`
+  gates member-, type-, and combined-scope projection. The assembly builder
+  retains the
   metadata-ordered work list, parallel scheduling, primary-image metadata
   judgments, and result aggregation. Cross-assembly type-definition binding,
   referenced-image metadata lifetime, and the registration-keyed cache belong
