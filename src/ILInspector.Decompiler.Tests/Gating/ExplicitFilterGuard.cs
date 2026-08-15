@@ -48,10 +48,10 @@ internal static class ExplicitFilterGuard
         {
             projectAssembly = commandLine.Parse();
         }
-        catch (ArgumentException)
+        catch (Exception)
         {
-            // The console runner owns argument diagnostics. Do not replace its
-            // error with a secondary validation failure.
+            // The console runner repeats this parse and owns its diagnostic and
+            // exit code. Do not replace either with a preflight failure.
             return null;
         }
 
@@ -72,7 +72,16 @@ internal static class ExplicitFilterGuard
         using var cancellation = new CancellationTokenSource();
         var runner = new ProjectAssemblyRunner(testAssembly, AutomatedMode.Off, cancellation);
         var testCases = new List<(ITestCase TestCase, bool PassedFilter)>();
-        await runner.Discover(projectAssembly, pipelineStartup: null, testCases: testCases);
+        try
+        {
+            await runner.Discover(projectAssembly, pipelineStartup: null, testCases: testCases);
+        }
+        catch (Exception)
+        {
+            // As with parsing, the real runner owns discovery failures and will
+            // surface them through its normal reporter and exit code.
+            return null;
+        }
 
         string assemblyName = Path.GetFileNameWithoutExtension(projectAssembly.AssemblyFileName);
         ExplicitFilter[] unmatched = filters
@@ -85,9 +94,17 @@ internal static class ExplicitFilterGuard
                 + string.Join('\n', unmatched.Select(filter => $"  {filter.Option} \"{filter.Query}\""));
         }
 
-        if (!HasRunnableSelection(projectAssembly, testCases))
+        List<ITestCase> runTestCases = DeserializeRunTestCases(projectAssembly);
+        try
         {
-            return "error: the combined xUnit selectors matched no discovered tests.";
+            if (!HasRunnableSelection(projectAssembly, testCases, runTestCases))
+            {
+                return "error: the combined xUnit selectors matched no runnable tests.";
+            }
+        }
+        finally
+        {
+            await DisposeTestCasesAsync(runTestCases);
         }
 
         return null;
@@ -101,22 +118,93 @@ internal static class ExplicitFilterGuard
 
     private static bool HasRunnableSelection(
         XunitProjectAssembly projectAssembly,
-        IReadOnlyList<(ITestCase TestCase, bool PassedFilter)> testCases)
+        IReadOnlyList<(ITestCase TestCase, bool PassedFilter)> testCases,
+        IReadOnlyList<ITestCase> runTestCases)
     {
-        if (projectAssembly.TestCasesToRun.Count > 0)
-        {
-            return true;
-        }
+        bool directSelection = projectAssembly.TestCasesToRun.Count > 0
+            || projectAssembly.TestCaseIDsToRun.Count > 0;
+        var selected = new List<ITestCase>(runTestCases);
 
         if (projectAssembly.TestCaseIDsToRun.Count > 0)
         {
-            return testCases.Any(testCase =>
-                testCase.PassedFilter
-                && projectAssembly.TestCaseIDsToRun.Contains(testCase.TestCase.UniqueID));
+            selected.AddRange(testCases
+                .Where(testCase =>
+                    testCase.PassedFilter
+                    && projectAssembly.TestCaseIDsToRun.Contains(testCase.TestCase.UniqueID))
+                .Select(testCase => testCase.TestCase));
+        }
+        else if (!directSelection)
+        {
+            selected.AddRange(testCases
+                .Where(testCase => testCase.PassedFilter)
+                .Select(testCase => testCase.TestCase));
         }
 
-        return testCases.Any(testCase => testCase.PassedFilter);
+        ExplicitOption explicitOption = projectAssembly.Configuration.ExplicitOptionOrDefault;
+        if (projectAssembly.AutoEnableExplicit
+            && directSelection
+            && selected.Count > 0
+            && selected.All(testCase => testCase.Explicit))
+        {
+            explicitOption = ExplicitOption.Only;
+        }
+
+        return selected.Any(testCase => IsRunnable(testCase, explicitOption));
     }
+
+    private static List<ITestCase> DeserializeRunTestCases(XunitProjectAssembly projectAssembly)
+    {
+        var result = new List<ITestCase>();
+        foreach (string serialization in projectAssembly.TestCasesToRun)
+        {
+            try
+            {
+                if (SerializationHelper.Instance.Deserialize(serialization) is ITestCase testCase)
+                {
+                    result.Add(testCase);
+                }
+            }
+            catch (Exception)
+            {
+                // Match the console runner: malformed serialized cases are not
+                // selections and are ignored when it builds the direct-run set.
+            }
+        }
+
+        return result;
+    }
+
+    private static async ValueTask DisposeTestCasesAsync(IEnumerable<ITestCase> testCases)
+    {
+        foreach (ITestCase testCase in testCases)
+        {
+            try
+            {
+                if (testCase is IAsyncDisposable asyncDisposable)
+                {
+                    await asyncDisposable.DisposeAsync();
+                }
+                else if (testCase is IDisposable disposable)
+                {
+                    disposable.Dispose();
+                }
+            }
+            catch (Exception)
+            {
+                // Preflight cleanup must not replace the real runner's
+                // execution, cleanup, reporting, or exit code.
+            }
+        }
+    }
+
+    private static bool IsRunnable(ITestCase testCase, ExplicitOption explicitOption)
+        => explicitOption switch
+        {
+            ExplicitOption.Off => !testCase.Explicit,
+            ExplicitOption.On => true,
+            ExplicitOption.Only => testCase.Explicit,
+            _ => false,
+        };
 
     private static bool Matches(
         string assemblyName,

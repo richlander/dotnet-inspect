@@ -57,6 +57,14 @@ public class ExplicitFilterGuardTests
         ProcessResult disjointId = await RunHostAsync(
             "-class", validClass,
             "-id", TestContext.Current.TestCase!.UniqueID);
+        ProcessResult invalidRun = await RunHostAsync(
+            "-class", validClass,
+            "-run", "definitely-not-a-serialized-test-case");
+        ProcessResult explicitOnly = await RunHostAsync(
+            "-class", "ILInspector.Decompiler.Tests.ExplicitFilterGuardTests",
+            "-explicit", "only");
+        ProcessResult malformedQuery = await RunHostAsync(
+            "-filter", "/((*)|(Foo))/*/*/*");
 
         Assert.True(
             valid.ExitCode == 0,
@@ -76,12 +84,25 @@ public class ExplicitFilterGuardTests
         Assert.DoesNotContain("TEST EXECUTION SUMMARY", missingQuery.Output);
 
         Assert.Equal(2, emptyIntersection.ExitCode);
-        Assert.Contains("combined xUnit selectors matched no discovered tests", emptyIntersection.Error);
+        Assert.Contains("combined xUnit selectors matched no runnable tests", emptyIntersection.Error);
         Assert.DoesNotContain("TEST EXECUTION SUMMARY", emptyIntersection.Output);
 
         Assert.Equal(2, disjointId.ExitCode);
-        Assert.Contains("combined xUnit selectors matched no discovered tests", disjointId.Error);
+        Assert.Contains("combined xUnit selectors matched no runnable tests", disjointId.Error);
         Assert.DoesNotContain("TEST EXECUTION SUMMARY", disjointId.Output);
+
+        Assert.Equal(2, invalidRun.ExitCode);
+        Assert.Contains("combined xUnit selectors matched no runnable tests", invalidRun.Error);
+        Assert.DoesNotContain("TEST EXECUTION SUMMARY", invalidRun.Output);
+
+        Assert.Equal(2, explicitOnly.ExitCode);
+        Assert.Contains("combined xUnit selectors matched no runnable tests", explicitOnly.Error);
+        Assert.DoesNotContain("TEST EXECUTION SUMMARY", explicitOnly.Output);
+
+        Assert.Equal(4, malformedQuery.ExitCode);
+        string malformedQueryDiagnostic = malformedQuery.Output + malformedQuery.Error;
+        Assert.Contains("Unexpected null filter", malformedQueryDiagnostic);
+        Assert.DoesNotContain("Unhandled exception", malformedQueryDiagnostic);
     }
 
     private static async Task<ProcessResult> RunHostAsync(params string[] arguments)
