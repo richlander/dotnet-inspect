@@ -219,6 +219,22 @@ public sealed class CSharpMemberLayoutTests
             Render(LongParseHead, "return JsonDocument.ParseValue(utf8Json, options).RootElement;", indent: 4, disableOneLinerWrapping: true));
 
     [Fact]
+    public void Append_DisableSignatureWrappingNamedArgument_RemainsAccepted()
+    {
+        var sb = new StringBuilder();
+        CSharpMemberLayout.Append(
+            sb,
+            LongParseHead,
+            "return JsonDocument.ParseValue(utf8Json, options).RootElement;",
+            4,
+            disableSignatureWrapping: true);
+
+        Assert.Equal(
+            "    " + LongParseHead + " => JsonDocument.ParseValue(utf8Json, options).RootElement;\n",
+            sb.ToString().Replace("\r\n", "\n"));
+    }
+
+    [Fact]
     public void Append_ShortSignature_StaysInline()
         => Assert.Equal(
             "    public int Add(int a, int b) => a + b;\n",
@@ -313,6 +329,25 @@ public sealed class CSharpMemberLayoutTests
                 "public void Log<T>() /* // mentions where U : class */ where T : class",
                 body: null,
                 indent: 4));
+
+    [Fact]
+    public void Append_QuoteInsideBlockComment_DoesNotHideInterpolatedStringDefault()
+    {
+        const string head =
+            """public void Log<T>(string text = /* " */ $"{Format(" where U : class")}") where T : class""";
+        Assert.Equal("    " + head + ";\n", Render(head, body: null, indent: 4));
+    }
+
+    [Fact]
+    public void Append_QuoteInsideBlockComment_DoesNotForceBroadConstraintFallback()
+    {
+        const string head =
+            """public void Log<T>(string text = /* " */ " where U : class") where T : class""";
+        Assert.Equal(
+            "    public void Log<T>(string text = /* \" */ \" where U : class\")\n"
+            + "        where T : class;\n",
+            Render(head, body: null, indent: 4));
+    }
 
     [Fact]
     public void Append_GenericConstraints_DisableOneLinerWrapping_StayInline()
@@ -419,6 +454,18 @@ public sealed class CSharpMemberLayoutTests
         string head = OverBudgetPrefix + "(string s = \"\"\"a,b\"\"\", int x = 0)";
         Assert.Equal("    " + head + ";\n", Render(head, body: null, indent: 4));
     }
+
+    [Fact]
+    public void Append_LongSignature_BlockCommentPunctuation_DoesNotBreakParameterWrapping()
+        => Assert.Equal(
+            "    " + OverBudgetPrefix + "(\n"
+            + "        int first /* ) , hidden separator */,\n"
+            + "        int second,\n"
+            + "        int third);\n",
+            Render(
+                OverBudgetPrefix + "(int first /* ) , hidden separator */, int second, int third)",
+                body: null,
+                indent: 4));
 
     [Fact]
     public void Append_LongSignature_ConventionalStringWithComma_WrapsWithoutSplittingLiteral()

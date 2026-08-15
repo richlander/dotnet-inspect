@@ -39,11 +39,17 @@ public static class CSharpMemberLayout
     /// single-line bodies stay on the
     /// <see cref="CSharpExpressionBody.FromSingleStatement"/> path.
     /// </param>
-    public static void Append(StringBuilder sb, string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false, bool disableOneLinerWrapping = false)
+    /// <param name="disableSignatureWrapping">
+    /// When <see langword="true"/>, suppresses the layout's one-line wrapping
+    /// decisions. The public parameter name is retained for source
+    /// compatibility with existing callers using the named argument.
+    /// </param>
+    public static void Append(StringBuilder sb, string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false, bool disableSignatureWrapping = false)
     {
         ArgumentNullException.ThrowIfNull(sb);
         ArgumentNullException.ThrowIfNull(head);
 
+        bool disableOneLinerWrapping = disableSignatureWrapping;
         string pad = new(' ', indent);
         if (body is null)
         {
@@ -177,17 +183,10 @@ public static class CSharpMemberLayout
         int angle = 0, paren = 0, bracket = 0, brace = 0;
         for (int i = 0; i + 7 <= head.Length; i++)
         {
+            if (TrySkipConventionalLiteralOrBlockComment(head, ref i))
+                continue;
+
             char c = head[i];
-            if (c is '"' or '\'')
-            {
-                i = SkipLiteral(head, i);
-                continue;
-            }
-            if (c == '/' && i + 1 < head.Length && head[i + 1] == '*')
-            {
-                i = SkipBlockComment(head, i);
-                continue;
-            }
             switch (c)
             {
                 case '<':
@@ -235,18 +234,14 @@ public static class CSharpMemberLayout
     {
         for (int i = 0; i + 1 < head.Length; i++)
         {
-            char c = head[i];
-            if (c is '"' or '\'')
-            {
-                i = SkipLiteral(head, i);
+            if (TrySkipConventionalLiteralOrBlockComment(head, ref i))
                 continue;
-            }
+
+            char c = head[i];
             if (c != '/')
                 continue;
             if (head[i + 1] == '/')
                 return true;
-            if (head[i + 1] == '*')
-                i = SkipBlockComment(head, i);
         }
         return false;
     }
@@ -302,12 +297,10 @@ public static class CSharpMemberLayout
         int angle = 0, bracket = 0, brace = 0;
         for (int i = 0; i < limit; i++)
         {
-            char c = head[i];
-            if (c is '"' or '\'')
-            {
-                i = SkipLiteral(head, i);
+            if (TrySkipConventionalLiteralOrBlockComment(head, ref i))
                 continue;
-            }
+
+            char c = head[i];
             switch (c)
             {
                 case '<': angle++; break;
@@ -356,12 +349,10 @@ public static class CSharpMemberLayout
         int segmentStart = start;
         for (int i = start; i < end; i++)
         {
-            char c = head[i];
-            if (c is '"' or '\'')
-            {
-                i = SkipLiteral(head, i);
+            if (TrySkipConventionalLiteralOrBlockComment(head, ref i))
                 continue;
-            }
+
+            char c = head[i];
             switch (c)
             {
                 case '<': angle++; break;
@@ -393,12 +384,10 @@ public static class CSharpMemberLayout
         int depth = 0;
         for (int i = open; i < head.Length; i++)
         {
-            char c = head[i];
-            if (c is '"' or '\'')
-            {
-                i = SkipLiteral(head, i);
+            if (TrySkipConventionalLiteralOrBlockComment(head, ref i))
                 continue;
-            }
+
+            char c = head[i];
             if (c == '(')
                 depth++;
             else if (c == ')' && --depth == 0)
@@ -413,12 +402,10 @@ public static class CSharpMemberLayout
         int angle = 0, paren = 0, bracket = 0, brace = 0;
         for (int i = 0; i + 7 <= head.Length; i++)
         {
-            char c = head[i];
-            if (c is '"' or '\'')
-            {
-                i = SkipLiteral(head, i);
+            if (TrySkipConventionalLiteralOrBlockComment(head, ref i))
                 continue;
-            }
+
+            char c = head[i];
             switch (c)
             {
                 case '<': angle++; break;
@@ -449,13 +436,17 @@ public static class CSharpMemberLayout
     /// these forms could be misread as a top-level separator. When any is present
     /// the caller declines to wrap and keeps the signature on one line — the safe
     /// fallback — rather than risk splitting inside a literal. Conventional
-    /// literals are skipped correctly during the scan so their contents never
-    /// trigger a false positive.
+    /// literals and block comments are skipped correctly during the scan so
+    /// their contents never trigger a false positive or hide a later unsupported
+    /// literal opener.
     /// </summary>
     static bool ContainsUnsupportedLiteral(string head)
     {
         for (int i = 0; i < head.Length; i++)
         {
+            if (TrySkipBlockComment(head, ref i))
+                continue;
+
             char c = head[i];
             if (c == '\'')
             {
@@ -464,14 +455,42 @@ public static class CSharpMemberLayout
             }
             if (c == '"')
             {
-                char prev = i > 0 ? head[i - 1] : '\0';
-                if (prev is '@' or '$')
-                    return true; // verbatim / interpolated (incl. $@" and @$")
-                if (i + 2 < head.Length && head[i + 1] == '"' && head[i + 2] == '"')
-                    return true; // raw string literal ("""…""")
+                if (IsUnsupportedLiteralStart(head, i))
+                    return true;
                 i = SkipLiteral(head, i);
             }
         }
+        return false;
+    }
+
+    static bool TrySkipConventionalLiteralOrBlockComment(string head, ref int i)
+    {
+        if (TrySkipBlockComment(head, ref i))
+            return true;
+
+        if (head[i] != '"' && head[i] != '\'')
+            return false;
+
+        i = SkipLiteral(head, i);
+        return true;
+    }
+
+    static bool TrySkipBlockComment(string head, ref int i)
+    {
+        if (head[i] != '/' || i + 1 >= head.Length || head[i + 1] != '*')
+            return false;
+
+        i = SkipBlockComment(head, i);
+        return true;
+    }
+
+    static bool IsUnsupportedLiteralStart(string head, int i)
+    {
+        char prev = i > 0 ? head[i - 1] : '\0';
+        if (prev is '@' or '$')
+            return true; // verbatim / interpolated (incl. $@" and @$")
+        if (i + 2 < head.Length && head[i + 1] == '"' && head[i + 2] == '"')
+            return true; // raw string literal ("""…""")
         return false;
     }
 
