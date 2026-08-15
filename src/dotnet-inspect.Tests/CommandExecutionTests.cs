@@ -20794,7 +20794,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiSectionCountRejectsTabularFormats()
+    public async Task Package_MultiSectionCountUsesTheReducedTableShape()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Package.MultiSectionCountFormat",
@@ -20825,21 +20825,28 @@ public partial class CommandExecutionTests
                 "--tsv",
                 "--count");
 
-            Assert.Equal(1, single.Exit);
-            Assert.Equal(1, multiple.Exit);
-            Assert.Equal(1, fixedOverview.Exit);
-            Assert.Empty(single.Output);
-            Assert.Empty(multiple.Output);
-            Assert.Empty(fixedOverview.Output);
-            Assert.Contains(
-                "--table, --tsv, and --jsonl display one section at a time",
-                single.Error);
-            Assert.Contains(
-                "--table, --tsv, and --jsonl display one section at a time",
-                multiple.Error);
-            Assert.Contains(
-                "--table, --tsv, and --jsonl display one section at a time",
-                fixedOverview.Error);
+            Assert.Equal(0, single.Exit);
+            Assert.Equal(0, multiple.Exit);
+            Assert.Equal(0, fixedOverview.Exit);
+            Assert.Empty(single.Error);
+            Assert.Empty(multiple.Error);
+            Assert.Empty(fixedOverview.Error);
+            Assert.All(
+                single.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries),
+                line =>
+                {
+                    using var row = JsonDocument.Parse(line);
+                    Assert.Equal(JsonValueKind.String, row.RootElement.GetProperty("section").ValueKind);
+                    Assert.Equal(JsonValueKind.Number, row.RootElement.GetProperty("count").ValueKind);
+                });
+            Assert.StartsWith(
+                "section\tcount\n",
+                multiple.Output.ReplaceLineEndings("\n"));
+            Assert.StartsWith(
+                "section\tcount\n",
+                fixedOverview.Output.ReplaceLineEndings("\n"));
         }
         finally
         {
