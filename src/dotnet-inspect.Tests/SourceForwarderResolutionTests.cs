@@ -5,6 +5,8 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
@@ -109,6 +111,36 @@ public class SourceForwarderResolutionTests
             Assert.True(type.IsForwarded);
             Assert.Equal(Path.GetFullPath(targetPath), type.SourceAssemblyPath);
             Assert.NotNull(type.DefinitionName);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ApiServices_TypedExtractionPreservesMetadataTokenOrigin()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string assemblyPath = Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(assemblyPath, BuildAssembly("Target"));
+            var catalog = ApiTypeSectionDescriptors.CreateCatalog();
+
+            ApiSurface api = Assert.IsType<ApiSurface>(
+                ApiServices.ExtractApiSurface(
+                    assemblyPath,
+                    includeAll: false,
+                    catalog.QueryRegistry,
+                    new HashSet<InspectionQueryDefinition>
+                    {
+                        ApiSurfaceQuery.Definition,
+                    },
+                    new VerboseLogger(enabled: false)));
+
+            ApiType type = Assert.Single(api.Types);
+            Assert.Equal(assemblyPath, type.SourceAssemblyPath);
         }
         finally
         {

@@ -217,13 +217,21 @@ internal static class ApiServices
         using var session = AssemblyInspectionSession.Open(assemblyPath);
         var context = new ApiSurfaceQueryContext(session, includeAll);
         var results = queryRegistry.Run(requestedQueries, context);
-        return results.Get(ApiSurfaceQuery.Definition) switch
+        var surface = results.Get(ApiSurfaceQuery.Definition) switch
         {
             ApiSurfaceResult.Available available => available.Surface,
             ApiSurfaceResult.Failed failed => LogFailure(failed.Error),
             _ => throw new InspectionQueryException(
                 "API surface query returned an unknown result."),
         };
+        if (surface != null)
+        {
+            // Metadata tokens are scoped to this image; this provenance prevents later body
+            // analysis from resolving them against a different implementation assembly.
+            foreach (var type in surface.Types)
+                type.SourceAssemblyPath = assemblyPath;
+        }
+        return surface;
 
         ApiSurface? LogFailure(Exception error)
         {

@@ -254,8 +254,31 @@ public class ApiCommand
         if (options.Print && !ValidateApiPrintSelection(sections))
             return false;
 
-        return OutputFormatResolver.ValidateSingleSectionForTabular(
-            options.TabularExplicitlySet, sections);
+        if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+                options.TabularExplicitlySet, sections))
+            return false;
+
+        return ValidateSingleTypeTabularPayload(options, sections);
+    }
+
+    private static bool ValidateSingleTypeTabularPayload(
+        TypeOptions options,
+        IReadOnlyCollection<string>? sections)
+    {
+        if (!options.TabularExplicitlySet || sections is not { Count: > 0 })
+            return true;
+
+        var schema = GetTypeDocumentSchema(options);
+        var sectionsWithoutRows = sections
+            .Where(section => schema.GetSection(section) is { Items.Length: 0 })
+            .ToArray();
+        if (sectionsWithoutRows.Length == 0)
+            return true;
+
+        CommandError.Write(
+            $"Section '{sectionsWithoutRows[0]}' has no row shape for --table, --tsv, or --jsonl.");
+        CommandError.WriteLine("Use --markdown for code or document sections.");
+        return false;
     }
 
     internal record PreambleResult(
@@ -274,6 +297,16 @@ public class ApiCommand
         bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
         bool typeNameIsGlob = hasTypeName && (options.TypeName!.Contains('*') || options.TypeName!.Contains('?'));
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
+        if (options is TypeOptions { Effective: true } && options.Discover == null)
+        {
+            CommandError.Write("--effective requires -D/--discover.");
+            return (null!, 1);
+        }
+        if (options is TypeOptions { Effective: true, Schema: true })
+        {
+            CommandError.Write("--effective cannot be combined with --schema.");
+            return (null!, 1);
+        }
         var knownSections = singleTypeMode ? memberPipeline.SelectableSectionNames : typePipeline.SelectableSectionNames;
         if (options is MemberOptions memberOptions
             && memberOptions.MemberFilter.Count == 0
@@ -285,8 +318,9 @@ public class ApiCommand
                 .ToArray();
         }
 
-        // Discovery mode: -D/--discover lists effective sections (resolves source) by
-        // default; --schema opts out to the cheap, offline static schema listing.
+        // Member retains effective-by-default discovery. Type follows the authored catalog model:
+        // named discovery is structural unless --effective is explicit, while bare -D continues
+        // below to perform the cheap target-aware orientation probe.
         if (options.Discover != null && !options.EffectiveDiscovery)
         {
             var schema = singleTypeMode

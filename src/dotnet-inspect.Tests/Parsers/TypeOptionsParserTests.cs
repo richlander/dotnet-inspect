@@ -48,6 +48,7 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
+        typeCommand.Options.Add(opts.Effective);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
         opts.AddOutputOptionsTo(typeCommand);
@@ -93,6 +94,22 @@ public class TypeOptionsParserTests
         {
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
         }
+    }
+
+    [Fact]
+    public async Task NamedDiscovery_RequiresEffectiveFlagForProducerExecution()
+    {
+        var bare = await ParseSuccessAsync(
+            "type", "JsonSerializer", "--package", "System.Text.Json", "-D");
+        var structural = await ParseSuccessAsync(
+            "type", "JsonSerializer", "--package", "System.Text.Json", "-D", "Called Types");
+        var effective = await ParseSuccessAsync(
+            "type", "JsonSerializer", "--package", "System.Text.Json",
+            "-D", "Called Types", "--effective");
+
+        Assert.True(bare.EffectiveDiscovery);
+        Assert.False(structural.EffectiveDiscovery);
+        Assert.True(effective.EffectiveDiscovery);
     }
 
     [Fact]

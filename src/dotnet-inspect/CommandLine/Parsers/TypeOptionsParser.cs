@@ -215,6 +215,7 @@ public static class TypeOptionsParser
             Rows = opts.ParseRows(parseResult),
             PerformanceTriage = performanceTriage,
             Schema = opts.ParseSchema(parseResult),
+            Effective = parseResult.GetValue(opts.Effective),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = sourceOptions

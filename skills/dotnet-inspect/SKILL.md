@@ -44,7 +44,7 @@ dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer.Serialize -S "Me
 ## Tips
 
 - `package` and `library` produce terse, token-efficient, high-value domain content by default. Output supports Markdown, tables, TSV, JSONL, and JSON; load `dotnet-inspect skill query` for discovery, selection, projection, and limits.
-- Type listings default to `API Info`; exact types default to `Type Info`. Use `-D` to see `@Surface` plus domain doors such as `@Analysis`, `@Performance`, `@Source`, and `@SourceLink`, then select a door with `-S`. Decompiled source uses readable synthesized local names when PDB names are unavailable.
+- Type listings default to `API Info`; exact types default to `Type Info`. Use `-D` to see `@Surface` plus domain doors such as `@Analysis`, `@Performance`, `@Source`, and `@SourceLink`; named discovery is structural, and `--effective` runs its producers. Select a door with `-S`. Decompiled source uses readable synthesized local names when PDB names are unavailable.
 - Add `--project <csproj|dir|project.assets.json>` when project-referenced packages should be in scope; it reads existing restored assets, so restore/build first if dependencies changed.
 - Common BCL types resolve without scope: `type string`, `type 'List<T>'`. Quote generics and patterns: `member 'Dictionary<TKey,TValue>'`, `-S "Async*"`.
 - Unpinned packages use latest stable; add `--preview` for prerelease APIs.

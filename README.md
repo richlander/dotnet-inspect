@@ -545,6 +545,8 @@ is a cheap target-aware catalog; add `--effective` for full probes. On either
 command, `-D --schema` reports the complete static graph without inspecting the
 target. Plain type discovery shows `@Surface` sections and authored domain
 doors; use `-D @Analysis`, `-D @Source`, or another door to inspect that domain.
+Named type discovery is structural; add `--effective` to run the selected
+domain's producers and report only evidence with data.
 Bare `-S` returns high-value, fixed-length, network-free base sections. A
 single `type Type` uses `Type Info`, a type listing uses `API Info`, broad
 `member Type` summaries use `Method Groups`, `member Type -m Name` uses

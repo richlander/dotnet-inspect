@@ -204,11 +204,16 @@ public partial record ApiOptions : IProjectionOptions
 
     /// <summary>
     /// True when discovery (-D) should resolve and load the source to report only the
-    /// sections/columns that actually have data (effective discovery). For type/member
-    /// queries this is the default; <c>--schema</c> opts out to the cheap, offline static
-    /// schema listing.
+    /// sections/columns that actually have data (effective discovery). Member retains its
+    /// effective-by-default behavior. Type requires <c>--effective</c> for named discovery;
+    /// bare type discovery remains the cheap target-aware orientation gesture.
     /// </summary>
-    public bool EffectiveDiscovery => Discover != null && !Schema;
+    public bool EffectiveDiscovery =>
+        Discover != null
+        && !Schema
+        && (this is not TypeOptions type
+            || type.Effective
+            || Discover.Length == 0);
 
     /// <summary>
     /// True when the user has opted into rich markdown output (via --markdown or -v:*).
@@ -255,6 +260,7 @@ public partial record ApiOptions
 public record TypeOptions : ApiOptions
 {
     public string? TypeFilter { get; init; }
+    public bool Effective { get; init; }
     internal int? MemberLimit { get; init; }
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }

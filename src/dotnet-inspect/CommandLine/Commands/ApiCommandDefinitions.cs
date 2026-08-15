@@ -96,6 +96,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
+        typeCommand.Options.Add(opts.Effective);
         opts.AddCountOptionTo(typeCommand);
         opts.AddPrintOptionTo(typeCommand);
         opts.AddShapeProjectionOptionsTo(typeCommand);

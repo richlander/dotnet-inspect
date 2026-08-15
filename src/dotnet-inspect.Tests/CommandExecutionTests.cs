@@ -3799,7 +3799,8 @@ public partial class CommandExecutionTests
         string typeName,
         params string[] extraArgs)
     {
-        string[] discoverArgs = ["type", typeName, .. extraArgs, "-D", SectionNames.TypeInfo];
+        string[] discoverArgs =
+            ["type", typeName, .. extraArgs, "-D", SectionNames.TypeInfo, "--effective"];
         string[] renderArgs = ["type", typeName, .. extraArgs, "-S", SectionNames.TypeInfo];
 
         var (discoverExit, discoverOutput, _) = await RunAppAsync(discoverArgs);
@@ -4085,7 +4086,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", nameof(OutputFormatterTests), "--library", TestAssemblyPath,
-            "-S", section, "-D", format, "--tips", "q");
+            "-S", section, "-D", "--effective", format, "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.NotEmpty(output);
@@ -4115,7 +4116,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.A", "--platform", "System.Runtime",
-            "-S", "Delegates", "-D", "--count", "--tips", "q");
+            "-S", "Delegates", "-D", "--effective", "--count", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.True(int.TryParse(output.Trim(), out var count), $"expected a bare count, got: {output}");
@@ -5597,6 +5598,66 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleType_StructuralCategoryDiscoveryDoesNotResolveSource()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}",
+            "missing.dll");
+
+        var (structuralExit, structuralOutput, structuralError) = await RunAppAsync(
+            "type", "System.String", "--library", missingAssembly,
+            "-D", "@Analysis", "--tips", "q");
+
+        Assert.Equal(0, structuralExit);
+        Assert.Contains("| Called Types | section |", structuralOutput);
+        Assert.Empty(structuralError);
+
+        var (effectiveExit, effectiveOutput, effectiveError) = await RunAppAsync(
+            "type", "System.String", "--library", missingAssembly,
+            "-D", "@Analysis", "--effective", "--tips", "q");
+
+        Assert.Equal(1, effectiveExit);
+        Assert.Empty(effectiveOutput);
+        Assert.NotEmpty(effectiveError);
+    }
+
+    [Theory]
+    [InlineData("--effective")]
+    [InlineData("-D", "--schema", "--effective")]
+    public async Task Type_EffectiveDiscoveryFlag_RequiresCompatibleDiscoveryGesture(
+        params string[] extraArgs)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            ["type", "System.String", "--platform", "System.Runtime", .. extraArgs, "--tips", "q"]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            extraArgs.Contains("--schema", StringComparer.Ordinal)
+                ? "--effective cannot be combined with --schema."
+                : "--effective requires -D/--discover.",
+            error);
+    }
+
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public async Task Type_SingleType_CodeOnlyCategoryRejectsRowFormats(string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.DayOfWeek", "--platform", "System.Runtime",
+            "-S", "@Source", format, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Section 'Decompiled Source' has no row shape for --table, --tsv, or --jsonl.",
+            error);
+    }
+
+    [Fact]
     public async Task Type_SingleType_SourceFilesSection_RendersTypeSourceUrls()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -5697,7 +5758,8 @@ public partial class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Custom Attributes"]
+            Discover = ["Custom Attributes"],
+            Effective = true
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -5715,7 +5777,8 @@ public partial class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Bogus"]
+            Discover = ["Bogus"],
+            Effective = true
         };
 
         var (exit, _, error) = await ConsoleCapture.RunAsync(
@@ -11532,7 +11595,8 @@ public partial class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Properties"]
+            Discover = ["Properties"],
+            Effective = true
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -11553,7 +11617,8 @@ public partial class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = ["Properties"]
+            Discover = ["Properties"],
+            Effective = true
         };
         var (exitMin, minOutput, _) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(minimal));
