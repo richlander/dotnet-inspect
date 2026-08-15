@@ -66,7 +66,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         return Definition(
             TypeRef.CoreLibrary,
             "System",
-            name,
+            [name],
             new TypeReferenceOrigin.IntrinsicCoreLibrary());
     }
 
@@ -95,11 +95,14 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : "";
             string ns = reader.GetString(root.Namespace);
-            string name = TypeDefinitionName(reader, chain);
             return Definition(
                 assembly,
                 ns,
-                name,
+                TypeNameSegments(
+                    reader,
+                    chain,
+                    static (metadata, item) =>
+                        metadata.GetTypeDefinition(item).Name),
                 new TypeReferenceOrigin.CurrentAssembly(),
                 FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
                 FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
@@ -134,7 +137,11 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             var chain = handles[..consumedNodes];
             var root = reader.GetTypeReference(chain[0]);
             string ns = reader.GetString(root.Namespace);
-            string name = TypeReferenceName(reader, chain);
+            ImmutableArray<string> segments = TypeNameSegments(
+                reader,
+                chain,
+                static (metadata, item) =>
+                    metadata.GetTypeReference(item).Name);
 
             if (terminal.Kind == HandleKind.AssemblyReference)
             {
@@ -144,7 +151,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 return Definition(
                     assembly.Name,
                     ns,
-                    name,
+                    segments,
                     new TypeReferenceOrigin.AssemblyReference(assembly),
                     FrameworkAssemblyKeys.IsFrameworkReference(reader, assemblyHandle),
                     FrameworkAssemblyKeys.IsAuthenticProtobufReference(reader, assemblyHandle));
@@ -173,7 +180,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             return Definition(
                 reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "",
                 ns,
-                name,
+                segments,
                 origin,
                 FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
                 FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
@@ -186,42 +193,16 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         }
     }
 
-    static string TypeDefinitionName(
-        MetadataReader reader,
-        ReadOnlySpan<TypeDefinitionHandle> handles)
-    {
-        string name = reader.GetString(
-            reader.GetTypeDefinition(handles[0]).Name);
-        for (int i = 1; i < handles.Length; i++)
-        {
-            name = string.Concat(
-                name,
-                "+",
-                reader.GetString(reader.GetTypeDefinition(handles[i]).Name));
-        }
-        return name;
-    }
-
-    static string TypeReferenceName(
-        MetadataReader reader,
-        ReadOnlySpan<TypeReferenceHandle> handles)
-    {
-        string name = reader.GetString(
-            reader.GetTypeReference(handles[0]).Name);
-        for (int i = 1; i < handles.Length; i++)
-        {
-            name = string.Concat(
-                name,
-                "+",
-                reader.GetString(reader.GetTypeReference(handles[i]).Name));
-        }
-        return name;
-    }
-
+    /// <summary>
+    /// Validates the structured name and returns the definition it names. The flattened
+    /// <c>+</c>-joined spelling is produced once, by the identity owner, from the already
+    /// validated segments — never by re-concatenating a growing prefix per nesting level, and
+    /// never before the name has passed its character budget.
+    /// </summary>
     static TypeRef Definition(
         string assembly,
         string ns,
-        string name,
+        ImmutableArray<string> segments,
         TypeReferenceOrigin origin,
         bool trustedFrameworkAssembly = true,
         bool trustedProtobufAssembly = true)
@@ -229,20 +210,34 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         MetadataTypeDefinitionNameResult result =
             MetadataTypeDefinitionName.Create(
                 ns,
-                [.. name.Split('+')]);
+                segments);
         if (result is not MetadataTypeDefinitionNameResult.Valid valid)
         {
+            MetadataTypeNameRejection rejection =
+                ((MetadataTypeDefinitionNameResult.Rejected)result).Rejection;
             return TypeRef.Unsupported(
-                "type-reference metadata name is invalid");
+                $"type-reference metadata name is invalid ({rejection.Kind})");
         }
 
         return TypeRef.Definition(
             assembly,
             ns,
-            name,
+            valid.Name.ToNestedMetadataName(),
             new ResolvableTypeReference(origin, valid.Name),
             trustedFrameworkAssembly,
             trustedProtobufAssembly);
+    }
+
+    static ImmutableArray<string> TypeNameSegments<THandle>(
+        MetadataReader reader,
+        ReadOnlySpan<THandle> chain,
+        Func<MetadataReader, THandle, StringHandle> getName)
+        where THandle : struct
+    {
+        var segments = ImmutableArray.CreateBuilder<string>(chain.Length);
+        foreach (THandle handle in chain)
+            segments.Add(reader.GetString(getName(reader, handle)));
+        return segments.MoveToImmutable();
     }
 
     public TypeRef GetTypeFromSpecification(MetadataReader reader, GenericScope genericContext, TypeSpecificationHandle handle, byte rawTypeKind)

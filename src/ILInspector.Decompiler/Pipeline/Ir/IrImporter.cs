@@ -132,7 +132,7 @@ public static class IrImporter
                 MethodImporter.Import(source, typeDefHandle, methodHandle),
                 CallerScope(reader, typeDef, method));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return CrashFunction(methodName, typeFullName, ex);
         }
@@ -229,7 +229,7 @@ public static class IrImporter
             return Build(source, MethodImporter.Import(source, typeDefHandle, methodHandle), CallerScope(reader, typeDef, method));
         }
 
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return reader is null
                 ? CrashFunction("<method>", "<type>", ex)
@@ -251,13 +251,13 @@ public static class IrImporter
     static string SafeName(MetadataReader reader, MethodDefinitionHandle handle)
     {
         try { return reader.GetString(reader.GetMethodDefinition(handle).Name); }
-        catch { return "<method>"; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return "<method>"; }
     }
 
     static string SafeTypeName(MetadataReader reader, MethodDefinitionHandle handle)
     {
         try { return reader.GetFullTypeName(reader.GetTypeDefinition(reader.GetMethodDefinition(handle).GetDeclaringType())); }
-        catch { return "<type>"; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return "<type>"; }
     }
 
     /// <summary>
@@ -324,7 +324,7 @@ public static class IrImporter
                         MethodImporter.Import(source, typeDefHandle, methodHandle),
                         CallerScope(reader, typeDef, method));
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
                     function = CrashFunction(memberName, typeName, ex);
                 }
@@ -352,7 +352,7 @@ public static class IrImporter
                     MethodImporter.Import(source, TypeDefHandle, MethodHandle),
                     IrImporter.CallerScope(source.Reader, typeDef, method));
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 return IrImporter.CrashFunction(MethodName, TypeName, ex);
             }
@@ -463,7 +463,7 @@ public static class IrImporter
                     MethodImporter.Import(source, candidate.TypeDefHandle, candidate.MethodHandle),
                     CallerScope(reader, typeDef, method));
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 function = CrashFunction(candidate.MethodName, candidate.TypeName, ex);
             }
@@ -533,7 +533,7 @@ public static class IrImporter
         var container = new BlockContainer();
         var function = new IrFunction(method.Name, method.DeclaringType, method.Signature, method.Body.Locals, container)
         {
-            AssemblyPath = source.Path,
+            AssemblyPath = source.FilePath,
             MetadataToken = method.MetadataToken,
             BaseType = source.ResolveBaseType(method.DeclaringType),
             MethodKind = ClassifyMethodKind(method.Name),
@@ -2726,7 +2726,7 @@ public static class IrImporter
                 return null;
             return block.GetContent(0, size).ToArray();
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return null;
         }
