@@ -93,6 +93,60 @@ public static class OperatorNames
         return parameterCount == expectedParameterCount;
     }
 
+    public static string? MetadataNameFromSourceToken(
+        string token,
+        int parameterCount,
+        bool isChecked)
+    {
+        string? suffix = token switch
+        {
+            "+" => parameterCount == 1 ? "UnaryPlus" : "Addition",
+            "-" => parameterCount == 1 ? "UnaryNegation" : "Subtraction",
+            "!" => "LogicalNot",
+            "~" => "OnesComplement",
+            "++" => parameterCount == 0 ? "IncrementAssignment" : "Increment",
+            "--" => parameterCount == 0 ? "DecrementAssignment" : "Decrement",
+            "true" => "True",
+            "false" => "False",
+            "*" => "Multiply",
+            "/" => "Division",
+            "%" => "Modulus",
+            "&" => "BitwiseAnd",
+            "|" => "BitwiseOr",
+            "^" => "ExclusiveOr",
+            "<<" => "LeftShift",
+            ">>" => "RightShift",
+            ">>>" => "UnsignedRightShift",
+            "==" => "Equality",
+            "!=" => "Inequality",
+            "<" => "LessThan",
+            ">" => "GreaterThan",
+            "<=" => "LessThanOrEqual",
+            ">=" => "GreaterThanOrEqual",
+            "+=" => "AdditionAssignment",
+            "-=" => "SubtractionAssignment",
+            "*=" => "MultiplicationAssignment",
+            "/=" => "DivisionAssignment",
+            "%=" => "ModulusAssignment",
+            "&=" => "BitwiseAndAssignment",
+            "|=" => "BitwiseOrAssignment",
+            "^=" => "ExclusiveOrAssignment",
+            "<<=" => "LeftShiftAssignment",
+            ">>=" => "RightShiftAssignment",
+            ">>>=" => "UnsignedRightShiftAssignment",
+            _ => null,
+        };
+        if (suffix is null
+            || isChecked
+                && MapBinaryOrUnary(suffix) is null
+                && MapCheckedAssignment(suffix) is null)
+        {
+            return null;
+        }
+
+        return isChecked ? $"op_Checked{suffix}" : $"op_{suffix}";
+    }
+
     /// <summary>
     /// Converts an IL operator method name to its C# display form.
     /// Non-operator names are returned unchanged.
@@ -235,6 +289,18 @@ public static class OperatorNames
             ? null
             : $"op_{inner}";
     }
+
+    /// <summary>
+    /// The declaration C# requires alongside <paramref name="methodName"/>:
+    /// equality/inequality's opposite or a checked operator's unchecked form.
+    /// </summary>
+    public static string? RequiredOperatorSibling(string methodName)
+        => methodName switch
+        {
+            "op_Equality" => "op_Inequality",
+            "op_Inequality" => "op_Equality",
+            _ => UncheckedOperator(methodName),
+        };
 
     /// <summary>
     /// The checked operator method name paired with an unchecked operator method

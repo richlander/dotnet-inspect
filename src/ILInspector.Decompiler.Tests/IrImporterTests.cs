@@ -6136,6 +6136,47 @@ public class EnumConstantTests
     }
 
     [Fact]
+    public void UnresolvedExactNameBigIntegerLookalikeConversion_RemainsMethodCall()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var declaring = TypeRef.Definition("System.Runtime.Numerics", "System.Numerics", "BigInteger");
+        var callee = new MethodRef(
+            declaring,
+            "op_Implicit",
+            declaring,
+            [intType],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Unknown,
+        };
+        var call = new Call(
+            callee,
+            isVirtual: false,
+            [new LoadArgument(0, "value", intType)]);
+        var block = new Block(0);
+        block.Add(new Return(call));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            declaring,
+            [],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            signature,
+            [],
+            container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains(".op_Implicit(value)", output);
+        Assert.DoesNotContain("(BigInteger)value", output);
+    }
+
+    [Fact]
     public void IsInstanceValueType_RendersAsIs()
     {
         // `isinst <valuetype>` is `obj is T`, not `obj as T`: `as` on a

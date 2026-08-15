@@ -638,6 +638,7 @@ public static class MemberIdentity
 
             {
                 Name: "op_Implicit",
+                DeclaringTypeIsTrustedPlatform: MetadataFactState.Yes,
                 DeclaringType: var declaringType,
                 ParameterTypes: [var value],
                 ReturnType: var returnType,

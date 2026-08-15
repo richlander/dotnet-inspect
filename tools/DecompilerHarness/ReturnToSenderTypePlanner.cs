@@ -938,8 +938,11 @@ public static class CompileBackSourceComposer
         void AddMethodFact(MethodRef method, bool allowTargetRoot = false)
         {
             AddSingleMethodFact(method, allowTargetRoot);
-            if (OperatorNames.UncheckedOperator(method.Name) is { } siblingName)
+            if (method.IsOperator == MetadataFactState.Yes
+                && OperatorNames.RequiredOperatorSibling(method.Name) is { } siblingName)
+            {
                 AddSingleMethodFact(method with { Name = siblingName }, allowTargetRoot);
+            }
         }
 
         void AddSingleMethodFact(MethodRef method, bool allowTargetRoot)
@@ -2899,15 +2902,9 @@ public static class CompileBackSourceComposer
             targetMembers.AddRange(TargetBackingFieldWriteMembers(reader, targetTypeDef, targetIdentity, function, allowStaticStores: true));
         if (!isConstructor
             && IsOperatorMethod(reader, method)
-            && EqualityOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } equalitySibling)
+            && RequiredOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } operatorSibling)
         {
-            targetMembers.Add(equalitySibling);
-        }
-        if (!isConstructor
-            && IsOperatorMethod(reader, method)
-            && CheckedOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } checkedOperatorSibling)
-        {
-            targetMembers.Add(checkedOperatorSibling);
+            targetMembers.Add(operatorSibling);
         }
         if (!isConstructor
             && TypedEqualsSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } typedEqualsSibling)
@@ -3207,19 +3204,14 @@ public static class CompileBackSourceComposer
     static string MethodReturnType(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
         => MetadataDeclarationQuery.GetMethodReturnType(reader, typeDef, method);
 
-    static CompileBackMemberRequirement? EqualityOperatorSibling(
+    static CompileBackMemberRequirement? RequiredOperatorSibling(
         MetadataReader reader,
         TypeDefinition typeDef,
         CompileBackTypeIdentity typeIdentity,
         string methodName,
         MethodSignature<string> targetSignature)
     {
-        var siblingName = methodName switch
-        {
-            "op_Equality" => "op_Inequality",
-            "op_Inequality" => "op_Equality",
-            _ => null,
-        };
+        var siblingName = OperatorNames.RequiredOperatorSibling(methodName);
         if (siblingName is null)
             return null;
 
@@ -3260,49 +3252,6 @@ public static class CompileBackSourceComposer
     static bool OperatorSignaturesMatch(MethodSignature<string> left, MethodSignature<string> right)
         => left.ReturnType == right.ReturnType
             && left.ParameterTypes.SequenceEqual(right.ParameterTypes, StringComparer.Ordinal);
-
-    static CompileBackMemberRequirement? CheckedOperatorSibling(
-        MetadataReader reader,
-        TypeDefinition typeDef,
-        CompileBackTypeIdentity typeIdentity,
-        string methodName,
-        MethodSignature<string> targetSignature)
-    {
-        var siblingName = OperatorNames.UncheckedOperator(methodName);
-        if (siblingName is null)
-            return null;
-
-        foreach (var methodHandle in typeDef.GetMethods())
-        {
-            var method = reader.GetMethodDefinition(methodHandle);
-            if (reader.GetString(method.Name) != siblingName
-                || !IsOperatorMethod(reader, method))
-                continue;
-
-            var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
-            if (!OperatorSignaturesMatch(targetSignature, signature))
-                continue;
-
-            return new CompileBackMemberRequirement(
-                new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
-                CompileBackMemberKind.Operator,
-                method.Attributes.HasFlag(MethodAttributes.Static),
-                MethodParameters(reader, method, signature),
-                CompileBackTypeSignature.Display(signature.ReturnType),
-                MethodTypeParameters(reader, method),
-                CompileBackStubBodyKind.Throw,
-                TargetBody: null,
-                [new CompileBackFact("metadata", "operator-pair-sibling", siblingName)],
-                MemberAttributes(reader, method.GetCustomAttributes()),
-                MethodReturnAttributes(reader, method),
-                IsAbstract: IsAbstractMethod(method),
-                IsVirtual: IsVirtualMethod(method),
-                IsOverride: false,
-                IsSealed: false);
-        }
-
-        return null;
-    }
 
     static bool IsRecordGeneratedFieldReadHelper(
         MetadataReader reader,

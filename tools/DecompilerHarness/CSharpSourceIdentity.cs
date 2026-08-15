@@ -396,36 +396,9 @@ internal sealed class CSharpSourceIdentityContext
             : $"return {expression};";
 
     static string OperatorMetadataName(OperatorDeclarationSyntax op)
-    {
-        string methodName = op.OperatorToken.Kind() switch
-        {
-            SyntaxKind.PlusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryPlus" : "op_Addition",
-            SyntaxKind.MinusToken => op.ParameterList.Parameters.Count == 1 ? "op_UnaryNegation" : "op_Subtraction",
-            SyntaxKind.ExclamationToken => "op_LogicalNot",
-            SyntaxKind.TildeToken => "op_OnesComplement",
-            SyntaxKind.PlusPlusToken => "op_Increment",
-            SyntaxKind.MinusMinusToken => "op_Decrement",
-            SyntaxKind.TrueKeyword => "op_True",
-            SyntaxKind.FalseKeyword => "op_False",
-            SyntaxKind.AsteriskToken => "op_Multiply",
-            SyntaxKind.SlashToken => "op_Division",
-            SyntaxKind.PercentToken => "op_Modulus",
-            SyntaxKind.AmpersandToken => "op_BitwiseAnd",
-            SyntaxKind.BarToken => "op_BitwiseOr",
-            SyntaxKind.CaretToken => "op_ExclusiveOr",
-            SyntaxKind.LessThanLessThanToken => "op_LeftShift",
-            SyntaxKind.GreaterThanGreaterThanToken => "op_RightShift",
-            SyntaxKind.GreaterThanGreaterThanGreaterThanToken => "op_UnsignedRightShift",
-            SyntaxKind.EqualsEqualsToken => "op_Equality",
-            SyntaxKind.ExclamationEqualsToken => "op_Inequality",
-            SyntaxKind.LessThanToken => "op_LessThan",
-            SyntaxKind.GreaterThanToken => "op_GreaterThan",
-            SyntaxKind.LessThanEqualsToken => "op_LessThanOrEqual",
-            SyntaxKind.GreaterThanEqualsToken => "op_GreaterThanOrEqual",
-            _ => op.OperatorToken.ValueText,
-        };
-        return op.CheckedKeyword.IsKind(SyntaxKind.CheckedKeyword)
-            ? $"op_Checked{methodName["op_".Length..]}"
-            : methodName;
-    }
+        => OperatorNames.MetadataNameFromSourceToken(
+            op.OperatorToken.ValueText,
+            op.ParameterList.Parameters.Count,
+            op.CheckedKeyword.IsKind(SyntaxKind.CheckedKeyword))
+            ?? op.OperatorToken.ValueText;
 }

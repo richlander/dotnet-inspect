@@ -3302,6 +3302,79 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ClosureIncludesCalledEqualityOperatorPair()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(Row left, Row right) => true;
+                public static bool operator !=(Row left, Row right) => false;
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+
+            public static class Consumer
+            {
+                public static bool Same(Row left, Row right) => left == right;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Same", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("operator ==(", result.Source, StringComparison.Ordinal);
+            Assert.Contains("operator !=(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ClosureDoesNotPairOrdinaryEqualityNamedMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class OrdinaryEqualityNames
+            {
+                public static bool op_Equality(OrdinaryEqualityNames left, OrdinaryEqualityNames right)
+                    => true;
+
+                public static bool op_Inequality(OrdinaryEqualityNames left, OrdinaryEqualityNames right)
+                    => false;
+            }
+
+            public static class Consumer
+            {
+                public static bool Same(OrdinaryEqualityNames left, OrdinaryEqualityNames right)
+                    => OrdinaryEqualityNames.op_Equality(left, right);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Same", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("bool op_Equality(", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("op_Inequality", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("operator !=", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_ExplicitInterfaceDefaultMethodFallsBackToPlainWithoutRecompileFail()
     {
         // Negative case (#3112, adversarial review): an explicit-interface implementation of a

@@ -187,4 +187,46 @@ public class OperatorNamesTests
         string input,
         string? expected)
         => Assert.Equal(expected, OperatorNames.CheckedOperator(input));
+
+    [Theory]
+    [InlineData("+", 1, false, "op_UnaryPlus")]
+    [InlineData("+", 2, true, "op_CheckedAddition")]
+    [InlineData("+=", 1, false, "op_AdditionAssignment")]
+    [InlineData("+=", 1, true, "op_CheckedAdditionAssignment")]
+    [InlineData("*=", 1, false, "op_MultiplicationAssignment")]
+    [InlineData("*=", 1, true, "op_CheckedMultiplicationAssignment")]
+    [InlineData("++", 1, false, "op_Increment")]
+    [InlineData("++", 0, false, "op_IncrementAssignment")]
+    [InlineData("++", 0, true, "op_CheckedIncrementAssignment")]
+    public void MetadataNameFromSourceToken_distinguishes_operator_shapes(
+        string token,
+        int parameterCount,
+        bool isChecked,
+        string expected)
+        => Assert.Equal(
+            expected,
+            OperatorNames.MetadataNameFromSourceToken(token, parameterCount, isChecked));
+
+    [Theory]
+    [InlineData("%=", 1, true)]
+    [InlineData("==", 2, true)]
+    [InlineData("future", 2, false)]
+    public void MetadataNameFromSourceToken_rejects_unknown_or_invalid_checked_shapes(
+        string token,
+        int parameterCount,
+        bool isChecked)
+        => Assert.Null(
+            OperatorNames.MetadataNameFromSourceToken(token, parameterCount, isChecked));
+
+    [Theory]
+    [InlineData("op_Equality", "op_Inequality")]
+    [InlineData("op_Inequality", "op_Equality")]
+    [InlineData("op_CheckedAddition", "op_Addition")]
+    [InlineData("op_CheckedAdditionAssignment", "op_AdditionAssignment")]
+    [InlineData("op_Addition", null)]
+    [InlineData("op_Custom", null)]
+    public void RequiredOperatorSibling_maps_only_language_required_pairs(
+        string input,
+        string? expected)
+        => Assert.Equal(expected, OperatorNames.RequiredOperatorSibling(input));
 }
