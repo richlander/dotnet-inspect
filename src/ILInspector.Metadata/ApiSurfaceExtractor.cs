@@ -373,8 +373,8 @@ public static class ApiSurfaceExtractor
                 continue;
             }
 
-            budget?.BeginType();
             var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
+            budget?.BeginType();
 
             var apiType = new ApiType
             {
