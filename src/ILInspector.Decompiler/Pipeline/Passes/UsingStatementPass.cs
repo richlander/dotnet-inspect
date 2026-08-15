@@ -165,8 +165,7 @@ public sealed class UsingStatementPass : IIrPass
     static bool HasSourceLocalName(IrFunction function, int index)
         => index >= 0
             && index < function.LocalNames.Length
-            && function.LocalNames[index] is { } name
-            && CSharpNaming.IsUsableIdentifier(name);
+            && function.LocalNames[index] is { Length: > 0 };
 
     static AwaitRegionMatch? TryMatchAwaitDisposeRegion(IReadOnlyList<IrNode> children, int i)
     {

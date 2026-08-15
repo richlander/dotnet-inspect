@@ -86,6 +86,21 @@ public class UsingStatementPassTests
     }
 
     [Fact]
+    public void KeywordNamedDisposedOnlyResource_PreservesPdbVariableDeclaration()
+    {
+        var function = Raised(nameof(CfgSampleClass.KeywordNamedDisposedOnlyUsingResource));
+
+        var usingStatement = Assert.Single(function.Descendants.OfType<UsingStatement>());
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal("class", function.LocalNames[usingStatement.LocalIndex]);
+        Assert.True(usingStatement.DeclaresResourceVariable);
+        Assert.DoesNotContain(usingStatement.LocalIndex, function.EliminatedLocalSlots);
+        Assert.Contains("using (IDisposable V_", output);
+        Assert.Contains(" = new SpanScope(0))", output);
+    }
+
+    [Fact]
     public void BoxedDisposedOnlyResource_PreservesResourceConversion()
     {
         var function = Raised(nameof(CfgSampleClass.BoxedDisposedOnlyUsingResource));

@@ -5128,6 +5128,16 @@ public class CfgSampleClass
         return n;
     }
 
+    // Portable PDB stores an escaped C# identifier without its `@`. Although
+    // the current printer falls back to V_n, that name still proves the source
+    // declared a resource variable and therefore vetoes expression-form elision.
+    public static int KeywordNamedDisposedOnlyUsingResource()
+    {
+        int n = 0;
+        using (System.IDisposable @class = new SpanScope(0)) { n = 1; }
+        return n;
+    }
+
     // The expression form deliberately converts a value type to IDisposable.
     // Eliding the compiler temp must preserve that boxing conversion rather than
     // changing the resource to value-type constrained disposal (#4113 review).
