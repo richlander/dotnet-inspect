@@ -393,13 +393,14 @@ retained-character total therefore remains unchanged while one wide signature,
 deeply nested generic head, high-rank array, default value, hidden signature, or
 attribute cannot allocate its complete amplified model before the check.
 Visibility probes use bounded blob readers rather than copying skipped
-attribute values. The Browser separately applies the same bound while deriving type/member
-transport records, including canonical signatures, documentation IDs, and graph
-selectors that repeat declaring-type identity. It preflights each source model
-before creating those derived strings, and collision-qualified IDs are created
-and charged before their participant commits. An assembly that would exceed either
-remaining retained-text budget is abandoned whole, and the Browser reports
-truncation rather than presenting a shortened surface as complete.
+attribute values. The Browser separately applies the same bound while deriving
+type/member transport records, including canonical signatures, documentation
+IDs, and graph selectors that repeat declaring-type identity. It preflights
+each source model before creating those derived strings, and
+collision-qualified IDs are created and charged before their participant
+commits. An assembly that would exceed either remaining retained-text budget is
+abandoned whole, and the Browser reports truncation rather than presenting a
+shortened surface as complete.
 `BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
 gates aggregate ownership and eviction; its oversized-role case gates
 pre-decoding rejection.
