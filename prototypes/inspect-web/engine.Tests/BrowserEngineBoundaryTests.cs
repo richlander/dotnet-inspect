@@ -621,6 +621,26 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(
             notice,
             BrowserSurfaceProjection.Notice(truncated.Assemblies.Assemblies, notice));
+
+        AssemblyContextApiSurfaceResult textTruncated = scope.UseSurface(group =>
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                new ApiSurfaceProjectionLimits(
+                    1,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    1)));
+        Assert.Equal(
+            ApiSurfaceProjectionLimit.RetainedTextCharacters,
+            textTruncated.Truncation!.Limit);
+        Assert.Contains(
+            "retained text character",
+            BrowserApiSurfacePolicy.TruncationNotice(textTruncated.Truncation),
+            StringComparison.Ordinal);
     }
 
     // A nested Outer+Inner and a type whose own metadata name is literally "Outer+Inner" share a

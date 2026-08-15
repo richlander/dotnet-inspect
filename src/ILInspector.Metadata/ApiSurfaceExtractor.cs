@@ -45,6 +45,9 @@ public enum ApiSurfaceExtractionBound
 
     /// <summary>The image contains more metadata rows than the caller allows the walk to inspect.</summary>
     MetadataRows,
+
+    /// <summary>The extraction would have retained more text than the caller allows.</summary>
+    RetainedTextCharacters,
 }
 
 /// <summary>
@@ -55,6 +58,9 @@ public enum ApiSurfaceExtractionBound
 /// a fixed output budget never materializes a surface larger than the budget it declared. Zero is
 /// a legal bound: it means "this extraction has no remaining budget", which is exactly what a
 /// caller spending one shared budget across several images has left when it is full.
+/// Retained text is the sum of the character lengths in every string-bearing model field. Two
+/// fields that reference the same string are charged separately because both fields survive into
+/// the projected object graph and serialized shape.
 /// </remarks>
 public sealed record ApiSurfaceExtractionBounds
 {
@@ -64,17 +70,36 @@ public sealed record ApiSurfaceExtractionBounds
         int maxInspectionFailures,
         int maxTypeForwarders,
         int maxMetadataRows)
+        : this(
+            maxTypes,
+            maxMembers,
+            maxInspectionFailures,
+            maxTypeForwarders,
+            maxMetadataRows,
+            int.MaxValue)
+    {
+    }
+
+    public ApiSurfaceExtractionBounds(
+        int maxTypes,
+        int maxMembers,
+        int maxInspectionFailures,
+        int maxTypeForwarders,
+        int maxMetadataRows,
+        int maxRetainedTextCharacters)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxTypes);
         ArgumentOutOfRangeException.ThrowIfNegative(maxMembers);
         ArgumentOutOfRangeException.ThrowIfNegative(maxInspectionFailures);
         ArgumentOutOfRangeException.ThrowIfNegative(maxTypeForwarders);
         ArgumentOutOfRangeException.ThrowIfNegative(maxMetadataRows);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxRetainedTextCharacters);
         MaxTypes = maxTypes;
         MaxMembers = maxMembers;
         MaxInspectionFailures = maxInspectionFailures;
         MaxTypeForwarders = maxTypeForwarders;
         MaxMetadataRows = maxMetadataRows;
+        MaxRetainedTextCharacters = maxRetainedTextCharacters;
     }
 
     /// <summary>The most types the extraction may retain.</summary>
@@ -91,6 +116,9 @@ public sealed record ApiSurfaceExtractionBounds
 
     /// <summary>The most metadata rows the extraction may inspect.</summary>
     public int MaxMetadataRows { get; }
+
+    /// <summary>The most text characters the extraction may retain across its model fields.</summary>
+    public int MaxRetainedTextCharacters { get; }
 }
 
 /// <summary>The outcome of one bounded API-surface extraction.</summary>
@@ -106,7 +134,10 @@ public abstract record ApiSurfaceExtractionResult
     }
 
     /// <summary>The image's whole surface fit the declared bounds.</summary>
-    public sealed record Extracted(ApiSurface Surface, int MetadataRows)
+    public sealed record Extracted(
+        ApiSurface Surface,
+        int MetadataRows,
+        int RetainedTextCharacters)
         : ApiSurfaceExtractionResult;
 
     /// <summary>
@@ -277,7 +308,8 @@ public static class ApiSurfaceExtractor
                 budget);
             return new ApiSurfaceExtractionResult.Extracted(
                 surface,
-                budget.MetadataRows);
+                budget.MetadataRows,
+                budget.RetainedTextCharacters);
         }
         catch (ExtractionBoundExceededException exceeded)
         {
@@ -307,558 +339,558 @@ public static class ApiSurfaceExtractor
             int publicFieldCount = surface.PublicFieldCount;
             try
             {
-            var typeDef = reader.GetTypeDefinition(typeDefHandle);
-            var attributes = typeDef.Attributes;
+                var typeDef = reader.GetTypeDefinition(typeDefHandle);
+                var attributes = typeDef.Attributes;
 
-            // Only include public types by default. --all (includeAll) also surfaces
-            // non-public types, including nested private/internal types, so ranking/triage rows
-            // that already surface non-public IL can be copied into type/member drill commands.
-            // Compiler-generated types are still skipped below regardless.
-            if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
-                continue;
-
-            string metadataName = reader.GetString(typeDef.Name);
-
-            // Skip compiler-generated types unless explicitly requested. The opt-in
-            // surfaces closure/display/state-machine types and their real fields so
-            // tooling (and compile-back reconstruction) can enumerate captured state.
-            if (TypeFilters.IsCompilerGenerated(metadataName) && !includeCompilerGenerated)
-                continue;
-
-            // Whether this type's members follow the include-all rules. Every member decision
-            // below reads this local, so the composed scope keeps a public type's public member
-            // list while a non-public type carries its complete one.
-            bool includeAll = scope == ApiSurfaceExtractionScope.IncludeAll
-                || (scope == ApiSurfaceExtractionScope.PublicWithNonPublicTypes
-                    && !typeDef.IsPublic);
-
-            // Skip EditorBrowsable(Never) and Obsolete types unless --all. A public type the
-            // extractor hides stays hidden in the composed scope too: it is suppressed, not
-            // demoted into the non-public bucket with an include-all member list.
-            if (!includeAll
-                && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
-            {
-                continue;
-            }
-
-            var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
-            budget?.BeginType();
-
-            var apiType = new ApiType
-            {
-                Namespace = typeNamespace,
-                Name = typeName,
-                MetadataName = GetMetadataName(reader, typeDefHandle),
-                DefinitionName =
-                    MetadataTypeDefinitionNameReader.Read(
-                        reader,
-                        typeDefHandle)
-                    is MetadataTypeDefinitionNameReadResult.Read read
-                        ? read.Name
-                        : null,
-                Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
-                IsSealed = (attributes & TypeAttributes.Sealed) != 0,
-                IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
-                Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
-            };
-
-            // Determine kind
-            if ((attributes & TypeAttributes.Interface) != 0)
-            {
-                apiType.Kind = "interface";
-            }
-            else if (!typeDef.BaseType.IsNil)
-            {
-                string baseTypeName = ResolveRequiredTypeName(
-                    reader,
-                    typeDef.BaseType);
-                apiType.BaseType = ApplyDynamicView(
-                    reader,
-                    typeDef.BaseType,
-                    typeDef.GetCustomAttributes(),
-                    GenericContext.ForType(reader, typeDef),
-                    baseTypeName);
-
-                apiType.Kind = baseTypeName switch
-                {
-                    "System.Enum" => "enum",
-                    "System.ValueType" => "struct",
-                    "System.Delegate" or "System.MulticastDelegate" => "delegate",
-                    _ => "class"
-                };
-            }
-            else
-            {
-                apiType.Kind = "class";
-            }
-
-            apiType.IsStatic = apiType.IsSealed && apiType.IsAbstract;
-
-            // The ref struct / readonly struct modifiers. Their [IsByRefLike] /
-            // [IsReadOnly] attributes are compiler-synthesized from syntax and so
-            // suppressed from the attribute list (AttributeReader.IsReEmitted), so
-            // the modifier is reconstructed here from the still-present attribute.
-            if (apiType.Kind == "struct")
-            {
-                var typeAttributes = typeDef.GetCustomAttributes();
-                apiType.IsByRefLike = AttributeReader.HasAttribute(reader, typeAttributes, KnownAttributeNames.IsByRefLikeAttribute);
-                apiType.IsReadOnly = AttributeReader.HasAttribute(reader, typeAttributes, KnownAttributeNames.IsReadOnlyAttribute);
-            }
-
-            // Check if this is an extension class (static class with [Extension] attribute)
-            bool isExtensionClass = apiType.IsStatic && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes());
-
-            // Nullability context for annotated signatures
-            byte typeNullableContext = NullabilityReader.GetTypeNullableContext(reader, typeDefHandle);
-
-            // Get type's generic context for resolving interface type parameters
-            var typeContext = GenericContext.ForType(reader, typeDef);
-
-            apiType.TypeParameters = GenericParameters(reader, typeDef.GetGenericParameters(), typeContext, typeNullableContext, includeVariance: true);
-
-            // Get interfaces
-            var interfaces = typeDef.GetInterfaceImplementations();
-            if (interfaces.Count > 0)
-            {
-                apiType.Interfaces = [];
-                foreach (var ifaceHandle in interfaces)
-                {
-                    var iface = reader.GetInterfaceImplementation(ifaceHandle);
-                    string ifaceName = ResolveRequiredTypeName(
-                        reader,
-                        iface.Interface,
-                        typeContext);
-                    ifaceName = ApplyDynamicView(
-                        reader,
-                        iface.Interface,
-                        iface.GetCustomAttributes(),
-                        typeContext,
-                        ifaceName);
-                    apiType.Interfaces.Add(ifaceName);
-                }
-            }
-
-            // Get members (public only, or all when includeAll)
-            if (!typesOnly)
-            {
-            apiType.Members = [];
-
-            var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
-
-            // Methods whose explicit `.override` MethodImpl targets
-            // `System.Object::Finalize` — i.e. genuine class finalizers, the
-            // slot the C# `~Type()` destructor compiles to.
-            var objectFinalizeOverrides = GetObjectFinalizeOverrides(reader, typeDef);
-
-            // Methods
-            foreach (var methodHandle in typeDef.GetMethods())
-            {
-                var method = reader.GetMethodDefinition(methodHandle);
-                var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-                var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
-                if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
+                // Only include public types by default. --all (includeAll) also surfaces
+                // non-public types, including nested private/internal types, so ranking/triage rows
+                // that already surface non-public IL can be copied into type/member drill commands.
+                // Compiler-generated types are still skipped below regardless.
+                if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
                     continue;
 
-                string methodName = reader.GetString(method.Name);
+                string metadataName = reader.GetString(typeDef.Name);
 
-                // Skip property accessors and event accessors
-                if (methodName.StartsWith("get_") || methodName.StartsWith("set_") ||
-                    methodName.StartsWith("add_") || methodName.StartsWith("remove_"))
+                // Skip compiler-generated types unless explicitly requested. The opt-in
+                // surfaces closure/display/state-machine types and their real fields so
+                // tooling (and compile-back reconstruction) can enumerate captured state.
+                if (TypeFilters.IsCompilerGenerated(metadataName) && !includeCompilerGenerated)
                     continue;
 
-                // Skip compiler-generated methods (lambdas, state machines, etc.)
-                if (methodName.StartsWith("<"))
-                    continue;
+                // Whether this type's members follow the include-all rules. Every member decision
+                // below reads this local, so the composed scope keeps a public type's public member
+                // list while a non-public type carries its complete one.
+                bool includeAll = scope == ApiSurfaceExtractionScope.IncludeAll
+                    || (scope == ApiSurfaceExtractionScope.PublicWithNonPublicTypes
+                        && !typeDef.IsPublic);
 
-                // Skip EditorBrowsable(Never) methods unless --all; obsolete are surfaced with marker.
+                // Skip EditorBrowsable(Never) and Obsolete types unless --all. A public type the
+                // extractor hides stays hidden in the composed scope too: it is suppressed, not
+                // demoted into the non-public bucket with an include-all member list.
                 if (!includeAll
-                    && !isExplicitInterfaceImplementation
-                    && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
+                    && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
+                {
                     continue;
-
-                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, method.GetCustomAttributes(), out var obsoleteMessage);
-
-                var signature = GetMethodSignature(reader, typeDef, method, typeNullableContext);
-                var isOperator = IsOperatorMethodName(methodName);
-                var methodAttributes = method.Attributes;
-                var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
-                var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
-                var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
-
-                // A class finalizer is the `object.Finalize` override the C#
-                // `~Type()` destructor compiles to. It is detected by the
-                // overridden slot (not by name/signature shape), which excludes
-                // the false positives a shape heuristic admits: an implicit
-                // generic `Finalize<T>()`, an override of an unrelated
-                // base/interface `Finalize()` slot, and an explicit
-                // `IFoo.Finalize()` implementation. There are two slot-anchored
-                // shapes:
-                //   * Roslyn (C#) emits an explicit `.override` MethodImpl
-                //     targeting `System.Object::Finalize`; `objectFinalizeOverrides`
-                //     carries those.
-                //   * The VB.NET compiler emits `Protected Overrides Sub Finalize()`
-                //     with NO MethodImpl — it reuses the inherited object.Finalize
-                //     slot implicitly; `IsImplicitObjectFinalizeOverride` proves
-                //     that slot roots at `System.Object` over metadata alone.
-                // A finalizer is never generic, so a method that overrides
-                // object.Finalize while declaring its own type parameters is still
-                // rejected — rendering it `~Type()` would erase `<T>`.
-                var isFinalizer = apiType.Kind == "class"
-                    && method.GetGenericParameters().Count == 0
-                    && (objectFinalizeOverrides.Contains(methodHandle)
-                        || IsImplicitObjectFinalizeOverride(reader, typeDefHandle, method));
-
-                var member = new ApiMember
-                {
-                    Name = methodName,
-                    Kind = methodName switch
-                    {
-                        ".ctor" => "constructor",
-                        _ when isOperator => "operator",
-                        // A finalizer compiles to a `Finalize` method carrying an
-                        // explicit `.override System.Object::Finalize` MethodImpl,
-                        // so it also lands in `explicitImplementationBodies`. Classify
-                        // it as its own kind before the explicit-interface arm so it
-                        // is not filed under Explicit Interface Implementations; the
-                        // MethodImpl still (correctly) suppresses its accessibility.
-                        _ when isFinalizer => "finalizer",
-                        _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
-                        _ => "method"
-                    },
-                    IsStatic = (methodAttributes & MethodAttributes.Static) != 0,
-                    IsVirtual = isVirtual,
-                    IsAbstract = (methodAttributes & MethodAttributes.Abstract) != 0,
-                    IsOverride = isOverride,
-                    IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
-                    IsFinalizer = isFinalizer,
-                    Signature = signature.Text,
-                    SignatureModel = signature.Model,
-                    SignatureDecodeStatus = signature.IsDegraded
-                        ? SignatureDecodeStatus.Degraded
-                        : null,
-                    // Conversion operators overload on return type. SignatureModel is
-                    // [JsonIgnore], so persist the return type on the serialized member
-                    // too, letting the canonical-signature fallback disambiguate them on a
-                    // round-tripped ApiSurface (where SignatureModel is gone).
-                    ReturnType = ApiMemberIdentity.IsConversionOperator(methodName) ? signature.Model?.ReturnType : null,
-                    MetadataToken = MetadataTokens.GetToken(methodHandle),
-                    IsUnsafe = HasUnsafeSignature(signature.Text)
-                        || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
-                    Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
-                    IsObsolete = isObsolete,
-                    ObsoleteMessage = obsoleteMessage,
-                    Attributes = RenderMemberAttributes(reader, method.GetCustomAttributes())
-                };
-
-                // Check for extension method
-                if (isExtensionClass && member.IsStatic && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes()))
-                {
-                    member.IsExtension = true;
-                    member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
-                    member.DeclaringType = apiType.FullName;
                 }
 
-                budget?.RetainMember();
-                apiType.Members.Add(member);
-                surface.PublicMethodCount++;
-            }
+                budget?.BeginType();
+                var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
 
-            // Properties
-            foreach (var propHandle in typeDef.GetProperties())
-            {
-                var prop = reader.GetPropertyDefinition(propHandle);
-                var accessors = prop.GetAccessors();
-
-                // Determine best accessor visibility
-                MethodAttributes bestAccess = 0;
-                bool isStaticProperty = false;
-                bool isVirtualProperty = false;
-                bool isAbstractProperty = false;
-                bool isOverrideProperty = false;
-                bool isSealedProperty = false;
-                if (!accessors.Getter.IsNil)
+                var apiType = new ApiType
                 {
-                    var getter = reader.GetMethodDefinition(accessors.Getter);
-                    var getterAttributes = getter.Attributes;
-                    bestAccess = getter.Attributes & MethodAttributes.MemberAccessMask;
-                    isStaticProperty = (getterAttributes & MethodAttributes.Static) != 0;
-                    isVirtualProperty = (getterAttributes & MethodAttributes.Virtual) != 0;
-                    isAbstractProperty = (getterAttributes & MethodAttributes.Abstract) != 0;
-                    isOverrideProperty = isVirtualProperty && (getterAttributes & MethodAttributes.NewSlot) == 0;
-                    isSealedProperty = isOverrideProperty && (getterAttributes & MethodAttributes.Final) != 0;
-                }
-                if (!accessors.Setter.IsNil)
-                {
-                    var setter = reader.GetMethodDefinition(accessors.Setter);
-                    var setterAttributes = setter.Attributes;
-                    var setterAccess = setterAttributes & MethodAttributes.MemberAccessMask;
-                    if (setterAccess > bestAccess)
-                        bestAccess = setterAccess;
-                    var setterVirtual = (setterAttributes & MethodAttributes.Virtual) != 0;
-                    var setterOverride = setterVirtual && (setterAttributes & MethodAttributes.NewSlot) == 0;
-                    isStaticProperty |= (setterAttributes & MethodAttributes.Static) != 0;
-                    isVirtualProperty |= setterVirtual;
-                    isAbstractProperty |= (setterAttributes & MethodAttributes.Abstract) != 0;
-                    isOverrideProperty |= setterOverride;
-                    isSealedProperty |= setterOverride && (setterAttributes & MethodAttributes.Final) != 0;
-                }
-
-                bool isPublicProp = bestAccess == MethodAttributes.Public;
-                if (!isPublicProp && !includeAll)
-                    continue;
-
-                // Skip EditorBrowsable(Never) properties unless --all; obsolete are surfaced with marker.
-                if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, prop.GetCustomAttributes()))
-                    continue;
-
-                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, prop.GetCustomAttributes(), out var obsoleteMessage);
-
-                var propertySignature = GetPropertySignature(reader, typeDef, prop, accessors, typeNullableContext, includeAll);
-                var member = new ApiMember
-                {
-                    Name = reader.GetString(prop.Name),
-                    Kind = "property",
-                    Signature = propertySignature.Text,
-                    SignatureModel = propertySignature.Model,
-                    SignatureDecodeStatus = propertySignature.IsDegraded
-                        ? SignatureDecodeStatus.Degraded
-                        : null,
-                    IsStatic = isStaticProperty,
-                    IsVirtual = isVirtualProperty,
-                    IsAbstract = isAbstractProperty,
-                    IsOverride = isOverrideProperty,
-                    IsSealed = isSealedProperty,
-                    IsUnsafe = HasUnsafeSignature(propertySignature.Text),
-                    Accessibility = GetAccessibility(bestAccess),
-                    IsObsolete = isObsolete,
-                    ObsoleteMessage = obsoleteMessage,
-                    Attributes = RenderMemberAttributes(reader, prop.GetCustomAttributes()),
-                    GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
-                    SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
-                };
-
-                budget?.RetainMember();
-                apiType.Members.Add(member);
-                surface.PublicPropertyCount++;
-            }
-
-            // Fields (non-backing fields; non-public included with --all)
-            bool isEnum = apiType.Kind == "enum";
-
-            // A C# field-like event's compiler-generated backing field is private, is itself
-            // marked [CompilerGenerated], and shares the event's exact (unmangled) name. That
-            // pre-scan and the per-field fold below are factored into shared helpers so
-            // API-surface extraction and compile-back reconstruction agree on the fold.
-            var fieldLikeEventBackingFieldNames = FieldLikeEventBackingFieldNames(reader, typeDef);
-            var autoPropertyBackingFields = AutoPropertyBackingFieldDescriptors(reader, typeDef, typeContext);
-
-            foreach (var fieldHandle in typeDef.GetFields())
-            {
-                var field = reader.GetFieldDefinition(fieldHandle);
-                var fieldAccess = field.Attributes & FieldAttributes.FieldAccessMask;
-                if (fieldAccess != FieldAttributes.Public && !includeAll)
-                    continue;
-
-                string fieldName = reader.GetString(field.Name);
-                if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
-                    continue; // Skip compiler-generated (<...>) fields unless opted in
-
-                if (IsAutoPropertyBackingField(reader, field, fieldName, autoPropertyBackingFields, typeContext))
-                    continue; // Skip a synthesized auto-property backing field (re-synthesized on reconstruction)
-
-                if (IsFieldLikeEventBackingField(reader, field, fieldName, fieldLikeEventBackingFieldNames))
-                    continue; // Skip a field-like event's private, compiler-generated backing field
-
-                // Skip EditorBrowsable(Never) fields unless --all; obsolete are surfaced with marker.
-                if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
-                    continue;
-
-                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, field.GetCustomAttributes(), out var obsoleteMessage);
-
-                // Decode field type. For enums the special value__ field carries
-                // the underlying type; literal fields are constants, not fields in
-                // source, so they do not need a field declaration type.
-                string? fieldType = null;
-                bool fieldSignatureDegraded = false;
-                if (isEnum)
-                {
-                    if (fieldName == "value__")
-                        apiType.EnumUnderlyingType = DecodeFieldType(
+                    Namespace = typeNamespace,
+                    Name = typeName,
+                    MetadataName = GetMetadataName(reader, typeDefHandle),
+                    DefinitionName =
+                        MetadataTypeDefinitionNameReader.Read(
                             reader,
-                            typeDef,
-                            field,
-                            typeNullableContext).Text;
+                            typeDefHandle)
+                        is MetadataTypeDefinitionNameReadResult.Read read
+                            ? read.Name
+                            : null,
+                    Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
+                    IsSealed = (attributes & TypeAttributes.Sealed) != 0,
+                    IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
+                    Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
+                };
+
+                // Determine kind
+                if ((attributes & TypeAttributes.Interface) != 0)
+                {
+                    apiType.Kind = "interface";
+                }
+                else if (!typeDef.BaseType.IsNil)
+                {
+                    string baseTypeName = ResolveRequiredTypeName(
+                        reader,
+                        typeDef.BaseType);
+                    apiType.BaseType = ApplyDynamicView(
+                        reader,
+                        typeDef.BaseType,
+                        typeDef.GetCustomAttributes(),
+                        GenericContext.ForType(reader, typeDef),
+                        baseTypeName);
+
+                    apiType.Kind = baseTypeName switch
+                    {
+                        "System.Enum" => "enum",
+                        "System.ValueType" => "struct",
+                        "System.Delegate" or "System.MulticastDelegate" => "delegate",
+                        _ => "class"
+                    };
                 }
                 else
                 {
-                    (fieldType, fieldSignatureDegraded) = DecodeFieldType(
-                        reader,
-                        typeDef,
-                        field,
-                        typeNullableContext);
+                    apiType.Kind = "class";
                 }
 
-                var member = new ApiMember
-                {
-                    Name = fieldName,
-                    Kind = "field",
-                    ReturnType = fieldType,
-                    SignatureModel = fieldType is null ? null : new ApiSignature
-                    {
-                        ReturnType = fieldType,
-                        MemberName = fieldName
-                    },
-                    SignatureDecodeStatus = fieldSignatureDegraded
-                        ? SignatureDecodeStatus.Degraded
-                        : null,
-                    IsStatic = (field.Attributes & FieldAttributes.Static) != 0,
-                    IsReadOnly = (field.Attributes & FieldAttributes.InitOnly) != 0,
-                    IsConst = (field.Attributes & FieldAttributes.Literal) != 0,
-                    Accessibility = GetFieldAccessibility(fieldAccess),
-                    IsObsolete = isObsolete,
-                    ObsoleteMessage = obsoleteMessage,
-                    Attributes = RenderMemberAttributes(reader, field.GetCustomAttributes())
-                };
+                apiType.IsStatic = apiType.IsSealed && apiType.IsAbstract;
 
-                // Read enum constant value
-                if (isEnum && (field.Attributes & FieldAttributes.Literal) != 0)
+                // The ref struct / readonly struct modifiers. Their [IsByRefLike] /
+                // [IsReadOnly] attributes are compiler-synthesized from syntax and so
+                // suppressed from the attribute list (AttributeReader.IsReEmitted), so
+                // the modifier is reconstructed here from the still-present attribute.
+                if (apiType.Kind == "struct")
                 {
-                    var constantHandle = field.GetDefaultValue();
-                    if (!constantHandle.IsNil)
+                    var typeAttributes = typeDef.GetCustomAttributes();
+                    apiType.IsByRefLike = AttributeReader.HasAttribute(reader, typeAttributes, KnownAttributeNames.IsByRefLikeAttribute);
+                    apiType.IsReadOnly = AttributeReader.HasAttribute(reader, typeAttributes, KnownAttributeNames.IsReadOnlyAttribute);
+                }
+
+                // Check if this is an extension class (static class with [Extension] attribute)
+                bool isExtensionClass = apiType.IsStatic && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes());
+
+                // Nullability context for annotated signatures
+                byte typeNullableContext = NullabilityReader.GetTypeNullableContext(reader, typeDefHandle);
+
+                // Get type's generic context for resolving interface type parameters
+                var typeContext = GenericContext.ForType(reader, typeDef);
+
+                apiType.TypeParameters = GenericParameters(reader, typeDef.GetGenericParameters(), typeContext, typeNullableContext, includeVariance: true);
+
+                // Get interfaces
+                var interfaces = typeDef.GetInterfaceImplementations();
+                if (interfaces.Count > 0)
+                {
+                    apiType.Interfaces = [];
+                    foreach (var ifaceHandle in interfaces)
                     {
-                        var constant = reader.GetConstant(constantHandle);
-                        var blob = reader.GetBlobReader(constant.Value);
-                        member.EnumValue = constant.TypeCode switch
-                        {
-                            ConstantTypeCode.SByte => blob.ReadSByte(),
-                            ConstantTypeCode.Byte => blob.ReadByte(),
-                            ConstantTypeCode.Int16 => blob.ReadInt16(),
-                            ConstantTypeCode.UInt16 => blob.ReadUInt16(),
-                            ConstantTypeCode.Int32 => blob.ReadInt32(),
-                            ConstantTypeCode.UInt32 => blob.ReadUInt32(),
-                            ConstantTypeCode.Int64 => blob.ReadInt64(),
-                            ConstantTypeCode.UInt64 => (long)blob.ReadUInt64(),
-                            _ => null
-                        };
-                        blob = reader.GetBlobReader(constant.Value);
-                        member.EnumValueLiteral = constant.TypeCode switch
-                        {
-                            ConstantTypeCode.SByte => blob.ReadSByte().ToString(CultureInfo.InvariantCulture),
-                            ConstantTypeCode.Byte => blob.ReadByte().ToString(CultureInfo.InvariantCulture),
-                            ConstantTypeCode.Int16 => blob.ReadInt16().ToString(CultureInfo.InvariantCulture),
-                            ConstantTypeCode.UInt16 => blob.ReadUInt16().ToString(CultureInfo.InvariantCulture),
-                            ConstantTypeCode.Int32 => blob.ReadInt32().ToString(CultureInfo.InvariantCulture),
-                            ConstantTypeCode.UInt32 => blob.ReadUInt32().ToString(CultureInfo.InvariantCulture),
-                            ConstantTypeCode.Int64 => blob.ReadInt64().ToString(CultureInfo.InvariantCulture),
-                            ConstantTypeCode.UInt64 => blob.ReadUInt64().ToString(CultureInfo.InvariantCulture),
-                            _ => null
-                        };
+                        var iface = reader.GetInterfaceImplementation(ifaceHandle);
+                        string ifaceName = ResolveRequiredTypeName(
+                            reader,
+                            iface.Interface,
+                            typeContext);
+                        ifaceName = ApplyDynamicView(
+                            reader,
+                            iface.Interface,
+                            iface.GetCustomAttributes(),
+                            typeContext,
+                            ifaceName);
+                        apiType.Interfaces.Add(ifaceName);
                     }
                 }
 
-                budget?.RetainMember();
-                apiType.Members.Add(member);
-                surface.PublicFieldCount++;
-            }
-
-            // Events
-            foreach (var eventHandle in typeDef.GetEvents())
-            {
-                var evt = reader.GetEventDefinition(eventHandle);
-                var accessors = evt.GetAccessors();
-
-                // Check if adder exists
-                if (accessors.Adder.IsNil)
-                    continue;
-
-                var adder = reader.GetMethodDefinition(accessors.Adder);
-                var adderAccess = adder.Attributes & MethodAttributes.MemberAccessMask;
-                if (adderAccess != MethodAttributes.Public && !includeAll)
-                    continue;
-
-                // Skip EditorBrowsable(Never) events unless --all; obsolete are surfaced with marker.
-                if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, evt.GetCustomAttributes()))
-                    continue;
-
-                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, evt.GetCustomAttributes(), out var obsoleteMessage);
-                var eventType = ResolveRequiredTypeName(
-                    reader,
-                    evt.Type,
-                    GenericContext.ForType(reader, typeDef));
-                var eventNullableBytes = NullabilityReader.GetNullableBytes(reader, evt.GetCustomAttributes());
-                eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(reader, adder.GetParameters(), 1);
-                if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
-                    eventType += "?";
-                // A `dynamic` event handler (e.g. EventHandler<dynamic>) or a
-                // named-tuple handler (EventHandler<(int a, int b)>) is always a
-                // generic instantiation, so re-decode the TypeSpec through the
-                // TypeNode tree to recover the dynamic / tuple view. Plain events
-                // are untouched.
-                var eventTupleNames = TupleElementNamesReader.GetTupleElementNames(reader, evt.GetCustomAttributes());
-                var eventDynamicFlags = evt.Type.Kind == HandleKind.TypeSpecification
-                    ? DynamicReader.GetDynamicFlags(reader, evt.GetCustomAttributes())
-                    : null;
-                if (evt.Type.Kind == HandleKind.TypeSpecification
-                    && (eventDynamicFlags is not null || eventTupleNames is not null))
+                // Get members (public only, or all when includeAll)
+                if (!typesOnly)
                 {
-                    var eventNode = GuardedProviderDecode.TypeSpec(
-                        reader,
-                        (TypeSpecificationHandle)evt.Type,
-                        TypeNodeProvider.Instance,
-                        GenericContext.ForType(reader, typeDef),
-                        (TypeNode)new DegradedTypeNode());
-                    // Skip a rejected/degraded decode: its bare "object"/"dynamic" render
-                    // would obliterate the resolved eventType string computed above.
-                    if (!eventNode.IsDegraded)
+                    apiType.Members = [];
+
+                    var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+
+                    // Methods whose explicit `.override` MethodImpl targets
+                    // `System.Object::Finalize` — i.e. genuine class finalizers, the
+                    // slot the C# `~Type()` destructor compiles to.
+                    var objectFinalizeOverrides = GetObjectFinalizeOverrides(reader, typeDef);
+
+                    // Methods
+                    foreach (var methodHandle in typeDef.GetMethods())
                     {
-                        int eventPos = 0;
-                        eventNode.ApplyNullability(eventNullableBytes, ref eventPos, 0);
-                        eventPos = 0;
-                        eventNode.ApplyDynamic(eventDynamicFlags, ref eventPos);
-                        eventNode.ApplyTupleNames(eventTupleNames);
-                        eventType = eventNode.Render();
+                        var method = reader.GetMethodDefinition(methodHandle);
+                        var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
+                        var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
+                        if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
+                            continue;
+
+                        string methodName = reader.GetString(method.Name);
+
+                        // Skip property accessors and event accessors
+                        if (methodName.StartsWith("get_") || methodName.StartsWith("set_") ||
+                            methodName.StartsWith("add_") || methodName.StartsWith("remove_"))
+                            continue;
+
+                        // Skip compiler-generated methods (lambdas, state machines, etc.)
+                        if (methodName.StartsWith("<"))
+                            continue;
+
+                        // Skip EditorBrowsable(Never) methods unless --all; obsolete are surfaced with marker.
+                        if (!includeAll
+                            && !isExplicitInterfaceImplementation
+                            && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
+                            continue;
+
+                        var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, method.GetCustomAttributes(), out var obsoleteMessage);
+
+                        var signature = GetMethodSignature(reader, typeDef, method, typeNullableContext);
+                        var isOperator = IsOperatorMethodName(methodName);
+                        var methodAttributes = method.Attributes;
+                        var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
+                        var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
+                        var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
+
+                        // A class finalizer is the `object.Finalize` override the C#
+                        // `~Type()` destructor compiles to. It is detected by the
+                        // overridden slot (not by name/signature shape), which excludes
+                        // the false positives a shape heuristic admits: an implicit
+                        // generic `Finalize<T>()`, an override of an unrelated
+                        // base/interface `Finalize()` slot, and an explicit
+                        // `IFoo.Finalize()` implementation. There are two slot-anchored
+                        // shapes:
+                        //   * Roslyn (C#) emits an explicit `.override` MethodImpl
+                        //     targeting `System.Object::Finalize`; `objectFinalizeOverrides`
+                        //     carries those.
+                        //   * The VB.NET compiler emits `Protected Overrides Sub Finalize()`
+                        //     with NO MethodImpl — it reuses the inherited object.Finalize
+                        //     slot implicitly; `IsImplicitObjectFinalizeOverride` proves
+                        //     that slot roots at `System.Object` over metadata alone.
+                        // A finalizer is never generic, so a method that overrides
+                        // object.Finalize while declaring its own type parameters is still
+                        // rejected — rendering it `~Type()` would erase `<T>`.
+                        var isFinalizer = apiType.Kind == "class"
+                            && method.GetGenericParameters().Count == 0
+                            && (objectFinalizeOverrides.Contains(methodHandle)
+                                || IsImplicitObjectFinalizeOverride(reader, typeDefHandle, method));
+
+                        var member = new ApiMember
+                        {
+                            Name = methodName,
+                            Kind = methodName switch
+                            {
+                                ".ctor" => "constructor",
+                                _ when isOperator => "operator",
+                                // A finalizer compiles to a `Finalize` method carrying an
+                                // explicit `.override System.Object::Finalize` MethodImpl,
+                                // so it also lands in `explicitImplementationBodies`. Classify
+                                // it as its own kind before the explicit-interface arm so it
+                                // is not filed under Explicit Interface Implementations; the
+                                // MethodImpl still (correctly) suppresses its accessibility.
+                                _ when isFinalizer => "finalizer",
+                                _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
+                                _ => "method"
+                            },
+                            IsStatic = (methodAttributes & MethodAttributes.Static) != 0,
+                            IsVirtual = isVirtual,
+                            IsAbstract = (methodAttributes & MethodAttributes.Abstract) != 0,
+                            IsOverride = isOverride,
+                            IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
+                            IsFinalizer = isFinalizer,
+                            Signature = signature.Text,
+                            SignatureModel = signature.Model,
+                            SignatureDecodeStatus = signature.IsDegraded
+                                ? SignatureDecodeStatus.Degraded
+                                : null,
+                            // Conversion operators overload on return type. SignatureModel is
+                            // [JsonIgnore], so persist the return type on the serialized member
+                            // too, letting the canonical-signature fallback disambiguate them on a
+                            // round-tripped ApiSurface (where SignatureModel is gone).
+                            ReturnType = ApiMemberIdentity.IsConversionOperator(methodName) ? signature.Model?.ReturnType : null,
+                            MetadataToken = MetadataTokens.GetToken(methodHandle),
+                            IsUnsafe = HasUnsafeSignature(signature.Text)
+                                || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
+                            Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
+                            IsObsolete = isObsolete,
+                            ObsoleteMessage = obsoleteMessage,
+                            Attributes = RenderMemberAttributes(reader, method.GetCustomAttributes())
+                        };
+
+                        // Check for extension method
+                        if (isExtensionClass && member.IsStatic && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes()))
+                        {
+                            member.IsExtension = true;
+                            member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
+                            member.DeclaringType = apiType.FullName;
+                        }
+
+                        budget?.RetainMember(member);
+                        apiType.Members.Add(member);
+                        surface.PublicMethodCount++;
                     }
-                }
-                var adderAttributes = adder.Attributes;
-                var isVirtualEvent = (adderAttributes & MethodAttributes.Virtual) != 0;
-                var isOverrideEvent = isVirtualEvent && (adderAttributes & MethodAttributes.NewSlot) == 0;
 
-                var member = new ApiMember
-                {
-                    Name = reader.GetString(evt.Name),
-                    Kind = "event",
-                    ReturnType = eventType,
-                    Signature = $"{eventType} {SanitizeIdentifier(reader.GetString(evt.Name))}",
-                    SignatureModel = new ApiSignature
+                    // Properties
+                    foreach (var propHandle in typeDef.GetProperties())
                     {
-                        ReturnType = eventType,
-                        MemberName = reader.GetString(evt.Name)
-                    },
-                    IsStatic = (adderAttributes & MethodAttributes.Static) != 0,
-                    IsVirtual = isVirtualEvent,
-                    IsAbstract = (adderAttributes & MethodAttributes.Abstract) != 0,
-                    IsOverride = isOverrideEvent,
-                    IsSealed = isOverrideEvent && (adderAttributes & MethodAttributes.Final) != 0,
-                    Accessibility = GetAccessibility(adderAccess),
-                    IsObsolete = isObsolete,
-                    ObsoleteMessage = obsoleteMessage,
-                    AdderToken = accessors.Adder.IsNil
-                        ? null
-                        : MetadataTokens.GetToken(accessors.Adder),
-                    RemoverToken = accessors.Remover.IsNil
-                        ? null
-                        : MetadataTokens.GetToken(accessors.Remover)
-                };
+                        var prop = reader.GetPropertyDefinition(propHandle);
+                        var accessors = prop.GetAccessors();
 
-                budget?.RetainMember();
-                apiType.Members.Add(member);
-                surface.PublicEventCount++;
-            }
-            } // end if (!typesOnly)
+                        // Determine best accessor visibility
+                        MethodAttributes bestAccess = 0;
+                        bool isStaticProperty = false;
+                        bool isVirtualProperty = false;
+                        bool isAbstractProperty = false;
+                        bool isOverrideProperty = false;
+                        bool isSealedProperty = false;
+                        if (!accessors.Getter.IsNil)
+                        {
+                            var getter = reader.GetMethodDefinition(accessors.Getter);
+                            var getterAttributes = getter.Attributes;
+                            bestAccess = getter.Attributes & MethodAttributes.MemberAccessMask;
+                            isStaticProperty = (getterAttributes & MethodAttributes.Static) != 0;
+                            isVirtualProperty = (getterAttributes & MethodAttributes.Virtual) != 0;
+                            isAbstractProperty = (getterAttributes & MethodAttributes.Abstract) != 0;
+                            isOverrideProperty = isVirtualProperty && (getterAttributes & MethodAttributes.NewSlot) == 0;
+                            isSealedProperty = isOverrideProperty && (getterAttributes & MethodAttributes.Final) != 0;
+                        }
+                        if (!accessors.Setter.IsNil)
+                        {
+                            var setter = reader.GetMethodDefinition(accessors.Setter);
+                            var setterAttributes = setter.Attributes;
+                            var setterAccess = setterAttributes & MethodAttributes.MemberAccessMask;
+                            if (setterAccess > bestAccess)
+                                bestAccess = setterAccess;
+                            var setterVirtual = (setterAttributes & MethodAttributes.Virtual) != 0;
+                            var setterOverride = setterVirtual && (setterAttributes & MethodAttributes.NewSlot) == 0;
+                            isStaticProperty |= (setterAttributes & MethodAttributes.Static) != 0;
+                            isVirtualProperty |= setterVirtual;
+                            isAbstractProperty |= (setterAttributes & MethodAttributes.Abstract) != 0;
+                            isOverrideProperty |= setterOverride;
+                            isSealedProperty |= setterOverride && (setterAttributes & MethodAttributes.Final) != 0;
+                        }
 
-            budget?.RetainType();
-            surface.Types.Add(apiType);
-            surface.PublicTypeCount++;
+                        bool isPublicProp = bestAccess == MethodAttributes.Public;
+                        if (!isPublicProp && !includeAll)
+                            continue;
+
+                        // Skip EditorBrowsable(Never) properties unless --all; obsolete are surfaced with marker.
+                        if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, prop.GetCustomAttributes()))
+                            continue;
+
+                        var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, prop.GetCustomAttributes(), out var obsoleteMessage);
+
+                        var propertySignature = GetPropertySignature(reader, typeDef, prop, accessors, typeNullableContext, includeAll);
+                        var member = new ApiMember
+                        {
+                            Name = reader.GetString(prop.Name),
+                            Kind = "property",
+                            Signature = propertySignature.Text,
+                            SignatureModel = propertySignature.Model,
+                            SignatureDecodeStatus = propertySignature.IsDegraded
+                                ? SignatureDecodeStatus.Degraded
+                                : null,
+                            IsStatic = isStaticProperty,
+                            IsVirtual = isVirtualProperty,
+                            IsAbstract = isAbstractProperty,
+                            IsOverride = isOverrideProperty,
+                            IsSealed = isSealedProperty,
+                            IsUnsafe = HasUnsafeSignature(propertySignature.Text),
+                            Accessibility = GetAccessibility(bestAccess),
+                            IsObsolete = isObsolete,
+                            ObsoleteMessage = obsoleteMessage,
+                            Attributes = RenderMemberAttributes(reader, prop.GetCustomAttributes()),
+                            GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
+                            SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
+                        };
+
+                        budget?.RetainMember(member);
+                        apiType.Members.Add(member);
+                        surface.PublicPropertyCount++;
+                    }
+
+                    // Fields (non-backing fields; non-public included with --all)
+                    bool isEnum = apiType.Kind == "enum";
+
+                    // A C# field-like event's compiler-generated backing field is private, is itself
+                    // marked [CompilerGenerated], and shares the event's exact (unmangled) name. That
+                    // pre-scan and the per-field fold below are factored into shared helpers so
+                    // API-surface extraction and compile-back reconstruction agree on the fold.
+                    var fieldLikeEventBackingFieldNames = FieldLikeEventBackingFieldNames(reader, typeDef);
+                    var autoPropertyBackingFields = AutoPropertyBackingFieldDescriptors(reader, typeDef, typeContext);
+
+                    foreach (var fieldHandle in typeDef.GetFields())
+                    {
+                        var field = reader.GetFieldDefinition(fieldHandle);
+                        var fieldAccess = field.Attributes & FieldAttributes.FieldAccessMask;
+                        if (fieldAccess != FieldAttributes.Public && !includeAll)
+                            continue;
+
+                        string fieldName = reader.GetString(field.Name);
+                        if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
+                            continue; // Skip compiler-generated (<...>) fields unless opted in
+
+                        if (IsAutoPropertyBackingField(reader, field, fieldName, autoPropertyBackingFields, typeContext))
+                            continue; // Skip a synthesized auto-property backing field (re-synthesized on reconstruction)
+
+                        if (IsFieldLikeEventBackingField(reader, field, fieldName, fieldLikeEventBackingFieldNames))
+                            continue; // Skip a field-like event's private, compiler-generated backing field
+
+                        // Skip EditorBrowsable(Never) fields unless --all; obsolete are surfaced with marker.
+                        if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
+                            continue;
+
+                        var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, field.GetCustomAttributes(), out var obsoleteMessage);
+
+                        // Decode field type. For enums the special value__ field carries
+                        // the underlying type; literal fields are constants, not fields in
+                        // source, so they do not need a field declaration type.
+                        string? fieldType = null;
+                        bool fieldSignatureDegraded = false;
+                        if (isEnum)
+                        {
+                            if (fieldName == "value__")
+                                apiType.EnumUnderlyingType = DecodeFieldType(
+                                    reader,
+                                    typeDef,
+                                    field,
+                                    typeNullableContext).Text;
+                        }
+                        else
+                        {
+                            (fieldType, fieldSignatureDegraded) = DecodeFieldType(
+                                reader,
+                                typeDef,
+                                field,
+                                typeNullableContext);
+                        }
+
+                        var member = new ApiMember
+                        {
+                            Name = fieldName,
+                            Kind = "field",
+                            ReturnType = fieldType,
+                            SignatureModel = fieldType is null ? null : new ApiSignature
+                            {
+                                ReturnType = fieldType,
+                                MemberName = fieldName
+                            },
+                            SignatureDecodeStatus = fieldSignatureDegraded
+                                ? SignatureDecodeStatus.Degraded
+                                : null,
+                            IsStatic = (field.Attributes & FieldAttributes.Static) != 0,
+                            IsReadOnly = (field.Attributes & FieldAttributes.InitOnly) != 0,
+                            IsConst = (field.Attributes & FieldAttributes.Literal) != 0,
+                            Accessibility = GetFieldAccessibility(fieldAccess),
+                            IsObsolete = isObsolete,
+                            ObsoleteMessage = obsoleteMessage,
+                            Attributes = RenderMemberAttributes(reader, field.GetCustomAttributes())
+                        };
+
+                        // Read enum constant value
+                        if (isEnum && (field.Attributes & FieldAttributes.Literal) != 0)
+                        {
+                            var constantHandle = field.GetDefaultValue();
+                            if (!constantHandle.IsNil)
+                            {
+                                var constant = reader.GetConstant(constantHandle);
+                                var blob = reader.GetBlobReader(constant.Value);
+                                member.EnumValue = constant.TypeCode switch
+                                {
+                                    ConstantTypeCode.SByte => blob.ReadSByte(),
+                                    ConstantTypeCode.Byte => blob.ReadByte(),
+                                    ConstantTypeCode.Int16 => blob.ReadInt16(),
+                                    ConstantTypeCode.UInt16 => blob.ReadUInt16(),
+                                    ConstantTypeCode.Int32 => blob.ReadInt32(),
+                                    ConstantTypeCode.UInt32 => blob.ReadUInt32(),
+                                    ConstantTypeCode.Int64 => blob.ReadInt64(),
+                                    ConstantTypeCode.UInt64 => (long)blob.ReadUInt64(),
+                                    _ => null
+                                };
+                                blob = reader.GetBlobReader(constant.Value);
+                                member.EnumValueLiteral = constant.TypeCode switch
+                                {
+                                    ConstantTypeCode.SByte => blob.ReadSByte().ToString(CultureInfo.InvariantCulture),
+                                    ConstantTypeCode.Byte => blob.ReadByte().ToString(CultureInfo.InvariantCulture),
+                                    ConstantTypeCode.Int16 => blob.ReadInt16().ToString(CultureInfo.InvariantCulture),
+                                    ConstantTypeCode.UInt16 => blob.ReadUInt16().ToString(CultureInfo.InvariantCulture),
+                                    ConstantTypeCode.Int32 => blob.ReadInt32().ToString(CultureInfo.InvariantCulture),
+                                    ConstantTypeCode.UInt32 => blob.ReadUInt32().ToString(CultureInfo.InvariantCulture),
+                                    ConstantTypeCode.Int64 => blob.ReadInt64().ToString(CultureInfo.InvariantCulture),
+                                    ConstantTypeCode.UInt64 => blob.ReadUInt64().ToString(CultureInfo.InvariantCulture),
+                                    _ => null
+                                };
+                            }
+                        }
+
+                        budget?.RetainMember(member);
+                        apiType.Members.Add(member);
+                        surface.PublicFieldCount++;
+                    }
+
+                    // Events
+                    foreach (var eventHandle in typeDef.GetEvents())
+                    {
+                        var evt = reader.GetEventDefinition(eventHandle);
+                        var accessors = evt.GetAccessors();
+
+                        // Check if adder exists
+                        if (accessors.Adder.IsNil)
+                            continue;
+
+                        var adder = reader.GetMethodDefinition(accessors.Adder);
+                        var adderAccess = adder.Attributes & MethodAttributes.MemberAccessMask;
+                        if (adderAccess != MethodAttributes.Public && !includeAll)
+                            continue;
+
+                        // Skip EditorBrowsable(Never) events unless --all; obsolete are surfaced with marker.
+                        if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, evt.GetCustomAttributes()))
+                            continue;
+
+                        var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, evt.GetCustomAttributes(), out var obsoleteMessage);
+                        var eventType = ResolveRequiredTypeName(
+                            reader,
+                            evt.Type,
+                            GenericContext.ForType(reader, typeDef));
+                        var eventNullableBytes = NullabilityReader.GetNullableBytes(reader, evt.GetCustomAttributes());
+                        eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(reader, adder.GetParameters(), 1);
+                        if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
+                            eventType += "?";
+                        // A `dynamic` event handler (e.g. EventHandler<dynamic>) or a
+                        // named-tuple handler (EventHandler<(int a, int b)>) is always a
+                        // generic instantiation, so re-decode the TypeSpec through the
+                        // TypeNode tree to recover the dynamic / tuple view. Plain events
+                        // are untouched.
+                        var eventTupleNames = TupleElementNamesReader.GetTupleElementNames(reader, evt.GetCustomAttributes());
+                        var eventDynamicFlags = evt.Type.Kind == HandleKind.TypeSpecification
+                            ? DynamicReader.GetDynamicFlags(reader, evt.GetCustomAttributes())
+                            : null;
+                        if (evt.Type.Kind == HandleKind.TypeSpecification
+                            && (eventDynamicFlags is not null || eventTupleNames is not null))
+                        {
+                            var eventNode = GuardedProviderDecode.TypeSpec(
+                                reader,
+                                (TypeSpecificationHandle)evt.Type,
+                                TypeNodeProvider.Instance,
+                                GenericContext.ForType(reader, typeDef),
+                                (TypeNode)new DegradedTypeNode());
+                            // Skip a rejected/degraded decode: its bare "object"/"dynamic" render
+                            // would obliterate the resolved eventType string computed above.
+                            if (!eventNode.IsDegraded)
+                            {
+                                int eventPos = 0;
+                                eventNode.ApplyNullability(eventNullableBytes, ref eventPos, 0);
+                                eventPos = 0;
+                                eventNode.ApplyDynamic(eventDynamicFlags, ref eventPos);
+                                eventNode.ApplyTupleNames(eventTupleNames);
+                                eventType = eventNode.Render();
+                            }
+                        }
+                        var adderAttributes = adder.Attributes;
+                        var isVirtualEvent = (adderAttributes & MethodAttributes.Virtual) != 0;
+                        var isOverrideEvent = isVirtualEvent && (adderAttributes & MethodAttributes.NewSlot) == 0;
+
+                        var member = new ApiMember
+                        {
+                            Name = reader.GetString(evt.Name),
+                            Kind = "event",
+                            ReturnType = eventType,
+                            Signature = $"{eventType} {SanitizeIdentifier(reader.GetString(evt.Name))}",
+                            SignatureModel = new ApiSignature
+                            {
+                                ReturnType = eventType,
+                                MemberName = reader.GetString(evt.Name)
+                            },
+                            IsStatic = (adderAttributes & MethodAttributes.Static) != 0,
+                            IsVirtual = isVirtualEvent,
+                            IsAbstract = (adderAttributes & MethodAttributes.Abstract) != 0,
+                            IsOverride = isOverrideEvent,
+                            IsSealed = isOverrideEvent && (adderAttributes & MethodAttributes.Final) != 0,
+                            Accessibility = GetAccessibility(adderAccess),
+                            IsObsolete = isObsolete,
+                            ObsoleteMessage = obsoleteMessage,
+                            AdderToken = accessors.Adder.IsNil
+                                ? null
+                                : MetadataTokens.GetToken(accessors.Adder),
+                            RemoverToken = accessors.Remover.IsNil
+                                ? null
+                                : MetadataTokens.GetToken(accessors.Remover)
+                        };
+
+                        budget?.RetainMember(member);
+                        apiType.Members.Add(member);
+                        surface.PublicEventCount++;
+                    }
+                } // end if (!typesOnly)
+
+                budget?.RetainType(apiType);
+                surface.Types.Add(apiType);
+                surface.PublicTypeCount++;
             }
             catch (MetadataRowRejectedException ex)
             {
@@ -893,7 +925,9 @@ public static class ApiSurfaceExtractor
         // Extract type forwarders (ExportedTypes that are forwarded to other assemblies)
         ExtractTypeForwarders(reader, surface, budget);
 
-        ApiMemberIdentity.PopulateCanonicalIdentities(surface);
+        ApiMemberIdentity.PopulateCanonicalIdentities(
+            surface,
+            budget is null ? null : budget.RetainCommittedText);
 
         return surface;
     }
@@ -1075,7 +1109,7 @@ public static class ApiSurfaceExtractor
                     TypeName = fullName,
                     TargetAssembly = targetAssembly
                 };
-                budget?.RetainTypeForwarder();
+                budget?.RetainTypeForwarder(typeForwarder);
                 surface.TypeForwarders.Add(typeForwarder);
             }
             catch (MetadataRowRejectedException ex)
@@ -1661,8 +1695,7 @@ public static class ApiSurfaceExtractor
                     .ToList()
                     .IndexOf(extension) + 1;
 
-                budget?.RetainAttachedMember();
-                targetType.Members.Add(new ApiMember
+                var attached = new ApiMember
                 {
                     Name = extension.Name,
                     Kind = "extension-method",
@@ -1684,7 +1717,9 @@ public static class ApiSurfaceExtractor
                     IsObsolete = extension.IsObsolete,
                     ObsoleteMessage = extension.ObsoleteMessage,
                     Documentation = extension.Documentation
-                });
+                };
+                budget?.RetainAttachedMember(attached);
+                targetType.Members.Add(attached);
             }
         }
     }
@@ -2607,13 +2642,14 @@ public static class ApiSurfaceExtractor
         EntityHandle subject,
         MetadataTypeNameFailure failure)
     {
-        budget?.RetainInspectionFailure();
-        surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+        var retained = new ApiSurfaceInspectionFailure(
             operation,
             failure.SubjectToken ?? MetadataTokens.GetToken(subject),
             failure.Mechanism,
             failure.Kind,
-            failure.Detail));
+            failure.Detail);
+        budget?.RetainInspectionFailure(retained);
+        surface.InspectionFailures.Add(retained);
     }
 
     private static bool IsEnum(MetadataReader reader, TypeDefinition typeDef)
@@ -2963,6 +2999,123 @@ public static class ApiSurfaceExtractor
         return signature.Contains('*');
     }
 
+    static long CountRetainedTypeText(ApiType type)
+    {
+        long count = 0;
+        AddText(ref count, type.Namespace);
+        AddText(ref count, type.Name);
+        AddText(ref count, type.MetadataName);
+        AddText(ref count, type.DefinitionName);
+        AddText(ref count, type.Accessibility);
+        AddText(ref count, type.Kind);
+        AddText(ref count, type.Attributes);
+        AddText(ref count, type.EnumUnderlyingType);
+        AddText(ref count, type.BaseType);
+        AddText(ref count, type.Interfaces);
+        foreach (TypeParameter parameter in type.TypeParameters)
+            AddText(ref count, parameter);
+        return count;
+    }
+
+    static long CountRetainedText(ApiMember member)
+    {
+        long count = 0;
+        AddText(ref count, member.Name);
+        AddText(ref count, member.Kind);
+        AddText(ref count, member.Attributes);
+        AddText(ref count, member.ReturnType);
+        AddText(ref count, member.Signature);
+        AddText(ref count, member.CanonicalSignature);
+        AddText(ref count, member.SignatureModel);
+        AddText(ref count, member.Accessibility);
+        AddText(ref count, member.ObsoleteMessage);
+        AddText(ref count, member.ExtendedType);
+        AddText(ref count, member.DeclaringType);
+        AddText(ref count, member.EnumValueLiteral);
+        return count;
+    }
+
+    static long CountRetainedText(ApiSurfaceInspectionFailure failure)
+    {
+        long count = 0;
+        AddText(ref count, failure.Operation);
+        AddText(ref count, failure.Kind);
+        AddText(ref count, failure.Detail);
+        return count;
+    }
+
+    static long CountRetainedText(TypeForwarder forwarder)
+    {
+        long count = 0;
+        AddText(ref count, forwarder.DefinitionName);
+        AddText(ref count, forwarder.TypeName);
+        AddText(ref count, forwarder.TargetAssembly);
+        return count;
+    }
+
+    static void AddText(ref long count, ApiSignature? signature)
+    {
+        if (signature is null)
+            return;
+        AddText(ref count, signature.ReturnType);
+        AddText(ref count, signature.CanonicalReturnType);
+        AddText(ref count, signature.ReturnAttributes);
+        AddText(ref count, signature.MemberName);
+        foreach (TypeParameter parameter in signature.TypeParameters)
+            AddText(ref count, parameter);
+        foreach (ApiParameter parameter in signature.Parameters)
+        {
+            AddText(ref count, parameter.Attributes);
+            AddText(ref count, parameter.Name);
+            AddText(ref count, parameter.Type);
+            AddText(ref count, parameter.CanonicalType);
+            AddText(ref count, parameter.Modifier);
+            AddText(ref count, parameter.DefaultValueText);
+        }
+        foreach (ApiAccessor accessor in signature.Accessors)
+        {
+            AddText(ref count, accessor.Kind);
+            AddText(ref count, accessor.Accessibility);
+            AddText(ref count, accessor.ReturnAttributes);
+        }
+    }
+
+    static void AddText(ref long count, TypeParameter parameter)
+    {
+        AddText(ref count, parameter.Name);
+        AddText(ref count, parameter.Variance);
+        AddText(ref count, parameter.Constraints);
+        if (parameter.StructuredConstraints is not null)
+        {
+            foreach (TypeParameterConstraint constraint in parameter.StructuredConstraints)
+                AddText(ref count, constraint.Value);
+        }
+    }
+
+    static void AddText(ref long count, MetadataTypeDefinitionName? name)
+    {
+        if (name is null)
+            return;
+        AddText(ref count, name.Namespace);
+        foreach (string segment in name.Segments)
+            AddText(ref count, segment);
+    }
+
+    static void AddText(ref long count, IEnumerable<string> values)
+    {
+        foreach (string value in values)
+            AddText(ref count, value);
+    }
+
+    static void AddText(ref long count, string? value)
+    {
+        if (value is null)
+            return;
+        count = count > long.MaxValue - value.Length
+            ? long.MaxValue
+            : count + value.Length;
+    }
+
     /// <summary>
     /// Maps MethodAttributes access level to C# keyword. Returns null for public.
     /// </summary>
@@ -3006,8 +3159,11 @@ public static class ApiSurfaceExtractor
         int _pendingMembers;
         int _inspectionFailures;
         int _typeForwarders;
+        int _retainedTextCharacters;
+        int _pendingTextCharacters;
 
         public int MetadataRows { get; private set; }
+        public int RetainedTextCharacters => _retainedTextCharacters;
 
         /// <summary>Refuses an image whose metadata shape exceeds the remaining walk budget.</summary>
         public void AdmitMetadataRows(MetadataReader reader)
@@ -3030,42 +3186,49 @@ public static class ApiSurfaceExtractor
             if (_types >= bounds.MaxTypes)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
             _pendingMembers = 0;
+            _pendingTextCharacters = 0;
         }
 
         /// <summary>Counts one member of the type currently being built.</summary>
-        public void RetainMember()
+        public void RetainMember(ApiMember member)
         {
             if (_members + _pendingMembers >= bounds.MaxMembers)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Members);
+            RetainPendingText(CountRetainedText(member));
             _pendingMembers++;
         }
 
         /// <summary>Commits the type currently being built and its members.</summary>
-        public void RetainType()
+        public void RetainType(ApiType type)
         {
             if (_types >= bounds.MaxTypes)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
+            RetainPendingText(CountRetainedTypeText(type));
             _types++;
             _members += _pendingMembers;
+            _retainedTextCharacters += _pendingTextCharacters;
             _pendingMembers = 0;
+            _pendingTextCharacters = 0;
         }
 
         /// <summary>Counts one member attached to a type that is already committed.</summary>
-        public void RetainAttachedMember()
+        public void RetainAttachedMember(ApiMember member)
         {
             if (_members >= bounds.MaxMembers)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Members);
+            RetainCommittedText(CountRetainedText(member));
             _members++;
         }
 
         /// <summary>Counts one retained metadata-row rejection.</summary>
-        public void RetainInspectionFailure()
+        public void RetainInspectionFailure(ApiSurfaceInspectionFailure failure)
         {
             if (_inspectionFailures >= bounds.MaxInspectionFailures)
             {
                 throw new ExtractionBoundExceededException(
                     ApiSurfaceExtractionBound.InspectionFailures);
             }
+            RetainCommittedText(CountRetainedText(failure));
             _inspectionFailures++;
         }
 
@@ -3080,14 +3243,39 @@ public static class ApiSurfaceExtractor
         }
 
         /// <summary>Counts one retained type forwarder.</summary>
-        public void RetainTypeForwarder()
+        public void RetainTypeForwarder(TypeForwarder forwarder)
         {
             if (_typeForwarders >= bounds.MaxTypeForwarders)
             {
                 throw new ExtractionBoundExceededException(
                     ApiSurfaceExtractionBound.TypeForwarders);
             }
+            RetainCommittedText(CountRetainedText(forwarder));
             _typeForwarders++;
+        }
+
+        public void RetainCommittedText(string text) => RetainCommittedText(text.Length);
+
+        void RetainPendingText(long characters)
+        {
+            if (characters > bounds.MaxRetainedTextCharacters
+                    - _retainedTextCharacters
+                    - _pendingTextCharacters)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.RetainedTextCharacters);
+            }
+            _pendingTextCharacters += (int)characters;
+        }
+
+        void RetainCommittedText(long characters)
+        {
+            if (characters > bounds.MaxRetainedTextCharacters - _retainedTextCharacters)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.RetainedTextCharacters);
+            }
+            _retainedTextCharacters += (int)characters;
         }
     }
 

@@ -43,6 +43,7 @@ internal static class BrowserApiSurfacePolicy
     internal const int MaxInspectionFailures = 1_024;
     internal const int MaxTypeForwarders = 100_000;
     internal const int MaxMetadataRows = 250_000;
+    internal const int MaxRetainedTextCharacters = 8_000_000;
 
     /// <summary>The bounds every browser API-surface projection runs under.</summary>
     internal static ApiSurfaceProjectionLimits Limits { get; } =
@@ -52,7 +53,8 @@ internal static class BrowserApiSurfacePolicy
             MaxMembers,
             MaxInspectionFailures,
             MaxTypeForwarders,
-            MaxMetadataRows);
+            MaxMetadataRows,
+            MaxRetainedTextCharacters);
 
     /// <summary>
     /// The visible notice for a truncated projection, or null when the projection was complete.
@@ -64,8 +66,9 @@ internal static class BrowserApiSurfacePolicy
                 + $"({truncation.Bound}): projected {truncation.ProjectedTypes} type(s) and "
                 + $"{truncation.ProjectedMembers} member(s), retained "
                 + $"{truncation.ProjectedInspectionFailures} inspection failure(s) and "
-                + $"{truncation.ProjectedTypeForwarders} type forwarder(s) after inspecting "
-                + $"{truncation.InspectedMetadataRows} metadata row(s) from "
+                + $"{truncation.ProjectedTypeForwarders} type forwarder(s), inspected "
+                + $"{truncation.InspectedMetadataRows} metadata row(s), and counted "
+                + $"{truncation.ProjectedRetainedTextCharacters} retained text character(s) across "
                 + $"{truncation.ProjectedParticipants} assembly(ies); "
                 + $"{truncation.OmittedParticipants} assembly(ies) were not projected.";
 }
