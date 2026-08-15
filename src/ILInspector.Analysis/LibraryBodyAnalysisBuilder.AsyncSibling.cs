@@ -1509,16 +1509,14 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 continue;
             }
 
-            MemberRef declaration =
-                MemberResolver.ResolveMethod(
-                    _reader,
+            TypeRelation relation =
+                ResolvedMethodImplDeclarationRelation(
                     implementation.MethodDeclaration,
-                    sourceScope);
-            if (AsyncSiblingMethodsMatch(
-                    declaration,
-                    body.Member))
+                    sourceScope,
+                    body.Member);
+            if (relation != TypeRelation.No)
             {
-                return TypeRelation.Yes;
+                return relation;
             }
         }
 
@@ -1542,6 +1540,58 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             body.DeclaringType,
             body.Method,
             body.Member);
+    }
+
+    TypeRelation ResolvedMethodImplDeclarationRelation(
+        EntityHandle declarationHandle,
+        GenericScope sourceScope,
+        MemberRef target)
+    {
+        MemberRef declaration =
+            MemberResolver.ResolveMethod(
+                _reader,
+                declarationHandle,
+                sourceScope);
+        if (!HasSupportedAsyncSiblingSignature(
+                declaration))
+        {
+            return TypeRelation.Unknown;
+        }
+
+        if (declarationHandle.Kind
+            == HandleKind.MethodDefinition)
+        {
+            return AsyncSiblingMethodsMatch(
+                    declaration,
+                    target)
+                ? TypeRelation.Yes
+                : TypeRelation.No;
+        }
+        if (declarationHandle.Kind
+                != HandleKind.MemberReference
+            || TryResolveTypeDefinition(
+                    _reader,
+                    declaration.DeclaringType)
+                is not { } resolvedType)
+        {
+            return TypeRelation.Unknown;
+        }
+
+        MethodDefinitionHandle resolvedMethod =
+            MatchingVirtualSlot(
+                resolvedType.DefiningReader,
+                resolvedType.Definition,
+                declaration.DeclaringType.TypeArguments,
+                declaration,
+                out bool ambiguous);
+        if (ambiguous || resolvedMethod.IsNil)
+            return TypeRelation.Unknown;
+
+        return AsyncSiblingMethodsMatch(
+                declaration,
+                target)
+            ? TypeRelation.Yes
+            : TypeRelation.No;
     }
 
     ResolvedMethodImplBody? ResolveMethodImplBody(

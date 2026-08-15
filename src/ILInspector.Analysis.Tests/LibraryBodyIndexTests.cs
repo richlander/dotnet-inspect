@@ -1282,6 +1282,26 @@ public class LibraryBodyIndexTests
                 BuildMethodImplAsyncSourceAssembly(
                     includeMethodImpl: true,
                     inheritedMethodImpl: true,
+                    inheritedMethodImplBodyName:
+                        "CoreAsync",
+                    malformedSourceMethodImpl: true));
+            var malformedSourceMethodImpl =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                malformedSourceMethodImpl
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Empty(
+                malformedSourceMethodImpl.Diagnostics);
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: true,
+                    inheritedMethodImpl: true,
                     sourceStartsNewSlot: true));
             var inheritedNewSlot =
                 LibraryBodyIndex.Open(path);
@@ -1633,7 +1653,8 @@ public class LibraryBodyIndexTests
         string? inheritedMethodImplBodyName = null,
         bool sourceHasBody = true,
         bool unrelatedSourceMethodImpl = false,
-        bool runtimeAsyncSource = false)
+        bool runtimeAsyncSource = false,
+        bool malformedSourceMethodImpl = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1744,6 +1765,17 @@ public class LibraryBodyIndexTests
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(
                     inheritedMethodImpl ? 5 : 4));
+        TypeDefinitionHandle otherInterfaceType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString("Sample"),
+                metadata.GetOrAddString("IOther"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(
+                    inheritedMethodImpl ? 6 : 5));
         metadata.AddNestedType(stateMachineType, sourceType);
         metadata.AddInterfaceImplementation(
             inheritedMethodImpl
@@ -1756,6 +1788,9 @@ public class LibraryBodyIndexTests
                 stateMachineType,
                 asyncStateMachine);
         }
+        metadata.AddInterfaceImplementation(
+            sourceType,
+            otherInterfaceType);
 
         BlobHandle voidSignature = metadata.GetOrAddBlob(
             new byte[]
@@ -1860,6 +1895,14 @@ public class LibraryBodyIndexTests
                 new byte[] { 0x20, 0x00, 0x01 }),
             moveNextBody,
             MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle otherAsync =
+            metadata.AddMethodDefinition(
+                interfaceMethod,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("OtherAsync"),
+                taskSignature,
+                -1,
+                MetadataTokens.ParameterHandle(1));
         if (includeMethodImpl)
         {
             EntityHandle methodBody =
@@ -1886,16 +1929,23 @@ public class LibraryBodyIndexTests
         }
         if (unrelatedSourceMethodImpl)
         {
-            MemberReferenceHandle unrelatedDeclaration =
+            metadata.AddMethodImplementation(
+                sourceType,
+                source,
+                otherAsync);
+        }
+        if (malformedSourceMethodImpl)
+        {
+            MemberReferenceHandle missingDeclaration =
                 metadata.AddMemberReference(
-                    interfaceType,
+                    otherInterfaceType,
                     metadata.GetOrAddString(
-                        "OtherAsync"),
+                        "MissingAsync"),
                     taskSignature);
             metadata.AddMethodImplementation(
                 sourceType,
                 source,
-                unrelatedDeclaration);
+                missingDeclaration);
         }
 
         MemberReferenceHandle attributeConstructor =
