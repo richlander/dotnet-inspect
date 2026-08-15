@@ -4188,8 +4188,6 @@ static class FidelityCheck
                     if (!pa.Setter.IsNil) orderedTargetProperties[pa.Setter] = ph;
                     continue;
                 }
-                bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
-                    || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
                 if (accessorIsTarget && !isAutoProperty)
                 {
                     bool requiresMethodFallback = requireAutoProperty
