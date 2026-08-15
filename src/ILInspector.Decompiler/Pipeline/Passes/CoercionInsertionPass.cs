@@ -77,18 +77,8 @@ public static class CoercionSinks
             TestifiedSlotTypes(function.Body, function.Signature.ReturnType, function.TypeShapes));
 
     /// <summary>Scope-bounded descendants: every node in this body, not crossing into nested lambda / local-function bodies (their scopes walk separately).</summary>
-    public static IEnumerable<IrNode> ScopeNodes(IrNode scope)
-    {
-        foreach (var child in scope.Children)
-        {
-            yield return child;
-            if (child is not (Lambda or LocalFunctionStatement))
-            {
-                foreach (var nested in ScopeNodes(child))
-                    yield return nested;
-            }
-        }
-    }
+    public static IEnumerable<IrNode> ScopeNodes(IrNode scope) =>
+        scope.DescendantsOutsideNestedFunctions;
 
     /// <summary>
     /// Per slot (per body scope), the single type every load testifies to —
