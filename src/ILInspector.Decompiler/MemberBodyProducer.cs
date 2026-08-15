@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -1512,12 +1513,14 @@ public static class MemberBodyProducer
         return (getterHandle is null
                 || AccessorReferencesBackingField(
                     source,
+                    typeHandle,
                     getterHandle.Value,
                     backingFieldHandle,
                     member.IsStatic ? ILOpCode.Ldsfld : ILOpCode.Ldfld))
             && (setterHandle is null
                 || AccessorReferencesBackingField(
                     source,
+                    typeHandle,
                     setterHandle.Value,
                     backingFieldHandle,
                     member.IsStatic ? ILOpCode.Stsfld : ILOpCode.Stfld));
@@ -1525,6 +1528,7 @@ public static class MemberBodyProducer
 
     static bool AccessorReferencesBackingField(
         Pipeline.MetadataSource source,
+        TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle accessorHandle,
         FieldDefinitionHandle backingFieldHandle,
         ILOpCode expectedOpCode)
@@ -1538,13 +1542,42 @@ public static class MemberBodyProducer
         if (!instructions.IsComplete)
             return false;
 
-        int backingFieldToken = MetadataTokens.GetToken(backingFieldHandle);
         var fieldReferences = instructions.Instructions
             .Where(instruction => instruction.Operand == OperandKind.InlineField)
             .ToList();
         return fieldReferences is [{ OpCode: var opCode, OperandValue: var operand }]
             && opCode == expectedOpCode
-            && operand == backingFieldToken;
+            && FieldOperandMatchesBackingField(
+                source.Reader,
+                typeHandle,
+                MetadataTokens.EntityHandle((int)operand),
+                backingFieldHandle);
+    }
+
+    static bool FieldOperandMatchesBackingField(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        EntityHandle operandHandle,
+        FieldDefinitionHandle backingFieldHandle)
+    {
+        if (operandHandle.Kind == HandleKind.FieldDefinition)
+            return operandHandle == backingFieldHandle;
+        if (operandHandle.Kind != HandleKind.MemberReference)
+            return false;
+
+        var typeParameters = ImmutableArray.CreateRange(
+            reader.GetTypeDefinition(typeHandle)
+                .GetGenericParameters()
+                .Select(handle => reader.GetString(reader.GetGenericParameter(handle).Name)));
+        var scope = new Pipeline.GenericScope(typeParameters, []);
+        var operand = Pipeline.IrImporter.ResolveField(reader, operandHandle, scope);
+        var backingField = Pipeline.IrImporter.ResolveField(reader, backingFieldHandle, scope);
+        var operandDeclaringType = operand.DeclaringType.Kind == Pipeline.TypeRefKind.GenericInstance
+            ? operand.DeclaringType.ElementType
+            : operand.DeclaringType;
+        return operand.Name == backingField.Name
+            && operand.Type.Equals(backingField.Type)
+            && operandDeclaringType?.Equals(backingField.DeclaringType) == true;
     }
 
     static void ComposeProperty(
