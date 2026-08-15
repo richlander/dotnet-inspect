@@ -990,6 +990,12 @@ public class PackageCommand
         var countSections = options.Count
             ? ResolveMultiPackageCountSections(options, pipeline)
             : null;
+        if (!options.Count && !options.JsonOutput && rowSection == null)
+        {
+            CommandError.Write("Multiple package output requires --json or a row format such as --table, --tsv, or --jsonl.");
+            CommandError.WriteLine("For package surveys, try: dotnet-inspect package <pkg>... --path @readme --tsv");
+            return 1;
+        }
         if (!ValidateMultiPackagePackageInfoColumns(
                 options,
                 countSections,
@@ -1005,12 +1011,6 @@ public class PackageCommand
                 && pipeline.BareSelectSectionNames.Any(IsPackageFileSection))
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
             || countSections?.Any(IsPackageFileSection) == true;
-        if (!options.Count && !options.JsonOutput && rowSection == null)
-        {
-            CommandError.Write("Multiple package output requires --json or a row format such as --table, --tsv, or --jsonl.");
-            CommandError.WriteLine("For package surveys, try: dotnet-inspect package <pkg>... --path @readme --tsv");
-            return 1;
-        }
 
         var targets = new List<PackageReferenceTarget>();
         foreach (var packageArg in packageArgs)
