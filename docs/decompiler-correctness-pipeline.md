@@ -107,10 +107,11 @@ entry gate invalidates every later result, so run it first and report it.
 
    Filter to a class while iterating, e.g.
    `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
-   The decompiler test host rejects an explicit `-class` or `-method` selector
-   that matches no discovered test, including one unmatched selector alongside
-   valid selectors. A misspelled targeted gate therefore fails instead of
-   reporting a successful zero-test or partial run.
+   The decompiler test host rejects an explicit `-class`, `-method`, or
+   `-filter` selector that matches no discovered test, including one unmatched
+   selector alongside valid selectors. It also rejects a combined filter and
+   test-case ID selection that runs nothing. A misspelled targeted gate
+   therefore fails instead of reporting a successful zero-test or partial run.
 
 3. **IR invariant checks.** Every pass must leave a structurally valid tree.
    `IrPasses.Run` calls `function.CheckInvariant()` after each pass — armed by

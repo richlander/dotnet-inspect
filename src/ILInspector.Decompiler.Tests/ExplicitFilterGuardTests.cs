@@ -13,6 +13,7 @@ public class ExplicitFilterGuardTests
             "-trait", "Speed=Slow",
             "-CLASS", "Namespace.Tests",
             "-method", "*Tests.Case",
+            "-filter", "/*/*/QueryTests/*",
             "-class-", "Excluded.Tests",
         ];
 
@@ -22,6 +23,7 @@ public class ExplicitFilterGuardTests
             [
                 new ExplicitFilter("-class", "Namespace.Tests"),
                 new ExplicitFilter("-method", "*Tests.Case"),
+                new ExplicitFilter("-filter", "/*/*/QueryTests/*"),
             ],
             filters);
     }
@@ -41,15 +43,20 @@ public class ExplicitFilterGuardTests
             "ILInspector.Decompiler.Tests.GateArgumentExpanderTests.ThisMethodDoesNotExist";
 
         ProcessResult valid = await RunHostAsync("-method", validMethod);
-        ProcessResult mixed = await RunHostAsync(
+        ProcessResult mixed = await RunHostWithResponseFileAsync(
             "-class", validClass,
             "-class", missingClass,
             "-method", validMethod,
             "-method", missingMethod);
+        ProcessResult missingQuery = await RunHostAsync(
+            "-filter", "/*/*/ThisClassDoesNotExist/*");
         ProcessResult emptyIntersection = await RunHostAsync(
             "-class", validClass,
             "-method",
             "ILInspector.Decompiler.Tests.ExplicitFilterGuardTests.FindIncludedFilters_ExtractsClassAndMethodSelectors");
+        ProcessResult disjointId = await RunHostAsync(
+            "-class", validClass,
+            "-id", TestContext.Current.TestCase!.UniqueID);
 
         Assert.True(
             valid.ExitCode == 0,
@@ -64,9 +71,17 @@ public class ExplicitFilterGuardTests
         Assert.DoesNotContain($"  -method \"{validMethod}\"", mixed.Error);
         Assert.DoesNotContain("TEST EXECUTION SUMMARY", mixed.Output);
 
+        Assert.Equal(2, missingQuery.ExitCode);
+        Assert.Contains("-filter \"/*/*/ThisClassDoesNotExist/*\"", missingQuery.Error);
+        Assert.DoesNotContain("TEST EXECUTION SUMMARY", missingQuery.Output);
+
         Assert.Equal(2, emptyIntersection.ExitCode);
-        Assert.Contains("combined xUnit filters matched no discovered tests", emptyIntersection.Error);
+        Assert.Contains("combined xUnit selectors matched no discovered tests", emptyIntersection.Error);
         Assert.DoesNotContain("TEST EXECUTION SUMMARY", emptyIntersection.Output);
+
+        Assert.Equal(2, disjointId.ExitCode);
+        Assert.Contains("combined xUnit selectors matched no discovered tests", disjointId.Error);
+        Assert.DoesNotContain("TEST EXECUTION SUMMARY", disjointId.Output);
     }
 
     private static async Task<ProcessResult> RunHostAsync(params string[] arguments)
@@ -90,6 +105,20 @@ public class ExplicitFilterGuardTests
         await process.WaitForExitAsync(TestContext.Current.CancellationToken);
 
         return new ProcessResult(process.ExitCode, await output, await error);
+    }
+
+    private static async Task<ProcessResult> RunHostWithResponseFileAsync(params string[] arguments)
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllLinesAsync(path, arguments, TestContext.Current.CancellationToken);
+            return await RunHostAsync("@@", path);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     private sealed record ProcessResult(int ExitCode, string Output, string Error);

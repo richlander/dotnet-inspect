@@ -17,7 +17,8 @@ internal static class ExplicitFilterGuard
         {
             string option = args[i];
             if (string.Equals(option, "-class", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(option, "-method", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(option, "-method", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(option, "-filter", StringComparison.OrdinalIgnoreCase))
             {
                 result.Add(new ExplicitFilter(option.ToLowerInvariant(), args[++i]));
             }
@@ -28,8 +29,7 @@ internal static class ExplicitFilterGuard
 
     internal static async ValueTask<string?> ValidateAsync(string[] args, Assembly testAssembly)
     {
-        IReadOnlyList<ExplicitFilter> filters = FindIncludedFilters(args);
-        if (filters.Count == 0)
+        if (!MightContainIncludedFilter(args))
         {
             return null;
         }
@@ -52,6 +52,13 @@ internal static class ExplicitFilterGuard
         {
             // The console runner owns argument diagnostics. Do not replace its
             // error with a secondary validation failure.
+            return null;
+        }
+
+        IReadOnlyList<ExplicitFilter> filters = FindIncludedFilters(
+            projectAssembly.Configuration.Filters.ToXunit3Arguments().ToArray());
+        if (filters.Count == 0)
+        {
             return null;
         }
 
@@ -78,12 +85,37 @@ internal static class ExplicitFilterGuard
                 + string.Join('\n', unmatched.Select(filter => $"  {filter.Option} \"{filter.Query}\""));
         }
 
-        if (!testCases.Any(testCase => testCase.PassedFilter))
+        if (!HasRunnableSelection(projectAssembly, testCases))
         {
-            return "error: the combined xUnit filters matched no discovered tests.";
+            return "error: the combined xUnit selectors matched no discovered tests.";
         }
 
         return null;
+    }
+
+    private static bool MightContainIncludedFilter(IReadOnlyList<string> args)
+        => (args.Count == 2 && args[0] == "@@")
+            || args.Any(arg => string.Equals(arg, "-class", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(arg, "-method", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(arg, "-filter", StringComparison.OrdinalIgnoreCase));
+
+    private static bool HasRunnableSelection(
+        XunitProjectAssembly projectAssembly,
+        IReadOnlyList<(ITestCase TestCase, bool PassedFilter)> testCases)
+    {
+        if (projectAssembly.TestCasesToRun.Count > 0)
+        {
+            return true;
+        }
+
+        if (projectAssembly.TestCaseIDsToRun.Count > 0)
+        {
+            return testCases.Any(testCase =>
+                testCase.PassedFilter
+                && projectAssembly.TestCaseIDsToRun.Contains(testCase.TestCase.UniqueID));
+        }
+
+        return testCases.Any(testCase => testCase.PassedFilter);
     }
 
     private static bool Matches(
@@ -92,13 +124,17 @@ internal static class ExplicitFilterGuard
         ExplicitFilter filter)
     {
         var matcher = new XunitFilters();
-        if (filter.Option == "-class")
+        switch (filter.Option)
         {
-            matcher.AddIncludedClassFilter(filter.Query);
-        }
-        else
-        {
-            matcher.AddIncludedMethodFilter(filter.Query);
+            case "-class":
+                matcher.AddIncludedClassFilter(filter.Query);
+                break;
+            case "-method":
+                matcher.AddIncludedMethodFilter(filter.Query);
+                break;
+            case "-filter":
+                matcher.AddQueryFilter(filter.Query);
+                break;
         }
 
         return matcher.Filter(assemblyName, testCase);
