@@ -246,7 +246,9 @@ public sealed class CSharpTypePrinterTests
         var explicitEvent = new ApiMember
         {
             Name = "Samples.IEvents.Changed",
-            Kind = "explicit-interface-implementation",
+            Kind = "event",
+            Accessibility = "private",
+            IsExplicitInterfaceImplementation = true,
             IsStatic = true,
             SignatureModel = new ApiSignature
             {
@@ -3115,7 +3117,9 @@ public sealed class CSharpTypePrinterTests
         var property = new ApiMember
         {
             Name = "Samples.IValue.Value",
-            Kind = "explicit-interface-implementation",
+            Kind = "property",
+            Accessibility = "private",
+            IsExplicitInterfaceImplementation = true,
             SignatureModel = new ApiSignature
             {
                 ReturnType = "int",

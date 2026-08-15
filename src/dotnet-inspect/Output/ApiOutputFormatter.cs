@@ -3418,7 +3418,9 @@ public static class ApiOutputFormatter
                 _ => ""
             };
             bool suppressAccessibility = e.kind == "finalizer"
-                || e.kind == "explicit-interface-implementation" && m.Accessibility == "private";
+                || m.Accessibility == "private"
+                    && (e.kind == "explicit-interface-implementation"
+                        || m.IsExplicitInterfaceImplementation);
             var kindLabel = m.Accessibility != null && !suppressAccessibility
                 ? $"{m.Accessibility} {e.kind}"
                 : e.kind;

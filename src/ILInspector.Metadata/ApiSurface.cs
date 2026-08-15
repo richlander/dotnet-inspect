@@ -943,6 +943,19 @@ public class ApiMember
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsFinalizer { get; set; }
 
+    /// <summary>
+    /// True when metadata MethodImpl rows identify this member or one of its
+    /// accessors as an explicit interface implementation. This remains separate
+    /// from <see cref="Kind"/> so aggregate properties and events retain their
+    /// member shape.
+    /// </summary>
+    /// <remarks>
+    /// <c>ApiSignatureModelTests.ExplicitInterfaceAggregates_PreserveTypedIdentity</c>
+    /// gates extraction for methods, properties, and events.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsExplicitInterfaceImplementation { get; set; }
+
     public bool IsReadOnly { get; set; }
     public bool IsConst { get; set; }
     public bool IsUnsafe { get; set; }

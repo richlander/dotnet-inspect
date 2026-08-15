@@ -96,11 +96,14 @@ only default accessibility, while selections union within a facet axis and
 intersect across kind and accessibility. Unknown IDs and unclassified producer
 values fail visibly rather than becoming an empty inventory. The contract is
 gated by `ApiInventoryQueryTests`. An explicit interface implementation retains
-its accessibility fact in the typed model and structured output. Human-facing
-renderers suppress metadata-private accessibility for that kind, and suppress
-finalizer accessibility, because those prefixes are redundant with the
-product-owned kind or illegal in the corresponding C# spelling; other raw
-accessibility values remain visible.
+its accessibility fact and typed MethodImpl identity in the model and structured
+output, including for aggregate properties and events. Human-facing renderers
+suppress metadata-private accessibility for explicit implementations, and
+suppress finalizer accessibility, because those prefixes are redundant with the
+product-owned identity or illegal in the corresponding C# spelling; other raw
+accessibility values remain visible. Property accessor accessibility is likewise
+a metadata fact and does not change with the disclosure mode used to select the
+property.
 
 #### `ILInspector.Analysis`
 

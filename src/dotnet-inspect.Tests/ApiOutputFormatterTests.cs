@@ -934,6 +934,22 @@ public class ApiOutputFormatterTests
                     Signature = "void IFoo.Stop()",
                     Accessibility = "internal"
                 },
+                new ApiMember
+                {
+                    Name = "IFoo.Value",
+                    Kind = "property",
+                    Signature = "int IFoo.Value { get; }",
+                    Accessibility = "private",
+                    IsExplicitInterfaceImplementation = true
+                },
+                new ApiMember
+                {
+                    Name = "IFoo.Changed",
+                    Kind = "event",
+                    Signature = "System.Action IFoo.Changed",
+                    Accessibility = "private",
+                    IsExplicitInterfaceImplementation = true
+                },
             ]
         };
 
@@ -945,6 +961,8 @@ public class ApiOutputFormatterTests
         Assert.Equal(
             "internal explicit-interface-implementation",
             Assert.Single(view.Rows!, row => row.Name == "IFoo.Stop").Kind);
+        Assert.Equal("property", Assert.Single(view.Rows!, row => row.Name == "IFoo.Value").Kind);
+        Assert.Equal("event", Assert.Single(view.Rows!, row => row.Name == "IFoo.Changed").Kind);
     }
 
     [Fact]

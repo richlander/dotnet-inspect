@@ -885,6 +885,7 @@ public static class ApiSurfaceExtractor
                     ReturnType = ApiMemberIdentity.IsConversionOperator(methodName) ? signature.Model?.ReturnType : null,
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
                     HasMethodBody = method.RelativeVirtualAddress != 0,
+                    IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
                     IsUnsafe = HasUnsafeSignature(reader, method, observeDecodeWork)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
@@ -1006,7 +1007,6 @@ public static class ApiSurfaceExtractor
                     prop,
                     accessors,
                     typeNullableContext,
-                    includeAll,
                     observeText,
                     observeDecodeWork,
                     observeAttributeMaterialize);
@@ -1030,6 +1030,9 @@ public static class ApiSurfaceExtractor
                     typeContext,
                     observeText,
                     observeDecodeWork);
+                bool isExplicitInterfaceImplementation =
+                    !accessors.Getter.IsNil && explicitImplementationBodies.Contains(accessors.Getter)
+                    || !accessors.Setter.IsNil && explicitImplementationBodies.Contains(accessors.Setter);
                 var member = new ApiMember
                 {
                     Name = DecodeString(
@@ -1048,6 +1051,7 @@ public static class ApiSurfaceExtractor
                     IsAbstract = isAbstractProperty,
                     IsOverride = isOverrideProperty,
                     IsSealed = isSealedProperty,
+                    IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
                     IsUnsafe = HasUnsafeSignature(reader, prop, observeDecodeWork)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
@@ -1425,6 +1429,9 @@ public static class ApiSurfaceExtractor
                     observeAttributeMaterialize,
                     (accessors.Adder, "add"),
                     (accessors.Remover, "remove"));
+                bool isExplicitInterfaceImplementation =
+                    explicitImplementationBodies.Contains(accessors.Adder)
+                    || explicitImplementationBodies.Contains(accessors.Remover);
 
                 var eventTypeNodeProvider = observeText is null
                     ? TypeNodeProvider.Instance
@@ -1479,6 +1486,7 @@ public static class ApiSurfaceExtractor
                     IsOverride = isOverrideEvent,
                     IsSealed = isOverrideEvent
                         && (primaryAccessorAttributes & MethodAttributes.Final) != 0,
+                    IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
                     IsUnsafe = HasUnsafeSignature(reader, evt, observeDecodeWork)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
@@ -4125,7 +4133,6 @@ public static class ApiSurfaceExtractor
         PropertyDefinition prop,
         PropertyAccessors accessors,
         byte typeNullableContext,
-        bool includeAll = false,
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null,
         Action<int>? beforeAttributeMaterialize = null)
@@ -4183,129 +4190,49 @@ public static class ApiSurfaceExtractor
             setterAccess = setter.Attributes & MethodAttributes.MemberAccessMask;
         }
 
-        bool hasPublicGetter = hasGetter && getterAccess == MethodAttributes.Public;
-        bool hasPublicSetter = hasSetter && setterAccess == MethodAttributes.Public;
-
-        // Build accessor string
-        string accessorStr;
+        int bestAccess = Math.Max((int)getterAccess, (int)setterAccess);
         var accessorModels = new List<ApiAccessor>();
-        if (includeAll)
+        var getStr = hasGetter ? FormatAccessor("get", getterAccess, bestAccess) : null;
+        var setStr = hasSetter ? FormatAccessor("set", setterAccess, bestAccess) : null;
+        if (hasGetter)
         {
-            // Show explicit access levels for non-public accessors
-            var getStr = hasGetter ? FormatAccessor("get", getterAccess, Math.Max((int)getterAccess, (int)setterAccess)) : null;
-            var setStr = hasSetter ? FormatAccessor("set", setterAccess, Math.Max((int)getterAccess, (int)setterAccess)) : null;
-            if (hasGetter)
+            var getter = reader.GetMethodDefinition(accessors.Getter);
+            accessorModels.Add(new ApiAccessor
             {
-                var getter = reader.GetMethodDefinition(accessors.Getter);
-                accessorModels.Add(new ApiAccessor
-                {
-                    Kind = "get",
-                    Accessibility = AccessorAccessibility(getterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
-                    ReturnAttributes = ReturnParameterAttributes(
-                        reader,
-                        getter.GetParameters(),
-                        beforeRetainText,
-                        attributeMaterialize),
-                    HasMethodBody = getter.RelativeVirtualAddress != 0,
-                    IsAbstract = (getter.Attributes & MethodAttributes.Abstract) != 0
-                });
-            }
-            if (hasSetter)
-            {
-                var setter = reader.GetMethodDefinition(accessors.Setter);
-                accessorModels.Add(new ApiAccessor
-                {
-                    Kind = "set",
-                    Accessibility = AccessorAccessibility(setterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
-                    ReturnAttributes = ReturnParameterAttributes(
-                        reader,
-                        setter.GetParameters(),
-                        beforeRetainText,
-                        attributeMaterialize),
-                    HasMethodBody = setter.RelativeVirtualAddress != 0,
-                    IsAbstract = (setter.Attributes & MethodAttributes.Abstract) != 0
-                });
-            }
-            accessorStr = (getStr, setStr) switch
-            {
-                (not null, not null) => $"{{ {getStr}; {setStr}; }}",
-                (not null, null) => $"{{ {getStr}; }}",
-                (null, not null) => $"{{ {setStr}; }}",
-                _ => "{ get; }"
-            };
+                Kind = "get",
+                Accessibility = AccessorAccessibility(getterAccess, bestAccess),
+                ReturnAttributes = ReturnParameterAttributes(
+                    reader,
+                    getter.GetParameters(),
+                    beforeRetainText,
+                    attributeMaterialize),
+                HasMethodBody = getter.RelativeVirtualAddress != 0,
+                IsAbstract = (getter.Attributes & MethodAttributes.Abstract) != 0
+            });
         }
-        else
+        if (hasSetter)
         {
-            if (hasPublicGetter && hasPublicSetter)
+            var setter = reader.GetMethodDefinition(accessors.Setter);
+            accessorModels.Add(new ApiAccessor
             {
-                accessorStr = "{ get; set; }";
-                accessorModels.Add(AccessorModel(
+                Kind = "set",
+                Accessibility = AccessorAccessibility(setterAccess, bestAccess),
+                ReturnAttributes = ReturnParameterAttributes(
                     reader,
-                    accessors.Getter,
-                    "get",
+                    setter.GetParameters(),
                     beforeRetainText,
-                    beforeDecodeWork,
-                    attributeMaterialize));
-                accessorModels.Add(AccessorModel(
-                    reader,
-                    accessors.Setter,
-                    "set",
-                    beforeRetainText,
-                    beforeDecodeWork,
-                    attributeMaterialize));
-            }
-            else if (hasPublicGetter && hasSetter)
-            {
-                accessorStr = "{ get; private set; }";
-                accessorModels.Add(AccessorModel(
-                    reader,
-                    accessors.Getter,
-                    "get",
-                    beforeRetainText,
-                    beforeDecodeWork,
-                    attributeMaterialize));
-                var setter = reader.GetMethodDefinition(accessors.Setter);
-                accessorModels.Add(new ApiAccessor
-                {
-                    Kind = "set",
-                    Accessibility = "private",
-                    ReturnAttributes = ReturnParameterAttributes(
-                        reader,
-                        setter.GetParameters(),
-                        beforeRetainText,
-                        attributeMaterialize),
-                    HasMethodBody = setter.RelativeVirtualAddress != 0,
-                    IsAbstract = (setter.Attributes & MethodAttributes.Abstract) != 0
-                });
-            }
-            else if (hasPublicGetter)
-            {
-                accessorStr = "{ get; }";
-                accessorModels.Add(AccessorModel(
-                    reader,
-                    accessors.Getter,
-                    "get",
-                    beforeRetainText,
-                    beforeDecodeWork,
-                    attributeMaterialize));
-            }
-            else if (hasPublicSetter)
-            {
-                accessorStr = "{ set; }";
-                accessorModels.Add(AccessorModel(
-                    reader,
-                    accessors.Setter,
-                    "set",
-                    beforeRetainText,
-                    beforeDecodeWork,
-                    attributeMaterialize));
-            }
-            else
-            {
-                accessorStr = "{ get; }"; // Fallback
-                accessorModels.Add(new ApiAccessor { Kind = "get" });
-            }
+                    attributeMaterialize),
+                HasMethodBody = setter.RelativeVirtualAddress != 0,
+                IsAbstract = (setter.Attributes & MethodAttributes.Abstract) != 0
+            });
         }
+        string accessorStr = (getStr, setStr) switch
+        {
+            (not null, not null) => $"{{ {getStr}; {setStr}; }}",
+            (not null, null) => $"{{ {getStr}; }}",
+            (null, not null) => $"{{ {setStr}; }}",
+            _ => "{ get; }"
+        };
 
         ApplyAccessorStructuralReturns(
             accessorModels,

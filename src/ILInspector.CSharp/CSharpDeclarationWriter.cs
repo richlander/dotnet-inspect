@@ -1173,7 +1173,7 @@ internal static class CSharpDeclarationWriter
             if (member.IsUnsafe || options.ForceUnsafe)
                 modifiers.Add("unsafe");
         }
-        else if (member.Kind != "explicit-interface-implementation")
+        else if (!IsExplicitInterfaceImplementation(member))
         {
             var omitInterfaceModifiers = options.OmitInterfaceMemberModifiers
                 && type.Kind == "interface"
@@ -1212,7 +1212,8 @@ internal static class CSharpDeclarationWriter
 
         if ((options.ForceAsync || member.IsAsync)
             && !member.IsFinalizer
-            && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
+            && (member.Kind is "method" or "extension-method" or "explicit-interface-implementation"
+                || member.IsExplicitInterfaceImplementation))
             modifiers.Add("async");
 
         if (modifiers.Count > 0)
@@ -1837,7 +1838,7 @@ internal static class CSharpDeclarationWriter
         if ((member.Kind == "property" || IsExplicitInterfaceProperty(member))
             && model.ReturnType is { Length: > 0 } propertyType
             && model.Accessors.Count > 0
-            && (member.Kind == "explicit-interface-implementation"
+            && (IsExplicitInterfaceProperty(member)
                 || IsOrdinaryPropertyName(member.Name)
                     && IsOrdinaryPropertyName(model.MemberName)))
         {
@@ -1900,14 +1901,18 @@ internal static class CSharpDeclarationWriter
     }
 
     static bool IsExplicitInterfaceProperty(ApiMember member)
-        => member.Kind == "explicit-interface-implementation"
+        => IsExplicitInterfaceImplementation(member)
             && member.Name.Contains('.', StringComparison.Ordinal)
             && HasOnlyAccessors(member, "get", "set", "init");
 
     static bool IsExplicitInterfaceEvent(ApiMember member)
-        => member.Kind == "explicit-interface-implementation"
+        => IsExplicitInterfaceImplementation(member)
             && member.Name.Contains('.', StringComparison.Ordinal)
             && HasOnlyAccessors(member, "add", "remove");
+
+    static bool IsExplicitInterfaceImplementation(ApiMember member)
+        => member.Kind == "explicit-interface-implementation"
+            || member.IsExplicitInterfaceImplementation;
 
     static bool IsEvent(ApiMember member)
         => member.Kind == "event" || IsExplicitInterfaceEvent(member);

@@ -191,6 +191,34 @@ public sealed class ApiSignatureModelTests
     }
 
     [Fact]
+    public void DefaultSurface_PreservesActualNonPublicAccessorAccessibility()
+    {
+        using var stream = File.OpenRead(typeof(ApiSignatureModelTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader);
+        var member = surface.Types
+            .Single(type => type.Name == nameof(ApiSignatureFixtures))
+            .Members
+            .Single(candidate => candidate.Name == nameof(ApiSignatureFixtures.MixedAccess));
+
+        Assert.Contains("internal set", member.Signature, StringComparison.Ordinal);
+        Assert.Equal(
+            "internal",
+            member.SignatureModel!.Accessors.Single(accessor => accessor.Kind == "set").Accessibility);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceAggregates_PreserveTypedIdentity()
+    {
+        var type = GetType(nameof(ExplicitInterfaceAggregateFixture));
+
+        Assert.True(Assert.Single(type.Members, member => member.Name.EndsWith(".Value", StringComparison.Ordinal))
+            .IsExplicitInterfaceImplementation);
+        Assert.True(Assert.Single(type.Members, member => member.Name.EndsWith(".Changed", StringComparison.Ordinal))
+            .IsExplicitInterfaceImplementation);
+    }
+
+    [Fact]
     public void ConstructorSignatureModel_ExposesParameterFacts()
     {
         var ctor = GetType(nameof(ApiSignatureFixtures)).Members
@@ -501,6 +529,7 @@ public sealed class ApiSignatureModelTests
 public sealed class ApiSignatureFixtures
 {
     public int Count;
+    public int MixedAccess { get; internal set; }
 
     public event EventHandler? Changed;
 
@@ -614,6 +643,23 @@ public class Outer<TOuter>
 
 public class Flat<T1, T2>
 {
+}
+
+public interface IExplicitInterfaceAggregate
+{
+    int Value { get; }
+    event EventHandler Changed;
+}
+
+public sealed class ExplicitInterfaceAggregateFixture : IExplicitInterfaceAggregate
+{
+    int IExplicitInterfaceAggregate.Value => 42;
+
+    event EventHandler IExplicitInterfaceAggregate.Changed
+    {
+        add { }
+        remove { }
+    }
 }
 
 [AttributeUsage(AttributeTargets.Parameter)]

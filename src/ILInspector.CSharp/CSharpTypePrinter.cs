@@ -866,6 +866,7 @@ public sealed class CSharpTypePrinter
             IsOverride = member.IsOverride,
             IsSealed = member.IsSealed,
             IsFinalizer = member.IsFinalizer,
+            IsExplicitInterfaceImplementation = member.IsExplicitInterfaceImplementation,
             IsReadOnly = member.IsReadOnly,
             IsConst = member.IsConst,
             IsUnsafe = member.IsUnsafe,
@@ -1110,7 +1111,8 @@ public sealed class CSharpTypePrinter
 
     static bool IsProperty(ApiMember member)
         => member.Kind == "property"
-            || member.Kind == "explicit-interface-implementation"
+            || (member.Kind == "explicit-interface-implementation"
+                    || member.IsExplicitInterfaceImplementation)
                 && member.Name.Contains('.', StringComparison.Ordinal)
                 && HasOnlyAccessors(member, "get", "set", "init");
 
@@ -1119,7 +1121,8 @@ public sealed class CSharpTypePrinter
             || IsExplicitInterfaceEvent(member);
 
     static bool IsExplicitInterfaceEvent(ApiMember member)
-        => member.Kind == "explicit-interface-implementation"
+        => (member.Kind == "explicit-interface-implementation"
+                || member.IsExplicitInterfaceImplementation)
             && member.Name.Contains('.', StringComparison.Ordinal)
             && HasOnlyAccessors(member, "add", "remove");
 
