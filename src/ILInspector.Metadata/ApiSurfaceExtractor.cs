@@ -885,7 +885,6 @@ public static class ApiSurfaceExtractor
                     ReturnType = ApiMemberIdentity.IsConversionOperator(methodName) ? signature.Model?.ReturnType : null,
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
                     HasMethodBody = method.RelativeVirtualAddress != 0,
-                    IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
                     IsUnsafe = HasUnsafeSignature(reader, method, observeDecodeWork)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
@@ -1001,6 +1000,10 @@ public static class ApiSurfaceExtractor
                     out var obsoleteMessage,
                     observeDecodeWork);
 
+                string propertyName = DecodeString(
+                    reader,
+                    prop.Name,
+                    observeDecodeWork);
                 var propertySignature = GetPropertySignature(
                     reader,
                     typeContext,
@@ -1031,14 +1034,12 @@ public static class ApiSurfaceExtractor
                     observeText,
                     observeDecodeWork);
                 bool isExplicitInterfaceImplementation =
-                    !accessors.Getter.IsNil && explicitImplementationBodies.Contains(accessors.Getter)
-                    || !accessors.Setter.IsNil && explicitImplementationBodies.Contains(accessors.Setter);
+                    propertyName.Contains('.', StringComparison.Ordinal)
+                    && (!accessors.Getter.IsNil && explicitImplementationBodies.Contains(accessors.Getter)
+                        || !accessors.Setter.IsNil && explicitImplementationBodies.Contains(accessors.Setter));
                 var member = new ApiMember
                 {
-                    Name = DecodeString(
-                        reader,
-                        prop.Name,
-                        observeDecodeWork),
+                    Name = propertyName,
                     Kind = "property",
                     Signature = propertySignature.Text,
                     SignatureModel = propertySignature.Model,
@@ -1391,6 +1392,10 @@ public static class ApiSurfaceExtractor
                 var isVirtualEvent = (primaryAccessorAttributes & MethodAttributes.Virtual) != 0;
                 var isOverrideEvent = isVirtualEvent
                     && (primaryAccessorAttributes & MethodAttributes.NewSlot) == 0;
+                string eventName = DecodeString(
+                    reader,
+                    evt.Name,
+                    observeDecodeWork);
                 var accessorModels = new List<ApiAccessor>();
                 if (!accessors.Adder.IsNil)
                 {
@@ -1420,8 +1425,7 @@ public static class ApiSurfaceExtractor
                             observeAttributeMaterialize),
                         HasMethodBody = remover.RelativeVirtualAddress != 0,
                         IsAbstract = (remover.Attributes & MethodAttributes.Abstract) != 0
-                    }
-                };
+                    });
                 var accessorFacts = AccessorFacts(
                     reader,
                     observeText,
@@ -1430,8 +1434,9 @@ public static class ApiSurfaceExtractor
                     (accessors.Adder, "add"),
                     (accessors.Remover, "remove"));
                 bool isExplicitInterfaceImplementation =
-                    explicitImplementationBodies.Contains(accessors.Adder)
-                    || explicitImplementationBodies.Contains(accessors.Remover);
+                    eventName.Contains('.', StringComparison.Ordinal)
+                    && (explicitImplementationBodies.Contains(accessors.Adder)
+                        || explicitImplementationBodies.Contains(accessors.Remover));
 
                 var eventTypeNodeProvider = observeText is null
                     ? TypeNodeProvider.Instance
@@ -1461,11 +1466,6 @@ public static class ApiSurfaceExtractor
                     eventTypeNodeProvider,
                     typeContext,
                     observeText,
-                    observeDecodeWork);
-
-                string eventName = DecodeString(
-                    reader,
-                    evt.Name,
                     observeDecodeWork);
                 var member = new ApiMember
                 {

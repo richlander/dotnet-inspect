@@ -944,14 +944,14 @@ public class ApiMember
     public bool IsFinalizer { get; set; }
 
     /// <summary>
-    /// True when metadata MethodImpl rows identify this member or one of its
-    /// accessors as an explicit interface implementation. This remains separate
-    /// from <see cref="Kind"/> so aggregate properties and events retain their
+    /// True when metadata MethodImpl rows and a qualified metadata name identify
+    /// this aggregate property or event as an explicit interface implementation.
+    /// This remains separate from <see cref="Kind"/> so the aggregate retains its
     /// member shape.
     /// </summary>
     /// <remarks>
     /// <c>ApiSignatureModelTests.ExplicitInterfaceAggregates_PreserveTypedIdentity</c>
-    /// gates extraction for methods, properties, and events.
+    /// gates extraction for properties and events.
     /// </remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsExplicitInterfaceImplementation { get; set; }
