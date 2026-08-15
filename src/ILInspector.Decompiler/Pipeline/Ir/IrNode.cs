@@ -152,6 +152,56 @@ public abstract class IrNode
     }
 
     /// <summary>
+    /// Pre-order descendants in the current function scope. Nested lambda and
+    /// local-function nodes are yielded, but their independently scoped bodies
+    /// are not traversed.
+    /// </summary>
+    public IEnumerable<IrNode> DescendantsOutsideNestedFunctions
+    {
+        get
+        {
+            if (_children.Count == 0)
+                yield break;
+            var stack = DescendantStackPool.Rent();
+            try
+            {
+                for (int i = _children.Count - 1; i >= 0; i--)
+                    stack.Push(_children[i]);
+                while (stack.Count > 0)
+                {
+                    var node = stack.Pop();
+                    yield return node;
+                    if (node is Lambda or LocalFunctionStatement)
+                        continue;
+                    var children = node._children;
+                    for (int i = children.Count - 1; i >= 0; i--)
+                        stack.Push(children[i]);
+                }
+            }
+            finally
+            {
+                DescendantStackPool.Return(stack);
+            }
+        }
+    }
+
+    /// <summary>
+    /// This node and its current-function-scope descendants. A nested function
+    /// used as the root is yielded without traversing its body.
+    /// </summary>
+    public IEnumerable<IrNode> DescendantsAndSelfOutsideNestedFunctions
+    {
+        get
+        {
+            yield return this;
+            if (this is Lambda or LocalFunctionStatement)
+                yield break;
+            foreach (var node in DescendantsOutsideNestedFunctions)
+                yield return node;
+        }
+    }
+
+    /// <summary>
     /// A detached deep copy of this subtree. The node's payload is shared
     /// (the model types it references — <see cref="TypeRef"/>, method/field
     /// handles, constants — are immutable), its children are cloned
