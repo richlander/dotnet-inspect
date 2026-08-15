@@ -1172,8 +1172,22 @@ public class PdbContext : IDisposable
         {
             var type = metadata.GetTypeDefinition(typeHandle);
             string fullName = metadata.GetFullTypeName(type);
-            if (string.IsNullOrEmpty(fullName) || fullName == "<Module>")
+            if (fullName == "<Module>")
                 continue;
+            MetadataTypeDefinitionName definitionName =
+                MetadataTypeDefinitionNameReader.Read(
+                    metadata,
+                    typeHandle)
+                switch
+                {
+                    MetadataTypeDefinitionNameReadResult.Read read =>
+                        read.Name,
+                    MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                        throw new BadImageFormatException(
+                            rejected.Failure.Detail),
+                    _ => throw new InvalidOperationException(
+                        "Unknown metadata type-definition name result."),
+                };
 
             List<PdbDocumentReference> documents = [];
             HashSet<int> seenDocumentRows = [];
@@ -1204,10 +1218,14 @@ public class PdbContext : IDisposable
                         _pdbReader.GetDocument(handle);
                     string path =
                         _pdbReader.GetString(document.Name);
+                    if (string.IsNullOrEmpty(path))
+                    {
+                        throw new BadImageFormatException(
+                            "A portable-PDB source document has an empty path.");
+                    }
                     int documentRowId =
                         MetadataTokens.GetRowNumber(handle);
-                    if (!string.IsNullOrEmpty(path)
-                        && seenDocumentRows.Add(documentRowId))
+                    if (seenDocumentRows.Add(documentRowId))
                     {
                         documents.Add(
                             new PdbDocumentReference(
@@ -1222,13 +1240,7 @@ public class PdbContext : IDisposable
                 metadata.GetString(type.Name),
                 documents)
             {
-                DefinitionName =
-                    MetadataTypeDefinitionNameReader.Read(
-                        metadata,
-                        typeHandle)
-                    is MetadataTypeDefinitionNameReadResult.Read read
-                        ? read.Name
-                        : null,
+                DefinitionName = definitionName,
             };
         }
     }

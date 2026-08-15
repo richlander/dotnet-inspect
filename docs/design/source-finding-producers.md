@@ -66,7 +66,12 @@ census instead of being omitted from an absent or apparently complete mapping.
 `AssemblyContextSourceQueryTests.MalformedTargetPdbDocument_ProducesFailedAuthoredEvidenceBeforeTypeFallback`
 and
 `AssemblyContextSourceQueryTests.MalformedTargetSequencePoints_ProduceFailedAuthoredEvidenceBeforeTypeFallback`
-gate those two decode boundaries with real portable PDBs.
+gate those two decode boundaries with real portable PDBs. SRM-readable but
+invalid census values fail the same boundary rather than becoming absence:
+`AssemblyContextSourceQueryTests.EmptyTargetPdbDocument_ProducesFailedAuthoredEvidenceBeforeTypeFallback`
+gates an empty correlated document path, and
+`AssemblyContextSourceQueryTests.RejectedUnrelatedTypeName_ProducesFailedAuthoredEvidenceBeforeTypeFallback`
+gates a rejected unrelated structured TypeDef name.
 
 Member-source comparison treats the exact point-line set as a changeable
 payload facet. Its occurrence sort key includes every compared identity and

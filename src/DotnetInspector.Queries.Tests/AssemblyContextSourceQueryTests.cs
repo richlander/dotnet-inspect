@@ -527,6 +527,21 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
+    public async Task EmptyTargetPdbDocument_ProducesFailedAuthoredEvidenceBeforeTypeFallback()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        byte[] pdbBytes =
+            EmptyDocumentName(
+                assembly.PdbPath,
+                Path.GetFileName(
+                    SourceFileBytesPath()));
+
+        await AssertMalformedPdbTypeFallsBackAsync(
+            assembly,
+            pdbBytes);
+    }
+
+    [Fact]
     public async Task MalformedTargetSequencePoints_ProduceFailedAuthoredEvidenceBeforeTypeFallback()
     {
         TestAssembly assembly = TestAssembly.Create();
@@ -541,6 +556,25 @@ public sealed class AssemblyContextSourceQueryTests
         await AssertMalformedPdbTypeFallsBackAsync(
             assembly,
             pdbBytes);
+    }
+
+    [Fact]
+    public async Task RejectedUnrelatedTypeName_ProducesFailedAuthoredEvidenceBeforeTypeFallback()
+    {
+        TestAssembly original = TestAssembly.Create();
+        byte[] bytes =
+            RejectUnrelatedTypeName(
+                File.ReadAllBytes(
+                    typeof(AssemblyContextSourceQueryTests)
+                        .Assembly.Location));
+        TestAssembly assembly =
+            TestAssembly.CreatePackage(
+                bytes,
+                original.PdbPath);
+
+        await AssertMalformedPdbTypeFallsBackAsync(
+            assembly,
+            File.ReadAllBytes(original.PdbPath));
     }
 
     [Fact]
@@ -789,6 +823,138 @@ public sealed class AssemblyContextSourceQueryTests
         return bytes;
     }
 
+    static byte[] EmptyDocumentName(
+        string pdbPath,
+        string targetFileName)
+    {
+        byte[] bytes = File.ReadAllBytes(pdbPath);
+        int documentNameOffset = -1;
+        using (var provider =
+               MetadataReaderProvider.FromPortablePdbStream(
+                   new MemoryStream(
+                       bytes,
+                       writable: false),
+                   MetadataStreamOptions.PrefetchMetadata))
+        {
+            MetadataReader reader =
+                provider.GetMetadataReader();
+            foreach (DocumentHandle handle in reader.Documents)
+            {
+                Document document =
+                    reader.GetDocument(handle);
+                string name =
+                    reader.GetString(document.Name);
+                if (!name.EndsWith(
+                    targetFileName,
+                    StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                documentNameOffset =
+                    MetadataTokens.GetHeapOffset(
+                        (BlobHandle)document.Name);
+                break;
+            }
+        }
+
+        Assert.True(documentNameOffset >= 0);
+        int blobOffset =
+            FindMetadataStreamOffset(bytes, "#Blob");
+        int blobEntryOffset =
+            checked(blobOffset + documentNameOffset);
+        Assert.Equal(
+            1,
+            CompressedIntegerPrefixSize(
+                bytes[blobEntryOffset]));
+        bytes[blobEntryOffset] = 1;
+
+        using var corruptedProvider =
+            MetadataReaderProvider.FromPortablePdbStream(
+                new MemoryStream(
+                    bytes,
+                    writable: false),
+                MetadataStreamOptions.PrefetchMetadata);
+        MetadataReader corruptedReader =
+            corruptedProvider.GetMetadataReader();
+        Assert.Single(
+            corruptedReader.Documents,
+            handle =>
+                corruptedReader.GetString(
+                    corruptedReader
+                        .GetDocument(handle).Name)
+                    .Length == 0);
+        return bytes;
+    }
+
+    static byte[] RejectUnrelatedTypeName(
+        byte[] original)
+    {
+        byte[] bytes = (byte[])original.Clone();
+        int metadataOffset;
+        int typeNameOffset = -1;
+        using (var stream =
+               new MemoryStream(
+                   bytes,
+                   writable: false))
+        using (var reader = new PEReader(stream))
+        {
+            metadataOffset =
+                reader.PEHeaders.MetadataStartOffset;
+            MetadataReader metadata =
+                reader.GetMetadataReader();
+            foreach (TypeDefinitionHandle handle
+                in metadata.TypeDefinitions)
+            {
+                TypeDefinition type =
+                    metadata.GetTypeDefinition(handle);
+                string name =
+                    metadata.GetString(type.Name);
+                string typeNamespace =
+                    metadata.GetString(type.Namespace);
+                if (name is "<Module>"
+                    or nameof(SourceFixture)
+                    || typeNamespace.Length == 0
+                    || !type.GetDeclaringType().IsNil)
+                {
+                    continue;
+                }
+
+                typeNameOffset =
+                    MetadataTokens.GetHeapOffset(
+                        type.Name);
+                break;
+            }
+        }
+
+        Assert.True(typeNameOffset > 0);
+        int stringsOffset =
+            checked(
+                metadataOffset
+                + FindMetadataStreamOffset(
+                    bytes,
+                    "#Strings",
+                    metadataOffset));
+        bytes[stringsOffset + typeNameOffset] = 0;
+
+        using var corruptedStream =
+            new MemoryStream(
+                bytes,
+                writable: false);
+        using var corruptedReader =
+            new PEReader(corruptedStream);
+        MetadataReader corruptedMetadata =
+            corruptedReader.GetMetadataReader();
+        Assert.Contains(
+            corruptedMetadata.TypeDefinitions,
+            handle =>
+                corruptedMetadata.GetString(
+                    corruptedMetadata
+                        .GetTypeDefinition(handle).Name)
+                    .Length == 0);
+        return bytes;
+    }
+
     static byte[] CorruptMethodSequencePoints(
         string pdbPath,
         int metadataToken)
@@ -854,12 +1020,20 @@ public sealed class AssemblyContextSourceQueryTests
 
     static int FindMetadataStreamOffset(
         byte[] metadata,
-        string requestedName)
+        string requestedName,
+        int metadataOffset = 0)
     {
         int versionLength =
             BinaryPrimitives.ReadInt32LittleEndian(
-                metadata.AsSpan(12, sizeof(int)));
-        int cursor = checked(16 + versionLength + 2);
+                metadata.AsSpan(
+                    metadataOffset + 12,
+                    sizeof(int)));
+        int cursor =
+            checked(
+                metadataOffset
+                + 16
+                + versionLength
+                + 2);
         ushort streamCount =
             BinaryPrimitives.ReadUInt16LittleEndian(
                 metadata.AsSpan(cursor, sizeof(ushort)));
@@ -998,6 +1172,40 @@ public sealed class AssemblyContextSourceQueryTests
                 assembly,
                 participant,
                 pdbPath: "",
+                session.ApiSurface(includeAll: true),
+                policy);
+        }
+
+        internal static TestAssembly CreatePackage(
+            byte[] bytes,
+            string pdbPath)
+        {
+            AssemblyReferenceIdentity identity =
+                ReadIdentity(bytes);
+            var assembly =
+                ResolvedAssemblyReference.Create(
+                    identity,
+                    path: null,
+                    () => new MemoryStream(
+                        bytes,
+                        writable: false),
+                    AssemblyResolutionProvenance.Package(
+                        "Example.Source",
+                        "1.0.0",
+                        "net10.0",
+                        rid: null));
+            var policy = new FrameworkBindingPolicy();
+            var participant =
+                new AssemblyContextParticipant(
+                    assembly,
+                    policy);
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(
+                    assembly);
+            return new TestAssembly(
+                assembly,
+                participant,
+                pdbPath,
                 session.ApiSurface(includeAll: true),
                 policy);
         }
