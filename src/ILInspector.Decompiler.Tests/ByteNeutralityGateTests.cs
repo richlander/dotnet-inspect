@@ -85,10 +85,9 @@ public sealed class ByteNeutralityGateTests
     /// <para>
     /// <see cref="Emits"/> distinguishes a value the printer actually consumes today (the
     /// render changes, so the value is compiled back) from one that renders identically to
-    /// the default because a catalog value is not yet wired into emission (the deferred
-    /// var buckets). Inert values are pinned as no-ops on an input they <em>would</em>
-    /// govern once active, so the day emission lands the pin flips and forces an emitting
-    /// specimen.
+    /// the default because a catalog value is not yet wired into emission. An inert
+    /// value can be pinned as a no-op on an input it <em>would</em> govern once active,
+    /// so the day emission lands the pin flips and forces an emitting specimen.
     /// </para>
     /// </summary>
     sealed record ValueSpecimen(
@@ -123,16 +122,12 @@ public sealed class ByteNeutralityGateTests
         new("var-spelling-style", "var-when-type-apparent",
             typeof(VarWhenApparentSpecimen), nameof(VarWhenApparentSpecimen.ObjectCreation),
             "() -> corelib:System.Int32"),
-        // Declared-but-unwired var categories (deferred #3169). Pinned as no-ops on the
-        // input each would govern once emission lands: a built-in-type object creation
-        // and a not-apparent local. When the bucket is wired these renders diverge and
-        // ValueTokenState_MatchesEmits fails, forcing an emitting specimen.
         new("var-spelling-style", "var-for-built-in-types",
             typeof(VarWhenApparentSpecimen), nameof(VarWhenApparentSpecimen.BuiltInObjectCreation),
-            "() -> corelib:System.Int32", Emits: false),
+            "() -> corelib:System.Int32"),
         new("var-spelling-style", "var-elsewhere",
             typeof(VarWhenApparentSpecimen), nameof(VarWhenApparentSpecimen.NotApparent),
-            "() -> corelib:System.Int32", Emits: false),
+            "() -> corelib:System.Int32"),
         // Synthesis: suppress symbols so the product default invents `num`, while
         // slot-local-names restores V_0. Both forms must compile back identically.
         new("slot-local-names", "true",
@@ -259,10 +254,9 @@ public sealed class ByteNeutralityGateTests
         // Non-vacuity + wiring pin, fast (no compile-back). An emitting value must
         // actually change its specimen's render (off != on) — this is what makes the
         // compile-back proof below a real check rather than a comparison of two identical
-        // renders. An inert value (a declared-but-unwired var bucket) must render
-        // identically to the default (off == on) on the input it would govern; when the
-        // value becomes active that equality breaks and this test forces it into the
-        // emitting set.
+        // renders. An inert value must render identically to the default (off == on)
+        // on the input it would govern; when the value becomes active that equality
+        // breaks and this test forces it into the emitting set.
         foreach (var specimen in Specimens)
         {
             var offText = Render(specimen, StyleOptionCatalog.DefaultOptions);

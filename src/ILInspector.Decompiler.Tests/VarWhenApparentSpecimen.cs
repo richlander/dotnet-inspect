@@ -3,11 +3,10 @@ using System.Collections.Generic;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// Compiled specimens for the opt-in apparent-type <c>var</c> bucket
-/// (<see cref="ILInspector.Decompiler.Pipeline.PrinterOptions.PreferVarWhenTypeApparent"/>,
-/// <c>csharp_style_var_when_type_is_apparent</c>). Each method declares a real local
-/// (used more than once so it survives as a declaring store) whose type is — or is
-/// deliberately not — apparent from its initializer.
+/// Compiled specimens for the three opt-in <c>var</c> spelling buckets. Each method
+/// declares a real local (used more than once so it survives as a declaring store)
+/// whose initializer either proves exact inference or exercises a close conversion
+/// boundary.
 /// </summary>
 public sealed class VarWhenApparentSpecimen
 {
@@ -54,6 +53,33 @@ public sealed class VarWhenApparentSpecimen
         items.Add(1);
         return items.Count;
     }
+
+    // Negative for the built-in bucket: the call's natural type is int, while the
+    // declaration relies on an implicit widening conversion to long.
+    public static long BuiltInNumericWidening()
+    {
+        long value = IntValue();
+        return value + value;
+    }
+
+    // Negative for the built-in bucket: the IR can recover the sink's byte identity,
+    // but the emitted bare literal still has C# natural type int.
+    public static int BuiltInConstantConversion()
+    {
+        byte value = 1;
+        return value + value;
+    }
+
+    // Negative for the elsewhere bucket: the initializer call returns List<int>,
+    // while the declaration relies on its implicit reference conversion to the
+    // IReadOnlyCollection<int> interface.
+    public static int ElsewhereReferenceWidening()
+    {
+        IReadOnlyCollection<int> items = Make();
+        return items.Count + items.Count;
+    }
+
+    static int IntValue() => 3;
 
     static List<int> Make() => new();
 

@@ -160,6 +160,51 @@ fidelity. Optional-argument elision (below) is the other spelling that ships
 under this binding-hazard discipline; any future one that shares the hazard —
 apparent-type or argument-omission — is scoped the same way.
 
+### `var` spelling
+
+An explicit local type and `var` compile identically only when C# infers exactly
+the declared type from the initializer. The opt-in policy mirrors the three
+editorconfig categories and partitions each declaration in this order:
+
+1. C# built-in keyword types use `PreferVarForBuiltInTypes`.
+2. Remaining sites where `TypeIsApparent` proves the type is named by the
+   initializer use `PreferVarWhenTypeApparent`.
+3. Every other site uses `PreferVarElsewhere`.
+
+All three buckets share one exact-inference gate. An IR expression's
+`ResultType` is not sufficient evidence: a sink can retag a literal, an implicit
+coercion can leave the initializer's narrower type visible, and a raised
+target-typed expression can carry its target despite having no natural type.
+The printer therefore compares the initializer's proven rendered C# natural
+type with the declaration type and conservatively declines sink coercions,
+boxing, best-common-type joins, retagged literals, lambdas/method groups,
+stackalloc/span projections, collection expressions, `null`, and other
+context-dependent forms. Unknown cases keep the explicit type.
+
+`var` and target-typed `new()` are mutually exclusive at a declaration:
+`var x = new()` has no target type and is CS8754. When a bucket selects `var`,
+the initializer retains `new T(...)`; otherwise the existing target-typed
+shortener remains available.
+
+The shipped default keeps all three options off. The declared oracle at
+dotnet/runtime commit `feede76a68710c11dafa54f8f14bfcdd49fbf54d` sets
+`csharp_style_var_for_built_in_types = false:suggestion`,
+`csharp_style_var_when_type_is_apparent = false:none`, and
+`csharp_style_var_elsewhere = false:suggestion` (`.editorconfig:52-54`).
+The revealed facet is mixed rather than a stable endorsement of a `var`
+category: `System/CharEnumerator.cs:21-22` uses explicit built-in locals,
+`System/Text/DecoderExceptionFallback.cs:50` spells the apparent
+`StringBuilder strBytes = new StringBuilder(...)`, while
+`System/Environment.Variables.Unix.cs:63,97` and
+`System/Globalization/InvariantModeCasing.cs:57,103` use `var` for apparent
+object creation. The opt-in values are therefore not corpus-endorsed.
+
+`ByteNeutralityGateTests.CompileBackValue_On_RecompilesToTheSameIlAsOff`
+enforces compile-back identity for each emitting category, and
+`ValueTokenState_MatchesEmits` prevents a catalog value from silently returning
+to a no-op. `VarWhenApparentTests` pins the three-way partition, exact positives,
+target-typed-`new` interaction, and close conversion/contextual negatives.
+
 ### Optional-argument elision
 
 C# optional parameters are erased by the type system: the compiler bakes the
@@ -893,11 +938,13 @@ single-select for display: `GetValue` reports the coarse first-enabled category
 and `WithValue` selects one exclusively. `var` is byte-neutral — it erases the
 declared type spelling but never changes the IL — so the family sits in the
 `Spelling` tier with `ByteDivergent = false`. Every category value is
-`OracleEndorsed = false` and `CorpusEndorsed = false`: dotnet/runtime's
-`.editorconfig` sets all three `csharp_style_var_*` keys to `false` (prefer
-explicit types), so no `var` value is endorsed by either facet. The family is
-therefore **opt-in only** and never part of the "full taste" aggregate — the
-shipped default spells explicit types everywhere, matching the runtime.
+`OracleEndorsed = false` because dotnet/runtime's `.editorconfig` sets all three
+`csharp_style_var_*` keys to `false` (prefer explicit types), and
+`CorpusEndorsed = false` because the source consultation recorded in
+[`var` spelling](#var-spelling) found mixed practice rather than a stable
+category endorsement. The family is therefore **opt-in only** and never part of
+the "full taste" aggregate — the shipped default spells explicit types
+everywhere, matching the declared runtime policy.
 
 ## Verification and soundness
 

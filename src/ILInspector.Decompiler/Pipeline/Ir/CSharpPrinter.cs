@@ -3102,7 +3102,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = ref {Deref(s.Value)};"
             : $"{LocalName(s.Index)} = ref {Deref(s.Value)};",
         StoreLocal s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {InitializerText(s.Value, s.Type, SpellVarForApparentType(s.Type, s.Value) ? null : s.Type)};"
+            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {DeclarationInitializerText(s.Type, s.Value)};"
             : AssignmentText(s, $"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
         ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {CoerceText(c.Value, c.InnermostTargetType)};",
@@ -3116,7 +3116,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(refType)} {StackSlotName(s)} = ref {Deref(s.Value)};"
             : $"{StackSlotName(s)} = ref {Deref(s.Value)};",
         StoreStackSlot s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {InitializerText(s.Value, StackSlotTargetType(s), SpellVarForApparentType(StackSlotTargetType(s)!, s.Value) ? null : StackSlotTargetType(s))};"
+            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {DeclarationInitializerText(StackSlotTargetType(s)!, s.Value)};"
             : AssignmentText(s, StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
         StoreField s => AssignmentText(
             s,
@@ -5078,13 +5078,13 @@ public sealed partial class CSharpPrinter
     /// (<see cref="UnboxAny"/>, e.g. <c>(int)obj</c>), an object/collection initializer
     /// (<see cref="ObjectInitializerExpression"/> wrapping the creation), and an
     /// array/span literal (<see cref="ArrayLiteral"/>/<see cref="SpanLiteral"/>, e.g.
-    /// <c>new int[] { 1, 2 }</c>). They are extension points for the <c>var</c> slice,
-    /// not defects — declining is always output-safe.
+    /// <c>new int[] { 1, 2 }</c>). They remain conservative apparency declines; the
+    /// broader <c>var</c> policy may still accept a shape through its independent
+    /// exact-inference gate.
     /// </para>
     /// Pure over the typed IR (SRM-only, Roslyn-free); the target-typed-<c>new</c>
-    /// shortener (<see cref="TargetTypedNewText"/>) consumes it today, and the planned
-    /// <c>var</c> lens will consult the same predicate so the two axes share one
-    /// apparency judgment.
+    /// shortener (<see cref="TargetTypedNewText"/>) and <c>var</c> policy
+    /// (<see cref="SpellVar"/>) share this apparency judgment.
     /// </summary>
     internal static bool TypeIsApparent(TypeRef declaredType, IrExpression initializer) => initializer switch
     {
@@ -6304,34 +6304,77 @@ public sealed partial class CSharpPrinter
 
     string DeclarationTypeText(TypeRef type, IrExpression initializer)
         // An anonymous type has no spellable name, so `var` is mandatory here — not a
-        // taste call. Otherwise the declaration keeps its explicit type unless the
-        // opt-in apparent-type `var` bucket applies (see `SpellVarForApparentType`),
-        // which is off on the byte-stable default. `var` and the target-typed-`new`
-        // shortener are *mutually exclusive* spellings of the same apparent site, not
-        // simultaneous: dropping both ends of `List<int> x = new List<int>()` at once
-        // yields `var x = new()`, which is CS8754 (no target type for `new()`). When
-        // this returns `var`, the caller suppresses the shortener (passing a null
-        // `new` target to `InitializerText`) so the RHS keeps its explicit `new T(...)`.
+        // taste call. Otherwise the declaration keeps its explicit type unless its
+        // style bucket is enabled and the initializer proves exact inference.
         => (initializer is AnonymousObject anonymous && type.Equals(anonymous.Type))
-            || SpellVarForApparentType(type, initializer)
+            || SpellVar(type, initializer)
             ? "var"
             : TypeText(type);
 
     /// <summary>
-    /// Whether an opt-in apparent-type <c>var</c> spelling applies to a local
-    /// declaration (`csharp_style_var_when_type_is_apparent`). True only when the
-    /// bucket is enabled, the declared type is <em>not</em> a C# built-in keyword type
-    /// (those belong to the separate built-in-types bucket, keeping the two families a
-    /// clean partition), and the initializer makes the type apparent
-    /// (<see cref="TypeIsApparent"/> — object creation of the exact type, an array
-    /// creation, or an explicit reference cast). Apparency guarantees the initializer's
-    /// static type is exactly the declared type, so <c>var</c> infers that same type:
-    /// byte-neutral (no IL consequence) and always faithful. Off by default.
+    /// Renders a declaration initializer. A <c>var</c> declaration cannot also use
+    /// target-typed <c>new()</c> (CS8754), so the same decision that spells
+    /// <c>var</c> suppresses that shortener and retains explicit <c>new T(...)</c>.
     /// </summary>
-    bool SpellVarForApparentType(TypeRef type, IrExpression initializer)
-        => _options.PreferVarWhenTypeApparent
-            && !IsBuiltInType(type)
-            && TypeIsApparent(type, initializer);
+    string DeclarationInitializerText(TypeRef type, IrExpression initializer)
+        => InitializerText(initializer, type, SpellVar(type, initializer) ? null : type);
+
+    /// <summary>
+    /// Whether the enabled editorconfig-style bucket spells this declaration with
+    /// <c>var</c>. Built-in, apparent non-built-in, and elsewhere form a disjoint
+    /// partition in that order. Every bucket shares the exact-inference gate: the
+    /// initializer's rendered C# natural type must be exactly the declared type.
+    /// </summary>
+    bool SpellVar(TypeRef type, IrExpression initializer)
+    {
+        if (!VarInfersDeclaredType(type, initializer))
+            return false;
+        if (IsBuiltInType(type))
+            return _options.PreferVarForBuiltInTypes;
+        return TypeIsApparent(type, initializer)
+            ? _options.PreferVarWhenTypeApparent
+            : _options.PreferVarElsewhere;
+    }
+
+    /// <summary>
+    /// Proves that replacing the explicit declaration type with <c>var</c> preserves
+    /// the local's type. <see cref="IrExpression.ResultType"/> is not sufficient by
+    /// itself: constants can be retagged by their sink, coercions can render as bare
+    /// implicit conversions, and several raised forms are target-typed. Decline those
+    /// forms rather than recreating C# overload and best-common-type inference here.
+    /// </summary>
+    static bool VarInfersDeclaredType(TypeRef type, IrExpression initializer)
+    {
+        TypeRef? inferred = initializer switch
+        {
+            Constant constant => ConstantNaturalType(constant),
+            Coerce or Convert or Box or IsInstance
+                or SwitchExpression or UnionSwitchExpression or TupleSwitchExpression or PatternSwitchExpression
+                or Conditional or Coalesce
+                or Lambda or AddressOfMethod or LoadFunctionPointer
+                or StackAllocate or StackAllocArray or SpanLiteral or CollectionExpression or CollectionSpreadElement
+                or LoadStackSlot or LoadElement or LoadIndirect
+                or Unary or DynamicGetMember or UnsupportedNode => null,
+            _ => EffectiveType(initializer),
+        };
+        return inferred?.Equals(type) == true;
+    }
+
+    /// <summary>The type C# infers for the literal text emitted by <see cref="ConstantText"/>.</summary>
+    static TypeRef? ConstantNaturalType(Constant constant)
+        => constant.Value switch
+        {
+            string => TypeRef.CoreLib("System", "String"),
+            bool => TypeRef.CoreLib("System", "Boolean"),
+            char => TypeRef.CoreLib("System", "Char"),
+            int => TypeRef.CoreLib("System", "Int32"),
+            long value when value is >= int.MinValue and <= int.MaxValue => TypeRef.CoreLib("System", "Int32"),
+            long value when value is >= 0 and <= uint.MaxValue => TypeRef.CoreLib("System", "UInt32"),
+            long => TypeRef.CoreLib("System", "Int64"),
+            float => TypeRef.CoreLib("System", "Single"),
+            double => TypeRef.CoreLib("System", "Double"),
+            _ => null,
+        };
 
     /// <summary>
     /// Whether a declared type is a C# built-in (predefined keyword) type — the set
