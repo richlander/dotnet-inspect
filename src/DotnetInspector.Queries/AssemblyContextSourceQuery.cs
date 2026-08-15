@@ -443,28 +443,49 @@ public static class AssemblyContextSourceQuery
                 retained,
                 context.Log,
                 context.SourceLinkCache);
-        await AcquirePdbAsync(
-                source,
-                retained,
-                context,
-                cancellationToken)
-            .ConfigureAwait(false);
-
         var findingSubject = new FindingSubject(
             "member",
             request.Member.Format(MemberAnchorFormat.Qualified));
-        AuthoredMemberSourceInspection authored =
-            await AuthoredSourceAcquisition.AcquireMemberAsync(
+        Exception? pdbFailure = null;
+        try
+        {
+            await AcquirePdbAsync(
                     source,
-                    request.MetadataToken,
-                    request.Member.MemberName,
-                    findingSubject,
-                    context.SourceFetcher,
-                    context.RepositoryPaths,
-                    cancellationToken,
-                    allowLocalSource:
-                        context.AllowLocalSourceReads)
+                    retained,
+                    context,
+                    cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsInspectionFailure(ex))
+        {
+            pdbFailure = ex;
+        }
+
+        AuthoredMemberSourceInspection authored;
+        if (pdbFailure is null)
+        {
+            authored =
+                await AuthoredSourceAcquisition.AcquireMemberAsync(
+                        source,
+                        request.MetadataToken,
+                        request.Member.MemberName,
+                        findingSubject,
+                        context.SourceFetcher,
+                        context.RepositoryPaths,
+                        cancellationToken,
+                        allowLocalSource:
+                            context.AllowLocalSourceReads)
+                    .ConfigureAwait(false);
+        }
+        else
+        {
+            authored =
+                AuthoredSourceAcquisition
+                    .MemberPdbAcquisitionFailed(
+                        findingSubject,
+                        pdbFailure);
+        }
+
         if (authored.IsComplete && authored.Text is { } authoredText)
         {
             return new AssemblyMemberSourceEntry.Available(
@@ -516,27 +537,48 @@ public static class AssemblyContextSourceQuery
                 retained,
                 context.Log,
                 context.SourceLinkCache);
-        await AcquirePdbAsync(
-                source,
-                retained,
-                context,
-                cancellationToken)
-            .ConfigureAwait(false);
-
         var findingSubject = new FindingSubject(
             "type",
             request.Type.ToMetadataFullName());
-        AuthoredTypeSourceInspection authored =
-            await AuthoredSourceAcquisition.AcquireTypeAsync(
+        Exception? pdbFailure = null;
+        try
+        {
+            await AcquirePdbAsync(
                     source,
-                    request.Type,
-                    findingSubject,
-                    context.SourceFetcher,
-                    context.RepositoryPaths,
-                    cancellationToken,
-                    allowLocalSource:
-                        context.AllowLocalSourceReads)
+                    retained,
+                    context,
+                    cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsInspectionFailure(ex))
+        {
+            pdbFailure = ex;
+        }
+
+        AuthoredTypeSourceInspection authored;
+        if (pdbFailure is null)
+        {
+            authored =
+                await AuthoredSourceAcquisition.AcquireTypeAsync(
+                        source,
+                        request.Type,
+                        findingSubject,
+                        context.SourceFetcher,
+                        context.RepositoryPaths,
+                        cancellationToken,
+                        allowLocalSource:
+                            context.AllowLocalSourceReads)
+                    .ConfigureAwait(false);
+        }
+        else
+        {
+            authored =
+                AuthoredSourceAcquisition
+                    .TypePdbAcquisitionFailed(
+                        findingSubject,
+                        pdbFailure);
+        }
+
         if (authored.IsComplete && authored.Text is { } authoredText)
         {
             return new AssemblyTypeSourceEntry.Available(

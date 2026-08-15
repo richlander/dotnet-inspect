@@ -53,6 +53,28 @@ public static class AuthoredSourceAcquisition
 {
     internal const int MaxAuthoredSourceLineCount = 500_000;
 
+    public static AuthoredMemberSourceInspection MemberPdbAcquisitionFailed(
+        FindingSubject subject,
+        Exception error)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentNullException.ThrowIfNull(error);
+        return Failed(
+            subject,
+            $"Portable PDB acquisition failed: {error.Message}");
+    }
+
+    public static AuthoredTypeSourceInspection TypePdbAcquisitionFailed(
+        FindingSubject subject,
+        Exception error)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentNullException.ThrowIfNull(error);
+        return TypeFailed(
+            subject,
+            $"Portable PDB acquisition failed: {error.Message}");
+    }
+
     /// <summary>
     /// Acquires the primary authored source document for one exact metadata
     /// type and verifies its portable-PDB checksum before exposing text.

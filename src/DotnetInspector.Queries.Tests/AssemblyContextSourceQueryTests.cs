@@ -288,6 +288,77 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
+    public async Task PdbStoreFailure_PreservesAuthoredFailureAndFallsBackForMemberAndType()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        var pdbStore = new ThrowingPdbStore();
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            pdbStore: pdbStore);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceEntry memberResult =
+            await AssemblyContextSourceQuery.ExecuteMemberAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Describe)),
+                host.Context,
+                TestContext.Current.CancellationToken);
+        var memberAvailable =
+            Assert.IsType<AssemblyMemberSourceEntry.Available>(
+                memberResult);
+        var memberDecompiled =
+            Assert.IsType<AssemblyMemberSource.Decompiled>(
+                memberAvailable.Source);
+        var memberFailure =
+            Assert.IsType<FindingInspection<string>.Failed>(
+                memberDecompiled.AuthoredAttempt.Lines.Value);
+        Assert.Contains(
+            "Portable PDB acquisition failed",
+            memberFailure.Error.Reason,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(SourceFixture.Describe),
+            memberDecompiled.Text,
+            StringComparison.Ordinal);
+
+        AssemblyTypeSourceEntry typeResult =
+            await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(
+                    typeof(SourceFixture).Name),
+                host.Context,
+                TestContext.Current.CancellationToken);
+        var typeAvailable =
+            Assert.IsType<AssemblyTypeSourceEntry.Available>(
+                typeResult);
+        var typeDecompiled =
+            Assert.IsType<AssemblyTypeSource.Decompiled>(
+                typeAvailable.Source);
+        var typeFailure =
+            Assert.IsType<FindingInspection<string>.Failed>(
+                typeDecompiled.AuthoredAttempt.Lines.Value);
+        Assert.Contains(
+            "Portable PDB acquisition failed",
+            typeFailure.Error.Reason,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(SourceFixture),
+            typeDecompiled.Text,
+            StringComparison.Ordinal);
+
+        Assert.Equal(2, pdbStore.ReadAttempts);
+        Assert.True(assembly.Policy.SelectionCount > 0);
+        Assert.Empty(host.SourceRequests);
+    }
+
+    [Fact]
     public async Task NeitherSourceAvailable_ReturnsTypedFailure()
     {
         TestAssembly assembly = TestAssembly.Create();
@@ -474,13 +545,15 @@ public sealed class AssemblyContextSourceQueryTests
         QueryHost(
             SymbolPackageHandler symbolHandler,
             SourceHandler sourceHandler,
-            ISourceContentStore? sourceContentStore = null)
+            ISourceContentStore? sourceContentStore = null,
+            IPdbStore? pdbStore = null)
         {
             _symbolClient = new HttpClient(symbolHandler);
             _sourceClient = new HttpClient(sourceHandler);
             Context = new AssemblyContextSourceQueryContext(
                 _symbolClient,
-                new InMemoryPdbStore(),
+                pdbStore
+                    ?? new InMemoryPdbStore(),
                 new UniformPackageSourceAuthorization(
                     [NuGetFetch.PackageSource.NuGetOrg]),
                 new SourceFetcher(
@@ -501,7 +574,8 @@ public sealed class AssemblyContextSourceQueryTests
         internal static QueryHost WithPdb(
             string pdbPath,
             byte[] sourceBytes,
-            ISourceContentStore? sourceContentStore = null)
+            ISourceContentStore? sourceContentStore = null,
+            IPdbStore? pdbStore = null)
         {
             Assert.True(
                 File.Exists(pdbPath),
@@ -512,7 +586,8 @@ public sealed class AssemblyContextSourceQueryTests
                         Path.GetFileName(pdbPath),
                         File.ReadAllBytes(pdbPath))),
                 new SourceHandler(sourceBytes),
-                sourceContentStore);
+                sourceContentStore,
+                pdbStore);
         }
 
         internal static QueryHost WithoutPdb()
@@ -629,6 +704,35 @@ public sealed class AssemblyContextSourceQueryTests
             throw new IOException(
                 "Synthetic source-content store failure.");
         }
+    }
+
+    sealed class ThrowingPdbStore
+        : IPdbStore
+    {
+        int _readAttempts;
+
+        internal int ReadAttempts =>
+            Volatile.Read(ref _readAttempts);
+
+        public ValueTask<Stream?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _readAttempts);
+            throw new IOException(
+                "Synthetic PDB store failure.");
+        }
+
+        public ValueTask PutAsync(
+            string key,
+            Stream content,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException(
+                "The failing read must prevent a store write.");
+
+        public string? TryGetLocalPath(string key) =>
+            null;
     }
 
     sealed class FrameworkBindingPolicy

@@ -140,6 +140,11 @@ typed and does not publish the fetched bytes to the process-local memory cache,
 so an identical retry cannot silently change from failure to authored success.
 `AssemblyContextSourceQueryTests.SourceStoreFailure_FallsBackRepeatablyWithoutPublishingMemoryEntry`
 gates both repeatability and fallback.
+Portable-PDB acquisition and validation failures follow the same composition:
+the failed authored attempt remains visible while member or type decompilation
+continues, and cancellation still propagates.
+`AssemblyContextSourceQueryTests.PdbStoreFailure_PreservesAuthoredFailureAndFallsBackForMemberAndType`
+gates that boundary.
 
 Conditional branch liveness is composed only at the member slicing boundary:
 Metadata reports point lines, CSharpText reports lexical branch ranges, and the
