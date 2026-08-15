@@ -574,9 +574,9 @@ public class InspectionResultView
 
 public class SigningSection
 {
-    private readonly InertString? _publisher;
-    private readonly InertString? _repository;
-    private readonly InertString? _status;
+    private InertString? _publisher;
+    private InertString? _repository;
+    private InertString? _status;
 
     internal static readonly string[] FieldNames =
     [
@@ -587,6 +587,10 @@ public class SigningSection
         "Signed",
         "Status",
     ];
+
+    public SigningSection()
+    {
+    }
 
     public SigningSection(
         string? authorVerified,
@@ -605,13 +609,31 @@ public class SigningSection
     }
 
     [MarkoutPropertyName("Author Verified")]
-    public string? AuthorVerified { get; }
-    public string? Publisher => PackageViewText.Render(_publisher);
-    public string? Repository => PackageViewText.Render(_repository);
+    public string? AuthorVerified { get; init; }
+    public string? Publisher
+    {
+        get => PackageViewText.Render(_publisher);
+        init => _publisher = value is null
+            ? null
+            : new InertString(TextPolicy.Field, value);
+    }
+    public string? Repository
+    {
+        get => PackageViewText.Render(_repository);
+        init => _repository = value is null
+            ? null
+            : new InertString(TextPolicy.Field, value);
+    }
     [MarkoutPropertyName("Repository Verified")]
-    public string? RepositoryVerified { get; }
-    public string Signed { get; }
-    public string? Status => PackageViewText.Render(_status);
+    public string? RepositoryVerified { get; init; }
+    public string Signed { get; init; } = "Unknown";
+    public string? Status
+    {
+        get => PackageViewText.Render(_status);
+        init => _status = value is null
+            ? null
+            : new InertString(TextPolicy.Field, value);
+    }
 
     internal IEnumerable<MarkoutField> ToMarkoutFields()
     {
