@@ -185,6 +185,12 @@ public static class SampleUnsafeClass
     public static unsafe int* UnsafePointerProperty { get; set; }
     public static uint CallsUnsafeAs(ref int value) => Unsafe.As<int, uint>(ref value);
     public static string SafeMethod() => "safe";
+    public static int InvokeDiagnosticProbe()
+    {
+        return DiagnosticProbe();
+
+        static int DiagnosticProbe() => 42;
+    }
 }
 
 /// <summary>

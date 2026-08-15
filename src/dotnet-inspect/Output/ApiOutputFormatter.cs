@@ -2196,8 +2196,9 @@ public static class ApiOutputFormatter
         var evidencedTokens = findings
             .Select(finding => finding.Payload.Member.MetadataToken)
             .ToHashSet();
-        var memberTokens = type.Members
-            .SelectMany(MemberEvidenceTokens)
+        var declaredMethodTokens = index.DeclaredMethods
+            .Where(method => ApiAnalysisInspection.SameType(method.DeclaringType, type))
+            .Select(method => method.MetadataToken)
             .ToHashSet();
         var rows = findings
             .Select(static finding => finding.Payload)
@@ -2235,7 +2236,7 @@ public static class ApiOutputFormatter
                         Row: row);
                 }))
             .Concat((diagnostics ?? index.Diagnostics)
-                .Where(diagnostic => memberTokens.Contains(diagnostic.MethodToken))
+                .Where(diagnostic => declaredMethodTokens.Contains(diagnostic.MethodToken))
                 .Select(diagnostic =>
                 {
                     var row = new UnsafeMemberRow(

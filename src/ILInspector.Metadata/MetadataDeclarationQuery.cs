@@ -106,18 +106,13 @@ public static class MetadataDeclarationQuery
         }
 
         type.IsStatic = type.IsSealed && type.IsAbstract;
-        var accessorMethods = new HashSet<MethodDefinitionHandle>();
+        var accessorMethods = ApiSurfaceExtractor.GetAccessorMethods(reader, typeDef);
         foreach (var propertyHandle in typeDef.GetProperties())
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
             var declaration = GetProperty(reader, typeDef, property);
             if (!includeNonPublicMembers && declaration.Accessibility != "public")
                 continue;
-
-            if (!declaration.Getter.IsNil)
-                accessorMethods.Add(declaration.Getter);
-            if (!declaration.Setter.IsNil)
-                accessorMethods.Add(declaration.Setter);
 
             var signatureText = PropertySignatureText(declaration);
             type.Members.Add(new ApiMember
@@ -147,10 +142,6 @@ public static class MetadataDeclarationQuery
         {
             var evt = reader.GetEventDefinition(eventHandle);
             var accessors = evt.GetAccessors();
-            if (!accessors.Adder.IsNil)
-                accessorMethods.Add(accessors.Adder);
-            if (!accessors.Remover.IsNil)
-                accessorMethods.Add(accessors.Remover);
             if (accessors.Adder.IsNil && accessors.Remover.IsNil)
                 continue;
 

@@ -160,6 +160,78 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void TypeSurface_ExcludesAllCompilerProducedEventAccessors()
+    {
+        string path = typeof(VbCustomEventFixture.CustomEvents).Assembly.Location;
+        using var peReader = new PEReader(File.OpenRead(path));
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = GetTypeDefinitionHandle(
+            reader,
+            typeof(VbCustomEventFixture.CustomEvents).FullName!);
+
+        var queried = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        var extracted = Assert.Single(
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true).Types,
+            type => type.FullName == typeof(VbCustomEventFixture.CustomEvents).FullName);
+
+        foreach (var surface in new[] { queried, extracted })
+        {
+            Assert.Single(surface.Members, member => member is { Name: "Changed", Kind: "event" });
+            Assert.DoesNotContain(
+                surface.Members,
+                member => member.Name is "add_Changed" or "remove_Changed" or "raise_Changed");
+        }
+    }
+
+    [Fact]
+    public void TypeSurface_ExcludesMetadataEventOtherAccessors()
+    {
+        string path = EmitEventWithOtherAccessor();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            var reader = peReader.GetMetadataReader();
+            var typeHandle = GetTypeDefinitionHandle(reader, "EventOtherSample");
+
+            var queried = MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                typeHandle,
+                includeNonPublicMembers: true);
+            var extracted = Assert.Single(
+                ApiSurfaceExtractor.Extract(peReader, includeAll: true).Types,
+                type => type.FullName == "EventOtherSample");
+
+            foreach (var surface in new[] { queried, extracted })
+            {
+                Assert.Single(surface.Members, member => member is { Name: "Changed", Kind: "event" });
+                Assert.DoesNotContain(surface.Members, member => member.Name == "other_Changed");
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void TypeSurface_PreservesUnassociatedAccessorLikeMethods()
+    {
+        var queried = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures)),
+            includeNonPublicMembers: true);
+        var extracted = Assert.Single(
+            ApiSurfaceExtractor.Extract(PeReader, includeAll: true).Types,
+            type => type.FullName == typeof(MetadataDeclarationQueryFixtures).FullName);
+
+        foreach (var surface in new[] { queried, extracted })
+            Assert.Single(surface.Members, member => member is { Name: "get_Orphan", Kind: "method" });
+    }
+
+    [Fact]
     public void PrivateScopeAccessors_AreNotClassifiedAsPublic()
     {
         var methodAccessibility = typeof(MetadataDeclarationQuery).GetMethod(
@@ -364,17 +436,45 @@ public sealed class MetadataDeclarationQueryTests
         return path;
     }
 
+    static string EmitEventWithOtherAccessor()
+    {
+        var assemblyName = new AssemblyName("EventOther");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("EventOtherSample", TypeAttributes.Public);
+        const MethodAttributes attributes =
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
+        var add = type.DefineMethod("add_Changed", attributes, typeof(void), [typeof(EventHandler)]);
+        add.GetILGenerator().Emit(OpCodes.Ret);
+        var remove = type.DefineMethod("remove_Changed", attributes, typeof(void), [typeof(EventHandler)]);
+        remove.GetILGenerator().Emit(OpCodes.Ret);
+        var other = type.DefineMethod("other_Changed", attributes, typeof(void), Type.EmptyTypes);
+        other.GetILGenerator().Emit(OpCodes.Ret);
+        var eventBuilder = type.DefineEvent("Changed", EventAttributes.None, typeof(EventHandler));
+        eventBuilder.SetAddOnMethod(add);
+        eventBuilder.SetRemoveOnMethod(remove);
+        eventBuilder.AddOtherMethod(other);
+        type.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"EventOther-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
     static TypeDefinition GetTypeDefinition(Type type)
         => Reader.GetTypeDefinition(GetTypeDefinitionHandle(type));
 
     static TypeDefinitionHandle GetTypeDefinitionHandle(Type type)
+        => GetTypeDefinitionHandle(Reader, type.FullName!.Replace('+', '.'));
+
+    static TypeDefinitionHandle GetTypeDefinitionHandle(MetadataReader reader, string fullName)
     {
-        var metadataName = type.FullName!.Replace('+', '.');
+        var metadataName = fullName.Replace('+', '.');
         metadataName = StripGenericArity(metadataName);
-        foreach (var handle in Reader.TypeDefinitions)
+        foreach (var handle in reader.TypeDefinitions)
         {
-            var definition = Reader.GetTypeDefinition(handle);
-            if (StripGenericArity(TypeResolver.GetFullName(Reader, definition)) == metadataName)
+            var definition = reader.GetTypeDefinition(handle);
+            if (StripGenericArity(TypeResolver.GetFullName(reader, definition)) == metadataName)
                 return handle;
         }
 
@@ -461,6 +561,8 @@ public class MetadataDeclarationQueryFixtures
         string text = "a\"b.class")
     {
     }
+
+    public int get_Orphan() => 0;
 
     public void SyntaxKeywordTypes(
         global::@delegate delegateValue,

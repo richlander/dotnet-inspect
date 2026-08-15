@@ -798,6 +798,12 @@ public class ApiCommand
         return sections;
     }
 
+    internal static HashSet<string> GetCandidateMemberSections(ApiOptions options)
+    {
+        var pipeline = ApiMemberSectionPipelines.Create(options);
+        return pipeline.GetCandidateSections(options.Verbosity, options.IncludeSections);
+    }
+
     // ===== Full API Surface Rendering =====
 
     internal static int WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
@@ -1279,11 +1285,15 @@ public class ApiCommand
 
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
-            if (GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
+            var candidateSections = GetCandidateMemberSections(options);
+            if (candidateSections.Contains(SectionNames.UnsafeMembers))
             {
+                string guidance = candidateSections.Count == 1
+                    ? "Use --jsonl for its table rows."
+                    : "Use Markdown output for the multi-section document.";
                 CommandError.Write(
                     $"Document --json cannot represent the analysis rows in section "
-                    + $"'{SectionNames.UnsafeMembers}'. Use --jsonl for its table rows.");
+                    + $"'{SectionNames.UnsafeMembers}'. {guidance}");
                 return 1;
             }
 

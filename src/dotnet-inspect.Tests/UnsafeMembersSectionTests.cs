@@ -234,6 +234,40 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
+    public async Task TypeUnsafeMembers_InapplicableJsonSelectionStillFailsClosed()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(SampleClassForTesting).FullName,
+            AssemblyPath = typeof(SampleClassForTesting).Assembly.Location,
+            IncludeSections = [SectionNames.UnsafeMembers],
+            JsonOutput = true,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("cannot represent the analysis rows", result.Error);
+        Assert.Contains("--jsonl", result.Error);
+        Assert.DoesNotContain("\"name\"", result.Output);
+    }
+
+    [Fact]
+    public async Task TypeUnsafeMembers_MultiSectionJsonSelectionRecommendsDocumentOutput()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(SampleClassForTesting).FullName,
+            AssemblyPath = typeof(SampleClassForTesting).Assembly.Location,
+            IncludeSections = [SectionNames.TypeInfo, SectionNames.UnsafeMembers],
+            JsonOutput = true,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("cannot represent the analysis rows", result.Error);
+        Assert.Contains("Markdown", result.Error);
+        Assert.DoesNotContain("--jsonl", result.Error);
+    }
+
+    [Fact]
     public void TypeUnsafeMembers_RendersDeclarationWhenAnalysisHasNoEvidence()
     {
         var type = new ApiType
@@ -266,26 +300,23 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
-    public void TypeUnsafeMembers_RendersAnalysisFailuresInsteadOfAFalseCleanResult()
+    public void TypeUnsafeMembers_RendersFailuresFromNonSurfaceDeclaredMethods()
     {
+        var index = LibraryBodyIndex.Open(typeof(SampleUnsafeClass).Assembly.Location);
+        var generatedMethod = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name.StartsWith(
+                "<InvokeDiagnosticProbe>g__DiagnosticProbe",
+                StringComparison.Ordinal));
+        var otherTypeMethod = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name == nameof(SamplePInvokeClass.GetCurrentProcessId));
         var type = new ApiType
         {
-            Namespace = "Samples",
-            Name = "OnlySafe",
+            Namespace = typeof(SampleUnsafeClass).Namespace,
+            Name = nameof(SampleUnsafeClass),
             Kind = "class",
-            Members =
-            [
-                new ApiMember
-                {
-                    Name = "Run",
-                    Kind = "method",
-                    Signature = "void Run()",
-                    MetadataToken = 0x06000001,
-                    HasMethodBody = true
-                }
-            ]
         };
-        var index = LibraryBodyIndex.Open(typeof(SampleUnsafeClass).Assembly.Location);
         var view = new TypeView();
 
         ApiOutputFormatter.PopulateUnsafeMembers(
@@ -294,15 +325,23 @@ public class UnsafeMembersSectionTests
             index,
             [
                 new AnalysisDiagnostic(
-                    0x06000001,
-                    "Samples.OnlySafe.Run()",
-                    "BadImageFormatException: malformed body")
+                    generatedMethod.MetadataToken,
+                    generatedMethod.Name,
+                    "BadImageFormatException: malformed body"),
+                new AnalysisDiagnostic(
+                    otherTypeMethod.MetadataToken,
+                    otherTypeMethod.Name,
+                    "BadImageFormatException: unrelated body")
             ]);
 
-        var row = Assert.Single(view.UnsafeMemberRows!);
+        var row = Assert.Single(
+            view.UnsafeMemberRows!,
+            candidate => candidate.Kind == "diagnostic");
         Assert.Equal("Analysis failed", row.Reason);
-        Assert.Equal("diagnostic", row.Kind);
         Assert.Contains("malformed body", row.Detail);
+        Assert.DoesNotContain(
+            view.UnsafeMemberRows!,
+            candidate => candidate.Detail.Contains("unrelated body", StringComparison.Ordinal));
     }
 
     [Fact]
