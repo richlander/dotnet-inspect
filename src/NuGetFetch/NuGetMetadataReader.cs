@@ -55,9 +55,7 @@ internal static class NuGetMetadataReader
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(deserialize);
-        options = NuGetFetchOptions.ForClient(
-            options,
-            Timeout.InfiniteTimeSpan);
+        options = NuGetFetchOptions.ForStream(options);
 
         return await RunWithBodyTimeoutAsync(
             bodyToken => ReadStreamCoreAsync(
@@ -85,6 +83,11 @@ internal static class NuGetMetadataReader
         NuGetFetchOptions options,
         CancellationToken cancellationToken)
     {
+        if (options.MetadataBodyTimeout == Timeout.InfiniteTimeSpan)
+        {
+            return await operation(cancellationToken).ConfigureAwait(false);
+        }
+
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
         timeout.CancelAfter(options.MetadataBodyTimeout);

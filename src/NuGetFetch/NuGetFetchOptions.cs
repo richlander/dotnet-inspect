@@ -78,16 +78,26 @@ public sealed record NuGetFetchOptions
         TimeSpan clientTimeout)
     {
         options = Validate(options);
+        TimeSpan requestTimeout = RequestTimeoutForClient(
+            options,
+            clientTimeout);
+        return options.MetadataBodyTimeout != Timeout.InfiniteTimeSpan
+            && options.MetadataBodyTimeout < requestTimeout
+                ? options
+                : options with
+                {
+                    MetadataBodyTimeout = Timeout.InfiniteTimeSpan,
+                };
+    }
+
+    internal static NuGetFetchOptions ForStream(NuGetFetchOptions options)
+    {
+        options = Validate(options);
         TimeSpan bodyTimeout =
             options.MetadataBodyTimeout == Timeout.InfiniteTimeSpan
-                ? options.RequestTimeout
-                : options.MetadataBodyTimeout;
-        if (clientTimeout != Timeout.InfiniteTimeSpan
-            && clientTimeout < bodyTimeout)
-        {
-            bodyTimeout = clientTimeout;
-        }
-
+                || options.MetadataBodyTimeout > options.RequestTimeout
+                    ? options.RequestTimeout
+                    : options.MetadataBodyTimeout;
         return options with { MetadataBodyTimeout = bodyTimeout };
     }
 

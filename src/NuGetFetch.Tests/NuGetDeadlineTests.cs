@@ -26,7 +26,7 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
-    public void RequestTimeout_ReplacesTheDefaultMetadataBodyClamp()
+    public void RequestTimeout_DoesNotCreateASecondResponseBodyTimer()
     {
         var options = new NuGetFetchOptions
         {
@@ -38,7 +38,42 @@ public sealed class NuGetDeadlineTests
             options,
             Timeout.InfiniteTimeSpan);
 
+        Assert.Equal(
+            Timeout.InfiniteTimeSpan,
+            effective.MetadataBodyTimeout);
+    }
+
+    [Fact]
+    public void DirectStreamParsing_UsesTheRequestTimeout()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMinutes(3),
+            OperationTimeout = TimeSpan.FromMinutes(4),
+        };
+
+        NuGetFetchOptions effective = NuGetFetchOptions.ForStream(options);
+
         Assert.Equal(options.RequestTimeout, effective.MetadataBodyTimeout);
+    }
+
+    [Fact]
+    public void ShorterWholeRequest_SuppressesTheLongerBodyTimer()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(30),
+            OperationTimeout = TimeSpan.FromMinutes(2),
+            MetadataBodyTimeout = TimeSpan.FromSeconds(5),
+        };
+
+        NuGetFetchOptions effective = NuGetFetchOptions.ForClient(
+            options,
+            TimeSpan.FromMilliseconds(50));
+
+        Assert.Equal(
+            Timeout.InfiniteTimeSpan,
+            effective.MetadataBodyTimeout);
     }
 
     [Fact]
