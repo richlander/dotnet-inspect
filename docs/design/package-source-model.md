@@ -5,15 +5,20 @@ sources. It covers source configuration, package source mapping, local stores,
 source-bound caches, package discovery, exact payload acquisition, and
 NuGet.org-specific enrichment.
 
+Browser source implementations, NuGet Gallery access without the v3 service
+index, portable source bundles, ephemeral credentials, and library-owned
+timeouts are defined by
+[browser package sources](browser-package-sources.md).
+
 It is the target contract. The
 [implementation boundaries](#implementation-boundaries) section distinguishes
 the behavior already present from the work needed to complete the model.
 
 The central rule is:
 
-> Feeds authorize package candidates. Caches may fulfill an authorized exact
+> Package sources authorize package candidates. Caches may fulfill an authorized exact
 > coordinate, but they do not introduce candidates and their payload must
-> retain the identity of the feed that supplied it.
+> retain the identity of the source that supplied it.
 
 NuGet does not define the declaration order of HTTP sources as precedence. It
 queries applicable sources and may obtain an exact package from any of them.
@@ -36,6 +41,7 @@ package id, and source provenance protects downloaded content after acquisition.
 | Source-bound content | Content dotnet-inspect fetched and recorded against its producer. |
 | Payload location | Where the inspected bytes were opened: an explicit file, global packages, the dotnet-inspect cache, a local feed, or a network response. |
 | Enrichment endpoint | A service such as a symbol server or NuGet.org aggregate metadata API that is not itself a package source. |
+| Source client | A protocol-specific implementation that supplies package-source capabilities behind the common candidate and payload contracts. |
 
 Source identity has two parts with different purposes:
 
@@ -67,6 +73,13 @@ immutable-source assumption; it needs distinct source endpoints to keep those
 content domains separate. Credentials selected for a configured endpoint may
 be sent to package resources discovered on the same origin (scheme, host, and
 port), but never to a cross-origin resource advertised by the feed.
+
+Package-source identity is broader than a NuGet v3 service-index URL. A
+standard v3 feed, the built-in NuGet Gallery browser implementation, and a
+local folder may implement the same candidate and payload contracts through
+different transports. Those implementation differences remain below source
+resolution: consumers receive typed capabilities, candidates, failures, and
+producer provenance rather than protocol URLs.
 
 ## Resolving active and eligible sources
 
