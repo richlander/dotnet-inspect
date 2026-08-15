@@ -1514,11 +1514,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     _reader,
                     implementation.MethodDeclaration,
                     sourceScope);
-            return AsyncSiblingMethodsMatch(
+            if (AsyncSiblingMethodsMatch(
                     declaration,
-                    body.Member)
-                ? TypeRelation.Yes
-                : TypeRelation.Unknown;
+                    body.Member))
+            {
+                return TypeRelation.Yes;
+            }
         }
 
         if ((sourceMethod.Attributes

@@ -1092,6 +1092,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         if (classification
             == MethodClassification.RuntimeAsync)
         {
+            if (methodDefinition.RelativeVirtualAddress == 0)
+            {
+                throw new BadImageFormatException(
+                    "The async source method does not have an executable body.");
+            }
             return !typeSourceGenerated
                 && !HasGeneratedCodeAttribute(
                     methodDefinition.GetCustomAttributes())
@@ -1114,9 +1119,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             return null;
 
         if (methodDefinition.RelativeVirtualAddress == 0
-            && (classification
-                    == MethodClassification.RuntimeAsync
-                || stateMachineAttribute.Present
+            && (stateMachineAttribute.Present
                     && classification
                         == MethodClassification.StateMachineAsync))
         {

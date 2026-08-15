@@ -1262,6 +1262,26 @@ public class LibraryBodyIndexTests
                 BuildMethodImplAsyncSourceAssembly(
                     includeMethodImpl: true,
                     inheritedMethodImpl: true,
+                    inheritedMethodImplBodyName:
+                        "CoreAsync",
+                    unrelatedSourceMethodImpl: true));
+            var unrelatedSourceMethodImpl =
+                LibraryBodyIndex.Open(path);
+            Assert.Single(
+                unrelatedSourceMethodImpl
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Empty(
+                unrelatedSourceMethodImpl.Diagnostics);
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: true,
+                    inheritedMethodImpl: true,
                     sourceStartsNewSlot: true));
             var inheritedNewSlot =
                 LibraryBodyIndex.Open(path);
@@ -1358,6 +1378,37 @@ public class LibraryBodyIndexTests
                         == "AnalyzeAsync");
             Assert.Contains(
                 bodilessSource.Diagnostics,
+                diagnostic => diagnostic.Method.Contains(
+                    "AnalyzeAsync",
+                    StringComparison.Ordinal));
+
+            var scopedBodilessSource =
+                LibraryBodyIndex.Open(
+                    path,
+                    bodyScope:
+                        new HashSet<int>
+                        {
+                            MetadataTokens.GetToken(
+                                MetadataTokens
+                                    .MethodDefinitionHandle(
+                                        4)),
+                        });
+            Assert.DoesNotContain(
+                scopedBodilessSource.Diagnostics,
+                diagnostic => diagnostic.Method.Contains(
+                    "AnalyzeAsync",
+                    StringComparison.Ordinal));
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: false,
+                    sourceHasBody: false,
+                    runtimeAsyncSource: true));
+            var bodilessRuntimeAsync =
+                LibraryBodyIndex.Open(path);
+            Assert.Contains(
+                bodilessRuntimeAsync.Diagnostics,
                 diagnostic => diagnostic.Method.Contains(
                     "AnalyzeAsync",
                     StringComparison.Ordinal));
@@ -1580,7 +1631,9 @@ public class LibraryBodyIndexTests
         bool validStateMachine = true,
         bool sourceStartsNewSlot = false,
         string? inheritedMethodImplBodyName = null,
-        bool sourceHasBody = true)
+        bool sourceHasBody = true,
+        bool unrelatedSourceMethodImpl = false,
+        bool runtimeAsyncSource = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1781,7 +1834,10 @@ public class LibraryBodyIndexTests
                             : 0
                         : MethodAttributes.Final
                             | MethodAttributes.NewSlot),
-                MethodImplAttributes.IL,
+                MethodImplAttributes.IL
+                    | (runtimeAsyncSource
+                        ? (MethodImplAttributes)0x2000
+                        : 0),
                 metadata.GetOrAddString(sourceMethodName),
                 taskSignature,
                 sourceHasBody ? sourceBody : -1,
@@ -1827,6 +1883,19 @@ public class LibraryBodyIndexTests
                     : sourceType,
                 methodBody,
                 readAsync);
+        }
+        if (unrelatedSourceMethodImpl)
+        {
+            MemberReferenceHandle unrelatedDeclaration =
+                metadata.AddMemberReference(
+                    interfaceType,
+                    metadata.GetOrAddString(
+                        "OtherAsync"),
+                    taskSignature);
+            metadata.AddMethodImplementation(
+                sourceType,
+                source,
+                unrelatedDeclaration);
         }
 
         MemberReferenceHandle attributeConstructor =

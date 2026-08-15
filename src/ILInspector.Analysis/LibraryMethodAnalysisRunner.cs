@@ -180,7 +180,13 @@ internal sealed class LibraryMethodAnalysisRunner(
             }
             if (methodDefinition.RelativeVirtualAddress == 0)
             {
-                if (includeOpportunities)
+                if (includeOpportunities
+                    && (bodyScope is null
+                        || bodyScope.Contains(
+                            caller.MetadataToken))
+                    && (bodyTypeScope is null
+                        || bodyTypeScope(
+                            caller.DeclaringType)))
                 {
                     _infrastructure.ValidateAsyncSource(
                         caller,
