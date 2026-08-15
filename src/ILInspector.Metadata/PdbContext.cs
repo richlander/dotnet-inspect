@@ -1179,32 +1179,24 @@ public class PdbContext : IDisposable
             HashSet<int> seenDocumentRows = [];
             foreach (var methodHandle in type.GetMethods())
             {
-                try
-                {
-                    if (metadata.GetMethodDefinition(methodHandle).RelativeVirtualAddress == 0)
-                        continue;
+                if (metadata.GetMethodDefinition(methodHandle).RelativeVirtualAddress == 0)
+                    continue;
 
-                    var ranges =
-                        ReadVisibleSequencePointDocuments(
-                            methodHandle);
-                    if (ranges.Count > 0)
-                    {
-                        foreach (var range in ranges)
-                            AddDocument(range.Document);
-                        continue;
-                    }
-
-                    var debugInfo =
-                        _pdbReader.GetMethodDebugInformation(
-                            methodHandle.ToDebugInformationHandle());
-                    if (!debugInfo.Document.IsNil)
-                        AddDocument(debugInfo.Document);
-                }
-                catch (Exception ex) when (ex is BadImageFormatException
-                    or InvalidOperationException
-                    or ArgumentOutOfRangeException)
+                var ranges =
+                    ReadVisibleSequencePointDocuments(
+                        methodHandle);
+                if (ranges.Count > 0)
                 {
+                    foreach (var range in ranges)
+                        AddDocument(range.Document);
+                    continue;
                 }
+
+                var debugInfo =
+                    _pdbReader.GetMethodDebugInformation(
+                        methodHandle.ToDebugInformationHandle());
+                if (!debugInfo.Document.IsNil)
+                    AddDocument(debugInfo.Document);
 
                 void AddDocument(DocumentHandle handle)
                 {

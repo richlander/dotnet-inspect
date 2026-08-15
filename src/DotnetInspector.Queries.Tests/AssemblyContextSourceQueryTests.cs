@@ -499,48 +499,48 @@ public sealed class AssemblyContextSourceQueryTests
     {
         TestAssembly assembly = TestAssembly.Create();
         byte[] pdbBytes =
-            CorruptUnrelatedDocumentName(
+            CorruptDocumentName(
                 assembly.PdbPath,
                 Path.GetFileName(
-                    SourceFileBytesPath()));
-        using var host = QueryHost.WithPdb(
-            Path.GetFileName(assembly.PdbPath),
-            pdbBytes,
-            SourceFileBytes());
-        using var workspace = new InspectionWorkspace();
-        AssemblyContextGroup group =
-            workspace.CreateAssemblyContextGroup(
-                [assembly.Participant]);
+                    SourceFileBytesPath()),
+                corruptTarget: false);
 
-        AssemblyTypeSourceEntry result =
-            await AssemblyContextSourceQuery.ExecuteTypeAsync(
-                group,
-                assembly.Participant,
-                assembly.TypeRequest(
-                    typeof(SourceFixture).Name),
-                host.Context,
-                TestContext.Current.CancellationToken);
+        await AssertMalformedPdbTypeFallsBackAsync(
+            assembly,
+            pdbBytes);
+    }
 
-        var available =
-            Assert.IsType<AssemblyTypeSourceEntry.Available>(
-                result);
-        var decompiled =
-            Assert.IsType<AssemblyTypeSource.Decompiled>(
-                available.Source);
-        var failed =
-            Assert.IsType<FindingInspection<string>.Failed>(
-                decompiled.AuthoredAttempt.Lines.Value);
-        Assert.Contains(
-            "Portable PDB type source mapping failed",
-            failed.Error.Reason,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            nameof(SourceFixture),
-            decompiled.Text,
-            StringComparison.Ordinal);
-        Assert.True(assembly.Policy.SelectionCount > 0);
-        Assert.NotEmpty(host.SymbolRequests);
-        Assert.Empty(host.SourceRequests);
+    [Fact]
+    public async Task MalformedTargetPdbDocument_ProducesFailedAuthoredEvidenceBeforeTypeFallback()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        byte[] pdbBytes =
+            CorruptDocumentName(
+                assembly.PdbPath,
+                Path.GetFileName(
+                    SourceFileBytesPath()),
+                corruptTarget: true);
+
+        await AssertMalformedPdbTypeFallsBackAsync(
+            assembly,
+            pdbBytes);
+    }
+
+    [Fact]
+    public async Task MalformedTargetSequencePoints_ProduceFailedAuthoredEvidenceBeforeTypeFallback()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        byte[] pdbBytes =
+            CorruptMethodSequencePoints(
+                assembly.PdbPath,
+                typeof(SourceFixture)
+                    .GetMethod(
+                        nameof(SourceFixture.Describe))!
+                    .MetadataToken);
+
+        await AssertMalformedPdbTypeFallsBackAsync(
+            assembly,
+            pdbBytes);
     }
 
     [Fact]
@@ -641,13 +641,60 @@ public sealed class AssemblyContextSourceQueryTests
                 reader.GetMetadataReader());
     }
 
-    static byte[] CorruptUnrelatedDocumentName(
+    static async Task AssertMalformedPdbTypeFallsBackAsync(
+        TestAssembly assembly,
+        byte[] pdbBytes)
+    {
+        using var host =
+            QueryHost.WithPdb(
+                Path.GetFileName(assembly.PdbPath),
+                pdbBytes,
+                SourceFileBytes());
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyTypeSourceEntry result =
+            await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(
+                    typeof(SourceFixture).Name),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<AssemblyTypeSourceEntry.Available>(
+                result);
+        var decompiled =
+            Assert.IsType<AssemblyTypeSource.Decompiled>(
+                available.Source);
+        var failed =
+            Assert.IsType<FindingInspection<string>.Failed>(
+                decompiled.AuthoredAttempt.Lines.Value);
+        Assert.Contains(
+            "Portable PDB type source mapping failed",
+            failed.Error.Reason,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(SourceFixture),
+            decompiled.Text,
+            StringComparison.Ordinal);
+        Assert.True(assembly.Policy.SelectionCount > 0);
+        Assert.NotEmpty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+    }
+
+    static byte[] CorruptDocumentName(
         string pdbPath,
-        string targetFileName)
+        string targetFileName,
+        bool corruptTarget)
     {
         byte[] bytes = File.ReadAllBytes(pdbPath);
         int documentNameOffset = -1;
         int documentNameLength = 0;
+        int corruptedDocumentRow = 0;
         using (var provider =
                MetadataReaderProvider.FromPortablePdbStream(
                    new MemoryStream(
@@ -663,15 +710,19 @@ public sealed class AssemblyContextSourceQueryTests
                     reader.GetDocument(handle);
                 string name =
                     reader.GetString(document.Name);
-                if (name.EndsWith(
-                    targetFileName,
-                    StringComparison.Ordinal))
+                bool isTarget =
+                    name.EndsWith(
+                        targetFileName,
+                        StringComparison.Ordinal);
+                if (isTarget != corruptTarget)
                 {
                     continue;
                 }
 
                 var nameBlob =
                     (BlobHandle)document.Name;
+                corruptedDocumentRow =
+                    MetadataTokens.GetRowNumber(handle);
                 documentNameOffset =
                     MetadataTokens.GetHeapOffset(nameBlob);
                 documentNameLength =
@@ -695,6 +746,7 @@ public sealed class AssemblyContextSourceQueryTests
 
         int malformedDocuments = 0;
         bool targetDocumentReadable = false;
+        bool targetDocumentMalformed = false;
         using (var provider =
                MetadataReaderProvider.FromPortablePdbStream(
                    new MemoryStream(
@@ -719,12 +771,84 @@ public sealed class AssemblyContextSourceQueryTests
                 catch (BadImageFormatException)
                 {
                     malformedDocuments++;
+                    targetDocumentMalformed |=
+                        MetadataTokens.GetRowNumber(handle)
+                        == corruptedDocumentRow
+                        && corruptTarget;
                 }
             }
         }
 
         Assert.Equal(1, malformedDocuments);
-        Assert.True(targetDocumentReadable);
+        Assert.Equal(
+            !corruptTarget,
+            targetDocumentReadable);
+        Assert.Equal(
+            corruptTarget,
+            targetDocumentMalformed);
+        return bytes;
+    }
+
+    static byte[] CorruptMethodSequencePoints(
+        string pdbPath,
+        int metadataToken)
+    {
+        byte[] bytes = File.ReadAllBytes(pdbPath);
+        var methodHandle =
+            MetadataTokens.MethodDefinitionHandle(
+                metadataToken & 0x00ff_ffff);
+        int sequencePointsOffset;
+        using (var provider =
+               MetadataReaderProvider.FromPortablePdbStream(
+                   new MemoryStream(
+                       bytes,
+                       writable: false),
+                   MetadataStreamOptions.PrefetchMetadata))
+        {
+            MetadataReader reader =
+                provider.GetMetadataReader();
+            MethodDebugInformation debugInfo =
+                reader.GetMethodDebugInformation(
+                    methodHandle
+                        .ToDebugInformationHandle());
+            Assert.False(
+                debugInfo.SequencePointsBlob.IsNil);
+            sequencePointsOffset =
+                MetadataTokens.GetHeapOffset(
+                    debugInfo.SequencePointsBlob);
+        }
+
+        int blobOffset =
+            FindMetadataStreamOffset(bytes, "#Blob");
+        int blobEntryOffset =
+            checked(blobOffset + sequencePointsOffset);
+        int payloadOffset =
+            checked(
+                blobEntryOffset
+                + CompressedIntegerPrefixSize(
+                    bytes[blobEntryOffset]));
+        bytes[payloadOffset] = 0xff;
+
+        using var corruptedProvider =
+            MetadataReaderProvider.FromPortablePdbStream(
+                new MemoryStream(
+                    bytes,
+                    writable: false),
+                MetadataStreamOptions.PrefetchMetadata);
+        MetadataReader corruptedReader =
+            corruptedProvider.GetMetadataReader();
+        Assert.Throws<BadImageFormatException>(
+            () =>
+            {
+                foreach (SequencePoint _ in
+                    corruptedReader
+                        .GetMethodDebugInformation(
+                            methodHandle
+                                .ToDebugInformationHandle())
+                        .GetSequencePoints())
+                {
+                }
+            });
         return bytes;
     }
 
@@ -1238,6 +1362,9 @@ public sealed class AssemblyContextSourceQueryTests
     {
         public static string Describe(int value)
             => $"value={value}";
+
+        public static int Increment(int value)
+            => value + 1;
     }
 
     public delegate int SourceDelegate(int value);

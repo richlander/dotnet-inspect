@@ -60,7 +60,13 @@ Presentation consumers prefer that relationship and use document-row order
 only as a deterministic fallback. Type-to-document correlation retains every
 visible sequence-point document even when the method's root document is nil;
 `MetadataSourceFindingsTests.TypeDocumentCorrelation_UsesVisibleDocumentsWhenRootIsOmitted`
-gates that compiler-produced shape.
+gates that compiler-produced shape. The type inventory is atomic rather than
+best-effort: malformed target document names or sequence-point blobs fail the
+census instead of being omitted from an absent or apparently complete mapping.
+`AssemblyContextSourceQueryTests.MalformedTargetPdbDocument_ProducesFailedAuthoredEvidenceBeforeTypeFallback`
+and
+`AssemblyContextSourceQueryTests.MalformedTargetSequencePoints_ProduceFailedAuthoredEvidenceBeforeTypeFallback`
+gate those two decode boundaries with real portable PDBs.
 
 Member-source comparison treats the exact point-line set as a changeable
 payload facet. Its occurrence sort key includes every compared identity and
