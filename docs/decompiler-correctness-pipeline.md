@@ -151,8 +151,8 @@ Notes:
   facts, identity, and classification regressions without the broad integration
   and sweep costs. The slow CLI integration, compile-back/recompile,
   corpus-sweep, bind, scorecard, fidelity, and broad differential tests are
-  tagged `[Trait("Speed", "Slow")]` and run only in Deep Inspect / publish /
-  full local runs. **Mark any new Roslyn-heavy / recompile / corpus-sweeping or
+  tagged `[Trait("Speed", "Slow")]` and run only in Deep Inspect / full local
+  runs. **Mark any new Roslyn-heavy / recompile / corpus-sweeping or
   broad integration test `[Trait("Speed", "Slow")]`** — at the class level for a
   wholly-slow class, or the method level for one slow case in an otherwise fast
   class — so it stays out of the PR gate. A green PR CI run therefore does *not*
@@ -161,7 +161,7 @@ Notes:
   `dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release --
   -trait- "Speed=Slow"` when IL round-trip inputs change, while the unfiltered
   `DotnetInspector.ILRoundtrip.Tests` command keeps the assembly-wide sweep in
-  Deep Inspect / publish / full local coverage. Mark new broad/corpus-style
+  Deep Inspect / full local coverage. Mark new broad/corpus-style
   round-trip checks `[Trait("Speed", "Slow")]`.
 - A green entry gate is necessary, never sufficient: it says nothing about
   validity, fidelity, or corpus health. Do not report it as if it did.
@@ -239,9 +239,9 @@ Areas and their member classes:
 | --- | --- |
 | `RoundTrip` | the compile-back / MemberBodyProducer seam: `ReturnToSender*`, `MemberBodyProducer*`, `CompileBackTypeIdentityTests`, `TypeBindGateTests`, `GeneratedFixtureCatalogTests`, `CompilerFeatureOptionsTests` |
 | `Fidelity` | the changed-method fidelity gates: `FidelityGateTests`, `LoweredFidelityGateTests`, `ByteNeutralityGateTests`, `DiffFixtureFidelityTests`, `AuthoredRebuildFidelityTests`, `AnnotatedCompileBackFailureTests`, `SkeletonEmitTests`, `ClusterCaptureTests`, `NestedTargetLookupTests`, plus the compile-back gate method in `PrinterPrecedenceTests` |
-| `Corpus` | corpus-wide sweeps: `CorpusSweepGateTests`, `CorpusSensorComparisonTests`, `SubstrateLeaderDifferentialTests`, `ControlFlowModelDifferentialTests` |
+| `Corpus` | corpus-wide sweeps: `CorpusSweepGateTests`, `CorpusSensorComparisonTests`, `SubstrateLeaderDifferentialTests`, plus `ControlFlowModelDifferentialTests.ControlFlowViews_AgreeOverCoreLib` |
 | `Validity` | validity / ladder gates: `ValidityCoverageReportingTests`, `LadderIteratorGateTests`, `LadderRung*GateTests` |
-| `Pass` | the per-pass unit tests (`*PassTests`) |
+| `Pass` | the per-pass unit tests (`*PassTests`), plus `ControlFlowModelDifferentialTests.ControlFlowViews_AgreeOnSyntheticBoundaryTerminators` |
 
 `Area` is a targeting aid, not a completeness contract: unclassified unit tests
 carry no `Area`, so `-trait "Area=X"` selects only tagged members. When you add
@@ -263,9 +263,9 @@ Which area to run while iterating on a change:
 structuring, typing, or printer change can shift any corpus row, so it is not
 covered by its `Area=Pass` unit tests alone: before requesting review still run
 the full slow suite locally (unfiltered `ILInspector.Decompiler.Tests`, which
-Deep Inspect and release also run). `Area` does not change what CI runs — PR CI
-keys on `Speed` (`-trait- "Speed=Slow"`) and Deep Inspect/release run the whole
-slow set — so every area's slow gates already run before merge without any
+Deep Inspect also runs). `Area` does not change what CI runs — PR CI keys on
+`Speed` (`-trait- "Speed=Slow"`) and Deep Inspect runs the whole slow set — so
+every area's slow gates already run before release certification without any
 per-area CI wiring.
 
 ### `--gate` preset flag: discoverable trait bundles
