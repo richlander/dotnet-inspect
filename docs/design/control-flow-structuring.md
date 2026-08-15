@@ -1035,3 +1035,15 @@ add to the step-4 plan:
    `= default` (`Matrix4x4::Decompose` was 1→7 in the probe).
 4. **Sequencing** (unchanged from the spike): wire the rec-#2 real-world
    corpus baseline as the regression sensor before the rewrite lands.
+
+5. **Regression sensor implemented by #4094.** Snapshot schema v6 records every
+   imported branch, switch, and EH-transfer site by stable method identity,
+   control-flow kind, IL offset, and same-offset ordinal, then records whether
+   the pipeline consumed that exact node. On fixed NuGet artifacts, any
+   raised-to-residual transition fails independently of unrelated gains, and
+   pinned method or site drift fails closed. Repo-built assemblies remain
+   advisory because their IL population churns. This is the required
+   non-offsettable corpus prerequisite for the retained-label rewrite; it
+   detects output loss that CFG-model agreement cannot, but does not replace
+   focused compiler-produced boundary fixtures, render A/B, or fidelity
+   evidence.

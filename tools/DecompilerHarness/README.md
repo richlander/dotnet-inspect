@@ -686,6 +686,28 @@ fidelity contract version independently defines what `Exact` and the other
 outcomes mean. Snapshot comparison rejects different contract versions instead
 of presenting incomparable movement.
 
+Snapshot schema v6 adds a non-offsettable control-flow-site ledger to each
+method row. The importer records branch, conditional-branch, switch, and EH
+transfer nodes by control-flow kind, IL source offset, and same-offset ordinal;
+after the pipeline, each row says whether that exact imported node was consumed
+by raising or remains in the final tree. Site rows use one compact, validated
+string per method so the full baseline stays below repository file-size limits.
+For fixed `nuget:` assemblies, a
+raised-to-residual transition is a hard regression even when another site gains
+a raise, while residual-to-raised transitions remain disclosed gains. A changed
+pinned method or site population fails closed instead of comparing unlike
+samples. Repo-built assembly rows remain advisory because their method and IL
+populations legitimately change as the repository evolves.
+
+This ledger detects loss of a previously observed raise; it does not prove that
+the replacement structured output is semantically correct. Keep render A/B,
+compile-back fidelity, and focused output fixtures in the evidence set. A
+boundary absent from the corpus also remains absent from this gate, so the fast
+compiler-produced decline-boundary fixture is load-bearing. IL site identities
+are stable only within the exact pinned artifact; package upgrades require a
+reviewed baseline regeneration. Cards produced from an older baseline say that
+the pinned control-flow raise gate is unavailable rather than implying it ran.
+
 Policy v1 rolls multiple causes up per method in this order:
 
 1. **Recoverable roadmap:** every cause is mapped to recoverable work.
@@ -918,6 +940,11 @@ Pass-bug crashes always gate on the full aggregate. The pinned gate is computed
 from the per-method snapshots both baseline and current carry, so no baseline
 regen is required; it falls back to aggregate counts/rates when a snapshot lacks
 per-method detail.
+
+The schema-v6 control-flow-site gate is stricter than that aggregate fallback:
+it activates only when both snapshots carry the v6 ledger. Its card line reports
+lost and gained raises over stable sites, or explicitly says that the gate is
+unavailable for an older baseline.
 
 Expand the fixed corpus only after that targeting step shows a shape gap. Prefer
 deterministic, pinned assemblies that add many examples of the missing lowering
