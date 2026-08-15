@@ -43,12 +43,14 @@ public static class PackageMetadataService
         bool Found,
         int ResultCount,
         long? TotalHits,
-        bool DeprecationMetadataAvailable);
+        bool DeprecationMetadataAvailable,
+        bool Indeterminate = false);
 
     private readonly record struct SearchFetchResult(
         bool Succeeded,
         bool Found,
-        bool DeprecationMetadataAvailable);
+        bool DeprecationMetadataAvailable,
+        bool Indeterminate = false);
 
     private readonly record struct RegistrationMetadataResult(
         string? CatalogEntryUrl,
@@ -298,6 +300,8 @@ public static class PackageMetadataService
                         ApplyRegistrationMetadata(
                         registrationResult.Content!,
                         registrationUrl,
+                        normalizedName,
+                        version,
                         metadata,
                         log);
                     catalogEntryUrl =
@@ -386,9 +390,20 @@ public static class PackageMetadataService
                     log).ConfigureAwait(false);
                 if (catalogResult.IsSuccess)
                 {
-                    ApplyCatalogMetadata(catalogResult.Content!, metadata, log);
-                    catalogDataAvailable = true;
-                    metadata.DeprecationMetadataAvailable = true;
+                    if (ApplyCatalogMetadata(
+                            catalogResult.Content!,
+                            normalizedName,
+                            version,
+                            metadata,
+                            log))
+                    {
+                        catalogDataAvailable = true;
+                        metadata.DeprecationMetadataAvailable = true;
+                    }
+                    else
+                    {
+                        sawIndeterminate = true;
+                    }
                 }
             }
             catch (Exception ex) when (ex is not NetworkPolicyException)
@@ -418,6 +433,8 @@ public static class PackageMetadataService
                     if (searchResult.Succeeded)
                     {
                         searchDataAvailable = true;
+                        if (!metadata.DeprecationMetadataAvailable)
+                            sawIndeterminate |= searchResult.Indeterminate;
                         if (searchResult.DeprecationMetadataAvailable)
                             metadata.DeprecationMetadataAvailable = true;
                         break;
@@ -673,7 +690,8 @@ public static class PackageMetadataService
                 return new SearchFetchResult(
                     Succeeded: true,
                     Found: true,
-                    page.DeprecationMetadataAvailable);
+                    page.DeprecationMetadataAvailable,
+                    page.Indeterminate);
             if (page.ResultCount == 0)
                 return new SearchFetchResult(
                     Succeeded: true,
@@ -698,6 +716,8 @@ public static class PackageMetadataService
         ApplyRegistrationMetadata(
         string json,
         string registrationUrl,
+        string normalizedName,
+        string version,
         PackageMetadata metadata,
         Action<string>? log)
     {
@@ -722,6 +742,20 @@ public static class PackageMetadataService
 
         if (catalogElement.ValueKind == JsonValueKind.Object)
         {
+            if (!CatalogIdentityMatches(
+                    catalogElement,
+                    normalizedName,
+                    version))
+            {
+                log?.Invoke(
+                    "Ignoring catalog metadata for a different "
+                    + "package identity.");
+                return new RegistrationMetadataResult(
+                    CatalogEntryUrl: null,
+                    DeprecationMetadataAvailable: false,
+                    Indeterminate: true);
+            }
+
             ApplyCatalogElement(catalogElement, metadata, log);
             return new RegistrationMetadataResult(
                 CatalogEntryUrl: null,
@@ -754,13 +788,56 @@ public static class PackageMetadataService
         }
     }
 
-    private static void ApplyCatalogMetadata(
+    private static bool ApplyCatalogMetadata(
         string json,
+        string normalizedName,
+        string version,
         PackageMetadata metadata,
         Action<string>? log)
     {
         using var doc = HardenedJson.Parse(json);
+        if (!CatalogIdentityMatches(
+                doc.RootElement,
+                normalizedName,
+                version))
+        {
+            log?.Invoke(
+                "Ignoring catalog metadata for a different "
+                + "package identity.");
+            return false;
+        }
+
         ApplyCatalogElement(doc.RootElement, metadata, log);
+        return true;
+    }
+
+    private static bool CatalogIdentityMatches(
+        JsonElement root,
+        string normalizedName,
+        string version)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            return false;
+
+        if (root.TryGetProperty("id", out JsonElement id)
+            && (id.ValueKind != JsonValueKind.String
+                || !string.Equals(
+                    id.GetString(),
+                    normalizedName,
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        if (!root.TryGetProperty(
+                "version",
+                out JsonElement catalogVersion))
+        {
+            return true;
+        }
+
+        return catalogVersion.ValueKind == JsonValueKind.String
+            && VersionsEqual(catalogVersion.GetString(), version);
     }
 
     private static void ApplyCatalogElement(
@@ -904,7 +981,8 @@ public static class PackageMetadataService
             Found: true,
             resultCount,
             totalHits,
-            deprecationMetadataAvailable);
+            deprecationMetadataAvailable,
+            Indeterminate: !deprecationMetadataAvailable);
     }
 
     private static bool TryReadInt64(JsonElement element, out long value)

@@ -202,6 +202,7 @@ internal static class IdentifierConfusionAudit
     public static string DescribeCharacters(IdentifierConfusion confusion)
     {
         Dictionary<int, char> mappings = confusion.ReservedPrefixMatch?.Homoglyphs
+            .DistinctBy(static value => value.CodePoint)
             .ToDictionary(static value => value.CodePoint, static value => value.LooksLike)
             ?? [];
         return string.Join(

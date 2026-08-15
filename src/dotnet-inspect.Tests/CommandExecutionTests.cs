@@ -11920,6 +11920,51 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryPackageIdentifierConfusionAudit_FailsWithoutPartialDocument()
+    {
+        var (packagePath, tempDir) =
+            CreateIdentifierConfusionReferencePackage();
+        try
+        {
+            string bridgePath = Path.Combine(
+                tempDir,
+                "content",
+                "lib",
+                "net8.0",
+                "Bridge.dll");
+            File.WriteAllText(
+                bridgePath,
+                "not a managed assembly");
+            File.Delete(packagePath);
+            ZipFile.CreateFromDirectory(
+                Path.Combine(tempDir, "content"),
+                packagePath);
+
+            var result = await RunAppAsync(
+                "library",
+                "Root.dll",
+                "--package",
+                packagePath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                "Error: Identifier audit could not inspect assembly "
+                + "references: invalid assembly metadata."
+                + Environment.NewLine,
+                result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure()
     {
         var (packagePath, tempDir) = CreateIdentifierConfusionReferencePackage();

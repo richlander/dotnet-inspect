@@ -721,20 +721,30 @@ public class LibraryCommand
                     discoveryInspection && !fullEffectiveDiscovery, trace);
                 List<LibraryInspection> inspections =
                     collection.Inspections;
-                bool identifierAuditIncomplete =
-                    PackageCommand.WriteIdentifierAuditFailures(
-                        collection.IdentifierAuditFailures);
-                int identifierAuditExitCode =
-                    identifierAuditIncomplete ? 1 : 0;
 
                 if (inspections.Count == 0)
                 {
+                    PackageCommand.WriteIdentifierAuditFailures(
+                        collection.IdentifierAuditFailures);
                     CommandError.Write("No libraries could be read from the package.");
                     return 1;
                 }
 
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;
+                if (inspections.Count == 1
+                    && RejectFailedExactIdentifierAudit(
+                        inspections[0],
+                        options))
+                {
+                    return 1;
+                }
+
+                bool identifierAuditIncomplete =
+                    PackageCommand.WriteIdentifierAuditFailures(
+                        collection.IdentifierAuditFailures);
+                int identifierAuditExitCode =
+                    identifierAuditIncomplete ? 1 : 0;
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspections[0], assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false,

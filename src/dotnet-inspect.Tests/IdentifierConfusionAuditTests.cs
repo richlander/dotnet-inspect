@@ -166,6 +166,19 @@ public class IdentifierConfusionAuditTests
     }
 
     [Fact]
+    public void DescribeCharacters_DeduplicatesRepeatedHomoglyphCodePoints()
+    {
+        IdentifierConfusion confusion =
+            Assert.IsType<IdentifierConfusion>(
+                IdentifierConfusionDetector.Inspect(
+                    "Micr\u043Es\u043Eft.Extensions"));
+
+        Assert.Equal(
+            "U+043E→O",
+            IdentifierConfusionAudit.DescribeCharacters(confusion));
+    }
+
+    [Fact]
     public async Task PackageSignals_SeparatesIdentifierConfusionFromTextContainment()
     {
         var model = new InspectionResult

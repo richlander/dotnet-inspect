@@ -128,6 +128,8 @@ artifact-text containment.
 `IdentifierConfusionDetectorTests` gates single and multiple confirmed
 homoglyphs, raw similarity evidence, generic non-ASCII cases, and ASCII close
 negatives.
+`DescribeCharacters_DeduplicatesRepeatedHomoglyphCodePoints` gates stable
+code-point rendering when one substitution occurs more than once.
 `PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent`
 gates the content-free Markdown and JSONL shapes, and
 `PackageAudit_InspectsPackageAndDependencyIdentifierLocations` plus
@@ -156,6 +158,8 @@ gates traversal of distinct typed AssemblyRefs that share a simple name;
 gates visible traversal failure for absolute and bare relative library paths.
 That test also gates preservation of healthy `@Audit` sections when the
 identifier-confusion member fails.
+`LibraryPackageIdentifierConfusionAudit_FailsWithoutPartialDocument` gates the
+same content-free hard failure for an exact package-backed library selection.
 `PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
 gates clean diagnostics, healthy partial results, and nonzero completion for
 survey-mode traversal failure.
@@ -177,7 +181,15 @@ alternate-package metadata demand, producer result, and moderated network cost.
 feed which does not advertise optional deprecation endpoints is complete rather
 than failed;
 `FetchAllMetadataAsync_SearchDeprecationMustMatchRequestedVersion` gates
-version-specific authority for search deprecation metadata, and
+version-specific authority for search deprecation metadata;
+`FetchAllMetadataAsync_DoesNotCacheMismatchedSearchVersion` gates retry after
+that mismatch, while
+`FetchAllMetadataAsync_CachesMatchingSearchVersionWithoutDeprecation` and
+`FetchAllMetadataAsync_CachesCatalogAuthorityDespiteSearchVersionMismatch`
+gate authoritative absence and catalog precedence;
+`FetchAllMetadataAsync_DoesNotCacheMismatchedInlineCatalogIdentity` and
+`FetchAllMetadataAsync_DoesNotCacheMismatchedFetchedCatalogIdentity` gate the
+same identity and retry contract for both catalog forms; and
 `FetchAllMetadataAsync_IgnoresMalformedCatalogReference` gates retry after a
 malformed catalog reference;
 `PackageCommand_IdentifierMetadataFailureIsNonzero` gates nonzero completion

@@ -541,6 +541,336 @@ public class PackageMetadataServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task FetchAllMetadataAsync_DoesNotCacheMismatchedSearchVersion()
+    {
+        const string source = "https://private.example/v3/index.json";
+        int searchRequests = 0;
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
+                        { "@id": "https://private.example/query", "@type": "SearchQueryService/3.5.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/1.0.0.json" =>
+                    Json("{}"),
+                "/query" => Search(),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+        using var client = new HttpClient(handler);
+        var options = new NuGetSourceOptions { Sources = [source] };
+
+        PackageMetadata first =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+        PackageMetadata second =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+
+        Assert.False(first.DeprecationMetadataAvailable);
+        Assert.True(second.DeprecationMetadataAvailable);
+        Assert.Equal(
+            "\u0405ystem.Fixed",
+            second.Deprecation!.AlternatePackageId);
+        Assert.Equal(2, searchRequests);
+
+        HttpResponseMessage Search()
+        {
+            searchRequests++;
+            string version =
+                searchRequests == 1 ? "2.0.0" : "1.0.0";
+            return Json($$"""
+                {
+                  "data": [
+                    {
+                      "id": "Private.Package",
+                      "version": "{{version}}",
+                      "deprecation": {
+                        "alternatePackage": {
+                          "id": "\u0405ystem.Fixed"
+                        }
+                      }
+                    }
+                  ]
+                }
+                """);
+        }
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_CachesMatchingSearchVersionWithoutDeprecation()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
+                        { "@id": "https://private.example/query", "@type": "SearchQueryService/3.5.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/1.0.0.json" =>
+                    Json("{}"),
+                "/query" => Json("""
+                    {
+                      "data": [
+                        {
+                          "id": "Private.Package",
+                          "version": "1.0.0"
+                        }
+                      ]
+                    }
+                    """),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+        using var client = new HttpClient(handler);
+        var options = new NuGetSourceOptions { Sources = [source] };
+
+        PackageMetadata cold =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+        int coldRequests = handler.Requests.Count;
+        PackageMetadata warm =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+
+        Assert.True(cold.DeprecationMetadataAvailable);
+        Assert.True(warm.DeprecationMetadataAvailable);
+        Assert.Null(cold.Deprecation);
+        Assert.Null(warm.Deprecation);
+        Assert.Equal(coldRequests, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_CachesCatalogAuthorityDespiteSearchVersionMismatch()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
+                        { "@id": "https://private.example/query", "@type": "SearchQueryService/3.5.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/1.0.0.json" => Json("""
+                    {
+                      "catalogEntry": {
+                        "id": "Private.Package",
+                        "version": "1.0.0"
+                      }
+                    }
+                    """),
+                "/query" => Json("""
+                    {
+                      "data": [
+                        {
+                          "id": "Private.Package",
+                          "version": "2.0.0"
+                        }
+                      ]
+                    }
+                    """),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+        using var client = new HttpClient(handler);
+        var options = new NuGetSourceOptions { Sources = [source] };
+
+        PackageMetadata cold =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+        int coldRequests = handler.Requests.Count;
+        PackageMetadata warm =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+
+        Assert.True(cold.DeprecationMetadataAvailable);
+        Assert.True(warm.DeprecationMetadataAvailable);
+        Assert.Equal(coldRequests, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_DoesNotCacheMismatchedInlineCatalogIdentity()
+    {
+        const string source = "https://private.example/v3/index.json";
+        int registrationRequests = 0;
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/1.0.0.json" =>
+                    Registration(),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+        using var client = new HttpClient(handler);
+        var options = new NuGetSourceOptions { Sources = [source] };
+
+        PackageMetadata first =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+        PackageMetadata second =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+
+        Assert.False(first.DeprecationMetadataAvailable);
+        Assert.Null(first.Deprecation);
+        Assert.True(second.DeprecationMetadataAvailable);
+        Assert.Equal(
+            "\u0405ystem.Fixed",
+            second.Deprecation!.AlternatePackageId);
+        Assert.Equal(2, registrationRequests);
+
+        HttpResponseMessage Registration()
+        {
+            registrationRequests++;
+            string version =
+                registrationRequests == 1 ? "2.0.0" : "1.0.0";
+            return Json($$"""
+                {
+                  "catalogEntry": {
+                    "id": "Private.Package",
+                    "version": "{{version}}",
+                    "deprecation": {
+                      "alternatePackage": {
+                        "id": "\u0405ystem.Fixed"
+                      }
+                    }
+                  }
+                }
+                """);
+        }
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_DoesNotCacheMismatchedFetchedCatalogIdentity()
+    {
+        const string source = "https://private.example/v3/index.json";
+        int catalogRequests = 0;
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/1.0.0.json" => Json("""
+                    {
+                      "catalogEntry":
+                        "/catalog/private.package.1.0.0.json"
+                    }
+                    """),
+                "/catalog/private.package.1.0.0.json" =>
+                    Catalog(),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+        using var client = new HttpClient(handler);
+        var options = new NuGetSourceOptions { Sources = [source] };
+
+        PackageMetadata first =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+        PackageMetadata second =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+
+        Assert.False(first.DeprecationMetadataAvailable);
+        Assert.Null(first.Deprecation);
+        Assert.True(second.DeprecationMetadataAvailable);
+        Assert.Equal(
+            "\u0405ystem.Fixed",
+            second.Deprecation!.AlternatePackageId);
+        Assert.Equal(2, catalogRequests);
+
+        HttpResponseMessage Catalog()
+        {
+            catalogRequests++;
+            string id = catalogRequests == 1
+                ? "Different.Package"
+                : "Private.Package";
+            return Json($$"""
+                {
+                  "id": "{{id}}",
+                  "version": "1.0.0",
+                  "deprecation": {
+                    "alternatePackage": {
+                      "id": "\u0405ystem.Fixed"
+                    }
+                  }
+                }
+                """);
+        }
+    }
+
+    [Fact]
     public async Task FetchAllMetadataAsync_TriesEquivalentSearchEndpointsInOrder()
     {
         const string source = "https://private.example/v3/index.json";
