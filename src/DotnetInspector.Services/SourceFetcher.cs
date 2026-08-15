@@ -11,6 +11,7 @@ internal enum SourceFetchFailureKind
     Unavailable,
     AttributedOriginUnverified,
     ValidationFailed,
+    StorageFailed,
 }
 
 internal readonly record struct SourceFetchBytesResult(
@@ -92,10 +93,22 @@ public class SourceFetcher
             _byteMemoryCache.TryRemove(url, out _);
         }
 
-        byte[]? cachedBytes =
-            await _contentStore.TryOpenAsync(
-                url,
-                cancellationToken).ConfigureAwait(false);
+        byte[]? cachedBytes;
+        try
+        {
+            cachedBytes =
+                await _contentStore.TryOpenAsync(
+                    url,
+                    cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException)
+        {
+            return new SourceFetchBytesResult(
+                null,
+                SourceFetchFailureKind.StorageFailed);
+        }
+
         if (cachedBytes is not null)
         {
             if (validator(cachedBytes))
@@ -129,11 +142,22 @@ public class SourceFetcher
             if (!validator(bytes))
                 return new SourceFetchBytesResult(null, SourceFetchFailureKind.ValidationFailed);
 
+            try
+            {
+                await _contentStore.StoreAsync(
+                    url,
+                    bytes,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException)
+            {
+                return new SourceFetchBytesResult(
+                    null,
+                    SourceFetchFailureKind.StorageFailed);
+            }
+
             _byteMemoryCache[url] = bytes;
-            await _contentStore.StoreAsync(
-                url,
-                bytes,
-                cancellationToken).ConfigureAwait(false);
             return new SourceFetchBytesResult(bytes);
         }
         catch (HttpRequestException)

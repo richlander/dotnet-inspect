@@ -367,6 +367,69 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void ExactTypeIndexes_PreserveStructuredSegmentsAndRejectDuplicateIdentity()
+    {
+        static MetadataTypeDefinitionName Name(
+            string @namespace,
+            params string[] segments) =>
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    @namespace,
+                    [.. segments]))
+                .Name;
+
+        MetadataTypeDefinitionName topLevel =
+            Name("A.B", "C");
+        MetadataTypeDefinitionName nested =
+            Name("A", "B", "C");
+        var topLevelInfo = new PdbTypeDocumentInfo(
+            "A.B.C",
+            "C",
+            [new PdbDocumentReference(1, "TopLevel.cs")])
+        {
+            DefinitionName = topLevel,
+        };
+        var nestedInfo = new PdbTypeDocumentInfo(
+            "A.B.C",
+            "C",
+            [new PdbDocumentReference(2, "Nested.cs")])
+        {
+            DefinitionName = nested,
+        };
+
+        var indexes =
+            SourceLinkResolver.BuildTypeIndexes(
+                [topLevelInfo, nestedInfo]);
+
+        Assert.Same(
+            topLevelInfo,
+            indexes.ExactDefinitionNames[topLevel]);
+        Assert.Same(
+            nestedInfo,
+            indexes.ExactDefinitionNames[nested]);
+
+        var duplicate = topLevelInfo with
+        {
+            Documents =
+            [
+                new PdbDocumentReference(
+                    3,
+                    "Duplicate.cs"),
+            ],
+        };
+        var ambiguous =
+            SourceLinkResolver.BuildTypeIndexes(
+                [topLevelInfo, duplicate, nestedInfo]);
+
+        Assert.False(
+            ambiguous.ExactDefinitionNames.ContainsKey(
+                topLevel));
+        Assert.Same(
+            nestedInfo,
+            ambiguous.ExactDefinitionNames[nested]);
+    }
+
+    [Fact]
     public void EmptyPortablePdbDocumentPath_IsMalformedMetadata()
     {
         var exception = Assert.Throws<BadImageFormatException>(

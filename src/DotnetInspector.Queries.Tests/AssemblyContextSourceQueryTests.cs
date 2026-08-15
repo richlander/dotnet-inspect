@@ -239,6 +239,55 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
+    public async Task SourceStoreFailure_FallsBackRepeatablyWithoutPublishingMemoryEntry()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        AssemblyTypeSourceRequest request =
+            assembly.TypeRequest(typeof(SourceFixture).Name);
+        var store = new ThrowingSourceContentStore();
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            store);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            AssemblyTypeSourceEntry result =
+                await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                    group,
+                    assembly.Participant,
+                    request,
+                    host.Context,
+                    TestContext.Current.CancellationToken);
+
+            var available =
+                Assert.IsType<AssemblyTypeSourceEntry.Available>(
+                    result);
+            var decompiled =
+                Assert.IsType<AssemblyTypeSource.Decompiled>(
+                    available.Source);
+            var failed =
+                Assert.IsType<FindingInspection<string>.Failed>(
+                    decompiled.AuthoredAttempt.Lines.Value);
+            Assert.Contains(
+                "source-content store failed",
+                failed.Error.Reason,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                nameof(SourceFixture),
+                decompiled.Text,
+                StringComparison.Ordinal);
+        }
+
+        Assert.Equal(2, store.StoreAttempts);
+        Assert.Equal(2, host.SourceRequests.Count);
+    }
+
+    [Fact]
     public async Task NeitherSourceAvailable_ReturnsTypedFailure()
     {
         TestAssembly assembly = TestAssembly.Create();
@@ -424,7 +473,8 @@ public sealed class AssemblyContextSourceQueryTests
 
         QueryHost(
             SymbolPackageHandler symbolHandler,
-            SourceHandler sourceHandler)
+            SourceHandler sourceHandler,
+            ISourceContentStore? sourceContentStore = null)
         {
             _symbolClient = new HttpClient(symbolHandler);
             _sourceClient = new HttpClient(sourceHandler);
@@ -435,7 +485,8 @@ public sealed class AssemblyContextSourceQueryTests
                     [NuGetFetch.PackageSource.NuGetOrg]),
                 new SourceFetcher(
                     _sourceClient,
-                    new InMemorySourceContentStore()));
+                    sourceContentStore
+                        ?? new InMemorySourceContentStore()));
             SymbolRequests = symbolHandler.RequestUris;
             SourceRequests = sourceHandler.RequestUris;
         }
@@ -449,7 +500,8 @@ public sealed class AssemblyContextSourceQueryTests
 
         internal static QueryHost WithPdb(
             string pdbPath,
-            byte[] sourceBytes)
+            byte[] sourceBytes,
+            ISourceContentStore? sourceContentStore = null)
         {
             Assert.True(
                 File.Exists(pdbPath),
@@ -459,7 +511,8 @@ public sealed class AssemblyContextSourceQueryTests
                     BuildSnupkg(
                         Path.GetFileName(pdbPath),
                         File.ReadAllBytes(pdbPath))),
-                new SourceHandler(sourceBytes));
+                new SourceHandler(sourceBytes),
+                sourceContentStore);
         }
 
         internal static QueryHost WithoutPdb()
@@ -547,6 +600,34 @@ public sealed class AssemblyContextSourceQueryTests
                         : new ByteArrayContent(content),
                     RequestMessage = request,
                 });
+        }
+    }
+
+    sealed class ThrowingSourceContentStore
+        : ISourceContentStore
+    {
+        int _storeAttempts;
+
+        internal int StoreAttempts =>
+            Volatile.Read(ref _storeAttempts);
+
+        public ValueTask<byte[]?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult<byte[]?>(null);
+        }
+
+        public ValueTask StoreAsync(
+            string key,
+            ReadOnlyMemory<byte> content,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _storeAttempts);
+            throw new IOException(
+                "Synthetic source-content store failure.");
         }
     }
 

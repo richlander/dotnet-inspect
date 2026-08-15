@@ -117,14 +117,29 @@ verifies the portable-PDB checksum, extracts the member body, and returns a
 `FindingInspection<string>`. Its type operation resolves only the exact
 `MetadataTypeDefinitionName`, verifies the primary document through the same
 path, and returns the complete authored document with its typed mapping,
-document, and checksum verdict. It does not use SourceLink's simple-name
-compatibility fallback or case-insensitive document inference.
+document, and checksum verdict. The PDB correlation retains that structured
+name rather than indexing its non-injective dotted projection, and duplicate
+exact identities are rejected instead of selecting the first row. It does not
+use SourceLink's simple-name compatibility fallback or case-insensitive
+document inference.
 `MetadataSourceFindingsTests.ExactTypeSourceResolution_IsOrdinalAndDoesNotInferDocuments`
-gates that boundary. Request conversion uses `ApiType.DefinitionName` when
+and
+`MetadataSourceFindingsTests.ExactTypeIndexes_PreserveStructuredSegmentsAndRejectDuplicateIdentity`
+gate that boundary. Request conversion uses `ApiType.DefinitionName` when
 available; an older surface's string `MetadataName` is accepted only for an
 unambiguous top-level name, because `+` cannot distinguish nesting from a
 literal metadata character. This is gated by
 `AssemblyContextSourceQueryTests.RequestFromLegacyApiType_RequiresUnambiguousMetadataName`.
+
+Whole-document type output refuses more than 500,000 logical lines before
+materializing the Finding census; the verified text then remains a failed
+authored attempt so Decompiler fallback can run.
+`AuthoredSourceAcquisitionTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
+gates that bound. A source-content-store read or write failure is likewise
+typed and does not publish the fetched bytes to the process-local memory cache,
+so an identical retry cannot silently change from failure to authored success.
+`AssemblyContextSourceQueryTests.SourceStoreFailure_FallsBackRepeatablyWithoutPublishingMemoryEntry`
+gates both repeatability and fallback.
 
 Conditional branch liveness is composed only at the member slicing boundary:
 Metadata reports point lines, CSharpText reports lexical branch ranges, and the

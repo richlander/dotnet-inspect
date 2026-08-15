@@ -15,7 +15,7 @@ public sealed class SourceLinkResolver
     Dictionary<string, List<string>>? _docsByFirstSegment;
     Dictionary<int, PdbDocumentInfo>? _documentsByRowId;
     Dictionary<string, PdbDocumentInfo>? _uniqueDocumentsByPath;
-    Dictionary<string, PdbTypeDocumentInfo>? _exactTypesByFullName;
+    Dictionary<MetadataTypeDefinitionName, PdbTypeDocumentInfo>? _exactTypesByDefinitionName;
     Dictionary<string, PdbTypeDocumentInfo>? _typesByFullName;
     Dictionary<string, PdbTypeDocumentInfo>? _typesBySimpleName;
 
@@ -87,8 +87,8 @@ public sealed class SourceLinkResolver
     {
         ArgumentNullException.ThrowIfNull(type);
         EnsureTypeIndexes();
-        return _exactTypesByFullName!.TryGetValue(
-            type.ToMetadataFullName(),
+        return _exactTypesByDefinitionName!.TryGetValue(
+            type,
             out PdbTypeDocumentInfo? match)
                 ? ResolveTypeSource(match, allowDocumentInference: false)
                 : null;
@@ -217,23 +217,42 @@ public sealed class SourceLinkResolver
         if (_typesByFullName is not null)
             return;
 
-        var exactFullNames =
-            new Dictionary<string, PdbTypeDocumentInfo>(
-                StringComparer.Ordinal);
+        var (exactDefinitionNames, fullNames, simpleNames) =
+            BuildTypeIndexes(_context.EnumerateTypeDocuments());
+        _exactTypesByDefinitionName = exactDefinitionNames;
+        _typesByFullName = fullNames;
+        _typesBySimpleName = simpleNames;
+    }
+
+    internal static (
+        Dictionary<MetadataTypeDefinitionName, PdbTypeDocumentInfo>
+            ExactDefinitionNames,
+        Dictionary<string, PdbTypeDocumentInfo> FullNames,
+        Dictionary<string, PdbTypeDocumentInfo> SimpleNames)
+        BuildTypeIndexes(IEnumerable<PdbTypeDocumentInfo> types)
+    {
+        Dictionary<MetadataTypeDefinitionName, PdbTypeDocumentInfo>
+            exactDefinitionNames = [];
+        HashSet<MetadataTypeDefinitionName> ambiguousDefinitionNames = [];
         var fullNames =
             new Dictionary<string, PdbTypeDocumentInfo>(StringComparer.OrdinalIgnoreCase);
         var simpleNames =
             new Dictionary<string, PdbTypeDocumentInfo>(StringComparer.OrdinalIgnoreCase);
-        foreach (var type in _context.EnumerateTypeDocuments())
+        foreach (PdbTypeDocumentInfo type in types)
         {
-            exactFullNames.TryAdd(type.TypeFullName, type);
+            if (type.DefinitionName is { } definitionName
+                && !ambiguousDefinitionNames.Contains(definitionName)
+                && !exactDefinitionNames.TryAdd(definitionName, type))
+            {
+                exactDefinitionNames.Remove(definitionName);
+                ambiguousDefinitionNames.Add(definitionName);
+            }
+
             fullNames.TryAdd(type.TypeFullName, type);
             simpleNames.TryAdd(type.TypeSimpleName, type);
         }
 
-        _exactTypesByFullName = exactFullNames;
-        _typesByFullName = fullNames;
-        _typesBySimpleName = simpleNames;
+        return (exactDefinitionNames, fullNames, simpleNames);
     }
 
     IEnumerable<string> FindDocumentsMatchingTypeName(string typeName)

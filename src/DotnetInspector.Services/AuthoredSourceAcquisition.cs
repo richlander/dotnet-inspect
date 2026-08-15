@@ -51,6 +51,8 @@ public sealed record VerifiedSourceTextResult(string? Text, string? Failure)
 /// </summary>
 public static class AuthoredSourceAcquisition
 {
+    internal const int MaxAuthoredSourceLineCount = 500_000;
+
     /// <summary>
     /// Acquires the primary authored source document for one exact metadata
     /// type and verifies its portable-PDB checksum before exposing text.
@@ -171,6 +173,8 @@ public static class AuthoredSourceAcquisition
                         "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.ValidationFailed =>
                         "Fetched authored source does not match the portable-PDB checksum.",
+                    SourceFetchFailureKind.StorageFailed =>
+                        "The source-content store failed.",
                     _ => "Could not fetch authored source.",
                 },
                 mapping,
@@ -295,9 +299,14 @@ public static class AuthoredSourceAcquisition
 
             return Failed(
                 subject,
-                fetch.Failure == SourceFetchFailureKind.AttributedOriginUnverified
-                    ? "Could not verify the final SourceLink response origin."
-                    : "Could not fetch authored source.");
+                fetch.Failure switch
+                {
+                    SourceFetchFailureKind.AttributedOriginUnverified =>
+                        "Could not verify the final SourceLink response origin.",
+                    SourceFetchFailureKind.StorageFailed =>
+                        "The source-content store failed.",
+                    _ => "Could not fetch authored source.",
+                });
         }
 
         return FromContent(mapping, document, fetch.Bytes, methodName, subject);
@@ -385,6 +394,8 @@ public static class AuthoredSourceAcquisition
                         "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.ValidationFailed =>
                         "Fetched source does not match the portable-PDB checksum.",
+                    SourceFetchFailureKind.StorageFailed =>
+                        "The source-content store failed.",
                     _ => "Could not fetch SourceLink source.",
                 });
         }
@@ -522,14 +533,18 @@ public static class AuthoredSourceAcquisition
             string text = DecodeSourceText(content);
             return new AuthoredTypeSourceInspection(
                 new FindingInspection<string>.Complete(
-                    TextFindings.Inspect(text, subject)
+                    TextFindings.Inspect(
+                            text,
+                            subject,
+                            MaxAuthoredSourceLineCount)
                         .ToImmutableArray()),
                 text,
                 mapping,
                 document,
                 verification);
         }
-        catch (ArgumentException ex)
+        catch (Exception ex) when (ex is ArgumentException
+            or TextFindingComplexityException)
         {
             return TypeFailed(
                 subject,

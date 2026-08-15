@@ -99,6 +99,8 @@ public sealed record PdbTypeDocumentInfo(
     string TypeSimpleName,
     IReadOnlyList<PdbDocumentReference> Documents)
 {
+    public MetadataTypeDefinitionName? DefinitionName { get; init; }
+
     public IReadOnlyList<string> FilePaths =>
         Documents.Select(static document => document.FilePath).ToArray();
 }
@@ -1193,7 +1195,16 @@ public class PdbContext : IDisposable
             yield return new PdbTypeDocumentInfo(
                 fullName,
                 metadata.GetString(type.Name),
-                documents);
+                documents)
+            {
+                DefinitionName =
+                    MetadataTypeDefinitionNameReader.Read(
+                        metadata,
+                        typeHandle)
+                    is MetadataTypeDefinitionNameReadResult.Read read
+                        ? read.Name
+                        : null,
+            };
         }
     }
 
