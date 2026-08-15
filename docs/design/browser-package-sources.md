@@ -267,6 +267,26 @@ flat-container versions only as a typed partial result with listing status
 candidate cache. Auto-selecting latest, wildcard, or range operations fail
 closed when the missing listing evidence could change the selected coordinate.
 
+The target listing contract is source-relative:
+
+| Status | Meaning |
+| --- | --- |
+| `listed` | NuGet Gallery registration explicitly reports the version listed |
+| `unlisted` | NuGet Gallery registration explicitly reports the version unlisted |
+| `unknown` | Gallery listing evidence was required but unavailable |
+| `not-applicable` | The reporting source has no NuGet Gallery listing concept |
+
+Candidate results retain this status per reporting source rather than reducing
+it to one package-wide Boolean. An aggregate view can therefore show that a
+coordinate is unlisted on Gallery while available from a private feed.
+
+The current product still uses `PackageVersionInfo.Listed` and reports
+registration-outage enumeration as listed fail-open data. Replacing that
+current behavior and its Markdown/TSV/JSONL projection with the target typed
+status is implementation work for
+[#4239](https://github.com/richlander/dotnet-inspect/issues/4239), not behavior
+claimed by this documentation-only PR.
+
 ## Cache and provenance
 
 Candidate and payload caches are source-scoped:
@@ -419,6 +439,12 @@ Import is an explicit trust gesture:
 Opening a link never silently changes the active package-source set. Declining
 the import leaves existing configuration untouched.
 
+Every imported string is untrusted presentation data. Source IDs use a narrow
+ASCII grammar; display names and endpoints cross into the page through inert
+text or DOM `textContent`, never HTML interpolation. The same rule applies to
+the confirmation preview, settings page, source badges, errors, and provenance
+output.
+
 ## Browser credentials
 
 The Package sources page may accept a short-lived packaging-read PAT for a
@@ -479,6 +505,11 @@ custom producer:
 Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json)
 ```
 
+If redaction makes two distinct producer labels equal, source resolution
+appends a stable, non-secret source-ID discriminator. The discriminator comes
+from the configured source key or browser registry, not from hashing a
+credential-bearing URL. Compact labels must be unique within one result.
+
 Non-package `Platform`, `File`, `Library`, and `Project` inspections keep their
 existing `Source` field and omit `Package source`.
 
@@ -525,8 +556,8 @@ largely equate a source with a v3 service-index URL. The implementation should:
 7. Replace the browser's singleton `default versus mirror` state with a source
    registry and selected source set.
 8. Replace boolean-only NuGet.org listing state with a typed
-   `listed`/`unlisted`/`unknown` result so partial enumeration cannot look
-   authoritative.
+   `listed`/`unlisted`/`unknown`/`not-applicable` result so partial enumeration
+   cannot look authoritative.
 
 The product libraries must own these contracts. A browser harness may present
 configuration and cancellation, but it must not reconstruct package resolution,
@@ -556,13 +587,15 @@ Implementation is not complete until gates prove:
   authentication, transport failover, multi-source work, and paged metadata
   without resetting;
 - bundle imports reject credential fields, known secret-bearing path forms,
-  HTTP URLs, user information, unknown kinds, oversized values, and excessive
-  source counts;
+  HTTP URLs, URL queries and fragments, user information, unknown kinds,
+  oversized values, and excessive source counts;
 - encoded source-bundle values do not enter referrers, telemetry, or source
   requests;
 - source-bundle values do not enter the hosting origin's request or access
   logs;
 - imports require confirmation before persistence;
+- import previews and every later source-label projection render hostile
+  descriptor text inertly rather than as markup;
 - imported descriptors cannot replace reserved IDs, overwrite existing custom
   entries implicitly, or produce a colliding compact producer label;
 - PATs do not enter persisted state, URLs, errors, cross-origin redirect
