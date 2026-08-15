@@ -233,6 +233,43 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task PerReadCancellation_IsNotReportedAsARequestTimeout()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    StreamResponse(
+                        message,
+                        new DisposeAwareStallingStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(40),
+                operation: TimeSpan.FromSeconds(1)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        using var readCancellation =
+            new CancellationTokenSource(TimeSpan.FromMilliseconds(10));
+
+        OperationCanceledException error =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
+                {
+                    byte[] buffer = new byte[1];
+                    _ = await package.ReadAsync(
+                        buffer,
+                        readCancellation.Token);
+                });
+
+        Assert.Equal(readCancellation.Token, error.CancellationToken);
+        Assert.IsNotType<NuGetRequestTimeoutException>(error);
+        Assert.IsNotType<NuGetOperationTimeoutException>(error);
+    }
+
+    [Fact]
     public async Task OperationCeiling_IncludesPackageStreamConsumption()
     {
         using var client = new HttpClient(new DelayedHandler(
@@ -425,6 +462,8 @@ public sealed class NuGetDeadlineTests
     private sealed class DisposeAwareStallingStream : Stream
     {
         private readonly ManualResetEventSlim _disposed = new();
+        private readonly TaskCompletionSource _disposedAsync =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public override bool CanRead => true;
         public override bool CanSeek => false;
@@ -442,10 +481,22 @@ public sealed class NuGetDeadlineTests
             throw new ObjectDisposedException(nameof(DisposeAwareStallingStream));
         }
 
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await _disposedAsync.Task;
+            throw new ObjectDisposedException(
+                nameof(DisposeAwareStallingStream));
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
+            {
                 _disposed.Set();
+                _disposedAsync.TrySetResult();
+            }
             base.Dispose(disposing);
         }
 

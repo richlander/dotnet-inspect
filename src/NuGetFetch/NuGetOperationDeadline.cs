@@ -196,6 +196,12 @@ internal sealed class NuGetOperationDeadline : IDisposable
             }
             catch (Exception ex) when (IsDeadlineAbort(ex))
             {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    throw new OperationCanceledException(
+                        cancellationToken);
+                }
+
                 ThrowTranslated(ex);
                 throw;
             }

@@ -94,6 +94,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
             environmentValue: null);
 
         Assert.Contains(31, TimeoutSeconds(error));
+        Assert.DoesNotContain(30, TimeoutSeconds(error));
     }
 
     /// <summary>
@@ -190,7 +191,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         psi.Environment[HttpTimeoutConfiguration.EnvironmentVariable] = environmentValue ?? "";
 
         // Same reasoning, different variable. An ambient DOTNET_INSPECT_OFFLINE=1 makes every
-        // request throw before it can reach the stub feed, so all four cases fail somewhere
+        // request throw before it can reach the stub feed, so these cases fail somewhere
         // that has nothing to do with timeouts.
         psi.Environment["DOTNET_INSPECT_OFFLINE"] = "";
 
@@ -245,8 +246,16 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
 
                 if (!path.StartsWith("/index.json", StringComparison.Ordinal))
                 {
-                    // The search query. Hold the connection open without answering so the
-                    // caller stops on its own configured timeout.
+                    // The search query. Send headers and a partial body, then stall so this
+                    // reaches the body phase that historically clamped values above 30 seconds.
+                    byte[] searchHead = Encoding.ASCII.GetBytes(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        + "Content-Length: 1024\r\nConnection: close\r\n\r\n");
+                    await stream.WriteAsync(searchHead, cancellationToken);
+                    await stream.WriteAsync(
+                        Encoding.UTF8.GetBytes("{"),
+                        cancellationToken);
+                    await stream.FlushAsync(cancellationToken);
                     await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
                     return;
                 }
