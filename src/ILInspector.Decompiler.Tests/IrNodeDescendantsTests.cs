@@ -173,6 +173,55 @@ public class IrNodeDescendantsTests
         Assert.Equal(CountNodes(root) - 1, count);
     }
 
+    [Fact]
+    public void DescendantsOutsideNestedFunctions_StopsAtNestedFunctionBoundary()
+    {
+        var localBody = new BlockContainer();
+        var hidden = new Block(0x30);
+        localBody.Add(hidden);
+        var localFunction = new LocalFunctionStatement(
+            "F",
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            isStatic: true,
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            localBody);
+
+        var visible = Node(0x10, Node(0x11));
+        var root = new Block(0x00);
+        root.Add(visible);
+        root.Add(localFunction);
+        root.Add(Node(0x20));
+
+        var descendants = root.DescendantsOutsideNestedFunctions.ToList();
+
+        Assert.Equal(
+            new IrNode[] { visible, visible.Children[0], localFunction, root.Children[2] },
+            descendants);
+        Assert.DoesNotContain(hidden, descendants);
+        Assert.Equal(new IrNode[] { localFunction }, localFunction.DescendantsAndSelfOutsideNestedFunctions);
+    }
+
+    [Fact]
+    public void DescendantsOutsideNestedFunctions_DeepTree_DoesNotRecurse()
+    {
+        const int depth = 20_000;
+        var leaf = new Block(depth);
+        IrNode current = leaf;
+        for (int i = depth - 1; i >= 0; i--)
+        {
+            var parent = new Block(i);
+            parent.Add(current);
+            current = parent;
+        }
+
+        Assert.Equal(depth, current.DescendantsOutsideNestedFunctions.Count());
+        Assert.Same(leaf, current.DescendantsOutsideNestedFunctions.Last());
+    }
+
     static Block BuildBalanced(int depth, int fanout)
     {
         var node = new Block(depth);

@@ -809,9 +809,9 @@ public sealed class BooleanFoldingPass : IIrPass
 
     static void CollectBranchTargets(IrNode scope, HashSet<int> targets)
     {
-        foreach (var child in scope.Children)
+        foreach (var node in scope.DescendantsOutsideNestedFunctions)
         {
-            switch (child)
+            switch (node)
             {
                 case Branch branch:
                     targets.Add(branch.TargetOffset);
@@ -827,9 +827,6 @@ public sealed class BooleanFoldingPass : IIrPass
                         targets.Add(target);
                     break;
             }
-
-            if (child is not (Lambda or LocalFunctionStatement))
-                CollectBranchTargets(child, targets);
         }
     }
 
