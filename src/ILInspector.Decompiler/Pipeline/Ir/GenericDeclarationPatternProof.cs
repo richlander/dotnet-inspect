@@ -251,7 +251,7 @@ internal static class GenericDeclarationPatternProof
 
         for (int i = 0; i < beforeChildIndex && i < scope.Children.Count; i++)
         {
-            foreach (var node in DescendantsAndSelfOutsideNestedFunctions(scope.Children[i]))
+            foreach (var node in scope.Children[i].DescendantsAndSelfOutsideNestedFunctions)
             {
                 if (node is StoreLocal store && locals.Contains(store.Index))
                     return true;
@@ -276,7 +276,7 @@ internal static class GenericDeclarationPatternProof
         if (locals.Count == 0 && arguments.Count == 0)
             return false;
 
-        foreach (var node in DescendantsAndSelfOutsideNestedFunctions(EnclosingFunctionBody(site)))
+        foreach (var node in EnclosingFunctionBody(site).DescendantsAndSelfOutsideNestedFunctions)
         {
             if (node is LoadLocalAddress address && locals.Contains(address.Index))
                 return true;
@@ -319,28 +319,4 @@ internal static class GenericDeclarationPatternProof
         }
     }
 
-    static IEnumerable<IrNode> DescendantsAndSelfOutsideNestedFunctions(IrNode node)
-    {
-        yield return node;
-        if (node is Lambda or LocalFunctionStatement)
-            yield break;
-        foreach (var descendant in DescendantsOutsideNestedFunctions(node))
-            yield return descendant;
-    }
-
-    // Pre-order descendants that do NOT cross a nested-function (lambda/local
-    // function) boundary. Transforms that mint locals on the root IrFunction must
-    // use this to skip guards inside nested scopes, whose locals live in a
-    // separate pool the root printer never sees.
-    public static IEnumerable<IrNode> DescendantsOutsideNestedFunctions(IrNode node)
-    {
-        foreach (var child in node.Children)
-        {
-            yield return child;
-            if (child is Lambda or LocalFunctionStatement)
-                continue;
-            foreach (var descendant in DescendantsOutsideNestedFunctions(child))
-                yield return descendant;
-        }
-    }
 }

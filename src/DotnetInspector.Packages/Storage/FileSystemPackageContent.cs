@@ -72,6 +72,27 @@ public sealed class FileSystemPackageContent : IPackageContent
     }
 
     /// <inheritdoc />
+    public bool TryOpenEntry(
+        string relativePath,
+        long maxExpandedBytes,
+        [NotNullWhen(true)] out Stream? stream)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxExpandedBytes);
+        string path = ResolveEntryPath(relativePath);
+        var file = new FileInfo(path);
+        if (!file.Exists)
+        {
+            stream = null;
+            return false;
+        }
+        if (file.Length > maxExpandedBytes)
+            throw new InvalidDataException("Package entry exceeds the configured byte limit.");
+
+        stream = file.OpenRead();
+        return true;
+    }
+
+    /// <inheritdoc />
     public IEnumerable<string> EnumerateEntries()
     {
         if (!Directory.Exists(_root))

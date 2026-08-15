@@ -3315,9 +3315,13 @@ public class LibraryBodyIndexTests
         new BlobEncoder(signature)
             .MethodSignature(isInstanceMethod: false)
             .Parameters(
-                0,
+                1,
                 returnType => returnType.Void(),
-                parameters => { });
+                parameters =>
+                    parameters.AddParameter()
+                        .Type()
+                        .Pointer()
+                        .Int32());
         var bodies = new BlobBuilder();
         var bodyEncoder = new MethodBodyStreamEncoder(bodies);
         var il = new BlobBuilder();
@@ -3397,6 +3401,9 @@ public class LibraryBodyIndexTests
             Assert.Equal(CallTreeStatus.AnalysisIncomplete, tree.Status);
             Assert.Same(diagnostic, tree.Diagnostic);
             Assert.Single(index.DirectCalls);
+            Assert.Contains(index.UnsafeEvidence, evidence =>
+                evidence.Member.MetadataToken == methodToken
+                && evidence.Reason == "Unsafe signature");
 
             CallTreeNode truncated =
                 index.BuildCallTree(
@@ -3444,6 +3451,113 @@ public class LibraryBodyIndexTests
         }
     }
 
+    [Fact]
+    public void LibraryBodyIndex_PrefetchedImageScopeSkipsMalformedUnselectedBody()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("ScopedMalformedBody.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ScopedMalformedBody"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Scoped"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var selectedIl = new BlobBuilder();
+        selectedIl.WriteByte((byte)ILOpCode.Ret);
+        int selectedBodyOffset = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(selectedIl),
+            maxStack: 0);
+        var malformedIl = new BlobBuilder();
+        malformedIl.WriteByte(0xFE);
+        int malformedBodyOffset = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(malformedIl),
+            maxStack: 0);
+        BlobHandle signatureHandle =
+            metadata.GetOrAddBlob(signature);
+        MethodDefinitionHandle selectedHandle =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Selected"),
+                signatureHandle,
+                selectedBodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle malformedHandle =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Malformed"),
+                signatureHandle,
+                malformedBodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        var immutableImage =
+            ImmutableArray.Create(image.ToArray());
+        int selectedToken =
+            MetadataTokens.GetToken(selectedHandle);
+        int malformedToken =
+            MetadataTokens.GetToken(malformedHandle);
+
+        LibraryBodyIndex full =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "ScopedMalformedBody.dll",
+                immutableImage,
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        LibraryBodyIndex scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "ScopedMalformedBody.dll",
+                immutableImage,
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope:
+                    new HashSet<int> { selectedToken });
+
+        Assert.Contains(full.Diagnostics, diagnostic =>
+            diagnostic.MethodToken == malformedToken);
+        Assert.Empty(scoped.Diagnostics);
+        Assert.Contains(scoped.Methods, method =>
+            method.MetadataToken == selectedToken);
+        Assert.Contains(scoped.Methods, method =>
+            method.MetadataToken == malformedToken);
+    }
+    [Fact]
     [Fact]
     public void CrossAssemblyMetadataResolver_UsesRetainedCandidateImage()
     {
