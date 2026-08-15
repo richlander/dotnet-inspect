@@ -188,7 +188,7 @@ internal static class AnnotatedSourceNodeKindProjection
                 : null;
         }
 
-        if ((call.Callee.IsOperator == MetadataFactState.No || !call.Callee.IsSpecialName)
+        if ((call.Callee.IsOperator != MetadataFactState.Yes || !call.Callee.IsSpecialName)
                 && !MemberIdentity.IsKnownCoreLibraryOperator(call.Callee))
         {
             return null;

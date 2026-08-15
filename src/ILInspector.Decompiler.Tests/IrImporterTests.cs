@@ -6070,7 +6070,7 @@ public class EnumConstantTests
     }
 
     [Fact]
-    public void UnresolvedNameInferredOpAddition_PreservesOperatorFallback()
+    public void UnresolvedNameInferredOpAddition_RemainsMethodCall()
     {
         var intType = TypeRef.CoreLib("System", "Int32");
         var declaring = TypeRef.Definition("ExternalFacts.Library", "ExternalFacts", "OperatorLikeLibrary");
@@ -6090,8 +6090,8 @@ public class EnumConstantTests
 
         string output = CSharpPrinter.Print(function).Output!.Trim();
 
-        Assert.Contains("return a + b;", output);
-        Assert.DoesNotContain("op_Addition", output);
+        Assert.Contains(".op_Addition(a, b)", output);
+        Assert.DoesNotContain("return a + b;", output);
     }
 
     [Fact]

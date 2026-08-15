@@ -6,6 +6,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Security.Cryptography;
 using System.Text;
 using System.Runtime.CompilerServices;
+using CSharpText;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -841,7 +842,7 @@ public static partial class CSharpBodyDiff
            && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
 
     static bool IsConversionOperator(string methodName)
-        => methodName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
+        => OperatorNames.IsConversionOperatorMethodName(methodName);
 
     static string TypeIdentityKey(MetadataReader reader, TypeDefinitionHandle handle)
         => ResolveIdentityTypeName(reader, handle);

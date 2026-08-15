@@ -1517,7 +1517,7 @@ public static class ResearchDiff
         => ResearchMemberIdentity.SubjectFromMethod(method);
 
     static bool IsConversionOperator(string methodName)
-        => methodName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
+        => OperatorNames.IsConversionOperatorMethodName(methodName);
 
     static ResearchSubjectKey UnknownMemberSubject(string key)
         => new(ResearchSubjectKind.Member, $"member:{key}", key);

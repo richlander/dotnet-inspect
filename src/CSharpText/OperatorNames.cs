@@ -5,12 +5,13 @@ namespace CSharpText;
 /// </summary>
 public static class OperatorNames
 {
+    public static bool IsConversionOperatorMethodName(string name)
+        => name is "op_Implicit" or "op_Explicit" or "op_CheckedImplicit" or "op_CheckedExplicit";
+
     public static bool IsOperatorMethodName(string name) =>
-        name is "op_Implicit"
-            or "op_Explicit"
-            or "op_CheckedImplicit"
-            or "op_CheckedExplicit"
-            or "op_Addition"
+        IsConversionOperatorMethodName(name)
+        || name is
+            "op_Addition"
             or "op_Subtraction"
             or "op_Multiply"
             or "op_Division"
@@ -69,9 +70,10 @@ public static class OperatorNames
         bool isStatic,
         bool isPublic,
         string returnType,
-        int parameterCount)
+        int parameterCount,
+        bool hasRefOrOutParameter = false)
     {
-        if (isStatic || !isPublic || returnType != "void")
+        if (isStatic || !isPublic || returnType != "void" || hasRefOrOutParameter)
             return false;
 
         string? suffix = methodName.StartsWith("op_Checked", StringComparison.Ordinal)

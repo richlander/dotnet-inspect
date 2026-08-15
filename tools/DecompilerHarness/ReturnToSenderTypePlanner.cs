@@ -2898,11 +2898,13 @@ public static class CompileBackSourceComposer
         if (function.MethodKind is IrMethodKind.StaticConstructor)
             targetMembers.AddRange(TargetBackingFieldWriteMembers(reader, targetTypeDef, targetIdentity, function, allowStaticStores: true));
         if (!isConstructor
+            && IsOperatorMethod(reader, method)
             && EqualityOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } equalitySibling)
         {
             targetMembers.Add(equalitySibling);
         }
         if (!isConstructor
+            && IsOperatorMethod(reader, method)
             && CheckedOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } checkedOperatorSibling)
         {
             targetMembers.Add(checkedOperatorSibling);
@@ -3224,7 +3226,8 @@ public static class CompileBackSourceComposer
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
-            if (reader.GetString(method.Name) != siblingName)
+            if (reader.GetString(method.Name) != siblingName
+                || !IsOperatorMethod(reader, method))
             {
                 continue;
             }
@@ -3272,7 +3275,8 @@ public static class CompileBackSourceComposer
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
-            if (reader.GetString(method.Name) != siblingName)
+            if (reader.GetString(method.Name) != siblingName
+                || !IsOperatorMethod(reader, method))
                 continue;
 
             var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
@@ -4173,11 +4177,14 @@ public static class CompileBackSourceComposer
         bool isConstructor)
         => isConstructor
             ? CompileBackMemberKind.Constructor
-            : method.Attributes.HasFlag(MethodAttributes.SpecialName)
-                && method.GetGenericParameters().Count == 0
-                && OperatorNames.IsOperatorMethodName(reader.GetString(method.Name))
+            : IsOperatorMethod(reader, method)
                     ? CompileBackMemberKind.Operator
                     : CompileBackMemberKind.Method;
+
+    static bool IsOperatorMethod(MetadataReader reader, MethodDefinition method)
+        => method.Attributes.HasFlag(MethodAttributes.SpecialName)
+            && method.GetGenericParameters().Count == 0
+            && OperatorNames.IsOperatorMethodName(reader.GetString(method.Name));
 
     sealed class TypeProducer
     {

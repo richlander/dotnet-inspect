@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
+using CSharpText;
 using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
@@ -80,7 +81,7 @@ static class SignatureIdentity
     }
 
     static bool IsConversionOperator(string name)
-        => name is "op_Implicit" or "op_Explicit" or "op_CheckedImplicit" or "op_CheckedExplicit";
+        => OperatorNames.IsConversionOperatorMethodName(name);
 
     static IReadOnlyList<string> ParameterTokens(SeparatedSyntaxList<ParameterSyntax> parameters)
     {

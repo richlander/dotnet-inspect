@@ -4175,7 +4175,8 @@ static class FidelityCheck
                 returnType,
                 parameters,
                 isStatic,
-                sig.ParameterTypes.Length) is { } operatorDeclaration)
+                sig.ParameterTypes.Length,
+                HasRefOrOutParameter(reader, method, sig)) is { } operatorDeclaration)
         {
             string operatorStaticModifier = OperatorNames.IsAssignmentOperatorMethodName(name)
                 ? ""
@@ -4231,7 +4232,8 @@ static class FidelityCheck
         string returnType,
         string parameters,
         bool isStatic,
-        int parameterCount)
+        int parameterCount,
+        bool hasRefOrOutParameter)
     {
         if (OperatorNames.IsAssignmentOperatorMethodName(name)
             && !OperatorNames.IsCSharpInstanceAssignmentOperator(
@@ -4239,7 +4241,8 @@ static class FidelityCheck
                 isStatic,
                 isPublic: true,
                 returnType,
-                parameterCount))
+                parameterCount,
+                hasRefOrOutParameter))
         {
             return null;
         }
@@ -4332,6 +4335,37 @@ static class FidelityCheck
             parts.Add($"{modifier}{ByRefKeyword(sig.ParameterTypes[i], refKinds.GetValueOrDefault(i))} {Identifier(name)}");
         }
         return string.Join(", ", parts);
+    }
+
+    static bool HasRefOrOutParameter(
+        MetadataReader reader,
+        MethodDefinition method,
+        MethodSignature<string> signature)
+    {
+        var refKinds = new Dictionary<int, ByRefParameterInfo>();
+        foreach (var handle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(handle);
+            if (parameter.SequenceNumber >= 1)
+            {
+                refKinds[parameter.SequenceNumber - 1] = new ByRefParameterInfo(
+                    parameter.Attributes,
+                    HasIsReadOnlyAttribute(reader, parameter.GetCustomAttributes()));
+            }
+        }
+
+        for (int index = 0; index < signature.ParameterTypes.Length; index++)
+        {
+            string spelling = ByRefKeyword(
+                signature.ParameterTypes[index],
+                refKinds.GetValueOrDefault(index));
+            if (spelling.StartsWith("ref ", StringComparison.Ordinal)
+                || spelling.StartsWith("out ", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     static bool IsExtensionMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method, MethodSignature<string> sig)

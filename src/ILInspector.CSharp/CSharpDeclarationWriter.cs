@@ -2218,13 +2218,17 @@ internal static class CSharpDeclarationWriter
         {
             int parameterCount = member.SignatureModel?.ParameterCount
                 ?? OperatorParameterCount(parameters);
+            bool hasRefOrOutParameter = member.SignatureModel is { } signatureModel
+                ? signatureModel.Parameters.Any(parameter => parameter.Modifier is "ref" or "out")
+                : OperatorParametersHaveRefOrOutModifier(parameters);
             bool isPublic = member.Accessibility is null or "public";
             if (!OperatorNames.IsCSharpInstanceAssignmentOperator(
                     methodName,
                     member.IsStatic,
                     isPublic,
                     returnType,
-                    parameterCount))
+                    parameterCount,
+                    hasRefOrOutParameter))
             {
                 return signature;
             }
@@ -2252,6 +2256,37 @@ internal static class CSharpDeclarationWriter
         if (close != parameters.Length - 1)
             return -1;
         return SplitTopLevel(parameters[1..close]).Count();
+    }
+
+    static bool OperatorParametersHaveRefOrOutModifier(string parameters)
+    {
+        if (parameters.Length == 0 || parameters[0] != '(')
+            return true;
+        int close = Matching(parameters, 0, '(', ')');
+        if (close != parameters.Length - 1)
+            return true;
+
+        foreach (string parameter in SplitTopLevel(parameters[1..close]))
+        {
+            string remainder = parameter.TrimStart();
+            while (remainder.StartsWith('[', StringComparison.Ordinal))
+            {
+                int attributeEnd = Matching(remainder, 0, '[', ']');
+                if (attributeEnd < 0)
+                    return true;
+                remainder = remainder[(attributeEnd + 1)..].TrimStart();
+            }
+            if (remainder.StartsWith("this ", StringComparison.Ordinal))
+                remainder = remainder["this ".Length..].TrimStart();
+            if (remainder.StartsWith("scoped ", StringComparison.Ordinal))
+                remainder = remainder["scoped ".Length..].TrimStart();
+            if (remainder.StartsWith("ref ", StringComparison.Ordinal)
+                || remainder.StartsWith("out ", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>

@@ -110,21 +110,23 @@ public class OperatorNamesTests
         => Assert.False(OperatorNames.IsOperatorMethodName(input));
 
     [Theory]
-    [InlineData("op_AdditionAssignment", false, true, "void", 1, true)]
-    [InlineData("op_CheckedMultiplicationAssignment", false, true, "void", 1, true)]
-    [InlineData("op_IncrementAssignment", false, true, "void", 0, true)]
-    [InlineData("op_AdditionAssignment", true, true, "void", 1, false)]
-    [InlineData("op_AdditionAssignment", false, false, "void", 1, false)]
-    [InlineData("op_AdditionAssignment", false, true, "int", 1, false)]
-    [InlineData("op_AdditionAssignment", false, true, "void", 2, false)]
-    [InlineData("op_IncrementAssignment", false, true, "void", 1, false)]
-    [InlineData("op_CheckedModulusAssignment", false, true, "void", 1, false)]
+    [InlineData("op_AdditionAssignment", false, true, "void", 1, false, true)]
+    [InlineData("op_CheckedMultiplicationAssignment", false, true, "void", 1, false, true)]
+    [InlineData("op_IncrementAssignment", false, true, "void", 0, false, true)]
+    [InlineData("op_AdditionAssignment", false, true, "void", 1, true, false)]
+    [InlineData("op_AdditionAssignment", true, true, "void", 1, false, false)]
+    [InlineData("op_AdditionAssignment", false, false, "void", 1, false, false)]
+    [InlineData("op_AdditionAssignment", false, true, "int", 1, false, false)]
+    [InlineData("op_AdditionAssignment", false, true, "void", 2, false, false)]
+    [InlineData("op_IncrementAssignment", false, true, "void", 1, false, false)]
+    [InlineData("op_CheckedModulusAssignment", false, true, "void", 1, false, false)]
     public void CSharp_instance_assignment_operator_shape(
         string name,
         bool isStatic,
         bool isPublic,
         string returnType,
         int parameterCount,
+        bool hasRefOrOutParameter,
         bool expected)
         => Assert.Equal(
             expected,
@@ -133,7 +135,16 @@ public class OperatorNamesTests
                 isStatic,
                 isPublic,
                 returnType,
-                parameterCount));
+                parameterCount,
+                hasRefOrOutParameter));
+
+    [Theory]
+    [InlineData("op_Implicit")]
+    [InlineData("op_Explicit")]
+    [InlineData("op_CheckedImplicit")]
+    [InlineData("op_CheckedExplicit")]
+    public void Conversion_operator_names_share_one_vocabulary(string name)
+        => Assert.True(OperatorNames.IsConversionOperatorMethodName(name));
 
     [Theory]
     [InlineData("op_CheckedAddition", "op_Addition")]

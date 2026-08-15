@@ -3265,6 +3265,43 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_DoesNotRetypeOrdinaryEqualityNamedSibling()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class OrdinaryEqualityNames
+            {
+                public static bool op_Equality(OrdinaryEqualityNames left, OrdinaryEqualityNames right)
+                {
+                    return true;
+                }
+
+                public static bool op_Inequality(OrdinaryEqualityNames left, OrdinaryEqualityNames right)
+                {
+                    return false;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "OrdinaryEqualityNames",
+                    "op_Equality",
+                    0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("bool op_Equality(", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("operator !=", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_ExplicitInterfaceDefaultMethodFallsBackToPlainWithoutRecompileFail()
     {
         // Negative case (#3112, adversarial review): an explicit-interface implementation of a

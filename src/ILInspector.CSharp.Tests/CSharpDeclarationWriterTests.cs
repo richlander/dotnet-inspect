@@ -1380,6 +1380,18 @@ public sealed class CSharpDeclarationWriterTests
         false,
         "private",
         "private void op_AdditionAssignment(int other)")]
+    [InlineData(
+        "op_AdditionAssignment",
+        "void op_AdditionAssignment(ref int other)",
+        false,
+        null,
+        "public void op_AdditionAssignment(ref int other)")]
+    [InlineData(
+        "op_AdditionAssignment",
+        "void op_AdditionAssignment(out int other)",
+        false,
+        null,
+        "public void op_AdditionAssignment(out int other)")]
     public void MemberDeclaration_LeavesNonCSharpAssignmentShapesAsMethods(
         string name,
         string signature,
@@ -1398,6 +1410,52 @@ public sealed class CSharpDeclarationWriterTests
         };
 
         Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Fact]
+    public void MemberDeclaration_FormatsInAssignmentOperatorParameter()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "op_AdditionAssignment",
+            Kind = "operator",
+            Signature = "void op_AdditionAssignment(in Samples.Tuples other)",
+        };
+
+        Assert.Equal(
+            "public void operator +=(in Samples.Tuples other)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Fact]
+    public void MemberDeclaration_UsesStructuredAssignmentParameterModifiers()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "op_AdditionAssignment",
+            Kind = "operator",
+            Signature = "void op_AdditionAssignment(ref int other)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "op_AdditionAssignment",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "other",
+                        Type = "int",
+                        Modifier = "ref",
+                    }
+                ],
+            },
+        };
+
+        Assert.Equal(
+            "public void op_AdditionAssignment(ref int other)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
     }
 
     [Theory]

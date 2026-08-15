@@ -9,6 +9,40 @@ namespace ILInspector.Metadata.Tests;
 public class ApiMemberIdentityTests
 {
     [Theory]
+    [InlineData("op_Implicit")]
+    [InlineData("op_Explicit")]
+    [InlineData("op_CheckedImplicit")]
+    [InlineData("op_CheckedExplicit")]
+    public void IsConversionOperator_UsesCompleteMetadataVocabulary(string name)
+        => Assert.True(ApiMemberIdentity.IsConversionOperator(name));
+
+    [Fact]
+    public void GetMemberAnchor_DisambiguatesCheckedImplicitConversionsByReturnType()
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        ApiMember Conversion(string returnType) => new()
+        {
+            Name = "op_CheckedImplicit",
+            Kind = "operator",
+            ReturnType = returnType,
+            Signature = $"{returnType} op_CheckedImplicit(N.C value)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = returnType,
+                MemberName = "op_CheckedImplicit",
+                Parameters = [new ApiParameter { Name = "value", Type = "N.C" }],
+            },
+        };
+
+        var intAnchor = ApiMemberIdentity.GetMemberAnchor(type, Conversion("int"));
+        var longAnchor = ApiMemberIdentity.GetMemberAnchor(type, Conversion("long"));
+
+        Assert.EndsWith("~int", intAnchor.CanonicalSignature, StringComparison.Ordinal);
+        Assert.EndsWith("~long", longAnchor.CanonicalSignature, StringComparison.Ordinal);
+        Assert.NotEqual(intAnchor.Fingerprint, longAnchor.Fingerprint);
+    }
+
+    [Theory]
     [InlineData(".ctor", false, ".ctor")]
     [InlineData("op_Addition", false, "operator:op_Addition")]
     [InlineData("IFoo.Bar", false, "explicit:IFoo.Bar")]
