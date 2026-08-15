@@ -262,16 +262,10 @@ public sealed partial class CallGraphProjection
         [
             .. Rows.Where(candidate =>
                 candidate.Edge.From == callerNodeId
-                && Nodes[candidate.Edge.To].GraphEvidence.Any(evidence =>
-                    evidence.Storage.Kind
-                        == GraphNodeStorageKind.CallSite
-                    && evidence.Storage.ModuleVersionId
-                        == call.Caller.ModuleVersionId
-                    && evidence.Storage.MethodToken
-                        == call.Caller.MetadataToken
-                    && evidence.Storage.ILOffset == call.ILOffset
-                    && evidence.Storage.OperandToken
-                        == call.OperandToken)),
+                && candidate.Edge.CallSiteIds.Any(callSiteId =>
+                    SamePhysicalCallSite(
+                        CallSites[callSiteId].Call,
+                        call))),
         ];
         if (exact.Length == 1)
         {
@@ -304,6 +298,16 @@ public sealed partial class CallGraphProjection
             ? CallGraphRowMatch.Ambiguous
             : CallGraphRowMatch.NotProjected;
     }
+
+    static bool SamePhysicalCallSite(
+        DirectCall first,
+        DirectCall second) =>
+        first.Caller.ModuleVersionId
+            == second.Caller.ModuleVersionId
+        && first.Caller.MetadataToken
+            == second.Caller.MetadataToken
+        && first.ILOffset == second.ILOffset
+        && first.OperandToken == second.OperandToken;
 
     /// <summary>
     /// Projects the combined caller/target/callee view. Both roots are the selected
@@ -608,21 +612,16 @@ public sealed partial class CallGraphProjection
             MutableEdge edge = _edges[index];
             if (callSites.IsDefaultOrEmpty)
             {
-                edge.FallbackAnyCallInLoop |= fallbackInLoop;
-                if (edge.CallSiteIds.Count == 0
-                    && fallbackInLoop
-                    && edge.LegacyLoopHint is null)
-                {
-                    edge.LegacyLoopHint = fallbackLoopHint;
-                }
+                AddFallbackEvidence(
+                    edge,
+                    fallbackInLoop,
+                    fallbackLoopHint);
                 return;
             }
 
-            edge.LegacyLoopHint = null;
             foreach (DirectCall call in callSites)
             {
                 ArgumentNullException.ThrowIfNull(call);
-                edge.PhysicalAnyCallInLoop |= call.InLoop;
                 var identity = new CallSiteIdentity(
                     _nodes[from].Identity,
                     call.Caller.ModuleVersionId,
@@ -635,15 +634,28 @@ public sealed partial class CallGraphProjection
                 {
                     CallGraphCallSite existing =
                         _callSites[existingId];
-                    if (existing.EdgeId != index
-                        || existing.Call != call)
+                    if (existing.Call != call)
                     {
                         throw new InvalidOperationException(
-                            "One physical call site cannot support different logical call edges.");
+                            "One physical call-site identity cannot carry contradictory evidence.");
                     }
+                    if (existing.EdgeId != index)
+                    {
+                        // Independently detached direction scopes can disagree
+                        // on the target identity for one physical receipt.
+                        AddFallbackEvidence(
+                            edge,
+                            fallbackInLoop,
+                            fallbackLoopHint);
+                        continue;
+                    }
+                    edge.LegacyLoopHint = null;
+                    edge.PhysicalAnyCallInLoop |= call.InLoop;
                     continue;
                 }
 
+                edge.LegacyLoopHint = null;
+                edge.PhysicalAnyCallInLoop |= call.InLoop;
                 int id = _callSites.Count;
                 _callSiteIds.Add(identity, id);
                 _callSites.Add(
@@ -653,6 +665,20 @@ public sealed partial class CallGraphProjection
                         call,
                         DispatchKind(call)));
                 edge.CallSiteIds.Add(id);
+            }
+        }
+
+        static void AddFallbackEvidence(
+            MutableEdge edge,
+            bool inLoop,
+            string? loopHint)
+        {
+            edge.FallbackAnyCallInLoop |= inLoop;
+            if (edge.CallSiteIds.Count == 0
+                && inLoop
+                && edge.LegacyLoopHint is null)
+            {
+                edge.LegacyLoopHint = loopHint;
             }
         }
     }

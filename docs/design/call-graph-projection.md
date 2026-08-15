@@ -110,6 +110,17 @@ The projection owns everything a host must not re-invent in JavaScript:
   and callee walks observe the same physical site, while each logical edge
   retains the resulting dense call-site ids. The catalog scope retains the
   complete physical store independently. A
+  receipt observed through independently detached direction scopes can map to
+  different logical targets when those scopes cannot reconcile the same
+  catalog identity. The first deterministic edge retains the one physical
+  receipt; the later edge remains evidence-free rather than duplicating the
+  occurrence or failing the graph. Its fallback loop state and the generic
+  adapter's unavailable-evidence limit preserve the degraded result.
+  `ConflictingDetachedTargetsKeepOnePhysicalReceipt` and
+  `CallGraph_IndependentScopeIdentityConflictRemainsUsable` gate that behavior.
+  Exact row lookup consults these retained receipts before structural fallback;
+  `FindCalleeRowUsesRetainedNonRepresentativeCallSite` gates repeated sites
+  whose node evidence carries only a representative occurrence. A
   call-site storage key identifies one physical operand occurrence (source
   registration, MVID, caller token, IL offset, and operand token); it is
   evidence, never a logical node count or a cycle key.

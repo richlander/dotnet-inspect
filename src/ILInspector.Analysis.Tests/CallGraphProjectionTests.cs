@@ -74,6 +74,23 @@ public class CallGraphProjectionTests
             correspondence: null);
     }
 
+    static GraphNodeEvidence CallSiteEvidence(DirectCall call)
+    {
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(CallGraphProjectionTests).Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "call-graph projection test"));
+        GraphNodeStorageKey storage = GraphNodeStorageKey.CallSite(
+            source,
+            call.Caller.ModuleVersionId,
+            call);
+        return new GraphNodeEvidence(
+            storage,
+            GraphNodeIdentity.FromStorage(storage),
+            correspondence: null);
+    }
+
     static DirectCall Call(
         MemberRef caller,
         MemberRef callee,
@@ -130,6 +147,49 @@ public class CallGraphProjectionTests
         Assert.Equal(3, projection.Nodes.Length);
         Assert.Equal(2, projection.Nodes.Count(node =>
             node.Member.Name == "Do"));
+    }
+
+    [Fact]
+    public void FindCalleeRowUsesRetainedNonRepresentativeCallSite()
+    {
+        MemberRef focus = Member("Target", "Run");
+        MemberRef callee = Member("Svc", "Do");
+        DirectCall first = Call(focus, callee, 4);
+        DirectCall second = Call(focus, callee, 8);
+        DirectCall versionSkewed = Call(focus, callee, 12);
+        CallTreeNode root = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Leaf(callee) with
+                {
+                    GraphEvidence = CallSiteEvidence(first),
+                    ParentEdgeCallSites = [first, second],
+                },
+                Leaf(callee) with
+                {
+                    GraphEvidence =
+                        CallSiteEvidence(versionSkewed),
+                    ParentEdgeCallSites = [versionSkewed],
+                },
+            ]) with
+        {
+            GraphEvidence = Evidence(1),
+        };
+
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(root);
+
+        Assert.Equal(
+            CallGraphRowMatch.Found,
+            projection.FindFocusCalleeRow(
+                second,
+                out CallGraphRow row));
+        Assert.Contains(
+            projection.CallSites,
+            site =>
+                site.EdgeId == row.Number - 1
+                && site.Call == second);
     }
 
     [Fact]
@@ -268,6 +328,76 @@ public class CallGraphProjectionTests
         Assert.Same(
             peerCallsFocus,
             projection.CallSites[callSiteId].Call);
+    }
+
+    [Fact]
+    public void ConflictingDetachedTargetsKeepOnePhysicalReceipt()
+    {
+        MemberRef focus = Member("Focus", "Run");
+        MemberRef peer = Member("Peer", "Invoke");
+        DirectCall focusCallsPeer = Call(focus, peer, 4);
+        DirectCall peerCallsFocus = Call(peer, focus, 8);
+        GraphNodeEvidence focusEvidence = Evidence(1);
+        CallTreeNode callerRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Node(
+                    peer,
+                    CallTreeStatus.Expanded,
+                    [
+                        Leaf(
+                            focus,
+                            CallTreeStatus.AlreadyShown) with
+                        {
+                            GraphEvidence = focusEvidence,
+                            ParentEdgeCallSites =
+                                [focusCallsPeer],
+                        },
+                    ]) with
+                {
+                    GraphEvidence = Evidence(2),
+                    ParentEdgeCallSites = [peerCallsFocus],
+                },
+            ]) with
+        {
+            GraphEvidence = focusEvidence,
+        };
+        CallTreeNode calleeRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Leaf(peer) with
+                {
+                    GraphEvidence = Evidence(3),
+                    ParentEdgeCallSites = [focusCallsPeer],
+                },
+            ]) with
+        {
+            GraphEvidence = focusEvidence,
+        };
+
+        CallGraphProjection projection =
+            CallGraphProjection.Create(callerRoot, calleeRoot);
+
+        CallGraphEdge[] outbound =
+        [
+            .. projection.Edges.Where(
+                edge => edge.From == projection.Focus.Id),
+        ];
+        Assert.Equal(2, outbound.Length);
+        Assert.Single(
+            outbound,
+            edge => edge.CallSiteIds.Length == 1);
+        Assert.Single(
+            outbound,
+            edge => edge.CallSiteIds.IsEmpty);
+        Assert.Equal(2, projection.CallSites.Length);
+        Assert.Equal(
+            CallGraphRowMatch.Found,
+            projection.FindFocusCalleeRow(
+                focusCallsPeer,
+                out _));
     }
 
     [Fact]
