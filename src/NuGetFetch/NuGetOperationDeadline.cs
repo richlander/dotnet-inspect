@@ -101,7 +101,10 @@ internal sealed class NuGetOperationDeadline : IDisposable
         CancellationTokenSource requestCancellation)
     {
         if (_callerToken.IsCancellationRequested)
-            return;
+        {
+            throw new OperationCanceledException(
+                _callerToken);
+        }
 
         if (_operationCancellation.IsCancellationRequested)
         {
@@ -121,10 +124,13 @@ internal sealed class NuGetOperationDeadline : IDisposable
         CancellationTokenSource requestCancellation,
         NuGetOperationDeadline operation) : Stream
     {
+        private readonly CancellationToken _requestToken =
+            requestCancellation.Token;
         private readonly CancellationTokenRegistration _deadlineRegistration =
             requestCancellation.Token.UnsafeRegister(
                 static state => ((IDisposable)state!).Dispose(),
                 owner);
+        private int _deadlineCompleted;
         private bool _disposed;
 
         public override bool CanRead => inner.CanRead;
@@ -144,6 +150,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
             {
                 int read = inner.Read(buffer, offset, count);
                 ThrowIfDeadlineExpired();
+                if (read == 0)
+                    CompleteDeadline();
                 return read;
             }
             catch (Exception ex) when (IsDeadlineAbort(ex))
@@ -160,6 +168,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
             {
                 int read = inner.Read(buffer);
                 ThrowIfDeadlineExpired();
+                if (read == 0)
+                    CompleteDeadline();
                 return read;
             }
             catch (Exception ex) when (IsDeadlineAbort(ex))
@@ -176,7 +186,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             using CancellationTokenSource linked =
                 CancellationTokenSource.CreateLinkedTokenSource(
                     cancellationToken,
-                    requestCancellation.Token);
+                    _requestToken);
             try
             {
                 int read = await inner.ReadAsync(buffer, linked.Token)
@@ -184,12 +194,17 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 if (cancellationToken.IsCancellationRequested)
                     throw new OperationCanceledException(cancellationToken);
                 ThrowIfDeadlineExpired();
+                if (read == 0)
+                    CompleteDeadline();
                 return read;
             }
             catch (OperationCanceledException ex)
             {
                 if (cancellationToken.IsCancellationRequested)
-                    throw;
+                {
+                    throw new OperationCanceledException(
+                        cancellationToken);
+                }
 
                 operation.ThrowTranslated(ex, requestCancellation);
                 throw;
@@ -222,6 +237,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
             {
                 int value = inner.ReadByte();
                 ThrowIfDeadlineExpired();
+                if (value < 0)
+                    CompleteDeadline();
                 return value;
             }
             catch (Exception ex) when (IsDeadlineAbort(ex))
@@ -300,7 +317,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
         {
             try
             {
-                requestCancellation.Token.ThrowIfCancellationRequested();
+                _requestToken.ThrowIfCancellationRequested();
             }
             catch (OperationCanceledException ex)
             {
@@ -311,6 +328,14 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         private void DisposeDeadlineState()
         {
+            CompleteDeadline();
+        }
+
+        private void CompleteDeadline()
+        {
+            if (Interlocked.Exchange(ref _deadlineCompleted, 1) != 0)
+                return;
+
             _deadlineRegistration.Dispose();
             requestCancellation.Dispose();
             operation._disposed = true;
@@ -318,21 +343,15 @@ internal sealed class NuGetOperationDeadline : IDisposable
         }
 
         private bool IsDeadlineAbort(Exception exception) =>
-            requestCancellation.IsCancellationRequested
+            _requestToken.IsCancellationRequested
             && exception is IOException or ObjectDisposedException;
 
         private void ThrowTranslated(Exception exception)
         {
-            if (operation._callerToken.IsCancellationRequested)
-            {
-                throw new OperationCanceledException(
-                    operation._callerToken);
-            }
-
             var cancellation = new OperationCanceledException(
                 "NuGet response stream was aborted after its deadline expired.",
                 exception,
-                requestCancellation.Token);
+                _requestToken);
             operation.ThrowTranslated(cancellation, requestCancellation);
         }
     }

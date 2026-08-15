@@ -166,6 +166,7 @@ public sealed class NuGetDeadlineTests
                     "package",
                     cancellationToken: cancellation.Token));
 
+        Assert.Equal(cancellation.Token, error.CancellationToken);
         Assert.IsNotType<NuGetRequestTimeoutException>(error);
         Assert.IsNotType<NuGetOperationTimeoutException>(error);
     }
@@ -267,6 +268,85 @@ public sealed class NuGetDeadlineTests
         Assert.Equal(readCancellation.Token, error.CancellationToken);
         Assert.IsNotType<NuGetRequestTimeoutException>(error);
         Assert.IsNotType<NuGetOperationTimeoutException>(error);
+    }
+
+    [Fact]
+    public async Task TokenHonoringPerReadCancellation_PreservesItsToken()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    StreamResponse(message, new StallingStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(1),
+                operation: TimeSpan.FromSeconds(2)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        using var readCancellation =
+            new CancellationTokenSource(TimeSpan.FromMilliseconds(10));
+
+        OperationCanceledException error =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
+                {
+                    byte[] buffer = new byte[1];
+                    _ = await package.ReadAsync(
+                        buffer,
+                        readCancellation.Token);
+                });
+
+        Assert.Equal(readCancellation.Token, error.CancellationToken);
+        Assert.IsNotType<NuGetRequestTimeoutException>(error);
+        Assert.IsNotType<NuGetOperationTimeoutException>(error);
+    }
+
+    [Fact]
+    public async Task CompletedPackageStream_RemainsAtEofAfterDeadline()
+    {
+        byte[] payload = [42];
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(
+                    StreamResponse(
+                        message,
+                        new MemoryStream(payload, writable: false)))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(40),
+                operation: TimeSpan.FromSeconds(1)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        byte[] buffer = new byte[1];
+
+        Assert.Equal(
+            1,
+            await package.ReadAsync(
+                buffer,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            0,
+            await package.ReadAsync(
+                buffer,
+                TestContext.Current.CancellationToken));
+
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(60),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            0,
+            await package.ReadAsync(
+                buffer,
+                TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -386,6 +466,7 @@ public sealed class NuGetDeadlineTests
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 async () => _ = await read);
 
+        Assert.Equal(cancellation.Token, error.CancellationToken);
         Assert.IsNotType<NuGetRequestTimeoutException>(error);
         Assert.IsNotType<NuGetOperationTimeoutException>(error);
     }

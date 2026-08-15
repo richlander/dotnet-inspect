@@ -154,6 +154,50 @@ public sealed class ServiceIndexAuthenticationTests
         Assert.Equal("pat:s3cret", handler.DecodedAuthFor(Package));
     }
 
+    [Fact]
+    public async Task CrossOriginDiscoveredResources_DoNotCarryTheCredential()
+    {
+        const string CrossOriginFlat =
+            "https://cdn.example/v3/flat/";
+        const string CrossOriginVersions =
+            "https://cdn.example/v3/flat/contoso/index.json";
+        const string CrossOriginPackage =
+            "https://cdn.example/v3/flat/contoso/1.0.0/contoso.1.0.0.nupkg";
+        RecordingHandler handler = new()
+        {
+            [IndexUrl] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{CrossOriginFlat}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [CrossOriginVersions] = """{"versions":["1.0.0"]}""",
+            [CrossOriginPackage] = "package bytes",
+        };
+        NuGetClient client = new(new HttpClient(handler));
+
+        _ = await client.GetVersionsAsync(
+            "contoso",
+            IndexUrl,
+            Credential,
+            TestContext.Current.CancellationToken);
+        await using Stream package = await client.DownloadAsync(
+            "contoso",
+            "1.0.0",
+            IndexUrl,
+            Credential,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("pat:s3cret", handler.DecodedAuthFor(IndexUrl));
+        Assert.Null(handler.AuthFor(CrossOriginVersions));
+        Assert.Null(handler.AuthFor(CrossOriginPackage));
+    }
+
     private const string ServiceIndex = $$"""
         {
           "version": "3.0.0",
