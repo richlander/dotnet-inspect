@@ -90,8 +90,7 @@ public sealed class IsPatternPass : IIrPass
         // local function (whose locals live in a separate, immutable pool the inner
         // printer scopes independently) must stay on the #2856 bridge to avoid a
         // dangling local index. Skip nested scopes with the boundary-aware walk.
-        foreach (var ifStatement in GenericDeclarationPatternProof
-            .DescendantsOutsideNestedFunctions(function).OfType<IfStatement>().ToList())
+        foreach (var ifStatement in function.DescendantsOutsideNestedFunctions.OfType<IfStatement>().ToList())
         {
             if (ifStatement.Condition is not IsInstance guard
                 || !GenericDeclarationPatternProof.IsReadOnlyOperand(guard.Operand))
@@ -148,8 +147,7 @@ public sealed class IsPatternPass : IIrPass
         // below (LocalReferencesOnlyWithin over `function`) reasons about the root
         // local pool, so only inline stores in the root scope. Blocks inside nested
         // functions carry indices into a different pool and must be left alone.
-        foreach (var block in GenericDeclarationPatternProof
-            .DescendantsOutsideNestedFunctions(function).OfType<Block>().ToList())
+        foreach (var block in function.DescendantsOutsideNestedFunctions.OfType<Block>().ToList())
         {
             var children = block.Children;
             for (int i = 0; i + 1 < children.Count; i++)
@@ -201,8 +199,7 @@ public sealed class IsPatternPass : IIrPass
     {
         // Only root-scope guards: re-pointing the binding rewrites references in
         // the root local pool, so a nested-function guard (separate pool) is out.
-        foreach (var ifStatement in GenericDeclarationPatternProof
-            .DescendantsOutsideNestedFunctions(function).OfType<IfStatement>().ToList())
+        foreach (var ifStatement in function.DescendantsOutsideNestedFunctions.OfType<IfStatement>().ToList())
         {
             if (ifStatement.Condition is not IsPattern pattern)
                 continue;

@@ -182,6 +182,32 @@ public sealed class PackageIndexCacheTests
         var dependency = Assert.Single(cached.Dependencies);
         Assert.Equal("Dependency.With.Range", dependency.Id);
         Assert.Equal(versionRange, dependency.Version);
+        Assert.False(cached.IsImplicitManifestGroup);
+    }
+
+    [Fact]
+    public void DependencyGroup_ImplicitManifestProvenanceRoundTrips()
+    {
+        var group = new DependencyGroup
+        {
+            TargetFramework = "",
+            IsImplicitManifestGroup = true,
+            Dependencies =
+            [
+                new PackageDependency
+                {
+                    Id = "Implicit.Dependency",
+                    Version = "1.0.0"
+                }
+            ]
+        };
+
+        string serialized = PackageIndexCache.SerializeDependencyGroup(group);
+        DependencyGroup cached =
+            PackageIndexCache.DeserializeDependencyGroup(serialized);
+
+        Assert.True(cached.IsImplicitManifestGroup);
+        Assert.Equal("Implicit.Dependency", Assert.Single(cached.Dependencies).Id);
     }
 
     private static void AssertMalformedCacheMiss(string suffix, byte[] bytes)
