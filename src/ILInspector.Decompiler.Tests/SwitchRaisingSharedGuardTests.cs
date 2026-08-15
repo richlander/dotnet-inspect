@@ -597,6 +597,28 @@ public class SwitchRaisingSharedGuardTests
     }
 
     [Fact]
+    [Trait("Area", "Pass")]
+    public void NestedFunctionOffsetCollision_DoesNotBlockEnumRangeGuardAbsorption()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(
+            enumType,
+            useEnumRangeGuard: true,
+            nestedFunctionTargetsDispatch: true);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = s_int };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Equal(
+            [6, 7, 24, 25],
+            node.Sections.SelectMany(section => section.Labels).Select(label => label.Value).Order());
+    }
+
+    [Fact]
     public void OverlappingEnumRangeGuard_RemainsSeparateFromSwitch()
     {
         var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
@@ -1237,7 +1259,8 @@ public class SwitchRaisingSharedGuardTests
         bool mutateBeforeSwitch = false,
         bool guardUsesOtherArgument = false,
         int guardOffset = 6,
-        bool externalDispatchEntry = false)
+        bool externalDispatchEntry = false,
+        bool nestedFunctionTargetsDispatch = false)
     {
         governingType ??= s_int;
         var body = new BlockContainer();
@@ -1252,6 +1275,23 @@ public class SwitchRaisingSharedGuardTests
         }
 
         var guard = new Block(0);
+        if (nestedFunctionTargetsDispatch)
+        {
+            var localBody = new BlockContainer();
+            var localBlock = new Block();
+            localBlock.Add(new Branch(0x0D));
+            localBody.Add(localBlock);
+            guard.Add(new LocalFunctionStatement(
+                "Local",
+                s_void,
+                [],
+                isStatic: true,
+                [],
+                [],
+                usesUpdatedMemorySafetyRules: false,
+                skipLocalsInit: false,
+                localBody));
+        }
         guard.Add(new ConditionalBranch(
             useEnumRangeGuard
                 ? new Comparison(
