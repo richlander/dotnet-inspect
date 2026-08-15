@@ -228,7 +228,10 @@ public static partial class BrowserInspectionEngine
         public static TypeCollisionKey Create(ApiType type) =>
             type.DefinitionName is { } definitionName
                 ? new(definitionName, "", "")
-                : new(null, type.Namespace ?? "", type.MetadataName);
+                : new(
+                    null,
+                    type.Namespace ?? "",
+                    type.MetadataName ?? type.Name);
     }
 
     /// <summary>
