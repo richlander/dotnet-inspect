@@ -81,6 +81,14 @@ different transports. Those implementation differences remain below source
 resolution: consumers receive typed capabilities, candidates, failures, and
 producer provenance rather than protocol URLs.
 
+The NuGet Gallery browser implementation and the canonical NuGet.org v3 source
+share the producer identity
+`https://api.nuget.org/v3/index.json`; the browser implementation may use that
+identity without requesting the blocked service index. User-interface registry
+IDs and transport profiles do not replace producer identity. Candidate cache
+keys also identify the discovery contract and its version so a listed-only
+search result cannot answer a complete listing-aware enumeration.
+
 ## Resolving active and eligible sources
 
 Without source options, dotnet-inspect resolves the same effective

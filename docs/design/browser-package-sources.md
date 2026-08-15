@@ -125,19 +125,25 @@ browser it can use known web endpoints without requesting
 
 | Capability | Browser endpoint |
 | --- | --- |
-| Search and listed versions | NuGet Gallery search service |
+| Keyword search and latest listed version | NuGet Gallery search service |
+| Complete version enumeration | `globalcdn.nuget.org/v3-flatcontainer/{id}/index.json` |
+| Per-version listing status | `globalcdn.nuget.org/v3/registration5-gz-semver2/{id}/index.json` |
 | Package payload | `globalcdn.nuget.org/packages/{id}.{version}.nupkg` |
 | Symbol package | `globalcdn.nuget.org/symbol-packages/{id}.{version}.snupkg` |
 
 The Gallery source normalizes package IDs and versions before constructing CDN
 paths. Search requests opt into SemVer 2.0 and carry the caller's prerelease
-policy.
+policy. Version enumeration joins the flat-container list with the registration
+listing status, preserving the listing-aware behavior defined by
+[version resolution](version-resolution.md). Search results are not written
+into the complete version-list cache.
 
 Its limitations remain visible:
 
-- search does not reveal unlisted packages or versions;
-- an exact known unlisted coordinate may be downloadable without being
-  discoverable;
+- keyword search does not reveal unlisted packages or versions;
+- exact known unlisted coordinates remain downloadable without keyword
+  discovery, while complete enumeration uses registration metadata to reveal
+  their listing status;
 - the known search and CDN routes are NuGet.org-specific browser behavior, not
   a general NuGet v3 source contract; and
 - endpoint changes can make the implementation unavailable until the built-in
@@ -147,6 +153,17 @@ The Gallery source is the browser default. Desktop configuration may continue
 to represent NuGet.org through its canonical v3 service index while sharing the
 same package-source identity and provenance label. Transport strategy is a
 host capability, not a second visible producer.
+
+The canonical producer identity for both transports is
+`https://api.nuget.org/v3/index.json`. The Gallery browser client uses that
+identity without requesting the URL. A registry ID is a user-interface handle,
+not a producer identity or cache key.
+
+Candidate caches additionally identify the discovery contract and its version,
+such as complete listing-aware enumeration versus keyword search. A
+search-derived listed-only result cannot answer a complete version-enumeration
+request. Payload caches may be shared across the Gallery browser and v3
+transports because both name the same immutable NuGet.org producer.
 
 ### Local-folder source
 
@@ -179,6 +196,13 @@ Browser-local registration is persisted in local storage as non-secret source
 descriptors and selected IDs. Runtime credentials are never part of this
 registry.
 
+Changing a descriptor's kind or canonical endpoint creates a new source
+identity. The browser invalidates that registry entry's resolved resources,
+candidate state, credentials, and payload-cache eligibility rather than
+rewriting the previous producer. Registering the canonical NuGet.org v3
+endpoint alongside the built-in Gallery source creates one producer with two
+available transports, not two candidate authorities.
+
 ## Multi-source resolution
 
 Source order is not version precedence. Resolution follows the package source
@@ -210,11 +234,10 @@ authorized producer without proving every peer source readable.
 Candidate and payload caches are source-scoped:
 
 - candidate cache keys include source identity, package ID, and discovery
-  flavor;
+  contract/version;
 - payload cache keys include source identity and exact coordinate;
 - Gallery and v3 access strategies for the canonical NuGet.org source share
-  producer identity only when the implementation has proved they represent the
-  same producer; and
+  the producer identity defined above; and
 - changing the selected source set never reinterprets bytes from an
   unauthorized producer.
 
@@ -233,27 +256,36 @@ path has a library-owned finite budget.
 
 The timeout policy distinguishes:
 
-| Operation class | Examples | Default budget |
+| Operation class | Examples | Initial default deadline |
 | --- | --- | ---: |
 | Availability probe | Optional source health check | 2 seconds |
-| Metadata | Service index, search, versions | 15 seconds |
+| Metadata | Service index, search, versions | 30 seconds |
 | Payload | Package and symbol-package body | 120 seconds |
 
-These defaults are configurable through validated library options. A caller may
-cancel sooner but cannot extend an operation beyond the library budget without
-explicitly supplying a different validated policy.
+These defaults are configurable through validated library options. The CLI's
+`--http-timeout` and `DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS` settings supply
+that validated policy and may extend the deadlines for slow feeds. A caller
+may always cancel sooner. Component limits, including metadata body-read
+timeouts, cannot exceed the enclosing operation deadline.
 
-Each budget covers the complete operation:
+One deadline is created at each public search, resolve, or acquire entry point.
+It covers the complete operation:
 
 - connection and response headers;
 - redirects;
+- authentication and retry;
+- all selected sources and producer failover;
+- retry backoff;
 - bounded response-body reads;
 - decompression and protocol parsing; and
 - payload streaming into the bounded admission path.
 
-A source client creates a linked cancellation token from caller cancellation
-and its operation budget. It does not depend solely on `HttpClient.Timeout`,
-because hosts may supply an infinite or unusually large client timeout.
+Every source, retry, redirect, and body reader receives the remaining time from
+that deadline; no nested operation resets it. Aggregate source queries run
+concurrently when their contract requires every eligible source. A source
+client links the remaining deadline with caller cancellation. It does not
+depend solely on `HttpClient.Timeout`, because hosts may supply an infinite or
+unusually large client timeout.
 
 Timeouts remain visible source failures. They are not converted into not-found,
 an empty version list, a partial successful search, or an automatic stale-cache
@@ -261,12 +293,15 @@ answer. Cache fallback follows the explicit version-resolution policy and
 retains the timeout diagnostic.
 
 Required gates include stalled-header, stalled-metadata-body, stalled-payload,
-and redirect-chain cases that terminate without JavaScript cooperation.
+retry, authentication, multi-source, and redirect cases that terminate without
+JavaScript cooperation.
 
 ## Portable source bundles
 
 A shareable website link may carry a versioned source bundle encoded as
-base64url JSON. It does not carry arbitrary `nuget.config` XML.
+base64url JSON in the URL fragment, for example `#sources=...`. Fragments are
+not sent to the hosting server. The link does not carry arbitrary
+`nuget.config` XML.
 
 An illustrative payload is:
 
@@ -298,13 +333,19 @@ non-secret HTTPS descriptors and selected source IDs. It must not contain:
 - credentials, PATs, API keys, or authorization headers;
 - local paths or `file://` URLs;
 - embedded URL user information;
+- URL query strings or fragments;
 - arbitrary NuGet configuration sections; or
 - runtime-discovered resource URLs.
 
+Query-bearing source URLs remain valid when supplied through existing desktop
+configuration because signed endpoints are an established feed capability, but
+they are nonportable and cannot enter a browser source bundle.
+
 Feed names and hostnames can still reveal organizational information. The
-website uses a `no-referrer` policy, does not emit bundle contents to telemetry,
-and removes the bundle parameter from the address bar with `replaceState`
-before contacting any configured source.
+fragment keeps them out of the hosting origin's request and access logs. The
+website also uses a `no-referrer` policy, does not emit bundle contents to
+telemetry, and removes the bundle fragment from the address bar with
+`replaceState` before contacting any configured source.
 
 Import is an explicit trust gesture:
 
@@ -314,7 +355,7 @@ Import is an explicit trust gesture:
 3. Validate every source descriptor without contacting it.
 4. Show a preview naming additions, replacements, and selected sources.
 5. Require confirmation before writing local storage.
-6. Remove the bundle from the visible URL.
+6. Remove the bundle fragment from the visible URL.
 7. Validate source connectivity separately and report each failure.
 
 Opening a link never silently changes the active package-source set. Declining
@@ -323,7 +364,14 @@ the import leaves existing configuration untouched.
 ## Browser credentials
 
 The Package sources page may accept a short-lived packaging-read PAT for a
-source that requires authentication.
+source that declares Basic PAT authentication. The session credential contains
+both the configured username and the secret; the wire form is
+`Authorization: Basic base64(username:PAT)`. A source-specific UI may suggest a
+documented placeholder username, but the common client does not invent one.
+
+OAuth credentials, credential-provider plugins, device login, and feed-specific
+authentication schemes are unsupported in the initial browser implementation
+unless their own explicit credential contract is added.
 
 PAT handling follows these rules:
 
@@ -333,10 +381,17 @@ PAT handling follows these rules:
 - reload and tab close discard it;
 - the UI identifies the source and requested scope before entry;
 - credentials are attached only to requests authorized for that source;
-- credentials are not forwarded across redirects or to cross-origin resources;
+- credentials may remain attached across same-origin redirects;
+- credentials are never attached to a cross-origin redirect target or resource;
   and
 - authenticated browser support requires the feed's CORS policy to permit the
   origin and authorization header.
+
+Desktop transports enforce redirect origin at the HTTP-handler boundary.
+Browser transports rely on Fetch's cross-origin authorization behavior and
+must gate the observed same-origin/cross-origin cases. If a browser cannot
+prove the required origin boundary for an authenticated redirect, it rejects
+that source behavior rather than following it with ambiguous authority.
 
 A shared source bundle can register a private feed, but every recipient supplies
 their own PAT. Registration and authority remain separate.
@@ -368,7 +423,9 @@ Candidate sources: NuGet Gallery, Corporate mirror
 The default field is high value because it answers which producer supplied the
 inspected bytes. Endpoint, payload location, and candidate-source expansion are
 normal or detailed evidence. Structured output carries stable source IDs in
-addition to display names.
+addition to display names. Every human and structured endpoint projection uses
+the shared URL-redaction policy; signed queries and other credential-bearing
+components are never rendered.
 
 The website shows source badges in search results, version choices, package
 tabs, and package headings. A version advertised upstream but unavailable from
@@ -414,9 +471,13 @@ Implementation is not complete until gates prove:
 - JavaScript-independent library timeouts cover metadata and payload stalls;
 - bundle imports reject secrets, HTTP URLs, user information, unknown kinds,
   oversized values, and excessive source counts;
-- source-bundle values do not enter referrers, telemetry, or source requests;
+- encoded source-bundle values do not enter referrers, telemetry, or source
+  requests;
+- source-bundle values do not enter the hosting origin's request or access
+  logs;
 - imports require confirmation before persistence;
 - PATs do not enter persisted state, URLs, errors, redirects, or telemetry;
-- authenticated requests obey source-origin boundaries; and
+- Basic PAT credentials include an explicit username and obey same-origin
+  redirect and resource boundaries; and
 - Markdown and structured output distinguish package source, payload location,
   and candidate sources.
