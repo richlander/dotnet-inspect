@@ -88,30 +88,8 @@ internal static class BrowserPackageWorkspace
             || version.Equals("latest", StringComparison.OrdinalIgnoreCase)
                 ? null
                 : version;
-        var request = new PackageCoordinate(packageId, requestedVersion);
-        if (PackageCoordinateResolver.Validate(request) is { } invalid)
-            throw new InvalidOperationException(invalid.Message);
-
-        string canonicalId = packageId.ToLowerInvariant();
-        PackageSourceAuthorization authorization =
-            SourceAuthorization.AuthorizeSourcesFor(canonicalId);
-        PackageCoordinateResolution resolution =
-            await PackageCoordinateResolver.ResolveAsync(
-                Http,
-                request,
-                authorization.Sources,
-                useVersionCache: false,
-                requireStableFloating: true);
-        ResolvedPackageCoordinate coordinate = resolution switch
-        {
-            PackageCoordinateResolution.Resolved resolved => resolved.Coordinate,
-            PackageCoordinateResolution.Invalid rejected =>
-                throw new InvalidOperationException(rejected.Message),
-            PackageCoordinateResolution.Unavailable unavailable =>
-                throw new InvalidOperationException(unavailable.Message),
-            _ => throw new InvalidOperationException(
-                "Package coordinate resolution returned an unknown outcome."),
-        };
+        ResolvedPackageCoordinate coordinate = await ResolveCoordinateAsync(
+            new PackageCoordinate(packageId, requestedVersion));
 
         string key = PackageKey(coordinate.PackageId, coordinate.Version);
         if (!PendingAcquisitions.TryGetValue(
@@ -148,6 +126,35 @@ internal static class BrowserPackageWorkspace
             cached.Bytes,
             payload.Origin == PackagePayloadOrigin.Cache,
             cached.ProducerKey);
+    }
+
+    static async Task<ResolvedPackageCoordinate> ResolveCoordinateAsync(
+        PackageCoordinate request)
+    {
+        if (PackageCoordinateResolver.Validate(request) is { } invalid)
+            throw new InvalidOperationException(invalid.Message);
+
+        string canonicalId = request.PackageId.ToLowerInvariant();
+        PackageSourceAuthorization authorization =
+            SourceAuthorization.AuthorizeSourcesFor(canonicalId);
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                Http,
+                request,
+                authorization.Sources,
+                useVersionCache: false,
+                requireStableFloating: true);
+        ResolvedPackageCoordinate coordinate = resolution switch
+        {
+            PackageCoordinateResolution.Resolved resolved => resolved.Coordinate,
+            PackageCoordinateResolution.Invalid rejected =>
+                throw new InvalidOperationException(rejected.Message),
+            PackageCoordinateResolution.Unavailable unavailable =>
+                throw new InvalidOperationException(unavailable.Message),
+            _ => throw new InvalidOperationException(
+                "Package coordinate resolution returned an unknown outcome."),
+        };
+        return coordinate;
     }
 
     /// <summary>
@@ -337,6 +344,34 @@ internal static class BrowserPackageWorkspace
         };
     }
 
+    internal static async Task<string> ResolveDependencyVersionAsync(
+        string packageId,
+        string? declaredRange)
+    {
+        if (PackageDependencyVersionRange.GetExactVersion(declaredRange)
+            is { } exactVersion)
+        {
+            ResolvedPackageCoordinate coordinate =
+                await ResolveCoordinateAsync(
+                    new PackageCoordinate(packageId, exactVersion));
+            return coordinate.Version;
+        }
+
+        string[] versions = await GetVersionsAsync(packageId);
+        return SelectDependencyVersion(versions, declaredRange)
+            ?? throw new InvalidOperationException(
+                $"Package '{packageId}' has no published version satisfying "
+                + $"the declared range '{declaredRange}'.");
+    }
+
+    internal static string? SelectDependencyVersion(
+        string[] versions,
+        string? declaredRange) =>
+        PackageDependencyVersionRange.SelectBestSatisfying(
+            versions,
+            string.IsNullOrWhiteSpace(declaredRange)
+                ? "*"
+                : declaredRange);
     static ImmutableHashSet<string> RetainCoordinatePackages(
         IReadOnlyList<BrowserPackageCoordinate> coordinates)
     {

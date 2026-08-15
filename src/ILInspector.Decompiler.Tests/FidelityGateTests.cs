@@ -505,6 +505,9 @@ public class FidelityGateTests
         // #4008: the terminal bare return is preserved as the switch join, so
         // recompilation restores csc's direct table-to-final-ret layout.
         "TerminalSwitchBreakToReturn",
+        // A loop switch whose source cases continue recompiles exactly after the
+        // post-switch tail moves into default and the other sections end in break.
+        "SwitchCaseContinueInLoop",
         "TwoLocalFunctionQuadrants",
     };
 

@@ -225,9 +225,9 @@ Areas and their member classes:
 | --- | --- |
 | `RoundTrip` | the compile-back / MemberBodyProducer seam: `ReturnToSender*`, `MemberBodyProducer*`, `CompileBackTypeIdentityTests`, `TypeBindGateTests`, `GeneratedFixtureCatalogTests`, `CompilerFeatureOptionsTests` |
 | `Fidelity` | the changed-method fidelity gates: `FidelityGateTests`, `LoweredFidelityGateTests`, `ByteNeutralityGateTests`, `DiffFixtureFidelityTests`, `AuthoredRebuildFidelityTests`, `AnnotatedCompileBackFailureTests`, `SkeletonEmitTests`, `ClusterCaptureTests`, `NestedTargetLookupTests`, plus the compile-back gate method in `PrinterPrecedenceTests` |
-| `Corpus` | corpus-wide sweeps: `CorpusSweepGateTests`, `CorpusSensorComparisonTests`, `SubstrateLeaderDifferentialTests`, `ControlFlowModelDifferentialTests` |
+| `Corpus` | corpus-wide sweeps: `CorpusSweepGateTests`, `CorpusSensorComparisonTests`, `SubstrateLeaderDifferentialTests`, plus `ControlFlowModelDifferentialTests.ControlFlowViews_AgreeOverCoreLib` |
 | `Validity` | validity / ladder gates: `ValidityCoverageReportingTests`, `LadderIteratorGateTests`, `LadderRung*GateTests` |
-| `Pass` | the per-pass unit tests (`*PassTests`) |
+| `Pass` | the per-pass unit tests (`*PassTests`), plus `ControlFlowModelDifferentialTests.ControlFlowViews_AgreeOnSyntheticBoundaryTerminators` |
 
 `Area` is a targeting aid, not a completeness contract: unclassified unit tests
 carry no `Area`, so `-trait "Area=X"` selects only tagged members. When you add

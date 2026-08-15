@@ -9,10 +9,10 @@ public sealed class StackAllocInitializerPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        var stackSlots = GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function).OfType<StoreStackSlot>().GroupBy(s => s.Slot).ToDictionary(g => g.Key, g => g.ToList());
-        var localStores = GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function).OfType<StoreLocal>().GroupBy(s => s.Index).ToDictionary(g => g.Key, g => g.ToList());
+        var stackSlots = function.DescendantsOutsideNestedFunctions.OfType<StoreStackSlot>().GroupBy(s => s.Slot).ToDictionary(g => g.Key, g => g.ToList());
+        var localStores = function.DescendantsOutsideNestedFunctions.OfType<StoreLocal>().GroupBy(s => s.Index).ToDictionary(g => g.Key, g => g.ToList());
 
-        foreach (var copyBlock in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function).OfType<CopyBlock>().ToList())
+        foreach (var copyBlock in function.DescendantsOutsideNestedFunctions.OfType<CopyBlock>().ToList())
         {
             if (copyBlock.Parent is not Block parentBlock) continue;
 
@@ -29,7 +29,7 @@ public sealed class StackAllocInitializerPass : IIrPass
             if (allocIndex >= copyIndex || copyBlock.IsVolatile) continue;
 
             // Prove destination alias/use ownership
-            var usages = GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function).OfType<LoadStackSlot>().Where(l => l.Slot == loadDest.Slot).ToList();
+            var usages = function.DescendantsOutsideNestedFunctions.OfType<LoadStackSlot>().Where(l => l.Slot == loadDest.Slot).ToList();
             if (usages.Count != 2) continue; // One is the CopyBlock, the other is the actual usage.
 
             var finalUsage = usages.First(u => u != loadDest);
@@ -259,7 +259,7 @@ public sealed class StackAllocInitializerPass : IIrPass
 
     static bool LocalReferencesOnlyWithinCurrentBody(IrFunction function, int localIndex, List<IrNode> allowedReferences)
     {
-        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             if (node is LoadLocal ll && ll.Index == localIndex)
             {
