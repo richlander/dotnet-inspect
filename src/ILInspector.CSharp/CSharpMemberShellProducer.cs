@@ -101,6 +101,7 @@ public static class CSharpMemberShellProducer
 
         ValidateBodyKind(spec);
         ValidateExplicitInterfaceMemberName(spec);
+        ValidateConstructorInitializer(spec);
         var member = BuildMember(spec);
         return spec.BodyKind switch
         {
@@ -130,6 +131,13 @@ public static class CSharpMemberShellProducer
                         new CSharpConstructorInitializer(
                             CSharpConstructorInitializerKind.This,
                             Enumerable.Repeat("default", primaryConstructorParameterCount).ToArray()))),
+            CSharpShellBodyKind.Throw
+                when spec.Kind == CSharpShellMemberKind.Constructor
+                    && CSharpFormatter.ParseConstructorInitializer(spec.ConstructorInitializer) is { } initializer
+                => new(
+                    member,
+                    CSharpBodyPolicy.Stub,
+                    new CSharpBlockBody("throw null;", initializer)),
             CSharpShellBodyKind.Throw
                 => new(member, CSharpBodyPolicy.Stub),
             CSharpShellBodyKind.ThrowGetSet
@@ -375,37 +383,130 @@ public static class CSharpMemberShellProducer
     static bool HasInvalidExplicitInterfaceNameShape(string name)
     {
         int angleDepth = 0;
+        int parenthesisDepth = 0;
+        int bracketDepth = 0;
         bool segmentHasContent = false;
         bool hasTopLevelSeparator = false;
-        foreach (char ch in name)
+        char? previous = null;
+        for (int index = 0; index < name.Length; index++)
         {
+            char ch = name[index];
             if (CSharpIdentifier.RequiresLiteralEscape(ch)
                 || (char.IsWhiteSpace(ch) && (angleDepth == 0 || ch is not (' ' or '\t'))))
             {
                 return true;
             }
 
+            if (char.IsWhiteSpace(ch))
+            {
+                char? next = NextNonWhitespace(name, index + 1);
+                if (parenthesisDepth == 0
+                    && previous is { } previousChar
+                    && next is { } nextChar
+                    && !IsTypeNameSeparator(previousChar)
+                    && !IsTypeNameSeparator(nextChar))
+                {
+                    return true;
+                }
+                continue;
+            }
+
             if (ch == '<')
             {
+                if (previous is null or '<' or ',' or '.')
+                    return true;
                 angleDepth++;
             }
             else if (ch == '>')
             {
-                if (angleDepth == 0)
+                if (angleDepth == 0 || previous is '<' or ',')
                     return true;
                 angleDepth--;
             }
-            else if (ch == '.' && angleDepth == 0)
+            else if (ch == '(')
             {
-                if (!segmentHasContent)
+                parenthesisDepth++;
+            }
+            else if (ch == ')')
+            {
+                if (parenthesisDepth == 0)
                     return true;
-                segmentHasContent = false;
-                hasTopLevelSeparator = true;
-                continue;
+                parenthesisDepth--;
+            }
+            else if (ch == '[')
+            {
+                bracketDepth++;
+            }
+            else if (ch == ']')
+            {
+                if (bracketDepth == 0)
+                    return true;
+                bracketDepth--;
+            }
+            else if (ch == ',')
+            {
+                char? next = NextNonWhitespace(name, index + 1);
+                if (bracketDepth == 0
+                    && (angleDepth == 0
+                    || previous is null or '<' or ',' or '.'
+                    || next is null or '>' or ',' or '.'))
+                {
+                    return true;
+                }
+            }
+            else if (ch == '.')
+            {
+                char? next = NextNonWhitespace(name, index + 1);
+                if (previous is null or '<' or ',' or '.'
+                    || next is null or '>' or ',' or '.')
+                {
+                    return true;
+                }
+                if (angleDepth == 0)
+                {
+                    if (!segmentHasContent)
+                        return true;
+                    segmentHasContent = false;
+                    hasTopLevelSeparator = true;
+                    previous = ch;
+                    continue;
+                }
             }
             segmentHasContent = true;
+            previous = ch;
         }
-        return angleDepth != 0 || !segmentHasContent || !hasTopLevelSeparator;
+        return angleDepth != 0
+            || parenthesisDepth != 0
+            || bracketDepth != 0
+            || !segmentHasContent
+            || !hasTopLevelSeparator;
+    }
+
+    static char? NextNonWhitespace(string value, int start)
+    {
+        for (int index = start; index < value.Length; index++)
+        {
+            if (!char.IsWhiteSpace(value[index]))
+                return value[index];
+        }
+        return null;
+    }
+
+    static bool IsTypeNameSeparator(char ch)
+        => ch is '<' or '>' or ',' or '.' or '(' or ')' or '[' or ']' or '?' or '*' or '&' or ':';
+
+    static void ValidateConstructorInitializer(CSharpMemberShellSpec spec)
+    {
+        if (spec.ConstructorInitializer is null)
+            return;
+
+        if (spec.Kind != CSharpShellMemberKind.Constructor
+            || CSharpFormatter.ParseConstructorInitializer(spec.ConstructorInitializer) is null)
+        {
+            throw new ArgumentException(
+                "Constructor initializers require a constructor shell and a valid 'this(...)' or 'base(...)' chain.",
+                nameof(spec));
+        }
     }
 
     static void ValidateBodyKind(CSharpMemberShellSpec spec)
@@ -520,6 +621,10 @@ public static class CSharpMemberShellProducer
             || spec.Parameters.Any(parameter =>
                 CSharpFormatter.TypeRequiresUnsafeModifier(parameter.Type))
             || (spec.Body is { } body && CSharpFormatter.RequiresUnsafeModifier(body))
+            || (spec.SiblingBody is { } siblingBody
+                && CSharpFormatter.RequiresUnsafeModifier(siblingBody))
+            || (spec.ConstructorInitializer is { } initializer
+                && CSharpFormatter.RequiresUnsafeModifier(initializer))
             || spec.DeclarationSignature?.StartsWith("fixed ", StringComparison.Ordinal) == true;
 
     static string RequiredBody(CSharpMemberShellSpec spec)
