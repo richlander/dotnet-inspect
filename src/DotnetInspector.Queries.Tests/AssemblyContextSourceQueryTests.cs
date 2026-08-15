@@ -5,6 +5,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 
 using DotnetInspector.Packages;
+using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Services;
 using ILInspector.Findings;
 using ILInspector.Metadata;
@@ -359,6 +360,81 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
+    public async Task CorruptEmbeddedPdb_PreservesAuthoredFailureAndFallsBackForMemberAndType()
+    {
+        byte[] bytes = File.ReadAllBytes(
+            typeof(EmbeddedSourceFixture).Assembly.Location);
+        using (var stream =
+               new MemoryStream(bytes, writable: false))
+        using (var reader = new PEReader(stream))
+        {
+            DebugDirectoryEntry embedded =
+                Assert.Single(
+                    reader.ReadDebugDirectory(),
+                    static entry =>
+                        entry.Type
+                        == DebugDirectoryEntryType
+                            .EmbeddedPortablePdb);
+            bytes[embedded.DataPointer] ^= 0xff;
+        }
+
+        TestAssembly assembly =
+            TestAssembly.Create(bytes);
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceEntry memberResult =
+            await AssemblyContextSourceQuery.ExecuteMemberAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(EmbeddedSourceFixture.Echo),
+                    typeof(EmbeddedSourceFixture).Name),
+                host.Context,
+                TestContext.Current.CancellationToken);
+        var memberAvailable =
+            Assert.IsType<AssemblyMemberSourceEntry.Available>(
+                memberResult);
+        var memberDecompiled =
+            Assert.IsType<AssemblyMemberSource.Decompiled>(
+                memberAvailable.Source);
+        Assert.IsType<FindingInspection<string>.Failed>(
+            memberDecompiled.AuthoredAttempt.Lines.Value);
+        Assert.Contains(
+            nameof(EmbeddedSourceFixture.Echo),
+            memberDecompiled.Text,
+            StringComparison.Ordinal);
+
+        AssemblyTypeSourceEntry typeResult =
+            await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(
+                    typeof(EmbeddedSourceFixture).Name),
+                host.Context,
+                TestContext.Current.CancellationToken);
+        var typeAvailable =
+            Assert.IsType<AssemblyTypeSourceEntry.Available>(
+                typeResult);
+        var typeDecompiled =
+            Assert.IsType<AssemblyTypeSource.Decompiled>(
+                typeAvailable.Source);
+        Assert.IsType<FindingInspection<string>.Failed>(
+            typeDecompiled.AuthoredAttempt.Lines.Value);
+        Assert.Contains(
+            nameof(EmbeddedSourceFixture),
+            typeDecompiled.Text,
+            StringComparison.Ordinal);
+
+        Assert.True(assembly.Policy.SelectionCount > 0);
+        Assert.Empty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+    }
+
+    [Fact]
     public async Task NeitherSourceAvailable_ReturnsTypedFailure()
     {
         TestAssembly assembly = TestAssembly.Create();
@@ -498,6 +574,35 @@ public sealed class AssemblyContextSourceQueryTests
                 policy);
         }
 
+        internal static TestAssembly Create(
+            byte[] bytes)
+        {
+            AssemblyReferenceIdentity identity =
+                ReadIdentity(bytes);
+            var assembly =
+                ResolvedAssemblyReference.Create(
+                    identity,
+                    path: null,
+                    () => new MemoryStream(
+                        bytes,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local(
+                        "embedded source query fixture"));
+            var policy = new FrameworkBindingPolicy();
+            var participant =
+                new AssemblyContextParticipant(
+                    assembly,
+                    policy);
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(assembly);
+            return new TestAssembly(
+                assembly,
+                participant,
+                pdbPath: "",
+                session.ApiSurface(includeAll: true),
+                policy);
+        }
+
         internal AssemblyTypeSourceRequest TypeRequest(
             string typeName)
         {
@@ -510,13 +615,15 @@ public sealed class AssemblyContextSourceQueryTests
         }
 
         internal AssemblyMemberSourceRequest MemberRequest(
-            string memberName)
+            string memberName,
+            string? typeName = null)
         {
             ApiType type = Assert.Single(
                 _surface.Types,
                 candidate =>
                     candidate.DefinitionName?.Segments[^1]
-                    == typeof(SourceFixture).Name);
+                    == (typeName
+                        ?? typeof(SourceFixture).Name));
             ApiMember member = Assert.Single(
                 type.Members,
                 candidate => candidate.Name == memberName);

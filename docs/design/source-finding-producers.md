@@ -135,16 +135,20 @@ Whole-document type output refuses more than 500,000 logical lines before
 materializing the Finding census; the verified text then remains a failed
 authored attempt so Decompiler fallback can run.
 `AuthoredSourceAcquisitionTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
-gates that bound. A source-content-store read or write failure is likewise
-typed and does not publish the fetched bytes to the process-local memory cache,
-so an identical retry cannot silently change from failure to authored success.
+gates that bound. A host source-content store that reports a read or write
+failure produces typed evidence and does not publish the fetched bytes to the
+process-local memory cache, so an identical retry cannot silently change from
+failure to authored success. The compatibility `CoreCache` adapter retains its
+pre-existing best-effort persistence semantics.
 `AssemblyContextSourceQueryTests.SourceStoreFailure_FallsBackRepeatablyWithoutPublishingMemoryEntry`
 gates both repeatability and fallback.
 Portable-PDB acquisition and validation failures follow the same composition:
 the failed authored attempt remains visible while member or type decompilation
 continues, and cancellation still propagates.
 `AssemblyContextSourceQueryTests.PdbStoreFailure_PreservesAuthoredFailureAndFallsBackForMemberAndType`
-gates that boundary.
+gates external-store failure, and
+`AssemblyContextSourceQueryTests.CorruptEmbeddedPdb_PreservesAuthoredFailureAndFallsBackForMemberAndType`
+gates malformed embedded symbols before external acquisition begins.
 
 Conditional branch liveness is composed only at the member slicing boundary:
 Metadata reports point lines, CSharpText reports lexical branch ranges, and the

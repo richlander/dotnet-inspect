@@ -438,44 +438,44 @@ public static class AssemblyContextSourceQuery
         ResolvedAssemblyReference retained,
         CancellationToken cancellationToken)
     {
-        using SourceLinkService source =
-            SourceLinkService.OpenMetadataOnly(
-                retained,
-                context.Log,
-                context.SourceLinkCache);
         var findingSubject = new FindingSubject(
             "member",
             request.Member.Format(MemberAnchorFormat.Qualified));
-        Exception? pdbFailure = null;
-        try
-        {
-            await AcquirePdbAsync(
-                    source,
+        var sourceResult =
+            await OpenSourceLinkAsync(
                     retained,
                     context,
                     cancellationToken)
                 .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (IsInspectionFailure(ex))
-        {
-            pdbFailure = ex;
-        }
-
         AuthoredMemberSourceInspection authored;
-        if (pdbFailure is null)
+        if (sourceResult.Source is { } source)
         {
-            authored =
-                await AuthoredSourceAcquisition.AcquireMemberAsync(
-                        source,
-                        request.MetadataToken,
-                        request.Member.MemberName,
-                        findingSubject,
-                        context.SourceFetcher,
-                        context.RepositoryPaths,
-                        cancellationToken,
-                        allowLocalSource:
-                            context.AllowLocalSourceReads)
-                    .ConfigureAwait(false);
+            using (source)
+            {
+                authored =
+                    await AuthoredSourceAcquisition.AcquireMemberAsync(
+                            source,
+                            request.MetadataToken,
+                            request.Member.MemberName,
+                            findingSubject,
+                            context.SourceFetcher,
+                            context.RepositoryPaths,
+                            cancellationToken,
+                            allowLocalSource:
+                                context.AllowLocalSourceReads)
+                        .ConfigureAwait(false);
+                if (authored.IsComplete
+                    && authored.Text is { } authoredText)
+                {
+                    return new AssemblyMemberSourceEntry.Available(
+                        subject,
+                        request,
+                        new AssemblyMemberSource.Authored(
+                            authoredText,
+                            authored,
+                            Provenance(source)));
+                }
+            }
         }
         else
         {
@@ -483,18 +483,7 @@ public static class AssemblyContextSourceQuery
                 AuthoredSourceAcquisition
                     .MemberPdbAcquisitionFailed(
                         findingSubject,
-                        pdbFailure);
-        }
-
-        if (authored.IsComplete && authored.Text is { } authoredText)
-        {
-            return new AssemblyMemberSourceEntry.Available(
-                subject,
-                request,
-                new AssemblyMemberSource.Authored(
-                    authoredText,
-                    authored,
-                    Provenance(source)));
+                        sourceResult.Failure!);
         }
 
         MemberRenderResult decompiled =
@@ -532,43 +521,43 @@ public static class AssemblyContextSourceQuery
         ResolvedAssemblyReference retained,
         CancellationToken cancellationToken)
     {
-        using SourceLinkService source =
-            SourceLinkService.OpenMetadataOnly(
-                retained,
-                context.Log,
-                context.SourceLinkCache);
         var findingSubject = new FindingSubject(
             "type",
             request.Type.ToMetadataFullName());
-        Exception? pdbFailure = null;
-        try
-        {
-            await AcquirePdbAsync(
-                    source,
+        var sourceResult =
+            await OpenSourceLinkAsync(
                     retained,
                     context,
                     cancellationToken)
                 .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (IsInspectionFailure(ex))
-        {
-            pdbFailure = ex;
-        }
-
         AuthoredTypeSourceInspection authored;
-        if (pdbFailure is null)
+        if (sourceResult.Source is { } source)
         {
-            authored =
-                await AuthoredSourceAcquisition.AcquireTypeAsync(
-                        source,
-                        request.Type,
-                        findingSubject,
-                        context.SourceFetcher,
-                        context.RepositoryPaths,
-                        cancellationToken,
-                        allowLocalSource:
-                            context.AllowLocalSourceReads)
-                    .ConfigureAwait(false);
+            using (source)
+            {
+                authored =
+                    await AuthoredSourceAcquisition.AcquireTypeAsync(
+                            source,
+                            request.Type,
+                            findingSubject,
+                            context.SourceFetcher,
+                            context.RepositoryPaths,
+                            cancellationToken,
+                            allowLocalSource:
+                                context.AllowLocalSourceReads)
+                        .ConfigureAwait(false);
+                if (authored.IsComplete
+                    && authored.Text is { } authoredText)
+                {
+                    return new AssemblyTypeSourceEntry.Available(
+                        subject,
+                        request,
+                        new AssemblyTypeSource.Authored(
+                            authoredText,
+                            authored,
+                            Provenance(source)));
+                }
+            }
         }
         else
         {
@@ -576,18 +565,7 @@ public static class AssemblyContextSourceQuery
                 AuthoredSourceAcquisition
                     .TypePdbAcquisitionFailed(
                         findingSubject,
-                        pdbFailure);
-        }
-
-        if (authored.IsComplete && authored.Text is { } authoredText)
-        {
-            return new AssemblyTypeSourceEntry.Available(
-                subject,
-                request,
-                new AssemblyTypeSource.Authored(
-                    authoredText,
-                    authored,
-                    Provenance(source)));
+                        sourceResult.Failure!);
         }
 
         DecompilerResult decompiled =
@@ -630,6 +608,38 @@ public static class AssemblyContextSourceQuery
             context.CacheOnly,
             context.NuGetSourceOptions,
             cancellationToken);
+
+    static async Task<SourceLinkOpenResult> OpenSourceLinkAsync(
+        ResolvedAssemblyReference retained,
+        AssemblyContextSourceQueryContext context,
+        CancellationToken cancellationToken)
+    {
+        SourceLinkService? source = null;
+        try
+        {
+            source =
+                SourceLinkService.OpenMetadataOnly(
+                    retained,
+                    context.Log,
+                    context.SourceLinkCache);
+            await AcquirePdbAsync(
+                    source,
+                    retained,
+                    context,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return new SourceLinkOpenResult(
+                source,
+                Failure: null);
+        }
+        catch (Exception ex) when (IsInspectionFailure(ex))
+        {
+            source?.Dispose();
+            return new SourceLinkOpenResult(
+                Source: null,
+                ex);
+        }
+    }
 
     static ApiType? ResolveType(
         AssemblyInspectionSession session,
@@ -710,4 +720,8 @@ public static class AssemblyContextSourceQuery
     sealed record TypeInspectionSeed(
         ResolvedAssemblyReference Retained,
         ApiType? Target);
+
+    sealed record SourceLinkOpenResult(
+        SourceLinkService? Source,
+        Exception? Failure);
 }
