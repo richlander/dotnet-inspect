@@ -217,11 +217,13 @@ public class IncrementDecrementPassTests
         Assert.DoesNotContain("checked { V_0++; }", output);
     }
 
-    [Fact]
-    public void NonOperatorLookalike_IsNotFolded()
+    [Theory]
+    [InlineData(MetadataFactState.No)]
+    [InlineData(MetadataFactState.Unknown)]
+    public void UnprovenOperatorLookalike_IsNotFolded(MetadataFactState isOperator)
     {
         var statements = Run(FunctionWithSignature(TypeRef.CoreLib("System", "Void"), [OperatorType],
-            new StoreLocal(0, OperatorType, OperatorCall("op_Increment", new LoadLocal(0, OperatorType), MetadataFactState.No))));
+            new StoreLocal(0, OperatorType, OperatorCall("op_Increment", new LoadLocal(0, OperatorType), isOperator))));
 
         Assert.IsType<StoreLocal>(Assert.Single(statements));
     }

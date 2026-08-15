@@ -6,7 +6,15 @@ namespace CSharpText;
 public static class OperatorNames
 {
     public static bool IsConversionOperatorMethodName(string name)
-        => name is "op_Implicit" or "op_Explicit" or "op_CheckedImplicit" or "op_CheckedExplicit";
+        => name is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
+
+    public static bool IsOperatorMethod(
+        string name,
+        bool isSpecialName,
+        int genericArity)
+        => isSpecialName
+            && genericArity == 0
+            && IsOperatorMethodName(name);
 
     public static bool IsOperatorMethodName(string name) =>
         IsConversionOperatorMethodName(name)
@@ -91,6 +99,36 @@ public static class OperatorNames
             ? 0
             : 1;
         return parameterCount == expectedParameterCount;
+    }
+
+    public static bool IsCSharpOperatorDeclaration(
+        string methodName,
+        bool isStatic,
+        bool isPublic,
+        string returnType,
+        int parameterCount,
+        bool hasRefOrOutParameter = false)
+    {
+        if (IsAssignmentOperatorMethodName(methodName))
+        {
+            return IsCSharpInstanceAssignmentOperator(
+                methodName,
+                isStatic,
+                isPublic,
+                returnType,
+                parameterCount,
+                hasRefOrOutParameter);
+        }
+
+        if (!isStatic
+            || !isPublic
+            || returnType is "void" or "System.Void"
+            || hasRefOrOutParameter)
+        {
+            return false;
+        }
+
+        return CSharpOperatorParameterCount(methodName) == parameterCount;
     }
 
     public static string? MetadataNameFromSourceToken(
@@ -269,8 +307,8 @@ public static class OperatorNames
 
     /// <summary>
     /// The unchecked operator method name paired with a checked operator method
-    /// name — <c>op_CheckedAddition → op_Addition</c>, <c>op_CheckedExplicit →
-    /// op_Explicit</c>, <c>op_CheckedImplicit → op_Implicit</c> — or null when
+    /// name — <c>op_CheckedAddition → op_Addition</c> or
+    /// <c>op_CheckedExplicit → op_Explicit</c> — or null when
     /// <paramref name="methodName"/> is not a checked operator with a defined
     /// unchecked sibling. C# requires a checked operator's unchecked form to be
     /// declared, so consumers pair the two when composing operator surfaces.
@@ -279,8 +317,6 @@ public static class OperatorNames
     {
         if (methodName is "op_CheckedExplicit")
             return "op_Explicit";
-        if (methodName is "op_CheckedImplicit")
-            return "op_Implicit";
         if (!methodName.StartsWith("op_Checked", StringComparison.Ordinal))
             return null;
 
@@ -299,6 +335,12 @@ public static class OperatorNames
         {
             "op_Equality" => "op_Inequality",
             "op_Inequality" => "op_Equality",
+            "op_LessThan" => "op_GreaterThan",
+            "op_GreaterThan" => "op_LessThan",
+            "op_LessThanOrEqual" => "op_GreaterThanOrEqual",
+            "op_GreaterThanOrEqual" => "op_LessThanOrEqual",
+            "op_True" => "op_False",
+            "op_False" => "op_True",
             _ => UncheckedOperator(methodName),
         };
 
@@ -320,5 +362,31 @@ public static class OperatorNames
         return MapBinaryOrUnary(inner) is null && MapCheckedAssignment(inner) is null
             ? null
             : $"op_Checked{inner}";
+    }
+
+    static int? CSharpOperatorParameterCount(string methodName)
+    {
+        if (IsConversionOperatorMethodName(methodName))
+            return 1;
+
+        string suffix = methodName.StartsWith("op_Checked", StringComparison.Ordinal)
+            ? methodName["op_Checked".Length..]
+            : methodName.StartsWith("op_", StringComparison.Ordinal)
+                ? methodName["op_".Length..]
+                : "";
+
+        return suffix switch
+        {
+            "UnaryPlus" or "UnaryNegation"
+                or "Increment" or "Decrement"
+                or "OnesComplement" or "True" or "False" or "LogicalNot" => 1,
+            "Addition" or "Subtraction" or "Multiply" or "Division" or "Modulus"
+                or "BitwiseAnd" or "BitwiseOr" or "ExclusiveOr"
+                or "LeftShift" or "RightShift" or "UnsignedRightShift"
+                or "Equality" or "Inequality"
+                or "LessThan" or "GreaterThan"
+                or "LessThanOrEqual" or "GreaterThanOrEqual" => 2,
+            _ => null,
+        };
     }
 }

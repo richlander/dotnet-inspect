@@ -80,6 +80,7 @@ public class OperatorNamesTests
     [InlineData("op_CheckedModulusAssignment")]
     [InlineData("op_CheckedBitwiseAndAssignment")]
     [InlineData("op_CheckedUnsignedRightShiftAssignment")]
+    [InlineData("op_CheckedImplicit")]
     public void Non_operator_names_pass_through(string input)
         => Assert.Equal(input, OperatorNames.FormatDisplayName(input));
 
@@ -103,6 +104,7 @@ public class OperatorNamesTests
     [Theory]
     [InlineData("op_Custom")]
     [InlineData("op_SomeFutureOp")]
+    [InlineData("op_CheckedImplicit")]
     [InlineData("op_CheckedModulusAssignment")]
     [InlineData("op_CheckedBitwiseAndAssignment")]
     [InlineData("op_CheckedUnsignedRightShiftAssignment")]
@@ -141,7 +143,6 @@ public class OperatorNamesTests
     [Theory]
     [InlineData("op_Implicit")]
     [InlineData("op_Explicit")]
-    [InlineData("op_CheckedImplicit")]
     [InlineData("op_CheckedExplicit")]
     public void Conversion_operator_names_share_one_vocabulary(string name)
         => Assert.True(OperatorNames.IsConversionOperatorMethodName(name));
@@ -155,7 +156,6 @@ public class OperatorNamesTests
     [InlineData("op_CheckedDecrement", "op_Decrement")]
     [InlineData("op_CheckedUnaryNegation", "op_UnaryNegation")]
     [InlineData("op_CheckedExplicit", "op_Explicit")]
-    [InlineData("op_CheckedImplicit", "op_Implicit")]
     [InlineData("op_CheckedAdditionAssignment", "op_AdditionAssignment")]
     [InlineData("op_CheckedMultiplicationAssignment", "op_MultiplicationAssignment")]
     [InlineData("op_CheckedIncrementAssignment", "op_IncrementAssignment")]
@@ -170,6 +170,7 @@ public class OperatorNamesTests
     [InlineData("op_CheckedBitwiseAndAssignment")]
     [InlineData("op_CheckedUnsignedRightShiftAssignment")]
     [InlineData("op_Checked")]
+    [InlineData("op_CheckedImplicit")]
     [InlineData("get_Length")]
     [InlineData("ToString")]
     public void UncheckedOperator_returns_null_for_non_checked_or_unpaired_names(string input)
@@ -221,6 +222,9 @@ public class OperatorNamesTests
     [Theory]
     [InlineData("op_Equality", "op_Inequality")]
     [InlineData("op_Inequality", "op_Equality")]
+    [InlineData("op_LessThan", "op_GreaterThan")]
+    [InlineData("op_GreaterThanOrEqual", "op_LessThanOrEqual")]
+    [InlineData("op_True", "op_False")]
     [InlineData("op_CheckedAddition", "op_Addition")]
     [InlineData("op_CheckedAdditionAssignment", "op_AdditionAssignment")]
     [InlineData("op_Addition", null)]

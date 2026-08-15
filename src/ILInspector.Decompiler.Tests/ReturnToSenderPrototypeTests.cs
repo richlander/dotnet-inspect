@@ -1289,6 +1289,55 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsExternalExplicitInterfaceOrdinaryOperatorName()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractPath = CompileFixture(
+            """
+            namespace Contracts;
+
+            public interface IOrdinaryEquality
+            {
+                bool op_Equality(IOrdinaryEquality other);
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "Contracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class OrdinaryEqualityImpl : Contracts.IOrdinaryEquality
+            {
+                bool Contracts.IOrdinaryEquality.op_Equality(
+                    Contracts.IOrdinaryEquality other) => true;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "OrdinaryEqualityImpl",
+                    "Contracts.IOrdinaryEquality.op_Equality",
+                    0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "Contracts.IOrdinaryEquality.op_Equality(",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("operator ==", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsForwardedExternalExplicitInterfaceMethod()
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
@@ -3257,6 +3306,46 @@ public class ReturnToSenderPrototypeTests
             Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.Contains("int IHasOpName.op_Custom()", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain("IHasOpName_op_Custom", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsExplicitInterfaceOrdinaryOperatorName()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitOrdinaryEquality : IOrdinaryEquality
+            {
+                bool IOrdinaryEquality.op_Equality(IOrdinaryEquality other)
+                {
+                    return true;
+                }
+            }
+
+            public interface IOrdinaryEquality
+            {
+                bool op_Equality(IOrdinaryEquality other);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitOrdinaryEquality",
+                    "IOrdinaryEquality.op_Equality",
+                    0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "bool IOrdinaryEquality.op_Equality(",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("operator ==", result.Source, StringComparison.Ordinal);
         }
         finally
         {

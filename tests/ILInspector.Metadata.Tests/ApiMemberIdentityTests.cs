@@ -11,25 +11,24 @@ public class ApiMemberIdentityTests
     [Theory]
     [InlineData("op_Implicit")]
     [InlineData("op_Explicit")]
-    [InlineData("op_CheckedImplicit")]
     [InlineData("op_CheckedExplicit")]
     public void IsConversionOperator_UsesCompleteMetadataVocabulary(string name)
         => Assert.True(ApiMemberIdentity.IsConversionOperator(name));
 
     [Fact]
-    public void GetMemberAnchor_DisambiguatesCheckedImplicitConversionsByReturnType()
+    public void GetMemberAnchor_DisambiguatesCheckedExplicitConversionsByReturnType()
     {
         var type = new ApiType { Namespace = "N", Name = "C" };
         ApiMember Conversion(string returnType) => new()
         {
-            Name = "op_CheckedImplicit",
+            Name = "op_CheckedExplicit",
             Kind = "operator",
             ReturnType = returnType,
-            Signature = $"{returnType} op_CheckedImplicit(N.C value)",
+            Signature = $"{returnType} op_CheckedExplicit(N.C value)",
             SignatureModel = new ApiSignature
             {
                 ReturnType = returnType,
-                MemberName = "op_CheckedImplicit",
+                MemberName = "op_CheckedExplicit",
                 Parameters = [new ApiParameter { Name = "value", Type = "N.C" }],
             },
         };

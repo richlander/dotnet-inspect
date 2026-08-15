@@ -1319,6 +1319,41 @@ public sealed class CSharpDeclarationWriterTests
 
     [Theory]
     [InlineData(
+        "op_Addition",
+        false,
+        "Samples.Tuples op_Addition(Samples.Tuples left, Samples.Tuples right)",
+        "public Samples.Tuples op_Addition(Samples.Tuples left, Samples.Tuples right)")]
+    [InlineData(
+        "op_Equality",
+        true,
+        "bool op_Equality(Samples.Tuples left, Samples.Tuples right)",
+        "public static bool op_Equality(Samples.Tuples left, Samples.Tuples right)")]
+    public void MemberDeclaration_LeavesUnrepresentableOperatorShapesAsMethods(
+        string name,
+        bool isStatic,
+        string signature,
+        string expected)
+    {
+        var member = new ApiMember
+        {
+            Name = name,
+            Kind = "operator",
+            Signature = signature,
+            IsStatic = isStatic,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Tuples",
+            Kind = "class",
+            Members = [member],
+        };
+
+        Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Theory]
+    [InlineData(
         "op_AdditionAssignment",
         "void op_AdditionAssignment(Samples.Tuples other)",
         "public void operator +=(Samples.Tuples other)")]

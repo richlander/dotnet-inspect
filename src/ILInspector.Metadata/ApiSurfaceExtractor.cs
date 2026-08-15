@@ -480,9 +480,10 @@ public static class ApiSurfaceExtractor
 
                 var methodAttributes = method.Attributes;
                 var signature = GetMethodSignature(reader, typeDef, method, typeNullableContext);
-                var isOperator = methodAttributes.HasFlag(MethodAttributes.SpecialName)
-                    && method.GetGenericParameters().Count == 0
-                    && OperatorNames.IsOperatorMethodName(methodName);
+                var isOperator = OperatorNames.IsOperatorMethod(
+                    methodName,
+                    methodAttributes.HasFlag(MethodAttributes.SpecialName),
+                    method.GetGenericParameters().Count);
                 var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
                 var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
                 var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;

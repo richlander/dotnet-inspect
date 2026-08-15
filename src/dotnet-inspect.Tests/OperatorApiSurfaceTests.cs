@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
@@ -34,6 +35,11 @@ public sealed class OperatorApiSurfaceTests
             type,
             "op_Custom",
             MethodAttributes.Public | MethodAttributes.SpecialName);
+        DefineMethod(
+            type,
+            "op_CheckedImplicit",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+            typeof(int));
         type.CreateType();
         assembly.Save(path);
 
@@ -52,6 +58,26 @@ public sealed class OperatorApiSurfaceTests
             Assert.Equal(["method", "operator"], assignments);
             Assert.Contains(members, member => member.Name == "op_IncrementAssignment" && member.Kind == "method");
             Assert.Contains(members, member => member.Name == "op_Custom" && member.Kind == "method");
+            Assert.Contains(members, member => member.Name == "op_CheckedImplicit" && member.Kind == "method");
+
+            var reader = peReader.GetMetadataReader();
+            var typeHandle = Assert.Single(reader.TypeDefinitions, handle =>
+                reader.GetString(reader.GetTypeDefinition(handle).Name) == "OperatorSurface");
+            var typeDefinition = reader.GetTypeDefinition(typeHandle);
+            var assignmentAnchors = typeDefinition.GetMethods()
+                .Select(handle => reader.GetMethodDefinition(handle))
+                .Where(method => reader.GetString(method.Name) == "op_AdditionAssignment")
+                .Select(method => (
+                    IsSpecialName: method.Attributes.HasFlag(MethodAttributes.SpecialName),
+                    Anchor: ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method)))
+                .ToArray();
+
+            Assert.Contains(assignmentAnchors, item =>
+                !item.IsSpecialName
+                && item.Anchor.StableSelector.StartsWith("op_AdditionAssignment~", StringComparison.Ordinal));
+            Assert.Contains(assignmentAnchors, item =>
+                item.IsSpecialName
+                && item.Anchor.StableSelector.StartsWith("operator:op_AdditionAssignment~", StringComparison.Ordinal));
         }
         finally
         {

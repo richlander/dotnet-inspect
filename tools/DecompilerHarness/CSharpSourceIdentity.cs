@@ -108,12 +108,18 @@ internal sealed class CSharpSourceIdentityContext
     {
         bool isImplicit = conversion.ImplicitOrExplicitKeyword.IsKind(SyntaxKind.ImplicitKeyword);
         bool isChecked = conversion.CheckedKeyword.IsKind(SyntaxKind.CheckedKeyword);
+        if (isImplicit && isChecked)
+        {
+            throw new InvalidOperationException(
+                "C# does not define checked implicit conversion operators.");
+        }
         string methodName = (isImplicit, isChecked) switch
         {
-            (true, true) => "op_CheckedImplicit",
             (true, false) => "op_Implicit",
             (false, true) => "op_CheckedExplicit",
             (false, false) => "op_Explicit",
+            _ => throw new InvalidOperationException(
+                "Unsupported conversion operator syntax."),
         };
         return
         [

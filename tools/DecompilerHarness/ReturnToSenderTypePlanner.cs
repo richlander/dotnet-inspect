@@ -436,7 +436,8 @@ internal sealed record ExternalInterfaceRequiredMethod(
     string Name,
     int GenericArity,
     string ReturnType,
-    ImmutableArray<string> ParameterTypes);
+    ImmutableArray<string> ParameterTypes,
+    bool IsOperator);
 
 public static class CompileBackSourceComposer
 {
@@ -1386,7 +1387,7 @@ public static class CompileBackSourceComposer
             //    body and cannot be reconstructed as a bodyless declaration here; only an
             //    abstract declaration (including `static abstract`) can, so it stays on the
             //    normal path and can still reconstruct Exact.
-            if (OperatorNames.FormatDisplayName(declarationName) != declarationName)
+            if (IsOperatorMethod(reader, declaration))
             {
                 return false;
             }
@@ -1462,9 +1463,6 @@ public static class CompileBackSourceComposer
             string declarationName = reader.GetString(declaration.Name);
             if (!string.Equals(declarationName, targetMemberName, StringComparison.Ordinal))
                 continue;
-            if (OperatorNames.FormatDisplayName(declarationName) != declarationName)
-                return null;
-
             // The explicit-member spelling emits Identifier(declarationName) =
             // CSharpIdentifier.Sanitize(declarationName). A keyword member name is escaped
             // losslessly (`class` -> `@class`, which binds back to `class`), but a member name
@@ -1552,6 +1550,8 @@ public static class CompileBackSourceComposer
                 }
             }
             if (matchIndex < 0)
+                return null;
+            if (requiredMethods[matchIndex].IsOperator)
                 return null;
 
             // A reconstructed sibling type (or sibling sub-namespace) in the recompile
@@ -2319,7 +2319,7 @@ public static class CompileBackSourceComposer
             string methodName = reader.GetString(method.Name);
             if (method.Attributes.HasFlag(MethodAttributes.Static)
                 || (method.Attributes & MethodAttributes.Abstract) == 0
-                || OperatorNames.FormatDisplayName(methodName) != methodName)
+                || IsOperatorMethod(reader, method))
             {
                 return false;
             }
@@ -2356,7 +2356,8 @@ public static class CompileBackSourceComposer
                 methodName,
                 method.GetGenericParameters().Count,
                 requiredSignature.ReturnType,
-                requiredSignature.ParameterTypes));
+                requiredSignature.ParameterTypes,
+                IsOperatorMethod(reader, method)));
         }
 
         foreach (var implementationHandle in interfaceDef.GetInterfaceImplementations())
@@ -4131,9 +4132,10 @@ public static class CompileBackSourceComposer
                     : CompileBackMemberKind.Method;
 
     static bool IsOperatorMethod(MetadataReader reader, MethodDefinition method)
-        => method.Attributes.HasFlag(MethodAttributes.SpecialName)
-            && method.GetGenericParameters().Count == 0
-            && OperatorNames.IsOperatorMethodName(reader.GetString(method.Name));
+        => OperatorNames.IsOperatorMethod(
+            reader.GetString(method.Name),
+            method.Attributes.HasFlag(MethodAttributes.SpecialName),
+            method.GetGenericParameters().Count);
 
     sealed class TypeProducer
     {

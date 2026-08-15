@@ -178,7 +178,6 @@ public static class FqnParser
         {
             "implicit" => "op_Implicit",
             "explicit" => "op_Explicit",
-            "checkedimplicit" => "op_CheckedImplicit",
             "checkedexplicit" => "op_CheckedExplicit",
             "+" => "op_Addition",
             "checked+" => "op_CheckedAddition",

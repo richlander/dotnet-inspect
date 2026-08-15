@@ -1126,12 +1126,32 @@ public static class ApiMemberIdentity
             memberName,
             parameterTypes,
             IsConversionOperator(methodName) ? returnType : null);
-        string selectorName = GetMemberSelectorName(methodName, isExtensionMethod);
+        string selectorName = GetMemberSelectorName(
+            methodName,
+            isExtensionMethod,
+            OperatorNames.IsOperatorMethod(
+                methodName,
+                method.Attributes.HasFlag(System.Reflection.MethodAttributes.SpecialName),
+                method.GetGenericParameters().Count));
         return (
             CreateAnchor(typeFullName, selectorName, memberName, canonicalSignature),
             returnType,
             parameterTypes);
     }
+
+    static string GetMemberSelectorName(
+        string metadataMethodName,
+        bool isExtensionMethod,
+        bool isOperator)
+        => metadataMethodName switch
+        {
+            ".ctor" => ".ctor",
+            _ when isExtensionMethod => $"extension:{metadataMethodName}",
+            _ when isOperator => $"operator:{metadataMethodName}",
+            _ when metadataMethodName.Contains('.', StringComparison.Ordinal)
+                => $"explicit:{metadataMethodName}",
+            _ => metadataMethodName,
+        };
 
     static ImmutableArray<string> Render(
         ImmutableArray<AnchorSignatureType> types)

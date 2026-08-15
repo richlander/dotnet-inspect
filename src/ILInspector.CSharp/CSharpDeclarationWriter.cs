@@ -1092,7 +1092,7 @@ internal static class CSharpDeclarationWriter
         else if (member.Kind == "operator"
             && member.Name.StartsWith("op_", StringComparison.Ordinal))
         {
-            signature = FormatOperatorSignature(signature, member);
+            signature = FormatOperatorSignature(type, signature, member);
         }
         else if (member.Kind is "method" or "extension-method" or "explicit-interface-implementation"
             && !IsExplicitInterfaceEvent(member))
@@ -2206,7 +2206,10 @@ internal static class CSharpDeclarationWriter
     /// occurrence is identified as the whole-token one immediately followed by <c>(</c>
     /// rather than by textual position.
     /// </remarks>
-    static string FormatOperatorSignature(string signature, ApiMember member)
+    static string FormatOperatorSignature(
+        ApiType type,
+        string signature,
+        ApiMember member)
     {
         string methodName = member.Name;
         if (!TryFindMemberNameBeforeParameterList(signature, methodName, out int nameIndex, out int parenStart))
@@ -2214,24 +2217,23 @@ internal static class CSharpDeclarationWriter
 
         var returnType = signature[..nameIndex].TrimEnd();
         var parameters = signature[parenStart..];
-        if (OperatorNames.IsAssignmentOperatorMethodName(methodName))
+        int parameterCount = member.SignatureModel?.ParameterCount
+            ?? OperatorParameterCount(parameters);
+        bool hasRefOrOutParameter = member.SignatureModel is { } signatureModel
+            ? signatureModel.Parameters.Any(
+                parameter => parameter.Modifier is "ref" or "out" or "ref readonly")
+            : OperatorParametersHaveRefOrOutModifier(parameters);
+        bool isPublic = member.Accessibility is null or "public";
+        if (!OperatorNames.IsCSharpOperatorDeclaration(
+                methodName,
+                member.IsStatic,
+                isPublic,
+                returnType,
+                parameterCount,
+                hasRefOrOutParameter)
+            || !HasRequiredOperatorSibling(type, member))
         {
-            int parameterCount = member.SignatureModel?.ParameterCount
-                ?? OperatorParameterCount(parameters);
-            bool hasRefOrOutParameter = member.SignatureModel is { } signatureModel
-                ? signatureModel.Parameters.Any(parameter => parameter.Modifier is "ref" or "out")
-                : OperatorParametersHaveRefOrOutModifier(parameters);
-            bool isPublic = member.Accessibility is null or "public";
-            if (!OperatorNames.IsCSharpInstanceAssignmentOperator(
-                    methodName,
-                    member.IsStatic,
-                    isPublic,
-                    returnType,
-                    parameterCount,
-                    hasRefOrOutParameter))
-            {
-                return signature;
-            }
+            return signature;
         }
 
         if (methodName.StartsWith("op_Checked", StringComparison.Ordinal)
@@ -2246,6 +2248,36 @@ internal static class CSharpDeclarationWriter
             "op_CheckedExplicit" => $"explicit operator checked {returnType}{parameters}",
             _ => $"{returnType} {OperatorNames.FormatDisplayName(methodName)}{parameters}"
         };
+    }
+
+    static bool HasRequiredOperatorSibling(ApiType type, ApiMember member)
+    {
+        string? siblingName = OperatorNames.RequiredOperatorSibling(member.Name);
+        if (siblingName is null
+            || !type.Members.Any(candidate => ReferenceEquals(candidate, member)))
+        {
+            return true;
+        }
+
+        return type.Members.Any(candidate =>
+            candidate.Kind == "operator"
+            && candidate.Name == siblingName
+            && SameOperatorSignature(member.SignatureModel, candidate.SignatureModel));
+    }
+
+    static bool SameOperatorSignature(ApiSignature? left, ApiSignature? right)
+    {
+        if (left is null || right is null)
+            return true;
+
+        return left.EffectiveCanonicalReturnType == right.EffectiveCanonicalReturnType
+            && left.Parameters.Count == right.Parameters.Count
+            && left.Parameters.Zip(
+                right.Parameters,
+                static (leftParameter, rightParameter) =>
+                    leftParameter.CanonicalTypeWithModifier
+                    == rightParameter.CanonicalTypeWithModifier)
+                .All(static equal => equal);
     }
 
     static int OperatorParameterCount(string parameters)

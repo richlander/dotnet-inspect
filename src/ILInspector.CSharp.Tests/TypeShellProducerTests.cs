@@ -347,7 +347,7 @@ public sealed class TypeShellProducerTests
     [Fact]
     public void MemberShellProducer_PreservesTypedOperatorIdentity()
     {
-        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+        var equality = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
             Name: "op_Equality",
             Kind: CSharpShellMemberKind.Operator,
             IsStatic: true,
@@ -360,20 +360,37 @@ public sealed class TypeShellProducerTests
             TypeParameters: [],
             BodyKind: CSharpShellBodyKind.TargetBody,
             Body: "return true;"));
+        var inequality = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "op_Inequality",
+            Kind: CSharpShellMemberKind.Operator,
+            IsStatic: true,
+            Parameters:
+            [
+                new CSharpShellParameter("left", "Row"),
+                new CSharpShellParameter("right", "Row"),
+            ],
+            ReturnType: "bool",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.Throw,
+            Body: null));
 
-        Assert.Equal("operator", policy.Member.Kind);
+        Assert.Equal("operator", equality.Member.Kind);
         var type = new ApiType
         {
             Name = "Row",
             Kind = "class",
-            Members = [policy.Member],
+            Members = [equality.Member, inequality.Member],
         };
         var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
             type,
-            memberPolicyOverrides: [policy]));
+            memberPolicyOverrides: [equality, inequality]));
 
         Assert.Contains(
             "public static bool operator ==(Row left, Row right)",
+            Assert.Single(result.Units).Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public static bool operator !=(Row left, Row right)",
             Assert.Single(result.Units).Source,
             StringComparison.Ordinal);
     }

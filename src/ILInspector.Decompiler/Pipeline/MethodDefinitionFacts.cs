@@ -93,9 +93,10 @@ internal static class MethodDefinitionFacts
         ImmutableArray<TypeRef> parameterTypes,
         ParameterRefKindResult parameterRefKinds)
     {
-        if (method.GetGenericParameters().Count != 0
-            || !OperatorNames.IsOperatorMethodName(methodName)
-            || (method.Attributes & System.Reflection.MethodAttributes.SpecialName) == 0)
+        if (!OperatorNames.IsOperatorMethod(
+                methodName,
+                (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
+                method.GetGenericParameters().Count))
         {
             return false;
         }
