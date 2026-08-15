@@ -2398,9 +2398,10 @@ public sealed partial class CSharpPrinter
         {
             sb.Append(pad);
             int headerStart = sb.Length;
-            sb.Append(usingStatement.IsAwait ? "await using (" : "using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
-                .Append(LocalName(usingStatement.LocalIndex)).Append(" = ")
-                .Append(CoerceText(usingStatement.Resource, usingStatement.ResourceType)).AppendLf(")");
+            sb.Append(usingStatement.IsAwait ? "await using (" : "using (");
+            if (usingStatement.DeclaresResourceVariable)
+                sb.Append(TypeText(usingStatement.ResourceType)).Append(' ').Append(LocalName(usingStatement.LocalIndex)).Append(" = ");
+            sb.Append(UsingResourceText(usingStatement)).AppendLf(")");
             _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             sb.Append(pad);
             int bodyStart = sb.Length;
@@ -4370,6 +4371,18 @@ public sealed partial class CSharpPrinter
             box,
             rendered.Text,
             rendered.Kind);
+    }
+
+    string UsingResourceText(UsingStatement usingStatement)
+    {
+        if (usingStatement.DeclaresResourceVariable
+            || usingStatement.Resource.ResultType?.Equals(usingStatement.ResourceType) == true)
+        {
+            return CoerceText(usingStatement.Resource, usingStatement.ResourceType);
+        }
+
+        string text = $"({TypeText(usingStatement.ResourceType)}){Operand(usingStatement.Resource)}";
+        return CaptureContextualExpression(usingStatement.Resource, text, "ConversionExpression");
     }
 
     string DerefLoadText(LoadIndirect load)
