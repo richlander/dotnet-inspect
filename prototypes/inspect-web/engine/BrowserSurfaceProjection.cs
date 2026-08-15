@@ -25,9 +25,12 @@ internal static class BrowserSurfaceProjection
         string assembly,
         string assemblyId,
         string assemblyName,
-        BrowserSurfaceTextBudget? textBudget = null)
+        BrowserSurfaceTextBudget? textBudget = null,
+        bool qualifyId = false)
     {
-        textBudget?.EnsureCanProject(type);
+        textBudget?.EnsureCanProject(
+            type,
+            qualifyId ? assembly.Length + 1 : 0);
         // C#-spelled name for display (List<T>, Dictionary<TKey, TValue>) using the real generic
         // parameter names the surface carries. Identity stays the metadata form so deep links,
         // search, and tab matching remain stable.
@@ -50,8 +53,9 @@ internal static class BrowserSurfaceProjection
         ];
         string metadataId = MetadataId(type);
         string definitionId = type.DefinitionName?.ToEscapedFullName() ?? metadataId;
+        string id = qualifyId ? $"{assembly}:{definitionId}" : definitionId;
         var projected = new BrowserTypeSurface(
-            definitionId,
+            id,
             definitionId,
             type.FullName,
             metadataId,
@@ -141,12 +145,13 @@ internal static class BrowserSurfaceProjection
 
         internal void AbandonParticipant() => _pending = 0;
 
-        internal void EnsureCanProject(ApiType type)
+        internal void EnsureCanProject(ApiType type, int qualifiedIdPrefixLength = 0)
         {
             long identity = TextLength(type.Namespace)
                 + TextLength(type.Name)
                 + TextLength(type.MetadataName)
-                + DefinitionNameLength(type.DefinitionName);
+                + DefinitionNameLength(type.DefinitionName)
+                + qualifiedIdPrefixLength;
             foreach (TypeParameter parameter in type.TypeParameters)
                 identity += TextLength(parameter.Name);
             EnsureCanMaterialize(identity * 12 + 256);

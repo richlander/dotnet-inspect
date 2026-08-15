@@ -75,7 +75,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetArrayType(TypeNode elementType, ArrayShape shape)
     {
-        _beforeMaterialize?.Invoke(16);
+        ObserveMaterialization(16L + Math.Max(shape.Rank, 0));
         return new MDArrayTypeNode(elementType, shape.Rank);
     }
 
@@ -94,6 +94,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetGenericInstantiation(TypeNode genericType, ImmutableArray<TypeNode> typeArguments)
     {
         _beforeMaterialize?.Invoke(checked(16 + typeArguments.Length * 4));
+        ObserveMaterialization(genericType.EstimatedRenderedLength);
         string rawName = genericType is NamedTypeNode n ? n.Name : genericType.Render();
         var backtickIndex = rawName.IndexOf('`');
         if (backtickIndex < 0)
@@ -149,4 +150,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     }
 
     public TypeNode GetPinnedType(TypeNode elementType) => new PassthroughTypeNode(elementType);
+
+    void ObserveMaterialization(long units)
+        => _beforeMaterialize?.Invoke((int)Math.Min(units, int.MaxValue));
 }

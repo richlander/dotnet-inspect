@@ -390,11 +390,14 @@ type nodes, parameters, attributes, generic constraints, and interfaces. A
 separate per-type work estimate charges encoded names, signature nodes, and
 custom-attribute blobs before materializing their expanded forms. The exact
 retained-character total therefore remains unchanged while one wide signature,
-TypeSpec, or attribute cannot allocate its complete amplified model before the
-check. The Browser separately applies the same bound while deriving type/member
+deeply nested generic head, high-rank array, default value, hidden signature, or
+attribute cannot allocate its complete amplified model before the check.
+Visibility probes use bounded blob readers rather than copying skipped
+attribute values. The Browser separately applies the same bound while deriving type/member
 transport records, including canonical signatures, documentation IDs, and graph
 selectors that repeat declaring-type identity. It preflights each source model
-before creating those derived strings. An assembly that would exceed either
+before creating those derived strings, and collision-qualified IDs are created
+and charged before their participant commits. An assembly that would exceed either
 remaining retained-text budget is abandoned whole, and the Browser reports
 truncation rather than presenting a shortened surface as complete.
 `BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
@@ -407,6 +410,12 @@ pre-decoding rejection.
 `OneWideFieldSignature_StopsBeforeLargeAllocationAmplification`,
 `OneWideTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneLargeCustomAttribute_StopsBeforeLargeAllocationAmplification`,
+`OneDeeplyNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
+`OneHugeArrayRank_StopsBeforeLargeAllocationAmplification`,
+`HiddenAutoPropertySignature_StopsBeforeLargeAllocationAmplification`,
+`HugeParameterDefault_StopsBeforeLargeAllocationAmplification`,
+`LargeVisibilityAttribute_StopsBeforeDecodingItsMessage`,
+`RepeatedHiddenAttributeProbe_DoesNotCopyTheValueBlob`,
 `AssemblyContextApiSurfaceQueryTests.ExecuteBounded_SpendsRetainedTextAcrossParticipants`,
 and
 `BrowserEngineBoundaryTests.ApiSurfaceProjection_IsBoundedAndReportsTruncation`
@@ -422,7 +431,11 @@ each bounded path to allocate less than 64 MB.
 gates the derived-identity transport budget.
 `SurfaceProjection_OneHugeTypeStopsBeforeDerivedIdentities` and
 `SurfaceProjection_OneHugeMemberStopsBeforeDerivedIdentities` gate
-pre-materialization rejection for one amplified transport record, and
+pre-materialization rejection for one amplified transport record.
+`QueryPackage_FirstTransportTruncationReturnsTypedNotice` gates typed
+zero-participant truncation, and
+`SurfaceProjection_QualifiedCollisionIdIsAccountedBeforeCommit` gates final-ID
+accounting before participant commit. Finally,
 `ApiSurfacePolicy_AcceptsCoreLibraryAtEveryBrowserScope` pins the 32-million
 policy against CoreLib at both Browser extraction scopes.
 `PackageArchiveEntryFlood_IsRejectedBeforeArchiveEnumeration` gates the

@@ -72,7 +72,10 @@ public static class AttributeReader
     /// <summary>
     /// Checks if the member has EditorBrowsable(Never) or [Obsolete] attribute.
     /// </summary>
-    public static bool HasHiddenAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    public static bool HasHiddenAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var attrHandle in attributes)
         {
@@ -81,12 +84,16 @@ public static class AttributeReader
 
             if (attrTypeName == EditorBrowsableAttributeName)
             {
-                if (IsEditorBrowsableNever(reader, attr))
+                if (IsEditorBrowsableNever(reader, attr, beforeMaterialize))
                     return true;
             }
             else if (attrTypeName == ObsoleteAttributeName)
             {
-                if (!IsCompilerCompatibilityObsolete(reader, attributes, attr))
+                if (!IsCompilerCompatibilityObsolete(
+                    reader,
+                    attributes,
+                    attr,
+                    beforeMaterialize))
                     return true;
             }
         }
@@ -96,13 +103,17 @@ public static class AttributeReader
     /// <summary>
     /// Checks if the member has the [EditorBrowsable(Never)] attribute.
     /// </summary>
-    public static bool HasEditorBrowsableNeverAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    public static bool HasEditorBrowsableNeverAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
             var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName == EditorBrowsableAttributeName && IsEditorBrowsableNever(reader, attr))
+            if (attrTypeName == EditorBrowsableAttributeName
+                && IsEditorBrowsableNever(reader, attr, beforeMaterialize))
                 return true;
         }
         return false;
@@ -111,7 +122,11 @@ public static class AttributeReader
     /// <summary>
     /// Checks if the member has the [Obsolete] attribute, returning the optional message.
     /// </summary>
-    public static bool TryGetObsoleteAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes, out string? message)
+    public static bool TryGetObsoleteAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out string? message,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var attrHandle in attributes)
         {
@@ -119,8 +134,15 @@ public static class AttributeReader
             var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
             if (attrTypeName == ObsoleteAttributeName)
             {
-                message = TryGetAttributeDisplayValue(reader, attr);
-                if (IsCompilerCompatibilityObsolete(reader, attributes, attr))
+                message = TryGetAttributeDisplayValue(
+                    reader,
+                    attr,
+                    beforeMaterialize);
+                if (IsCompilerCompatibilityObsolete(
+                    reader,
+                    attributes,
+                    attr,
+                    beforeMaterialize))
                 {
                     message = null;
                     return false;
@@ -148,24 +170,56 @@ public static class AttributeReader
     private static bool IsCompilerCompatibilityObsolete(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
-        CustomAttribute obsoleteAttribute)
+        CustomAttribute obsoleteAttribute,
+        Action<int>? beforeMaterialize)
     {
-        var message = TryGetAttributeDisplayValue(reader, obsoleteAttribute);
-
         // Roslyn stamps a synthetic [Obsolete] on certain types/members purely to block older
         // compilers, pairing it with [CompilerFeatureRequired(<feature>)]. These are not real
         // deprecations, so they must not hide the API. Covers required members and ref structs
         // (Span<T>, ReadOnlySpan<T>, and other byref-like types).
-        return (string.Equals(message, RequiredMembersConstructorObsoleteMessage, StringComparison.Ordinal)
-                && HasCompilerFeatureRequiredAttribute(reader, attributes, RequiredMembersFeatureName))
-            || (string.Equals(message, RefStructsObsoleteMessage, StringComparison.Ordinal)
-                && HasCompilerFeatureRequiredAttribute(reader, attributes, RefStructsFeatureName));
+        return (AttributeValueEquals(
+                    reader,
+                    obsoleteAttribute,
+                    RequiredMembersConstructorObsoleteMessage,
+                    beforeMaterialize)
+                && HasCompilerFeatureRequiredAttribute(
+                    reader,
+                    attributes,
+                    RequiredMembersFeatureName,
+                    beforeMaterialize))
+            || (AttributeValueEquals(
+                    reader,
+                    obsoleteAttribute,
+                    RefStructsObsoleteMessage,
+                    beforeMaterialize)
+                && HasCompilerFeatureRequiredAttribute(
+                    reader,
+                    attributes,
+                    RefStructsFeatureName,
+                    beforeMaterialize));
+    }
+
+    static bool AttributeValueEquals(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        string expected,
+        Action<int>? beforeMaterialize)
+    {
+        int blobLength = reader.GetBlobReader(attribute.Value).Length;
+        beforeMaterialize?.Invoke(blobLength);
+        if (blobLength > Encoding.UTF8.GetByteCount(expected) + 16)
+            return false;
+        return string.Equals(
+            TryGetAttributeDisplayValue(reader, attribute),
+            expected,
+            StringComparison.Ordinal);
     }
 
     private static bool HasCompilerFeatureRequiredAttribute(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
-        string featureName)
+        string featureName,
+        Action<int>? beforeMaterialize)
     {
         foreach (var attrHandle in attributes)
         {
@@ -174,7 +228,10 @@ public static class AttributeReader
             if (attrTypeName != KnownAttributeNames.CompilerFeatureRequiredAttribute)
                 continue;
 
-            var value = TryGetAttributeDisplayValue(reader, attr);
+            var value = TryGetAttributeDisplayValue(
+                reader,
+                attr,
+                beforeMaterialize);
             if (string.Equals(value, featureName, StringComparison.Ordinal))
                 return true;
         }
@@ -182,14 +239,19 @@ public static class AttributeReader
         return false;
     }
 
-    private static bool IsEditorBrowsableNever(MetadataReader reader, CustomAttribute attr)
+    private static bool IsEditorBrowsableNever(
+        MetadataReader reader,
+        CustomAttribute attr,
+        Action<int>? beforeMaterialize)
     {
+        beforeMaterialize?.Invoke(reader.GetBlobReader(attr.Value).Length);
         // Check if the value is EditorBrowsableState.Never (value = 1)
-        var value = reader.GetBlobBytes(attr.Value);
+        var value = reader.GetBlobReader(attr.Value);
         // Attribute blob format: 2-byte prolog (0x0001), then the enum value as int32
         if (value.Length >= 6)
         {
-            int enumValue = value[2] | (value[3] << 8) | (value[4] << 16) | (value[5] << 24);
+            value.ReadUInt16();
+            int enumValue = value.ReadInt32();
             return enumValue == 1; // EditorBrowsableState.Never
         }
         return false;
@@ -781,8 +843,12 @@ public static class AttributeReader
     /// into a containment change.
     /// </para>
     /// </remarks>
-    internal static string? TryGetAttributeDisplayValue(MetadataReader reader, CustomAttribute attr)
+    internal static string? TryGetAttributeDisplayValue(
+        MetadataReader reader,
+        CustomAttribute attr,
+        Action<int>? beforeMaterialize = null)
     {
+        beforeMaterialize?.Invoke(reader.GetBlobReader(attr.Value).Length);
         try
         {
             var blob = reader.GetBlobReader(attr.Value);

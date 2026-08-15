@@ -1,5 +1,8 @@
 using System.IO.Compression;
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using System.Xml;
@@ -476,6 +479,74 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryPackage_FirstTransportTruncationReturnsTypedNotice()
+    {
+        const string packageId = "First.Transport.Truncation";
+        byte[] image = BuildTransportAmplificationImage(
+            packageId,
+            typeCount: 10_000,
+            namespaceLength: 1_000);
+        _ = Coordinate(
+            packageId,
+            Package(image, $"lib/net11.0/{packageId}.dll"));
+
+        string json = await BrowserInspectionEngine.QueryPackage(
+            packageId,
+            "1.0.0",
+            "net11.0");
+        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
+            JsonSerializer.Deserialize(
+                json,
+                BrowserJsonContext.Default.BrowserPackageSurface));
+
+        Assert.Empty(surface.Assemblies);
+        Assert.Contains(
+            "truncated",
+            surface.InspectionError,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SurfaceProjection_QualifiedCollisionIdIsAccountedBeforeCommit()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Value",
+            MetadataName = "Value",
+            Kind = "class",
+        };
+        const string assembly = "Collision.Assembly.dll";
+        var unqualifiedBudget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(10_000);
+        unqualifiedBudget.BeginParticipant();
+        _ = BrowserSurfaceProjection.Type(
+            type,
+            assembly,
+            "asset:collision",
+            "Collision.Assembly",
+            unqualifiedBudget);
+        unqualifiedBudget.CommitParticipant();
+
+        var qualifiedBudget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(10_000);
+        qualifiedBudget.BeginParticipant();
+        BrowserTypeSurface qualified = BrowserSurfaceProjection.Type(
+            type,
+            assembly,
+            "asset:collision",
+            "Collision.Assembly",
+            qualifiedBudget,
+            qualifyId: true);
+        qualifiedBudget.CommitParticipant();
+
+        Assert.Equal($"{assembly}:{qualified.DefinitionId}", qualified.Id);
+        Assert.Equal(
+            unqualifiedBudget.CommittedCharacters + assembly.Length + 1,
+            qualifiedBudget.CommittedCharacters);
+    }
+
+    [Fact]
     public void ApiSurfacePolicy_AcceptsCoreLibraryAtEveryBrowserScope()
     {
         using var stream = File.OpenRead(typeof(object).Assembly.Location);
@@ -526,6 +597,54 @@ public sealed class BrowserEngineBoundaryTests
         string close = string.Concat(Enumerable.Repeat("</b>", depth));
         return $"<doc><members><member name=\"M:Example.M\"><summary>{nested}x{close}</summary>"
             + "</member></members></doc>";
+    }
+
+    static byte[] BuildTransportAmplificationImage(
+        string assemblyName,
+        int typeCount,
+        int namespaceLength)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString($"{assemblyName}.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        StringHandle @namespace =
+            metadata.GetOrAddString(new string('N', namespaceLength));
+        for (int index = 0; index < typeCount; index++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Abstract,
+                @namespace,
+                metadata.GetOrAddString($"T{index}"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     [Fact]

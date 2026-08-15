@@ -356,6 +356,10 @@ public static class ApiSurfaceExtractor
             if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
                 continue;
 
+            budget?.BeginTypeCandidate();
+            observeDecodeWork?.Invoke(
+                reader.GetBlobReader(typeDef.Name).Length
+                    + reader.GetBlobReader(typeDef.Namespace).Length);
             string metadataName = reader.GetString(typeDef.Name);
 
             // Skip compiler-generated types unless explicitly requested. The opt-in
@@ -375,7 +379,10 @@ public static class ApiSurfaceExtractor
             // extractor hides stays hidden in the composed scope too: it is suppressed, not
             // demoted into the non-public bucket with an include-all member list.
             if (!includeAll
-                && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
+                && AttributeReader.HasHiddenAttribute(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    observeDecodeWork))
             {
                 continue;
             }
@@ -532,10 +539,17 @@ public static class ApiSurfaceExtractor
                 // Skip EditorBrowsable(Never) methods unless --all; obsolete are surfaced with marker.
                 if (!includeAll
                     && !isExplicitInterfaceImplementation
-                    && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
+                    && AttributeReader.HasEditorBrowsableNeverAttribute(
+                        reader,
+                        method.GetCustomAttributes(),
+                        observeDecodeWork))
                     continue;
 
-                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, method.GetCustomAttributes(), out var obsoleteMessage);
+                var isObsolete = AttributeReader.TryGetObsoleteAttribute(
+                    reader,
+                    method.GetCustomAttributes(),
+                    out var obsoleteMessage,
+                    observeDecodeWork);
 
                 var signature = GetMethodSignature(
                     reader,
@@ -677,10 +691,18 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 // Skip EditorBrowsable(Never) properties unless --all; obsolete are surfaced with marker.
-                if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, prop.GetCustomAttributes()))
+                if (!includeAll
+                    && AttributeReader.HasEditorBrowsableNeverAttribute(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeDecodeWork))
                     continue;
 
-                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, prop.GetCustomAttributes(), out var obsoleteMessage);
+                var isObsolete = AttributeReader.TryGetObsoleteAttribute(
+                    reader,
+                    prop.GetCustomAttributes(),
+                    out var obsoleteMessage,
+                    observeDecodeWork);
 
                 var propertySignature = GetPropertySignature(
                     reader,
@@ -731,7 +753,12 @@ public static class ApiSurfaceExtractor
             // pre-scan and the per-field fold below are factored into shared helpers so
             // API-surface extraction and compile-back reconstruction agree on the fold.
             var fieldLikeEventBackingFieldNames = FieldLikeEventBackingFieldNames(reader, typeDef);
-            var autoPropertyBackingFields = AutoPropertyBackingFieldDescriptors(reader, typeDef, typeContext);
+            var autoPropertyBackingFields = AutoPropertyBackingFieldDescriptors(
+                reader,
+                typeDef,
+                typeContext,
+                observeText,
+                observeDecodeWork);
 
             foreach (var fieldHandle in typeDef.GetFields())
             {
@@ -744,17 +771,32 @@ public static class ApiSurfaceExtractor
                 if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
                     continue; // Skip compiler-generated (<...>) fields unless opted in
 
-                if (IsAutoPropertyBackingField(reader, field, fieldName, autoPropertyBackingFields, typeContext))
+                if (IsAutoPropertyBackingField(
+                    reader,
+                    field,
+                    fieldName,
+                    autoPropertyBackingFields,
+                    typeContext,
+                    observeText,
+                    observeDecodeWork))
                     continue; // Skip a synthesized auto-property backing field (re-synthesized on reconstruction)
 
                 if (IsFieldLikeEventBackingField(reader, field, fieldName, fieldLikeEventBackingFieldNames))
                     continue; // Skip a field-like event's private, compiler-generated backing field
 
                 // Skip EditorBrowsable(Never) fields unless --all; obsolete are surfaced with marker.
-                if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
+                if (!includeAll
+                    && AttributeReader.HasEditorBrowsableNeverAttribute(
+                        reader,
+                        field.GetCustomAttributes(),
+                        observeDecodeWork))
                     continue;
 
-                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, field.GetCustomAttributes(), out var obsoleteMessage);
+                var isObsolete = AttributeReader.TryGetObsoleteAttribute(
+                    reader,
+                    field.GetCustomAttributes(),
+                    out var obsoleteMessage,
+                    observeDecodeWork);
 
                 // Decode field type. For enums the special value__ field carries
                 // the underlying type; literal fields are constants, not fields in
@@ -866,10 +908,18 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 // Skip EditorBrowsable(Never) events unless --all; obsolete are surfaced with marker.
-                if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, evt.GetCustomAttributes()))
+                if (!includeAll
+                    && AttributeReader.HasEditorBrowsableNeverAttribute(
+                        reader,
+                        evt.GetCustomAttributes(),
+                        observeDecodeWork))
                     continue;
 
-                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, evt.GetCustomAttributes(), out var obsoleteMessage);
+                var isObsolete = AttributeReader.TryGetObsoleteAttribute(
+                    reader,
+                    evt.GetCustomAttributes(),
+                    out var obsoleteMessage,
+                    observeDecodeWork);
                 var eventType = ResolveRequiredTypeName(
                     reader,
                     evt.Type,
@@ -1910,7 +1960,9 @@ public static class ApiSurfaceExtractor
     static Dictionary<string, AutoPropertyBackingField>? AutoPropertyBackingFieldDescriptors(
         MetadataReader reader,
         TypeDefinition typeDef,
-        GenericContext context)
+        GenericContext context,
+        Action<string>? beforeRetainText = null,
+        Action<int>? beforeDecodeWork = null)
     {
         Dictionary<string, AutoPropertyBackingField>? descriptors = null;
         foreach (var propertyHandle in typeDef.GetProperties())
@@ -1926,15 +1978,35 @@ public static class ApiSurfaceExtractor
             if (!TryGetAutoPropertyAccessorStaticness(reader, property.GetAccessors(), out bool isStatic))
                 continue; // Not an auto-property: no [CompilerGenerated] accessor.
 
-            if (!GuardedSignatureText.PropertyText(reader, property, context)
-                    .TryGetValue(out var propertySignature))
+            string? propertyType;
+            if (beforeDecodeWork is null)
             {
-                continue; // Undecodable property signature: cannot prove a type match.
+                if (!GuardedSignatureText.PropertyText(reader, property, context)
+                        .TryGetValue(out var propertySignature))
+                {
+                    continue; // Undecodable property signature: cannot prove a type match.
+                }
+                propertyType = propertySignature.ReturnType;
+            }
+            else
+            {
+                TypeNodeProvider provider =
+                    new(beforeRetainText, beforeDecodeWork);
+                MethodSignature<TypeNode> signature =
+                    GuardedProviderDecode.Property(
+                        reader,
+                        property,
+                        provider,
+                        context,
+                        (TypeNode)new DegradedTypeNode());
+                if (signature.ReturnType.IsDegraded)
+                    continue;
+                propertyType = signature.ReturnType.Render();
             }
 
             (descriptors ??= new Dictionary<string, AutoPropertyBackingField>(StringComparer.Ordinal))
                 [$"<{propertyName}>k__BackingField"]
-                    = new AutoPropertyBackingField(propertySignature.ReturnType, isStatic);
+                    = new AutoPropertyBackingField(propertyType, isStatic);
         }
 
         return descriptors;
@@ -1988,7 +2060,9 @@ public static class ApiSurfaceExtractor
         FieldDefinition field,
         string fieldName,
         Dictionary<string, AutoPropertyBackingField>? autoPropertyBackingFields,
-        GenericContext context)
+        GenericContext context,
+        Action<string>? beforeRetainText = null,
+        Action<int>? beforeDecodeWork = null)
     {
         if (autoPropertyBackingFields is null
             || !autoPropertyBackingFields.TryGetValue(fieldName, out var descriptor))
@@ -2002,8 +2076,20 @@ public static class ApiSurfaceExtractor
         if (((field.Attributes & FieldAttributes.Static) != 0) != descriptor.IsStatic)
             return false;
 
-        return GuardedSignatureText.FieldText(reader, field, context).TryGetValue(out var fieldType)
-            && fieldType == descriptor.PropertyType;
+        if (beforeDecodeWork is null)
+        {
+            return GuardedSignatureText.FieldText(reader, field, context)
+                    .TryGetValue(out var fieldType)
+                && fieldType == descriptor.PropertyType;
+        }
+
+        TypeNode node = GuardedProviderDecode.Field(
+            reader,
+            field,
+            new TypeNodeProvider(beforeRetainText, beforeDecodeWork),
+            context,
+            new DegradedTypeNode());
+        return !node.IsDegraded && node.Render() == descriptor.PropertyType;
     }
 
     /// <summary>
@@ -2189,14 +2275,20 @@ public static class ApiSurfaceExtractor
             }
 
             var modifier = isParams ? "params" : refKind;
-            var paramStr = FormatParameter(
+            bool acceptsNullDefault = AcceptsNullDefault(paramTypes[i]);
+            string? defaultValueText = DefaultValueText(
                 reader,
+                defaultValue,
+                type,
+                hasDefault,
+                acceptsNullDefault);
+            var paramStr = FormatParameter(
                 type,
                 paramName,
                 modifier,
                 hasDefault,
                 defaultValue,
-                AcceptsNullDefault(paramTypes[i]));
+                defaultValueText);
 
             beforeRetainText?.Invoke(paramStr);
             var parameterModel = new ApiParameter
@@ -2207,7 +2299,7 @@ public static class ApiSurfaceExtractor
                 CanonicalType = canonicalType,
                 Modifier = modifier,
                 HasDefault = hasDefault,
-                DefaultValueText = DefaultValueText(reader, defaultValue, type, hasDefault, AcceptsNullDefault(paramTypes[i]))
+                DefaultValueText = defaultValueText
             };
             ObserveText(parameterModel, beforeRetainText);
             parameters.Add(paramStr);
@@ -2366,7 +2458,11 @@ public static class ApiSurfaceExtractor
                 bool hasDefault = (param.Attributes & System.Reflection.ParameterAttributes.HasDefault) != 0;
                 object? defaultValue = null;
 
-                if (TryReadAttributedParameterDefault(reader, attributes, out var attributedDefault))
+                if (TryReadAttributedParameterDefault(
+                    reader,
+                    attributes,
+                    out var attributedDefault,
+                    beforeMaterialize))
                 {
                     hasDefault = true;
                     defaultValue = attributedDefault;
@@ -2377,6 +2473,8 @@ public static class ApiSurfaceExtractor
                     if (!constantHandle.IsNil)
                     {
                         var constant = reader.GetConstant(constantHandle);
+                        beforeMaterialize?.Invoke(
+                            reader.GetBlobReader(constant.Value).Length);
                         defaultValue = ReadConstantValue(reader, constant);
                     }
                 }
@@ -2393,30 +2491,50 @@ public static class ApiSurfaceExtractor
     private static bool TryReadAttributedParameterDefault(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
-        out object? defaultValue)
+        out object? defaultValue,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var attributeHandle in attributes)
         {
             var attribute = reader.GetCustomAttribute(attributeHandle);
             var attributeTypeName = AttributeReader.GetAttributeTypeName(reader, attribute.Constructor);
-            if (attributeTypeName == KnownAttributeNames.DecimalConstantAttribute
-                && TryReadDecimalConstantAttribute(reader, attribute, out var decimalValue))
+            if (attributeTypeName == KnownAttributeNames.DecimalConstantAttribute)
             {
-                defaultValue = decimalValue;
-                return true;
+                ObserveAttributeValue(reader, attribute, beforeMaterialize);
+                if (TryReadDecimalConstantAttribute(
+                    reader,
+                    attribute,
+                    out var decimalValue))
+                {
+                    defaultValue = decimalValue;
+                    return true;
+                }
             }
 
-            if (attributeTypeName == KnownAttributeNames.DateTimeConstantAttribute
-                && TryReadDateTimeConstantAttribute(reader, attribute, out var ticks))
+            if (attributeTypeName == KnownAttributeNames.DateTimeConstantAttribute)
             {
-                defaultValue = new DateTimeConstantDefault(ticks);
-                return true;
+                ObserveAttributeValue(reader, attribute, beforeMaterialize);
+                if (TryReadDateTimeConstantAttribute(
+                    reader,
+                    attribute,
+                    out var ticks))
+                {
+                    defaultValue = new DateTimeConstantDefault(ticks);
+                    return true;
+                }
             }
         }
 
         defaultValue = null;
         return false;
     }
+
+    static void ObserveAttributeValue(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        Action<int>? beforeMaterialize)
+        => beforeMaterialize?.Invoke(
+            reader.GetBlobReader(attribute.Value).Length);
 
     private static bool TryReadDecimalConstantAttribute(
         MetadataReader reader,
@@ -2569,13 +2687,12 @@ public static class ApiSurfaceExtractor
     };
 
     private static string FormatParameter(
-        MetadataReader reader,
         string type,
         string name,
         string? modifier,
         bool hasDefault,
         object? defaultValue,
-        bool acceptsNullDefault)
+        string? defaultValueText)
     {
         var escapedName = SanitizeIdentifier(name);
         var parameter = modifier is null ? $"{type} {escapedName}" : $"{modifier} {type} {escapedName}";
@@ -2588,7 +2705,7 @@ public static class ApiSurfaceExtractor
             return $"[{OptionalAttributeName}, {DateTimeConstantAttributeName}({ticks})] {parameter}";
         }
 
-        return $"{parameter} = {FormatDefaultValue(reader, defaultValue, type, acceptsNullDefault)}";
+        return $"{parameter} = {defaultValueText}";
     }
 
     /// <summary>
@@ -3117,14 +3234,20 @@ public static class ApiSurfaceExtractor
             }
 
             var modifier = isParams ? "params" : refKind;
-            var parameter = FormatParameter(
+            bool acceptsNullDefault = AcceptsNullDefault(paramTypes[i]);
+            string? defaultValueText = DefaultValueText(
                 reader,
+                defaultValue,
+                paramType,
+                hasDefault,
+                acceptsNullDefault);
+            var parameter = FormatParameter(
                 paramType,
                 paramName,
                 modifier,
                 hasDefault,
                 defaultValue,
-                AcceptsNullDefault(paramTypes[i]));
+                defaultValueText);
             beforeRetainText?.Invoke(parameter);
             var parameterModel = new ApiParameter
             {
@@ -3134,7 +3257,7 @@ public static class ApiSurfaceExtractor
                 CanonicalType = canonicalParamType,
                 Modifier = modifier,
                 HasDefault = hasDefault,
-                DefaultValueText = DefaultValueText(reader, defaultValue, paramType, hasDefault, AcceptsNullDefault(paramTypes[i]))
+                DefaultValueText = defaultValueText
             };
             ObserveText(parameterModel, beforeRetainText);
             indexerParameters.Add(parameter);
@@ -3413,15 +3536,20 @@ public static class ApiSurfaceExtractor
             }
         }
 
-        /// <summary>Starts a retained type, refusing before its model or members are built.</summary>
-        public void BeginType()
+        /// <summary>Starts work that may determine whether a type is retained.</summary>
+        public void BeginTypeCandidate()
         {
-            if (_types >= bounds.MaxTypes)
-                throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
             _pendingMembers = 0;
             _pendingTextCharacters = 0;
             _pendingObservedTextCharacters = 0;
             _pendingDecodeWork = 0;
+        }
+
+        /// <summary>Admits a retained type before its model or members are built.</summary>
+        public void BeginType()
+        {
+            if (_types >= bounds.MaxTypes)
+                throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
         }
 
         /// <summary>Counts one member of the type currently being built.</summary>
