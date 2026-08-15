@@ -107,6 +107,8 @@ public static class MetadataDeclarationQuery
 
         type.IsStatic = type.IsSealed && type.IsAbstract;
         var accessorMethods = ApiSurfaceExtractor.GetAccessorMethods(reader, typeDef);
+        var explicitImplementationBodies =
+            ApiSurfaceExtractor.GetExplicitImplementationBodies(reader, typeDef);
         foreach (var propertyHandle in typeDef.GetProperties())
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
@@ -216,11 +218,12 @@ public static class MetadataDeclarationQuery
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
-            if (accessorMethods.Contains(methodHandle))
-                continue;
-
             var method = reader.GetMethodDefinition(methodHandle);
             var methodName = reader.GetString(method.Name);
+            var isQualifiedExplicitAccessor = explicitImplementationBodies.Contains(methodHandle)
+                && methodName.Contains('.', StringComparison.Ordinal);
+            if (accessorMethods.Contains(methodHandle) && !isQualifiedExplicitAccessor)
+                continue;
             if (methodName.StartsWith('<'))
                 continue;
 

@@ -454,16 +454,16 @@ public static class ApiSurfaceExtractor
             // Methods
             foreach (var methodHandle in typeDef.GetMethods())
             {
-                if (accessorMethods.Contains(methodHandle))
-                    continue;
-
                 var method = reader.GetMethodDefinition(methodHandle);
+                string methodName = reader.GetString(method.Name);
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
                 var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
+                var isQualifiedExplicitAccessor = isExplicitInterfaceImplementation
+                    && methodName.Contains('.', StringComparison.Ordinal);
+                if (accessorMethods.Contains(methodHandle) && !isQualifiedExplicitAccessor)
+                    continue;
                 if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
                     continue;
-
-                string methodName = reader.GetString(method.Name);
 
                 // Skip compiler-generated methods (lambdas, state machines, etc.)
                 if (methodName.StartsWith("<"))
@@ -1297,7 +1297,7 @@ public static class ApiSurfaceExtractor
         return (fieldNode.Render(), fieldNode.IsDegraded);
     }
 
-    private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
+    internal static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
         MetadataReader reader, TypeDefinition typeDef)
     {
         HashSet<MethodDefinitionHandle> handles = [];

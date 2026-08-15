@@ -232,6 +232,35 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void TypeSurface_PreservesQualifiedMethodImplAccessors()
+    {
+        var queried = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures.ExplicitSurface)),
+            includeNonPublicMembers: true);
+        var extracted = Assert.Single(
+            ApiSurfaceExtractor.Extract(PeReader, includeAll: true).Types,
+            type => type.FullName.EndsWith(
+                "." + nameof(MetadataDeclarationQueryFixtures.ExplicitSurface),
+                StringComparison.Ordinal));
+
+        Assert.Contains(
+            queried.Members,
+            member => member.Name.EndsWith(".get_Value", StringComparison.Ordinal));
+        Assert.Contains(
+            queried.Members,
+            member => member.Name.EndsWith(".add_Changed", StringComparison.Ordinal));
+        Assert.Contains(
+            extracted.Members,
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(".get_Value", StringComparison.Ordinal));
+        Assert.Contains(
+            extracted.Members,
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(".add_Changed", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void PrivateScopeAccessors_AreNotClassifiedAsPublic()
     {
         var methodAccessibility = typeof(MetadataDeclarationQuery).GetMethod(
@@ -563,6 +592,23 @@ public class MetadataDeclarationQueryFixtures
     }
 
     public int get_Orphan() => 0;
+
+    public interface IExplicitSurface
+    {
+        int Value { get; }
+        event EventHandler Changed;
+    }
+
+    public sealed class ExplicitSurface : IExplicitSurface
+    {
+        int IExplicitSurface.Value => 42;
+
+        event EventHandler IExplicitSurface.Changed
+        {
+            add { }
+            remove { }
+        }
+    }
 
     public void SyntaxKeywordTypes(
         global::@delegate delegateValue,
