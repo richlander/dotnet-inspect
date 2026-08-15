@@ -263,6 +263,38 @@ public class RidPackageVerifierTests
     }
 
     [Fact]
+    public async Task VerifyAsync_LocalPrereleaseSiblingPreservesVersionCasing()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            File.WriteAllBytes(
+                Path.Combine(
+                    directory,
+                    "TestPackage.linux-x64.1.0.0-Preview.1.nupkg"),
+                []);
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(),
+                result,
+                "1.0.0-Preview.1",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.True(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task VerifyAsync_NormalizedVersionIdentityIgnoresBuildMetadata()
     {
         var handler = new StubHandler();

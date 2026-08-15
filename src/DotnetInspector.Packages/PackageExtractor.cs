@@ -115,7 +115,7 @@ public static class PackageExtractor
     {
         if (NuGetVersion.TryParse(version, out NuGetVersion? parsed))
         {
-            normalizedVersion = parsed.ToNormalizedString().ToLowerInvariant();
+            normalizedVersion = parsed.ToNormalizedString();
             return true;
         }
 
@@ -984,6 +984,7 @@ public static class PackageExtractor
                 NuspecProbeStatus.Indeterminate);
         }
 
+        normalizedVersion = normalizedVersion.ToLowerInvariant();
         string normalizedName = packageId.ToLowerInvariant();
         bool sawAuthoritativeAbsence = false;
         bool sawIndeterminateSource = false;
