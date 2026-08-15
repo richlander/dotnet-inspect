@@ -206,8 +206,11 @@ The website provides a Package sources page from the home screen. It supports:
 NuGet Gallery is built in and cannot be rewritten into an arbitrary endpoint.
 It may be disabled for a selected operation.
 
-Browser-local registration is persisted in local storage as non-secret source
-descriptors and selected IDs. Runtime credentials are never part of this
+Browser-local registration is persisted in local storage as portable source
+descriptors and selected IDs. Every registry write, whether typed manually,
+edited, or imported from a bundle, requires HTTPS and rejects credential
+fields, URL user information, queries, and fragments. Descriptor names, IDs,
+and paths are treated as public. Runtime credentials are never part of this
 registry.
 
 Changing a descriptor's kind or canonical endpoint creates a new source
@@ -357,6 +360,13 @@ visible failure with exact-pin guidance and does not reset or escape the
 enclosing resolution policy. Explicit `Name@latest` continues to use the
 configured request deadline and operation ceiling.
 
+The current implementation separately caps several body reads at
+`min(configured timeout, 30 seconds)`, so increasing `--http-timeout` does not
+extend those reads today. The target request deadline deliberately replaces
+that one-way clamp with the validated configured value in either direction;
+the larger operation ceiling preserves a finite failover bound. Implementation
+must update the private-feed timeout guidance with that behavior change.
+
 Timeouts remain visible source failures. They are not converted into not-found,
 an empty version list, a partial successful search, or an automatic stale-cache
 answer. Cache fallback follows the explicit version-resolution policy and
@@ -444,6 +454,11 @@ ASCII grammar; display names and endpoints cross into the page through inert
 text or DOM `textContent`, never HTML interpolation. The same rule applies to
 the confirmation preview, settings page, source badges, errors, and provenance
 output.
+
+Manual registration and editing use the same admission and inert-rendering
+path. Changing kind or endpoint discards the old session credential, resolved
+resources, candidate state, and payload-cache authority before any request is
+sent to the replacement endpoint.
 
 ## Browser credentials
 
@@ -569,6 +584,8 @@ Implementation is not complete until gates prove:
 
 - Gallery search and package CDN acquisition work without contacting
   `api.nuget.org`;
+- Gallery search requests include `semVerLevel=2.0.0` and preserve stable versus
+  prerelease policy, with a SemVer 2-only package as the non-vacuity case;
 - complete listing-aware enumeration of a paged package rebases validated page
   paths to the Gallery CDN and makes no `api.nuget.org` request;
 - inline registration pages are consumed without treating their fragment IDs as
@@ -582,10 +599,19 @@ Implementation is not complete until gates prove:
 - source-scoped candidate and payload caches cannot cross producers;
 - a keyword-search/latest cache entry cannot answer complete listing-aware
   enumeration, and incomplete listing metadata cannot populate that cache;
+- source-relative listing states cover `listed`, `unlisted`, `unknown`, and
+  `not-applicable`; registration outages render visibly partial
+  Markdown/TSV/JSONL enumeration and latest, wildcard, and range selection fail
+  closed;
+- a non-Gallery v3 source without a declared symbol resource never constructs
+  a `.snupkg` request, and a custom-feed package never probes the NuGet.org
+  symbol CDN merely because Gallery carries the same package ID;
 - JavaScript-independent library timeouts cover metadata and payload stalls;
 - request deadlines and the larger operation ceiling cover retries,
   authentication, transport failover, multi-source work, and paged metadata
   without resetting;
+- an extended configured request deadline reaches bounded body reads rather
+  than being silently clamped to 30 seconds;
 - bundle imports reject credential fields, known secret-bearing path forms,
   HTTP URLs, URL queries and fragments, user information, unknown kinds,
   oversized values, and excessive source counts;
@@ -596,6 +622,9 @@ Implementation is not complete until gates prove:
 - imports require confirmation before persistence;
 - import previews and every later source-label projection render hostile
   descriptor text inertly rather than as markup;
+- manual registration and editing reject the same credential-bearing URL
+  components as bundle import, and endpoint changes discard session
+  credentials, resolved resources, and old cache authority before contact;
 - imported descriptors cannot replace reserved IDs, overwrite existing custom
   entries implicitly, or produce a colliding compact producer label;
 - PATs do not enter persisted state, URLs, errors, cross-origin redirect

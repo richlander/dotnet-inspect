@@ -217,16 +217,15 @@ the nuget.org gallery:
   NuGet's own behavior of restoring a known unlisted version. `Name@latest`,
   wildcard versions, and addressable-vector endpoints are discovered
   coordinates; they retain the feeds that reported each selected version.
-- **Partial vs. fail-closed on outage.** If the registration index cannot be
+- **Fail-open vs. fail-closed on outage.** If the registration index cannot be
   fetched or parsed (network failure, or a valid-JSON document whose shape
-  defies the expected schema), the condition remains visible and behavior
-  depends on the caller. **Raw enumeration** (`Name --versions`) may return the
-  flat-container list only as a typed partial result whose listing status is
-  `unknown`; it does not label those versions as listed.
+  defies the expected schema), the condition is logged and behavior depends on
+  the caller. **Raw enumeration** (`Name --versions`) fails **open** — the
+  unfiltered list is returned rather than silently dropping real versions.
   **Auto-selecting** callers that pick a single version — nuget.org "latest"
   resolution and wildcard pattern resolution (`Name@3.0.*`) — fail **closed**,
   returning no result rather than risk selecting an unlisted version from an
-  unfiltered snapshot. A partial unfiltered snapshot is **not** cached, so a
+  unfiltered snapshot. A fail-open (unfiltered) snapshot is **not** cached, so a
   transient registration outage cannot re-surface unlisted versions for the
   cache TTL; only an authoritatively filtered list is persisted. The version
   cache category is versioned (`versions-v5`). Every key has unambiguous
@@ -254,10 +253,8 @@ Markdown, `--tsv`, and `--jsonl` shapes. Hiding remains the default, so the bare
 Because a pinned `Name@Version` names an explicit coordinate, the `--versions`
 query that verifies a single pinned version also consults the include-unlisted
 listing, so verifying a known unlisted version reports it rather than
-"not found". When listing status is unknown, NuGet.org enumeration reports
-`unknown` and marks the result partial. A non-nuget.org feed that has no listing
-concept continues to report its discovered versions without inventing
-NuGet.org listing semantics.
+"not found". When listing status is unknown (fail-open, or a non-nuget.org
+feed), versions are reported as listed.
 
 `--include-unlisted` composes with the other `--versions` lenses. With a limit
 (`--versions 1 --include-unlisted`) it takes the listing-aware path. A pinned
@@ -274,12 +271,11 @@ path), so a prerelease-endpoint range resolves without `--preview`. The bare
 range (without the flag) resolves against listed versions only, matching the
 hidden default.
 
-The version-list cache stores authoritative listing state per version. Each
-cache line carries an explicit two-character tab suffix (`\tL` listed,
-`\tU` unlisted). Unknown/partial results are never published. Publication is
-atomic. A malformed or empty latest entry falls through to the listing snapshot
-or feed, while a missing listing suffix, invalid version, or empty snapshot is
-a cache miss rather than authoritative candidate metadata.
+The version-list cache stores the listed bit per version. Each cache line
+carries an explicit two-character tab suffix (`\tL` listed, `\tU` unlisted).
+Publication is atomic. A malformed or empty latest entry falls through to the
+listing snapshot or feed, while a missing listing suffix, invalid version, or
+empty snapshot is a cache miss rather than authoritative candidate metadata.
 
 ## Cache locations
 
