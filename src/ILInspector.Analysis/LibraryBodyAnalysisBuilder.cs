@@ -205,6 +205,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     static bool IsBlazorRenderMethod(MethodIdentity method) =>
         LibraryMethodAnalysisRunner.IsBlazorRenderMethod(method);
 
+    static bool IsRecoverableMethodFailure(Exception exception) =>
+        LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(
+            exception);
+
     bool DetectMemorySafetyRules()
     {
         const string ns = "System.Runtime.CompilerServices";

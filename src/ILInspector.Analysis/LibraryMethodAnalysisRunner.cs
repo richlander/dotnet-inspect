@@ -553,7 +553,7 @@ internal sealed class LibraryMethodAnalysisRunner(
         }
     }
 
-    static bool IsRecoverableMethodFailure(
+    internal static bool IsRecoverableMethodFailure(
         Exception ex) =>
         ex is BadImageFormatException
             or InvalidOperationException

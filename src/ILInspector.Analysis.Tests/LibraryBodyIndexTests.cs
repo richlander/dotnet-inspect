@@ -3557,7 +3557,7 @@ public class LibraryBodyIndexTests
         Assert.Contains(scoped.Methods, method =>
             method.MetadataToken == malformedToken);
     }
-    [Fact]
+
     [Fact]
     public void CrossAssemblyMetadataResolver_UsesRetainedCandidateImage()
     {
