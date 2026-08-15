@@ -133,6 +133,7 @@ internal sealed class PackageDependencyGroupJson(PackageDependencyGroupText text
     public List<PackageDependencyJson> Dependencies => text.Dependencies
         .Select(value => new PackageDependencyJson(value))
         .ToList();
+    public bool IsImplicitManifestGroup => text.IsImplicitManifestGroup;
 }
 
 internal sealed class PackageDependencyJson(PackageDependencyText text)

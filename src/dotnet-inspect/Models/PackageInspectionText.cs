@@ -260,7 +260,8 @@ internal sealed class PackageInspectionText
         Collector collector)
         => new(
             collector.Field(value.TargetFramework),
-            value.Dependencies.Select(dependency => CreateDependency(dependency, collector)).ToList());
+            value.Dependencies.Select(dependency => CreateDependency(dependency, collector)).ToList(),
+            value.IsImplicitManifestGroup);
 
     private static PackageDependencyText CreateDependency(
         PackageDependency value,
@@ -329,7 +330,8 @@ internal readonly record struct RidPackageReferenceText(
 
 internal sealed record PackageDependencyGroupText(
     InertString TargetFramework,
-    List<PackageDependencyText> Dependencies);
+    List<PackageDependencyText> Dependencies,
+    bool IsImplicitManifestGroup);
 
 internal readonly record struct PackageDependencyText(
     InertString Id,

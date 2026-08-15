@@ -524,6 +524,7 @@ public class PackageInspectionTextTests
                 {
                     TargetFramework = value,
                     Dependencies = [new PackageDependency { Id = value, Version = value }],
+                    IsImplicitManifestGroup = true,
                 },
             ],
             RuntimeDependencies = [new PackageDependency { Id = value, Version = value }],
