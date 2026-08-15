@@ -60,6 +60,9 @@ internal static class CoreLibraryRootAuthentication
 
     static bool Scan(MetadataReader reader)
     {
+        if (reader.AssemblyReferences.Count != 0)
+            return false;
+
         int matches = 0;
         try
         {
