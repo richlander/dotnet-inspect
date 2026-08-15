@@ -512,7 +512,8 @@ public sealed class IrFunction : IrNode
         LoadLocalAddress address => address.Index == index,
         NullCoalescingAssignment nullCoalescing => nullCoalescing.LocalIndex == index,
         ForeachStatement foreachStatement => foreachStatement.LocalIndex == index,
-        UsingStatement usingStatement => usingStatement.LocalIndex == index,
+        UsingStatement usingStatement =>
+            usingStatement.DeclaresResourceVariable && usingStatement.LocalIndex == index,
         Fixed fixedStatement => !fixedStatement.LocalIsStackSlot && fixedStatement.LocalIndex == index,
         IsPattern isPattern => isPattern.LocalIndex == index,
         RecursivePropertyDeclarationPattern recursiveProperty => recursiveProperty.LocalIndex == index,
@@ -1345,8 +1346,15 @@ public sealed class Fixed : IrNode
 /// A raised <c>using</c> statement. Produced by <see cref="UsingStatementPass"/>
 /// from csc's reference-type disposal lowering: a resource local initialized
 /// immediately before a try/finally whose finally null-checks the resource and
-/// calls <c>IDisposable.Dispose</c>. <see cref="LocalIndex"/> is the resource
-/// slot declared by the using header.
+/// calls <c>IDisposable.Dispose</c>. <see cref="LocalIndex"/> identifies the
+/// consumed resource slot.
+/// <para>
+/// <see cref="DeclaresResourceVariable"/> is <see langword="false"/> when the
+/// resource local is disposed-only and carries no recovered source name. The
+/// idiomatic C# for that shape omits the local entirely — <c>using (expr)</c>
+/// rather than <c>using (T V_n = expr)</c> — while preserving any conversion
+/// the declaration applied (#3346).
+/// </para>
 /// </summary>
 public sealed class UsingStatement : IrNode
 {
@@ -1356,12 +1364,14 @@ public sealed class UsingStatement : IrNode
         IrExpression resource,
         BlockContainer body,
         bool isAwait = false,
-        ImmutableArray<MethodRef> consumedMemberRefs = default)
+        ImmutableArray<MethodRef> consumedMemberRefs = default,
+        bool declaresResourceVariable = true)
     {
         LocalIndex = localIndex;
         ResourceType = resourceType;
         IsAwait = isAwait;
         ConsumedMemberRefs = consumedMemberRefs.IsDefault ? [] : consumedMemberRefs;
+        DeclaresResourceVariable = declaresResourceVariable;
         AddChild(resource);
         AddChild(body);
     }
@@ -1370,6 +1380,7 @@ public sealed class UsingStatement : IrNode
     public TypeRef ResourceType { get; }
     public bool IsAwait { get; }
     public ImmutableArray<MethodRef> ConsumedMemberRefs { get; }
+    public bool DeclaresResourceVariable { get; }
     public IrExpression Resource => (IrExpression)Children[0];
     public BlockContainer Body => (BlockContainer)Children[1];
 

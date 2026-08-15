@@ -74,7 +74,7 @@ public class LoweredFidelityGateTests
         // FidelityGateTests docket — the ConditionalStoreChainPass ternary
         // (sel == 0 ? 11 : ...) re-lowers differently than the per-arm stores. It
         // diffs identically in the lowered view; this entry was missing because the
-        // lowered gate is Speed=Slow and only runs in Deep Inspect / publish, not PR CI. Verified
+        // lowered gate is Speed=Slow and only runs in Deep Inspect, not PR CI. Verified
         // pre-existing (fails with MixedShortCircuitChainPass off as well).
         "SwitchStoreThenUse",
         // Lowered output omits ForLoopPass, so protected increment targets retain
