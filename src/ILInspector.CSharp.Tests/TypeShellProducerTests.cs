@@ -369,6 +369,23 @@ public sealed class TypeShellProducerTests
     }
 
     [Fact]
+    public void MemberShellProducer_AcceptsGenericExplicitInterfaceName()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Run",
+            Kind: CSharpShellMemberKind.Method,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "void",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return;",
+            ExplicitInterfaceMemberName: "IMap<string, int>.Run"));
+
+        Assert.Equal("void IMap<string, int>.Run()", policy.Member.Signature);
+    }
+
+    [Fact]
     public void MemberShellProducer_RejectsBodylessExplicitInterfaceMethod()
     {
         var exception = Assert.Throws<ArgumentException>(() =>
@@ -385,6 +402,30 @@ public sealed class TypeShellProducerTests
 
         Assert.Contains(
             "body shape 'None' is not valid for member kind 'Method'",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(CSharpShellBodyKind.None)]
+    [InlineData(CSharpShellBodyKind.InitOnlyProperty)]
+    public void MemberShellProducer_RejectsExplicitSetterOnlySkeleton(
+        CSharpShellBodyKind bodyKind)
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+                Name: "Value",
+                Kind: CSharpShellMemberKind.PropertySet,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: "int",
+                TypeParameters: [],
+                BodyKind: bodyKind,
+                Body: null,
+                ExplicitInterfaceMemberName: "IValue.Value")));
+
+        Assert.Contains(
+            $"body shape '{bodyKind}' is not valid for member kind 'PropertySet'",
             exception.Message,
             StringComparison.Ordinal);
     }

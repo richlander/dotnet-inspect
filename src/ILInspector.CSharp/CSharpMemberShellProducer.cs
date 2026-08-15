@@ -1,3 +1,4 @@
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp;
@@ -363,15 +364,48 @@ public static class CSharpMemberShellProducer
                 nameof(spec));
         }
 
-        string[] segments = name.Split('.');
-        if (segments.Length < 2
-            || segments.Any(string.IsNullOrEmpty)
-            || name.Any(char.IsWhiteSpace))
+        if (HasInvalidExplicitInterfaceNameShape(name))
         {
             throw new ArgumentException(
                 "Explicit-interface member names must be qualified as 'Interface.Member'.",
                 nameof(spec));
         }
+    }
+
+    static bool HasInvalidExplicitInterfaceNameShape(string name)
+    {
+        int angleDepth = 0;
+        bool segmentHasContent = false;
+        bool hasTopLevelSeparator = false;
+        foreach (char ch in name)
+        {
+            if (CSharpIdentifier.RequiresLiteralEscape(ch)
+                || (char.IsWhiteSpace(ch) && (angleDepth == 0 || ch is not (' ' or '\t'))))
+            {
+                return true;
+            }
+
+            if (ch == '<')
+            {
+                angleDepth++;
+            }
+            else if (ch == '>')
+            {
+                if (angleDepth == 0)
+                    return true;
+                angleDepth--;
+            }
+            else if (ch == '.' && angleDepth == 0)
+            {
+                if (!segmentHasContent)
+                    return true;
+                segmentHasContent = false;
+                hasTopLevelSeparator = true;
+                continue;
+            }
+            segmentHasContent = true;
+        }
+        return angleDepth != 0 || !segmentHasContent || !hasTopLevelSeparator;
     }
 
     static void ValidateBodyKind(CSharpMemberShellSpec spec)
@@ -383,12 +417,14 @@ public static class CSharpMemberShellProducer
         bool isValid = spec.BodyKind switch
         {
             CSharpShellBodyKind.None
-                => spec.Kind != CSharpShellMemberKind.Method
-                    || spec.ExplicitInterfaceMemberName is null,
+                => spec.ExplicitInterfaceMemberName is null
+                    || spec.Kind is not (CSharpShellMemberKind.Method or CSharpShellMemberKind.PropertySet),
             CSharpShellBodyKind.Throw => spec.Kind != CSharpShellMemberKind.Field,
             CSharpShellBodyKind.ThrowInit
-                or CSharpShellBodyKind.InitOnlyProperty
                 => spec.Kind == CSharpShellMemberKind.PropertySet,
+            CSharpShellBodyKind.InitOnlyProperty
+                => spec.Kind == CSharpShellMemberKind.PropertySet
+                    && spec.ExplicitInterfaceMemberName is null,
             CSharpShellBodyKind.ThrowGetSet
                 or CSharpShellBodyKind.ThrowGetInit
                 or CSharpShellBodyKind.AutoPropertyGetSet
