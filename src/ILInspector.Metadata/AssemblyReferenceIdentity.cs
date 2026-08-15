@@ -14,6 +14,12 @@ public sealed record AssemblyReferenceIdentity(
     string? Culture,
     string? PublicKeyToken)
 {
+    static readonly System.Runtime.CompilerServices
+        .ConditionalWeakTable<
+            MetadataReader,
+            AssemblyReferenceProjectionCache>
+        s_retainedProjections = new();
+
     /// <summary>
     /// Whether another identity names the same ECMA assembly. Name, culture, and public-key token
     /// comparisons are case-insensitive; null, empty, and <c>neutral</c> cultures are equivalent.
@@ -120,6 +126,13 @@ public sealed record AssemblyReferenceIdentity(
             TokenOrNull(reader, definition.PublicKey, isPublicKey: true));
     }
 
+    internal static AssemblyReferenceProjectionCache
+        RetainedProjection(MetadataReader reader) =>
+        s_retainedProjections.GetValue(
+            reader,
+            static current => new AssemblyReferenceProjectionCache(
+                current));
+
     internal static string? StringOrNull(
         MetadataReader reader,
         StringHandle handle)
@@ -192,6 +205,9 @@ internal readonly record struct AssemblyReferenceRowKey(
 internal sealed class AssemblyReferenceProjectionCache
 {
     readonly MetadataReader _reader;
+    // RetainedProjection shares one cache per MetadataReader, so lookups and
+    // first-write population must stay serialized.
+    readonly object _gate = new();
     readonly Dictionary<
         AssemblyReferenceRowKey,
         AssemblyReferenceIdentity> _identities = [];
@@ -215,31 +231,34 @@ internal sealed class AssemblyReferenceProjectionCache
             reference.Culture,
             reference.PublicKeyOrToken,
             isPublicKey);
-        if (_identities.TryGetValue(
-                rowKey,
-                out AssemblyReferenceIdentity? identity))
+        lock (_gate)
         {
-            return identity;
-        }
+            if (_identities.TryGetValue(
+                    rowKey,
+                    out AssemblyReferenceIdentity? identity))
+            {
+                return identity;
+            }
 
-        var key = new AssemblyReferenceKeyBlob(
-            reference.PublicKeyOrToken,
-            isPublicKey);
-        if (!_tokens.TryGetValue(key, out string? token))
-        {
-            token = AssemblyReferenceIdentity.TokenOrNull(
-                _reader,
+            var key = new AssemblyReferenceKeyBlob(
                 reference.PublicKeyOrToken,
                 isPublicKey);
-            _tokens.Add(key, token);
-        }
+            if (!_tokens.TryGetValue(key, out string? token))
+            {
+                token = AssemblyReferenceIdentity.TokenOrNull(
+                    _reader,
+                    reference.PublicKeyOrToken,
+                    isPublicKey);
+                _tokens.Add(key, token);
+            }
 
-        identity = AssemblyReferenceIdentity.Create(
-            _reader,
-            reference,
-            token);
-        _identities.Add(rowKey, identity);
-        return identity;
+            identity = AssemblyReferenceIdentity.Create(
+                _reader,
+                reference,
+                token);
+            _identities.Add(rowKey, identity);
+            return identity;
+        }
     }
 }
 

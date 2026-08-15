@@ -19,9 +19,9 @@ public static class MetadataTypeDeclarationProbe
             new Dictionary<AssemblyReferenceIdentity, PendingForwarder>();
         var referenceProjection =
             new AssemblyReferenceProjectionCache(reader);
-        bool declaresCoreLibraryRoot = false;
         bool canDeclareCoreLibraryRoot =
             reader.AssemblyReferences.Count == 0;
+        int coreLibraryRootCandidateCount = 0;
 
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
         {
@@ -38,9 +38,11 @@ public static class MetadataTypeDeclarationProbe
             {
                 TypeDefinition definition =
                     reader.GetTypeDefinition(handle);
-                declaresCoreLibraryRoot |=
-                    canDeclareCoreLibraryRoot
-                    && IsCoreLibraryRoot(reader, definition);
+                if (canDeclareCoreLibraryRoot
+                    && IsCoreLibraryRoot(reader, definition))
+                {
+                    coreLibraryRootCandidateCount++;
+                }
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
@@ -60,6 +62,10 @@ public static class MetadataTypeDeclarationProbe
                         TypeDefinitionToken.FromHandle(reader, handle)));
             }
         }
+
+        bool declaresCoreLibraryRoot =
+            canDeclareCoreLibraryRoot
+            && coreLibraryRootCandidateCount == 1;
 
         foreach (ExportedTypeHandle handle in reader.ExportedTypes)
         {
@@ -114,6 +120,7 @@ public static class MetadataTypeDeclarationProbe
                 new AssemblyReferenceProjectionCache(reader);
             bool canDeclareCoreLibraryRoot =
                 reader.AssemblyReferences.Count == 0;
+            int coreLibraryRootCandidateCount = 0;
             var definitions =
                 new DefinitionEntry[reader.TypeDefinitions.Count];
             int definitionIndex = 0;
@@ -123,11 +130,13 @@ public static class MetadataTypeDeclarationProbe
                 {
                     TypeDefinition definition =
                         reader.GetTypeDefinition(handle);
-                    _declaresCoreLibraryRoot |=
-                        canDeclareCoreLibraryRoot
+                    if (canDeclareCoreLibraryRoot
                         && IsCoreLibraryRoot(
                             reader,
-                            definition);
+                            definition))
+                    {
+                        coreLibraryRootCandidateCount++;
+                    }
                     definitions[definitionIndex++] =
                         new DefinitionEntry(
                             StringComparer.Ordinal.GetHashCode(
@@ -146,6 +155,9 @@ public static class MetadataTypeDeclarationProbe
                     return;
                 }
             }
+            _declaresCoreLibraryRoot =
+                canDeclareCoreLibraryRoot
+                && coreLibraryRootCandidateCount == 1;
             Array.Sort(
                 definitions,
                 static (left, right) =>
@@ -372,15 +384,10 @@ public static class MetadataTypeDeclarationProbe
     static bool IsCoreLibraryRoot(
         MetadataReader reader,
         TypeDefinition definition) =>
-        definition.BaseType.IsNil
-        && (definition.Attributes
-            & System.Reflection.TypeAttributes.Interface) == 0
-        && reader.StringComparer.Equals(
-            definition.Namespace,
-            "System")
-        && reader.StringComparer.Equals(
-            definition.Name,
-            "Object");
+        CoreLibraryRootAuthentication
+            .IsValidTopLevelCoreLibraryRoot(
+                reader,
+                definition);
 
     static bool TryReadExportedCandidate(
         MetadataReader reader,

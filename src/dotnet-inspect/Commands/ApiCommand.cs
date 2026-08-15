@@ -541,6 +541,20 @@ public class ApiCommand
             !string.IsNullOrEmpty(typeFilter)
             || options.KindFilter.Count > 0
             || options.UnsafeOnly;
+        var materializedSubjects =
+            new HashSet<ApiSurfaceInspectionSubject>();
+        var materializedTokens = new HashSet<int>();
+        var materializedDefinitions =
+            new HashSet<MetadataTypeDefinitionName>();
+        if (filtersConstraintSubjects)
+        {
+            AddRetainedTypes(
+                api.Types,
+                materializedDefinitions,
+                materializedTokens,
+                materializedSubjects);
+        }
+
         if (!string.IsNullOrEmpty(typeFilter))
         {
             api.Types = api.Types
@@ -572,7 +586,7 @@ public class ApiCommand
         if (filtersConstraintSubjects)
             ReprojectConstraintFailures(api);
 
-        static void ReprojectConstraintFailures(ApiSurface surface)
+        void ReprojectConstraintFailures(ApiSurface surface)
         {
             var retainedSubjects =
                 new HashSet<ApiSurfaceInspectionSubject>();
@@ -614,21 +628,30 @@ public class ApiCommand
                 ApiSurfaceInspectionFailure failure)
             {
                 if (failure.OwningTypeDefinition is { } owner)
-                    return !retainedDefinitions.Contains(owner);
+                {
+                    return materializedDefinitions.Contains(owner)
+                        && !retainedDefinitions.Contains(owner);
+                }
                 if (!failure.AffectedTypeDefinitions.IsDefaultOrEmpty)
                 {
-                    return !failure.AffectedTypeDefinitions.Any(
-                        retainedDefinitions.Contains);
+                    if (failure.AffectedTypeDefinitions.Any(
+                            retainedDefinitions.Contains))
+                    {
+                        return false;
+                    }
+
+                    return failure.AffectedTypeDefinitions.All(
+                        materializedDefinitions.Contains);
                 }
                 if (failure.OwningTypeToken is not int token)
                     return false;
 
-                return !retainedTokens.Contains(token)
-                    || (failure.SourceAssemblyPath is not null
-                        && !retainedSubjects.Contains(
-                            new ApiSurfaceInspectionSubject(
-                                failure.SourceAssemblyPath,
-                                token)));
+                return IncludesMaterializedOwner(
+                           token,
+                           failure.SourceAssemblyPath)
+                    && !IncludesRetainedOwner(
+                        token,
+                        failure.SourceAssemblyPath);
             }
 
             void Add(string? path, int? token)
@@ -640,7 +663,67 @@ public class ApiCommand
                 retainedSubjects.Add(
                     new ApiSurfaceInspectionSubject(path, value));
             }
+
+            bool IncludesRetainedOwner(
+                int token,
+                string? path) =>
+                retainedTokens.Contains(token)
+                && (path is null
+                    || retainedSubjects.Contains(
+                        new ApiSurfaceInspectionSubject(
+                            path,
+                            token))
+                    || retainedSubjects.Contains(
+                        new ApiSurfaceInspectionSubject(
+                            null,
+                            token)));
         }
+
+        void AddRetainedTypes(
+            IReadOnlyList<ApiType> types,
+            HashSet<MetadataTypeDefinitionName> definitions,
+            HashSet<int> tokens,
+            HashSet<ApiSurfaceInspectionSubject> subjects)
+        {
+            foreach (ApiType type in types)
+            {
+                if (type.DefinitionName is { } definition)
+                    definitions.Add(definition);
+                Add(type.SourceAssemblyPath, type.MetadataToken);
+                foreach (ApiMember member in type.Members)
+                {
+                    Add(type.SourceAssemblyPath, member.MetadataToken);
+                    Add(type.SourceAssemblyPath, member.GetterToken);
+                    Add(type.SourceAssemblyPath, member.SetterToken);
+                    Add(type.SourceAssemblyPath, member.AdderToken);
+                    Add(type.SourceAssemblyPath, member.RemoverToken);
+                }
+            }
+
+            void Add(string? path, int? token)
+            {
+                if (token is not int value)
+                    return;
+
+                tokens.Add(value);
+                subjects.Add(
+                    new ApiSurfaceInspectionSubject(path, value));
+            }
+        }
+
+        bool IncludesMaterializedOwner(
+            int token,
+            string? path) =>
+            materializedTokens.Contains(token)
+            && (path is null
+                || materializedSubjects.Contains(
+                    new ApiSurfaceInspectionSubject(
+                        path,
+                        token))
+                || materializedSubjects.Contains(
+                    new ApiSurfaceInspectionSubject(
+                        null,
+                        token)));
     }
 
     /// <summary>

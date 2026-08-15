@@ -11502,6 +11502,50 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task Type_WildcardFilter_PreservesRejectedMetadataRowDiagnostics()
+    {
+        string directory = Path.Combine(
+            AppContext.BaseDirectory,
+            "pr3904-r4-repro");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(
+            directory,
+            $"wildcard-row-failure-{Guid.NewGuid():N}.dll");
+        WritePartiallyMalformedTypeNameAssembly(path);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "-t",
+                "N.*",
+                "--tips",
+                "q");
+
+            Assert.True(
+                result.Exit == 1,
+                $"Exit={result.Exit}; output={result.Output}; error={result.Error}");
+            Assert.Contains(
+                "N.Good",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.True(
+                result.Error.Contains(
+                    "rejected 1 metadata row",
+                    StringComparison.OrdinalIgnoreCase)
+                || result.Output.Contains(
+                    "## Inspection Failures",
+                    StringComparison.Ordinal),
+                $"Exit={result.Exit}; output={result.Output}; error={result.Error}");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

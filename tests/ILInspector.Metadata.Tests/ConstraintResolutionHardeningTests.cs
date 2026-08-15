@@ -318,6 +318,99 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void DirectCoreBaseClassification_DoesNotRehashLargePublicKeyPerType()
+    {
+        const int TypeCount = 32;
+        var (image, types) =
+            BuildDirectCoreBaseSample(
+                typeCount: TypeCount,
+                publicKeyBytes: 1024 * 1024);
+        using var pe = Reader(image);
+        MetadataReader reader = pe.GetMetadataReader();
+
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Class,
+            MetadataTypeDeclarationProbe.ClassifyDefinitionKind(
+                reader,
+                types[0],
+                declaringAssemblyDefinesCoreLibraryRoot: false));
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        foreach (TypeDefinitionHandle type in types)
+        {
+            Assert.Equal(
+                MetadataTypeDefinitionKind.Class,
+                MetadataTypeDeclarationProbe.ClassifyDefinitionKind(
+                    reader,
+                    type,
+                    declaringAssemblyDefinesCoreLibraryRoot: false));
+        }
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.InRange(
+            allocated,
+            0,
+            8 * 1024 * 1024);
+    }
+
+    [Fact]
+    public async Task
+        RetainedProjection_ConcurrentSharedReaderAccessReusesSingleIdentity()
+    {
+        const int WorkerCount = 16;
+        var (image, types) =
+            BuildDirectCoreBaseSample(
+                typeCount: WorkerCount,
+                publicKeyBytes: 1024 * 1024);
+        using var pe = Reader(image);
+        MetadataReader reader = pe.GetMetadataReader();
+        AssemblyReferenceHandle reference =
+            Assert.Single(reader.AssemblyReferences);
+        using var start = new Barrier(WorkerCount);
+
+        Task<(
+            AssemblyReferenceIdentity Identity,
+            MetadataTypeDefinitionKind Kind)>[] tasks =
+        [
+            .. Enumerable.Range(0, WorkerCount)
+                .Select(index =>
+                    Task.Run(() =>
+                    {
+                        start.SignalAndWait();
+                        AssemblyReferenceIdentity identity =
+                            AssemblyReferenceIdentity.From(
+                                reference,
+                                AssemblyReferenceIdentity
+                                    .RetainedProjection(reader));
+                        MetadataTypeDefinitionKind kind =
+                            MetadataTypeDeclarationProbe
+                                .ClassifyDefinitionKind(
+                                    reader,
+                                    types[index],
+                                    declaringAssemblyDefinesCoreLibraryRoot:
+                                        false);
+                        return (identity, kind);
+                    })),
+        ];
+
+        (
+            AssemblyReferenceIdentity Identity,
+            MetadataTypeDefinitionKind Kind)[] results =
+                await Task.WhenAll(tasks);
+        AssemblyReferenceIdentity first = results[0].Identity;
+        Assert.All(
+            results,
+            result =>
+            {
+                Assert.Same(first, result.Identity);
+                Assert.Equal(
+                    MetadataTypeDefinitionKind.Class,
+                    result.Kind);
+            });
+    }
+
+    [Fact]
     public void InvalidAssemblyReferenceTokenLengthIsRejected()
     {
         byte[] image =
@@ -441,6 +534,75 @@ public class ConstraintResolutionHardeningTests
             "could not be bound",
             failure.Detail,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NestedFakeSystemObjectDoesNotAuthenticateCoreLibrary()
+    {
+        var (image, parameter) =
+            BuildNestedFakeSystemObjectConstraintSample();
+        using var pe = Reader(image);
+
+        TypeParameterTypeKind kind =
+            TypeParameterKindClassifier.Classify(
+                pe.GetMetadataReader(),
+                parameter,
+                hasValueTypeConstraint: false,
+                hasReferenceTypeConstraint: false,
+                new TypeParameterKindClassifier.ChainState());
+
+        Assert.Equal(
+            TypeParameterTypeKind.ReferenceType,
+            kind);
+    }
+
+    [Fact]
+    public void AmbiguousSystemObjectDoesNotAuthenticateCoreLibrary()
+    {
+        var (image, parameter) =
+            BuildAmbiguousSystemObjectConstraintSample();
+        using var pe = Reader(image);
+
+        TypeParameterTypeKind kind =
+            TypeParameterKindClassifier.Classify(
+                pe.GetMetadataReader(),
+                parameter,
+                hasValueTypeConstraint: false,
+                hasReferenceTypeConstraint: false,
+                new TypeParameterKindClassifier.ChainState());
+
+        Assert.Equal(
+            TypeParameterTypeKind.ReferenceType,
+            kind);
+    }
+
+    [Fact]
+    public void NestedFakeSystemObjectInCoreNamedAssemblyDoesNotAuthenticateCoreLibrary()
+    {
+        AssemblyName coreIdentity =
+            typeof(object).Assembly.GetName();
+        byte[] hostileCore =
+            BuildCoreNamedNestedFakeSystemObject(
+                coreIdentity);
+        byte[] consumerImage =
+            BuildCoreObjectConsumer(coreIdentity);
+        ResolvedAssemblyReference source =
+            Descriptor(consumerImage);
+        ResolvedAssemblyReference hostile =
+            Descriptor(hostileCore);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(hostile));
+
+        Assert.Equal(
+            TypeParameterTypeKind.ReferenceType,
+            Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                .TypeKind);
     }
 
     [Fact]
@@ -934,6 +1096,121 @@ public class ConstraintResolutionHardeningTests
             source,
             catalog,
             new MappingPolicy(facade, target));
+
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "Target",
+            Assert.IsType<AssemblyReferenceIdentity>(
+                failure.DependencyAssembly)
+            .Name);
+    }
+
+    [Fact]
+    public void RecursiveForwardedModuleExportRejectionPreservesTerminalAssemblyIdentity()
+    {
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "Facade",
+                "Type",
+                constructed: false);
+        byte[] facadeImage =
+            BuildForwarder(
+                "Facade",
+                "Middle",
+                "Type");
+        byte[] middleImage =
+            BuildForwarder(
+                "Middle",
+                "Target",
+                "Type");
+        byte[] targetImage =
+            BuildModuleExportTarget(
+                "Target",
+                "Part.netmodule");
+        ResolvedAssemblyReference source =
+            Descriptor(consumerImage);
+        ResolvedAssemblyReference facade =
+            Descriptor(facadeImage);
+        ResolvedAssemblyReference middle =
+            Descriptor(middleImage);
+        ResolvedAssemblyReference target =
+            Descriptor(targetImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(
+                facade,
+                middle,
+                target));
+
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "Target",
+            Assert.IsType<AssemblyReferenceIdentity>(
+                failure.DependencyAssembly)
+            .Name);
+    }
+
+    [Fact]
+    public void RecursiveForwardedModuleKindFailurePreservesTerminalAssemblyIdentity()
+    {
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "Outer",
+                "Outer",
+                constructed: false);
+        byte[] outerImage =
+            BuildTypeWithExternalConstructedBase(
+                "Outer",
+                "Outer",
+                genericDefinition: false,
+                "Facade",
+                "Type`1");
+        byte[] facadeImage =
+            BuildForwarder(
+                "Facade",
+                "Middle",
+                "Type`1");
+        byte[] middleImage =
+            BuildForwarder(
+                "Middle",
+                "Target",
+                "Type`1");
+        byte[] targetImage =
+            BuildModuleExportTarget(
+                "Target",
+                "Part.netmodule",
+                "Type`1");
+        ResolvedAssemblyReference source =
+            Descriptor(consumerImage);
+        ResolvedAssemblyReference outer =
+            Descriptor(outerImage);
+        ResolvedAssemblyReference facade =
+            Descriptor(facadeImage);
+        ResolvedAssemblyReference middle =
+            Descriptor(middleImage);
+        ResolvedAssemblyReference target =
+            Descriptor(targetImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(
+                outer,
+                facade,
+                middle,
+                target));
 
         ApiSurfaceInspectionFailure failure =
             Assert.Single(surface.InspectionFailures);
@@ -2056,6 +2333,160 @@ public class ConstraintResolutionHardeningTests
         return Serialize(metadata);
     }
 
+    static (
+        byte[] Image,
+        ImmutableArray<TypeDefinitionHandle> Types)
+        BuildDirectCoreBaseSample(
+            int typeCount,
+            int publicKeyBytes)
+    {
+        MetadataBuilder metadata =
+            NewMetadata("DirectCoreBase");
+        BlobHandle publicKey =
+            metadata.GetOrAddBlob(new byte[publicKeyBytes]);
+        AssemblyReferenceHandle core =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(10, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: publicKey,
+                flags: AssemblyFlags.PublicKey,
+                hashValue: default);
+        TypeReferenceHandle valueType =
+            metadata.AddTypeReference(
+                core,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("ValueType"));
+        AddModule(metadata);
+        var types =
+            ImmutableArray.CreateBuilder<TypeDefinitionHandle>(
+                typeCount);
+        for (int i = 0; i < typeCount; i++)
+        {
+            types.Add(
+                AddType(
+                    metadata,
+                    $"Derived{i}",
+                    valueType));
+        }
+
+        return (Serialize(metadata), types.MoveToImmutable());
+    }
+
+    static (
+        byte[] Image,
+        GenericParameterHandle Parameter)
+        BuildNestedFakeSystemObjectConstraintSample()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("NestedFakeCore");
+        AddModule(metadata);
+        TypeDefinitionHandle fakeObject =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic
+                    | TypeAttributes.Class,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`1");
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            fakeObject);
+        return (Serialize(metadata), parameter);
+    }
+
+    static (
+        byte[] Image,
+        GenericParameterHandle Parameter)
+        BuildAmbiguousSystemObjectConstraintSample()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("AmbiguousFakeCore");
+        AddModule(metadata);
+        TypeDefinitionHandle first =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`1");
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            first);
+        return (Serialize(metadata), parameter);
+    }
+
+    static byte[] BuildCoreNamedNestedFakeSystemObject(
+        AssemblyName identity)
+    {
+        MetadataBuilder metadata =
+            NewMetadata(
+                identity.Name!,
+                identity.GetPublicKey());
+        AddModule(metadata);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic
+                | TypeAttributes.Class,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildCoreObjectConsumer(
+        AssemblyName targetAssembly)
+    {
+        MetadataBuilder metadata =
+            NewMetadata("CoreObjectConsumer");
+        AssemblyReferenceHandle reference =
+            AddReference(metadata, targetAssembly);
+        TypeReferenceHandle target =
+            metadata.AddTypeReference(
+                reference,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        AddModule(metadata);
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`1");
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            target);
+        return Serialize(metadata);
+    }
+
     static byte[] BuildForwarder(
         string assemblyName,
         string targetAssembly,
@@ -2077,7 +2508,8 @@ public class ConstraintResolutionHardeningTests
 
     static byte[] BuildModuleExportTarget(
         string assemblyName,
-        string moduleName)
+        string moduleName,
+        string typeName = "Type")
     {
         MetadataBuilder metadata =
             NewMetadata(assemblyName);
@@ -2091,7 +2523,7 @@ public class ConstraintResolutionHardeningTests
         metadata.AddExportedType(
             TypeAttributes.Public,
             metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("Type"),
+            metadata.GetOrAddString(typeName),
             module,
             typeDefinitionId: 1);
         return Serialize(metadata);
@@ -2159,7 +2591,9 @@ public class ConstraintResolutionHardeningTests
         return Serialize(metadata);
     }
 
-    static MetadataBuilder NewMetadata(string assemblyName)
+    static MetadataBuilder NewMetadata(
+        string assemblyName,
+        byte[]? publicKey = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2172,8 +2606,12 @@ public class ConstraintResolutionHardeningTests
             metadata.GetOrAddString(assemblyName),
             new Version(1, 0, 0, 0),
             default,
-            default,
-            default,
+            publicKey is null
+                ? default
+                : metadata.GetOrAddBlob(publicKey),
+            publicKey is null
+                ? default
+                : AssemblyFlags.PublicKey,
             default);
         return metadata;
     }

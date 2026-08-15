@@ -1684,15 +1684,10 @@ public static class ApiSurfaceExtractor
                     && string.Equals(reader.GetString(typeRef.Name), "Object", StringComparison.Ordinal)
                     && ResolvesThroughCoreLibrary(reader, typeRef.ResolutionScope);
             case HandleKind.TypeDefinition:
-                var typeDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeHandle);
-                // The genuine root object is the only `System.Object` with no
-                // base type. An adversarial assembly can define its own
-                // `System.Object` that extends the real one (a non-root fake);
-                // requiring a nil base type rejects it while still accepting the
-                // real object when inspecting the assembly that defines it.
-                return typeDef.BaseType.IsNil
-                    && string.Equals(reader.GetString(typeDef.Namespace), "System", StringComparison.Ordinal)
-                    && string.Equals(reader.GetString(typeDef.Name), "Object", StringComparison.Ordinal);
+                return CoreLibraryRootAuthentication
+                    .IsUniqueTopLevelCoreLibraryRoot(
+                        reader,
+                        (TypeDefinitionHandle)typeHandle);
             default:
                 return false;
         }
@@ -1737,18 +1732,21 @@ public static class ApiSurfaceExtractor
     {
         if (resolutionScope.Kind != HandleKind.AssemblyReference)
             return false;
-        var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)resolutionScope);
-        if (!CoreLibraryPublicKeyTokens.TryGetValue(reader.GetString(assemblyRef.Name), out byte[][]? expectedTokens))
-            return false;
-        if (!TryComputeToken(reader, assemblyRef, out byte[] token))
-            return false;
-        foreach (byte[] expected in expectedTokens)
+        try
         {
-            if (token.AsSpan().SequenceEqual(expected))
-                return true;
+            return ResolvesThroughCoreLibrary(
+                AssemblyReferenceIdentity.From(
+                    (AssemblyReferenceHandle)resolutionScope,
+                    AssemblyReferenceIdentity.RetainedProjection(
+                        reader)));
         }
-
-        return false;
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or ArgumentException)
+        {
+            return false;
+        }
     }
 
     internal static bool ResolvesThroughCoreLibrary(
@@ -1774,35 +1772,6 @@ public static class ApiSurfaceExtractor
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Computes the 8-byte strong-name public-key token of
-    /// <paramref name="assemblyRef"/>. An assembly reference stores either the
-    /// full public key (when <see cref="AssemblyFlags.PublicKey"/> is set) or
-    /// the already-computed token; the token is the low 8 bytes of the SHA-1
-    /// hash of the public key, in reverse order. Returns false for a nil or
-    /// wrong-length token blob.
-    /// </summary>
-    private static bool TryComputeToken(MetadataReader reader, System.Reflection.Metadata.AssemblyReference assemblyRef, out byte[] token)
-    {
-        token = [];
-        if (assemblyRef.PublicKeyOrToken.IsNil)
-            return false;
-        byte[] blob = reader.GetBlobBytes(assemblyRef.PublicKeyOrToken);
-        if ((assemblyRef.Flags & AssemblyFlags.PublicKey) != 0)
-        {
-            byte[] hash = System.Security.Cryptography.SHA1.HashData(blob);
-            token = new byte[8];
-            for (int i = 0; i < 8; i++)
-                token[i] = hash[hash.Length - 1 - i];
-            return true;
-        }
-
-        if (blob.Length != 8)
-            return false;
-        token = blob;
-        return true;
     }
 
     private static bool IsOperatorMethodName(string methodName) =>

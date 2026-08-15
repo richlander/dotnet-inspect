@@ -923,7 +923,9 @@ public sealed class ResolvedTypeDefinition
         MetadataTypeDefinitionKind kind,
         bool declaringAssemblyDefinesCoreLibraryRoot,
         int genericParameterCount,
-        TypeResolutionFailure? kindResolutionFailure = null)
+        TypeResolutionFailure? kindResolutionFailure = null,
+        AssemblyReferenceIdentity? kindResolutionDependencyAssembly =
+            null)
     {
         Key = key;
         Address = address;
@@ -934,6 +936,8 @@ public sealed class ResolvedTypeDefinition
             declaringAssemblyDefinesCoreLibraryRoot;
         GenericParameterCount = genericParameterCount;
         KindResolutionFailure = kindResolutionFailure;
+        KindResolutionDependencyAssembly =
+            kindResolutionDependencyAssembly;
     }
 
     public ResolvedTypeDefinitionKey Key { get; }
@@ -943,6 +947,8 @@ public sealed class ResolvedTypeDefinition
     public MetadataTypeDefinitionKind Kind { get; }
     internal int GenericParameterCount { get; }
     internal TypeResolutionFailure? KindResolutionFailure { get; }
+    internal AssemblyReferenceIdentity?
+        KindResolutionDependencyAssembly { get; }
     public bool IsInterface =>
         Kind == MetadataTypeDefinitionKind.Interface;
     public bool IsValueType =>

@@ -1295,7 +1295,8 @@ public sealed class TypeResolutionContext : IDisposable
 
         readonly record struct KindAuthenticationResult(
             MetadataTypeDefinitionKind Kind,
-            TypeResolutionFailure? Failure);
+            TypeResolutionFailure? Failure,
+            AssemblyReferenceIdentity? DependencyAssembly);
 
         internal Builder(
             TypeResolutionCatalog catalog,
@@ -1882,6 +1883,9 @@ public sealed class TypeResolutionContext : IDisposable
                         MetadataTypeDefinitionKind kind = defined.Kind;
                         TypeResolutionFailure? kindResolutionFailure =
                             null;
+                        AssemblyReferenceIdentity?
+                            kindResolutionDependencyAssembly =
+                                null;
                         if (kind
                                 == MetadataTypeDefinitionKind.Unknown
                             && defined.KindDependency is { } dependency)
@@ -1894,6 +1898,9 @@ public sealed class TypeResolutionContext : IDisposable
                                 kind = authenticated.Kind;
                                 kindResolutionFailure =
                                     authenticated.Failure;
+                                kindResolutionDependencyAssembly =
+                                    authenticated
+                                        .DependencyAssembly;
                             }
                             else
                             {
@@ -1921,6 +1928,9 @@ public sealed class TypeResolutionContext : IDisposable
 
                                     kindResolutionFailure =
                                         rejected.Failure;
+                                    kindResolutionDependencyAssembly =
+                                        dependencyProjectionFailure
+                                            .TerminalAssemblyIdentity;
                                 }
                                 else if (active.Contains(dependencyKey))
                                 {
@@ -1955,6 +1965,9 @@ public sealed class TypeResolutionContext : IDisposable
                                     kind = authentication.Kind;
                                     kindResolutionFailure =
                                         authentication.Failure;
+                                    kindResolutionDependencyAssembly =
+                                        authentication
+                                            .DependencyAssembly;
                                 }
                                 else if (!TryConsumeRequest(
                                         dependencyKey))
@@ -2014,6 +2027,9 @@ public sealed class TypeResolutionContext : IDisposable
                                     kind = authentication.Kind;
                                     kindResolutionFailure =
                                         authentication.Failure;
+                                    kindResolutionDependencyAssembly =
+                                        authentication
+                                            .DependencyAssembly;
                                 }
                                 else
                                 {
@@ -2046,7 +2062,8 @@ public sealed class TypeResolutionContext : IDisposable
                                     defined
                                         .DeclaringAssemblyDefinesCoreLibraryRoot,
                                     defined.GenericParameterCount,
-                                    kindResolutionFailure),
+                                    kindResolutionFailure,
+                                    kindResolutionDependencyAssembly),
                                 hops.ToImmutable()));
 
                     case TypeDeclarationResult.Missing:
@@ -2170,7 +2187,20 @@ public sealed class TypeResolutionContext : IDisposable
                         request.Type),
                 _ => null,
             };
-            return new KindAuthenticationResult(kind, failure);
+            AssemblyReferenceIdentity? dependencyAssembly =
+                failure is null
+                    ? null
+                    : outcome switch
+                    {
+                        TypeResolutionOutcome.Resolved resolvedOutcome =>
+                            resolvedOutcome.Definition
+                                .KindResolutionDependencyAssembly,
+                        _ => outcome.TerminalAssemblyIdentity,
+                    };
+            return new KindAuthenticationResult(
+                kind,
+                failure,
+                dependencyAssembly);
         }
 
         bool TryConsumeRequest(RequestKey key) =>
@@ -2584,7 +2614,8 @@ public sealed class TypeResolutionContext : IDisposable
                     definition.Kind,
                     definition.DeclaringAssemblyDefinesCoreLibraryRoot,
                     definition.GenericParameterCount,
-                    definition.KindResolutionFailure),
+                    definition.KindResolutionFailure,
+                    definition.KindResolutionDependencyAssembly),
                 resolved.Hops);
         }
 
