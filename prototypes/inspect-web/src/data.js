@@ -431,6 +431,8 @@ export function memberRequestKey(parts, taste = []) {
   return [...parts, ...taste].join("\u0000");
 }
 
+const FORMAT_CHARACTER = /^\p{Cf}$/u;
+
 export function mermaidLabel(value) {
   let encoded = "";
   for (const character of String(value ?? "")) {
@@ -441,8 +443,13 @@ export function mermaidLabel(value) {
     else if (character === '"') encoded += "&quot;";
     else if (character === "\\") encoded += "&#92;";
     else if (scalar < 0x20 || (scalar >= 0x7f && scalar <= 0x9f)
-      || scalar === 0x2028 || scalar === 0x2029) {
-      encoded += `&#92;u${scalar.toString(16).toUpperCase().padStart(4, "0")}`;
+      || scalar === 0x2028 || scalar === 0x2029
+      || (scalar >= 0xd800 && scalar <= 0xdfff)
+      || FORMAT_CHARACTER.test(character)) {
+      for (let index = 0; index < character.length; index++) {
+        encoded += `&#92;u${character.charCodeAt(index)
+          .toString(16).toUpperCase().padStart(4, "0")}`;
+      }
     } else encoded += character;
   }
   return encoded;

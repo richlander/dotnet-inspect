@@ -772,12 +772,18 @@ test("dependency graph uses the active package's explicitly selected group", () 
 });
 
 test("Mermaid labels contain grammar-significant metadata", () => {
-  const encoded = mermaidLabel("A\"B\n<x>&\\\u2028");
+  const encoded = mermaidLabel(
+    "A\"B\n<x>&\\\u2028\u202E\u200D\uD800X\uDC00\u{E0001}-Caf\u00E9\u{1F600}");
 
   assert.equal(
     encoded,
-    "A&quot;B&#92;u000A&lt;x&gt;&amp;&#92;&#92;u2028");
-  for (const character of ['"', "\n", "<", ">", "\\", "\u2028"]) {
+    "A&quot;B&#92;u000A&lt;x&gt;&amp;&#92;&#92;u2028"
+      + "&#92;u202E&#92;u200D&#92;uD800X&#92;uDC00"
+      + "&#92;uDB40&#92;uDC01-Caf\u00E9\u{1F600}");
+  for (const character of [
+    '"', "\n", "<", ">", "\\", "\u2028", "\u202E", "\u200D", "\uD800", "\uDC00"
+  ]) {
     assert.equal(encoded.includes(character), false);
   }
+  assert.equal(encoded.endsWith("-Caf\u00E9\u{1F600}"), true);
 });
