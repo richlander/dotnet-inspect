@@ -4177,9 +4177,9 @@ static class FidelityCheck
     /// compiler auto-property backing field lets the generated accessor and
     /// constructor assignment round-trip through normal C# syntax. The replaced
     /// accessor method names are added to <paramref name="skipAccessors"/> so the
-    /// caller does not also emit them as methods. Stub accessors throw;
-    /// over-permissive accessibility on a stub is safe because the body never runs
-    /// and only needs to bind.
+    /// caller does not also emit them as methods. Stub accessors throw, but their
+    /// metadata accessibility is retained so an inherited property slot remains
+    /// compatible with an override elsewhere in the shell.
     /// </summary>
     static void EmitStubProperties(MetadataReader reader, TypeDefinition typeDef,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
@@ -4303,9 +4303,8 @@ static class FidelityCheck
                             + (hasSet
                                 ? $" {setAccessibility}set;"
                                 : "");
-                    string autoAccessibilityPrefix = emitOverride
-                        ? MethodAccessibility(accessorMethod.Attributes)
-                        : "public ";
+                    string autoAccessibilityPrefix =
+                        MethodAccessibility(accessorMethod.Attributes);
                     sb.AppendLine($"{pad}{autoAccessibilityPrefix}{modifier}{unsafeMod}{ret} {Identifier(pname)} {{{autoBody} }}{initializer}");
                     if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
                     if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
@@ -4331,9 +4330,7 @@ static class FidelityCheck
                         : "");
                 string accessibilityPrefix = isExplicit
                     ? ""
-                    : emitOverride
-                        ? MethodAccessibility(accessorMethod.Attributes)
-                        : "public ";
+                    : MethodAccessibility(accessorMethod.Attributes);
                 string emittedName = isExplicit
                     ? EscapeMetadataTypeName(pname)
                     : Identifier(pname);

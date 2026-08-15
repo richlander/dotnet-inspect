@@ -3297,12 +3297,15 @@ public static class ApiSurfaceExtractor
             }
             else if (hasPublicGetter && hasSetter)
             {
-                accessorStr = "{ get; private set; }";
+                var setterAccessibility = AccessorAccessibility(
+                    setterAccess,
+                    (int)getterAccess);
+                accessorStr = $"{{ get; {FormatAccessor("set", setterAccess, (int)getterAccess)}; }}";
                 accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
-                    Accessibility = "private",
+                    Accessibility = setterAccessibility,
                     ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
                 });
             }
