@@ -41,21 +41,8 @@ public sealed class ServiceIndexAuthenticationTests
     }
 
     [Fact]
-    public async Task ServiceIndexRequest_DoesNotCarryTheCredential()
+    public async Task ServiceIndexRequest_CarriesTheCredential()
     {
-        // Pins a real gap. GetPackageBaseAddressAsync takes no credential and issues a bare
-        // GetStreamAsync, so the service index is always fetched anonymously. Against a feed
-        // that authenticates its service index — Azure DevOps does — the lookup fails at the
-        // discovery step and the credential is never even offered.
-        //
-        // The dotnet-inspect CLI does not hit this, because its package path does not go
-        // through NuGetClient at all: PackageExtractor has its own service-index reader that
-        // passes source.GetAuthHeader() on the discovery request. The gap is confined to
-        // NuGetFetch, so it bites any other consumer of this library that supplies a
-        // credential and reasonably expects it to be used.
-        //
-        // If GetPackageBaseAddressAsync learns to take a credential, this test should flip to
-        // asserting the header is present.
         RecordingHandler handler = new()
         {
             [IndexUrl] = ServiceIndex,
@@ -68,28 +55,28 @@ public sealed class ServiceIndexAuthenticationTests
 
         // The request must genuinely have been made, or the missing header proves nothing.
         Assert.Contains(IndexUrl, handler.Requested);
-        Assert.Null(handler.AuthFor(IndexUrl));
+        Assert.Equal("pat:s3cret", handler.DecodedAuthFor(IndexUrl));
     }
 
     [Fact]
-    public async Task AuthenticatedServiceIndex_FailsTheLookupEntirely()
+    public async Task AuthenticatedServiceIndex_Succeeds()
     {
-        // The consequence of the gap above, made concrete: a 401 on the service index is not
-        // a "package not found" condition, and it is not swallowed here — it surfaces as an
-        // HttpRequestException carrying the status. The status is therefore available to the
-        // caller, which matters because the CLI currently reports this as "package not found".
         RecordingHandler handler = new()
         {
+            [IndexUrl] = ServiceIndex,
             [VersionsUrl] = """{"versions":["1.0.0"]}""",
         };
-        handler.Unauthorized(IndexUrl);
 
         NuGetClient client = new(new HttpClient(handler));
 
-        HttpRequestException error = await Assert.ThrowsAsync<HttpRequestException>(
-            () => client.GetVersionsAsync("contoso", IndexUrl, Credential, TestContext.Current.CancellationToken));
+        IReadOnlyList<string> versions = await client.GetVersionsAsync(
+            "contoso",
+            IndexUrl,
+            Credential,
+            TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, error.StatusCode);
+        Assert.Equal(["1.0.0"], versions);
+        Assert.Equal("pat:s3cret", handler.DecodedAuthFor(IndexUrl));
     }
 
     [Fact]

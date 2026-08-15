@@ -10,13 +10,12 @@ public class SearchService
 {
     private const int PrefixSearchPageSize = 100;
     private const int MaxPrefixSearchPages = 32;
-    private static readonly TimeSpan PrefixSearchTimeout = TimeSpan.FromSeconds(30);
     private readonly HttpClient _client;
     private readonly NuGetFetchOptions _options;
     private readonly string _searchUrl;
 
     /// <summary>
-    /// Creates a NuGet search client with default metadata response limits.
+    /// Creates a NuGet search client with default resource limits and deadlines.
     /// </summary>
     public SearchService(HttpClient client, string? searchUrl = null)
         : this(client, searchUrl, new NuGetFetchOptions())
@@ -24,7 +23,7 @@ public class SearchService
     }
 
     /// <summary>
-    /// Creates a NuGet search client with configured metadata response limits.
+    /// Creates a NuGet search client with configured resource limits and deadlines.
     /// </summary>
     public SearchService(
         HttpClient client,
@@ -51,13 +50,32 @@ public class SearchService
         bool prerelease = false,
         AuthenticationHeaderValue? auth = null,
         CancellationToken cancellationToken = default)
-        => await SearchPageAsync(
+    {
+        using var operation = new NuGetOperationDeadline(
+            _options,
+            _client.Timeout,
+            cancellationToken);
+        return await SearchAsync(
+            query,
+            take,
+            prerelease,
+            auth,
+            operation).ConfigureAwait(false);
+    }
+
+    internal async Task<IReadOnlyList<SearchResult>> SearchAsync(
+        string query,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        NuGetOperationDeadline operation) =>
+        await SearchPageAsync(
             query,
             skip: 0,
             take,
             prerelease,
             auth,
-            cancellationToken).ConfigureAwait(false);
+            operation).ConfigureAwait(false);
 
     private async Task<IReadOnlyList<SearchResult>> SearchPageAsync(
         string query,
@@ -65,7 +83,7 @@ public class SearchService
         int take,
         bool prerelease,
         AuthenticationHeaderValue? auth,
-        CancellationToken cancellationToken)
+        NuGetOperationDeadline operation)
     {
         string pre = prerelease ? "true" : "false";
         if (!SearchRequestUri.TryCompose(
@@ -85,25 +103,29 @@ public class SearchService
                 "The search endpoint is not a usable absolute HTTP or HTTPS URL.");
         }
 
-        using HttpRequestMessage request =
-            NuGetMetadataReader.CreateGetRequest(url);
-        if (auth is not null)
-        {
-            request.Headers.Authorization = auth;
-        }
+        SearchResponse? parsed = await operation.RunRequestAsync(
+            async requestToken =>
+            {
+                using HttpRequestMessage request =
+                    NuGetMetadataReader.CreateGetRequest(url);
+                if (auth is not null)
+                {
+                    request.Headers.Authorization = auth;
+                }
 
-        using HttpResponseMessage response = await _client.SendAsync(
-            request,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+                using HttpResponseMessage response = await _client.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    requestToken).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
 
-        SearchResponse? parsed = await NuGetMetadataReader.ReadResponseAsync(
-            response,
-            NuGetApi.DeserializeSearchResponseAsync,
-            _options,
-            _client.Timeout,
-            cancellationToken).ConfigureAwait(false);
+                return await NuGetMetadataReader.ReadResponseAsync(
+                    response,
+                    NuGetApi.DeserializeSearchResponseAsync,
+                    _options,
+                    _client.Timeout,
+                    requestToken).ConfigureAwait(false);
+            }).ConfigureAwait(false);
 
         // A null document is not an empty result set. Reporting it as one would
         // hide the failure behind a successful-looking zero-result search. The
@@ -129,60 +151,50 @@ public class SearchService
         var matchedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var observedResults = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int skip = 0;
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+        using var operation = new NuGetOperationDeadline(
+            _options,
+            _client.Timeout,
             cancellationToken);
-        timeout.CancelAfter(PrefixSearchTimeout);
 
-        try
+        for (int pageNumber = 0;
+            pageNumber < MaxPrefixSearchPages && matches.Count < take;
+            pageNumber++)
         {
-            for (int pageNumber = 0;
-                pageNumber < MaxPrefixSearchPages && matches.Count < take;
-                pageNumber++)
+            IReadOnlyList<SearchResult> page = await SearchPageAsync(
+                prefix,
+                skip,
+                PrefixSearchPageSize,
+                prerelease,
+                auth,
+                operation).ConfigureAwait(false);
+            if (page.Count == 0)
+                return matches;
+
+            bool madeProgress = false;
+            foreach (SearchResult result in page)
             {
-                IReadOnlyList<SearchResult> page = await SearchPageAsync(
-                    prefix,
-                    skip,
-                    PrefixSearchPageSize,
-                    prerelease,
-                    auth,
-                    timeout.Token).ConfigureAwait(false);
-                if (page.Count == 0)
-                    return matches;
-
-                bool madeProgress = false;
-                foreach (SearchResult result in page)
+                madeProgress |= observedResults.Add(
+                    $"{result.Id.Length}:{result.Id}{result.Version}");
+                if (result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                    && matchedIds.Add(result.Id))
                 {
-                    madeProgress |= observedResults.Add(
-                        $"{result.Id.Length}:{result.Id}{result.Version}");
-                    if (result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                        && matchedIds.Add(result.Id))
-                    {
-                        matches.Add(result);
-                        if (matches.Count == take)
-                            break;
-                    }
+                    matches.Add(result);
+                    if (matches.Count == take)
+                        break;
                 }
-
-                if (!madeProgress)
-                    throw new InvalidOperationException(
-                        "NuGet search pagination repeated a page without making progress.");
-
-                skip += page.Count;
             }
 
-            if (matches.Count < take)
+            if (!madeProgress)
                 throw new InvalidOperationException(
-                    $"NuGet search pagination exceeded {MaxPrefixSearchPages} pages.");
+                    "NuGet search pagination repeated a page without making progress.");
 
-            return matches;
+            skip += page.Count;
         }
-        catch (OperationCanceledException ex)
-            when (!cancellationToken.IsCancellationRequested
-                && timeout.IsCancellationRequested)
-        {
-            throw new TimeoutException(
-                $"NuGet prefix search did not complete within {PrefixSearchTimeout}.",
-                ex);
-        }
+
+        if (matches.Count < take)
+            throw new InvalidOperationException(
+                $"NuGet search pagination exceeded {MaxPrefixSearchPages} pages.");
+
+        return matches;
     }
 }

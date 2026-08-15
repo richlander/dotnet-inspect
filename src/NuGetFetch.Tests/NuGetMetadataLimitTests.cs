@@ -232,7 +232,7 @@ public sealed class NuGetMetadataLimitTests
     }
 
     [Fact]
-    public async Task ShorterHttpClientTimeoutAlsoBoundsTheBodyPhase()
+    public async Task ShorterHttpClientTimeoutBoundsTheWholeRequest()
     {
         using var client = new HttpClient(new SingleResponseHandler(
             request => Response(
@@ -249,8 +249,8 @@ public sealed class NuGetMetadataLimitTests
             TestContext.Current.CancellationToken);
         guard.CancelAfter(TimeSpan.FromSeconds(2));
 
-        NuGetMetadataBodyTimeoutException error =
-            await Assert.ThrowsAsync<NuGetMetadataBodyTimeoutException>(
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
                 () => service.SearchAsync(
                     "package",
                     cancellationToken: guard.Token));

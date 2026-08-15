@@ -1,11 +1,11 @@
 namespace NuGetFetch;
 
 /// <summary>
-/// Configures resource limits for NuGet metadata requests.
+/// Configures resource limits and deadlines for NuGet requests.
 /// </summary>
 public sealed record NuGetFetchOptions
 {
-    private static readonly TimeSpan MaximumBodyTimeout =
+    private static readonly TimeSpan MaximumCancellationTimeout =
         TimeSpan.FromMilliseconds(uint.MaxValue - 1d);
 
     /// <summary>
@@ -14,10 +14,22 @@ public sealed record NuGetFetchOptions
     public const long DefaultMaxMetadataResponseBytes = 16 * 1024 * 1024;
 
     /// <summary>
-    /// Default time allowed to consume and parse one metadata response body.
+    /// Default deadline for one HTTP request, including response-body consumption.
     /// </summary>
-    public static TimeSpan DefaultMetadataBodyTimeout { get; } =
+    public static TimeSpan DefaultRequestTimeout { get; } =
         TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Default ceiling for one logical NuGet operation.
+    /// </summary>
+    public static TimeSpan DefaultOperationTimeout { get; } =
+        TimeSpan.FromSeconds(120);
+
+    /// <summary>
+    /// Legacy name for the default request deadline.
+    /// </summary>
+    public static TimeSpan DefaultMetadataBodyTimeout =>
+        DefaultRequestTimeout;
 
     /// <summary>
     /// Gets the maximum accepted metadata response size in bytes.
@@ -26,31 +38,36 @@ public sealed record NuGetFetchOptions
         DefaultMaxMetadataResponseBytes;
 
     /// <summary>
-    /// Gets the time allowed to consume and parse one metadata response body after its
-    /// headers arrive.
+    /// Gets the deadline for one HTTP request, including response-body consumption.
+    /// </summary>
+    public TimeSpan RequestTimeout { get; init; } = DefaultRequestTimeout;
+
+    /// <summary>
+    /// Gets the ceiling for one logical operation across requests and pages.
+    /// </summary>
+    public TimeSpan OperationTimeout { get; init; } =
+        DefaultOperationTimeout;
+
+    /// <summary>
+    /// Gets an optional stricter timeout for consuming and parsing metadata.
+    /// <see cref="Timeout.InfiniteTimeSpan"/> means <see cref="RequestTimeout"/> applies
+    /// without a separate body clamp.
     /// </summary>
     public TimeSpan MetadataBodyTimeout { get; init; } =
-        DefaultMetadataBodyTimeout;
+        Timeout.InfiniteTimeSpan;
 
     internal static NuGetFetchOptions Validate(NuGetFetchOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             options.MaxMetadataResponseBytes);
-        if (options.MetadataBodyTimeout <= TimeSpan.Zero)
+        ValidateTimeout(options.RequestTimeout, nameof(RequestTimeout));
+        ValidateTimeout(options.OperationTimeout, nameof(OperationTimeout));
+        if (options.MetadataBodyTimeout != Timeout.InfiniteTimeSpan)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(MetadataBodyTimeout),
+            ValidateTimeout(
                 options.MetadataBodyTimeout,
-                "The metadata body timeout must be positive.");
-        }
-
-        if (options.MetadataBodyTimeout > MaximumBodyTimeout)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(MetadataBodyTimeout),
-                options.MetadataBodyTimeout,
-                $"The metadata body timeout cannot exceed {MaximumBodyTimeout}.");
+                nameof(MetadataBodyTimeout));
         }
 
         return options;
@@ -61,9 +78,46 @@ public sealed record NuGetFetchOptions
         TimeSpan clientTimeout)
     {
         options = Validate(options);
+        TimeSpan bodyTimeout =
+            options.MetadataBodyTimeout == Timeout.InfiniteTimeSpan
+                ? options.RequestTimeout
+                : options.MetadataBodyTimeout;
+        if (clientTimeout != Timeout.InfiniteTimeSpan
+            && clientTimeout < bodyTimeout)
+        {
+            bodyTimeout = clientTimeout;
+        }
+
+        return options with { MetadataBodyTimeout = bodyTimeout };
+    }
+
+    internal static TimeSpan RequestTimeoutForClient(
+        NuGetFetchOptions options,
+        TimeSpan clientTimeout)
+    {
+        options = Validate(options);
         return clientTimeout != Timeout.InfiniteTimeSpan
-            && clientTimeout < options.MetadataBodyTimeout
-                ? options with { MetadataBodyTimeout = clientTimeout }
-                : options;
+            && clientTimeout < options.RequestTimeout
+                ? clientTimeout
+                : options.RequestTimeout;
+    }
+
+    private static void ValidateTimeout(TimeSpan timeout, string parameterName)
+    {
+        if (timeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                timeout,
+                "The timeout must be positive.");
+        }
+
+        if (timeout > MaximumCancellationTimeout)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                timeout,
+                $"The timeout cannot exceed {MaximumCancellationTimeout}.");
+        }
     }
 }

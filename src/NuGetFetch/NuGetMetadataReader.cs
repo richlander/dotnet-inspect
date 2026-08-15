@@ -55,7 +55,9 @@ internal static class NuGetMetadataReader
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(deserialize);
-        options = NuGetFetchOptions.Validate(options);
+        options = NuGetFetchOptions.ForClient(
+            options,
+            Timeout.InfiniteTimeSpan);
 
         return await RunWithBodyTimeoutAsync(
             bodyToken => ReadStreamCoreAsync(
