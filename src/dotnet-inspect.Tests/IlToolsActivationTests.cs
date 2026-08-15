@@ -761,20 +761,33 @@ public class IlToolsActivationTests
 
         Assert.Contains("certification_run_id:", workflow);
         Assert.Contains("allow_later_commit:", workflow);
-        Assert.Contains("--max-age-hours 36", workflow);
         Assert.Contains("CERTIFICATION_RUN_ID: ${{ inputs.certification_run_id }}", workflow);
         Assert.Contains("TARGET_RUN_ID: ${{ inputs.run_id }}", workflow);
+        Assert.Equal(
+            2,
+            workflow.Split('\n').Count(
+                line => line.Contains("bash eng/validate-release-evidence.sh")));
+        int publishStart = workflow.IndexOf("\n  publish:\n", StringComparison.Ordinal);
+        Assert.True(publishStart >= 0);
+        string publishJob = workflow[publishStart..];
+        int revalidate = publishJob.IndexOf(
+            "- name: Revalidate certification before publish",
+            StringComparison.Ordinal);
+        int login = publishJob.IndexOf(
+            "- name: NuGet login",
+            StringComparison.Ordinal);
+        int push = publishJob.IndexOf(
+            "- name: Publish packages",
+            StringComparison.Ordinal);
+        Assert.True(revalidate >= 0);
+        Assert.True(revalidate < login);
+        Assert.True(login < push);
         Assert.Contains(
-            "if [[ ! \"$CERTIFICATION_RUN_ID\" =~ ^[1-9][0-9]*$ ]]",
-            workflow);
+            "RESOLVED_SHA: ${{ needs.resolve.outputs.sha }}",
+            publishJob[revalidate..login]);
         Assert.Contains(
-            "if [[ ! \"$TARGET_RUN_ID\" =~ ^[1-9][0-9]*$ ]]",
-            workflow);
-        Assert.Contains(
-            "--allow-later-commit \"$ALLOW_LATER_COMMIT\"",
-            workflow);
-        Assert.Contains("--target-jobs \"$target_jobs\"", workflow);
-        Assert.Contains("dotnet run eng/validate-release-certification.cs", workflow);
+            "\"$RESOLVED_SHA\"",
+            publishJob[revalidate..login]);
         Assert.Contains("\n  build-native:\n    needs: resolve\n", workflow);
         Assert.Contains("\n  build-portable:\n    needs: resolve\n", workflow);
         Assert.Contains(
@@ -783,6 +796,20 @@ public class IlToolsActivationTests
         Assert.DoesNotContain("\n  deep-inspect-test:\n", workflow);
         Assert.DoesNotContain("\n  decompiler-corpus:\n", workflow);
         Assert.DoesNotContain("restore-iltools.sh", workflow);
+
+        string evidenceScript = File.ReadAllText(
+            Path.Combine(RepoRoot, "eng", "validate-release-evidence.sh"));
+        Assert.Contains(
+            "[[ ! \"$certification_run_id\" =~ ^[1-9][0-9]*$ ]]",
+            evidenceScript);
+        Assert.Contains(
+            "[[ ! \"$target_run_id\" =~ ^[1-9][0-9]*$ ]]",
+            evidenceScript);
+        Assert.Contains("--target-jobs \"$target_jobs\"", evidenceScript);
+        Assert.Contains("--max-age-hours \"$max_age_hours\"", evidenceScript);
+        Assert.Contains(
+            "[ \"$resolved_sha\" != \"$expected_sha\" ]",
+            evidenceScript);
     }
 
     static IEnumerable<string> FencedBashBlocks(string markdown)

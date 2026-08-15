@@ -144,8 +144,10 @@ The workflow then:
    pointer contains only their mapping under `tools/any/any`.
 4. Validates that the managed fallback retains its supported runtime reach and
    that the pointer remains TFM-agnostic.
-5. Publishes Native AOT packages, then the managed fallback, then the pointer.
-6. Creates a GitHub release from the package version at the resolved CI commit
+5. Revalidates both source runs, freshness, and the resolved commit immediately
+   before NuGet authentication and publication.
+6. Publishes Native AOT packages, then the managed fallback, then the pointer.
+7. Creates a GitHub release from the package version at the resolved CI commit
    and attaches all packages.
 
 The pointer is deliberately published last because it references the

@@ -51,48 +51,12 @@ jobs:
           ALLOW_LATER_COMMIT: ${{ inputs.allow_later_commit }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-
-          certification_run="$RUNNER_TEMP/certification-run.json"
-          certification_jobs="$RUNNER_TEMP/certification-jobs.json"
-          target_run="$RUNNER_TEMP/target-run.json"
-          target_jobs="$RUNNER_TEMP/target-jobs.json"
-          comparison="$RUNNER_TEMP/comparison.json"
-
-          if [[ ! "$CERTIFICATION_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
-            echo "::error::certification_run_id must be a positive decimal run ID."
-            exit 1
-          fi
-          if [[ ! "$TARGET_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
-            echo "::error::run_id must be a positive decimal run ID."
-            exit 1
-          fi
-
-          gh api "repos/${{ github.repository }}/actions/runs/$CERTIFICATION_RUN_ID" \
-            > "$certification_run"
-          gh api \
-            "repos/${{ github.repository }}/actions/runs/$CERTIFICATION_RUN_ID/jobs?filter=latest&per_page=100" \
-            > "$certification_jobs"
-          gh api "repos/${{ github.repository }}/actions/runs/$TARGET_RUN_ID" \
-            > "$target_run"
-          gh api \
-            "repos/${{ github.repository }}/actions/runs/$TARGET_RUN_ID/jobs?filter=latest&per_page=100" \
-            > "$target_jobs"
-
-          certified_sha=$(jq -r .head_sha "$certification_run")
-          target_sha=$(jq -r .head_sha "$target_run")
-          gh api "repos/${{ github.repository }}/compare/$certified_sha...$target_sha" \
-            > "$comparison"
-
-          dotnet run eng/validate-release-certification.cs -- \
-            --certification-run "$certification_run" \
-            --certification-jobs "$certification_jobs" \
-            --target-run "$target_run" \
-            --target-jobs "$target_jobs" \
-            --comparison "$comparison" \
-            --allow-later-commit "$ALLOW_LATER_COMMIT" \
-            --max-age-hours 36 \
-            --github-output "$GITHUB_OUTPUT"
+          bash eng/validate-release-evidence.sh \
+            "$CERTIFICATION_RUN_ID" \
+            "$TARGET_RUN_ID" \
+            "$ALLOW_LATER_COMMIT" \
+            36 \
+            "$GITHUB_OUTPUT"
 
   build-native:
     needs: resolve
@@ -233,6 +197,22 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
+
+      - name: Revalidate certification before publish
+        env:
+          CERTIFICATION_RUN_ID: ${{ inputs.certification_run_id }}
+          TARGET_RUN_ID: ${{ inputs.run_id }}
+          ALLOW_LATER_COMMIT: ${{ inputs.allow_later_commit }}
+          RESOLVED_SHA: ${{ needs.resolve.outputs.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash eng/validate-release-evidence.sh \
+            "$CERTIFICATION_RUN_ID" \
+            "$TARGET_RUN_ID" \
+            "$ALLOW_LATER_COMMIT" \
+            36 \
+            "$RUNNER_TEMP/revalidated-evidence" \
+            "$RESOLVED_SHA"
       
       - name: NuGet login (OIDC → temp API key)
         id: login
