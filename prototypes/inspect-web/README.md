@@ -149,7 +149,11 @@ Acquisition is bounded before content enters either cache or workspace. A
 version-index response uses the shared 16 MB text-response limit, one downloaded
 nupkg may contain at most 128 MB, the aggregate declared archive expansion is
 limited to 512 MB, one expanded assembly entry to 64 MB, and one expanded
-Markdown or XML entry to 16 MB. A nupkg may contain at most 4,096 entries.
+Markdown or XML-documentation entry to 16 MB. A package manifest is separately
+limited to 1 MB of input and 512K decoded XML characters by
+`ManifestBounds_AreEnforcedForEveryPackageStore` and
+`ExecuteAsync_EnforcesDecodedCharacterLimit`. A nupkg may contain at most 4,096
+entries.
 `PackageArchiveValidator` applies those Browser-supplied limits while retaining
 the shared path, CRC, compression, directory, and expansion admission rules. It
 scans the highest-offset end record and central directory without allocating
@@ -184,6 +188,7 @@ the full budget.
 | `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
 | `QueryTypeProjection` | one package/version/framework | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
+| `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
 | `QueryPackageIntegrations` | one package/version/framework | `AssemblyContextIntegrationsQuery.Execute(group)` |
 | `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |
@@ -266,6 +271,15 @@ surface group. The product owns opportunity classification, existing-integration
 suppression, and participant failures. The browser only deduplicates identical
 rows and groups them by the returned integration name.
 
+`QueryPackageDependencies` asks the package-content query for every dependency
+group in manifest order and an exact-framework selection outcome. A missing
+exact group remains visible while the UI permits inspecting the groups that were
+actually declared. The dependency list and graph both follow that explicit UI
+selection for the active package; other open packages use their product-selected
+groups. The selected compile participant's direct references come from the
+assembly-context query; the browser neither parses the nuspec nor opens an
+assembly session.
+
 `QueryMemberCallGraph` projects `MemberCallGraphView` through
 `ILInspector.CallGraph.CallGraphProjection` and renders Mermaid in the engine.
 [`docs/design/call-graph-projection.md`](../../docs/design/call-graph-projection.md)
@@ -300,7 +314,6 @@ rather than fixture results or success-shaped empty output.
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | SourceLink and decompiled whole-member source over a group participant, plus symbol acquisition that yields group participants |
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
-| `QueryPackageDependencies` | direct assembly references over a group (`AssemblyReferencesQuery` binds to a host-opened session today), plus a declared-dependency-group projection |
 | `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
 | every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | runtime-pack acquisition that produces participants from content |
 
@@ -393,7 +406,8 @@ Pull requests that change the browser prototype, its shared annotated-source
 viewer, product dependencies, or repository build inputs run the `inspect-web`
 CI job. That job compiles the platform-index generator, publishes the Release
 Wasm bundle, runs the browser-engine tests, and runs both JavaScript suites.
-`eng/test-ci-change-detection.cs` gates the path classification, and
+The `eng/CiChangeDetection` gate, invoked through
+`eng/test-ci-change-detection.cs`, gates the path classification, and
 `ci-required` includes the job's result.
 
 ## Interaction model

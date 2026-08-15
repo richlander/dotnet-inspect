@@ -634,13 +634,12 @@ public sealed class CSharpTypePrinter
         {
             var accessors = new List<string>();
             if (body.Getter is not null)
-                accessors.Add(AccessorHead(type.Type, member.Member, "get", formatter) + ";");
+                accessors.Add(formatter.FormatAccessorHead(type.Type, member.Member, "get") + ";");
             if (body.Setter is not null)
-                accessors.Add(AccessorHead(
+                accessors.Add(formatter.FormatAccessorHead(
                     type.Type,
                     member.Member,
-                    SetterKeyword(member.Member),
-                    formatter) + ";");
+                    SetterKeyword(member.Member)) + ";");
             return new RenderedFragment(
                 $"{PadDeclaration(declaration, pad)} {{ {string.Join(" ", accessors)} }}");
         }
@@ -717,7 +716,7 @@ public sealed class CSharpTypePrinter
         int indent)
     {
         string pad = new(' ', indent * 4);
-        string head = AccessorHead(declaringType, member, kind, formatter);
+        string head = formatter.FormatAccessorHead(declaringType, member, kind);
         if (body.Kind == CSharpAccessorBodyKind.Auto)
             return new RenderedFragment($"{pad}{head};");
 
@@ -726,44 +725,6 @@ public sealed class CSharpTypePrinter
             : body.Source!;
         var block = RenderBodyBlock(source, indent, body.IsReplacementTarget);
         return block.Wrap($"{pad}{head}\n", "");
-    }
-
-    static string AccessorHead(
-        ApiType declaringType,
-        ApiMember member,
-        string kind,
-        CSharpFormatter formatter)
-    {
-        var accessor = member.SignatureModel?.Accessors
-            .FirstOrDefault(candidate => candidate.Kind == kind);
-        var parts = new List<string>();
-        if (accessor?.ReturnAttributes is { Count: > 0 } returnAttributes)
-        {
-            var attributeProbe = new ApiMember
-            {
-                Name = "__AccessorAttributeProbe",
-                Kind = "method",
-                SignatureModel = new ApiSignature
-                {
-                    ReturnType = "void",
-                    MemberName = "__AccessorAttributeProbe",
-                    ReturnAttributes = returnAttributes
-                }
-            };
-            string formattedProbe = formatter.FormatMember(declaringType, attributeProbe);
-            attributeProbe.SignatureModel.ReturnAttributes = [];
-            string formattedDeclaration = formatter.FormatMember(declaringType, attributeProbe);
-            if (!formattedProbe.EndsWith(formattedDeclaration, StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    $"C# accessor '{member.Name}.{kind}' return attributes were not rendered.");
-            }
-            parts.Add(formattedProbe[..^formattedDeclaration.Length].TrimEnd());
-        }
-        if (!string.IsNullOrWhiteSpace(accessor?.Accessibility))
-            parts.Add(accessor.Accessibility!);
-        parts.Add(kind);
-        return string.Join(" ", parts);
     }
 
     static string RenderDelegate(PreparedType prepared, CSharpFormatter formatter, int indent)

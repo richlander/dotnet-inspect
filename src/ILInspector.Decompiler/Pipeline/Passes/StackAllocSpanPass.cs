@@ -38,7 +38,7 @@ public sealed class StackAllocSpanPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        var bodyNodes = GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function).ToList();
+        var bodyNodes = function.DescendantsOutsideNestedFunctions.ToList();
         var storesBySlot = bodyNodes
             .OfType<StoreStackSlot>()
             .GroupBy(s => s.Slot)

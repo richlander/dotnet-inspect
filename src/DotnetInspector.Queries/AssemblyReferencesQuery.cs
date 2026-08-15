@@ -35,11 +35,18 @@ public static class AssemblyReferencesQuery
         try
         {
             return new AssemblyReferencesResult.Available(
-                session.AssemblyReferenceIdentities().ToImmutableArray());
+                Read(session));
         }
         catch (Exception ex)
         {
             return new AssemblyReferencesResult.Failed(ex);
         }
+    }
+
+    internal static ImmutableArray<AssemblyReferenceIdentity> Read(
+        AssemblyInspectionSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return session.AssemblyReferenceIdentities().ToImmutableArray();
     }
 }

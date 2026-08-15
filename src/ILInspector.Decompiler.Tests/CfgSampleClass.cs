@@ -1196,6 +1196,60 @@ public class CfgSampleClass
         }
     }
 
+    public static int NestedOuterRetryLoop(int seed)
+    {
+    Outer:
+        while (true)
+        {
+            int i = seed;
+            while (true)
+            {
+                i++;
+                if (i > 100)
+                    return i;
+                try
+                {
+                    if (100 % i == 0)
+                        return i;
+                }
+                catch (DivideByZeroException)
+                {
+                    goto Outer;
+                }
+            }
+        }
+    }
+
+    public static int SwitchLoopGotoDone(int value, bool repeat)
+    {
+        int result = 0;
+        switch (value)
+        {
+            case 0:
+                while (true)
+                {
+                    if (!repeat)
+                    {
+                        result = 42;
+                        goto Done;
+                    }
+
+                    result++;
+                }
+            case 1: result = 1; break;
+            case 2: result = 2; break;
+            case 3: result = 3; break;
+            case 4: result = 4; break;
+            case 5: result = 5; break;
+            case 6: result = 6; break;
+            case 7: result = 7; break;
+            default: result = -1; break;
+        }
+
+    Done:
+        return result;
+    }
+
     public static int EnumeratorLoopCatchContinue(System.Collections.Generic.IEnumerable<int> values)
     {
         int total = 0;
@@ -2664,6 +2718,41 @@ public class CfgSampleClass
             default:
                 throw new ArgumentException();
         }
+    }
+
+    // A source continue in every table case skips the post-switch statement.
+    // The pipeline may preserve that transfer by moving the statement into the
+    // default section and rendering the terminating case sections with break.
+    public static int SwitchCaseContinueInLoop(int value, int limit)
+    {
+        int result = 0;
+        do
+        {
+            switch (value)
+            {
+                case 0:
+                    result += 1;
+                    continue;
+                case 1:
+                    result += 2;
+                    continue;
+                case 2:
+                    result += 3;
+                    continue;
+                case 3:
+                    result += 4;
+                    continue;
+                case 4:
+                    result += 5;
+                    continue;
+                default:
+                    result += 10;
+                    break;
+            }
+            result += 100;
+        }
+        while (result < limit);
+        return result;
     }
 
     public static int TryCatch(string s)
@@ -5106,11 +5195,45 @@ public class CfgSampleClass
 
     // Span on the resource of a using statement (the body is a separate block, so
     // the using statement itself is the span consumer) — exercises
-    // `UsingStatement.Resource`.
+    // `UsingStatement.Resource`. SpanScope.Dispose() is a no-op and the body
+    // never reads the resource, so this is also the real compiled witness for
+    // the disposed-only variable-less `using` raise (#3346): the idiomatic
+    // endpoint is `using (DisposableFromObjectSpan([a, b]))`, not
+    // `using (IDisposable V_n = ...)`.
     public static int InlineArraySpanUsingResource(object a, object b)
     {
         int n = 0;
         using (DisposableFromObjectSpan([a, b])) { n = 1; }
+        return n;
+    }
+
+    // The body does not read `scope`, but the portable PDB records it as an
+    // authored local. The using raise must retain that positive source identity
+    // instead of canonicalizing this to the expression form (#4113 review).
+    public static int NamedDisposedOnlyUsingResource()
+    {
+        int n = 0;
+        using (System.IDisposable scope = new SpanScope(0)) { n = 1; }
+        return n;
+    }
+
+    // Portable PDB stores an escaped C# identifier without its `@`. Although
+    // the current printer falls back to V_n, that name still proves the source
+    // declared a resource variable and therefore vetoes expression-form elision.
+    public static int KeywordNamedDisposedOnlyUsingResource()
+    {
+        int n = 0;
+        using (System.IDisposable @class = new SpanScope(0)) { n = 1; }
+        return n;
+    }
+
+    // The expression form deliberately converts a value type to IDisposable.
+    // Eliding the compiler temp must preserve that boxing conversion rather than
+    // changing the resource to value-type constrained disposal (#4113 review).
+    public static int BoxedDisposedOnlyUsingResource()
+    {
+        int n = 0;
+        using ((System.IDisposable)default(System.Threading.CancellationTokenRegistration)) { n = 1; }
         return n;
     }
 

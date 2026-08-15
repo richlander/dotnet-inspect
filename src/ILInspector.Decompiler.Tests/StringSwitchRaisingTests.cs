@@ -146,6 +146,37 @@ public class StringSwitchRaisingTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void GeneratedStringHashSetupWithInterveningSideEffect_IsNotRaised()
+    {
+        var function = BuildUserStringHashSwitchLookalike(
+            compilerGenerated: true,
+            includeSideEffect: true);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Observe");
+        Assert.Contains(function.Descendants.OfType<Call>(), call =>
+            GeneratedCodeIdentity.IsStringHashHelper(call.Callee));
+    }
+
+    [Fact]
+    public void GeneratedStringHashSetupWithoutInterveningSideEffect_RaisesSwitch()
+    {
+        var function = BuildUserStringHashSwitchLookalike(compilerGenerated: true);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.DoesNotContain(function.Descendants.OfType<Call>(), call =>
+            GeneratedCodeIdentity.IsStringHashHelper(call.Callee));
+    }
+
     static IrFunction BuildUserStringEqualityChain()
     {
         var userString = TypeRef.Definition("UserAssembly", "System", "String");
@@ -190,18 +221,32 @@ public class StringSwitchRaisingTests
             isVirtual: false,
             [new LoadArgument(0, "s", stringType), new Constant(value, stringType)]);
 
-    static IrFunction BuildUserStringHashSwitchLookalike()
+    static IrFunction BuildUserStringHashSwitchLookalike(
+        bool compilerGenerated = false,
+        bool includeSideEffect = false)
     {
         var userPrivateImpl = TypeRef.Definition("UserAssembly", "", "<PrivateImplementationDetails>");
         var hash = new MethodRef(userPrivateImpl, "ComputeStringHash", s_uint, [s_string], HasThis: false)
         {
-            DeclaringTypeCompilerGenerated = MetadataFactState.No,
+            DeclaringTypeCompilerGenerated = compilerGenerated
+                ? MetadataFactState.Yes
+                : MetadataFactState.No,
         };
         var eq = new MethodRef(s_string, "op_Equality", s_bool, [s_string, s_string], HasThis: false);
         var body = new BlockContainer();
 
         var hashA = new Block(0);
         hashA.Add(new StoreLocal(0, s_uint, new Call(hash, isVirtual: false, [new LoadArgument(0, "s", s_string)])));
+        if (includeSideEffect)
+        {
+            var observer = new MethodRef(
+                TypeRef.Definition("Synthetic", "", "Observer"),
+                "Observe",
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false);
+            hashA.Add(new ExpressionStatement(new Call(observer, isVirtual: false, [])));
+        }
         hashA.Add(new ConditionalBranch(HashEqual(0, 1), targetOffset: 30));
         body.Add(hashA);
 
