@@ -37,6 +37,22 @@ public static class MemberIdentity
         && typeNamespace == ns
         && typeName == name;
 
+    static bool IsFrameworkType(
+        TypeRef? type,
+        string assembly,
+        string ns,
+        string name)
+        => NamedDefinition(type) is
+        {
+        Kind: TypeRefKind.Definition,
+        Assembly: var typeAssembly,
+        Namespace: var typeNamespace,
+        Name: var typeName,
+        }
+        && typeAssembly == assembly
+        && typeNamespace == ns
+        && typeName == name;
+
     /// <summary>
     /// Exact identity for the core delegate families the compiler commonly emits
     /// without requiring cross-assembly metadata to be loaded. Other delegate
@@ -593,7 +609,7 @@ public static class MemberIdentity
             && call.Arguments.Count == 2
             && IsCoreLibraryType(call.Callee.DeclaringType, "System", "String");
 
-    public static bool IsKnownCoreLibraryOperator(MethodRef method)
+    public static bool IsKnownFrameworkOperator(MethodRef method)
     {
         if (method.HasThis || !method.TypeArguments.IsEmpty)
             return false;
@@ -616,6 +632,20 @@ public static class MemberIdentity
                 ParameterTypes: [var value],
                 ReturnType: var returnType,
             } when IsCoreLibraryType(declaringType, "System", "Index")
+                && value.Equals(s_int)
+                && returnType.Equals(declaringType)
+                => true,
+
+            {
+                Name: "op_Implicit",
+                DeclaringType: var declaringType,
+                ParameterTypes: [var value],
+                ReturnType: var returnType,
+            } when IsFrameworkType(
+                    declaringType,
+                    "System.Runtime.Numerics",
+                    "System.Numerics",
+                    "BigInteger")
                 && value.Equals(s_int)
                 && returnType.Equals(declaringType)
                 => true,

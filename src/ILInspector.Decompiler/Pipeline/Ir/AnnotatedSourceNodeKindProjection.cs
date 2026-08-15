@@ -189,7 +189,7 @@ internal static class AnnotatedSourceNodeKindProjection
         }
 
         if ((call.Callee.IsOperator != MetadataFactState.Yes || !call.Callee.IsSpecialName)
-                && !MemberIdentity.IsKnownCoreLibraryOperator(call.Callee))
+                && !MemberIdentity.IsKnownFrameworkOperator(call.Callee))
         {
             return null;
         }

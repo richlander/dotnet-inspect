@@ -5879,7 +5879,7 @@ public class EnumConstantTests
         // other — a user-defined `operator ==`/`operator !=` pair could
         // legally implement unrelated semantics. The BCL guarantees
         // String/Type's op_Equality/op_Inequality genuinely are exact
-        // inverses (MemberIdentity.IsKnownCoreLibraryOperator), but an
+        // inverses (MemberIdentity.IsKnownFrameworkOperator), but an
         // arbitrary user type carrying real specialname/operator metadata
         // is NOT in that trusted set, so `!(a == b)` must stay un-folded
         // and parenthesized here even though it still spells as `a == b`
@@ -6092,6 +6092,47 @@ public class EnumConstantTests
 
         Assert.Contains(".op_Addition(a, b)", output);
         Assert.DoesNotContain("return a + b;", output);
+    }
+
+    [Fact]
+    public void UnresolvedBigIntegerLookalikeConversion_RemainsMethodCall()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var declaring = TypeRef.Definition("Attacker", "System.Numerics", "BigInteger");
+        var callee = new MethodRef(
+            declaring,
+            "op_Implicit",
+            declaring,
+            [intType],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Unknown,
+        };
+        var call = new Call(
+            callee,
+            isVirtual: false,
+            [new LoadArgument(0, "value", intType)]);
+        var block = new Block(0);
+        block.Add(new Return(call));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            declaring,
+            [],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            signature,
+            [],
+            container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains(".op_Implicit(value)", output);
+        Assert.DoesNotContain("(BigInteger)value", output);
     }
 
     [Fact]

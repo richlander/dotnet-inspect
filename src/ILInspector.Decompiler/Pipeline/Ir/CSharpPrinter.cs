@@ -5328,7 +5328,7 @@ public sealed partial class CSharpPrinter
     /// The direct idiom for a negated operator-spelled equality/inequality
     /// CALL (`!(Type.op_Equality(a, b))` -> `a != b`, and the reverse), the
     /// call-shaped counterpart of the native <c>ceq</c>-opcode fold above
-    /// (#2955). Restricted to <see cref="MemberIdentity.IsKnownCoreLibraryOperator"/>
+    /// (#2955). Restricted to <see cref="MemberIdentity.IsKnownFrameworkOperator"/>
     /// (currently <see cref="string"/>/<see cref="Type"/>), where the BCL
     /// guarantees op_Equality and op_Inequality are each other's exact logical
     /// inverse for every input — including IEEE-754 float/double, where
@@ -5352,7 +5352,7 @@ public sealed partial class CSharpPrinter
     /// as-is).
     /// </summary>
     string? InvertedEqualityOperatorCallText(Call call)
-        => call is { Arguments: [var left, var right] } && MemberIdentity.IsKnownCoreLibraryOperator(call.Callee)
+        => call is { Arguments: [var left, var right] } && MemberIdentity.IsKnownFrameworkOperator(call.Callee)
             ? call.Callee.Name switch
             {
                 "op_Equality" => $"{OperatorOperand(left)} != {OperatorOperand(right)}",
