@@ -79,6 +79,34 @@ public sealed class VarWhenApparentSpecimen
         return items.Count + items.Count;
     }
 
+    // Negative for the elsewhere bucket: removing the declaration context makes the
+    // tuple elements infer int, not byte.
+    public static int TupleElementConversion()
+    {
+        (byte, byte) pair = (1, 2);
+        return pair.Item1 + pair.Item2;
+    }
+
+    // Negatives for the built-in bucket: dynamic erases to object in metadata, but
+    // `var` would preserve dynamic and change later overload binding.
+    public static int DynamicParameterToObject(dynamic input)
+    {
+        object value = input;
+        return Pick(value) + Pick(value);
+    }
+
+    public static int DynamicReturnToObject()
+    {
+        object value = GetDynamic();
+        return Pick(value) + Pick(value);
+    }
+
+    static dynamic GetDynamic() => "text";
+
+    static int Pick(object value) => 1;
+
+    static int Pick(string value) => 2;
+
     static int IntValue() => 3;
 
     static List<int> Make() => new();

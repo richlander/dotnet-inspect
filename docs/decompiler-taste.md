@@ -175,11 +175,21 @@ All three buckets share one exact-inference gate. An IR expression's
 `ResultType` is not sufficient evidence: a sink can retag a literal, an implicit
 coercion can leave the initializer's narrower type visible, and a raised
 target-typed expression can carry its target despite having no natural type.
-The printer therefore compares the initializer's proven rendered C# natural
-type with the declaration type and conservatively declines sink coercions,
-boxing, best-common-type joins, retagged literals, lambdas/method groups,
-stackalloc/span projections, collection expressions, `null`, and other
-context-dependent forms. Unknown cases keep the explicit type.
+The gate is a fail-closed allow list of printer-owned forms whose rendering
+proves a natural type. It declines sink coercions, boxing, best-common-type
+joins, retagged literals, lambdas/method groups, tuple literals, stackalloc/span
+projections, collection expressions, `null`, and other context-dependent
+forms. A tuple node records its contextual sink type, while emitted `(e1, e2)`
+derives its type from the elements, so it is not proof of exact inference.
+Unknown and future IR nodes keep the explicit type.
+
+Top-level `dynamic` also erases to `System.Object` in metadata. Until every call
+and member-return path carries dynamic provenance, an object-typed result is
+not enough to prove that `var` infers `object` rather than `dynamic`. Object
+declarations therefore keep their explicit type unless the initializer syntax
+itself proves static `object` (for example `new object()`, an explicit
+`(object)` cast, a non-dynamic parameter, an already explicit local, or
+`default(object)`).
 
 `var` and target-typed `new()` are mutually exclusive at a declaration:
 `var x = new()` has no target type and is CS8754. When a bucket selects `var`,

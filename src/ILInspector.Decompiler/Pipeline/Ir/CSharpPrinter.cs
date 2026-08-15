@@ -6340,22 +6340,38 @@ public sealed partial class CSharpPrinter
     /// Proves that replacing the explicit declaration type with <c>var</c> preserves
     /// the local's type. <see cref="IrExpression.ResultType"/> is not sufficient by
     /// itself: constants can be retagged by their sink, coercions can render as bare
-    /// implicit conversions, and several raised forms are target-typed. Decline those
-    /// forms rather than recreating C# overload and best-common-type inference here.
+    /// implicit conversions, and several raised forms are target-typed. This is an
+    /// allow list of renderings whose natural type the printer owns; unknown forms
+    /// decline rather than failing open as new IR nodes are added.
     /// </summary>
     static bool VarInfersDeclaredType(TypeRef type, IrExpression initializer)
     {
+        // `dynamic` erases to System.Object. Calls and member reads do not yet retain
+        // top-level dynamic return provenance, so an object ResultType is not proof
+        // that `var` will infer object. Admit only shapes whose emitted syntax proves
+        // a static object type.
+        if (IsSystemObjectType(type)
+            && initializer is not (NewObject or ObjectInitializerExpression or CastClass
+                or DefaultValue or LoadLocal or LoadArgument { IsDynamic: false }))
+        {
+            return false;
+        }
+
         TypeRef? inferred = initializer switch
         {
             Constant constant => ConstantNaturalType(constant),
-            Coerce or Convert or Box or IsInstance
-                or SwitchExpression or UnionSwitchExpression or TupleSwitchExpression or PatternSwitchExpression
-                or Conditional or Coalesce
-                or Lambda or AddressOfMethod or LoadFunctionPointer
-                or StackAllocate or StackAllocArray or SpanLiteral or CollectionExpression or CollectionSpreadElement
-                or LoadStackSlot or LoadElement or LoadIndirect
-                or Unary or DynamicGetMember or UnsupportedNode => null,
-            _ => EffectiveType(initializer),
+            NewObject or ObjectInitializerExpression or WithExpression
+                or NewArray or ArrayLiteral or CastClass or UnboxAny
+                or TypeOf or SizeOf or DefaultValue
+                or InterpolatedStringExpression or DelegateCreation
+                or Call or CallIndirect or LocalFunctionInvocation
+                or LoadArgument { IsDynamic: false } or LoadLocal
+                or LoadField { Field.IsDynamic: false } or LoadProperty
+                or Binary or Comparison or LogicalBinary or LogicalNot or TupleBinaryExpression
+                or ArrayLength or RangeExpression or IndexFromEnd or SliceExpression
+                or AwaitExpression or IncrementDecrement or IsPattern
+                => EffectiveType(initializer),
+            _ => null,
         };
         return inferred?.Equals(type) == true;
     }

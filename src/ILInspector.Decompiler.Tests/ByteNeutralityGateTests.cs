@@ -290,59 +290,51 @@ public sealed class ByteNeutralityGateTests
         // `this.` qualifier). Comparing under the same contract the product's own fidelity
         // claims use keeps the gate consistent with those claims.
         //
-        // Batched over the large test assembly: one knob-off baseline for all emitting
-        // specimens, then one knob-on pass per declaring type. Turning a type's values on
-        // together also exercises the same-line interaction the catalog flags
-        // (qualification x var), while each method's site is governed by exactly one
-        // value, so the per-method verdict still isolates that value's neutrality.
+        // Batched over the large test assembly for the shared knob-off baseline. Each
+        // knob-on value is compiled separately with On(specimen): multi-value axes are
+        // single-select, so aggregating sibling values would silently leave only the
+        // final value enabled and make earlier comparisons knob-off versus knob-off.
         var emitting = Specimens.Where(s => s.Emits).ToArray();
         var off = CompileBackAll(emitting, StyleOptionCatalog.DefaultOptions);
 
-        foreach (var group in emitting.GroupBy(s => s.DeclaringType))
+        foreach (var specimen in emitting)
         {
-            var groupSpecimens = group.ToArray();
-            var onOptions = groupSpecimens.Aggregate(
-                StyleOptionCatalog.DefaultOptions, (o, s) => Knob(s.KnobId).WithValue(o, s.ValueToken));
-            var on = CompileBackAll(groupSpecimens, onOptions);
+            var on = CompileBackAll([specimen], On(specimen));
+            var offResult = off[Key(specimen)];
+            var onResult = on[Key(specimen)];
+            var label = $"{specimen.KnobId}={specimen.ValueToken}";
 
-            foreach (var specimen in groupSpecimens)
-            {
-                var offResult = off[Key(specimen)];
-                var onResult = on[Key(specimen)];
-                var label = $"{specimen.KnobId}={specimen.ValueToken}";
+            Assert.False(IsUncheckable(offResult.Status),
+                $"{label}: knob-off render did not compile back ({offResult.Status}: {offResult.Detail}).");
+            Assert.False(IsUncheckable(onResult.Status),
+                $"{label}: knob-on render did not compile back ({onResult.Status}: {onResult.Detail}).");
 
-                Assert.False(IsUncheckable(offResult.Status),
-                    $"{label}: knob-off render did not compile back ({offResult.Status}: {offResult.Detail}).");
-                Assert.False(IsUncheckable(onResult.Status),
-                    $"{label}: knob-on render did not compile back ({onResult.Status}: {onResult.Detail}).");
+            // Baseline anchor: the knob-off render must reach the specific compile-back
+            // status this specimen is expected to (Exact for most; the event specimen's
+            // benign OpcodeDiff). Without this the off-vs-on equality below would still
+            // pass if the baseline silently degraded (e.g. an unrelated regression made
+            // both renders OperandDiff), so pin the strongest status the baseline earns.
+            Assert.True(offResult.Status == specimen.ExpectedBaseline,
+                $"{label}: knob-off compile-back baseline is {offResult.Status}, expected " +
+                $"{specimen.ExpectedBaseline}. A changed baseline can hide an off-vs-on match that " +
+                $"is only equal because both renders regressed; re-establish or update the anchor.");
 
-                // Baseline anchor: the knob-off render must reach the specific compile-back
-                // status this specimen is expected to (Exact for most; the event specimen's
-                // benign OpcodeDiff). Without this the off-vs-on equality below would still
-                // pass if the baseline silently degraded (e.g. an unrelated regression made
-                // both renders OperandDiff), so pin the strongest status the baseline earns.
-                Assert.True(offResult.Status == specimen.ExpectedBaseline,
-                    $"{label}: knob-off compile-back baseline is {offResult.Status}, expected " +
-                    $"{specimen.ExpectedBaseline}. A changed baseline can hide an off-vs-on match that " +
-                    $"is only equal because both renders regressed; re-establish or update the anchor.");
+            var offDiff = offResult.FidelityDiff;
+            var onDiff = onResult.FidelityDiff;
+            Assert.True(offDiff is { IsAvailable: true },
+                $"{label}: knob-off compile-back fidelity is unavailable, so IL identity cannot be proven.");
+            Assert.True(onDiff is { IsAvailable: true },
+                $"{label}: knob-on compile-back fidelity is unavailable, so IL identity cannot be proven.");
 
-                var offDiff = offResult.FidelityDiff;
-                var onDiff = onResult.FidelityDiff;
-                Assert.True(offDiff is { IsAvailable: true },
-                    $"{label}: knob-off compile-back fidelity is unavailable, so IL identity cannot be proven.");
-                Assert.True(onDiff is { IsAvailable: true },
-                    $"{label}: knob-on compile-back fidelity is unavailable, so IL identity cannot be proven.");
+            // Opcode-level identity of the two recompiled bodies (fast belt).
+            Assert.Equal(offResult.RecompiledOpcodes, onResult.RecompiledOpcodes);
 
-                // Opcode-level identity of the two recompiled bodies (fast belt).
-                Assert.Equal(offResult.RecompiledOpcodes, onResult.RecompiledOpcodes);
-
-                // Operand/branch-target identity: both recompiled bodies deviate from the
-                // shared original identically under the fidelity contract, hence equal each other.
-                Assert.Equal(offDiff!.Outcome, onDiff!.Outcome);
-                Assert.True(offDiff.Rows.SequenceEqual(onDiff.Rows),
-                    $"{label}: knob-on recompiled body diverges from knob-off at the operand or " +
-                    $"branch-target level (contract-V1 diff-vs-original differs between the two renders).");
-            }
+            // Operand/branch-target identity: both recompiled bodies deviate from the
+            // shared original identically under the fidelity contract, hence equal each other.
+            Assert.Equal(offDiff!.Outcome, onDiff!.Outcome);
+            Assert.True(offDiff.Rows.SequenceEqual(onDiff.Rows),
+                $"{label}: knob-on recompiled body diverges from knob-off at the operand or " +
+                $"branch-target level (contract-V1 diff-vs-original differs between the two renders).");
         }
 
         static bool IsUncheckable(FidelityCheck.CompileBackStatus status) =>

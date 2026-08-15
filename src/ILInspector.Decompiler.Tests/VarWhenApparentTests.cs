@@ -209,6 +209,29 @@ public sealed class VarWhenApparentTests
     }
 
     [Fact]
+    public void ElsewhereBucket_DeclinesContextuallyTypedTupleElements()
+    {
+        var defaultText = Render(nameof(VarWhenApparentSpecimen.TupleElementConversion));
+        var text = Render(nameof(VarWhenApparentSpecimen.TupleElementConversion), VarElsewhere);
+
+        Assert.Equal(defaultText, text);
+        Assert.DoesNotContain("var ", text);
+    }
+
+    [Theory]
+    [InlineData(nameof(VarWhenApparentSpecimen.DynamicParameterToObject))]
+    [InlineData(nameof(VarWhenApparentSpecimen.DynamicReturnToObject))]
+    public void BuiltInBucket_DeclinesDynamicErasedAsObject(string method)
+    {
+        var defaultText = Render(method);
+        var text = Render(method, VarForBuiltInTypes);
+
+        Assert.Equal(defaultText, text);
+        Assert.Contains("object ", text);
+        Assert.DoesNotContain("var ", text);
+    }
+
+    [Fact]
     public void BuiltInBucket_DeclinesNull()
     {
         var text = RenderSynthetic(String, new Constant(null, String), VarForBuiltInTypes);
