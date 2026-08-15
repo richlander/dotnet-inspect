@@ -11,15 +11,22 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 {
     public static TypeNodeProvider Instance { get; } = new();
     readonly Action<string>? _beforeRetain;
+    readonly Action<int>? _beforeMaterialize;
 
-    public TypeNodeProvider(Action<string>? beforeRetain = null)
-        => _beforeRetain = beforeRetain;
+    public TypeNodeProvider(
+        Action<string>? beforeRetain = null,
+        Action<int>? beforeMaterialize = null)
+    {
+        _beforeRetain = beforeRetain;
+        _beforeMaterialize = beforeMaterialize;
+    }
 
     // Delegate to existing SignatureDecoder for name resolution to avoid duplication.
     private static readonly SignatureDecoder NameDecoder = SignatureDecoder.Instance;
 
     public TypeNode GetPrimitiveType(PrimitiveTypeCode typeCode)
     {
+        _beforeMaterialize?.Invoke(16);
         string name = NameDecoder.GetPrimitiveType(typeCode);
         _beforeRetain?.Invoke(name);
         bool isRef = typeCode is PrimitiveTypeCode.String or PrimitiveTypeCode.Object;
@@ -28,6 +35,10 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
     {
+        TypeDefinition type = reader.GetTypeDefinition(handle);
+        _beforeMaterialize?.Invoke(
+            reader.GetBlobReader(type.Name).Length
+                + reader.GetBlobReader(type.Namespace).Length);
         string name = NameDecoder.GetTypeFromDefinition(reader, handle, rawTypeKind);
         _beforeRetain?.Invoke(name);
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
@@ -36,6 +47,10 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
+        TypeReference type = reader.GetTypeReference(handle);
+        _beforeMaterialize?.Invoke(
+            reader.GetBlobReader(type.Name).Length
+                + reader.GetBlobReader(type.Namespace).Length);
         string name = NameDecoder.GetTypeFromReference(reader, handle, rawTypeKind);
         _beforeRetain?.Invoke(name);
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
@@ -52,16 +67,33 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         }
     }
 
-    public TypeNode GetSZArrayType(TypeNode elementType) => new SZArrayTypeNode(elementType);
+    public TypeNode GetSZArrayType(TypeNode elementType)
+    {
+        _beforeMaterialize?.Invoke(16);
+        return new SZArrayTypeNode(elementType);
+    }
 
-    public TypeNode GetArrayType(TypeNode elementType, ArrayShape shape) => new MDArrayTypeNode(elementType, shape.Rank);
+    public TypeNode GetArrayType(TypeNode elementType, ArrayShape shape)
+    {
+        _beforeMaterialize?.Invoke(16);
+        return new MDArrayTypeNode(elementType, shape.Rank);
+    }
 
-    public TypeNode GetByReferenceType(TypeNode elementType) => new ByRefTypeNode(elementType);
+    public TypeNode GetByReferenceType(TypeNode elementType)
+    {
+        _beforeMaterialize?.Invoke(16);
+        return new ByRefTypeNode(elementType);
+    }
 
-    public TypeNode GetPointerType(TypeNode elementType) => new PointerTypeNode(elementType);
+    public TypeNode GetPointerType(TypeNode elementType)
+    {
+        _beforeMaterialize?.Invoke(16);
+        return new PointerTypeNode(elementType);
+    }
 
     public TypeNode GetGenericInstantiation(TypeNode genericType, ImmutableArray<TypeNode> typeArguments)
     {
+        _beforeMaterialize?.Invoke(checked(16 + typeArguments.Length * 4));
         string rawName = genericType is NamedTypeNode n ? n.Name : genericType.Render();
         var backtickIndex = rawName.IndexOf('`');
         if (backtickIndex < 0)
@@ -86,6 +118,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetGenericMethodParameter(GenericContext? context, int index)
     {
+        _beforeMaterialize?.Invoke(16);
         string name = NameDecoder.GetGenericMethodParameter(context, index);
         _beforeRetain?.Invoke(name);
         return new GenericParameterNode(
@@ -95,6 +128,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetGenericTypeParameter(GenericContext? context, int index)
     {
+        _beforeMaterialize?.Invoke(16);
         string name = NameDecoder.GetGenericTypeParameter(context, index);
         _beforeRetain?.Invoke(name);
         return new GenericParameterNode(
@@ -102,9 +136,17 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             hasValueTypeConstraint: context?.HasTypeParameterValueTypeConstraint(index) == true);
     }
 
-    public TypeNode GetFunctionPointerType(MethodSignature<TypeNode> signature) => new FunctionPointerTypeNode(signature);
+    public TypeNode GetFunctionPointerType(MethodSignature<TypeNode> signature)
+    {
+        _beforeMaterialize?.Invoke(checked(16 + signature.ParameterTypes.Length * 4));
+        return new FunctionPointerTypeNode(signature);
+    }
 
-    public TypeNode GetModifiedType(TypeNode modifier, TypeNode unmodifiedType, bool isRequired) => new ModifiedTypeNode(modifier, unmodifiedType, isRequired);
+    public TypeNode GetModifiedType(TypeNode modifier, TypeNode unmodifiedType, bool isRequired)
+    {
+        _beforeMaterialize?.Invoke(16);
+        return new ModifiedTypeNode(modifier, unmodifiedType, isRequired);
+    }
 
     public TypeNode GetPinnedType(TypeNode elementType) => new PassthroughTypeNode(elementType);
 }

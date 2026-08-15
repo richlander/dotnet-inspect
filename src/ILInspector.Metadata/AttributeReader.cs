@@ -332,7 +332,8 @@ public static class AttributeReader
         MetadataReader reader, CustomAttributeHandleCollection attributes, SortedSet<string>? namespaces = null,
         Func<string, bool>? skipAttribute = null,
         bool qualifyNames = false,
-        Action<string>? beforeRetain = null)
+        Action<string>? beforeRetain = null,
+        Action<int>? beforeMaterialize = null)
     {
         var result = new List<string>();
         foreach (var attrHandle in attributes)
@@ -343,6 +344,8 @@ public static class AttributeReader
                 continue;
             if (skipAttribute?.Invoke(typeName) == true)
                 continue;
+            beforeMaterialize?.Invoke(
+                reader.GetBlobReader(attr.Value).Length);
             if (TryRenderAttribute(reader, attr, qualifyNames) is not { } rendered)
                 continue;
             int lastDot = typeName.LastIndexOf('.');
@@ -386,7 +389,8 @@ public static class AttributeReader
         MetadataReader reader,
         ParameterHandle parameter,
         SortedSet<string>? namespaces = null,
-        Action<string>? beforeRetain = null)
+        Action<string>? beforeRetain = null,
+        Action<int>? beforeMaterialize = null)
     {
         var result = RenderAttributes(
             reader,
@@ -394,7 +398,8 @@ public static class AttributeReader
             namespaces,
             IsParameterSyntaxAttribute,
             qualifyNames: true,
-            beforeRetain: beforeRetain);
+            beforeRetain: beforeRetain,
+            beforeMaterialize: beforeMaterialize);
         try
         {
             if (TryRenderMarshalAsAttribute(reader, parameter) is { } marshalAs)

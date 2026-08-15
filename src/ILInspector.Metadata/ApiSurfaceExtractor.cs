@@ -335,6 +335,8 @@ public static class ApiSurfaceExtractor
         budget?.AdmitMetadataRows(reader);
         Action<string>? observeText =
             budget is null ? null : budget.ObservePendingText;
+        Action<int>? observeDecodeWork =
+            budget is null ? null : budget.ObservePendingDecodeWork;
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -400,7 +402,8 @@ public static class ApiSurfaceExtractor
                     reader,
                     typeDef.GetCustomAttributes(),
                     qualifyNames: true,
-                    beforeRetain: observeText),
+                    beforeRetain: observeText,
+                    beforeMaterialize: observeDecodeWork),
             };
 
             // Determine kind
@@ -412,13 +415,17 @@ public static class ApiSurfaceExtractor
             {
                 string baseTypeName = ResolveRequiredTypeName(
                     reader,
-                    typeDef.BaseType);
+                    typeDef.BaseType,
+                    beforeRetainText: observeText,
+                    beforeDecodeWork: observeDecodeWork);
                 apiType.BaseType = ApplyDynamicView(
                     reader,
                     typeDef.BaseType,
                     typeDef.GetCustomAttributes(),
                     GenericContext.ForType(reader, typeDef),
-                    baseTypeName);
+                    baseTypeName,
+                    observeText,
+                    observeDecodeWork);
 
                 apiType.Kind = baseTypeName switch
                 {
@@ -461,7 +468,8 @@ public static class ApiSurfaceExtractor
                 typeContext,
                 typeNullableContext,
                 includeVariance: true,
-                observeText);
+                observeText,
+                observeDecodeWork);
 
             // Get interfaces
             var interfaces = typeDef.GetInterfaceImplementations();
@@ -474,14 +482,17 @@ public static class ApiSurfaceExtractor
                     string ifaceName = ResolveRequiredTypeName(
                         reader,
                         iface.Interface,
-                        typeContext);
+                        typeContext,
+                        observeText,
+                        observeDecodeWork);
                     ifaceName = ApplyDynamicView(
                         reader,
                         iface.Interface,
                         iface.GetCustomAttributes(),
                         typeContext,
-                        ifaceName);
-                    budget?.ObservePendingText(ifaceName);
+                        ifaceName,
+                        observeText,
+                        observeDecodeWork);
                     apiType.Interfaces.Add(ifaceName);
                 }
             }
@@ -531,7 +542,8 @@ public static class ApiSurfaceExtractor
                     typeDef,
                     method,
                     typeNullableContext,
-                    observeText);
+                    observeText,
+                    observeDecodeWork);
                 var isOperator = IsOperatorMethodName(methodName);
                 var methodAttributes = method.Attributes;
                 var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
@@ -603,7 +615,8 @@ public static class ApiSurfaceExtractor
                     Attributes = RenderMemberAttributes(
                         reader,
                         method.GetCustomAttributes(),
-                        observeText)
+                        observeText,
+                        observeDecodeWork)
                 };
 
                 // Check for extension method
@@ -676,7 +689,8 @@ public static class ApiSurfaceExtractor
                     accessors,
                     typeNullableContext,
                     includeAll,
-                    observeText);
+                    observeText,
+                    observeDecodeWork);
                 var member = new ApiMember
                 {
                     Name = reader.GetString(prop.Name),
@@ -698,7 +712,8 @@ public static class ApiSurfaceExtractor
                     Attributes = RenderMemberAttributes(
                         reader,
                         prop.GetCustomAttributes(),
-                        observeText),
+                        observeText,
+                        observeDecodeWork),
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
                     SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
                 };
@@ -753,7 +768,9 @@ public static class ApiSurfaceExtractor
                             reader,
                             typeDef,
                             field,
-                            typeNullableContext).Text;
+                            typeNullableContext,
+                            observeText,
+                            observeDecodeWork).Text;
                 }
                 else
                 {
@@ -761,7 +778,9 @@ public static class ApiSurfaceExtractor
                         reader,
                         typeDef,
                         field,
-                        typeNullableContext);
+                        typeNullableContext,
+                        observeText,
+                        observeDecodeWork);
                 }
 
                 var member = new ApiMember
@@ -786,7 +805,8 @@ public static class ApiSurfaceExtractor
                     Attributes = RenderMemberAttributes(
                         reader,
                         field.GetCustomAttributes(),
-                        observeText)
+                        observeText,
+                        observeDecodeWork)
                 };
 
                 // Read enum constant value
@@ -853,7 +873,9 @@ public static class ApiSurfaceExtractor
                 var eventType = ResolveRequiredTypeName(
                     reader,
                     evt.Type,
-                    GenericContext.ForType(reader, typeDef));
+                    GenericContext.ForType(reader, typeDef),
+                    observeText,
+                    observeDecodeWork);
                 var eventNullableBytes = NullabilityReader.GetNullableBytes(reader, evt.GetCustomAttributes());
                 eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(reader, adder.GetParameters(), 1);
                 if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
@@ -873,7 +895,7 @@ public static class ApiSurfaceExtractor
                     var eventNode = GuardedProviderDecode.TypeSpec(
                         reader,
                         (TypeSpecificationHandle)evt.Type,
-                        TypeNodeProvider.Instance,
+                        new TypeNodeProvider(observeText, observeDecodeWork),
                         GenericContext.ForType(reader, typeDef),
                         (TypeNode)new DegradedTypeNode());
                     // Skip a rejected/degraded decode: its bare "object"/"dynamic" render
@@ -1185,7 +1207,8 @@ public static class ApiSurfaceExtractor
         GenericContext context,
         byte nullableContext,
         bool includeVariance,
-        Action<string>? beforeRetain = null)
+        Action<string>? beforeRetain = null,
+        Action<int>? beforeDecodeWork = null)
     {
         var parameters = new List<TypeParameter>();
 
@@ -1228,7 +1251,9 @@ public static class ApiSurfaceExtractor
                 string constraintTypeName = ResolveRequiredTypeName(
                     reader,
                     constraint.Type,
-                    context);
+                    context,
+                    beforeRetain,
+                    beforeDecodeWork);
                 if (constraintTypeName is "System.ValueType" or "System.Object")
                     continue;
                 var formatted = FormatConstraintType(reader, constraint, constraintTypeName, nullableContext);
@@ -1333,13 +1358,18 @@ public static class ApiSurfaceExtractor
         MetadataReader reader,
         TypeDefinition typeDef,
         FieldDefinition field,
-        byte typeNullableContext)
+        byte typeNullableContext,
+        Action<string>? beforeRetainText = null,
+        Action<int>? beforeDecodeWork = null)
     {
         var context = GenericContext.ForType(reader, typeDef);
+        var typeNodeProvider = beforeRetainText is null
+            ? TypeNodeProvider.Instance
+            : new TypeNodeProvider(beforeRetainText, beforeDecodeWork);
         var fieldNode = GuardedProviderDecode.Field(
             reader,
             field,
-            TypeNodeProvider.Instance,
+            typeNodeProvider,
             context,
             (TypeNode)new DegradedTypeNode());
         var fieldBytes = NullabilityReader.GetNullableBytes(reader, field.GetCustomAttributes());
@@ -2085,13 +2115,14 @@ public static class ApiSurfaceExtractor
         TypeDefinition typeDef,
         MethodDefinition method,
         byte typeNullableContext,
-        Action<string>? beforeRetainText = null)
+        Action<string>? beforeRetainText = null,
+        Action<int>? beforeDecodeWork = null)
     {
         string name = reader.GetString(method.Name);
         var context = GenericContext.ForMethod(reader, typeDef, method);
         var typeNodeProvider = beforeRetainText is null
             ? TypeNodeProvider.Instance
-            : new TypeNodeProvider(beforeRetainText);
+            : new TypeNodeProvider(beforeRetainText, beforeDecodeWork);
         var treeSignature = GuardedProviderDecode.Method(
             reader,
             method,
@@ -2141,7 +2172,8 @@ public static class ApiSurfaceExtractor
                     reader,
                     paramHandles,
                     i + 1,
-                    beforeRetainText);
+                    beforeRetainText,
+                    beforeDecodeWork);
             paramName ??= $"arg{i}";
 
             var isByRef = type.StartsWith("ref ", StringComparison.Ordinal);
@@ -2188,14 +2220,16 @@ public static class ApiSurfaceExtractor
         var returnAttributes = ReturnParameterAttributes(
             reader,
             paramHandles,
-            beforeRetainText);
+            beforeRetainText,
+            beforeDecodeWork);
         var methodTypeParameters = GenericParameters(
             reader,
             method.GetGenericParameters(),
             context,
             nullableDefault,
             includeVariance: false,
-            beforeRetainText);
+            beforeRetainText,
+            beforeDecodeWork);
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
@@ -2220,7 +2254,8 @@ public static class ApiSurfaceExtractor
     private static List<string> ReturnParameterAttributes(
         MetadataReader reader,
         ParameterHandleCollection handles,
-        Action<string>? beforeRetain = null)
+        Action<string>? beforeRetain = null,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var handle in handles)
         {
@@ -2228,7 +2263,8 @@ public static class ApiSurfaceExtractor
                 return AttributeReader.RenderParameterAttributes(
                     reader,
                     handle,
-                    beforeRetain: beforeRetain);
+                    beforeRetain: beforeRetain,
+                    beforeMaterialize: beforeMaterialize);
         }
 
         return [];
@@ -2237,13 +2273,15 @@ public static class ApiSurfaceExtractor
     private static List<string> RenderMemberAttributes(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
-        Action<string>? beforeRetain = null)
+        Action<string>? beforeRetain = null,
+        Action<int>? beforeMaterialize = null)
         => AttributeReader.RenderAttributes(
             reader,
             attributes,
             skipAttribute: static name => name == "System.ObsoleteAttribute",
             qualifyNames: true,
-            beforeRetain: beforeRetain);
+            beforeRetain: beforeRetain,
+            beforeMaterialize: beforeMaterialize);
 
     private static string FormatMethodReturnType(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
     {
@@ -2297,7 +2335,8 @@ public static class ApiSurfaceExtractor
         MetadataReader reader,
         ParameterHandleCollection handles,
         int sequenceNumber,
-        Action<string>? beforeRetain = null)
+        Action<string>? beforeRetain = null,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var handle in handles)
         {
@@ -2311,7 +2350,8 @@ public static class ApiSurfaceExtractor
                 var renderedAttributes = AttributeReader.RenderParameterAttributes(
                     reader,
                     handle,
-                    beforeRetain: beforeRetain);
+                    beforeRetain: beforeRetain,
+                    beforeMaterialize: beforeMaterialize);
                 // An interop-marshalled `ref` parameter sets both In and Out, so
                 // neither flag alone identifies a C# `out`/`in`. Spelling such a
                 // parameter `out` breaks definite assignment in the body.
@@ -2678,7 +2718,9 @@ public static class ApiSurfaceExtractor
         EntityHandle typeHandle,
         CustomAttributeHandleCollection attributes,
         GenericContext context,
-        string fallback)
+        string fallback,
+        Action<string>? beforeRetainText = null,
+        Action<int>? beforeDecodeWork = null)
     {
         if (typeHandle.Kind != HandleKind.TypeSpecification)
             return fallback;
@@ -2687,7 +2729,9 @@ public static class ApiSurfaceExtractor
         var node = GuardedProviderDecode.TypeSpec(
             reader,
             (TypeSpecificationHandle)typeHandle,
-            TypeNodeProvider.Instance,
+            beforeRetainText is null
+                ? TypeNodeProvider.Instance
+                : new TypeNodeProvider(beforeRetainText, beforeDecodeWork),
             context,
             (TypeNode)new DegradedTypeNode());
         // A rejected/degraded TypeSpec renders as a bare "object"/"dynamic", which would
@@ -2703,10 +2747,37 @@ public static class ApiSurfaceExtractor
     private static string ResolveRequiredTypeName(
         MetadataReader reader,
         EntityHandle handle,
-        GenericContext? context = null)
-        => TypeResolver.ResolveTypeName(reader, handle, context) switch
+        GenericContext? context = null,
+        Action<string>? beforeRetainText = null,
+        Action<int>? beforeDecodeWork = null)
+    {
+        if (beforeDecodeWork is not null)
         {
-            MetadataTypeNameResult.Resolved resolved => resolved.Value,
+            var provider =
+                new TypeNodeProvider(beforeMaterialize: beforeDecodeWork);
+            _ = handle.Kind switch
+            {
+                HandleKind.TypeDefinition => provider.GetTypeFromDefinition(
+                    reader,
+                    (TypeDefinitionHandle)handle,
+                    rawTypeKind: 0),
+                HandleKind.TypeReference => provider.GetTypeFromReference(
+                    reader,
+                    (TypeReferenceHandle)handle,
+                    rawTypeKind: 0),
+                HandleKind.TypeSpecification => GuardedProviderDecode.TypeSpec(
+                    reader,
+                    (TypeSpecificationHandle)handle,
+                    provider,
+                    context,
+                    (TypeNode)new DegradedTypeNode()),
+                _ => null,
+            };
+        }
+
+        string resolved = TypeResolver.ResolveTypeName(reader, handle, context) switch
+        {
+            MetadataTypeNameResult.Resolved success => success.Value,
             MetadataTypeNameResult.Rejected rejected =>
                 throw new MetadataRowRejectedException(
                     "type name",
@@ -2721,6 +2792,9 @@ public static class ApiSurfaceExtractor
             _ => throw new InvalidOperationException(
                 "Unknown metadata type-name result."),
         };
+        beforeRetainText?.Invoke(resolved);
+        return resolved;
+    }
 
     private static void AddInspectionFailure(
         ApiSurface surface,
@@ -2830,13 +2904,14 @@ public static class ApiSurfaceExtractor
         PropertyAccessors accessors,
         byte typeNullableContext,
         bool includeAll = false,
-        Action<string>? beforeRetainText = null)
+        Action<string>? beforeRetainText = null,
+        Action<int>? beforeDecodeWork = null)
     {
         string name = reader.GetString(prop.Name);
         var context = GenericContext.ForType(reader, typeDef);
         var typeNodeProvider = beforeRetainText is null
             ? TypeNodeProvider.Instance
-            : new TypeNodeProvider(beforeRetainText);
+            : new TypeNodeProvider(beforeRetainText, beforeDecodeWork);
         var treeSignature = GuardedProviderDecode.Property(
             reader,
             prop,
@@ -3025,7 +3100,8 @@ public static class ApiSurfaceExtractor
                     reader,
                     paramHandles,
                     i + 1,
-                    beforeRetainText);
+                    beforeRetainText,
+                    beforeDecodeWork);
             paramName ??= $"arg{i}";
 
             var isByRef = paramType.StartsWith("ref ", StringComparison.Ordinal);
@@ -3300,14 +3376,15 @@ public static class ApiSurfaceExtractor
     /// The running retention count of one bounded extraction.
     /// </summary>
     /// <remarks>
-    /// Members are counted against the bound as they are built but committed only when their type
-    /// is, so a type the walk rejects mid-way does not spend budget on members no surface will
-    /// carry. That keeps a bounded extraction's accepted set identical to the unbounded one's
-    /// whenever the image fits, which is what lets a caller treat the bound as a budget rather
-    /// than as an approximation.
+    /// Members and retained text are counted as they are built but committed only when their type
+    /// is, so a rejected type spends no retention budget. The exact retained total is gated by
+    /// <c>ApiSurfaceExtractorBoundsTests.RetainedTextBudget_IsExact</c>. A separate pending decode
+    /// work estimate may reject an allocation-amplifying type before its expanded model exists;
+    /// the hostile-shape allocation tests in that class gate that safety boundary.
     /// </remarks>
     private sealed class ExtractionBudget(ApiSurfaceExtractionBounds bounds)
     {
+        const int DecodeWorkWeight = 16;
         int _types;
         int _members;
         int _pendingMembers;
@@ -3316,6 +3393,7 @@ public static class ApiSurfaceExtractor
         int _retainedTextCharacters;
         int _pendingTextCharacters;
         int _pendingObservedTextCharacters;
+        int _pendingDecodeWork;
 
         public int MetadataRows { get; private set; }
         public int RetainedTextCharacters => _retainedTextCharacters;
@@ -3343,6 +3421,7 @@ public static class ApiSurfaceExtractor
             _pendingMembers = 0;
             _pendingTextCharacters = 0;
             _pendingObservedTextCharacters = 0;
+            _pendingDecodeWork = 0;
         }
 
         /// <summary>Counts one member of the type currently being built.</summary>
@@ -3366,6 +3445,7 @@ public static class ApiSurfaceExtractor
             _pendingMembers = 0;
             _pendingTextCharacters = 0;
             _pendingObservedTextCharacters = 0;
+            _pendingDecodeWork = 0;
         }
 
         /// <summary>Counts one member attached to a type that is already committed.</summary>
@@ -3417,6 +3497,20 @@ public static class ApiSurfaceExtractor
         {
             ArgumentNullException.ThrowIfNull(text);
             ObservePendingText(text.Length);
+        }
+
+        public void ObservePendingDecodeWork(int encodedCharacters)
+        {
+            if (encodedCharacters < 0)
+                throw new ArgumentOutOfRangeException(nameof(encodedCharacters));
+            long next =
+                (long)encodedCharacters * DecodeWorkWeight + _pendingDecodeWork;
+            if (next > bounds.MaxRetainedTextCharacters || next < 0)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.RetainedTextCharacters);
+            }
+            _pendingDecodeWork = (int)next;
         }
 
         void RetainPendingText(long characters)

@@ -27,6 +27,7 @@ internal static class BrowserSurfaceProjection
         string assemblyName,
         BrowserSurfaceTextBudget? textBudget = null)
     {
+        textBudget?.EnsureCanProject(type);
         // C#-spelled name for display (List<T>, Dictionary<TKey, TValue>) using the real generic
         // parameter names the surface carries. Identity stays the metadata form so deep links,
         // search, and tab matching remain stable.
@@ -75,6 +76,7 @@ internal static class BrowserSurfaceProjection
         ApiMember member,
         BrowserSurfaceTextBudget? textBudget = null)
     {
+        textBudget?.EnsureCanProject(type, member);
         MemberAnchor anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
         var projected = new BrowserMemberSurface(
             member.Name,
@@ -139,6 +141,43 @@ internal static class BrowserSurfaceProjection
 
         internal void AbandonParticipant() => _pending = 0;
 
+        internal void EnsureCanProject(ApiType type)
+        {
+            long identity = TextLength(type.Namespace)
+                + TextLength(type.Name)
+                + TextLength(type.MetadataName)
+                + DefinitionNameLength(type.DefinitionName);
+            foreach (TypeParameter parameter in type.TypeParameters)
+                identity += TextLength(parameter.Name);
+            EnsureCanMaterialize(identity * 12 + 256);
+        }
+
+        internal void EnsureCanProject(ApiType type, ApiMember member)
+        {
+            long identity = TextLength(type.Namespace)
+                + TextLength(type.Name)
+                + TextLength(type.MetadataName)
+                + DefinitionNameLength(type.DefinitionName);
+            long memberText = TextLength(member.Name)
+                + TextLength(member.Signature)
+                + TextLength(member.ReturnType);
+            if (member.SignatureModel is { } signature)
+            {
+                memberText += TextLength(signature.ReturnType)
+                    + TextLength(signature.CanonicalReturnType)
+                    + TextLength(signature.MemberName);
+                foreach (ApiParameter parameter in signature.Parameters)
+                {
+                    memberText += TextLength(parameter.Name)
+                        + TextLength(parameter.Type)
+                        + TextLength(parameter.CanonicalType)
+                        + TextLength(parameter.Modifier)
+                        + TextLength(parameter.DefaultValueText);
+                }
+            }
+            EnsureCanMaterialize(identity * 16 + memberText * 8 + 512);
+        }
+
         internal void Retain(BrowserTypeSurface type)
         {
             Retain(type.Id);
@@ -197,6 +236,24 @@ internal static class BrowserSurfaceProjection
             if (text.Length > MaxCharacters - _committed - _pending)
                 throw new BrowserSurfaceTextBoundExceededException();
             _pending += text.Length;
+        }
+
+        void EnsureCanMaterialize(long estimatedCharacters)
+        {
+            if (estimatedCharacters > MaxCharacters)
+                throw new BrowserSurfaceTextBoundExceededException();
+        }
+
+        static int TextLength(string? text) => text?.Length ?? 0;
+
+        static long DefinitionNameLength(MetadataTypeDefinitionName? name)
+        {
+            if (name is null)
+                return 0;
+            long length = TextLength(name.Namespace);
+            foreach (string segment in name.Segments)
+                length += segment.Length;
+            return length;
         }
     }
 

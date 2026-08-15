@@ -409,6 +409,73 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void SurfaceProjection_OneHugeTypeStopsBeforeDerivedIdentities()
+    {
+        var type = new ApiType
+        {
+            Namespace = new string('N', 4_000_000),
+            Name = "Amplifier",
+            MetadataName = "Amplifier",
+            Kind = "class",
+        };
+        var budget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(32_000_000);
+        budget.BeginParticipant();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Throws<BrowserSurfaceProjection.BrowserSurfaceTextBoundExceededException>(
+            () => BrowserSurfaceProjection.Type(
+                type,
+                "Amplifier.dll",
+                "asset:amplifier",
+                "Amplifier",
+                budget));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(
+            allocated < 4L * MiB,
+            $"Browser projection preflight allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void SurfaceProjection_OneHugeMemberStopsBeforeDerivedIdentities()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Amplifier",
+            MetadataName = "Amplifier",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "M",
+                    Kind = "method",
+                    Signature = new string('S', 4_000_000),
+                },
+            ],
+        };
+        var budget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(32_000_000);
+        budget.BeginParticipant();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Throws<BrowserSurfaceProjection.BrowserSurfaceTextBoundExceededException>(
+            () => BrowserSurfaceProjection.Type(
+                type,
+                "Amplifier.dll",
+                "asset:amplifier",
+                "Amplifier",
+                budget));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(
+            allocated < 4L * MiB,
+            $"Browser projection preflight allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
     public void ApiSurfacePolicy_AcceptsCoreLibraryAtEveryBrowserScope()
     {
         using var stream = File.OpenRead(typeof(object).Assembly.Location);

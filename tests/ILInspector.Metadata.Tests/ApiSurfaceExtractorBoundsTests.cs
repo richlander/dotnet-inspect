@@ -14,10 +14,9 @@ namespace ILInspector.Metadata.Tests;
 /// <remarks>
 /// The two claims that matter are that a bound is reachable — an image over budget is reported as
 /// <see cref="ApiSurfaceExtractionResult.Exceeded"/> and yields no surface at all — and that a
-/// bound is exact: budgets equal to the unbounded walk's own totals still extract the whole
-/// surface, and one less than the walk needs stops it. Exactness is what lets a caller spend one
-/// budget across several images and know the bounded accept set matches the unbounded one
-/// whenever the image fits.
+/// retained count is exact for an ordinary surface: a budget equal to the unbounded walk's own
+/// total extracts the whole surface, and one less stops it. Hostile-shape tests separately gate
+/// the conservative pre-materialization work bound used to stop allocation amplification.
 /// </remarks>
 public sealed class ApiSurfaceExtractorBoundsTests
 {
@@ -286,6 +285,32 @@ public sealed class ApiSurfaceExtractorBoundsTests
             BuildInterfaceFloodImage(interfaceCount: 10_000, nameLength: 4_000));
     }
 
+    [Fact]
+    public void OneWideFieldSignature_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildWideTypeSpecImage(WideTypeSpecUse.Field, argumentCount: 1_000, nameLength: 10_000));
+    }
+
+    [Theory]
+    [InlineData(WideTypeSpecUse.BaseType)]
+    [InlineData(WideTypeSpecUse.Event)]
+    [InlineData(WideTypeSpecUse.Interface)]
+    [InlineData(WideTypeSpecUse.GenericConstraint)]
+    public void OneWideTypeSpec_StopsBeforeLargeAllocationAmplification(
+        WideTypeSpecUse use)
+    {
+        AssertTextAmplificationIsBounded(
+            BuildWideTypeSpecImage(use, argumentCount: 1_000, nameLength: 10_000));
+    }
+
+    [Fact]
+    public void OneLargeCustomAttribute_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildLargeAttributeImage(valueLength: 4_000_000));
+    }
+
     static ApiSurface Unbounded()
     {
         using var stream = File.OpenRead(SelfPath);
@@ -454,6 +479,175 @@ public sealed class ApiSurfaceExtractorBoundsTests
         for (int index = 0; index < interfaceCount; index++)
             metadata.AddInterfaceImplementation(type, interfaceType);
         return Serialize(metadata);
+    }
+
+    static byte[] BuildWideTypeSpecImage(
+        WideTypeSpecUse use,
+        int argumentCount,
+        int nameLength)
+    {
+        var metadata = Metadata($"Wide{use}");
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle genericType = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString($"Generic`{argumentCount}"));
+        TypeReferenceHandle argumentType = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString(new string('A', nameLength)));
+        var typeSpecSignature = new BlobBuilder();
+        WriteWideGenericType(
+            typeSpecSignature,
+            genericType,
+            argumentType,
+            argumentCount);
+        TypeSpecificationHandle typeSpec =
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(typeSpecSignature));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Wide"),
+            use == WideTypeSpecUse.BaseType ? typeSpec : default(EntityHandle),
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        switch (use)
+        {
+            case WideTypeSpecUse.Field:
+                var fieldSignature = new BlobBuilder();
+                fieldSignature.WriteByte(0x06);
+                WriteWideGenericType(
+                    fieldSignature,
+                    genericType,
+                    argumentType,
+                    argumentCount);
+                metadata.AddFieldDefinition(
+                    FieldAttributes.Public | FieldAttributes.Static,
+                    metadata.GetOrAddString("Value"),
+                    metadata.GetOrAddBlob(fieldSignature));
+                break;
+            case WideTypeSpecUse.Interface:
+                metadata.AddInterfaceImplementation(type, typeSpec);
+                break;
+            case WideTypeSpecUse.Event:
+                var accessorSignature = new BlobBuilder();
+                new BlobEncoder(accessorSignature).MethodSignature().Parameters(
+                    0,
+                    returnType => returnType.Void(),
+                    _ => { });
+                MethodDefinitionHandle accessor = metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Abstract
+                        | MethodAttributes.Virtual,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString("add_Changed"),
+                    metadata.GetOrAddBlob(accessorSignature),
+                    bodyOffset: -1,
+                    MetadataTokens.ParameterHandle(1));
+                EventDefinitionHandle @event = metadata.AddEvent(
+                    EventAttributes.None,
+                    metadata.GetOrAddString("Changed"),
+                    typeSpec);
+                metadata.AddEventMap(type, @event);
+                metadata.AddMethodSemantics(
+                    @event,
+                    MethodSemanticsAttributes.Adder,
+                    accessor);
+                break;
+            case WideTypeSpecUse.GenericConstraint:
+                GenericParameterHandle parameter = metadata.AddGenericParameter(
+                    type,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    index: 0);
+                metadata.AddGenericParameterConstraint(parameter, typeSpec);
+                break;
+        }
+
+        return Serialize(metadata);
+    }
+
+    static void WriteWideGenericType(
+        BlobBuilder signature,
+        TypeReferenceHandle genericType,
+        TypeReferenceHandle argumentType,
+        int argumentCount)
+    {
+        signature.WriteByte(0x15);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(genericType) << 2 | 1);
+        signature.WriteCompressedInteger(argumentCount);
+        int argumentCode = MetadataTokens.GetRowNumber(argumentType) << 2 | 1;
+        for (int index = 0; index < argumentCount; index++)
+        {
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(argumentCode);
+        }
+    }
+
+    static byte[] BuildLargeAttributeImage(int valueLength)
+    {
+        var metadata = Metadata("LargeAttribute");
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().String());
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        TypeDefinitionHandle type = AddModuleAndPublicType(metadata, "Attributed");
+        var value = new BlobBuilder(valueLength + 16);
+        value.WriteUInt16(1);
+        value.WriteCompressedInteger(valueLength);
+        for (int index = 0; index < valueLength; index++)
+            value.WriteByte((byte)'"');
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            type,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    public enum WideTypeSpecUse
+    {
+        Field,
+        BaseType,
+        Event,
+        Interface,
+        GenericConstraint,
     }
 
     static MetadataBuilder Metadata(string assemblyName)
