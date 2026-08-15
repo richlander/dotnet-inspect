@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Text.Json.Serialization;
 using CSharpText;
 using ILInspector.Findings;
@@ -756,6 +757,121 @@ public sealed record ApiBaseTypeResolution(
     bool HasAccessibleParameterlessConstructor,
     bool IsAbstract);
 
+public enum ApiExplicitInterfaceDeclarationKind
+{
+    SameImage,
+    External,
+    Unavailable,
+}
+
+public enum ApiExplicitInterfaceProvenanceKind
+{
+    SameImage,
+    External,
+    Unavailable,
+    Ambiguous,
+}
+
+/// <summary>
+/// One explicit-interface declaration context projected from one MethodImpl row.
+/// </summary>
+/// <remarks>
+/// The context records whether the declaration lives in the same image, in an
+/// external assembly, or could not be authenticated. Multiple MethodImpl rows
+/// for one MethodDef are preserved independently and summarized by
+/// <see cref="ApiExplicitInterfaceProvenance"/>.
+/// </remarks>
+public sealed record ApiExplicitInterfaceDeclarationContext
+{
+    public ApiExplicitInterfaceDeclarationContext(
+        ApiExplicitInterfaceDeclarationKind kind,
+        MetadataTypeDefinitionName? definitionName = null,
+        AssemblyReferenceIdentity? assembly = null)
+    {
+        if (kind == ApiExplicitInterfaceDeclarationKind.External
+            && assembly is null)
+        {
+            throw new ArgumentException(
+                "External explicit-interface declarations require an assembly identity.",
+                nameof(assembly));
+        }
+        if (kind != ApiExplicitInterfaceDeclarationKind.External
+            && assembly is not null)
+        {
+            throw new ArgumentException(
+                "Only external explicit-interface declarations carry an assembly identity.",
+                nameof(assembly));
+        }
+
+        Kind = kind;
+        DefinitionName = definitionName;
+        Assembly = assembly;
+    }
+
+    public ApiExplicitInterfaceDeclarationKind Kind { get; }
+
+    public MetadataTypeDefinitionName? DefinitionName { get; }
+
+    public AssemblyReferenceIdentity? Assembly { get; }
+}
+
+/// <summary>
+/// Typed explicit-interface provenance for one extracted member.
+/// </summary>
+/// <remarks>
+/// This is transient inspection currency. Serialized API surfaces keep the
+/// display spelling but do not claim that explicit-interface declaration
+/// provenance was preserved or resolved.
+/// </remarks>
+public sealed record ApiExplicitInterfaceProvenance
+{
+    public ApiExplicitInterfaceProvenance(
+        ImmutableArray<ApiExplicitInterfaceDeclarationContext>
+            declarations)
+    {
+        if (declarations.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "Explicit-interface provenance requires at least one declaration context.",
+                nameof(declarations));
+        }
+
+        Declarations = declarations;
+    }
+
+    public ImmutableArray<ApiExplicitInterfaceDeclarationContext>
+        Declarations { get; }
+
+    public ApiExplicitInterfaceProvenanceKind Kind
+        => Classify(Declarations);
+
+    public AssemblyReferenceIdentity? ExternalAssembly
+        => Kind == ApiExplicitInterfaceProvenanceKind.External
+            ? Declarations[0].Assembly
+            : null;
+
+    static ApiExplicitInterfaceProvenanceKind Classify(
+        ImmutableArray<ApiExplicitInterfaceDeclarationContext> declarations)
+    {
+        var distinct =
+            declarations.Distinct().ToImmutableArray();
+        if (distinct.Length != 1)
+            return ApiExplicitInterfaceProvenanceKind.Ambiguous;
+
+        return distinct[0].Kind switch
+        {
+            ApiExplicitInterfaceDeclarationKind.SameImage =>
+                ApiExplicitInterfaceProvenanceKind.SameImage,
+            ApiExplicitInterfaceDeclarationKind.External =>
+                ApiExplicitInterfaceProvenanceKind.External,
+            ApiExplicitInterfaceDeclarationKind.Unavailable =>
+                ApiExplicitInterfaceProvenanceKind.Unavailable,
+            _ => throw new InvalidOperationException(
+                "Unknown explicit-interface declaration kind."),
+        };
+    }
+}
+
 public class ApiMember
 {
     public string Name { get; set; } = "";
@@ -803,14 +919,24 @@ public class ApiMember
     public ApiSignature? SignatureModel { get; set; }
 
     /// <summary>
-    /// Referenced assembly containing the external interface implemented by
-    /// this explicit member; null for a same-assembly interface or when the
-    /// identity is unavailable. The compiled skeleton gate
-    /// <c>ExternalGenericExplicitInterfaceUsesResolvedAssemblyAlias</c>
-    /// verifies that consumers bind through this identity instead of display text.
+    /// Typed explicit-interface declaration provenance for this member. Null for
+    /// non-explicit members and older serialized surfaces.
     /// </summary>
     [JsonIgnore]
-    public AssemblyReferenceIdentity? ExplicitInterfaceAssembly { get; set; }
+    public ApiExplicitInterfaceProvenance? ExplicitInterfaceProvenance { get; set; }
+
+    /// <summary>
+    /// Compatibility projection of <see cref="ExplicitInterfaceProvenance"/> for
+    /// callers that only understand one authenticated external assembly.
+    /// Null for same-image, unavailable, ambiguous, and older surfaces that did
+    /// not retain typed provenance.
+    /// </summary>
+    [JsonIgnore]
+    public AssemblyReferenceIdentity? ExplicitInterfaceAssembly
+    {
+        get => field ?? ExplicitInterfaceProvenance?.ExternalAssembly;
+        set => field = value;
+    }
 
     /// <summary>
     /// Set when guarded metadata decoding substituted part of this member's signature.

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
@@ -1316,12 +1317,13 @@ static class FidelityCheck
                 mh,
                 targeted: methodFilter is not null,
                 isPrimaryConstructor: primaryConstructor is not null);
-            AssemblyReferenceIdentity? explicitInterfaceAssembly =
+            ApiExplicitInterfaceProvenance?
+                explicitInterfaceProvenance =
                 TargetApiIndex(pe).TryGetValue(
                     System.Reflection.Metadata.Ecma335.MetadataTokens
                         .GetToken(mh),
                     out var apiEntry)
-                    ? apiEntry.Member.ExplicitInterfaceAssembly
+                    ? apiEntry.Member.ExplicitInterfaceProvenance
                     : null;
             entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature),
                 ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method).CanonicalSignature,
@@ -1333,7 +1335,7 @@ static class FidelityCheck
                     requiredNamespaces,
                     wholeMember?.Text,
                     wholeMember?.Namespaces,
-                    explicitInterfaceAssembly),
+                    explicitInterfaceProvenance),
                 fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
             if (entries.Count >= maxEntries)
@@ -1647,7 +1649,8 @@ static class FidelityCheck
                     fullType,
                     e.Name,
                     e.Overload,
-                    e.CanonicalSignature)
+                    e.CanonicalSignature,
+                    e.Target.ExplicitInterfaceProvenance)
                 ?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
             if (rOps is null)
                 return null;
@@ -1659,7 +1662,8 @@ static class FidelityCheck
                 fullType,
                 e.Name,
                 e.Overload,
-                e.CanonicalSignature);
+                e.CanonicalSignature,
+                e.Target.ExplicitInterfaceProvenance);
             disassembled.Add(Classify(
                 fullType,
                 e,
@@ -1734,8 +1738,8 @@ static class FidelityCheck
         ms.Position = 0;
         using var rpe = new PEReader(ms);
         var rOps = timings is null
-            ? FindAndDisassemble(rpe, fullType, e.Name, e.Overload, e.CanonicalSignature)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList()
-            : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload, e.CanonicalSignature)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
+            ? FindAndDisassemble(rpe, fullType, e.Name, e.Overload, e.CanonicalSignature, e.Target.ExplicitInterfaceProvenance)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList()
+            : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload, e.CanonicalSignature, e.Target.ExplicitInterfaceProvenance)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
         return rOps is null
             ? new(
                 fullType,
@@ -1759,7 +1763,8 @@ static class FidelityCheck
                     fullType,
                     e.Name,
                     e.Overload,
-                    e.CanonicalSignature),
+                    e.CanonicalSignature,
+                    e.Target.ExplicitInterfaceProvenance),
                 usedProductWholeMember);
     }
 
@@ -2122,8 +2127,8 @@ static class FidelityCheck
                 ms.Position = 0;
                 using var rpe = new PEReader(ms);
                 var rOps = timings is null
-                    ? FindAndDisassemble(rpe, fullType, e.Name, e.Overload, e.CanonicalSignature)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList()
-                    : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload, e.CanonicalSignature)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
+                    ? FindAndDisassemble(rpe, fullType, e.Name, e.Overload, e.CanonicalSignature, e.Target.ExplicitInterfaceProvenance)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList()
+                    : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload, e.CanonicalSignature, e.Target.ExplicitInterfaceProvenance)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
                 if (rOps is null)
                 {
                     captureDetail = "cluster-method-not-found";
@@ -2144,7 +2149,8 @@ static class FidelityCheck
                         fullType,
                         e.Name,
                         e.Overload,
-                        e.CanonicalSignature),
+                        e.CanonicalSignature,
+                        e.Target.ExplicitInterfaceProvenance),
                     usedProductWholeMember);
             }
 
@@ -2918,7 +2924,7 @@ static class FidelityCheck
         // the render shortened against, hoisted into the compile-back unit usings.
         string? WholeMember = null,
         IReadOnlySet<string>? WholeMemberNamespaces = null,
-        AssemblyReferenceIdentity? ExplicitInterfaceAssembly = null);
+        ApiExplicitInterfaceProvenance? ExplicitInterfaceProvenance = null);
 
     public sealed record PrimaryConstructorShape(
         string Parameters,
@@ -3324,13 +3330,9 @@ static class FidelityCheck
                     .FirstOrDefault();
             if (implementedName is not null && !targetHandle.IsNil)
             {
-                AssemblyReferenceIdentity? assembly =
-                    targets[targetHandle].ExplicitInterfaceAssembly;
                 string? alias = ResolveExplicitInterfaceAlias(
-                    reader,
-                    typeDef,
-                    targetHandle,
-                    assembly,
+                    targets[targetHandle]
+                        .ExplicitInterfaceProvenance,
                     resolver);
                 string escapedName =
                     EscapeTypeKeywords(
@@ -3702,10 +3704,10 @@ static class FidelityCheck
             kind,
             targetApiTypes.GetValueOrDefault(typeHandle),
             resolver);
-        bool externalAbstractBase =
+        bool preserveExternalOverrides =
             baseClause.Length != 0
             && targetApiTypes.GetValueOrDefault(typeHandle)
-                ?.BaseTypeResolution?.IsAbstract == true;
+                ?.BaseTypeResolution is not null;
         bool requiresAbstractClass =
             kind == TypeKind.Class
             && !IsStaticClass(typeDef)
@@ -3770,7 +3772,7 @@ static class FidelityCheck
         if (kind is TypeKind.Class or TypeKind.Struct)
             EmitStubProperties(reader, typeDef, targets, accessibility, thisFieldInits, stubPropertyAccessors,
                 orderedTargetProperties, sb, pad + "    ",
-                preserveExternalOverrides: externalAbstractBase,
+                preserveExternalOverrides,
                 requireAutoProperty: kind == TypeKind.Struct);
         var orderedTargetEvents = new Dictionary<MethodDefinitionHandle, EventDefinitionHandle>();
         IndexTargetEvents(reader, typeDef, targets, orderedTargetEvents);
@@ -3830,7 +3832,7 @@ static class FidelityCheck
                             typeDef,
                             targetProperty,
                             targets,
-                            externalAbstractBase,
+                            preserveExternalOverrides,
                             accessibility,
                             resolver,
                             sb,
@@ -3861,15 +3863,12 @@ static class FidelityCheck
                 hasTarget ? target.Body : null,
                 hasTarget ? target.Chain : null,
                 hasTarget && target.RequiresAsync,
-                hasTarget && target.ExplicitInterfaceAssembly is { } assembly
+                hasTarget
                     ? ResolveExplicitInterfaceAlias(
-                        reader,
-                        typeDef,
-                        mh,
-                        assembly,
+                        target.ExplicitInterfaceProvenance,
                         resolver)
                     : null,
-                externalAbstractBase,
+                preserveExternalOverrides,
                 accessibility,
                 sb, pad + "    ");
         }
@@ -4157,8 +4156,8 @@ static class FidelityCheck
                 bool isExplicit = pname.Contains('.');
                 // Preserve the accessor's call kind at a `?.X` site (receiver known
                 // non-null): a non-virtual *or final* virtual getter compiles to
-                // `call`, a non-final virtual getter to `callvirt`. Preserve a
-                // proven external abstract-base override so the reconstructed
+                // `call`, a non-final virtual getter to `callvirt`. Preserve an
+                // authenticated external-base override so the reconstructed
                 // concrete type still satisfies the inherited slot; otherwise
                 // `virtual` is enough to preserve the target's call kind.
                 bool emitVirtual = accessorMethod.Attributes.HasFlag(MethodAttributes.Virtual)
@@ -4434,23 +4433,16 @@ static class FidelityCheck
         string emittedModifier = isExplicit
             ? isStatic ? "static " : ""
             : modifier;
-        AssemblyReferenceIdentity? explicitAssembly =
+        ApiExplicitInterfaceProvenance? explicitProvenance =
             !pa.Getter.IsNil
                 && targets.TryGetValue(pa.Getter, out TargetBody getter)
-                    ? getter.ExplicitInterfaceAssembly
+                    ? getter.ExplicitInterfaceProvenance
                     : !pa.Setter.IsNil
                         && targets.TryGetValue(pa.Setter, out TargetBody setter)
-                            ? setter.ExplicitInterfaceAssembly
+                            ? setter.ExplicitInterfaceProvenance
                             : null;
-        MethodDefinitionHandle targetAccessor =
-            !pa.Getter.IsNil && targets.ContainsKey(pa.Getter)
-                ? pa.Getter
-                : pa.Setter;
         string? explicitAlias = ResolveExplicitInterfaceAlias(
-            reader,
-            typeDef,
-            targetAccessor,
-            explicitAssembly,
+            explicitProvenance,
             resolver);
         string emittedName = isExplicit
             ? ExplicitMemberName(propertyName, explicitAlias)
@@ -4518,23 +4510,16 @@ static class FidelityCheck
                 out TargetBody removeTarget)
                 ? $" remove {{\n{removeTarget.Body}\n{pad}}}"
                 : " remove { throw null; }";
-        AssemblyReferenceIdentity? explicitAssembly =
+        ApiExplicitInterfaceProvenance? explicitProvenance =
             targets.TryGetValue(accessors.Adder, out TargetBody adder)
-                ? adder.ExplicitInterfaceAssembly
+                ? adder.ExplicitInterfaceProvenance
                 : targets.TryGetValue(
                     accessors.Remover,
                     out TargetBody remover)
-                    ? remover.ExplicitInterfaceAssembly
+                    ? remover.ExplicitInterfaceProvenance
                     : null;
-        MethodDefinitionHandle targetAccessor =
-            targets.ContainsKey(accessors.Adder)
-                ? accessors.Adder
-                : accessors.Remover;
         string? explicitAlias = ResolveExplicitInterfaceAlias(
-            reader,
-            typeDef,
-            targetAccessor,
-            explicitAssembly,
+            explicitProvenance,
             resolver);
         bool isStatic =
             reader.GetMethodDefinition(accessors.Adder)
@@ -5251,46 +5236,44 @@ static class FidelityCheck
     }
 
     static string? ResolveExplicitInterfaceAlias(
-        MetadataReader reader,
-        TypeDefinition typeDef,
-        MethodDefinitionHandle body,
-        AssemblyReferenceIdentity? assembly,
+        ApiExplicitInterfaceProvenance? provenance,
         CompilerReferenceResolver resolver)
     {
-        if (assembly is null)
-            return null;
-
-        foreach (MethodImplementationHandle handle
-            in typeDef.GetMethodImplementations())
+        if (provenance is null
+            || provenance.Kind
+                == ApiExplicitInterfaceProvenanceKind.SameImage)
         {
-            MethodImplementation implementation =
-                reader.GetMethodImplementation(handle);
-            if (implementation.MethodBody != body
-                || implementation.MethodDeclaration.Kind
-                    != HandleKind.MemberReference)
-            {
-                continue;
-            }
+            return null;
+        }
 
-            EntityHandle declaringType = reader.GetMemberReference(
-                (MemberReferenceHandle)
-                    implementation.MethodDeclaration).Parent;
-            if (declaringType.Kind == HandleKind.TypeReference
-                && ResolvePlatformDefinition(
-                    assembly,
-                    TypeReferenceDefinitionName(
-                        reader,
-                        (TypeReferenceHandle)declaringType),
-                    resolver)
-                    is
-                    {
-                        Kind: MetadataTypeDefinitionKind.Interface,
-                        IsPubliclyAccessible: true
-                    } definition)
+        if (provenance.Kind
+            is ApiExplicitInterfaceProvenanceKind.Unavailable
+                or ApiExplicitInterfaceProvenanceKind.Ambiguous)
+        {
+            throw new CompileBackPlanningException(
+                "external-explicit-interface-reference-unavailable: "
+                + $"declaration-provenance-{provenance.Kind.ToString().ToLowerInvariant()}");
+        }
+
+        ApiExplicitInterfaceDeclarationContext declaration =
+            provenance.Declarations[0];
+        AssemblyReferenceIdentity assembly =
+            declaration.Assembly
+            ?? throw new CompileBackPlanningException(
+                "external-explicit-interface-reference-unavailable: "
+                + "declaration-provenance-missing-assembly");
+
+        if (ResolvePlatformDefinition(
+                assembly,
+                declaration.DefinitionName,
+                resolver)
+            is
             {
-                assembly = definition.Assembly.Assembly.Identity;
-            }
-            break;
+                Kind: MetadataTypeDefinitionKind.Interface,
+                IsPubliclyAccessible: true
+            } definition)
+        {
+            assembly = definition.Assembly.Assembly.Identity;
         }
 
         return resolver.ResolveAlias(
@@ -5995,14 +5978,16 @@ static class FidelityCheck
         string fullType,
         string name,
         int overload,
-        string canonicalSignature)
+        string canonicalSignature,
+        ApiExplicitInterfaceProvenance? explicitInterfaceProvenance)
     {
         if (FindMethodDefinition(
                 pe,
                 fullType,
                 name,
                 overload,
-                canonicalSignature)
+                canonicalSignature,
+                explicitInterfaceProvenance)
             is not { } found)
             return null;
         return MetadataInstructionProducer.Disassemble(pe, found.Reader, found.Method);
@@ -6013,10 +5998,10 @@ static class FidelityCheck
         string fullType,
         string name,
         int overload,
-        string? canonicalSignature = null)
+        string? canonicalSignature = null,
+        ApiExplicitInterfaceProvenance? explicitInterfaceProvenance = null)
     {
         var reader = pe.GetMetadataReader();
-        int seen = 0;
         foreach (var tdh in reader.TypeDefinitions)
         {
             var td = reader.GetTypeDefinition(tdh);
@@ -6028,6 +6013,13 @@ static class FidelityCheck
             // The IL names .ctor/.cctor become the type name / static-ctor in C#;
             // map back so the target re-resolves by its metadata name.
             string match = name is ".ctor" or ".cctor" ? name : name;
+            var canonicalMatches =
+                canonicalSignature is null
+                    ? null
+                    : new List<(
+                        MethodDefinitionHandle Handle,
+                        MethodDefinition Method)>();
+            int seen = 0;
             foreach (var mh in td.GetMethods())
             {
                 var m = reader.GetMethodDefinition(mh);
@@ -6051,14 +6043,85 @@ static class FidelityCheck
                         CorrespondenceMethodName(name),
                         StringComparison.Ordinal);
                     if (normalizedCandidate == normalizedExpected)
-                        return (reader, mh, m);
+                        canonicalMatches!.Add((mh, m));
                     continue;
                 }
                 if (seen++ == overload)
                     return (reader, mh, m);
             }
+
+            if (canonicalMatches is null)
+                continue;
+            if (canonicalMatches.Count == 1)
+            {
+                var matchCandidate = canonicalMatches[0];
+                return (
+                    reader,
+                    matchCandidate.Handle,
+                    matchCandidate.Method);
+            }
+            if (explicitInterfaceProvenance is not null)
+            {
+                var provenanceMatches = canonicalMatches
+                    .Where(candidate =>
+                        ExplicitInterfaceProvenanceEquals(
+                            explicitInterfaceProvenance,
+                            CandidateExplicitInterfaceProvenance(
+                                pe,
+                                candidate.Handle)))
+                    .ToList();
+                if (provenanceMatches.Count == 1)
+                {
+                    var matchCandidate = provenanceMatches[0];
+                    return (
+                        reader,
+                        matchCandidate.Handle,
+                        matchCandidate.Method);
+                }
+                canonicalMatches = provenanceMatches.Count != 0
+                    ? provenanceMatches
+                    : canonicalMatches;
+            }
+            if ((uint)overload < (uint)canonicalMatches.Count)
+            {
+                var matchCandidate = canonicalMatches[overload];
+                return (
+                    reader,
+                    matchCandidate.Handle,
+                    matchCandidate.Method);
+            }
         }
         return null;
+    }
+
+    static ApiExplicitInterfaceProvenance?
+        CandidateExplicitInterfaceProvenance(
+        PEReader pe,
+        MethodDefinitionHandle handle)
+        => TargetApiIndex(pe).TryGetValue(
+            MetadataTokens.GetToken(handle),
+            out var entry)
+            ? entry.Member.ExplicitInterfaceProvenance
+            : null;
+
+    static bool ExplicitInterfaceProvenanceEquals(
+        ApiExplicitInterfaceProvenance expected,
+        ApiExplicitInterfaceProvenance? actual)
+    {
+        if (actual is null
+            || expected.Kind != actual.Kind)
+        {
+            return false;
+        }
+
+        HashSet<ApiExplicitInterfaceDeclarationContext>
+            expectedDeclarations =
+                [.. expected.Declarations];
+        HashSet<ApiExplicitInterfaceDeclarationContext>
+            actualDeclarations =
+                [.. actual.Declarations];
+        return expectedDeclarations.SetEquals(
+            actualDeclarations);
     }
 
     static string CorrespondenceMethodName(string metadataName)
@@ -6079,14 +6142,16 @@ static class FidelityCheck
         string fullType,
         string methodName,
         int overload,
-        string canonicalSignature)
+        string canonicalSignature,
+        ApiExplicitInterfaceProvenance? explicitInterfaceProvenance)
     {
         if (FindMethodDefinition(
                 recompiledPe,
                 fullType,
                 methodName,
                 overload,
-                canonicalSignature)
+                canonicalSignature,
+                explicitInterfaceProvenance)
             is not { } recompiled)
             return IlBodyDiffResult.NewBodyMissing("recompiled method not found");
 

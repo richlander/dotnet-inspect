@@ -751,7 +751,7 @@ public static class ApiSurfaceExtractor
                     IsFinalizer = isFinalizer,
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
-                    ExplicitInterfaceAssembly =
+                    ExplicitInterfaceProvenance =
                         isExplicitInterfaceImplementation
                             ? explicitImplementationBodies[methodHandle]
                             : null,
@@ -842,7 +842,7 @@ public static class ApiSurfaceExtractor
                     Kind = "property",
                     Signature = propertySignature.Text,
                     SignatureModel = propertySignature.Model,
-                    ExplicitInterfaceAssembly = ExplicitInterfaceAssembly(
+                    ExplicitInterfaceProvenance = ExplicitInterfaceProvenance(
                         explicitImplementationBodies,
                         accessors.Getter,
                         accessors.Setter),
@@ -1079,7 +1079,7 @@ public static class ApiSurfaceExtractor
                         MemberName = reader.GetString(evt.Name),
                         Accessors = accessorModels
                     },
-                    ExplicitInterfaceAssembly = ExplicitInterfaceAssembly(
+                    ExplicitInterfaceProvenance = ExplicitInterfaceProvenance(
                         explicitImplementationBodies,
                         accessors.Adder,
                         accessors.Remover),
@@ -1535,47 +1535,76 @@ public static class ApiSurfaceExtractor
         return (fieldNode.Render(), fieldNode.IsDegraded);
     }
 
-    private static Dictionary<MethodDefinitionHandle, AssemblyReferenceIdentity?>
+    private static Dictionary<
+        MethodDefinitionHandle,
+        ApiExplicitInterfaceProvenance>
         GetExplicitImplementationBodies(
         MetadataReader reader, TypeDefinition typeDef)
     {
-        Dictionary<MethodDefinitionHandle, AssemblyReferenceIdentity?> handles = [];
+        Dictionary<
+            MethodDefinitionHandle,
+            HashSet<ApiExplicitInterfaceDeclarationContext>>
+            handles = [];
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             var implementation = reader.GetMethodImplementation(implementationHandle);
             if (implementation.MethodBody.Kind == HandleKind.MethodDefinition)
             {
-                handles[(MethodDefinitionHandle)implementation.MethodBody] =
-                    GetExplicitInterfaceAssembly(
+                MethodDefinitionHandle body =
+                    (MethodDefinitionHandle)implementation.MethodBody;
+                if (!handles.TryGetValue(
+                        body,
+                        out HashSet<ApiExplicitInterfaceDeclarationContext>?
+                            declarations))
+                {
+                    declarations = [];
+                    handles.Add(body, declarations);
+                }
+
+                declarations.Add(
+                    GetExplicitInterfaceDeclarationContext(
                         reader,
-                        implementation.MethodDeclaration);
+                        implementation.MethodDeclaration));
             }
         }
 
-        return handles;
+        return handles.ToDictionary(
+            static pair => pair.Key,
+            pair => new ApiExplicitInterfaceProvenance(
+                pair.Value.ToImmutableArray()),
+            EqualityComparer<MethodDefinitionHandle>.Default);
     }
 
-    private static AssemblyReferenceIdentity? ExplicitInterfaceAssembly(
+    private static ApiExplicitInterfaceProvenance?
+        ExplicitInterfaceProvenance(
         IReadOnlyDictionary<
             MethodDefinitionHandle,
-            AssemblyReferenceIdentity?> implementations,
+            ApiExplicitInterfaceProvenance> implementations,
         params MethodDefinitionHandle[] accessors)
     {
+        HashSet<ApiExplicitInterfaceDeclarationContext>? declarations =
+            null;
         foreach (MethodDefinitionHandle accessor in accessors)
         {
             if (!accessor.IsNil
                 && implementations.TryGetValue(
                     accessor,
-                    out AssemblyReferenceIdentity? assembly))
+                    out ApiExplicitInterfaceProvenance? provenance))
             {
-                return assembly;
+                declarations ??= [];
+                declarations.UnionWith(
+                    provenance.Declarations);
             }
         }
 
-        return null;
+        return declarations is null
+            ? null
+            : new ApiExplicitInterfaceProvenance(
+                declarations.ToImmutableArray());
     }
 
-    private static AssemblyReferenceIdentity? GetExplicitInterfaceAssembly(
+    private static ApiExplicitInterfaceDeclarationContext
+        GetExplicitInterfaceDeclarationContext(
         MetadataReader reader,
         EntityHandle declaration)
     {
@@ -1589,122 +1618,158 @@ public static class ApiSurfaceExtractor
                     (MethodDefinitionHandle)declaration).GetDeclaringType(),
             _ => default,
         };
-        AssemblyReferenceHandle? assembly =
-            ExplicitInterfaceAssemblyProvider.GetAssemblyReference(
+        return declaringType.IsNil
+            ? new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.Unavailable)
+            : GetExplicitInterfaceTypeContext(
                 reader,
                 declaringType);
-        return assembly is { } handle
-            ? AssemblyReferenceIdentity.From(reader, handle)
-            : null;
     }
 
-    private sealed class ExplicitInterfaceAssemblyProvider
-        : ISignatureTypeProvider<AssemblyReferenceHandle?, object?>
+    private static ApiExplicitInterfaceDeclarationContext
+        GetExplicitInterfaceTypeContext(
+        MetadataReader reader,
+        EntityHandle declaringType)
     {
-        internal static readonly ExplicitInterfaceAssemblyProvider Instance =
-            new();
-
-        internal static AssemblyReferenceHandle? GetAssemblyReference(
-            MetadataReader reader,
-            EntityHandle type) =>
-            type.Kind switch
-            {
-                HandleKind.TypeReference => GetAssemblyReference(
+        return declaringType.Kind switch
+        {
+            HandleKind.TypeDefinition =>
+                new ApiExplicitInterfaceDeclarationContext(
+                    ApiExplicitInterfaceDeclarationKind.SameImage,
+                    ReadDefinitionName(
+                        reader,
+                        (TypeDefinitionHandle)declaringType)),
+            HandleKind.TypeReference =>
+                GetExplicitInterfaceTypeReferenceContext(
                     reader,
-                    (TypeReferenceHandle)type),
-                HandleKind.TypeSpecification => Instance
-                    .GetTypeFromSpecification(
-                        reader,
-                        genericContext: null,
-                        (TypeSpecificationHandle)type,
-                        rawTypeKind: 0),
-                _ => null,
-            };
+                    (TypeReferenceHandle)declaringType),
+            HandleKind.TypeSpecification =>
+                GetExplicitInterfaceTypeSpecificationContext(
+                    reader,
+                    (TypeSpecificationHandle)declaringType),
+            _ => new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.Unavailable),
+        };
+    }
 
-        private static AssemblyReferenceHandle? GetAssemblyReference(
-            MetadataReader reader,
-            TypeReferenceHandle type)
+    private static ApiExplicitInterfaceDeclarationContext
+        GetExplicitInterfaceTypeReferenceContext(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
+    {
+        MetadataTypeDefinitionName? definitionName =
+            ReadDefinitionName(reader, handle);
+        Span<TypeReferenceHandle> chain =
+            stackalloc TypeReferenceHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out _,
+                    out EntityHandle terminal,
+                    out _))
         {
-            Span<TypeReferenceHandle> chain =
-                stackalloc TypeReferenceHandle[
-                    MetadataSafetyPolicy.MaxRelationshipNodes];
-            return MetadataRelationshipTraversal
-                    .TryWalkTypeReferenceResolutionScope(
-                        reader,
-                        type,
-                        chain,
-                        out _,
-                        out EntityHandle terminal,
-                        out _)
-                && terminal.Kind == HandleKind.AssemblyReference
-                    ? (AssemblyReferenceHandle)terminal
-                    : null;
+            return new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.Unavailable,
+                definitionName);
         }
 
-        public AssemblyReferenceHandle? GetTypeFromDefinition(
-            MetadataReader reader,
-            TypeDefinitionHandle handle,
-            byte rawTypeKind) => null;
-
-        public AssemblyReferenceHandle? GetTypeFromReference(
-            MetadataReader reader,
-            TypeReferenceHandle handle,
-            byte rawTypeKind) => GetAssemblyReference(reader, handle);
-
-        public AssemblyReferenceHandle? GetTypeFromSpecification(
-            MetadataReader reader,
-            object? genericContext,
-            TypeSpecificationHandle handle,
-            byte rawTypeKind)
+        return terminal.Kind switch
         {
-            if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
-                return null;
-            using (scope)
-            {
-                return reader.GetTypeSpecification(handle)
-                    .DecodeSignature(this, genericContext);
-            }
+            HandleKind.AssemblyReference =>
+                new ApiExplicitInterfaceDeclarationContext(
+                    ApiExplicitInterfaceDeclarationKind.External,
+                    definitionName,
+                    AssemblyReferenceIdentity.From(
+                        reader,
+                        (AssemblyReferenceHandle)terminal)),
+            HandleKind.ModuleDefinition or HandleKind.ModuleReference =>
+                new ApiExplicitInterfaceDeclarationContext(
+                    ApiExplicitInterfaceDeclarationKind.SameImage,
+                    definitionName),
+            _ => new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.Unavailable,
+                definitionName),
+        };
+    }
+
+    private static ApiExplicitInterfaceDeclarationContext
+        GetExplicitInterfaceTypeSpecificationContext(
+        MetadataReader reader,
+        TypeSpecificationHandle handle)
+    {
+        if (!TypeSpecificationRoot.TryRead(
+                reader,
+                handle,
+                out TypeSpecificationRoot root)
+            || root.Kind != TypeSpecificationRootKind.NamedType)
+        {
+            return new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.Unavailable);
         }
 
-        public AssemblyReferenceHandle? GetPrimitiveType(
-            PrimitiveTypeCode typeCode) => null;
+        return root.Type.Kind switch
+        {
+            HandleKind.TypeDefinition =>
+                new ApiExplicitInterfaceDeclarationContext(
+                    ApiExplicitInterfaceDeclarationKind.SameImage,
+                    ReadDefinitionName(
+                        reader,
+                        (TypeDefinitionHandle)root.Type)),
+            HandleKind.TypeReference =>
+                GetExplicitInterfaceTypeReferenceContext(
+                    reader,
+                    (TypeReferenceHandle)root.Type),
+            _ => new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.Unavailable),
+        };
+    }
 
-        public AssemblyReferenceHandle? GetSZArrayType(
-            AssemblyReferenceHandle? elementType) => elementType;
+    private static MetadataTypeDefinitionName? ReadDefinitionName(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+        => MetadataTypeDefinitionNameReader.Read(reader, handle)
+            is MetadataTypeDefinitionNameReadResult.Read named
+                ? named.Name
+                : null;
 
-        public AssemblyReferenceHandle? GetArrayType(
-            AssemblyReferenceHandle? elementType,
-            ArrayShape shape) => elementType;
+    private static MetadataTypeDefinitionName? ReadDefinitionName(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
+    {
+        Span<TypeReferenceHandle> rootToLeaf =
+            stackalloc TypeReferenceHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    rootToLeaf,
+                    out int consumed,
+                    out _,
+                    out _)
+            || consumed == 0)
+        {
+            return null;
+        }
 
-        public AssemblyReferenceHandle? GetByReferenceType(
-            AssemblyReferenceHandle? elementType) => elementType;
+        TypeReference root = reader.GetTypeReference(rootToLeaf[0]);
+        string typeNamespace = reader.GetString(root.Namespace);
+        var segments = ImmutableArray.CreateBuilder<string>(consumed);
+        for (int index = 0; index < consumed; index++)
+        {
+            segments.Add(reader.GetString(
+                reader.GetTypeReference(rootToLeaf[index]).Name));
+        }
 
-        public AssemblyReferenceHandle? GetPointerType(
-            AssemblyReferenceHandle? elementType) => elementType;
-
-        public AssemblyReferenceHandle? GetGenericInstantiation(
-            AssemblyReferenceHandle? genericType,
-            ImmutableArray<AssemblyReferenceHandle?> typeArguments) =>
-            genericType;
-
-        public AssemblyReferenceHandle? GetGenericMethodParameter(
-            object? genericContext,
-            int index) => null;
-
-        public AssemblyReferenceHandle? GetGenericTypeParameter(
-            object? genericContext,
-            int index) => null;
-
-        public AssemblyReferenceHandle? GetFunctionPointerType(
-            MethodSignature<AssemblyReferenceHandle?> signature) => null;
-
-        public AssemblyReferenceHandle? GetModifiedType(
-            AssemblyReferenceHandle? modifier,
-            AssemblyReferenceHandle? unmodifiedType,
-            bool isRequired) => unmodifiedType;
-
-        public AssemblyReferenceHandle? GetPinnedType(
-            AssemblyReferenceHandle? elementType) => elementType;
+        return MetadataTypeDefinitionName.Create(
+            typeNamespace,
+            segments.MoveToImmutable())
+            is MetadataTypeDefinitionNameResult.Valid valid
+                ? valid.Name
+                : null;
     }
 
     /// <summary>

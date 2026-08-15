@@ -3,8 +3,11 @@ using DotnetInspector.Services;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 using ILInspector.Metadata;
+using System.Reflection;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
+using System.Text;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -262,9 +265,16 @@ public class FidelityCheckGeneratedFilterTests
                     member => member.Name.EndsWith(
                         ".Get",
                         StringComparison.Ordinal));
+                Assert.NotNull(
+                    explicitMember.ExplicitInterfaceProvenance);
+                ApiExplicitInterfaceProvenance provenance =
+                    explicitMember.ExplicitInterfaceProvenance!;
+                Assert.Equal(
+                    ApiExplicitInterfaceProvenanceKind.External,
+                    provenance.Kind);
                 Assert.Equal(
                     "ExplicitDependency",
-                    explicitMember.ExplicitInterfaceAssembly?.Name);
+                    provenance.ExternalAssembly?.Name);
             }
 
             var result = Assert.Single(
@@ -354,6 +364,286 @@ public class FidelityCheckGeneratedFilterTests
             if (targetPath.Length != 0)
                 DeleteFixture(targetPath);
             DeleteFixture(dependencyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void ConcreteExternalPropertyOverrideKeepsReuseSlot()
+    {
+        string dependencyPath = CompileFixture(
+            """
+            namespace ConcreteProperty;
+
+            public class Base
+            {
+                public virtual int Value => 1;
+            }
+            """,
+            assemblyName: "ConcretePropertyDependency");
+        string targetPath = "";
+        try
+        {
+            targetPath = CompileFixture(
+                """
+                namespace ConcreteProperty;
+
+                public class Derived : Base
+                {
+                    public sealed override int Value => 42;
+                }
+                """,
+                references:
+                [
+                    .. RoslynTestReferences.TrustedPlatform,
+                    MetadataReference.CreateFromFile(dependencyPath),
+                ],
+                assemblyName: "ConcretePropertyTarget");
+            File.Copy(
+                dependencyPath,
+                Path.Combine(
+                    Path.GetDirectoryName(targetPath)!,
+                    Path.GetFileName(dependencyPath)));
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    targetPath,
+                    type => type == "ConcreteProperty.Derived"),
+                candidate => candidate.Method == "get_Value");
+            string source = BuildFidelitySourceForReview(
+                targetPath,
+                "ConcreteProperty.Derived",
+                "get_Value");
+
+            var failures = new List<string>();
+            if (result.Status != FidelityCheck.CompileBackStatus.Exact)
+            {
+                failures.Add(
+                    "Expected fidelity status Exact."
+                    + Environment.NewLine
+                    + DescribeResult(result));
+            }
+            if (!source.Contains(
+                    "public sealed override int Value",
+                    StringComparison.Ordinal))
+            {
+                failures.Add(
+                    "Expected reconstructed source to contain "
+                    + "'public sealed override int Value'."
+                    + Environment.NewLine
+                    + DescribeResult(result)
+                    + Environment.NewLine
+                    + Environment.NewLine
+                    + source);
+            }
+            if (failures.Count != 0)
+                throw new Xunit.Sdk.XunitException(
+                    string.Join(
+                        Environment.NewLine + Environment.NewLine,
+                        failures));
+        }
+        finally
+        {
+            if (targetPath.Length != 0)
+                DeleteFixture(targetPath);
+            DeleteFixture(dependencyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void PlatformForwardedGenericExplicitInterfaceUsesDefinitionAlias()
+    {
+        string assemblyPath = CompileFixture(
+            """
+            namespace PlatformForwarded;
+
+            public sealed class Target : System.IEquatable<int>
+            {
+                bool System.IEquatable<int>.Equals(int value) => true;
+            }
+            """,
+            references: ReferencePackReferences(),
+            assemblyName: "PlatformForwardedTarget");
+        try
+        {
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    type => type == "PlatformForwarded.Target"),
+                candidate => candidate.Method.EndsWith(
+                    ".Equals",
+                    StringComparison.Ordinal));
+
+            if (result.Status != FidelityCheck.CompileBackStatus.Exact)
+            {
+                throw new Xunit.Sdk.XunitException(
+                    "Expected fidelity status Exact."
+                    + Environment.NewLine
+                    + DescribeResult(result));
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void DistinctAliasedExplicitImplementationsRemainDistinct()
+    {
+        string leftPath = CompileFixture(
+            "namespace Collision; public interface IProbe { int Get(); }",
+            assemblyName: "LeftContracts");
+        string rightPath = CompileFixture(
+            "namespace Collision; public interface IProbe { int Get(); }",
+            assemblyName: "RightContracts");
+        string targetPath = "";
+        try
+        {
+            targetPath = CompileFixture(
+                """
+                extern alias left;
+                extern alias right;
+
+                namespace CollisionImpl;
+
+                public sealed class Target :
+                    left::Collision.IProbe,
+                    right::Collision.IProbe
+                {
+                    int left::Collision.IProbe.Get() => 1;
+                    int right::Collision.IProbe.Get() => 2;
+                }
+                """,
+                references:
+                [
+                    .. RoslynTestReferences.TrustedPlatform,
+                    MetadataReference.CreateFromFile(
+                        leftPath,
+                        new MetadataReferenceProperties(
+                            MetadataImageKind.Assembly,
+                            aliases: ["left"])),
+                    MetadataReference.CreateFromFile(
+                        rightPath,
+                        new MetadataReferenceProperties(
+                            MetadataImageKind.Assembly,
+                            aliases: ["right"])),
+                ],
+                assemblyName: "AliasTarget");
+            string targetDirectory = Path.GetDirectoryName(targetPath)!;
+            File.Copy(
+                leftPath,
+                Path.Combine(targetDirectory, Path.GetFileName(leftPath)));
+            File.Copy(
+                rightPath,
+                Path.Combine(targetDirectory, Path.GetFileName(rightPath)));
+
+            var results = FidelityCheck.Evaluate(
+                    targetPath,
+                    type => type == "CollisionImpl.Target")
+                .Where(result => result.Method.EndsWith(
+                    ".Get",
+                    StringComparison.Ordinal))
+                .OrderBy(result => result.Overload)
+                .ToList();
+
+            var failures = new List<string>();
+            if (results.Count != 2)
+            {
+                failures.Add(
+                    $"Expected two compile-back results, got {results.Count}."
+                    + Environment.NewLine
+                    + DescribeResults(results));
+            }
+            if (results.Any(result => result.Status != FidelityCheck.CompileBackStatus.Exact))
+            {
+                failures.Add(
+                    "Expected both explicit implementations to round-trip Exact."
+                    + Environment.NewLine
+                    + DescribeResults(results));
+            }
+            if (failures.Count != 0)
+                throw new Xunit.Sdk.XunitException(
+                    string.Join(
+                        Environment.NewLine + Environment.NewLine,
+                        failures));
+        }
+        finally
+        {
+            if (targetPath.Length != 0)
+                DeleteFixture(targetPath);
+            DeleteFixture(leftPath);
+            DeleteFixture(rightPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void MultipleMethodImplProvenanceFailsClosed()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"lossy-explicit-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+
+        string assemblyPath = Path.Combine(directory, "LossyExplicit.dll");
+        File.WriteAllBytes(
+            assemblyPath,
+            BuildLossyExplicitProvenanceImage());
+
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var pe = new PEReader(stream);
+
+            ApiType type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe, includeAll: true).Types,
+                candidate => candidate.FullName == "Collision.Target");
+            ApiMember member = Assert.Single(
+                type.Members,
+                candidate =>
+                    candidate.Kind
+                        == "explicit-interface-implementation");
+            Assert.NotNull(member.ExplicitInterfaceProvenance);
+            ApiExplicitInterfaceProvenance provenance =
+                member.ExplicitInterfaceProvenance!;
+
+            Assert.Equal(
+                ApiExplicitInterfaceProvenanceKind.Ambiguous,
+                provenance.Kind);
+            Assert.Contains(
+                provenance.Declarations,
+                declaration =>
+                    declaration.Kind
+                        == ApiExplicitInterfaceDeclarationKind.External
+                    && declaration.Assembly?.Name == "ExternalContracts");
+            Assert.Contains(
+                provenance.Declarations,
+                declaration =>
+                    declaration.Kind
+                        == ApiExplicitInterfaceDeclarationKind.SameImage);
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    candidate => candidate == "Collision.Target"),
+                candidate => candidate.Method.EndsWith(
+                    ".Get",
+                    StringComparison.Ordinal));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.ContextFail,
+                result.Status);
+            Assert.Contains(
+                "external-explicit-interface-reference-unavailable",
+                result.Detail,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
         }
     }
 
@@ -2302,6 +2592,284 @@ public class FidelityCheckGeneratedFilterTests
             .OrderBy(path => path, StringComparer.Ordinal)
             .Select(path => MetadataReference.CreateFromFile(path))
             .ToArray();
+    }
+
+    static string DescribeResult(FidelityCheck.CompileBackResult result)
+    {
+        var parts = new List<string>
+        {
+            $"type={result.Type}",
+            $"method={result.Method}",
+            $"overload={result.Overload}",
+            $"signature={result.Signature}",
+            $"status={result.Status}",
+        };
+        if (!string.IsNullOrWhiteSpace(result.Detail))
+            parts.Add($"detail:{Environment.NewLine}{result.Detail}");
+        if (!string.IsNullOrWhiteSpace(result.Annotated))
+            parts.Add($"annotated:{Environment.NewLine}{result.Annotated}");
+        if (result.FidelityDiff is { Rows.Length: > 0 } diff)
+        {
+            parts.Add(
+                "fidelity-diff:"
+                + Environment.NewLine
+                + string.Join(
+                    Environment.NewLine,
+                    diff.Rows.Select(row =>
+                        $"{row.Kind}: {row.Operation.Display} ({row.Message})")));
+        }
+        else if (result.FidelityDiff?.Failure is { } failure)
+        {
+            parts.Add($"fidelity-failure:{Environment.NewLine}{failure}");
+        }
+        if (!string.IsNullOrWhiteSpace(result.OriginalOpcodes))
+            parts.Add($"original-opcodes: {result.OriginalOpcodes}");
+        if (!string.IsNullOrWhiteSpace(result.RecompiledOpcodes))
+            parts.Add($"recompiled-opcodes: {result.RecompiledOpcodes}");
+        return string.Join(
+            Environment.NewLine + Environment.NewLine,
+            parts);
+    }
+
+    static string DescribeResults(
+        IReadOnlyList<FidelityCheck.CompileBackResult> results)
+        => results.Count == 0
+            ? "<no results>"
+            : string.Join(
+                Environment.NewLine + Environment.NewLine,
+                results.Select(DescribeResult));
+
+    static string BuildFidelitySourceForReview(
+        string assemblyPath,
+        string typeName,
+        string methodName)
+    {
+        const BindingFlags Flags =
+            BindingFlags.NonPublic | BindingFlags.Static;
+        Type fidelity = typeof(FidelityCheck);
+
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        MetadataReader reader = pe.GetMetadataReader();
+        using var context = CorpusMetadata.Create([assemblyPath]);
+        using var source = MetadataSource.Open(
+            assemblyPath,
+            context: context);
+
+        fidelity.GetMethod("RegisterSourceContext", Flags)!
+            .Invoke(null, [source, context]);
+
+        object renderer = fidelity.GetMethods(Flags)
+            .Single(method =>
+                method.Name == "Renderer"
+                && method.GetParameters().Length == 2)
+            .Invoke(null, [source, false])!;
+
+        object references = fidelity.GetMethod(
+                "RuntimeReferences",
+                Flags)!
+            .Invoke(null, [pe, assemblyPath, null])!;
+
+        TypeDefinitionHandle typeHandle = Assert.Single(
+            reader.TypeDefinitions,
+            handle =>
+                reader.GetFullTypeName(
+                    reader.GetTypeDefinition(handle))
+                    == typeName);
+
+        object collected = fidelity.GetMethod("CollectType", Flags)!
+            .Invoke(
+                null,
+                [
+                    reader,
+                    pe,
+                    source,
+                    typeHandle,
+                    renderer,
+                    int.MaxValue,
+                    (Func<string, bool>)(name => name == typeName),
+                    (Func<FidelityCheck.EvaluationMethod, bool>)
+                        (method => method.Method == methodName),
+                ])!;
+
+        var entries = (System.Collections.IList)collected
+            .GetType().GetField("Item2")!.GetValue(collected)!;
+
+        object entry = Assert.Single(entries.Cast<object>());
+        object Get(string name)
+            => entry.GetType().GetProperty(name)!.GetValue(entry)!;
+
+        MethodInfo build = fidelity.GetMethods(Flags).Single(method =>
+        {
+            ParameterInfo[] parameters = method.GetParameters();
+            return method.Name == "BuildUnit"
+                && parameters.Length == 6
+                && parameters[1].ParameterType
+                    == typeof(MethodDefinitionHandle);
+        });
+
+        object built = build.Invoke(
+            null,
+            [
+                reader,
+                Get("Handle"),
+                Get("Target"),
+                Get("FieldInits"),
+                references,
+                null,
+            ])!;
+
+        return (string)built.GetType()
+            .GetProperty("Source")!.GetValue(built)!;
+    }
+
+    static byte[] BuildLossyExplicitProvenanceImage()
+    {
+        var metadata = new MetadataBuilder();
+
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("LossyExplicit.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+
+        metadata.AddAssembly(
+            metadata.GetOrAddString("LossyExplicit"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        AssemblyReferenceHandle runtime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(0, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("ExternalContracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+
+        TypeReferenceHandle externalProbe = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Collision"),
+            metadata.GetOrAddString("IProbe"));
+
+        var signatureBytes = new BlobBuilder();
+        signatureBytes.WriteByte(0x20);
+        signatureBytes.WriteCompressedInteger(0);
+        signatureBytes.WriteByte(0x08);
+        BlobHandle signature = metadata.GetOrAddBlob(signatureBytes);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        TypeDefinitionHandle localProbe =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString("Collision"),
+                metadata.GetOrAddString("IProbe"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+
+        TypeDefinitionHandle target =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Sealed
+                    | TypeAttributes.BeforeFieldInit,
+                metadata.GetOrAddString("Collision"),
+                metadata.GetOrAddString("Target"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.NewSlot
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Get"),
+            signature,
+            0,
+            MetadataTokens.ParameterHandle(1));
+
+        MemberReferenceHandle externalGet =
+            metadata.AddMemberReference(
+                externalProbe,
+                metadata.GetOrAddString("Get"),
+                signature);
+
+        MemberReferenceHandle localGet =
+            metadata.AddMemberReference(
+                localProbe,
+                metadata.GetOrAddString("Get"),
+                signature);
+
+        var instructions = new BlobBuilder();
+        var encoder = new InstructionEncoder(
+            instructions,
+            new ControlFlowBuilder());
+        encoder.LoadConstantI4(42);
+        encoder.OpCode(ILOpCode.Ret);
+
+        var bodies = new BlobBuilder();
+        int bodyOffset = new MethodBodyStreamEncoder(bodies)
+            .AddMethodBody(encoder, maxStack: 1);
+
+        MethodDefinitionHandle body =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.HideBySig
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.Virtual,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Collision.IProbe.Get"),
+                signature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+
+        metadata.AddInterfaceImplementation(target, externalProbe);
+        metadata.AddInterfaceImplementation(target, localProbe);
+
+        metadata.AddMethodImplementation(target, body, externalGet);
+        metadata.AddMethodImplementation(target, body, localGet);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     static void DeleteFixture(string assemblyPath)
