@@ -334,6 +334,87 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesSetterOnlyOverridePropertyAccessibilityAndAccessorAccessibility()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual int Value
+                {
+                    get => 0;
+                    protected set
+                    {
+                    }
+                }
+            }
+
+            public class Derived : Base
+            {
+                public override int Value
+                {
+                    protected set
+                    {
+                    }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", "set_Value", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("public override int Value", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("protected override int Value", result.Source, StringComparison.Ordinal);
+            Assert.Contains("protected set", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public set", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PrefersSameAssemblyToStringSlotOverIntrinsicObjectShortcut()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                protected new virtual string ToString() => nameof(Base);
+            }
+
+            public class Derived : Base
+            {
+                protected override string ToString() => nameof(Derived);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", "ToString", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("protected override string ToString()", result.Source, StringComparison.Ordinal);
+            Assert.NotNull(result.DonorPe);
+
+            var rebuilt = Assembly.Load(result.DonorPe);
+            var method = rebuilt.GetType("Derived")!.GetMethod(
+                nameof(object.ToString),
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)!;
+            Assert.Equal("Base", method.GetBaseDefinition().DeclaringType?.Name);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_MatchesRenamedGenericMethodParametersByPosition()
     {
         var assemblyPath = CompileFixture("""
@@ -5235,6 +5316,107 @@ public class ReturnToSenderPrototypeTests
 
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
             Assert.Contains("class Widget : Base", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullPreservesClosureConstructorBaseInitializerWhenBaseParameterlessConstructorIsPrivate()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                private Base()
+                {
+                }
+
+                public Base(int seed)
+                {
+                    Seed = seed;
+                }
+
+                public int Seed { get; }
+            }
+
+            public class Derived : Base
+            {
+                public Derived(int seed) : base(seed)
+                {
+                }
+            }
+
+            public static class Factory
+            {
+                public static Derived Create()
+                {
+                    Base b = new Base(1);
+                    _ = b.Seed;
+                    return new Derived(21);
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Factory", "Create", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Full));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(": base(seed)", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public Base()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ClusterFullConstructorTargetPreservesExplicitBaseInitializerWithoutSyntheticBaseConstructor()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                private Base()
+                {
+                }
+
+                protected Base(int value)
+                {
+                }
+            }
+
+            public class Derived : Base
+            {
+                private readonly int _field;
+
+                public Derived() : base(1)
+                {
+                    _field = 1;
+                }
+
+                public int Read() => _field;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", ".ctor", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(": base(1)", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public Base()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Derived(int", result.Source, StringComparison.Ordinal);
         }
         finally
         {

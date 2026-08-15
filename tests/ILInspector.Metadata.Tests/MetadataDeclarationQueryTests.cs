@@ -104,6 +104,20 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void PropertyDeclaration_DerivesPropertyAccessibilityFromAuthenticatedBaseWhenOnlySetterIsPresent()
+    {
+        var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures.SetterOnlyOverrideDerived));
+        var property = GetProperty(type, "Value");
+
+        var declaration = MetadataDeclarationQuery.GetProperty(Reader, type, property);
+
+        Assert.Equal("public", declaration.Accessibility);
+        var setter = Assert.Single(declaration.Signature.Accessors);
+        Assert.Equal("set", setter.Kind);
+        Assert.Equal("protected", setter.Accessibility);
+    }
+
+    [Fact]
     public void SameAssemblyOverrideSlot_PreservesNonPublicSourceDeclarationFacts()
     {
         var derivedHandle = GetTypeDefinitionHandle(
@@ -210,6 +224,101 @@ public sealed class MetadataDeclarationQueryTests
         Assert.Equal(
             GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures.OverrideMiddle)),
             slot.DeclaringType);
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_AllowsCovariantReturnShape()
+    {
+        string path = EmitCovariantReturnOverride();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var derivedHandle = reader.TypeDefinitions.Single(handle =>
+                reader.GetString(reader.GetTypeDefinition(handle).Name) == "Derived");
+            var derived = reader.GetTypeDefinition(derivedHandle);
+            var methodHandle = derived.GetMethods().Single(handle =>
+                reader.GetString(reader.GetMethodDefinition(handle).Name) == "Value");
+
+            var slot = Assert.IsType<MetadataOverrideSlot>(
+                MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                    reader,
+                    derivedHandle,
+                    methodHandle));
+
+            Assert.Equal("Base", reader.GetString(reader.GetTypeDefinition(slot.DeclaringType).Name));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesRefOutModifierMismatch()
+    {
+        string path = EmitRefOutKindMismatchOverride();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var derivedHandle = reader.TypeDefinitions.Single(handle =>
+                reader.GetString(reader.GetTypeDefinition(handle).Name) == "Derived");
+            var derived = reader.GetTypeDefinition(derivedHandle);
+            var methodHandle = derived.GetMethods().Single(handle =>
+                reader.GetString(reader.GetMethodDefinition(handle).Name) == "M");
+
+            Assert.Null(MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesStaticMethod()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.StaticShadowDerived));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, "M");
+
+        Assert.Null(MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+            Reader,
+            derivedHandle,
+            methodHandle));
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesIncompatibleCovariantReturn()
+    {
+        string path = EmitIncompatibleReturnOverride();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var derivedHandle = reader.TypeDefinitions.Single(handle =>
+                reader.GetString(reader.GetTypeDefinition(handle).Name) == "Derived");
+            var derived = reader.GetTypeDefinition(derivedHandle);
+            var methodHandle = derived.GetMethods().Single(handle =>
+                reader.GetString(reader.GetMethodDefinition(handle).Name) == "Value");
+
+            Assert.Null(MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                derivedHandle,
+                methodHandle));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -506,6 +615,100 @@ public sealed class MetadataDeclarationQueryTests
         return path;
     }
 
+    static string EmitRefOutKindMismatchOverride()
+    {
+        var assemblyName = new AssemblyName("RefOutKindMismatchOverride");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var byRefInt = typeof(int).MakeByRefType();
+
+        var baseType = module.DefineType("Base", TypeAttributes.Public);
+        var baseMethod = baseType.DefineMethod(
+            "M",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.NewSlot,
+            typeof(void),
+            [byRefInt]);
+        baseMethod.DefineParameter(1, ParameterAttributes.None, "value");
+        baseMethod.GetILGenerator().Emit(OpCodes.Ret);
+        var createdBase = baseType.CreateType();
+
+        var derivedType = module.DefineType("Derived", TypeAttributes.Public, createdBase);
+        var derivedMethod = derivedType.DefineMethod(
+            "M",
+            MethodAttributes.Public | MethodAttributes.Virtual,
+            typeof(void),
+            [byRefInt]);
+        derivedMethod.DefineParameter(1, ParameterAttributes.Out, "value");
+        derivedMethod.GetILGenerator().Emit(OpCodes.Ret);
+        derivedType.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"RefOutKindMismatchOverride-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitCovariantReturnOverride()
+    {
+        var assemblyName = new AssemblyName("CovariantReturnOverride");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+
+        var baseType = module.DefineType("Base", TypeAttributes.Public);
+        var baseMethod = baseType.DefineMethod(
+            "Value",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.NewSlot,
+            typeof(object),
+            Type.EmptyTypes);
+        baseMethod.GetILGenerator().Emit(OpCodes.Ldstr, "base");
+        baseMethod.GetILGenerator().Emit(OpCodes.Ret);
+        var createdBase = baseType.CreateType();
+
+        var derivedType = module.DefineType("Derived", TypeAttributes.Public, createdBase);
+        var derivedMethod = derivedType.DefineMethod(
+            "Value",
+            MethodAttributes.Public | MethodAttributes.Virtual,
+            typeof(string),
+            Type.EmptyTypes);
+        derivedMethod.GetILGenerator().Emit(OpCodes.Ldstr, "derived");
+        derivedMethod.GetILGenerator().Emit(OpCodes.Ret);
+        derivedType.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"CovariantReturnOverride-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitIncompatibleReturnOverride()
+    {
+        var assemblyName = new AssemblyName("IncompatibleReturnOverride");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+
+        var baseType = module.DefineType("Base", TypeAttributes.Public);
+        var baseMethod = baseType.DefineMethod(
+            "Value",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.NewSlot,
+            typeof(string),
+            Type.EmptyTypes);
+        baseMethod.GetILGenerator().Emit(OpCodes.Ldstr, "base");
+        baseMethod.GetILGenerator().Emit(OpCodes.Ret);
+        var createdBase = baseType.CreateType();
+
+        var derivedType = module.DefineType("Derived", TypeAttributes.Public, createdBase);
+        var derivedMethod = derivedType.DefineMethod(
+            "Value",
+            MethodAttributes.Public | MethodAttributes.Virtual,
+            typeof(object),
+            Type.EmptyTypes);
+        derivedMethod.GetILGenerator().Emit(OpCodes.Ldstr, "derived");
+        derivedMethod.GetILGenerator().Emit(OpCodes.Ret);
+        derivedType.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"IncompatibleReturnOverride-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
     static TypeDefinition GetTypeDefinition(Type type)
         => Reader.GetTypeDefinition(GetTypeDefinitionHandle(type));
 
@@ -663,6 +866,65 @@ public class MetadataDeclarationQueryFixtures
     public class OverrideLeaf : OverrideMiddle
     {
         internal override int Value() => 3;
+    }
+
+    public class SetterOnlyOverrideBase
+    {
+        public virtual int Value
+        {
+            get => 0;
+            protected set
+            {
+            }
+        }
+    }
+
+    public class SetterOnlyOverrideDerived : SetterOnlyOverrideBase
+    {
+        public override int Value
+        {
+            protected set
+            {
+            }
+        }
+    }
+
+    public class CovariantAnimal
+    {
+    }
+
+    public class CovariantDog : CovariantAnimal
+    {
+    }
+
+    public class CovariantReturnBase
+    {
+        public virtual CovariantAnimal Value() => new();
+    }
+
+    public class CovariantReturnDerived : CovariantReturnBase
+    {
+        public override CovariantDog Value() => new();
+    }
+
+    public class ObjectCovariantReturnBase
+    {
+        public virtual object Value() => "";
+    }
+
+    public class ObjectCovariantReturnDerived : ObjectCovariantReturnBase
+    {
+        public override string Value() => "";
+    }
+
+    public class StaticShadowBase
+    {
+        public virtual int M() => 1;
+    }
+
+    public class StaticShadowDerived : StaticShadowBase
+    {
+        public new static int M() => 2;
     }
 
     public interface IStaticContract

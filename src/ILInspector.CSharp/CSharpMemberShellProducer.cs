@@ -81,6 +81,8 @@ public sealed record CSharpMemberShellSpec(
     int? MetadataToken = null,
     int? GetterToken = null,
     int? SetterToken = null,
+    string? GetterAccessibility = null,
+    string? SetterAccessibility = null,
     int? AdderToken = null,
     int? RemoverToken = null);
 
@@ -582,13 +584,26 @@ public static class CSharpMemberShellProducer
             accessors.Add(new ApiAccessor
             {
                 Kind = "get",
+                Accessibility = spec.GetterAccessibility,
                 ReturnAttributes = spec.ReturnAttributes?.ToList() ?? [],
             });
         }
         if (hasSetter)
-            accessors.Add(new ApiAccessor { Kind = setterIsInit ? "init" : "set" });
+        {
+            accessors.Add(new ApiAccessor
+            {
+                Kind = setterIsInit ? "init" : "set",
+                Accessibility = spec.SetterAccessibility,
+            });
+        }
         if (isAutoGetInit)
-            accessors.Add(new ApiAccessor { Kind = "init" });
+        {
+            accessors.Add(new ApiAccessor
+            {
+                Kind = "init",
+                Accessibility = spec.SetterAccessibility,
+            });
+        }
         return accessors;
     }
 

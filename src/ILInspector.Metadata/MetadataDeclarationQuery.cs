@@ -448,6 +448,7 @@ public static class MetadataDeclarationQuery
         {
             return null;
         }
+        var methodShape = GetOverrideSlotShape(reader, method, methodSignature);
 
         var baseTypeHandle = declaringType.BaseType;
         var visited = new HashSet<TypeDefinitionHandle>();
@@ -462,6 +463,7 @@ public static class MetadataDeclarationQuery
                 if (reader.GetString(candidate.Name) != methodName
                     || (candidate.Attributes & MethodAttributes.Virtual) == 0
                     || (candidate.Attributes & MethodAttributes.Final) != 0
+                    || (candidate.Attributes & MethodAttributes.Static) != 0
                     || (candidate.Attributes & MethodAttributes.MemberAccessMask) != methodAccess
                     || !IsSourceDeclarableAccessibility(candidate.Attributes & MethodAttributes.MemberAccessMask)
                     || candidate.GetGenericParameters().Count != method.GetGenericParameters().Count)
@@ -478,12 +480,10 @@ public static class MetadataDeclarationQuery
                     continue;
                 }
 
-                // Return types intentionally do not participate: C# permits
-                // covariant returns while the parameter and generic arities
-                // continue to identify the reused virtual slot.
-                if (candidateSignature.ParameterTypes.SequenceEqual(
-                    methodSignature.ParameterTypes,
-                    StringComparer.Ordinal))
+                if (MatchesOverrideSlotShape(
+                    reader,
+                    methodShape,
+                    GetOverrideSlotShape(reader, candidate, candidateSignature)))
                 {
                     return new MetadataOverrideSlot(baseDefinitionHandle, candidateHandle);
                 }
@@ -505,6 +505,189 @@ public static class MetadataDeclarationQuery
             Enumerable.Range(0, method.GetGenericParameters().Count)
                 .Select(index => $"!!{index}")
                 .ToArray());
+
+    readonly record struct OverrideSlotShape(
+        string ReturnType,
+        TypeNode ReturnTypeNode,
+        IReadOnlyList<ApiParameter> Parameters);
+
+    static OverrideSlotShape GetOverrideSlotShape(
+        MetadataReader reader,
+        MethodDefinition method,
+        MethodSignature<string> textSignature)
+    {
+        var typeDef = reader.GetTypeDefinition(method.GetDeclaringType());
+        var nodeSignature = GuardedProviderDecode.Method(
+            reader,
+            method,
+            TypeNodeProvider.Instance,
+            GenericContext.ForMethod(reader, typeDef, method),
+            (TypeNode)new DegradedTypeNode());
+        return new OverrideSlotShape(
+            FormatMethodReturnType(reader, textSignature.ReturnType, method.GetParameters()),
+            nodeSignature.ReturnType,
+            MethodParameters(reader, method, textSignature));
+    }
+
+    static bool MatchesOverrideSlotShape(
+        MetadataReader reader,
+        OverrideSlotShape method,
+        OverrideSlotShape candidate)
+        => ParametersMatch(method.Parameters, candidate.Parameters)
+            && ReturnTypesAreOverrideCompatible(
+                reader,
+                method.ReturnType,
+                method.ReturnTypeNode,
+                candidate.ReturnType,
+                candidate.ReturnTypeNode);
+
+    static bool ParametersMatch(
+        IReadOnlyList<ApiParameter> methodParameters,
+        IReadOnlyList<ApiParameter> candidateParameters)
+    {
+        if (methodParameters.Count != candidateParameters.Count)
+            return false;
+
+        for (var index = 0; index < methodParameters.Count; index++)
+        {
+            if (!string.Equals(
+                    methodParameters[index].CanonicalTypeWithModifier,
+                    candidateParameters[index].CanonicalTypeWithModifier,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool ReturnTypesAreOverrideCompatible(
+        MetadataReader reader,
+        string methodReturnType,
+        TypeNode methodReturnNode,
+        string candidateReturnType,
+        TypeNode candidateReturnNode)
+    {
+        if (string.Equals(methodReturnType, candidateReturnType, StringComparison.Ordinal))
+            return true;
+
+        if (HasByRefReturnModifier(methodReturnType)
+            || HasByRefReturnModifier(candidateReturnType)
+            || methodReturnNode.IsDegraded
+            || candidateReturnNode.IsDegraded
+            || !methodReturnNode.IsReferenceType
+            || !candidateReturnNode.IsReferenceType)
+        {
+            return false;
+        }
+
+        if (candidateReturnType is "object" or "System.Object")
+            return true;
+
+        if (!TryFindTypeDefinitionByRenderedName(reader, methodReturnType, out var methodReturnHandle)
+            || !TryFindTypeDefinitionByRenderedName(reader, candidateReturnType, out var candidateReturnHandle))
+        {
+            return false;
+        }
+
+        return IsSameOrDerivedOrImplements(reader, methodReturnHandle, candidateReturnHandle);
+    }
+
+    static bool HasByRefReturnModifier(string returnType)
+        => returnType.StartsWith("ref ", StringComparison.Ordinal)
+            || returnType.StartsWith("ref readonly ", StringComparison.Ordinal);
+
+    static bool TryFindTypeDefinitionByRenderedName(
+        MetadataReader reader,
+        string typeName,
+        out TypeDefinitionHandle handle)
+    {
+        typeName = NormalizeRenderedTypeName(typeName);
+        if (typeName.Length == 0
+            || typeName.IndexOfAny(['<', '[', '*', '&']) >= 0
+            || typeName.Contains(',', StringComparison.Ordinal))
+        {
+            handle = default;
+            return false;
+        }
+
+        foreach (var candidateHandle in reader.TypeDefinitions)
+        {
+            var definition = reader.GetTypeDefinition(candidateHandle);
+            if (NormalizeRenderedTypeName(TypeResolver.GetTypeNameFromDefinition(reader, candidateHandle)) == typeName
+                || NormalizeRenderedTypeName(TypeResolver.GetFullName(reader, definition)) == typeName)
+            {
+                handle = candidateHandle;
+                return true;
+            }
+        }
+
+        handle = default;
+        return false;
+    }
+
+    static string NormalizeRenderedTypeName(string typeName)
+        => typeName.TrimEnd('?').Replace('+', '.');
+
+    static bool IsSameOrDerivedOrImplements(
+        MetadataReader reader,
+        TypeDefinitionHandle methodReturnHandle,
+        TypeDefinitionHandle candidateReturnHandle)
+    {
+        var pending = new Queue<TypeDefinitionHandle>();
+        var visited = new HashSet<TypeDefinitionHandle>();
+        pending.Enqueue(methodReturnHandle);
+        while (pending.Count != 0)
+        {
+            var currentHandle = pending.Dequeue();
+            if (!visited.Add(currentHandle))
+                continue;
+            if (currentHandle == candidateReturnHandle)
+                return true;
+
+            var current = reader.GetTypeDefinition(currentHandle);
+            if (TryResolveSameAssemblyTypeDefinition(reader, current.BaseType, out var baseHandle))
+                pending.Enqueue(baseHandle);
+
+            foreach (var implementationHandle in current.GetInterfaceImplementations())
+            {
+                var interfaceImplementation = reader.GetInterfaceImplementation(implementationHandle);
+                if (TryResolveSameAssemblyTypeDefinition(
+                        reader,
+                        interfaceImplementation.Interface,
+                        out var interfaceHandle))
+                {
+                    pending.Enqueue(interfaceHandle);
+                }
+            }
+        }
+
+        return false;
+    }
+
+    static bool TryResolveSameAssemblyTypeDefinition(
+        MetadataReader reader,
+        EntityHandle handle,
+        out TypeDefinitionHandle resolvedHandle)
+    {
+        if (handle.Kind == HandleKind.TypeDefinition)
+        {
+            resolvedHandle = (TypeDefinitionHandle)handle;
+            return true;
+        }
+
+        if (handle.Kind == HandleKind.TypeReference)
+        {
+            return TryFindTypeDefinitionByRenderedName(
+                reader,
+                TypeResolver.GetTypeNameFromReference(reader, (TypeReferenceHandle)handle),
+                out resolvedHandle);
+        }
+
+        resolvedHandle = default;
+        return false;
+    }
 
     public static MetadataPropertyDeclaration GetProperty(
         MetadataReader reader,
@@ -533,6 +716,8 @@ public static class MetadataDeclarationQuery
         var setter = accessors.Setter.IsNil ? default : reader.GetMethodDefinition(accessors.Setter);
 
         var bestAccess = BestAccessorAccess(getter, setter, accessors);
+        if (TryGetAuthenticatedOverridePropertyAccess(reader, accessors, out var authenticatedPropertyAccess))
+            bestAccess = authenticatedPropertyAccess;
         var primaryAccessor = !accessors.Getter.IsNil ? getter : setter;
         var accessorAttributes = !accessors.Getter.IsNil || !accessors.Setter.IsNil
             ? primaryAccessor.Attributes
@@ -607,6 +792,55 @@ public static class MetadataDeclarationQuery
             RenderMemberAttributes(reader, property.GetCustomAttributes()),
             accessors.Getter,
             accessors.Setter);
+    }
+
+    static bool TryGetAuthenticatedOverridePropertyAccess(
+        MetadataReader reader,
+        PropertyAccessors accessors,
+        out MethodAttributes access)
+    {
+        access = default;
+        if (accessors.Getter.IsNil == accessors.Setter.IsNil)
+            return false;
+
+        var accessorHandle = accessors.Getter.IsNil
+            ? accessors.Setter
+            : accessors.Getter;
+        var accessor = reader.GetMethodDefinition(accessorHandle);
+        if (GetSameAssemblyOverrideSlot(
+                reader,
+                accessor.GetDeclaringType(),
+                accessorHandle) is not { } slot
+            || !TryGetPropertyForAccessor(reader, slot.DeclaringType, slot.Method, out var baseProperty))
+        {
+            return false;
+        }
+
+        var baseType = reader.GetTypeDefinition(slot.DeclaringType);
+        access = AccessibilityValue(GetProperty(reader, baseType, baseProperty).Accessibility);
+        return true;
+    }
+
+    static bool TryGetPropertyForAccessor(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle accessorHandle,
+        out PropertyDefinition property)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        foreach (var propertyHandle in typeDef.GetProperties())
+        {
+            var candidate = reader.GetPropertyDefinition(propertyHandle);
+            var accessors = candidate.GetAccessors();
+            if (accessors.Getter == accessorHandle || accessors.Setter == accessorHandle)
+            {
+                property = candidate;
+                return true;
+            }
+        }
+
+        property = default;
+        return false;
     }
 
     public static MetadataFieldDeclaration GetField(
@@ -1096,6 +1330,17 @@ public static class MetadataDeclarationQuery
 
     static string? AccessorAccessibility(MethodAttributes access, MethodAttributes bestAccess)
         => access == bestAccess ? null : NonPublicAccessibility(access);
+
+    static MethodAttributes AccessibilityValue(string accessibility)
+        => accessibility switch
+        {
+            "private" => MethodAttributes.Private,
+            "private protected" => MethodAttributes.FamANDAssem,
+            "internal" => MethodAttributes.Assembly,
+            "protected" => MethodAttributes.Family,
+            "protected internal" => MethodAttributes.FamORAssem,
+            _ => MethodAttributes.Public,
+        };
 
     static string AccessibilityKeyword(MethodAttributes access)
         => NonPublicAccessibility(access) ?? "public";
