@@ -69,6 +69,8 @@ witness-search limits produce `LimitReached`, not `Different`.
 The body-byte bound applies before instruction/CFG materialization; receipts
 retain every count measured before a comparison stops, including CFG edges,
 refinement rounds, and witness-search steps.
+`Compare_PeLimitsReportMeasurementsAndBoundBodyDecode` gates pre-graph receipt
+counts, including edges.
 `Compare_InstructionLimitPrecedesMetadataOperandValidation` gates that the
 instruction bound applies before per-instruction metadata work.
 

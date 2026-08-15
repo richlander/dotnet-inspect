@@ -618,6 +618,8 @@ public class StructuralCloneAnalysisTests
             instructionLimited.Receipt.RightInstructions > 1);
         Assert.True(
             instructionLimited.Receipt.LeftBlocks > 0);
+        Assert.True(
+            instructionLimited.Receipt.LeftEdges > 0);
         AssertLimit(
             bodyLimited,
             StructuralCloneBlockerKind.BodySizeLimit);
@@ -798,6 +800,28 @@ public class StructuralCloneAnalysisTests
                 pinnedImage,
                 MetadataTokens.MethodDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(2)).Relation);
+    }
+
+    [Fact]
+    public void Compare_PinnedTypeSpecLocalFails()
+    {
+        using PEReader image = OpenImage(
+            BuildPinnedTypeSpecLocalTwinAssembly());
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneDisposition.Failed,
+            comparison.Disposition);
+        Assert.Contains(
+            comparison.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneBlockerKind.MetadataReadFailure);
     }
 
     [Fact]
@@ -1493,6 +1517,32 @@ public class StructuralCloneAnalysisTests
             metadata,
             "Right",
             AddBody(bodyEncoder, il, secondLocals));
+        return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildPinnedTypeSpecLocalTwinAssembly()
+    {
+        MetadataBuilder metadata = AssemblyMetadata();
+        metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(
+                new byte[] { 0x45, 0x08 }));
+        StandaloneSignatureHandle locals =
+            AddLocalSignature(
+                metadata,
+                [0x07, 0x01, 0x12, 0x06]);
+        AddFixtureType(metadata);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        byte[] il = [0x14, 0x0A, 0x06, 0x26, 0x2A];
+        AddMethod(
+            metadata,
+            "Left",
+            AddBody(bodyEncoder, il, locals));
+        AddMethod(
+            metadata,
+            "Right",
+            AddBody(bodyEncoder, il, locals));
         return Serialize(metadata, bodies);
     }
 

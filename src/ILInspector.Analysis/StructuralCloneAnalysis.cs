@@ -395,6 +395,7 @@ public static class StructuralCloneAnalysis
         BodyMeasurements measurements = BodyMeasurements.From(
             instructions,
             locals.Length,
+            CountModeledEdges(instructions),
             bodyBytes);
         if (instructions.Blocks.Blocks.Any(static block =>
             block.Edges.ExternalTargets.Count > 0
@@ -779,6 +780,7 @@ public static class StructuralCloneAnalysis
             measurements = BodyMeasurements.From(
                 instructions,
                 locals.Length,
+                CountModeledEdges(instructions),
                 bodyBytes);
             if (instructions.Instructions.Length
                 > limits.MaximumInstructions)
@@ -962,6 +964,32 @@ public static class StructuralCloneAnalysis
                 Incoming = incoming[block.Index].ToImmutable(),
             }),
         ]);
+    }
+
+    static int CountModeledEdges(MethodInstructions body)
+    {
+        int instructionIndex = 0;
+        int edgeCount = 0;
+        foreach (InstructionBlock block in body.Blocks.Blocks)
+        {
+            DecodedInstruction? terminator = null;
+            while (instructionIndex < body.Instructions.Length
+                && body.Instructions[instructionIndex].Offset < block.End)
+            {
+                terminator = body.Instructions[instructionIndex++];
+            }
+            if (terminator is null)
+                continue;
+
+            edgeCount = checked(
+                edgeCount + terminator.BranchTargets.Length);
+            if (terminator.FallsThrough
+                && block.Index + 1 < body.Blocks.Blocks.Length)
+            {
+                edgeCount = checked(edgeCount + 1);
+            }
+        }
+        return edgeCount;
     }
 
     static MetadataOperandFailure? InvalidMetadataOperand(
@@ -2176,6 +2204,7 @@ internal readonly record struct BodyMeasurements(
     public static BodyMeasurements From(
         MethodInstructions instructions,
         int localCount,
+        int edgeCount,
         int? bodyBytes = null)
         => new(
             bodyBytes
@@ -2184,7 +2213,7 @@ internal readonly record struct BodyMeasurements(
                     : instructions.Instructions[^1].NextOffset),
             instructions.Instructions.Length,
             instructions.Blocks.Blocks.Length,
-            0,
+            edgeCount,
             localCount);
 
     public static BodyMeasurements From(
