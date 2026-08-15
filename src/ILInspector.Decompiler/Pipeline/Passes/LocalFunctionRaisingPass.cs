@@ -252,6 +252,9 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             // environment (shared, or read another way) is out of this slice.
             if (environment is null && method.ParameterTypes.Any(IsDisplayClassParameter))
                 continue;
+            int visibleParameterCount = method.ParameterTypes.Length - (environment is null ? 0 : 1);
+            if (calls.Any(call => !CanPreserveParameterRefKinds(call.Callee, visibleParameterCount)))
+                continue;
 
             if (!context.TryEnterCrossMethodPipeline(method, out var importScope))
                 continue;
@@ -302,10 +305,14 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 // has run without re-entering this method's import.
                 if (HasOtherLocalFunctionCall(body, method))
                     continue;
+                if (SelfCalls(body, method).Any(call => !CanRewriteSelfCall(call)))
+                    continue;
 
                 importScope.Run(body, IrPasses.Default);
 
                 if (HasOtherLocalFunctionCall(body, method))
+                    continue;
+                if (SelfCalls(body, method).Any(call => !CanRewriteSelfCall(call)))
                     continue;
                 // And vote again on the body's self-references, for the same reason the
                 // foreign check above runs twice: IrPasses.Run can ADD reference nodes.
@@ -389,7 +396,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 var arguments = call.DetachChildren().Cast<IrExpression>().ToList();
                 if (environment is not null)
                     arguments.RemoveAt(arguments.Count - 1);   // drop the ref-env argument
-                call.ReplaceWith(new LocalFunctionInvocation(name, method.ReturnType, arguments));
+                call.ReplaceWith(LocalInvocation(name, method, arguments));
             }
             // A capturing local function cannot be `static` (CS8421); the
             // synthesized method is static only because the environment is passed
@@ -399,6 +406,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 name,
                 method.ReturnType,
                 parameters,
+                VisibleParameterRefKinds(method, parameters.Length),
                 isStatic: environment is null,
                 body.Locals,
                 body.LocalNames,
@@ -569,15 +577,47 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
     static void RewriteSelfCalls(IrFunction body, MethodRef method, string name)
     {
-        foreach (var call in body.Descendants.OfType<Call>().ToList())
+        foreach (var call in SelfCalls(body, method).ToList())
         {
-            if (!SameLocalFunctionMethod(call.Callee, method))
-                continue;
-
             var arguments = call.DetachChildren().Cast<IrExpression>().ToList();
-            call.ReplaceWith(new LocalFunctionInvocation(name, method.ReturnType, arguments));
+            call.ReplaceWith(LocalInvocation(name, method, arguments));
         }
     }
+
+    static IEnumerable<Call> SelfCalls(IrFunction body, MethodRef method)
+        => body.Descendants.OfType<Call>()
+            .Where(call => SameLocalFunctionMethod(call.Callee, method));
+
+    static bool CanPreserveParameterRefKinds(MethodRef method, int visibleParameterCount)
+        => !method.ParameterTypes.Take(visibleParameterCount).Any(type => type.Kind == TypeRefKind.ByRef)
+            || method.ParameterRefKindsFacts == ParameterRefKindFacts.Known
+                && method.ParameterRefKinds.Length == method.ParameterTypes.Length;
+
+    static bool CanRewriteSelfCall(Call call)
+        => call.Arguments.Count == call.Callee.ParameterTypes.Length
+            && CanPreserveParameterRefKinds(call.Callee, call.Callee.ParameterTypes.Length);
+
+    static LocalFunctionInvocation LocalInvocation(
+        string name,
+        MethodRef method,
+        IReadOnlyCollection<IrExpression> arguments)
+    {
+        int count = arguments.Count;
+        var parameterTypes = method.ParameterTypes.Length == count
+            ? method.ParameterTypes
+            : [.. method.ParameterTypes.Take(count)];
+        return new LocalFunctionInvocation(
+            name,
+            method.ReturnType,
+            arguments,
+            parameterTypes,
+            VisibleParameterRefKinds(method, count));
+    }
+
+    static ImmutableArray<ArgumentRefKind> VisibleParameterRefKinds(MethodRef method, int count)
+        => method.ParameterRefKinds.Length == count
+            ? method.ParameterRefKinds
+            : [.. method.ParameterRefKinds.Take(count)];
 
     static bool SameLocalFunctionMethod(MethodRef left, MethodRef right)
         => left.Name == right.Name
