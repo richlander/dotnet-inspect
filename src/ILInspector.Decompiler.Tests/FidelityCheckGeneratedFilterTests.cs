@@ -350,6 +350,143 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public void Evaluate_UsesProductWholeEventForCustomAccessors()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public sealed class EventWholeMemberFixture
+            {
+                private EventHandler? _changed;
+                private static EventHandler? _staticChanged;
+
+                public event EventHandler? Changed
+                {
+                    add => _changed += value;
+                    remove => _changed -= value;
+                }
+
+                public static event EventHandler? StaticChanged
+                {
+                    add => _staticChanged += value;
+                    remove => _staticChanged -= value;
+                }
+
+                public event EventHandler? FieldLike;
+            }
+
+            public struct StructEventWholeMemberFixture
+            {
+                private EventHandler? _changed;
+
+                public event EventHandler? Changed
+                {
+                    add => _changed += value;
+                    remove => _changed -= value;
+                }
+            }
+
+            public interface IEventContract
+            {
+                event EventHandler? Changed;
+            }
+
+            public sealed class ExplicitEventFixture : IEventContract
+            {
+                event EventHandler? IEventContract.Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "EventWholeMemberFixture"));
+            var customEvent = reader.GetEventDefinition(Assert.Single(
+                type.GetEvents(),
+                handle => reader.GetString(reader.GetEventDefinition(handle).Name) == "Changed"));
+            var fieldLikeEvent = reader.GetEventDefinition(Assert.Single(
+                type.GetEvents(),
+                handle => reader.GetString(reader.GetEventDefinition(handle).Name) == "FieldLike"));
+            var explicitType = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "ExplicitEventFixture"));
+            var explicitEvent = reader.GetEventDefinition(Assert.Single(explicitType.GetEvents()));
+
+            using var source = MetadataSource.Open(assemblyPath);
+            var wholeMember = FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                customEvent.GetAccessors().Adder,
+                targeted: true,
+                isPrimaryConstructor: false);
+            Assert.NotNull(wholeMember);
+            Assert.Contains("public event EventHandler Changed", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.Contains("add =>", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.Contains("Delegate.Combine(_changed, value)", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.Contains("remove =>", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.Contains("Delegate.Remove(_changed, value)", wholeMember.Value.Text, StringComparison.Ordinal);
+
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                fieldLikeEvent.GetAccessors().Adder,
+                targeted: true,
+                isPrimaryConstructor: false));
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                explicitEvent.GetAccessors().Adder,
+                targeted: true,
+                isPrimaryConstructor: false));
+
+            var results = FidelityCheck.Evaluate(assemblyPath)
+                .Where(result => result.Type == "EventWholeMemberFixture"
+                    && result.Method is "add_Changed" or "remove_Changed"
+                        or "add_StaticChanged" or "remove_StaticChanged")
+                .ToList();
+
+            Assert.Equal(4, results.Count);
+            foreach (var result in results)
+            {
+                Assert.True(result.UsedProductWholeMember, result.Method);
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            }
+
+            var structResults = FidelityCheck.Evaluate(assemblyPath)
+                .Where(result => result.Type == "StructEventWholeMemberFixture"
+                    && result.Method is "add_Changed" or "remove_Changed")
+                .ToList();
+            Assert.Equal(2, structResults.Count);
+            foreach (var result in structResults)
+            {
+                Assert.True(result.UsedProductWholeMember, result.Method);
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            }
+
+            var targetedRemover = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "EventWholeMemberFixture",
+                    method => method.Method == "remove_Changed"));
+            Assert.True(targetedRemover.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, targetedRemover.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void PropertyWholeMember_DeclinesExplicitImplementationsAndNonAutoStructs()
     {
         var assemblyPath = CompileFixture("""
