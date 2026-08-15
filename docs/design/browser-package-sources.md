@@ -138,6 +138,14 @@ listing status, preserving the listing-aware behavior defined by
 [version resolution](version-resolution.md). Search results are not written
 into the complete version-list cache.
 
+Registration indexes for large packages contain page links whose absolute
+hosts name `api.nuget.org`. The Gallery client never dereferences those hosts.
+It validates that each page link has the expected HTTPS registration-page path
+for the normalized package ID, rejects query, fragment, user information, and
+unexpected path shapes, then resolves that validated path against
+`globalcdn.nuget.org`. This is source-owned path rebasing, not general
+feed-directed navigation.
+
 Its limitations remain visible:
 
 - keyword search does not reveal unlisted packages or versions;
@@ -203,17 +211,33 @@ rewriting the previous producer. Registering the canonical NuGet.org v3
 endpoint alongside the built-in Gallery source creates one producer with two
 available transports, not two candidate authorities.
 
+The registry reserves built-in IDs. A bundle may select the canonical Gallery
+descriptor but cannot replace it or register another source under its ID.
+Custom source IDs are unique after import and never overwrite an existing
+descriptor implicitly. Display-name collisions are allowed only when every UI
+and output projection disambiguates custom sources with their redacted endpoint
+host.
+
 ## Multi-source resolution
 
 Source order is not version precedence. Resolution follows the package source
 model:
 
-1. Determine active and package-ID-eligible sources.
-2. Request candidates from every eligible source capable of discovery.
-3. Retain the reporting source set for every coordinate.
-4. Select the semantic version required by the caller.
-5. Acquire from a source authorized for that coordinate.
-6. Record the producer and payload location independently.
+1. Determine active and package-ID-eligible source descriptors.
+2. Collapse descriptors and transport profiles by immutable producer identity.
+3. Request candidates from every eligible producer capable of discovery.
+4. Retain the reporting producer set for every coordinate.
+5. Select the semantic version required by the caller.
+6. Acquire from a producer authorized for that coordinate.
+7. Record the producer and payload location independently.
+
+A producer may have more than one transport, such as the Gallery browser
+transport and the canonical NuGet.org v3 transport. The host chooses the
+applicable transport order before a producer query. Failure of one transport
+falls through to the next without creating a partial aggregate or a second
+candidate source. The producer fails only after every applicable transport
+fails. Candidate and provenance output names the producer once, independently
+of which transport succeeded.
 
 For example, NuGet Gallery may report `0.18.0` while a corporate mirror reports
 only `0.16.0`. Selecting `0.18.0` authorizes its Gallery producer; it does not
@@ -256,17 +280,18 @@ path has a library-owned finite budget.
 
 The timeout policy distinguishes:
 
-| Operation class | Examples | Initial default deadline |
-| --- | --- | ---: |
-| Availability probe | Optional source health check | 2 seconds |
-| Metadata | Service index, search, versions | 30 seconds |
-| Payload | Package and symbol-package body | 120 seconds |
+| Operation | Deadline |
+| --- | ---: |
+| Optional availability probe | The lesser of 2 seconds and the configured network deadline |
+| Search, resolution, metadata, package, or symbol acquisition | The configured network deadline |
 
-These defaults are configurable through validated library options. The CLI's
-`--http-timeout` and `DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS` settings supply
-that validated policy and may extend the deadlines for slow feeds. A caller
-may always cancel sooner. Component limits, including metadata body-read
-timeouts, cannot exceed the enclosing operation deadline.
+The configured network deadline defaults to 30 seconds, preserving the current
+CLI contract. An explicit `--http-timeout` or
+`DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS` value replaces that default for every
+network operation and may shorten or extend it. Reusable library callers
+supply the same validated option directly. Caller cancellation may always
+terminate sooner. Component limits, including metadata body-read timeouts,
+cannot exceed the enclosing operation deadline.
 
 One deadline is created at each public search, resolve, or acquire entry point.
 It covers the complete operation:
@@ -285,7 +310,9 @@ that deadline; no nested operation resets it. Aggregate source queries run
 concurrently when their contract requires every eligible source. A source
 client links the remaining deadline with caller cancellation. It does not
 depend solely on `HttpClient.Timeout`, because hosts may supply an infinite or
-unusually large client timeout.
+unusually large client timeout. The owning host configures `HttpClient.Timeout`
+so it cannot preempt the library deadline; the linked library deadline remains
+the authoritative bound.
 
 Timeouts remain visible source failures. They are not converted into not-found,
 an empty version list, a partial successful search, or an automatic stale-cache
@@ -352,7 +379,8 @@ Import is an explicit trust gesture:
 1. Decode under a strict encoded and decoded size limit.
 2. Parse a versioned, allow-listed schema with bounded source count and field
    lengths.
-3. Validate every source descriptor without contacting it.
+3. Validate every source descriptor without contacting it, rejecting reserved
+   ID replacement, duplicate custom IDs, and implicit overwrite.
 4. Show a preview naming additions, replacements, and selected sources.
 5. Require confirmation before writing local storage.
 6. Remove the bundle fragment from the visible URL.
@@ -411,6 +439,14 @@ The compact package summary includes the producer:
 Version: 0.35.2 | Package source: NuGet Gallery | Type: Library
 ```
 
+Built-in sources use their reserved display name. Custom sources include their
+redacted endpoint host in the compact field so an imported source cannot
+impersonate a built-in or another custom producer:
+
+```text
+Package source: Corporate mirror (packagefeedproxy.microsoft.io)
+```
+
 Detailed provenance separates:
 
 ```text
@@ -464,8 +500,13 @@ Implementation is not complete until gates prove:
 
 - Gallery search and package CDN acquisition work without contacting
   `api.nuget.org`;
+- complete listing-aware enumeration of a paged package rebases validated page
+  paths to the Gallery CDN and makes no `api.nuget.org` request;
 - v3 resource discovery remains source-relative;
 - multi-source latest selection retains every reporting source;
+- selecting Gallery and canonical NuGet.org v3 transports reports one producer,
+  succeeds when either applicable transport succeeds, and fails only when both
+  fail;
 - a mirror lag does not redirect a Gallery-only candidate to that mirror;
 - source-scoped candidate and payload caches cannot cross producers;
 - JavaScript-independent library timeouts cover metadata and payload stalls;
@@ -476,7 +517,10 @@ Implementation is not complete until gates prove:
 - source-bundle values do not enter the hosting origin's request or access
   logs;
 - imports require confirmation before persistence;
-- PATs do not enter persisted state, URLs, errors, redirects, or telemetry;
+- imported descriptors cannot replace reserved IDs, overwrite existing custom
+  entries implicitly, or spoof compact producer display;
+- PATs do not enter persisted state, URLs, errors, cross-origin redirect
+  targets, or telemetry;
 - Basic PAT credentials include an explicit username and obey same-origin
   redirect and resource boundaries; and
 - Markdown and structured output distinguish package source, payload location,

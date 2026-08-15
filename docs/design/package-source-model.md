@@ -89,6 +89,12 @@ IDs and transport profiles do not replace producer identity. Candidate cache
 keys also identify the discovery contract and its version so a listed-only
 search result cannot answer a complete listing-aware enumeration.
 
+Several transport profiles may implement one producer. Source resolution
+collapses them by producer identity before candidate queries. A transport
+failure falls through to another applicable profile and does not create a
+second candidate source or a partial aggregate; the producer fails only when
+all of its applicable transports fail.
+
 ## Resolving active and eligible sources
 
 Without source options, dotnet-inspect resolves the same effective
