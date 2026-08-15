@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Buffers.Binary;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
@@ -4568,6 +4569,100 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_SourceGeneratedAncestryIsClassifiedOncePerType()
+    {
+        byte[] image = EmitAssembly(
+            "GeneratedAncestry",
+            metadata =>
+            {
+                AssemblyReferenceHandle runtime =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString("System.Runtime"),
+                        new Version(9, 0, 0, 0),
+                        default,
+                        default,
+                        default,
+                        default);
+                TypeReferenceHandle attributeType =
+                    metadata.AddTypeReference(
+                        runtime,
+                        metadata.GetOrAddString("Custom"),
+                        metadata.GetOrAddString("MarkAttribute"));
+                var signature = new BlobBuilder();
+                signature.WriteByte(0x20);
+                signature.WriteByte(0);
+                signature.WriteByte(1);
+                MemberReferenceHandle constructor =
+                    metadata.AddMemberReference(
+                        attributeType,
+                        metadata.GetOrAddString(".ctor"),
+                        metadata.GetOrAddBlob(signature));
+                var value = new BlobBuilder();
+                value.WriteUInt16(1);
+                value.WriteUInt16(0);
+                BlobHandle valueHandle =
+                    metadata.GetOrAddBlob(value);
+
+                TypeDefinitionHandle parent = default;
+                for (int i = 0; i < 32; i++)
+                {
+                    TypeDefinitionHandle handle =
+                        metadata.AddTypeDefinition(
+                            i == 0
+                                ? TypeAttributes.Public
+                                : TypeAttributes.NestedPublic,
+                            i == 0
+                                ? metadata.GetOrAddString("N")
+                                : default,
+                            metadata.GetOrAddString($"A{i}"),
+                            default,
+                            MetadataTokens.FieldDefinitionHandle(1),
+                            MetadataTokens.MethodDefinitionHandle(1));
+                    for (int j = 0; j < 16; j++)
+                    {
+                        metadata.AddCustomAttribute(
+                            handle,
+                            constructor,
+                            valueHandle);
+                    }
+                    if (!parent.IsNil)
+                        metadata.AddNestedType(handle, parent);
+                    parent = handle;
+                }
+                for (int i = 0; i < 1_000; i++)
+                {
+                    TypeDefinitionHandle leaf =
+                        metadata.AddTypeDefinition(
+                            TypeAttributes.NestedPublic,
+                            default,
+                            metadata.GetOrAddString($"L{i}"),
+                            default,
+                            MetadataTokens.FieldDefinitionHandle(1),
+                            MetadataTokens.MethodDefinitionHandle(1));
+                    metadata.AddNestedType(leaf, parent);
+                }
+            });
+        using var stream = new MemoryStream(image);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        int classified = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            "GeneratedAncestry.dll",
+            reader,
+            peReader,
+            resolver: null,
+            sourceGeneratedTypeClassified:
+                _ => Interlocked.Increment(ref classified));
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+
+        Assert.Equal(reader.TypeDefinitions.Count, classified);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_RepeatedMemberRef_IsResolvedOnce()
     {
         string path =
@@ -4644,6 +4739,207 @@ public class LibraryBodyIndexTests
             typeScope: null));
 
         Assert.Equal(1, emptyResolutions);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce()
+    {
+        const int referenceCount = 100;
+        const int parameterCount = 2_000;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("DuplicateMemberRefs.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("DuplicateMemberRefs"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Sample"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var liftedSignature = new BlobBuilder();
+        liftedSignature.WriteByte(0);
+        liftedSignature.WriteCompressedInteger(parameterCount);
+        liftedSignature.WriteByte(1);
+        for (int i = 0; i < parameterCount; i++)
+            liftedSignature.WriteByte(8);
+        BlobHandle liftedSignatureHandle =
+            metadata.GetOrAddBlob(liftedSignature);
+        var referenceTokens = new int[referenceCount];
+        for (int i = 0; i < referenceTokens.Length; i++)
+        {
+            referenceTokens[i] = MetadataTokens.GetToken(
+                metadata.AddMemberReference(
+                    type,
+                    metadata.GetOrAddString(
+                        "<Owner>g__Core|0_0"),
+                    liftedSignatureHandle));
+        }
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var ownerIl = new BlobBuilder();
+        foreach (int token in referenceTokens)
+        {
+            ownerIl.WriteByte((byte)ILOpCode.Call);
+            ownerIl.WriteInt32(token);
+        }
+        ownerIl.WriteByte((byte)ILOpCode.Ret);
+        int ownerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(ownerIl),
+            maxStack: 0);
+        var liftedIl = new BlobBuilder();
+        liftedIl.WriteByte((byte)ILOpCode.Ret);
+        int liftedBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(liftedIl),
+            maxStack: 0);
+        var ownerSignature = new BlobBuilder();
+        ownerSignature.WriteByte(0);
+        ownerSignature.WriteByte(0);
+        ownerSignature.WriteByte(1);
+        MethodDefinitionHandle owner =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Owner"),
+                metadata.GetOrAddBlob(ownerSignature),
+                ownerBody,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Private | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("<Owner>g__Core|0_0"),
+            liftedSignatureHandle,
+            liftedBody,
+            MetadataTokens.ParameterHandle(1));
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        using var stream = new MemoryStream(image.ToArray());
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        int resolved = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            "DuplicateMemberRefs.dll",
+            reader,
+            peReader,
+            resolver: null,
+            methodReferenceResolved: (method, _) =>
+            {
+                if (method == owner)
+                    resolved++;
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+
+        Assert.Equal(1, resolved);
+    }
+
+    [Theory]
+    [InlineData(0x0F)]
+    [InlineData(0xFF)]
+    public void OptimizationOpportunities_MalformedMethodSpecCannotAuthenticateOwner(
+        byte malformedType)
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        using (var stream = new MemoryStream(image, writable: false))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            MethodDefinitionHandle owner = reader.MethodDefinitions
+                .Single(handle => reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    nameof(OptimizationOpportunityFixtures
+                        .GenericObjectEqualsLocalFunction)));
+            MethodDefinition definition =
+                reader.GetMethodDefinition(owner);
+            MethodBodyBlock body =
+                peReader.GetMethodBody(
+                    definition.RelativeVirtualAddress);
+            MethodSpecificationHandle specification =
+                LibraryMethodAnalysisRunner.DecodeBody(
+                        body.GetILBytes() ?? [],
+                        body.ExceptionRegions)
+                    .Instructions
+                    .Select(instruction =>
+                        MetadataTokens.EntityHandle(
+                            MethodInstructionFacts.OperandInt32(
+                                instruction)))
+                    .Where(handle =>
+                        handle.Kind
+                            == HandleKind.MethodSpecification)
+                    .Select(handle =>
+                        (MethodSpecificationHandle)handle)
+                    .Single(handle =>
+                    {
+                        EntityHandle method =
+                            reader.GetMethodSpecification(handle).Method;
+                        return method.Kind == HandleKind.MethodDefinition
+                            && reader.GetString(
+                                reader.GetMethodDefinition(
+                                    (MethodDefinitionHandle)method).Name)
+                                .StartsWith(
+                                    "<GenericObjectEqualsLocalFunction>"
+                                        + "g__EqualsCore|",
+                                    StringComparison.Ordinal);
+                    });
+            BlobHandle signature =
+                reader.GetMethodSpecification(specification).Signature;
+            int blobStream = MetadataStreamOffset(
+                image,
+                peReader.PEHeaders.MetadataStartOffset,
+                "#Blob");
+            int blob = blobStream
+                + MetadataTokens.GetHeapOffset(signature);
+            Assert.Equal(4, image[blob]);
+            Assert.Equal(0x1E, image[blob + 3]);
+            image[blob + 3] = malformedType;
+        }
+
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedMethodSpec.dll",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            row =>
+                row.Shape == "generic-parameter-object-box"
+                && row.Method.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures
+                        .GenericObjectEqualsLocalFunction),
+                    StringComparison.Ordinal));
+        Assert.NotEmpty(index.Diagnostics);
     }
 
     [Fact]
@@ -4992,6 +5288,39 @@ public class LibraryBodyIndexTests
         }
 
         Assert.Equal(1, replacements);
+    }
+
+    static int MetadataStreamOffset(
+        byte[] image,
+        int metadataRoot,
+        string streamName)
+    {
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataRoot + 12, 4));
+        int position = metadataRoot + 16
+            + ((versionLength + 3) & ~3);
+        int streamCount = BinaryPrimitives.ReadUInt16LittleEndian(
+            image.AsSpan(position + 2, 2));
+        position += 4;
+        for (int i = 0; i < streamCount; i++)
+        {
+            int offset = BinaryPrimitives.ReadInt32LittleEndian(
+                image.AsSpan(position, 4));
+            position += 8;
+            int nameStart = position;
+            while (image[position] != 0)
+                position++;
+            string name = System.Text.Encoding.ASCII.GetString(
+                image,
+                nameStart,
+                position - nameStart);
+            position = (position + 4) & ~3;
+            if (name == streamName)
+                return metadataRoot + offset;
+        }
+
+        throw new BadImageFormatException(
+            $"Metadata stream {streamName} was not found.");
     }
 
     [Theory]

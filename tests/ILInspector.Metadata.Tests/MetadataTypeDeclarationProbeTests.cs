@@ -305,6 +305,82 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void TypeDefinitionIndex_DeepSharedAncestryAllocatesLinearly()
+    {
+        const int depth = 255;
+        const int leaves = 15_000;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle parent = default;
+            for (int i = 0; i < depth; i++)
+            {
+                TypeDefinitionHandle handle = AddTypeDefinition(
+                    metadata,
+                    i == 0
+                        ? TypeAttributes.Public
+                        : TypeAttributes.NestedPublic,
+                    i == 0 ? "N" : "",
+                    "A");
+                if (!parent.IsNil)
+                    metadata.AddNestedType(handle, parent);
+                parent = handle;
+            }
+            for (int i = 0; i < leaves; i++)
+            {
+                TypeDefinitionHandle handle = AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.NestedPublic,
+                    "",
+                    $"L{i:X4}");
+                metadata.AddNestedType(handle, parent);
+            }
+        });
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        MetadataTypeDefinitionIndex index =
+            MetadataTypeDefinitionIndex.Create(image.Reader);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.InRange(allocated, 0, 16 * 1024 * 1024);
+        Assert.False(index.TryGetUniqueDefinition(
+            Name("N", "Missing"),
+            out _));
+    }
+
+    [Fact]
+    public void TypeDefinitionIndex_AmbiguousAncestorRejectsNestedIdentity()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle first = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Duplicate");
+            TypeDefinitionHandle second = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Duplicate");
+            TypeDefinitionHandle nested = AddTypeDefinition(
+                metadata,
+                TypeAttributes.NestedPublic,
+                "",
+                "Nested");
+            metadata.AddNestedType(nested, first);
+            _ = second;
+        });
+
+        MetadataTypeDefinitionIndex index =
+            MetadataTypeDefinitionIndex.Create(image.Reader);
+
+        Assert.False(index.TryGetUniqueDefinition(
+            Name("N", "Duplicate", "Nested"),
+            out _));
+    }
+
+    [Fact]
     public void Probe_DoesNotMatchCloseNestedDefinitionNames()
     {
         using MetadataImage image = BuildMetadata(metadata =>
