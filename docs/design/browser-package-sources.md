@@ -267,14 +267,16 @@ Complete listing-aware Gallery enumeration also depends on registration
 metadata. If registration cannot be read, raw enumeration may expose the
 flat-container versions only as a typed partial result with listing status
 `unknown`; it does not report them as listed and does not populate a complete
-candidate cache. Auto-selecting latest, wildcard, or range operations fail
-closed when the missing listing evidence could change the selected coordinate.
+candidate cache. Auto-selecting wildcard or range operations that depend on
+complete enumeration fail closed when the missing listing evidence could change
+the selected coordinate. Search-backed latest selection remains available
+because Gallery search returns listed versions.
 
 The target listing contract is source-relative:
 
 | Status | Meaning |
 | --- | --- |
-| `listed` | NuGet Gallery registration explicitly reports the version listed |
+| `listed` | NuGet Gallery registration reports `listed: true` or omits the optional property |
 | `unlisted` | NuGet Gallery registration explicitly reports the version unlisted |
 | `unknown` | Gallery listing evidence was required but unavailable |
 | `not-applicable` | The reporting source has no NuGet Gallery listing concept |
@@ -601,8 +603,10 @@ Implementation is not complete until gates prove:
   enumeration, and incomplete listing metadata cannot populate that cache;
 - source-relative listing states cover `listed`, `unlisted`, `unknown`, and
   `not-applicable`; registration outages render visibly partial
-  Markdown/TSV/JSONL enumeration and latest, wildcard, and range selection fail
-  closed;
+  Markdown/TSV/JSONL enumeration, registration-dependent wildcard and range
+  selection fail closed, and search-backed latest remains available;
+- a registration entry with no `listed` property is treated as listed, while
+  only explicit `false` is unlisted;
 - a non-Gallery v3 source without a declared symbol resource never constructs
   a `.snupkg` request, and a custom-feed package never probes the NuGet.org
   symbol CDN merely because Gallery carries the same package ID;
