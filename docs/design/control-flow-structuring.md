@@ -1036,14 +1036,25 @@ add to the step-4 plan:
 4. **Sequencing** (unchanged from the spike): wire the rec-#2 real-world
    corpus baseline as the regression sensor before the rewrite lands.
 
-5. **Regression sensor implemented by #4094.** Snapshot schema v6 records every
-   imported branch, switch, and EH-transfer site by stable method identity,
-   control-flow kind, IL offset, and same-offset ordinal, then records whether
-   the pipeline consumed that exact node. On fixed NuGet artifacts, any
-   raised-to-residual transition fails independently of unrelated gains, and
-   pinned method or site drift fails closed. Repo-built assemblies remain
-   advisory because their IL population churns. This is the required
-   non-offsettable corpus prerequisite for the retained-label rewrite; it
+5. **Regression sensor implementation in #4094.** Snapshot schema v6 records
+   every imported branch, switch, and EH-transfer slot by stable method
+   identity, control-flow kind, IL offset, and same-offset ordinal. Its outcome
+   is output-visible: matching uses source provenance, transfer kind, and
+   targets, with the owning IL block as the fallback for provenance-less
+   synthesized transfers. Unmatched residuals receive stable output-site
+   identities. Reusing, reparenting, or rebuilding an equivalent retained goto
+   is therefore neutral; adding a printable residual is a loss. On fixed NuGet artifacts,
+   every loss fails independently of unrelated gains, and pinned method,
+   imported-site, or empty-domain drift fails closed. The named gates are
+   `ControlFlowSiteLedger_ObservesCompilerProducedSwitchRaise`,
+   `ControlFlowSiteLedger_TreatsRebuiltEquivalentTransferAsResidual`,
+   `ControlFlowSiteLedger_TreatsReparentedEquivalentTransferAsResidual`,
+   `Compare_ControlFlowLossCannotBeOffsetByUnrelatedGain`, and
+   `Compare_NewOutputResidualIsLossAndRemovedOutputResidualIsGain`. Repo-built
+   assemblies remain advisory because their IL population churns. This is the
+   required non-offsettable prerequisite for the retained-label rewrite; it
    detects output loss that CFG-model agreement cannot, but does not replace
    focused compiler-produced boundary fixtures, render A/B, or fidelity
-   evidence.
+   evidence. Baseline activation waits for #4238 to restore the regressions
+   exposed by the first attempted migration rather than accepting them as the
+   new floor.

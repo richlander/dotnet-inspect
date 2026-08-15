@@ -42,10 +42,25 @@ internal sealed record CorpusControlFlowSiteSnapshot(
     string Kind,
     int IlOffset,
     int Ordinal,
-    bool Raised)
+    bool Raised,
+    string? OutputIdentity = null)
 {
     [JsonIgnore]
-    public string StableKey => $"{Kind}@IL_{IlOffset:X4}#{Ordinal}";
+    public string StableKey => OutputIdentity is null
+        ? $"{Kind}@IL_{IlOffset:X4}#{Ordinal}"
+        : $"{Kind}:{OutputIdentity}";
+
+    [JsonIgnore]
+    public bool Imported => OutputIdentity is null;
+
+    public static bool IsSupportedKind(string kind)
+        => kind is
+            "branch"
+            or "conditional-branch"
+            or "switch-branch"
+            or "leave"
+            or "end-finally"
+            or "end-filter";
 }
 
 internal sealed class CorpusControlFlowSiteSnapshotsJsonConverter
@@ -62,33 +77,89 @@ internal sealed class CorpusControlFlowSiteSnapshotsJsonConverter
             return [];
 
         var sites = new List<CorpusControlFlowSiteSnapshot>();
+        var stableKeys = new HashSet<string>(StringComparer.Ordinal);
         foreach (string entry in encoded.Split(';'))
         {
             string[] fields = entry.Split('|');
-            if (fields.Length != 4
-                || fields[0] is not (
-                    "branch"
-                    or "conditional-branch"
-                    or "switch-branch"
-                    or "leave"
-                    or "end-finally"
-                    or "end-filter")
+            if (fields.Length is not (4 or 5)
+                || !CorpusControlFlowSiteSnapshot.IsSupportedKind(fields[0])
                 || !int.TryParse(fields[1], NumberStyles.None, CultureInfo.InvariantCulture, out int ilOffset)
                 || ilOffset < 0
                 || !int.TryParse(fields[2], NumberStyles.None, CultureInfo.InvariantCulture, out int ordinal)
                 || ordinal < 0
-                || fields[3] is not ("0" or "1"))
+                || fields[3] is not ("0" or "1")
+                || fields.Length == 5
+                    && (fields[3] != "0"
+                        || !IsValidOutputIdentity(fields[0], ilOffset, ordinal, fields[4])))
             {
                 throw new JsonException($"Invalid control-flow site encoding '{entry}'.");
             }
 
-            sites.Add(new CorpusControlFlowSiteSnapshot(
+            var site = new CorpusControlFlowSiteSnapshot(
                 fields[0],
                 ilOffset,
                 ordinal,
-                Raised: fields[3] == "1"));
+                Raised: fields[3] == "1",
+                OutputIdentity: fields.Length == 5 ? fields[4] : null);
+            if (!stableKeys.Add(site.StableKey))
+                throw new JsonException($"Duplicate control-flow site key '{site.StableKey}'.");
+            sites.Add(site);
         }
         return sites;
+    }
+
+    static bool IsValidOutputIdentity(
+        string kind,
+        int ilOffset,
+        int ordinal,
+        string identity)
+    {
+        string sourcePrefix = $"output@{kind}@source_IL_";
+        string blockPrefix = $"output@{kind}@block_IL_";
+        string prefix = identity.StartsWith(sourcePrefix, StringComparison.Ordinal)
+            ? sourcePrefix
+            : blockPrefix;
+        int arrow = identity.IndexOf("->", StringComparison.Ordinal);
+        int ordinalMarker = identity.LastIndexOf('#');
+        return identity.StartsWith(prefix, StringComparison.Ordinal)
+            && arrow > prefix.Length
+            && int.TryParse(
+                identity.AsSpan(prefix.Length, arrow - prefix.Length),
+                NumberStyles.HexNumber,
+                CultureInfo.InvariantCulture,
+                out int identityOffset)
+            && identityOffset == ilOffset
+            && ordinalMarker > arrow + 2
+            && IsValidTargets(kind, identity.AsSpan(arrow + 2, ordinalMarker - arrow - 2))
+            && int.TryParse(
+                identity.AsSpan(ordinalMarker + 1),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out int identityOrdinal)
+            && identityOrdinal == ordinal;
+    }
+
+    static bool IsValidTargets(string kind, ReadOnlySpan<char> targets)
+    {
+        if (kind is "end-finally" or "end-filter")
+            return targets.SequenceEqual("-");
+        if (targets.IsEmpty)
+            return kind == "switch-branch";
+
+        foreach (Range range in targets.Split(','))
+        {
+            ReadOnlySpan<char> target = targets[range];
+            if (!target.StartsWith("IL_", StringComparison.Ordinal)
+                || !int.TryParse(
+                    target[3..],
+                    NumberStyles.HexNumber,
+                    CultureInfo.InvariantCulture,
+                    out _))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     public override void Write(
@@ -98,9 +169,13 @@ internal sealed class CorpusControlFlowSiteSnapshotsJsonConverter
     {
         writer.WriteStringValue(string.Join(
             ';',
-            value.Select(static site => string.Create(
-                CultureInfo.InvariantCulture,
-                $"{site.Kind}|{site.IlOffset}|{site.Ordinal}|{(site.Raised ? 1 : 0)}"))));
+            value.Select(static site => string.Join(
+                '|',
+                site.Kind,
+                site.IlOffset.ToString(CultureInfo.InvariantCulture),
+                site.Ordinal.ToString(CultureInfo.InvariantCulture),
+                site.Raised ? "1" : "0",
+                site.OutputIdentity).TrimEnd('|'))));
     }
 }
 

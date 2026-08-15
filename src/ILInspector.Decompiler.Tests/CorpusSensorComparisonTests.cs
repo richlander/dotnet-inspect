@@ -531,6 +531,23 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void MethodDeltas_PreV6ComparisonIgnoresControlFlowSites()
+    {
+        var baseline = ControlFlowMethod("Changed", raised: true) with
+        {
+            ControlFlowSites = null,
+        };
+        var current = ControlFlowMethod("Changed", raised: false);
+
+        Assert.DoesNotContain(
+            "controlFlowSites",
+            CorpusSensor.MethodDeltasForTesting(
+                baseline,
+                current,
+                compareControlFlowSites: false));
+    }
+
+    [Fact]
     public void ControlFlowSites_SerializeCompactlyAndRoundTrip()
     {
         var method = SnapshotMethod("RoundTrip") with
@@ -539,6 +556,12 @@ public class CorpusSensorComparisonTests
             [
                 new("switch-branch", 0x10, 0, Raised: true),
                 new("leave", 0x20, 1, Raised: false),
+                new(
+                    "conditional-branch",
+                    0x30,
+                    0,
+                    Raised: false,
+                    OutputIdentity: "output@conditional-branch@block_IL_0030->IL_0040#0"),
             ],
         };
 
@@ -546,7 +569,9 @@ public class CorpusSensorComparisonTests
         var restored = JsonSerializer.Deserialize<CorpusMethodSnapshot>(json);
 
         Assert.Contains(
-            "\"ControlFlowSites\":\"switch-branch|16|0|1;leave|32|1|0\"",
+            "\"ControlFlowSites\":\"switch-branch|16|0|1;leave|32|1|0;"
+                + "conditional-branch|48|0|0|output@conditional-branch@block_IL_0030-"
+                + "\\u003EIL_0040#0\"",
             json);
         Assert.NotNull(restored);
         Assert.Equal(method.ControlFlowSites, restored.ControlFlowSites);
@@ -563,6 +588,38 @@ public class CorpusSensorComparisonTests
             .Replace(
                 "branch|16|0|1",
                 "branch|-1|0|raised",
+                StringComparison.Ordinal);
+
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<CorpusMethodSnapshot>(json));
+    }
+
+    [Fact]
+    public void ControlFlowSites_RejectDuplicateStableKeys()
+    {
+        var method = SnapshotMethod("Duplicate") with
+        {
+            ControlFlowSites = [new("branch", 0x10, 0, Raised: true)],
+        };
+        string json = JsonSerializer.Serialize(method)
+            .Replace(
+                "branch|16|0|1",
+                "branch|16|0|1;branch|16|0|1",
+                StringComparison.Ordinal);
+
+        var error = Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<CorpusMethodSnapshot>(json));
+        Assert.Contains("Duplicate control-flow site key", error.Message);
+    }
+
+    [Fact]
+    public void ControlFlowSites_RejectMalformedOutputIdentity()
+    {
+        var method = OutputControlFlowMethod("MalformedOutput", hasResidual: true);
+        string json = JsonSerializer.Serialize(method)
+            .Replace(
+                "block_IL_0010",
+                "block_IL_NOTHEX",
                 StringComparison.Ordinal);
 
         Assert.Throws<JsonException>(
@@ -808,16 +865,19 @@ public class CorpusSensorComparisonTests
 
         var raisedSites = CorpusSensor.CaptureControlFlowSitesForTesting(
             raisedFunction,
-            IrPasses.Default);
+            IrPasses.Default,
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
         var repeatedSites = CorpusSensor.CaptureControlFlowSitesForTesting(
             repeatedFunction,
-            IrPasses.Default);
+            IrPasses.Default,
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
         var withoutSwitchRaising = IrPasses.Default
             .Where(static pass => pass is not SwitchRaisingPass)
             .ToImmutableArray();
         var residualSites = CorpusSensor.CaptureControlFlowSitesForTesting(
             residualFunction,
-            withoutSwitchRaising);
+            withoutSwitchRaising,
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
 
         Assert.Equal(raisedSites, repeatedSites);
         var raisedSwitch = Assert.Single(
@@ -829,6 +889,66 @@ public class CorpusSensorComparisonTests
         Assert.Equal(raisedSwitch.StableKey, residualSwitch.StableKey);
         Assert.True(raisedSwitch.Raised);
         Assert.False(residualSwitch.Raised);
+    }
+
+    [Fact]
+    public void ControlFlowSiteLedger_TreatsRebuiltEquivalentTransferAsResidual()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var originalFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        var rebuiltFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        Assert.NotNull(originalFunction);
+        Assert.NotNull(rebuiltFunction);
+
+        var originalSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            originalFunction,
+            [],
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var rebuiltSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            rebuiltFunction,
+            [new RebuildSwitchBranchPass()],
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+
+        Assert.Equal(originalSites, rebuiltSites);
+        Assert.False(Assert.Single(
+            rebuiltSites,
+            static site => site.Kind == "switch-branch").Raised);
+    }
+
+    [Fact]
+    public void ControlFlowSiteLedger_TreatsReparentedEquivalentTransferAsResidual()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var originalFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        var reparentedFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        Assert.NotNull(originalFunction);
+        Assert.NotNull(reparentedFunction);
+
+        var originalSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            originalFunction,
+            [],
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var reparentedSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            reparentedFunction,
+            [new ReparentSwitchBranchPass()],
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+
+        Assert.Equal(originalSites, reparentedSites);
+        Assert.False(Assert.Single(
+            reparentedSites,
+            static site => site.Kind == "switch-branch").Raised);
     }
 
     [Fact]
@@ -909,16 +1029,22 @@ public class CorpusSensorComparisonTests
     public void Compare_ControlFlowGateIgnoresRepoAssemblyChurn()
     {
         var baseline = Snapshot(
-            1,
+            2,
             0,
             0,
-            [ControlFlowMethod("RepoMethod", raised: true, assemblyPath: "artifacts/bin/Product.dll")],
+            [
+                ControlFlowMethod("Pinned", raised: true),
+                ControlFlowMethod("RepoMethod", raised: true, assemblyPath: "artifacts/bin/Product.dll"),
+            ],
             schemaVersion: 6);
         var current = Snapshot(
-            1,
+            2,
             0,
             0,
-            [ControlFlowMethod("RepoMethod", raised: false, assemblyPath: "artifacts/bin/Product.dll")],
+            [
+                ControlFlowMethod("Pinned", raised: true),
+                ControlFlowMethod("RepoMethod", raised: false, assemblyPath: "artifacts/bin/Product.dll"),
+            ],
             schemaVersion: 6);
 
         var regressions = CorpusSensor.Compare(
@@ -954,8 +1080,84 @@ public class CorpusSensorComparisonTests
             gateAggregateRates: false);
 
         Assert.Contains(
-            "control-flow site sample differs for nuget:pinned/lib.dll!T::Changed() (missing 1, added 1)",
+            "control-flow imported site sample differs for nuget:pinned/lib.dll!T::Changed() (missing 1, added 1)",
             regressions);
+    }
+
+    [Fact]
+    public void Compare_NewOutputResidualIsLossAndRemovedOutputResidualIsGain()
+    {
+        var baseline = Snapshot(
+            2,
+            0,
+            0,
+            [
+                OutputControlFlowMethod("Lost", hasResidual: false),
+                OutputControlFlowMethod("Gained", hasResidual: true),
+            ],
+            schemaVersion: 6);
+        var current = Snapshot(
+            2,
+            0,
+            0,
+            [
+                OutputControlFlowMethod("Lost", hasResidual: true),
+                OutputControlFlowMethod("Gained", hasResidual: false),
+            ],
+            schemaVersion: 6);
+
+        var transitions = CorpusSensor.PinnedControlFlowTransitions(baseline, current);
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Single(transitions.Losses);
+        Assert.Single(transitions.Gains);
+        Assert.Contains(
+            regressions,
+            regression => regression.Contains(
+                "T::Lost()/conditional-branch:output@conditional-branch@block_IL_0010->IL_0020#0",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_EmptyPinnedControlFlowDomainFailsClosed()
+    {
+        var snapshot = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Repo", raised: true, assemblyPath: "artifacts/bin/Product.dll")],
+            schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            snapshot,
+            snapshot,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow pinned method domain is empty (baseline 0, current 0)",
+            regressions);
+    }
+
+    [Fact]
+    public void PortablePath_UsesConfiguredNuGetPackageRoot()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "custom-nuget-root");
+        string assembly = Path.Combine(
+            root,
+            "newtonsoft.json",
+            "13.0.4",
+            "lib",
+            "net6.0",
+            "Newtonsoft.Json.dll");
+
+        Assert.Equal(
+            "nuget:newtonsoft.json/13.0.4/lib/net6.0/Newtonsoft.Json.dll",
+            CorpusSensor.PortablePath(assembly, root));
     }
 
     [Fact]
@@ -1931,6 +2133,51 @@ public class CorpusSensorComparisonTests
         {
             ControlFlowSites = [new("switch-branch", 0x10, 0, raised)],
         };
+
+    static CorpusMethodSnapshot OutputControlFlowMethod(
+        string method,
+        bool hasResidual)
+        => SnapshotMethod(method, "nuget:pinned/lib.dll") with
+        {
+            ControlFlowSites = hasResidual
+                ?
+                [
+                    new("switch-branch", 0x08, 0, Raised: true),
+                    new(
+                        "conditional-branch",
+                        0x10,
+                        0,
+                        Raised: false,
+                        OutputIdentity: "output@conditional-branch@block_IL_0010->IL_0020#0"),
+                ]
+                : [new("switch-branch", 0x08, 0, Raised: true)],
+        };
+
+    sealed class RebuildSwitchBranchPass : IIrPass
+    {
+        public string Name => "rebuild-switch-branch";
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            var branch = Assert.Single(function.Descendants.OfType<SwitchBranch>());
+            branch.ReplaceWith(branch.Clone());
+        }
+    }
+
+    sealed class ReparentSwitchBranchPass : IIrPass
+    {
+        public string Name => "reparent-switch-branch";
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            var branch = Assert.Single(function.Descendants.OfType<SwitchBranch>());
+            var block = Assert.IsType<Block>(branch.Parent);
+            var replacement = new Block(block.StartOffset + 1);
+            foreach (var child in block.DetachChildren())
+                replacement.Add(child);
+            block.ReplaceWith(replacement);
+        }
+    }
 
     static CorpusMethodSnapshot ClassicKickoff(
         string method,

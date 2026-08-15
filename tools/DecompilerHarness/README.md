@@ -689,15 +689,25 @@ of presenting incomparable movement.
 Snapshot schema v6 adds a non-offsettable control-flow-site ledger to each
 method row. The importer records branch, conditional-branch, switch, and EH
 transfer nodes by control-flow kind, IL source offset, and same-offset ordinal;
-after the pipeline, each row says whether that exact imported node was consumed
-by raising or remains in the final tree. Site rows use one compact, validated
-string per method so the full baseline stays below repository file-size limits.
-For fixed `nuget:` assemblies, a
+it also records each slot's printable identity from stable source provenance,
+transfer kind, and targets. A provenance-less synthesized transfer falls back
+to its owning IL block. After the pipeline, an imported slot is raised only
+when no equivalent residual transfer survives. A synthesized residual that
+does not correspond to an imported slot gets its own output-site identity, so
+rebuilding, reparenting, or reusing a goto is neutral while adding a printable
+transfer is a loss. Site rows use one compact, validated string per method so the full
+baseline stays below repository file-size limits.
+
+Only fixed `nuget:` rows carry the ledger. The configured `NUGET_PACKAGES` root
+is normalized to the same portable `nuget:` identity as the default cache, and
+comparison fails when the pinned method or site domain is empty. For those
+rows, a
 raised-to-residual transition is a hard regression even when another site gains
-a raise, while residual-to-raised transitions remain disclosed gains. A changed
-pinned method or site population fails closed instead of comparing unlike
-samples. Repo-built assembly rows remain advisory because their method and IL
-populations legitimately change as the repository evolves.
+a raise; a new synthesized residual is the same class of loss. Residual removal
+is a disclosed gain in quality cards and non-card Deep Inspect output. A
+changed pinned method or imported-site population fails closed instead of
+comparing unlike samples. Repo-built assembly rows remain advisory because
+their method and IL populations legitimately change as the repository evolves.
 
 This ledger detects loss of a previously observed raise; it does not prove that
 the replacement structured output is semantically correct. Keep render A/B,
@@ -707,6 +717,13 @@ compiler-produced decline-boundary fixture is load-bearing. IL site identities
 are stable only within the exact pinned artifact; package upgrades require a
 reviewed baseline regeneration. Cards produced from an older baseline say that
 the pinned control-flow raise gate is unavailable rather than implying it ran.
+The enforcing tests are
+`ControlFlowSiteLedger_ObservesCompilerProducedSwitchRaise`,
+`ControlFlowSiteLedger_TreatsRebuiltEquivalentTransferAsResidual`,
+`ControlFlowSiteLedger_TreatsReparentedEquivalentTransferAsResidual`,
+`Compare_ControlFlowLossCannotBeOffsetByUnrelatedGain`,
+`Compare_NewOutputResidualIsLossAndRemovedOutputResidualIsGain`, and the
+`Compare_ControlFlowGateFailsClosed*` / `ControlFlowSites_Reject*` families.
 
 Policy v1 rolls multiple causes up per method in this order:
 
@@ -944,7 +961,8 @@ per-method detail.
 The schema-v6 control-flow-site gate is stricter than that aggregate fallback:
 it activates only when both snapshots carry the v6 ledger. Its card line reports
 lost and gained raises over stable sites, or explicitly says that the gate is
-unavailable for an older baseline.
+unavailable for an older baseline. The non-card Deep Inspect path prints the
+same transition disclosure before its baseline verdict.
 
 Expand the fixed corpus only after that targeting step shows a shape gap. Prefer
 deterministic, pinned assemblies that add many examples of the missing lowering
