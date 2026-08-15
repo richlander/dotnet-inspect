@@ -121,7 +121,7 @@ public class LadderRung6GateTests
 
         Assert.All(newRules.Concat(legacy), member =>
         {
-            foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(member.Function)) System.Console.WriteLine(node.ToString());
+            foreach (var node in member.Function.DescendantsOutsideNestedFunctions) System.Console.WriteLine(node.ToString());
 Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
             Assert.Null(Completeness.Residual(member.Function));
             Assert.True(member.Result.Succeeded, $"{member.Name} did not print.");
@@ -723,7 +723,7 @@ Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
     {
         var member = LoadRaisedMembers(assemblyPath, typeName)
             .Single(m => m.Name == "FixedStringFirstChar");
-        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(member.Function)) System.Console.WriteLine(node.ToString());
+        foreach (var node in member.Function.DescendantsOutsideNestedFunctions) System.Console.WriteLine(node.ToString());
 Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
         Assert.Contains("fixed (char* ", member.Body);
         Assert.Contains(" = value)", member.Body);
@@ -846,7 +846,7 @@ Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
         foreach (var name in new[] { "StackallocPointerInitializer", "StackallocSpanInitializer" })
         {
             var member = members.Single(m => m.Name == name);
-            foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(member.Function)) System.Console.WriteLine(node.ToString());
+            foreach (var node in member.Function.DescendantsOutsideNestedFunctions) System.Console.WriteLine(node.ToString());
 Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
             Assert.Contains("stackalloc int[] { 1, 2, 3 }", member.Body);
             Assert.DoesNotContain("CopyBlock", member.Body);
@@ -878,7 +878,7 @@ Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
             else
             {
                 Assert.Contains("Unsafe.CopyBlock", member.Body);
-                foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(member.Function)) System.Console.WriteLine(node.ToString());
+                foreach (var node in member.Function.DescendantsOutsideNestedFunctions) System.Console.WriteLine(node.ToString());
 Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
             }
 

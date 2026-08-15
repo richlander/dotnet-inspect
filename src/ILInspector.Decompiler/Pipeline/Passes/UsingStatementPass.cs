@@ -21,7 +21,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </code>
 /// all become <c>using (T V_0 = resource) { BODY }</c>. The dispose receiver is
 /// a <c>LoadLocal</c> (reference type) or <c>LoadLocalAddress</c> (value type,
-/// constrained callvirt).
+/// constrained callvirt). When BODY never reads the resource local and no PDB
+/// source name identifies it as an authored variable, the raise instead becomes
+/// the idiomatic variable-less <c>using (resource) { BODY }</c> (#3346). The
+/// printer preserves any conversion the consumed declaration applied, and the
+/// underlying slot is recorded as eliminated.
 ///
 /// <para>Runtime-async disposal regions use a catch-object / awaited-dispose /
 /// ExceptionDispatchInfo rethrow scaffold. The pass first raises that exact
@@ -142,16 +146,26 @@ public sealed class UsingStatementPass : IIrPass
 
                 var resource = (IrExpression)match.StoreResource.DetachChildren()[0];
                 var body = match.TryFinally.TryBody;
+                bool declaresResourceVariable =
+                    ReferenceOwnership.SubtreeReferencesLocal(body, match.StoreResource.Index)
+                    || HasSourceLocalName(function, match.StoreResource.Index);
                 body.Detach();
-                var usingStatement = new UsingStatement(match.StoreResource.Index, match.StoreResource.Type, resource, body, consumedMemberRefs: [match.Dispose]);
+                var usingStatement = new UsingStatement(match.StoreResource.Index, match.StoreResource.Type, resource, body, consumedMemberRefs: [match.Dispose], declaresResourceVariable: declaresResourceVariable);
                 stepper.StepOver("raise dispose try/finally to using", match.TryFinally);
                 match.TryFinally.ReplaceWith(usingStatement);
                 match.StoreResource.Detach();
+                if (!declaresResourceVariable)
+                    function.MarkLocalEliminated(match.StoreResource.Index);
                 return true;
             }
         }
         return false;
     }
+
+    static bool HasSourceLocalName(IrFunction function, int index)
+        => index >= 0
+            && index < function.LocalNames.Length
+            && function.LocalNames[index] is { Length: > 0 };
 
     static AwaitRegionMatch? TryMatchAwaitDisposeRegion(IReadOnlyList<IrNode> children, int i)
     {
