@@ -3888,7 +3888,7 @@ static class FidelityCheck
                     foreach (var member in type.Members)
                     {
                         if (member.MetadataToken is { } token)
-                            index.TryAdd(token, (type, member));
+                            index[token] = (type, member);
                         if (member.Kind == "property"
                             && !member.Name.Contains('.', StringComparison.Ordinal))
                         {

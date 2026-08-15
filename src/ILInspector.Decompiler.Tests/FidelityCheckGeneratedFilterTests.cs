@@ -417,6 +417,52 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void TargetApiIndex_PreservesDeclaringExtensionMethodEntry()
+    {
+        var assemblyPath = CompileFixture("""
+            // Declaration order is load-bearing: the extended-type projection
+            // precedes the declaring method entry for the shared MethodDef token.
+            public sealed class Widget
+            {
+                public int Value;
+            }
+
+            public static class WidgetExtensions
+            {
+                public static int Twice(this Widget value) => value.Value * 2;
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "WidgetExtensions"));
+            var method = Assert.Single(
+                type.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "Twice");
+            using var source = MetadataSource.Open(assemblyPath);
+
+            var rendered = FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                method,
+                targeted: true,
+                isPrimaryConstructor: false);
+
+            Assert.NotNull(rendered);
+            Assert.Contains("Twice", rendered.Value.Text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void Evaluate_ReportsProductWholeMemberWhenConstructorRecompileFails()
     {
         var assemblyPath = CompileFixture("""

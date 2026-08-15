@@ -5,6 +5,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using CSharpText;
 using ILInspector.CSharp;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Text;
@@ -1391,53 +1392,159 @@ public static class MemberBodyProducer
     static string ContainedIdentifier(string name) => Pipeline.CSharpNaming.ContainedIdentifier(name);
 
     /// <summary>An accessor that just passes through the auto-property backing field — `return this.Name;` or `this.Name = value;`.</summary>
-    static bool IsTrivialAutoAccessor(string keyword, string? body, string name)
+    static bool IsTrivialAutoAccessor(string keyword, string? body, string name, bool isStatic)
     {
         string escapedName = ContainedIdentifier(name);
+        string target = $"this.{escapedName}";
+        if (isStatic)
+        {
+            string? text = body?.Trim();
+            string? expression = keyword == "get"
+                && text?.StartsWith("return ", StringComparison.Ordinal) == true
+                && text.EndsWith(';')
+                    ? text[7..^1]
+                    : keyword != "get"
+                        && text?.EndsWith(" = value;", StringComparison.Ordinal) == true
+                            ? text[..^9]
+                            : null;
+            return expression == escapedName
+                || expression?.EndsWith($".{escapedName}", StringComparison.Ordinal) == true;
+        }
         return keyword == "get"
-            ? body?.Trim() == $"return this.{escapedName};"
-            : body?.Trim() == $"this.{escapedName} = value;";
+            ? body?.Trim() == $"return {target};"
+            : body?.Trim() == $"{target} = value;";
     }
 
     static bool IsCompilerGeneratedAutoProperty(
+        Pipeline.MetadataSource source,
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         ApiMember member,
         MethodDefinitionHandle? getterHandle,
         MethodDefinitionHandle? setterHandle)
     {
-        bool hasAccessor = false;
+        if (getterHandle is null && setterHandle is null)
+            return false;
+
         foreach (var handle in new[] { getterHandle, setterHandle })
         {
             if (handle is not { } accessor)
                 continue;
-            hasAccessor = true;
-            if (!AttributeReader.HasAttribute(
+            var method = reader.GetMethodDefinition(accessor);
+            if (((method.Attributes & MethodAttributes.Static) != 0) != member.IsStatic
+                || !AttributeReader.HasAttribute(
                     reader,
-                    reader.GetMethodDefinition(accessor).GetCustomAttributes(),
+                    method.GetCustomAttributes(),
                     KnownAttributeNames.CompilerGeneratedAttribute))
             {
                 return false;
             }
         }
-        if (!hasAccessor)
+
+        var type = reader.GetTypeDefinition(typeHandle);
+        var genericContext = GenericContext.ForType(reader, type);
+        PropertyDefinitionHandle propertyHandle = default;
+        foreach (var candidateHandle in type.GetProperties())
+        {
+            var candidate = reader.GetPropertyDefinition(candidateHandle);
+            if (reader.GetString(candidate.Name) != member.Name)
+                continue;
+            var candidateAccessors = candidate.GetAccessors();
+            if (getterHandle is { } getter && candidateAccessors.Getter != getter
+                || setterHandle is { } setter && candidateAccessors.Setter != setter)
+            {
+                continue;
+            }
+            if (!propertyHandle.IsNil)
+                return false;
+            propertyHandle = candidateHandle;
+        }
+        if (propertyHandle.IsNil)
             return false;
 
+        MethodSignature<string> propertySignature;
+        try
+        {
+            propertySignature = GuardedSignatureText.PropertyText(
+                reader,
+                reader.GetPropertyDefinition(propertyHandle),
+                genericContext);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return false;
+        }
+
+        FieldDefinitionHandle backingFieldHandle = default;
         string backingFieldName = $"<{member.Name}>k__BackingField";
-        foreach (var fieldHandle in reader.GetTypeDefinition(typeHandle).GetFields())
+        foreach (var fieldHandle in type.GetFields())
         {
             var field = reader.GetFieldDefinition(fieldHandle);
-            if (reader.GetString(field.Name) == backingFieldName
+            if (reader.GetString(field.Name) != backingFieldName)
+                continue;
+
+            string fieldType;
+            try
+            {
+                fieldType = GuardedSignatureText.FieldText(reader, field, genericContext);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                continue;
+            }
+
+            if ((field.Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.Private
+                && ((field.Attributes & FieldAttributes.Static) != 0) == member.IsStatic
                 && AttributeReader.HasAttribute(
                     reader,
                     field.GetCustomAttributes(),
-                    KnownAttributeNames.CompilerGeneratedAttribute))
+                    KnownAttributeNames.CompilerGeneratedAttribute)
+                && fieldType == propertySignature.ReturnType)
             {
-                return true;
+                if (!backingFieldHandle.IsNil)
+                    return false;
+                backingFieldHandle = fieldHandle;
             }
         }
+        if (backingFieldHandle.IsNil)
+            return false;
 
-        return false;
+        return (getterHandle is null
+                || AccessorReferencesBackingField(
+                    source,
+                    getterHandle.Value,
+                    backingFieldHandle,
+                    member.IsStatic ? ILOpCode.Ldsfld : ILOpCode.Ldfld))
+            && (setterHandle is null
+                || AccessorReferencesBackingField(
+                    source,
+                    setterHandle.Value,
+                    backingFieldHandle,
+                    member.IsStatic ? ILOpCode.Stsfld : ILOpCode.Stfld));
+    }
+
+    static bool AccessorReferencesBackingField(
+        Pipeline.MetadataSource source,
+        MethodDefinitionHandle accessorHandle,
+        FieldDefinitionHandle backingFieldHandle,
+        ILOpCode expectedOpCode)
+    {
+        var method = source.Reader.GetMethodDefinition(accessorHandle);
+        if (method.RelativeVirtualAddress == 0)
+            return false;
+
+        var instructions = MethodInstructions.Decode(
+            source.Pe.GetMethodBody(method.RelativeVirtualAddress));
+        if (!instructions.IsComplete)
+            return false;
+
+        int backingFieldToken = MetadataTokens.GetToken(backingFieldHandle);
+        var fieldReferences = instructions.Instructions
+            .Where(instruction => instruction.Operand == OperandKind.InlineField)
+            .ToList();
+        return fieldReferences is [{ OpCode: var opCode, OperandValue: var operand }]
+            && opCode == expectedOpCode
+            && operand == backingFieldToken;
     }
 
     static void ComposeProperty(
@@ -1512,12 +1619,17 @@ public static class MemberBodyProducer
         // this.Name). Render `{ get; set; }` with no bodies — decompiling them
         // would recurse (a getter that returns the property itself).
         if (IsCompilerGeneratedAutoProperty(
+                pipelineSource,
                 reader,
                 typeHandle,
                 member,
                 getterHandle,
                 setterHandle)
-            || accessors.All(a => IsTrivialAutoAccessor(a.Keyword, a.Body, member.Name)))
+            && accessors.All(a => IsTrivialAutoAccessor(
+                a.Keyword,
+                a.Body,
+                member.Name,
+                member.IsStatic)))
         {
             sb.AppendLf($"    {head} {{ {string.Join(" ", accessors.Select(a => $"{a.Head};"))} }}");
             return;
@@ -1711,10 +1823,7 @@ public static class MemberBodyProducer
                 accessorName,
                 overloadIndex: 0,
                 publicOnly: false);
-        requiresAsyncContext = function is not null
-            && (function.RequiresAsyncBodyModifier
-                || function.IsRuntimeAsync == Pipeline.MetadataFactState.Yes);
-        return DecompileFunction(
+        var body = DecompileFunction(
             pipelineSource,
             function,
             bodyNamespaces,
@@ -1724,6 +1833,10 @@ public static class MemberBodyProducer
             out _,
             printerOptions,
             failOnDiagnostic);
+        requiresAsyncContext = function is not null
+            && (function.RequiresAsyncBodyModifier
+                || function.IsRuntimeAsync == Pipeline.MetadataFactState.Yes);
+        return body;
     }
 
     /// <summary>
