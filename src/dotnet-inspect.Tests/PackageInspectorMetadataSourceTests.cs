@@ -316,6 +316,34 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.Null(result.RuntimeIdentifierPackages[2].Exists);
     }
 
+    [Fact]
+    public void MarkAcquiredRidPackages_UsesNormalizedVersionIdentity()
+    {
+        var result = new InspectionResult
+        {
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "any",
+                    PackageId = "Wrapper.Package.any",
+                },
+            ],
+        };
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            PackageName: "Wrapper.Package.any",
+            Version: "1.0.0+payload");
+
+        PackageInspector.MarkAcquiredRidPackages(
+            result,
+            resolution,
+            wrapperVersion: "1.0.0+wrapper");
+
+        Assert.True(Assert.Single(result.RuntimeIdentifierPackages).Exists);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

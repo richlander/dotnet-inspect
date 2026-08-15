@@ -25,18 +25,22 @@ public static class RidPackageVerifier
             if (ridPkg.Exists is not null)
                 continue;
 
-            if (!PackageExtractor.IsValidPackageId(ridPkg.PackageId))
+            if (!PackageExtractor.IsValidPackageId(ridPkg.PackageId)
+                || !PackageExtractor.TryNormalizePackageVersion(
+                    version,
+                    out string normalizedVersion))
             {
                 logger.Log(
                     $"  {ridPkg.RuntimeIdentifier}: availability unknown "
-                    + "(invalid package id)");
+                    + "(invalid package coordinate)");
                 continue;
             }
 
             if (localDir != null)
             {
                 // Local verification: check if sibling .nupkg file exists
-                string expectedFileName = $"{ridPkg.PackageId}.{version}.nupkg";
+                string expectedFileName =
+                    $"{ridPkg.PackageId}.{normalizedVersion}.nupkg";
                 string expectedPath = Path.Combine(localDir, expectedFileName);
                 ridPkg.Exists = File.Exists(expectedPath);
 
@@ -49,7 +53,7 @@ public static class RidPackageVerifier
                     await PackageExtractor.ProbeNuspecXmlAsync(
                         client,
                         ridPkg.PackageId,
-                        version,
+                        normalizedVersion,
                         logger.Log,
                         sourceOptions);
                 ridPkg.Exists = probe.Status switch
@@ -66,7 +70,8 @@ public static class RidPackageVerifier
                     null => "availability unknown"
                 };
                 logger.Log(
-                    $"  {ridPkg.RuntimeIdentifier}: {status} ({ridPkg.PackageId} {version})");
+                    $"  {ridPkg.RuntimeIdentifier}: {status} "
+                    + $"({ridPkg.PackageId} {normalizedVersion})");
             }
         }
     }

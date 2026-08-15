@@ -6,7 +6,6 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
-using NuGet.Versioning;
 
 namespace DotnetInspector.Inspectors;
 
@@ -319,11 +318,16 @@ internal static class PackageInspector
     }
 
     private static bool VersionsEqual(string? left, string? right)
-        => NuGetVersion.TryParse(left, out NuGetVersion? leftVersion)
-           && NuGetVersion.TryParse(right, out NuGetVersion? rightVersion)
-           && VersionComparer.VersionReleaseMetadata.Equals(
+        => PackageExtractor.TryNormalizePackageVersion(
+               left,
+               out string leftVersion)
+           && PackageExtractor.TryNormalizePackageVersion(
+               right,
+               out string rightVersion)
+           && string.Equals(
                leftVersion,
-               rightVersion);
+               rightVersion,
+               StringComparison.OrdinalIgnoreCase);
 
     private static void ApplyDepsJson(DepsJsonData depsJson, InspectionResult result)
     {

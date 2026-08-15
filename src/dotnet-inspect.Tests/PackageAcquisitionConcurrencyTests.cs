@@ -207,6 +207,36 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.Equal(2, handler.RequestCount);
     }
 
+    [Theory]
+    [InlineData("Victim.Package@junk")]
+    [InlineData("Bad Package")]
+    [InlineData("Bad|Package")]
+    public async Task ExtractPackageAsync_InvalidToolWrapperRedirectIsRejected(
+        string redirectPackageName)
+    {
+        const string WrapperPackage = "Wrapper.Invalid";
+        const string Version = "1.0.0";
+        var handler = new QueuePackageHandler(
+            CreateToolWrapperArchive(
+                WrapperPackage,
+                Version,
+                redirectPackageName));
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                WrapperPackage,
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Equal(
+            $"Tool wrapper package '{WrapperPackage}' declares an invalid redirect package id.",
+            outcome.ErrorMessage);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
     [Fact]
     public async Task ExtractPackageAsync_RestoresActiveSourcesForPinnedRedirectTarget()
     {
@@ -621,6 +651,45 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                 sourceOptions: s_nugetOrgSource);
         Assert.Equal(NuspecProbeStatus.Indeterminate, probe.Status);
         Assert.Null(probe.Xml);
+    }
+
+    [Fact]
+    public async Task ProbeNuspecXmlAsync_InvalidUtf8CachedNuspec_IsIndeterminate()
+    {
+        const string PackageName = "Nuspec.Invalid.Utf8";
+        const string Version = "1.0.0";
+        string sourceDir = Path.Combine(_testRoot, "nuspec-invalid-utf8");
+        Directory.CreateDirectory(sourceDir);
+        byte[] prefix = System.Text.Encoding.UTF8.GetBytes(
+            $"<package><metadata><id>{PackageName}</id>"
+            + $"<version>{Version}</version><!--");
+        byte[] suffix = """--></metadata></package>"""u8.ToArray();
+        File.WriteAllBytes(
+            Path.Combine(sourceDir, $"{PackageName}.nuspec"),
+            [.. prefix, 0xFF, .. suffix]);
+        NuGetCache.CommitPackage(
+            sourceDir,
+            nupkgPath: null,
+            PackageName,
+            Version,
+            TestSourceKey);
+
+        using var client = new HttpClient(new NotFoundHandler());
+        NuspecProbeResult probe =
+            await PackageExtractor.ProbeNuspecXmlAsync(
+                client,
+                PackageName,
+                Version,
+                sourceOptions: s_nugetOrgSource);
+
+        Assert.Equal(NuspecProbeStatus.Indeterminate, probe.Status);
+        Assert.Null(probe.Xml);
+        Assert.NotNull(
+            await PackageExtractor.TryGetNuspecXmlAsync(
+                client,
+                PackageName,
+                Version,
+                sourceOptions: s_nugetOrgSource));
     }
 
     [Fact]

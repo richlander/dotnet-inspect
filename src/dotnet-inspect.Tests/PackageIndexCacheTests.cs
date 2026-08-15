@@ -189,7 +189,7 @@ public sealed class PackageIndexCacheTests
                 ProducerKey),
             extension: "md")!;
         CoreCache.SetBytes(
-            "pkg-index-v14",
+            "pkg-index-v15",
             PackageIndexCache.CacheKey(
                 legacyPackage,
                 version,
@@ -202,6 +202,43 @@ public sealed class PackageIndexCacheTests
                 legacyPackage,
                 version,
                 ProducerKey));
+    }
+
+    [Fact]
+    public void RidReferenceDelimiterCannotRestoreAvailability()
+    {
+        string packageName = $"Rid.Delimiter.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        const string rid = "linux|x64";
+        const string ridPackage = "Bogus|yes";
+        PackageIndexCache.Set(
+            packageName,
+            version,
+            ProducerKey,
+            new InspectionResult
+            {
+                PackageName = packageName,
+                Version = version,
+                IsRidSpecificPointerPackage = true,
+                RuntimeIdentifierPackages =
+                [
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = rid,
+                        PackageId = ridPackage,
+                        Exists = true,
+                    }
+                ],
+            });
+
+        RidPackageReference cached = Assert.Single(
+            PackageIndexCache.TryGet(
+                packageName,
+                version,
+                ProducerKey)!.RuntimeIdentifierPackages!);
+        Assert.Equal(rid, cached.RuntimeIdentifier);
+        Assert.Equal(ridPackage, cached.PackageId);
+        Assert.Null(cached.Exists);
     }
 
     [Theory]

@@ -98,7 +98,7 @@ public class RidPackageVerifierTests
                         sourceOptions: new NuGetSourceOptions { ConfigFile = configPath }));
 
             Assert.Equal(PackageSourceMappingFailure.NoPattern, exception.Failure);
-            Assert.Null(Assert.Single(result.RuntimeIdentifierPackages).Exists);
+            Assert.Null(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
         }
         finally
         {
@@ -187,6 +187,9 @@ public class RidPackageVerifierTests
     [InlineData("")]
     [InlineData("Weird:Id")]
     [InlineData("../escape")]
+    [InlineData("Bad Id")]
+    [InlineData("Victim.Package@junk")]
+    [InlineData("Bad|yes")]
     public async Task VerifyAsync_InvalidPackageIdLeavesAvailabilityUnknown(
         string packageId)
     {
@@ -224,6 +227,97 @@ public class RidPackageVerifierTests
             localDir: Path.GetTempPath(),
             logger: new VerboseLogger(enabled: false));
         Assert.Null(Assert.Single(result.RuntimeIdentifierPackages).Exists);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("../escape")]
+    [InlineData("1.0.0/escape")]
+    public async Task VerifyAsync_InvalidVersionLeavesAvailabilityUnknown(
+        string version)
+    {
+        var handler = new StubHandler();
+        using var client = new HttpClient(handler);
+        InspectionResult result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            version,
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"]
+            });
+        Assert.Null(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        Assert.Empty(handler.Requests);
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            version,
+            localDir: Path.GetTempPath(),
+            logger: new VerboseLogger(enabled: false));
+        Assert.Null(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_NormalizedVersionIdentityIgnoresBuildMetadata()
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        handler.Add(
+            "content.example.test/flat/testpackage.linux-x64/1.0.0/testpackage.linux-x64.nuspec",
+            """<package><metadata><id>TestPackage.linux-x64</id><version>1.0.0+feed</version></metadata></package>""");
+        using var client = new HttpClient(handler);
+        InspectionResult result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0+wrapper",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"]
+            });
+
+        Assert.True(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_InvalidUtf8NuspecLeavesAvailabilityUnknown()
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        handler.Add(
+            "content.example.test/flat/testpackage.linux-x64/1.0.0/testpackage.linux-x64.nuspec",
+            [
+                .. """<package><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version><!--"""u8,
+                0xFF,
+                .. """--></metadata></package>"""u8
+            ]);
+        using var client = new HttpClient(handler);
+        InspectionResult result = CreateResult();
+
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            logger: new VerboseLogger(enabled: false),
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example.test/v3/index.json"]
+            });
+
+        Assert.Null(Assert.Single(result.RuntimeIdentifierPackages!).Exists);
     }
 
     [Fact]
@@ -280,11 +374,15 @@ public class RidPackageVerifierTests
 
     sealed class StubHandler : HttpMessageHandler
     {
-        readonly List<(string Match, string Body)> _routes = [];
+        readonly List<(string Match, byte[] Body)> _routes = [];
 
         public List<Uri> Requests { get; } = [];
 
-        public void Add(string match, string body) => _routes.Add((match, body));
+        public void Add(string match, string body) =>
+            Add(match, Encoding.UTF8.GetBytes(body));
+
+        public void Add(string match, byte[] body) =>
+            _routes.Add((match, body));
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -297,7 +395,7 @@ public class RidPackageVerifierTests
                 ? new HttpResponseMessage(HttpStatusCode.NotFound)
                 : new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent(route.Body, Encoding.UTF8, "application/xml")
+                    Content = new ByteArrayContent(route.Body)
                 });
         }
     }

@@ -103,9 +103,25 @@ internal sealed record PackageVersionResolution(
 public static class PackageExtractor
 {
     private const int MaxToolWrapperRedirectHops = 8;
+    private static readonly UTF8Encoding StrictUtf8 =
+        new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     public static bool IsValidPackageId(string packageId)
-        => NuGetCache.IsValidPathComponent(packageId);
+        => PackageCoordinateResolver.IsCanonicalPackageId(packageId);
+
+    public static bool TryNormalizePackageVersion(
+        string? version,
+        out string normalizedVersion)
+    {
+        if (NuGetVersion.TryParse(version, out NuGetVersion? parsed))
+        {
+            normalizedVersion = parsed.ToNormalizedString().ToLowerInvariant();
+            return true;
+        }
+
+        normalizedVersion = "";
+        return false;
+    }
 
     /// <summary>
     /// Hard cap on package <c>.nuspec</c> bodies (cache file or remote manifest
@@ -228,6 +244,12 @@ public static class PackageExtractor
                 result.PackageName,
                 result.Version,
                 result.ProducerKey));
+            if (!IsValidPackageId(redirectId))
+            {
+                return PackageExtractionOutcome.Error(
+                    $"Tool wrapper package '{result.PackageName}' declares an invalid redirect package id.");
+            }
+
             if (visitedPackageIds.Contains(redirectId))
                 return ToolWrapperRedirectCycle(redirectChain, redirectId);
 
@@ -952,8 +974,17 @@ public static class PackageExtractor
         NuGetSourceOptions? sourceOptions,
         bool validateCoordinate)
     {
+        if (!IsValidPackageId(packageId)
+            || !TryNormalizePackageVersion(
+                version,
+                out string normalizedVersion))
+        {
+            return new NuspecProbeResult(
+                null,
+                NuspecProbeStatus.Indeterminate);
+        }
+
         string normalizedName = packageId.ToLowerInvariant();
-        string normalizedVersion = version.ToLowerInvariant();
         bool sawAuthoritativeAbsence = false;
         bool sawIndeterminateSource = false;
 
@@ -988,7 +1019,9 @@ public static class PackageExtractor
                 if (cachedNuspec != null)
                 {
                     string? cachedXml =
-                        await TryReadNuspecFileAsync(cachedNuspec)
+                        await TryReadNuspecFileAsync(
+                                cachedNuspec,
+                                strictUtf8: validateCoordinate)
                             .ConfigureAwait(false);
                     if (cachedXml != null
                         && (!validateCoordinate
@@ -1042,7 +1075,21 @@ public static class PackageExtractor
                 if (body.Status == HttpRetryHelper.HttpBodyFetchStatus.Success
                     && body.Bytes is { Length: > 0 })
                 {
-                    string xml = Encoding.UTF8.GetString(body.Bytes);
+                    string xml;
+                    try
+                    {
+                        xml = (validateCoordinate ? StrictUtf8 : Encoding.UTF8)
+                            .GetString(body.Bytes);
+                    }
+                    catch (DecoderFallbackException)
+                    {
+                        log?.Invoke(
+                            $"Nuspec from {PackageSourceDisplay.ForDiagnostics(source)} "
+                            + "was not valid UTF-8.");
+                        sawIndeterminateSource = true;
+                        continue;
+                    }
+
                     if (!validateCoordinate
                         || IsExpectedNuspec(xml, packageId, version))
                     {
@@ -1129,13 +1176,16 @@ public static class PackageExtractor
                        actualId?.Trim(),
                        packageId,
                        StringComparison.OrdinalIgnoreCase)
-                   && NuGetVersion.TryParse(version, out NuGetVersion? expected)
-                   && NuGetVersion.TryParse(
+                   && TryNormalizePackageVersion(
+                       version,
+                       out string expected)
+                   && TryNormalizePackageVersion(
                        actualVersion?.Trim(),
-                       out NuGetVersion? actual)
-                   && VersionComparer.VersionReleaseMetadata.Equals(
+                       out string actual)
+                   && string.Equals(
                        expected,
-                       actual);
+                       actual,
+                       StringComparison.OrdinalIgnoreCase);
         }
         catch (XmlException)
         {
@@ -1149,7 +1199,8 @@ public static class PackageExtractor
     /// </summary>
     internal static async Task<string?> TryReadNuspecFileAsync(
         string nuspecPath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool strictUtf8 = false)
     {
         try
         {
@@ -1171,13 +1222,18 @@ public static class PackageExtractor
             if (bytes is null || bytes.Length == 0)
                 return null;
 
-            return Encoding.UTF8.GetString(bytes);
+            return (strictUtf8 ? StrictUtf8 : Encoding.UTF8)
+                .GetString(bytes);
         }
         catch (IOException)
         {
             return null;
         }
         catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (DecoderFallbackException)
         {
             return null;
         }
