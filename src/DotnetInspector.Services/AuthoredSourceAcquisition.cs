@@ -93,8 +93,17 @@ public static class AuthoredSourceAcquisition
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentNullException.ThrowIfNull(fetcher);
 
-        SourceLinkResolver.TypeSourceInfo? mapping =
-            source.ResolveTypeSource(type);
+        SourceLinkResolver.TypeSourceInfo? mapping;
+        try
+        {
+            mapping = source.ResolveTypeSource(type);
+        }
+        catch (Exception ex) when (IsPdbInspectionFailure(ex))
+        {
+            return TypeFailed(
+                subject,
+                $"Portable PDB type source mapping failed: {ex.Message}");
+        }
         if (mapping?.SourceFilePath is not { Length: > 0 } sourcePath)
         {
             return TypeAbsent(
@@ -857,6 +866,12 @@ public static class AuthoredSourceAcquisition
             mapping,
             document,
             verification);
+
+    static bool IsPdbInspectionFailure(Exception exception)
+        => exception is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException
+            or DecoderFallbackException;
 
     static bool HashMatches(
         string algorithm,

@@ -57,7 +57,10 @@ For multi-document methods, the portable PDB's
 `MethodDebugInformation.Document` is primary when it has a visible point
 relationship. Otherwise the first visible sequence point is primary.
 Presentation consumers prefer that relationship and use document-row order
-only as a deterministic fallback.
+only as a deterministic fallback. Type-to-document correlation retains every
+visible sequence-point document even when the method's root document is nil;
+`MetadataSourceFindingsTests.TypeDocumentCorrelation_UsesVisibleDocumentsWhenRootIsOmitted`
+gates that compiler-produced shape.
 
 Member-source comparison treats the exact point-line set as a changeable
 payload facet. Its occurrence sort key includes every compared identity and
@@ -148,7 +151,15 @@ continues, and cancellation still propagates.
 `AssemblyContextSourceQueryTests.PdbStoreFailure_PreservesAuthoredFailureAndFallsBackForMemberAndType`
 gates external-store failure, and
 `AssemblyContextSourceQueryTests.CorruptEmbeddedPdb_PreservesAuthoredFailureAndFallsBackForMemberAndType`
-gates malformed embedded symbols before external acquisition begins.
+gates malformed embedded symbols before external acquisition begins. A PDB
+that opens successfully but fails while resolving an exact type mapping follows
+the same typed fallback path;
+`AssemblyContextSourceQueryTests.MalformedPdbDocument_PreservesAuthoredFailureAndFallsBackForType`
+gates that lazy-inspection boundary with a real PDB whose unrelated document
+name is malformed. Cancellation remains exceptional but disposes an already
+opened SourceLink service before it propagates;
+`AssemblyContextSourceQueryTests.PdbAcquisitionCancellation_DisposesOpenedSourceLinkService`
+gates that ownership boundary.
 
 Conditional branch liveness is composed only at the member slicing boundary:
 Metadata reports point lines, CSharpText reports lexical branch ranges, and the

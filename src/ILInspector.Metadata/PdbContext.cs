@@ -413,14 +413,22 @@ public class PdbContext : IDisposable
             (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
             lastWriteTimeUtc);
 
-        if (!peReader.HasMetadata)
+        try
+        {
+            if (!peReader.HasMetadata)
+                return context;
+
+            context.ReadDebugDirectory();
+            if (loadLocalPdb)
+                context.TryLoadLocalPdb();
+
             return context;
-
-        context.ReadDebugDirectory();
-        if (loadLocalPdb)
-            context.TryLoadLocalPdb();
-
-        return context;
+        }
+        catch
+        {
+            context.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
@@ -1175,20 +1183,45 @@ public class PdbContext : IDisposable
                 {
                     if (metadata.GetMethodDefinition(methodHandle).RelativeVirtualAddress == 0)
                         continue;
-                    var debugInfo = _pdbReader.GetMethodDebugInformation(
-                        methodHandle.ToDebugInformationHandle());
-                    if (debugInfo.Document.IsNil)
+
+                    var ranges =
+                        ReadVisibleSequencePointDocuments(
+                            methodHandle);
+                    if (ranges.Count > 0)
+                    {
+                        foreach (var range in ranges)
+                            AddDocument(range.Document);
                         continue;
-                    var document = _pdbReader.GetDocument(debugInfo.Document);
-                    string path = _pdbReader.GetString(document.Name);
-                    int documentRowId = MetadataTokens.GetRowNumber(debugInfo.Document);
-                    if (!string.IsNullOrEmpty(path) && seenDocumentRows.Add(documentRowId))
-                        documents.Add(new PdbDocumentReference(documentRowId, path));
+                    }
+
+                    var debugInfo =
+                        _pdbReader.GetMethodDebugInformation(
+                            methodHandle.ToDebugInformationHandle());
+                    if (!debugInfo.Document.IsNil)
+                        AddDocument(debugInfo.Document);
                 }
                 catch (Exception ex) when (ex is BadImageFormatException
                     or InvalidOperationException
                     or ArgumentOutOfRangeException)
                 {
+                }
+
+                void AddDocument(DocumentHandle handle)
+                {
+                    var document =
+                        _pdbReader.GetDocument(handle);
+                    string path =
+                        _pdbReader.GetString(document.Name);
+                    int documentRowId =
+                        MetadataTokens.GetRowNumber(handle);
+                    if (!string.IsNullOrEmpty(path)
+                        && seenDocumentRows.Add(documentRowId))
+                    {
+                        documents.Add(
+                            new PdbDocumentReference(
+                                documentRowId,
+                                path));
+                    }
                 }
             }
 

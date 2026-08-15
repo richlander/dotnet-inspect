@@ -61,6 +61,12 @@ and
 `PdbAcquisitionServiceTests.PathlessParticipant_AcquiresMatchingPdbThroughInMemoryStore`
 gate those claims.
 
+Descriptor-backed PDB contexts own the stream they open. If debug-directory or
+embedded-PDB inspection fails during construction, the incomplete context
+releases that stream before propagating the failure.
+`AssemblyContextSourceQueryTests.PdbContextOpenFailure_DisposesAuthoritativeStream`
+gates that construction boundary.
+
 ### 1. Embedded PDB
 
 Check if the library has an embedded PDB (stored inside the PE file itself). This is the most reliable option as no external lookup is needed.

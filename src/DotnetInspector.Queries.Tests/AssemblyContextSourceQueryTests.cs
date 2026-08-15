@@ -1,8 +1,11 @@
+using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Net;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.EmbeddedFixtures;
@@ -362,21 +365,11 @@ public sealed class AssemblyContextSourceQueryTests
     [Fact]
     public async Task CorruptEmbeddedPdb_PreservesAuthoredFailureAndFallsBackForMemberAndType()
     {
-        byte[] bytes = File.ReadAllBytes(
-            typeof(EmbeddedSourceFixture).Assembly.Location);
-        using (var stream =
-               new MemoryStream(bytes, writable: false))
-        using (var reader = new PEReader(stream))
-        {
-            DebugDirectoryEntry embedded =
-                Assert.Single(
-                    reader.ReadDebugDirectory(),
-                    static entry =>
-                        entry.Type
-                        == DebugDirectoryEntryType
-                            .EmbeddedPortablePdb);
-            bytes[embedded.DataPointer] ^= 0xff;
-        }
+        byte[] bytes =
+            CorruptEmbeddedPdb(
+                File.ReadAllBytes(
+                    typeof(EmbeddedSourceFixture)
+                        .Assembly.Location));
 
         TestAssembly assembly =
             TestAssembly.Create(bytes);
@@ -431,6 +424,122 @@ public sealed class AssemblyContextSourceQueryTests
 
         Assert.True(assembly.Policy.SelectionCount > 0);
         Assert.Empty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+    }
+
+    [Fact]
+    public void PdbContextOpenFailure_DisposesAuthoritativeStream()
+    {
+        byte[] bytes =
+            CorruptEmbeddedPdb(
+                File.ReadAllBytes(
+                    typeof(EmbeddedSourceFixture)
+                        .Assembly.Location));
+        using var stream =
+            new DisposeCountingStream(
+                new MemoryStream(
+                    bytes,
+                    writable: false));
+        var descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(bytes),
+                path: null,
+                () => stream,
+                AssemblyResolutionProvenance.Local(
+                    "corrupt embedded PDB fixture"));
+
+        Assert.Throws<BadImageFormatException>(
+            () => PdbContext.OpenMetadataOnly(
+                descriptor));
+
+        Assert.Equal(1, stream.DisposeCount);
+    }
+
+    [Fact]
+    public async Task PdbAcquisitionCancellation_DisposesOpenedSourceLinkService()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        byte[] bytes =
+            File.ReadAllBytes(
+                typeof(AssemblyContextSourceQueryTests)
+                    .Assembly.Location);
+        using var stream =
+            new DisposeCountingStream(
+                new MemoryStream(
+                    bytes,
+                    writable: false));
+        var descriptor =
+            ResolvedAssemblyReference.Create(
+                assembly.Assembly.Identity,
+                path: null,
+                () => stream,
+                AssemblyResolutionProvenance.Package(
+                    "Example.Source",
+                    "1.0.0",
+                    "net10.0",
+                    rid: null));
+        using var host =
+            QueryHost.WithPdb(
+                assembly.PdbPath,
+                SourceFileBytes(),
+                pdbStore: new CancelingPdbStore());
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => AssemblyContextSourceQuery
+                .OpenSourceLinkAsync(
+                    descriptor,
+                    host.Context,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, stream.DisposeCount);
+    }
+
+    [Fact]
+    public async Task MalformedPdbDocument_PreservesAuthoredFailureAndFallsBackForType()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        byte[] pdbBytes =
+            CorruptUnrelatedDocumentName(
+                assembly.PdbPath,
+                Path.GetFileName(
+                    SourceFileBytesPath()));
+        using var host = QueryHost.WithPdb(
+            Path.GetFileName(assembly.PdbPath),
+            pdbBytes,
+            SourceFileBytes());
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyTypeSourceEntry result =
+            await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(
+                    typeof(SourceFixture).Name),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<AssemblyTypeSourceEntry.Available>(
+                result);
+        var decompiled =
+            Assert.IsType<AssemblyTypeSource.Decompiled>(
+                available.Source);
+        var failed =
+            Assert.IsType<FindingInspection<string>.Failed>(
+                decompiled.AuthoredAttempt.Lines.Value);
+        Assert.Contains(
+            "Portable PDB type source mapping failed",
+            failed.Error.Reason,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(SourceFixture),
+            decompiled.Text,
+            StringComparison.Ordinal);
+        Assert.True(assembly.Policy.SelectionCount > 0);
+        Assert.NotEmpty(host.SymbolRequests);
         Assert.Empty(host.SourceRequests);
     }
 
@@ -498,6 +607,172 @@ public sealed class AssemblyContextSourceQueryTests
     static byte[] SourceFileBytes(
         [CallerFilePath] string path = "") =>
         File.ReadAllBytes(path);
+
+    static string SourceFileBytesPath(
+        [CallerFilePath] string path = "") =>
+        path;
+
+    static byte[] CorruptEmbeddedPdb(
+        byte[] original)
+    {
+        byte[] bytes = (byte[])original.Clone();
+        using var stream =
+            new MemoryStream(bytes, writable: false);
+        using var reader = new PEReader(stream);
+        DebugDirectoryEntry embedded =
+            Assert.Single(
+                reader.ReadDebugDirectory(),
+                static entry =>
+                    entry.Type
+                    == DebugDirectoryEntryType
+                        .EmbeddedPortablePdb);
+        bytes[embedded.DataPointer] ^= 0xff;
+        return bytes;
+    }
+
+    static AssemblyReferenceIdentity ReadIdentity(
+        byte[] bytes)
+    {
+        using var stream =
+            new MemoryStream(bytes, writable: false);
+        using var reader = new PEReader(stream);
+        return AssemblyReferenceIdentity
+            .FromAssemblyDefinition(
+                reader.GetMetadataReader());
+    }
+
+    static byte[] CorruptUnrelatedDocumentName(
+        string pdbPath,
+        string targetFileName)
+    {
+        byte[] bytes = File.ReadAllBytes(pdbPath);
+        int documentNameOffset = -1;
+        int documentNameLength = 0;
+        using (var provider =
+               MetadataReaderProvider.FromPortablePdbStream(
+                   new MemoryStream(
+                       bytes,
+                       writable: false),
+                   MetadataStreamOptions.PrefetchMetadata))
+        {
+            MetadataReader reader =
+                provider.GetMetadataReader();
+            foreach (DocumentHandle handle in reader.Documents)
+            {
+                Document document =
+                    reader.GetDocument(handle);
+                string name =
+                    reader.GetString(document.Name);
+                if (name.EndsWith(
+                    targetFileName,
+                    StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var nameBlob =
+                    (BlobHandle)document.Name;
+                documentNameOffset =
+                    MetadataTokens.GetHeapOffset(nameBlob);
+                documentNameLength =
+                    reader.GetBlobBytes(nameBlob).Length;
+                break;
+            }
+        }
+
+        Assert.True(documentNameOffset >= 0);
+        Assert.True(documentNameLength > 1);
+        int blobOffset =
+            FindMetadataStreamOffset(bytes, "#Blob");
+        int blobEntryOffset =
+            checked(blobOffset + documentNameOffset);
+        int payloadOffset =
+            checked(
+                blobEntryOffset
+                + CompressedIntegerPrefixSize(
+                    bytes[blobEntryOffset]));
+        bytes[payloadOffset + 1] = 0xe0;
+
+        int malformedDocuments = 0;
+        bool targetDocumentReadable = false;
+        using (var provider =
+               MetadataReaderProvider.FromPortablePdbStream(
+                   new MemoryStream(
+                       bytes,
+                       writable: false),
+                   MetadataStreamOptions.PrefetchMetadata))
+        {
+            MetadataReader reader =
+                provider.GetMetadataReader();
+            foreach (DocumentHandle handle in reader.Documents)
+            {
+                try
+                {
+                    string name =
+                        reader.GetString(
+                            reader.GetDocument(handle).Name);
+                    targetDocumentReadable |=
+                        name.EndsWith(
+                            targetFileName,
+                            StringComparison.Ordinal);
+                }
+                catch (BadImageFormatException)
+                {
+                    malformedDocuments++;
+                }
+            }
+        }
+
+        Assert.Equal(1, malformedDocuments);
+        Assert.True(targetDocumentReadable);
+        return bytes;
+    }
+
+    static int FindMetadataStreamOffset(
+        byte[] metadata,
+        string requestedName)
+    {
+        int versionLength =
+            BinaryPrimitives.ReadInt32LittleEndian(
+                metadata.AsSpan(12, sizeof(int)));
+        int cursor = checked(16 + versionLength + 2);
+        ushort streamCount =
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                metadata.AsSpan(cursor, sizeof(ushort)));
+        cursor += sizeof(ushort);
+        for (int i = 0; i < streamCount; i++)
+        {
+            int offset =
+                BinaryPrimitives.ReadInt32LittleEndian(
+                    metadata.AsSpan(cursor, sizeof(int)));
+            cursor += 2 * sizeof(int);
+            int nameStart = cursor;
+            while (metadata[cursor] != 0)
+                cursor++;
+            string name =
+                Encoding.ASCII.GetString(
+                    metadata,
+                    nameStart,
+                    cursor - nameStart);
+            cursor =
+                checked((cursor + 4) & ~3);
+            if (name == requestedName)
+                return offset;
+        }
+
+        throw new InvalidOperationException(
+            $"Metadata stream '{requestedName}' is unavailable.");
+    }
+
+    static int CompressedIntegerPrefixSize(byte first)
+        => first switch
+        {
+            < 0x80 => 1,
+            _ when ((first & 0xc0) == 0x80) => 2,
+            _ when ((first & 0xe0) == 0xc0) => 4,
+            _ => throw new BadImageFormatException(
+                "Invalid compressed integer."),
+        };
 
     sealed class TestAssembly
     {
@@ -697,6 +972,17 @@ public sealed class AssemblyContextSourceQueryTests
                 pdbStore);
         }
 
+        internal static QueryHost WithPdb(
+            string pdbFileName,
+            byte[] pdbBytes,
+            byte[] sourceBytes)
+            => new(
+                new SymbolPackageHandler(
+                    BuildSnupkg(
+                        pdbFileName,
+                        pdbBytes)),
+                new SourceHandler(sourceBytes));
+
         internal static QueryHost WithoutPdb()
             => new(
                 new SymbolPackageHandler(snupkg: null),
@@ -840,6 +1126,80 @@ public sealed class AssemblyContextSourceQueryTests
 
         public string? TryGetLocalPath(string key) =>
             null;
+    }
+
+    sealed class CancelingPdbStore
+        : IPdbStore
+    {
+        public ValueTask<Stream?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default) =>
+            throw new OperationCanceledException(
+                "Synthetic PDB-store cancellation.");
+
+        public ValueTask PutAsync(
+            string key,
+            Stream content,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException(
+                "Cancellation must prevent a store write.");
+
+        public string? TryGetLocalPath(string key) =>
+            null;
+    }
+
+    sealed class DisposeCountingStream(Stream inner)
+        : Stream
+    {
+        bool _disposed;
+
+        internal int DisposeCount { get; private set; }
+
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => inner.CanSeek;
+        public override bool CanWrite => inner.CanWrite;
+        public override long Length => inner.Length;
+
+        public override long Position
+        {
+            get => inner.Position;
+            set => inner.Position = value;
+        }
+
+        public override void Flush() =>
+            inner.Flush();
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            inner.Read(buffer, offset, count);
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin) =>
+            inner.Seek(offset, origin);
+
+        public override void SetLength(long value) =>
+            inner.SetLength(value);
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            inner.Write(buffer, offset, count);
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && !_disposed)
+            {
+                _disposed = true;
+                DisposeCount++;
+                inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
     }
 
     sealed class FrameworkBindingPolicy

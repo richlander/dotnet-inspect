@@ -34,6 +34,17 @@ public sealed class MetadataSourceFindingsTests
         return adjusted * 2;
     }
 
+    static class MultiDocumentOnlyTypeProbe
+    {
+#line 100 "Generated/MultiDocumentOnlyType.g.cs"
+        public static int Transform(int value)
+        {
+            int adjusted = value + 1;
+#line default
+            return adjusted * 2;
+        }
+    }
+
     sealed class OrderedTypeSourceProbe
     {
 #line 100 "Generated/OrderedType.Z.cs"
@@ -592,6 +603,46 @@ public sealed class MetadataSourceFindingsTests
             direct.FilePath.Replace('\\', '/'),
             StringComparison.Ordinal);
         Assert.Equal(primary.SequencePointStartLines, direct.SequencePointStartLines);
+    }
+
+    [Fact]
+    public void TypeDocumentCorrelation_UsesVisibleDocumentsWhenRootIsOmitted()
+    {
+        using var source =
+            SourceLinkService.Open(
+                typeof(MetadataSourceFindingsTests)
+                    .Assembly.Location);
+        MetadataTypeDefinitionName expectedName =
+            Assert.IsType<
+                MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        typeof(MetadataSourceFindingsTests)
+                            .Namespace,
+                        [
+                            nameof(MetadataSourceFindingsTests),
+                            nameof(MultiDocumentOnlyTypeProbe),
+                        ]))
+                .Name;
+
+        PdbTypeDocumentInfo type =
+            Assert.Single(
+                source.Context.EnumerateTypeDocuments(),
+                candidate =>
+                    candidate.DefinitionName
+                    == expectedName);
+
+        Assert.Contains(
+            type.FilePaths,
+            path =>
+                path.Replace('\\', '/').EndsWith(
+                    "tests/ILInspector.Metadata.Tests/MetadataSourceFindingsTests.cs",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            type.FilePaths,
+            path =>
+                path.Replace('\\', '/').EndsWith(
+                    "Generated/MultiDocumentOnlyType.g.cs",
+                    StringComparison.Ordinal));
     }
 
     [Fact]

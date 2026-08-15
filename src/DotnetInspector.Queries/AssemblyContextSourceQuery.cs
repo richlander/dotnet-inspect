@@ -609,7 +609,7 @@ public static class AssemblyContextSourceQuery
             context.NuGetSourceOptions,
             cancellationToken);
 
-    static async Task<SourceLinkOpenResult> OpenSourceLinkAsync(
+    internal static async Task<SourceLinkOpenResult> OpenSourceLinkAsync(
         ResolvedAssemblyReference retained,
         AssemblyContextSourceQueryContext context,
         CancellationToken cancellationToken)
@@ -628,16 +628,21 @@ public static class AssemblyContextSourceQuery
                     context,
                     cancellationToken)
                 .ConfigureAwait(false);
+            SourceLinkService opened = source;
+            source = null;
             return new SourceLinkOpenResult(
-                source,
+                opened,
                 Failure: null);
         }
         catch (Exception ex) when (IsInspectionFailure(ex))
         {
-            source?.Dispose();
             return new SourceLinkOpenResult(
                 Source: null,
                 ex);
+        }
+        finally
+        {
+            source?.Dispose();
         }
     }
 
@@ -721,7 +726,7 @@ public static class AssemblyContextSourceQuery
         ResolvedAssemblyReference Retained,
         ApiType? Target);
 
-    sealed record SourceLinkOpenResult(
+    internal sealed record SourceLinkOpenResult(
         SourceLinkService? Source,
         Exception? Failure);
 }
