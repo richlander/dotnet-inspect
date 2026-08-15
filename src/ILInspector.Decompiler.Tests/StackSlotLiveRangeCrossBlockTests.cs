@@ -401,6 +401,35 @@ public class StackSlotLiveRangeCrossBlockTests
     }
 
     [Fact]
+    public void CrossBlockSplit_DoesNotEnableLoopCarriedBlockLocalSplit()
+    {
+        var loopHeadLoad = Load(Int32);
+        var loopPostStoreLoad = Load(String);
+        var finalLoad = Load(String);
+        var loop = BlockOf(
+            10,
+            loopHeadLoad,
+            Store("loop"),
+            loopPostStoreLoad,
+            new ConditionalBranch(new LoadArgument(1, "again", Boolean), 10));
+        var function = Run(
+            BlockOf(
+                0,
+                Store(1),
+                new ConditionalBranch(new LoadArgument(0, "skipLoop", Boolean), 20)),
+            loop,
+            BlockOf(20, Store(2), Store("final")),
+            BlockOf(30, finalLoad, new Return(null)));
+
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(loopHeadLoad.Expression).Slot);
+        Assert.Equal(Slot, Assert.Single(loop.Children.OfType<StoreStackSlot>()).Slot);
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(loopPostStoreLoad.Expression).Slot);
+        int finalLoadSlot = Assert.IsType<LoadStackSlot>(finalLoad.Expression).Slot;
+        Assert.NotEqual(Slot, finalLoadSlot);
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == finalLoadSlot);
+    }
+
+    [Fact]
     public void UnreachableCompetingDefinition_DoesNotPolluteReachableJoin()
     {
         var entry = BlockOf(0, Store(1), new Branch(20));

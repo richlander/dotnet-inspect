@@ -113,8 +113,11 @@ slot number. Reused evaluation-stack positions are allowed to carry unrelated C#
 types across disjoint straight-line live ranges. Earlier passes should consume
 their owned ranges before `StackSlotLiveRangePass`; that pass may split only the
 loads proven to be reached by one definition. Its linear path handles
-block-local loads. For a multi-block function body with complete modeled CFG
-edges, a union reaching-definition proof may split one top-level store only
+block-local loads, but declines when a load before the candidate store can
+observe that store through a CFG cycle;
+`StackSlotLiveRangeCrossBlockTests.CrossBlockSplit_DoesNotEnableLoopCarriedBlockLocalSplit`
+pins the composition. For a multi-block function body with complete modeled
+CFG edges, a union reaching-definition proof may split one top-level store only
 when every load it reaches is reached by that definition alone, no reachable
 load is use-before-definition, and at least one proven load is in another
 block. References nested in control flow, nested raw branches, and EH or

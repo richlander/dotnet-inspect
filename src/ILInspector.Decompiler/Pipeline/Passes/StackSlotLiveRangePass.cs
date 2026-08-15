@@ -50,7 +50,8 @@ public sealed class StackSlotLiveRangePass : IIrPass
                 if (hasStructuredEh
                     ? !ReferencesAreStraightLineInBlock(function, store.Slot, block)
                     : function.Descendants.OfType<LoadStackSlot>()
-                        .Any(load => load.Slot == store.Slot && !IsDescendantOf(load, block)))
+                            .Any(load => load.Slot == store.Slot && !IsDescendantOf(load, block))
+                        || HasLoopCarriedLoadBeforeStore(function, block, i, store.Slot))
                     continue;
 
                 int newSlot = FreshStackSlot(function);
@@ -287,6 +288,54 @@ public sealed class StackSlotLiveRangePass : IIrPass
         return owner?.Parent is Block containingBlock
             && containingBlock.Parent is BlockContainer functionBody
             && functionBody.Parent is IrFunction;
+    }
+
+    static bool HasLoopCarriedLoadBeforeStore(IrFunction function, Block block, int storeChild, int slot)
+    {
+        bool hasPriorLoad = block.Children.Take(storeChild)
+            .Any(statement => statement.Descendants.Prepend(statement)
+                .OfType<LoadStackSlot>()
+                .Any(load => load.Slot == slot));
+        if (!hasPriorLoad || !ReferenceEquals(block.Parent, function.Body))
+            return false;
+
+        var blocks = function.Body.Blocks;
+        if (HasUnmodeledControlTransfer(blocks)
+            || blocks.Select(candidate => candidate.StartOffset).Distinct().Count() != blocks.Count)
+        {
+            return true;
+        }
+
+        var edges = Cfg.Build(blocks);
+        if (edges.Any(edge => edge.LeavesRegion || edge.ExternalTargets.Count > 0))
+            return true;
+
+        int blockIndex = -1;
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            if (ReferenceEquals(blocks[i], block))
+            {
+                blockIndex = i;
+                break;
+            }
+        }
+
+        if (blockIndex < 0)
+            return true;
+
+        var pending = new Stack<int>(edges[blockIndex].Successors);
+        var visited = new HashSet<int>();
+        while (pending.TryPop(out int candidate))
+        {
+            if (candidate == blockIndex)
+                return true;
+            if (!visited.Add(candidate))
+                continue;
+
+            foreach (int successor in edges[candidate].Successors)
+                pending.Push(successor);
+        }
+        return false;
     }
 
     static TypeRef? PreviousSlotType(Block block, int beforeChild, int slot)
