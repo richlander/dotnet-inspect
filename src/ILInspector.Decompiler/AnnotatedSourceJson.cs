@@ -11,6 +11,11 @@ namespace ILInspector.Decompiler;
 /// </summary>
 public static class AnnotatedSourceJson
 {
+    const string DocumentJsonContractError =
+        "Annotated-source JSON violates the JSON contract.";
+    const string StructuralComparisonJsonContractError =
+        "Structural comparison JSON violates the JSON contract.";
+
     /// <summary>
     /// Reads one annotated-source document from an untrusted JSON payload.
     /// Unknown or duplicate properties, missing required fields, non-exact enum
@@ -19,13 +24,24 @@ public static class AnnotatedSourceJson
     public static AnnotatedSourceDocument DeserializeDocument(string json)
     {
         ArgumentNullException.ThrowIfNull(json);
-        Validate(json, static root => ValidateDocument(root, "document"));
+        Validate(
+            json,
+            static root => ValidateDocument(root, "document"),
+            "Annotated-source JSON is malformed.");
         try
         {
             return JsonSerializer.Deserialize(
                 json,
                 AnnotatedSourceStrictJsonContext.Default.AnnotatedSourceDocument)
                 ?? throw new JsonException("Annotated-source document is null.");
+        }
+        catch (AnnotatedSourceContractJsonException error)
+        {
+            throw new JsonException(error.Message);
+        }
+        catch (JsonException)
+        {
+            throw new JsonException(DocumentJsonContractError);
         }
         catch (ArgumentException)
         {
@@ -40,7 +56,10 @@ public static class AnnotatedSourceJson
     public static CSharpStructuralComparisonInput DeserializeStructuralComparison(string json)
     {
         ArgumentNullException.ThrowIfNull(json);
-        Validate(json, ValidateStructuralComparison);
+        Validate(
+            json,
+            ValidateStructuralComparison,
+            "Structural comparison JSON is malformed.");
         try
         {
             return JsonSerializer.Deserialize(
@@ -48,16 +67,39 @@ public static class AnnotatedSourceJson
                 AnnotatedSourceStrictJsonContext.Default.CSharpStructuralComparisonInput)
                 ?? throw new JsonException("Structural comparison input is null.");
         }
+        catch (AnnotatedSourceContractJsonException error)
+        {
+            throw new JsonException(error.Message);
+        }
+        catch (JsonException)
+        {
+            throw new JsonException(StructuralComparisonJsonContractError);
+        }
         catch (ArgumentException)
         {
             throw new JsonException("Structural comparison JSON violates the owned model contract.");
         }
     }
 
-    static void Validate(string json, Action<JsonElement> validate)
+    static void Validate(
+        string json,
+        Action<JsonElement> validate,
+        string malformedJsonError)
     {
-        using var document = JsonDocument.Parse(json);
-        validate(document.RootElement);
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(json);
+        }
+        catch (JsonException)
+        {
+            throw new JsonException(malformedJsonError);
+        }
+
+        using (document)
+        {
+            validate(document.RootElement);
+        }
     }
 
     static void ValidateStructuralComparison(JsonElement root)
@@ -197,6 +239,9 @@ public static class AnnotatedSourceJson
 [JsonSerializable(typeof(CSharpStructuralComparisonInput))]
 internal sealed partial class AnnotatedSourceStrictJsonContext : JsonSerializerContext;
 
+internal sealed class AnnotatedSourceContractJsonException(string message)
+    : JsonException(message);
+
 internal abstract class StrictStringEnumJsonConverter<TEnum> : JsonConverter<TEnum>
     where TEnum : struct, Enum
 {
@@ -218,7 +263,7 @@ internal abstract class StrictStringEnumJsonConverter<TEnum> : JsonConverter<TEn
             return value;
         }
 
-        throw new JsonException(ErrorMessage);
+        throw new AnnotatedSourceContractJsonException(ErrorMessage);
     }
 
     public sealed override void Write(
@@ -228,7 +273,7 @@ internal abstract class StrictStringEnumJsonConverter<TEnum> : JsonConverter<TEn
     {
         string? name = GetName(value);
         if (name is null)
-            throw new JsonException(ErrorMessage);
+            throw new AnnotatedSourceContractJsonException(ErrorMessage);
 
         writer.WriteStringValue(name);
     }

@@ -114,15 +114,45 @@ public class AnnotatedSourceJsonTests
         Assert.Throws<JsonException>(() => AnnotatedSourceJson.DeserializeDocument(json));
     }
 
-    [Fact]
-    public void StrictDocumentReader_RejectsUnknownProperties()
+    [Theory]
+    [InlineData(false, "Annotated-source JSON violates the JSON contract.")]
+    [InlineData(true, "Structural comparison JSON violates the JSON contract.")]
+    public void StrictReaders_DoNotRelayUnknownPropertyNames(
+        bool structuralComparison,
+        string expectedMessage)
     {
-        string json = CompactJson().Replace(
-            "\"text\":\"return;\"",
-            "\"text\":\"return;\",\"unknown\":0",
+        const string HostilePropertyName = "ATTACKER_TOKEN";
+        string json = (structuralComparison ? StructuralComparisonJson() : CompactJson()).Replace(
+            structuralComparison ? "\"subject\":\"test\"" : "\"text\":\"return;\"",
+            structuralComparison
+                ? $"\"subject\":\"test\",\"{HostilePropertyName}\":0"
+                : $"\"text\":\"return;\",\"{HostilePropertyName}\":0",
             StringComparison.Ordinal);
 
-        Assert.Throws<JsonException>(() => AnnotatedSourceJson.DeserializeDocument(json));
+        var error = Assert.Throws<JsonException>(
+            () => Deserialize(structuralComparison, json));
+
+        Assert.Equal(expectedMessage, error.Message);
+        Assert.DoesNotContain(HostilePropertyName, error.Message, StringComparison.Ordinal);
+        Assert.Null(error.InnerException);
+    }
+
+    [Theory]
+    [InlineData(false, "Annotated-source JSON is malformed.")]
+    [InlineData(true, "Structural comparison JSON is malformed.")]
+    public void StrictReaders_DoNotRelayMalformedJsonContent(
+        bool structuralComparison,
+        string expectedMessage)
+    {
+        const string HostileContent = "ATTACKER_TOKEN";
+        string json = $"{(structuralComparison ? StructuralComparisonJson() : CompactJson())} {HostileContent}";
+
+        var error = Assert.Throws<JsonException>(
+            () => Deserialize(structuralComparison, json));
+
+        Assert.Equal(expectedMessage, error.Message);
+        Assert.DoesNotContain(HostileContent, error.Message, StringComparison.Ordinal);
+        Assert.Null(error.InnerException);
     }
 
     [Theory]
@@ -196,6 +226,21 @@ public class AnnotatedSourceJsonTests
         => JsonSerializer.Serialize(
             Document(),
             AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument);
+
+    static string StructuralComparisonJson()
+    {
+        string document = CompactJson();
+        return
+            $$"""{"subject":"test","before":{{document}},"after":{{document}},"before_node_ids":[],"after_node_ids":[],"correspondences":[]}""";
+    }
+
+    static void Deserialize(bool structuralComparison, string json)
+    {
+        if (structuralComparison)
+            _ = AnnotatedSourceJson.DeserializeStructuralComparison(json);
+        else
+            _ = AnnotatedSourceJson.DeserializeDocument(json);
+    }
 
     static AnnotatedSourceDocument Document()
         => new(

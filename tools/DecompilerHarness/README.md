@@ -48,9 +48,11 @@ them; the comparison never matches by coordinates, selected text, or display
 labels. The harness uses the Decompiler-owned strict reader: missing required
 fields, duplicate and unknown properties, numeric, composite, case-variant, or
 otherwise undeclared enum tokens, malformed UTF-16, and invalid document
-topology are rejected. Optional `fidelity` retains an independently measured
-`OpcodeDiff -> Exact`-style transition and note. This is an exclusive mode;
-combine no other harness flag or assembly/package input with it.
+topology are rejected. Rejection messages identify the violated contract
+without relaying artifact-provided property names or values. Optional
+`fidelity` retains an independently measured `OpcodeDiff -> Exact`-style
+transition and note. This is an exclusive mode; combine no other harness flag
+or assembly/package input with it.
 
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- \

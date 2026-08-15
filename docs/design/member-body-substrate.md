@@ -435,7 +435,11 @@ structural comparisons. It rejects missing required value fields, duplicate
 and unknown properties, non-exact enum names, malformed UTF-16, and invalid
 document topology rather than making writer convenience the input policy. Its
 enum allow lists are explicit and NativeAOT-safe; they do not use runtime enum
-reflection. `AnnotatedSourceJsonTests` gates those rejection rules, and
+reflection. Parser and serializer failures are normalized without relaying
+artifact-provided property names or values.
+`AnnotatedSourceJsonTests.StrictReaders_DoNotRelayUnknownPropertyNames` and
+`StrictReaders_DoNotRelayMalformedJsonContent` gate that failure boundary;
+the remaining `AnnotatedSourceJsonTests` gate the rejection rules, and
 `CommandExecutionTests.Member_SelectedOverload_AnnotatedSourceDocument_UsesStructuredJsonContract`
 gates real CLI output through the strict reader. Nullable fields that writers
 omit, such as a null fact detail, remain valid and replay as null.
