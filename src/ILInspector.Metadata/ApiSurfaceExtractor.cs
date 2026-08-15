@@ -1983,22 +1983,26 @@ public static class ApiSurfaceExtractor
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
             bool isExplicitImplementation = explicitImplementationBodies.Contains(methodHandle);
             string methodName = reader.GetString(method.Name);
+            bool isRetainedExplicitImplementation = isExplicitImplementation
+                && (!accessorMethods.Contains(methodHandle)
+                    || methodAccess != MethodAttributes.Public
+                    || methodName.Contains('.', StringComparison.Ordinal));
             bool isFinalizer = method.GetGenericParameters().Count == 0
                 && (objectFinalizeOverrides.Contains(methodHandle)
                     || IsImplicitObjectFinalizeOverride(reader, typeDefHandle, method));
             if (methodAccess != MethodAttributes.Public
-                && !isExplicitImplementation
+                && !isRetainedExplicitImplementation
                 && !isFinalizer)
             {
                 continue;
             }
-            if ((accessorMethods.Contains(methodHandle) && !isExplicitImplementation)
+            if ((accessorMethods.Contains(methodHandle) && !isRetainedExplicitImplementation)
                 || methodName.StartsWith('<'))
             {
                 continue;
             }
 
-            if (!isExplicitImplementation
+            if (!isRetainedExplicitImplementation
                 && !isFinalizer
                 && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
             {
