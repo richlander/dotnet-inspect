@@ -56,6 +56,7 @@ of repeated in every row.
 | --- | --- | --- | --- |
 | `MetadataMethodAddress` | MVID plus validated MethodDef handle/token | Where to re-locate a method after reopening and revalidating its module | Cryptographic artifact identity or cross-module correspondence |
 | `MemberAnchor` | Canonical API member signature and stable selector | Which API member a persisted selector or digest denotes | Physical module identity or body-evidence identity by itself |
+| `MetadataNameArity` | One metadata-name segment, or a `.`/`+`-delimited nested name | Whether a trailing `` `N `` is the canonical CLR generic-arity suffix, and the simple name left once it is removed | Whether the remaining name is spellable, unique, or resolvable |
 
 #### `ILInspector.Metadata`
 
@@ -188,6 +189,7 @@ Conversions are operations with an owner, not implicit casts:
 | ExportedType handle | `ExportedTypeToken` | Metadata validates the row and bounded relationship traversal; an exported row cannot become a TypeDef address |
 | MethodDef handle | `MetadataMethodAddress` | MetadataPrimitives captures the physical module MVID; every consumer revalidates MVID and row bounds before dereferencing |
 | Metadata relationship chain | `MetadataTypeDefinitionName` | Metadata preserves namespace, nested segments, and arity; malformed names return typed failure |
+| Metadata name segment | Simple name plus generic arity | `MetadataNameArity` recognises only the canonical trailing `` `N `` — non-empty prefix, ASCII digits to the end, no leading zero, at most 65535. Every other backtick belongs to the name, so distinct names are preserved instead of collapsing onto one simple name; `MetadataNameArityTests` is the gate |
 | Decoded Analysis type reference | `ResolvableTypeReference` | Analysis retains `TypeReferenceOrigin` beside the exact lookup name; origin is not inferred from `TypeRef.Assembly` |
 | Source candidate plus `ResolvableTypeReference` | `TypeResolutionRequest` | Analysis's `CallerResolutionPlan` adapts decoder provenance through Metadata's native request factories; Metadata validates and executes the request |
 | Source member plus decoded open signature | `CatalogMemberCorrespondencePlan` | Analysis traverses the signature once, retains unsupported-shape evidence, and exposes requests compared by Metadata's manifest comparer |

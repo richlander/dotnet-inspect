@@ -1330,8 +1330,29 @@ public sealed class CSharpFormatterTests
     [InlineData("Dictionary`2", "Dictionary")]
     [InlineData("Widget", "Widget")]
     [InlineData("", "")]
-    public void StripArity_RemovesGenericAritySuffix(string name, string expected)
+    // #4217: only the canonical `N is an arity suffix. A literal backtick suffix
+    // keeps its identity instead of collapsing onto the unsuffixed name, and each
+    // nested segment is stripped independently rather than truncating the rest.
+    [InlineData("Widget`Literal", "Widget`Literal")]
+    [InlineData("Widget`1Extra", "Widget`1Extra")]
+    [InlineData("Widget`0", "Widget`0")]
+    [InlineData("Widget`01", "Widget`01")]
+    [InlineData("Widget`99999999999", "Widget`99999999999")]
+    [InlineData("Outer`1.Inner`2", "Outer.Inner")]
+    [InlineData("Outer`1+Inner", "Outer+Inner")]
+    [InlineData("Outer`Literal.Inner`1", "Outer`Literal.Inner")]
+    public void StripArity_RemovesOnlyCanonicalGenericAritySuffixes(string name, string expected)
         => Assert.Equal(expected, CSharpFormatter.StripArity(name));
+
+    /// <summary>
+    /// The identity collision that motivated #4217: two distinct metadata names
+    /// must not produce the same C# spelling candidate.
+    /// </summary>
+    [Fact]
+    public void StripArity_DoesNotCollapseDistinctMetadataNames()
+        => Assert.NotEqual(
+            CSharpFormatter.StripArity("Widget"),
+            CSharpFormatter.StripArity("Widget`Literal"));
 
     [Theory]
     [InlineData("System.Int32", "int")]

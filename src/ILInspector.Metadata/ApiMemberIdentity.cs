@@ -1238,11 +1238,14 @@ public static class ApiMemberIdentity
                 MetadataSafetyPolicy.ReadStructuralString(
                     reader,
                     type.Name);
-            int tick = name.IndexOf('`');
+            // Only a canonical trailing `N is an arity suffix. Truncating at any
+            // backtick would give a name whose backtick is literal (Widget`Literal)
+            // the same anchor as the plain name (Widget). See MetadataNameArity.
+            MetadataNameArity.TryReadSuffix(name, out _, out int simpleNameLength);
             AppendAnchorName(
                 builder,
                 name,
-                tick < 0 ? name.Length : tick);
+                simpleNameLength);
 
             var genericParameters = type.GetGenericParameters();
             if (genericParameters.Count == 0)

@@ -365,14 +365,7 @@ public static class CallGraphMemberResolver
 
         string[] segments = definition.Resolution?.Type.Segments.ToArray()
             ?? definition.Name.Split('+');
-        int totalArity = segments.Sum(segment =>
-        {
-            int tick = segment.IndexOf('`');
-            return tick >= 0
-                && int.TryParse(segment[(tick + 1)..], out int parsed)
-                    ? parsed
-                    : 0;
-        });
+        int totalArity = segments.Sum(MetadataNameArity.OfSegment);
         if (totalArity != arguments.Length)
             return $"{NamedTypeIdentity(definition)}{{{string.Join(",", arguments.Select(TypeIdentity))}}}";
 
@@ -386,12 +379,8 @@ public static class CallGraphMemberResolver
             if (segmentIndex > 0)
                 result.Append('.');
             string segment = segments[segmentIndex];
-            int tick = segment.IndexOf('`');
-            result.Append(tick < 0 ? segment : segment[..tick]);
-            int arity = tick >= 0
-                && int.TryParse(segment[(tick + 1)..], out int parsed)
-                    ? parsed
-                    : 0;
+            result.Append(StripArity(segment));
+            int arity = MetadataNameArity.OfSegment(segment);
             if (arity <= 0)
                 continue;
             result.Append('{');
@@ -406,11 +395,10 @@ public static class CallGraphMemberResolver
         return result.ToString();
     }
 
+    // Only a canonical trailing `N is an arity suffix; a literal backtick stays in
+    // the identity rather than truncating it. See MetadataNameArity.
     static string StripArity(string value)
-    {
-        int tick = value.IndexOf('`');
-        return tick < 0 ? value : value[..tick];
-    }
+        => MetadataNameArity.StripFromSegment(value);
 
     static string StripPinned(string value)
         => value.StartsWith("pinned ", StringComparison.Ordinal)

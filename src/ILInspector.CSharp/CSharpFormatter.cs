@@ -213,15 +213,16 @@ public sealed class CSharpFormatter
         => CSharpDeclarationWriter.AliasPrimitiveTypeNames(type);
 
     /// <summary>
-    /// Strips a CLR generic-arity suffix (e.g. <c>List`1</c> becomes <c>List</c>)
-    /// from a metadata type name segment. Returns the input unchanged when no
-    /// backtick is present.
+    /// Strips the CLR generic-arity suffix (e.g. <c>List`1</c> becomes <c>List</c>)
+    /// from each segment of a metadata type name, where segments are delimited by
+    /// <c>.</c> and <c>+</c> (<c>Outer`1.Inner`2</c> becomes <c>Outer.Inner</c>).
+    /// A segment whose backtick does not introduce a canonical decimal arity
+    /// (<c>Widget`Literal</c>) is preserved unchanged rather than truncated, so
+    /// distinct metadata names do not collapse into one spelling candidate;
+    /// <see cref="MetadataNameArity"/> owns that rule and names its gate.
     /// </summary>
     public static string StripArity(string name)
-    {
-        int tick = name.IndexOf('`');
-        return tick >= 0 ? name[..tick] : name;
-    }
+        => MetadataNameArity.StripFromNestedName(name);
 
     /// <summary>
     /// Normalizes a raw metadata/IL type display string into C# source spelling:

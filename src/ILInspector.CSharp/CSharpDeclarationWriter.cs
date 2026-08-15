@@ -3413,10 +3413,7 @@ internal static class CSharpDeclarationWriter
         }
 
         static string StripArity(string name)
-        {
-            var tick = name.IndexOf('`');
-            return tick < 0 ? name : name[..tick];
-        }
+            => MetadataNameArity.StripFromSegment(name);
     }
 
     static readonly string[] s_parameterModifiers = ["this", "params", "ref", "out", "in", "scoped"];

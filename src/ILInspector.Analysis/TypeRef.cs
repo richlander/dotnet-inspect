@@ -313,17 +313,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
         return $"{simpleName}<{arguments}>";
     }
 
+    // Metadata owns what a generic-arity suffix is: only a canonical trailing `N is
+    // one, so a name whose backtick is literal (Widget`Literal) keeps its identity
+    // instead of collapsing onto the unsuffixed name. See MetadataNameArity.
     static string StripArity(string name)
-    {
-        int tick = name.IndexOf('`');
-        return tick < 0 ? name : name[..tick];
-    }
+        => MetadataNameArity.StripFromSegment(name);
 
     static int ArityOf(string name)
-    {
-        int tick = name.IndexOf('`');
-        return tick >= 0 && int.TryParse(name[(tick + 1)..], out int arity) ? arity : 0;
-    }
+        => MetadataNameArity.OfSegment(name);
 
     internal static string CanonicalAssembly(string assemblyName)
         => assemblyName is "System.Private.CoreLib" or "System.Runtime" or "mscorlib" or "netstandard" or "System.Runtime.Extensions"

@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Annotations;
 
@@ -134,10 +135,5 @@ public sealed class LifetimeClassifier : IHiddenFactClassifier
     }
 
     static string StripArity(string? name)
-    {
-        if (string.IsNullOrEmpty(name))
-            return "";
-        int tick = name.IndexOf('`');
-        return tick < 0 ? name : name[..tick];
-    }
+        => string.IsNullOrEmpty(name) ? "" : MetadataNameArity.StripFromSegment(name);
 }

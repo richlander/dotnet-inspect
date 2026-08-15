@@ -72,4 +72,38 @@ public class ForeignNestedTypeSpellingTests
         Assert.Equal("Outer.Inner", plain.ToDisplayString(foreignScope));
         Assert.Equal("Inner", plain.ToDisplayString(TypeRef.Definition("Asm", "N", "Outer")));
     }
+
+    // #4217: a backtick is a legal metadata-name character, so only the canonical
+    // `N form is an arity suffix (MetadataNameArity owns that rule). Truncating at
+    // the first backtick instead spelled `Widget`Literal` as the unrelated
+    // `Widget` — a distinct type — and claimed it as Full-fidelity C#.
+    [Fact]
+    public void LiteralBacktickName_KeepsItsIdentityAndIsReportedUnspellable()
+    {
+        var foreignScope = TypeRef.Definition("Asm", "N", "Other");
+
+        // The backtick survives into the printer's sanitized spelling, so the two
+        // types stay distinct instead of both spelling `Widget`.
+        var literal = TypeRef.Definition("Asm", "N", "Widget`Literal");
+        Assert.Equal("Widget_Literal", literal.ToDisplayString(foreignScope));
+        Assert.NotEqual(
+            TypeRef.Definition("Asm", "N", "Widget").ToDisplayString(foreignScope),
+            literal.ToDisplayString(foreignScope));
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(
+            new LoadArgument(0, "x", literal)));
+
+        // The canonical suffix is still stripped, and a genuine generic type
+        // remains spellable.
+        var generic = TypeRef.Definition("Asm", "N", "Widget`1");
+        Assert.Equal("Widget", generic.ToDisplayString(foreignScope));
+        Assert.False(CSharpSpellability.HasUnrepresentableMetadataName(
+            new LoadArgument(0, "x", generic)));
+
+        // Per segment: a literal backtick in the outer segment is unspellable even
+        // though the leaf carries a canonical suffix.
+        var nested = TypeRef.Definition("Asm", "N", "Outer`Literal+Inner`1");
+        Assert.Equal("Outer`Literal.Inner<>", nested.ToDisplayString(foreignScope));
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(
+            new LoadArgument(0, "x", nested)));
+    }
 }

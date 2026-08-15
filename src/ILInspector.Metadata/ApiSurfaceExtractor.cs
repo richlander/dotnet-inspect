@@ -1720,9 +1720,28 @@ public static class ApiSurfaceExtractor
         if (genericIndex > 0)
             value = value[..genericIndex];
 
-        var arityIndex = value.IndexOf('`');
-        if (arityIndex > 0)
-            value = value[..arityIndex];
+        // Both sides of this match are cut at their first generic marker, so the
+        // arity form cuts where the C# form cuts at '<'. The cut point is the
+        // first segment carrying a canonical `N suffix (MetadataNameArity owns
+        // that rule): a segment whose backtick is literal (Widget`Literal) is not
+        // a generic marker and must not fold onto the unsuffixed name.
+        int segmentStart = 0;
+        for (int i = 0; i <= value.Length; i++)
+        {
+            if (i != value.Length && value[i] is not ('.' or '+'))
+                continue;
+            if (MetadataNameArity.TryReadSuffix(
+                    value.AsSpan(segmentStart, i - segmentStart),
+                    out _,
+                    out int simpleNameLength)
+                && segmentStart + simpleNameLength > 0)
+            {
+                value = value[..(segmentStart + simpleNameLength)];
+                break;
+            }
+
+            segmentStart = i + 1;
+        }
 
         return value;
     }

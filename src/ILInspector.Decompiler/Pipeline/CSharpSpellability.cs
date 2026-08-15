@@ -1,3 +1,5 @@
+using ILInspector.Metadata;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -470,11 +472,11 @@ internal static class CSharpSpellability
             && type.Namespace == "System"
             && s_coreLibPrimitiveNames.Contains(type.Name);
 
+    // Only a canonical trailing `N is an arity suffix, so a segment whose backtick is
+    // literal keeps it — and is then correctly reported as having no C# spelling
+    // rather than silently truncated to a spellable name. See MetadataNameArity.
     static string StripArity(string name)
-    {
-        int tick = name.IndexOf('`');
-        return tick < 0 ? name : name[..tick];
-    }
+        => MetadataNameArity.StripFromSegment(name);
 
     static readonly HashSet<string> s_coreLibPrimitiveNames = new(StringComparer.Ordinal)
     {
