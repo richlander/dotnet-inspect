@@ -4605,6 +4605,48 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_DistinctMethodSpecsShareMemberRefResolution()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle ownerHandle = reader.MethodDefinitions
+            .Single(handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                nameof(OptimizationOpportunityFixtures
+                    .DistinctMethodSpecsWithSharedMemberRef)));
+        int emptyResolutions = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            methodReferenceResolved: (method, operand) =>
+            {
+                if (method != ownerHandle)
+                    return;
+                EntityHandle handle = MetadataTokens.EntityHandle(operand);
+                if (handle.Kind == HandleKind.MemberReference
+                    && reader.StringComparer.Equals(
+                        reader.GetMemberReference(
+                            (MemberReferenceHandle)handle).Name,
+                        "Empty"))
+                {
+                    Interlocked.Increment(ref emptyResolutions);
+                }
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+
+        Assert.Equal(1, emptyResolutions);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_TopLevelLocalFunction_IsReported()
     {
         var index = LibraryBodyIndex.Open(
@@ -4670,6 +4712,31 @@ public class LibraryBodyIndexTests
                     StringComparison.Ordinal)));
 
         Assert.Equal("<Main>$", row.SourceOwner?.Name);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce()
+    {
+        string path =
+            FixtureCatalog.AnalysisTopLevelClassicAsync.AssemblyPath();
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        int built = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            typeDefinitionIndexBuilt:
+                () => Interlocked.Increment(ref built));
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+
+        Assert.Equal(1, built);
     }
 
     [Fact]
@@ -6242,6 +6309,17 @@ public class OptimizationOpportunityFixtures
 
         static int AddOne(int item) => item + 1;
         static int AddTwo(int item) => item + 2;
+    }
+
+    public static bool DistinctMethodSpecsWithSharedMemberRef<T>(
+        T left,
+        T right)
+    {
+        int length = Array.Empty<int>().Length
+            + Array.Empty<string>().Length;
+        return length == 0 && Core(left, right);
+
+        static bool Core(T x, T y) => x!.Equals(y);
     }
 
     [System.CodeDom.Compiler.GeneratedCode("test", "1.0")]

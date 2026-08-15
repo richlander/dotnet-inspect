@@ -207,6 +207,104 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void TypeDefinitionIndex_VisitsDefinitionsOnceAndQueriesExactNames()
+    {
+        TypeDefinitionHandle first = default;
+        TypeDefinitionHandle nested = default;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            first = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "First");
+            TypeDefinitionHandle outer = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Outer");
+            nested = AddTypeDefinition(
+                metadata,
+                TypeAttributes.NestedPublic,
+                "",
+                "Nested");
+            metadata.AddNestedType(nested, outer);
+        });
+        int visited = 0;
+
+        MetadataTypeDefinitionIndex index =
+            MetadataTypeDefinitionIndex.Create(
+                image.Reader,
+                _ => visited++);
+
+        Assert.Equal(
+            image.Reader.GetTableRowCount(TableIndex.TypeDef),
+            visited);
+        Assert.True(index.TryGetUniqueDefinition(
+            Name("N", "First"),
+            out TypeDefinitionHandle indexedFirst));
+        Assert.Equal(first, indexedFirst);
+        Assert.True(index.TryGetUniqueDefinition(
+            Name("N", "Outer", "Nested"),
+            out TypeDefinitionHandle indexedNested));
+        Assert.Equal(nested, indexedNested);
+        Assert.False(index.TryGetUniqueDefinition(
+            Name("N", "Missing"),
+            out _));
+    }
+
+    [Fact]
+    public void TypeDefinitionIndex_RejectsAmbiguousExactName()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Duplicate");
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Duplicate");
+        });
+
+        MetadataTypeDefinitionIndex index =
+            MetadataTypeDefinitionIndex.Create(image.Reader);
+
+        Assert.False(index.TryGetUniqueDefinition(
+            Name("N", "Duplicate"),
+            out _));
+    }
+
+    [Fact]
+    public void TypeDefinitionIndex_RejectsCumulativeNameWorkBeyondBudget()
+    {
+        string leaf = new(
+            'X',
+            MetadataSafetyPolicy.MaxTypeNameCharacters - 16);
+        int repetitions =
+            (MetadataSafetyPolicy.MaxStructuralSignatureWorkChars
+                / leaf.Length)
+            + 1;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            for (int i = 0; i < repetitions; i++)
+            {
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "N",
+                    leaf);
+            }
+        });
+
+        Assert.Throws<BadImageFormatException>(
+            () => MetadataTypeDefinitionIndex.Create(image.Reader));
+    }
+
+    [Fact]
     public void Probe_DoesNotMatchCloseNestedDefinitionNames()
     {
         using MetadataImage image = BuildMetadata(metadata =>

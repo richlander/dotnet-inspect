@@ -33,6 +33,7 @@ internal sealed class LibraryBodyAnalysisBuilder :
     readonly Action<MethodDefinitionHandle>? _methodBodyReferenceIndexed;
     readonly Action<MethodDefinitionHandle>? _stableReceiverGetterClassified;
     readonly Action<MethodDefinitionHandle, int>? _methodReferenceResolved;
+    readonly Action? _typeDefinitionIndexBuilt;
     readonly ConcurrentDictionary<
         TypeDefinitionHandle,
         Lazy<IReadOnlyDictionary<string, ImmutableArray<MethodDefinitionHandle>>>>
@@ -60,6 +61,7 @@ internal sealed class LibraryBodyAnalysisBuilder :
         Lazy<TypeDefinitionHandle?>>
         _serializedAsyncStateMachineTypes =
             new(StringComparer.Ordinal);
+    readonly Lazy<MetadataTypeDefinitionIndex> _typeDefinitionIndex;
     long _methodReferenceSignatureWork;
 
     internal LibraryBodyAnalysisBuilder(
@@ -69,7 +71,8 @@ internal sealed class LibraryBodyAnalysisBuilder :
         IAssemblyReferenceResolver? resolver = null,
         Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null,
         Action<MethodDefinitionHandle>? stableReceiverGetterClassified = null,
-        Action<MethodDefinitionHandle, int>? methodReferenceResolved = null)
+        Action<MethodDefinitionHandle, int>? methodReferenceResolved = null,
+        Action? typeDefinitionIndexBuilt = null)
     {
         _path = path;
         _reader = reader;
@@ -81,6 +84,10 @@ internal sealed class LibraryBodyAnalysisBuilder :
         _stableReceiverGetterClassified =
             stableReceiverGetterClassified;
         _methodReferenceResolved = methodReferenceResolved;
+        _typeDefinitionIndexBuilt = typeDefinitionIndexBuilt;
+        _typeDefinitionIndex = new(
+            BuildTypeDefinitionIndex,
+            LazyThreadSafetyMode.ExecutionAndPublication);
         if (resolver is not null && reader.IsAssembly)
             _referenceMetadataResolver =
                 new LibraryBodyReferenceMetadataResolver(
@@ -1131,9 +1138,11 @@ internal sealed class LibraryBodyAnalysisBuilder :
         var referencedDefinitions = new HashSet<int>();
         var referencedMembers = new HashSet<MethodReferenceKey>(
             MethodReferenceKeyComparer.Instance);
-        var memberReferencesByOperand =
-            new Dictionary<int, MethodReferenceKey>();
+        var memberReferencesByHandle =
+            new Dictionary<MemberReferenceHandle, MethodReferenceKey>();
         var unsupportedMemberReferenceOperands = new HashSet<int>();
+        var unsupportedMemberReferences =
+            new HashSet<MemberReferenceHandle>();
         var invalidDefinitionOperands =
             new Dictionary<int, ExceptionDispatchInfo>();
         ExceptionDispatchInfo? callFailure = null;
@@ -1184,15 +1193,9 @@ internal sealed class LibraryBodyAnalysisBuilder :
                 continue;
             }
 
+            MemberReferenceHandle memberHandle = default;
             try
             {
-                if (memberReferencesByOperand.TryGetValue(
-                        operandToken,
-                        out MethodReferenceKey cachedMember))
-                {
-                    referencedMembers.Add(cachedMember);
-                    continue;
-                }
                 if (unsupportedMemberReferenceOperands.Contains(operandToken))
                     continue;
 
@@ -1208,13 +1211,23 @@ internal sealed class LibraryBodyAnalysisBuilder :
                     unsupportedMemberReferenceOperands.Add(operandToken);
                     continue;
                 }
+                memberHandle = (MemberReferenceHandle)handle;
+                if (memberReferencesByHandle.TryGetValue(
+                        memberHandle,
+                        out MethodReferenceKey cachedMember))
+                {
+                    referencedMembers.Add(cachedMember);
+                    continue;
+                }
+                if (unsupportedMemberReferences.Contains(memberHandle))
+                    continue;
 
                 _methodReferenceResolved?.Invoke(
                     methodHandle,
-                    operandToken);
+                    MetadataTokens.GetToken(memberHandle));
                 MemberRef target = MemberResolver.ResolveMethod(
                     _reader,
-                    MetadataTokens.EntityHandle(operandToken),
+                    memberHandle,
                     scope);
                 TypeRef targetDefinition =
                     target.DeclaringType.Kind == TypeRefKind.GenericInstance
@@ -1224,8 +1237,8 @@ internal sealed class LibraryBodyAnalysisBuilder :
                     target.Name,
                     targetDefinition,
                     Signature(_reader.GetMemberReference(
-                        (MemberReferenceHandle)handle).Signature));
-                memberReferencesByOperand.Add(operandToken, member);
+                        memberHandle).Signature));
+                memberReferencesByHandle.Add(memberHandle, member);
                 referencedMembers.Add(member);
             }
             catch (Exception ex)
@@ -1233,6 +1246,8 @@ internal sealed class LibraryBodyAnalysisBuilder :
                     .IsRecoverableMethodFailure(ex))
             {
                 unsupportedMemberReferenceOperands.Add(operandToken);
+                if (!memberHandle.IsNil)
+                    unsupportedMemberReferences.Add(memberHandle);
                 referenceFailure ??= ExceptionDispatchInfo.Capture(ex);
             }
         }
@@ -1339,22 +1354,22 @@ internal sealed class LibraryBodyAnalysisBuilder :
     {
         if (MetadataTypeDefinitionName.ParseSerialized(stateMachineName)
                 is not MetadataTypeDefinitionNameResult.Valid valid
-            || MetadataTypeDeclarationProbe.ProbeDefinition(
-                    _reader,
-                    valid.Name)
-                is not TypeDeclarationResult.Defined defined)
+            || !_typeDefinitionIndex.Value.TryGetUniqueDefinition(
+                    valid.Name,
+                    out TypeDefinitionHandle handle))
         {
             return null;
         }
 
-        EntityHandle resolved =
-            MetadataTokens.EntityHandle(defined.Definition.Value);
-        if (resolved.Kind != HandleKind.TypeDefinition)
-            return null;
-        var handle = (TypeDefinitionHandle)resolved;
         return AsyncStateMachineTypeHandles().Contains(handle)
             ? handle
             : null;
+    }
+
+    MetadataTypeDefinitionIndex BuildTypeDefinitionIndex()
+    {
+        _typeDefinitionIndexBuilt?.Invoke();
+        return MetadataTypeDefinitionIndex.Create(_reader);
     }
 
     bool IsCompilerGeneratedSourceTypeOrEnclosing(
