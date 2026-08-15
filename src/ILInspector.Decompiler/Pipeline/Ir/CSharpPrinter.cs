@@ -2078,7 +2078,10 @@ public sealed partial class CSharpPrinter
         if (node is LocalFunctionStatement localFunction)
         {
             string modifier = localFunction.IsStatic ? "static " : "";
-            string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{ParameterTypeText(p)} {CSharpNaming.ContainedIdentifier(p.Name)}"));
+            string parameters = string.Join(
+                ", ",
+                localFunction.Parameters.Select((parameter, index) =>
+                    $"{ParameterTypeText(parameter, index < localFunction.ParameterRefKinds.Length ? localFunction.ParameterRefKinds[index] : ArgumentRefKind.Value)} {CSharpNaming.ContainedIdentifier(parameter.Name)}"));
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.ContainedIdentifier(localFunction.Name)}({parameters})";
             if (localFunction.ExpressionBody is { } body)
             {
@@ -2398,9 +2401,10 @@ public sealed partial class CSharpPrinter
         {
             sb.Append(pad);
             int headerStart = sb.Length;
-            sb.Append(usingStatement.IsAwait ? "await using (" : "using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
-                .Append(LocalName(usingStatement.LocalIndex)).Append(" = ")
-                .Append(CoerceText(usingStatement.Resource, usingStatement.ResourceType)).AppendLf(")");
+            sb.Append(usingStatement.IsAwait ? "await using (" : "using (");
+            if (usingStatement.DeclaresResourceVariable)
+                sb.Append(TypeText(usingStatement.ResourceType)).Append(' ').Append(LocalName(usingStatement.LocalIndex)).Append(" = ");
+            sb.Append(UsingResourceText(usingStatement)).AppendLf(")");
             _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             sb.Append(pad);
             int bodyStart = sb.Length;
@@ -3613,7 +3617,7 @@ public sealed partial class CSharpPrinter
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target, d.IsVirtual)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
         Lambda lam => LambdaText(lam),
-        LocalFunctionInvocation inv => $"{CSharpNaming.ContainedIdentifier(inv.Name)}({Arguments(inv.Arguments)})",
+        LocalFunctionInvocation inv => $"{CSharpNaming.ContainedIdentifier(inv.Name)}({Arguments(inv.Arguments, inv.ParameterTypes, inv.ParameterRefKinds, coerceValues: false)})",
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => MemberTargetText(
@@ -3738,6 +3742,22 @@ public sealed partial class CSharpPrinter
         if (!p.IsDynamic)
             return TypeText(p.Type);
         return p.Type.Kind == TypeRefKind.ByRef ? "ref dynamic" : "dynamic";
+    }
+
+    string ParameterTypeText(Parameter parameter, ArgumentRefKind refKind)
+    {
+        if (parameter.Type.Kind != TypeRefKind.ByRef || refKind == ArgumentRefKind.Value)
+            return ParameterTypeText(parameter);
+
+        string element = parameter.IsDynamic
+            ? "dynamic"
+            : TypeText(parameter.Type.ElementType!);
+        return refKind switch
+        {
+            ArgumentRefKind.Out => $"out {element}",
+            ArgumentRefKind.In => $"in {element}",
+            _ => $"ref {element}",
+        };
     }
 
     string CoalesceText(Coalesce co, TypeRef? target = null)
@@ -4370,6 +4390,18 @@ public sealed partial class CSharpPrinter
             box,
             rendered.Text,
             rendered.Kind);
+    }
+
+    string UsingResourceText(UsingStatement usingStatement)
+    {
+        if (usingStatement.DeclaresResourceVariable
+            || usingStatement.Resource.ResultType?.Equals(usingStatement.ResourceType) == true)
+        {
+            return CoerceText(usingStatement.Resource, usingStatement.ResourceType);
+        }
+
+        string text = $"({TypeText(usingStatement.ResourceType)}){Operand(usingStatement.Resource)}";
+        return CaptureContextualExpression(usingStatement.Resource, text, "ConversionExpression");
     }
 
     string DerefLoadText(LoadIndirect load)

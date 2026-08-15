@@ -313,6 +313,11 @@ public class LocalFunctionRaisingPassTests
     public void CapturingLocalFunctionCaptureStoreBeforeCall_StillRaises()
     {
         var (function, context) = CapturingLocalFunctionOrderFixture(storeBeforeCall: true);
+        var call = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            candidate => GeneratedCodeIdentity.IsLocalFunctionMethod(candidate.Callee));
+        Assert.Equal(ParameterRefKindFacts.Unknown, call.Callee.ParameterRefKindsFacts);
+        Assert.All(call.Callee.ParameterTypes, type => Assert.Equal(TypeRefKind.ByRef, type.Kind));
 
         new LocalFunctionRaisingPass().Run(function, context);
 
