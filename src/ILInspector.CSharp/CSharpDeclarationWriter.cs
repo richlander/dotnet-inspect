@@ -2269,7 +2269,7 @@ internal static class CSharpDeclarationWriter
         foreach (string parameter in SplitTopLevel(parameters[1..close]))
         {
             string remainder = parameter.TrimStart();
-            while (remainder.StartsWith('[', StringComparison.Ordinal))
+            while (remainder.StartsWith("[", StringComparison.Ordinal))
             {
                 int attributeEnd = Matching(remainder, 0, '[', ']');
                 if (attributeEnd < 0)
