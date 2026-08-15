@@ -1196,6 +1196,60 @@ public class CfgSampleClass
         }
     }
 
+    public static int NestedOuterRetryLoop(int seed)
+    {
+    Outer:
+        while (true)
+        {
+            int i = seed;
+            while (true)
+            {
+                i++;
+                if (i > 100)
+                    return i;
+                try
+                {
+                    if (100 % i == 0)
+                        return i;
+                }
+                catch (DivideByZeroException)
+                {
+                    goto Outer;
+                }
+            }
+        }
+    }
+
+    public static int SwitchLoopGotoDone(int value, bool repeat)
+    {
+        int result = 0;
+        switch (value)
+        {
+            case 0:
+                while (true)
+                {
+                    if (!repeat)
+                    {
+                        result = 42;
+                        goto Done;
+                    }
+
+                    result++;
+                }
+            case 1: result = 1; break;
+            case 2: result = 2; break;
+            case 3: result = 3; break;
+            case 4: result = 4; break;
+            case 5: result = 5; break;
+            case 6: result = 6; break;
+            case 7: result = 7; break;
+            default: result = -1; break;
+        }
+
+    Done:
+        return result;
+    }
+
     public static int EnumeratorLoopCatchContinue(System.Collections.Generic.IEnumerable<int> values)
     {
         int total = 0;
@@ -2664,6 +2718,41 @@ public class CfgSampleClass
             default:
                 throw new ArgumentException();
         }
+    }
+
+    // A source continue in every table case skips the post-switch statement.
+    // The pipeline may preserve that transfer by moving the statement into the
+    // default section and rendering the terminating case sections with break.
+    public static int SwitchCaseContinueInLoop(int value, int limit)
+    {
+        int result = 0;
+        do
+        {
+            switch (value)
+            {
+                case 0:
+                    result += 1;
+                    continue;
+                case 1:
+                    result += 2;
+                    continue;
+                case 2:
+                    result += 3;
+                    continue;
+                case 3:
+                    result += 4;
+                    continue;
+                case 4:
+                    result += 5;
+                    continue;
+                default:
+                    result += 10;
+                    break;
+            }
+            result += 100;
+        }
+        while (result < limit);
+        return result;
     }
 
     public static int TryCatch(string s)
