@@ -1736,7 +1736,52 @@ internal static class CorpusSensor
         }
 
         AddCountRegression(failures, "pass bugs", baseline.Metrics.PassBugs, current.Metrics.PassBugs, tolerance.PassBugIncrease);
+        failures.AddRange(PinnedMethodRegressions(baseline, current));
 
+        return failures.ToImmutable();
+    }
+
+    internal static ImmutableArray<string> PinnedMethodRegressions(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current)
+    {
+        if (baseline.Profile != CorpusProfile.RealWorld
+            || current.Profile != CorpusProfile.RealWorld
+            || baseline.Methods is null
+            || current.Methods is null)
+        {
+            return [];
+        }
+
+        var baselineMethods = baseline.Methods
+            .Where(static method => IsPinnedAssembly(method.AssemblyPath))
+            .ToDictionary(MethodKey, StringComparer.Ordinal);
+        var currentMethods = current.Methods
+            .Where(static method => IsPinnedAssembly(method.AssemblyPath))
+            .ToDictionary(MethodKey, StringComparer.Ordinal);
+        var failures = ImmutableArray.CreateBuilder<string>();
+        var missingMethods = baselineMethods.Keys.Except(currentMethods.Keys, StringComparer.Ordinal).ToArray();
+        var addedMethods = currentMethods.Keys.Except(baselineMethods.Keys, StringComparer.Ordinal).ToArray();
+        if (missingMethods.Length > 0 || addedMethods.Length > 0)
+        {
+            failures.Add(
+                $"pinned method sample differs "
+                + $"(missing {missingMethods.Length}, added {addedMethods.Length})");
+            return failures.ToImmutable();
+        }
+
+        foreach (string methodKey in baselineMethods.Keys.Order(StringComparer.Ordinal))
+        {
+            var before = baselineMethods[methodKey];
+            var after = currentMethods[methodKey];
+            if (before.FullyRaised && !after.FullyRaised)
+            {
+                string outcome = after.PassBug ?? after.Residual ?? after.Fidelity;
+                failures.Add($"fully raised method lost (pinned): {methodKey} -> {outcome}");
+            }
+            if (before.Validity == "valid" && after.Validity != "valid")
+                failures.Add($"valid method regressed (pinned): {methodKey} -> {after.Validity}");
+        }
         return failures.ToImmutable();
     }
 

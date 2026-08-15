@@ -991,6 +991,87 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void Compare_PinnedFullyRaisedLossCannotBeOffsetByGain()
+    {
+        var lost = SnapshotMethod("Lost");
+        var gained = SnapshotMethod("Gained") with
+        {
+            Fidelity = "Partial",
+            FullyRaised = false,
+            Residual = "fidelity: DEC0009",
+        };
+        var baseline = Snapshot(2, 1, 5_000, [lost, gained]);
+        var current = Snapshot(
+            2,
+            1,
+            5_000,
+            [
+                lost with
+                {
+                    Fidelity = "Partial",
+                    FullyRaised = false,
+                    Residual = "fidelity: DEC0009",
+                },
+                gained with
+                {
+                    Fidelity = "Full",
+                    FullyRaised = true,
+                    Residual = null,
+                },
+            ]);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            regression => regression.Contains(
+                "fully raised method lost (pinned): nuget:pinned/lib.dll!T::Lost()",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_PinnedValidityLossCannotBeOffsetByGain()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods:
+            [
+                SnapshotMethod("Lost", validity: "valid"),
+                SnapshotMethod("Gained", validity: "semantic-defect:CS0159"),
+            ],
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods:
+            [
+                SnapshotMethod("Lost", validity: "semantic-defect:CS0159"),
+                SnapshotMethod("Gained", validity: "valid"),
+            ],
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "valid method regressed (pinned): "
+                + "nuget:pinned/lib.dll!T::Lost() -> semantic-defect:CS0159",
+            regressions);
+    }
+
+    [Fact]
     public void Compare_ControlFlowLossWithinSameMethodCannotBeOffset()
     {
         var baselineMethod = SnapshotMethod("TwoDispatches") with

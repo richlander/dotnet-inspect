@@ -1055,6 +1055,9 @@ add to the step-4 plan:
    required non-offsettable prerequisite for the retained-label rewrite; it
    detects output loss that CFG-model agreement cannot, but does not replace
    focused compiler-produced boundary fixtures, render A/B, or fidelity
-   evidence. Baseline activation waits for #4238 to restore the regressions
-   exposed by the first attempted migration rather than accepting them as the
-   new floor.
+   evidence. The migration also makes pinned `valid` → invalid and fully-raised
+   → residual method transitions non-offsettable
+   (`Compare_PinnedValidityLossCannotBeOffsetByGain` and
+   `Compare_PinnedFullyRaisedLossCannotBeOffsetByGain`). Baseline activation
+   waits for #4238 to restore the regressions exposed by the first attempted
+   migration rather than accepting them as the new floor.

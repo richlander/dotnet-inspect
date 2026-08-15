@@ -958,6 +958,13 @@ from the per-method snapshots both baseline and current carry, so no baseline
 regen is required; it falls back to aggregate counts/rates when a snapshot lacks
 per-method detail.
 
+Pinned method outcomes are also non-offsettable regardless of snapshot schema:
+a previously `valid` method becoming invalid or a previously fully raised
+method acquiring residue is a hard regression even when another method improves
+and aggregate counts stay flat. The enforcing gates are
+`Compare_PinnedValidityLossCannotBeOffsetByGain` and
+`Compare_PinnedFullyRaisedLossCannotBeOffsetByGain`.
+
 The schema-v6 control-flow-site gate is stricter than that aggregate fallback:
 it activates only when both snapshots carry the v6 ledger. Its card line reports
 lost and gained raises over stable sites, or explicitly says that the gate is
