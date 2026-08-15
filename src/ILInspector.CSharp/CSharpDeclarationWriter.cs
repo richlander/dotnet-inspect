@@ -1912,9 +1912,14 @@ internal static class CSharpDeclarationWriter
                 || member.Kind == "explicit-interface-implementation"
                     && HasOnlyAccessors(member, "add", "remove"));
 
-    static bool IsExplicitInterfaceMember(ApiMember member)
-        => member.ExplicitInterfaceProvenance is not null
-            || member.Kind == "explicit-interface-implementation";
+    internal static bool IsExplicitInterfaceMember(ApiMember member)
+        => member.Kind == "explicit-interface-implementation"
+            || member.ExplicitInterfaceProvenance is not null
+                // MethodImpl provenance also appears on ordinary operators and
+                // finalizers; qualified property/event names are the shapes whose
+                // ordinary kind needs provenance to recover explicit C# syntax.
+                && member.Kind is ("property" or "event")
+                && member.Name.Contains('.', StringComparison.Ordinal);
 
     static bool IsEvent(ApiMember member)
         => member.Kind == "event" || IsExplicitInterfaceEvent(member);

@@ -1160,6 +1160,33 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void OrdinaryOperator_WithMethodImplProvenance_RetainsPublicModifier()
+    {
+        var type = new ApiType
+        {
+            Namespace = "System",
+            Name = "Int128",
+            Kind = "struct"
+        };
+        var member = new ApiMember
+        {
+            Name = "op_CheckedAddition",
+            Kind = "operator",
+            IsStatic = true,
+            Signature =
+                "System.Int128 op_CheckedAddition(System.Int128 left, System.Int128 right)",
+            ExplicitInterfaceProvenance = SameImageProvenance()
+        };
+
+        var declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal(
+            "public static System.Int128 operator checked +(System.Int128 left, System.Int128 right)",
+            declaration);
+    }
+
+    [Fact]
     public void ExplicitInterfaceImplementation_WithUnsafeSignature_RetainsUnsafeModifier()
     {
         var type = new ApiType { Namespace = "Samples", Name = "UnsafeImpl", Kind = "class" };
@@ -1691,4 +1718,11 @@ public sealed class CSharpDeclarationWriterTests
                 }
             ]
         };
+
+    static ApiExplicitInterfaceProvenance SameImageProvenance()
+        => new(
+            [
+                new ApiExplicitInterfaceDeclarationContext(
+                    ApiExplicitInterfaceDeclarationKind.SameImage)
+            ]);
 }

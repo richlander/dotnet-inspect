@@ -35,6 +35,47 @@ public sealed class CSharpFormatterTests
             declaration);
     }
 
+    [Theory]
+    [InlineData("Value", "private set")]
+    [InlineData("Samples.IValue.Value", "set")]
+    public void AccessorAccessibility_UsesExplicitMemberShape(
+        string memberName,
+        string expected)
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "ValueHolder",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = memberName,
+            Kind = "property",
+            ExplicitInterfaceProvenance = new ApiExplicitInterfaceProvenance(
+                [
+                    new ApiExplicitInterfaceDeclarationContext(
+                        ApiExplicitInterfaceDeclarationKind.SameImage)
+                ]),
+            SignatureModel = new ApiSignature
+            {
+                Accessors =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "set",
+                        Accessibility = "private"
+                    }
+                ]
+            }
+        };
+
+        var accessor =
+            new CSharpFormatter().FormatAccessorHead(type, member, "set");
+
+        Assert.Equal(expected, accessor);
+    }
+
     [Fact]
     public void FormatsContextualTypeUnit()
     {

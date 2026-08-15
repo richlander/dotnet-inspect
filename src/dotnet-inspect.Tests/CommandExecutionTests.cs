@@ -10680,7 +10680,7 @@ public partial class CommandExecutionTests
     {
         var options = new MemberOptions
         {
-            PlatformAssembly = "System.Private.CoreLib",
+            AssemblyPath = typeof(Int128).Assembly.Location,
             TypeName = "Int128",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "op_CheckedAddition" },
             OverloadIndex = 1,

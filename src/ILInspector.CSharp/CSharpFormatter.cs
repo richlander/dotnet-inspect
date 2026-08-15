@@ -136,7 +136,7 @@ public sealed class CSharpFormatter
             if (attributePrefix.Length > 0)
                 parts.Add(attributePrefix);
         }
-        if (member.ExplicitInterfaceProvenance is null
+        if (!CSharpDeclarationWriter.IsExplicitInterfaceMember(member)
             && !string.IsNullOrWhiteSpace(accessor?.Accessibility))
             parts.Add(accessor.Accessibility!);
         parts.Add(kind);
