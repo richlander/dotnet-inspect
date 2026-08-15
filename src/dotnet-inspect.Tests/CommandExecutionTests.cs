@@ -19065,6 +19065,992 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiplePackages_SignatureJsonPopulatesEachSubject()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(2, document.RootElement.GetArrayLength());
+            Assert.All(
+                document.RootElement.EnumerateArray(),
+                package =>
+                {
+                    JsonElement signature =
+                        package.GetProperty("signature_result");
+                    Assert.Equal(
+                        JsonValueKind.Object,
+                        signature.ValueKind);
+                    Assert.True(
+                        signature.GetProperty("is_unsigned").GetBoolean());
+                });
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_CountProjectionMissReportsCleanError()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Projection.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Projection.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--json",
+                "--count",
+                "--columns",
+                "Publisher");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "No columns matched projection: Publisher",
+                error);
+            Assert.DoesNotContain(
+                "System.InvalidOperationException",
+                error);
+            Assert.DoesNotContain(
+                "MarkoutWriter.ThrowIfProjectionMatchedNothing",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_SignatureCountIgnoresPresentationAndWindowsCombinedRows()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Count.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Count.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var json = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--json",
+                "--count");
+            var defaultFormat = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--count");
+            var tsv = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--tsv",
+                "--count");
+            var windowed = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--json",
+                "--count",
+                "--rows",
+                "1");
+            var table = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--table");
+            var tsvRows = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--fields",
+                "Signed",
+                "--columns",
+                "Package;Value",
+                "--tsv");
+            var jsonl = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--fields",
+                "Signed",
+                "--jsonl");
+            var overlappingFields = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--fields",
+                "Signed;*",
+                "--tsv");
+            var overlappingCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--fields",
+                "Signed;*",
+                "--count");
+
+            Assert.Equal(0, json.Exit);
+            Assert.Equal(0, defaultFormat.Exit);
+            Assert.Equal(0, tsv.Exit);
+            Assert.Equal(0, windowed.Exit);
+            Assert.Equal(0, table.Exit);
+            Assert.Equal(0, tsvRows.Exit);
+            Assert.Equal(0, jsonl.Exit);
+            Assert.Equal(0, overlappingFields.Exit);
+            Assert.Equal(0, overlappingCount.Exit);
+            Assert.Empty(json.Error);
+            Assert.Empty(defaultFormat.Error);
+            Assert.Empty(tsv.Error);
+            Assert.Empty(windowed.Error);
+            Assert.Empty(table.Error);
+            Assert.Empty(tsvRows.Error);
+            Assert.Empty(jsonl.Error);
+            Assert.Empty(overlappingFields.Error);
+            Assert.Empty(overlappingCount.Error);
+            Assert.Equal(json.Output, defaultFormat.Output);
+            Assert.Equal(json.Output, tsv.Output);
+            Assert.True(
+                int.Parse(json.Output, CultureInfo.InvariantCulture) > 1);
+            Assert.Equal("1", windowed.Output.Trim());
+            Assert.Contains("Test.Signature.Count.One", table.Output);
+            Assert.Contains("Test.Signature.Count.Two", table.Output);
+            Assert.Equal(
+                [
+                    "package\tvalue",
+                    "Test.Signature.Count.One\tNo",
+                    "Test.Signature.Count.Two\tNo",
+                ],
+                SplitOutputLines(tsvRows.Output));
+            foreach (string row in SplitOutputLines(jsonl.Output))
+            {
+                using var document = JsonDocument.Parse(row);
+                Assert.Equal(
+                    ["package", "field", "value"],
+                    document.RootElement
+                        .EnumerateObject()
+                        .Select(property => property.Name));
+                Assert.Equal(
+                    "Signed",
+                    document.RootElement.GetProperty("field").GetString());
+                Assert.Equal(
+                    "No",
+                    document.RootElement.GetProperty("value").GetString());
+            }
+            Assert.Equal(
+                SplitOutputLines(overlappingFields.Output).Length - 1,
+                int.Parse(
+                    overlappingCount.Output,
+                    CultureInfo.InvariantCulture));
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_FixedOverviewCountIncludesPackageFiles()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Overview.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Overview.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "--count");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Package nuspec file | 2 |", output);
+            Assert.Contains("| Package README file | 2 |", output);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FixedOverviewCountValidatesFieldsAndRenderedColumns()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Overview.Projection.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Overview.Projection.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "--count",
+                "--fields",
+                "Bogus");
+            var renderedColumn = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "--count",
+                "--columns",
+                "Field");
+            var rendered = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "--columns",
+                "Field");
+            var selectedCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "Signature",
+                "--count",
+                "--columns",
+                "Field");
+            var selectedRendered = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "Signature",
+                "--columns",
+                "Field",
+                "--table");
+            var selectedUnknownColumn = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "Signature",
+                "--count",
+                "--columns",
+                "Bogus");
+
+            Assert.Equal(1, count.Exit);
+            Assert.Equal(0, renderedColumn.Exit);
+            Assert.Equal(0, rendered.Exit);
+            Assert.Equal(0, selectedCount.Exit);
+            Assert.Equal(0, selectedRendered.Exit);
+            Assert.Equal(1, selectedUnknownColumn.Exit);
+            Assert.Empty(count.Output);
+            Assert.Empty(renderedColumn.Error);
+            Assert.Empty(rendered.Error);
+            Assert.Empty(selectedCount.Error);
+            Assert.Empty(selectedRendered.Error);
+            Assert.Contains(
+                "No columns matched projection: Bogus",
+                selectedUnknownColumn.Error);
+            Assert.Contains(
+                "No fields matched projection: Bogus",
+                count.Error);
+            Assert.DoesNotContain(
+                "| Package Info | 0 |",
+                renderedColumn.Output);
+            Assert.DoesNotContain(
+                "| Signature | 0 |",
+                renderedColumn.Output);
+            Assert.Contains(
+                "| Field |",
+                rendered.Output);
+            Assert.Contains(
+                "Field",
+                selectedRendered.Output);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_MixedCountMapUsesCombinedColumns()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.MixedProjection.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.MixedProjection.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var bothSections = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info,Package README file",
+                "--count",
+                "--columns",
+                "Package,Path");
+            var packageInfoOnly = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info,Package README file",
+                "--count",
+                "--columns",
+                "Field");
+            var fixedOverview = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "--count",
+                "--columns",
+                "Package");
+            var valueColumn = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "--count",
+                "--columns",
+                "Value");
+            var signatureCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--count",
+                "--columns",
+                "Package");
+
+            Assert.Equal(0, bothSections.Exit);
+            Assert.Equal(0, packageInfoOnly.Exit);
+            Assert.Equal(0, fixedOverview.Exit);
+            Assert.Equal(0, valueColumn.Exit);
+            Assert.Equal(0, signatureCount.Exit);
+            Assert.Empty(bothSections.Error);
+            Assert.Empty(packageInfoOnly.Error);
+            Assert.Empty(fixedOverview.Error);
+            Assert.Empty(valueColumn.Error);
+            Assert.Empty(signatureCount.Error);
+            string packageInfoRow = Assert.Single(
+                bothSections.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries),
+                row => row.StartsWith(
+                    "| Package Info |",
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                "| Package README file | 2 |",
+                bothSections.Output);
+            Assert.Contains(packageInfoRow, packageInfoOnly.Output);
+            Assert.DoesNotContain(
+                "| Package Info | 0 |",
+                packageInfoOnly.Output);
+            Assert.Contains(
+                "| Package README file | 0 |",
+                packageInfoOnly.Output);
+            Assert.Contains(packageInfoRow, fixedOverview.Output);
+            Assert.Contains(
+                "| Package README file | 2 |",
+                fixedOverview.Output);
+            Assert.Contains(
+                $"| Signature | {signatureCount.Output.Trim()} |",
+                fixedOverview.Output);
+            Assert.DoesNotContain(
+                "| Signature | 0 |",
+                valueColumn.Output);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_MultiSectionFileCountsHonorEmptyRows()
+    {
+        var (withReadme, withReadmeDir) =
+            CreateLocalReadmePackage(
+                "Test.CountMap.Readme",
+                "README.md",
+                "readme");
+        var (withoutReadme, withoutReadmeDir) =
+            CreateLocalPackageWithoutReadme(
+                "Test.CountMap.NoReadme");
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                withReadme,
+                withoutReadme,
+                "-S",
+                "Package README file,Signature",
+                "--count");
+            var skipEmpty = await RunAppAsync(
+                "package",
+                withReadme,
+                withoutReadme,
+                "-S",
+                "Package README file,Signature",
+                "--count",
+                "--skip-empty");
+            var tail = await RunAppAsync(
+                "package",
+                withReadme,
+                withoutReadme,
+                "-S",
+                "Package README file",
+                "--columns",
+                "Path",
+                "--rows",
+                "1",
+                "--tail",
+                "--tsv");
+            var tailWithoutHeader = await RunAppAsync(
+                "package",
+                withReadme,
+                withoutReadme,
+                "-S",
+                "Package README file",
+                "--columns",
+                "Path",
+                "--rows",
+                "1",
+                "--tail",
+                "--tsv",
+                "--no-header");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal(0, skipEmpty.Exit);
+            Assert.Equal(0, tail.Exit);
+            Assert.Equal(0, tailWithoutHeader.Exit);
+            Assert.Empty(count.Error);
+            Assert.Empty(skipEmpty.Error);
+            Assert.Empty(tail.Error);
+            Assert.Empty(tailWithoutHeader.Error);
+            Assert.Contains(
+                "| Package README file | 2 |",
+                count.Output);
+            Assert.Contains(
+                "| Package README file | 1 |",
+                skipEmpty.Output);
+            Assert.Equal(
+                "path\n\n",
+                tail.Output.ReplaceLineEndings("\n"));
+            Assert.Equal(
+                "\n",
+                tailWithoutHeader.Output.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Directory.Delete(withReadmeDir, recursive: true);
+            Directory.Delete(withoutReadmeDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_FilesJsonlWindowsCombinedRows()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Jsonl.Window.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Jsonl.Window.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "--path",
+                "@readme",
+                "--jsonl",
+                "--rows",
+                "1");
+            var projected = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package README file",
+                "--jsonl",
+                "--columns",
+                "p*;SIZE;path");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(0, projected.Exit);
+            Assert.Empty(error);
+            Assert.Empty(projected.Error);
+            string row = Assert.Single(
+                output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+            using var _ = JsonDocument.Parse(row);
+            foreach (string projectedRow in projected.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries))
+            {
+                using var document = JsonDocument.Parse(projectedRow);
+                JsonProperty[] properties =
+                    [.. document.RootElement.EnumerateObject()];
+                Assert.Equal(
+                    ["package", "path", "size"],
+                    properties.Select(property => property.Name));
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    properties[2].Value.ValueKind);
+            }
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_FileProjectionAgreesAcrossCountAndRows()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.FileProjection.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.FileProjection.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package README file",
+                "--count",
+                "--columns",
+                "Package");
+            var rows = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package README file",
+                "--tsv",
+                "--columns",
+                "Package");
+            var pathCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "--path",
+                "@readme",
+                "--count",
+                "--columns",
+                "Package");
+            var fieldCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package files",
+                "--count",
+                "--fields",
+                "Path");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal(0, rows.Exit);
+            Assert.Equal(0, pathCount.Exit);
+            Assert.Equal(0, fieldCount.Exit);
+            Assert.Empty(count.Error);
+            Assert.Empty(rows.Error);
+            Assert.Empty(pathCount.Error);
+            Assert.Empty(fieldCount.Error);
+            Assert.Equal("2", count.Output.Trim());
+            Assert.Equal("2", pathCount.Output.Trim());
+            Assert.True(
+                int.Parse(
+                    fieldCount.Output,
+                    CultureInfo.InvariantCulture) > 2);
+            Assert.Equal(
+                [
+                    "package",
+                    "Test.FileProjection.One",
+                    "Test.FileProjection.Two",
+                ],
+                SplitOutputLines(rows.Output));
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_DiscoverRefusalPrecedesCountProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiDiscoverProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "-D",
+                "--count",
+                "--fields",
+                "Name");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Multiple package inspection cannot be combined with -D/--discover.",
+                error);
+            Assert.DoesNotContain(
+                "No fields matched projection",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiSectionCountRejectsTabularFormats()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiSectionCountFormat",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var single = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "@Files",
+                "--jsonl",
+                "--count");
+            var multiple = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "-S",
+                "@Files",
+                "--tsv",
+                "--count");
+            var fixedOverview = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "-S",
+                "--tsv",
+                "--count");
+
+            Assert.Equal(1, single.Exit);
+            Assert.Equal(1, multiple.Exit);
+            Assert.Equal(1, fixedOverview.Exit);
+            Assert.Empty(single.Output);
+            Assert.Empty(multiple.Output);
+            Assert.Empty(fixedOverview.Output);
+            Assert.Contains(
+                "--table, --tsv, and --jsonl display one section at a time",
+                single.Error);
+            Assert.Contains(
+                "--table, --tsv, and --jsonl display one section at a time",
+                multiple.Error);
+            Assert.Contains(
+                "--table, --tsv, and --jsonl display one section at a time",
+                fixedOverview.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_LibraryModesAreRejected()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiLibraryMode",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var library = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "--library",
+                "Test.Package.MultiLibraryMode.dll",
+                "--tsv");
+            var allLibraries = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "--all-libraries",
+                "--tsv");
+
+            Assert.Equal(1, library.Exit);
+            Assert.Equal(1, allLibraries.Exit);
+            Assert.Empty(library.Output);
+            Assert.Empty(allLibraries.Output);
+            Assert.Contains(
+                "Multiple package inspection cannot be combined with --library.",
+                library.Error);
+            Assert.Contains(
+                "Multiple package inspection cannot be combined with --all-libraries.",
+                allLibraries.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PackageInfoFieldsAgreeWithCount()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Fields.One",
+                "README.md",
+                "one",
+                extraNuspecMetadata:
+                """
+                <licenseUrl>https://example.test/license</licenseUrl>
+                """);
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Fields.Two",
+                "README.md",
+                "two",
+                extraNuspecMetadata:
+                """
+                <licenseUrl>https://example.test/license</licenseUrl>
+                """);
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Ver*",
+                "--columns",
+                "Package",
+                "--tsv",
+                "--count");
+            var rendered = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Ver*",
+                "--tsv");
+            var column = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--columns",
+                "Field",
+                "--tsv",
+                "--rows",
+                "1");
+            var ordered = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Authors;Version",
+                "--tsv");
+            var absent = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Owners;Version",
+                "--tsv");
+            var valueOnly = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Version",
+                "--columns",
+                "Value",
+                "--tsv");
+            var overlappingNames = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "License;License URL",
+                "--tsv");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal(0, rendered.Exit);
+            Assert.Equal(0, column.Exit);
+            Assert.Equal(0, ordered.Exit);
+            Assert.Equal(0, absent.Exit);
+            Assert.Equal(0, valueOnly.Exit);
+            Assert.Equal(0, overlappingNames.Exit);
+            Assert.Empty(count.Error);
+            Assert.Empty(rendered.Error);
+            Assert.Empty(column.Error);
+            Assert.Empty(ordered.Error);
+            Assert.Contains(
+                "Note: 1 field has no data: Owners",
+                absent.Error);
+            Assert.Empty(valueOnly.Error);
+            Assert.Contains(
+                "Note: 1 field has no data: License",
+                overlappingNames.Error);
+            string[] overlappingRows =
+                SplitOutputLines(overlappingNames.Output);
+            Assert.Equal(3, overlappingRows.Length);
+            Assert.All(
+                overlappingRows.Skip(1),
+                row => Assert.Contains(
+                    "\tLicense URL\t",
+                    row,
+                    StringComparison.Ordinal));
+            Assert.Equal(
+                ["value", "1.0.0", "1.0.0"],
+                SplitOutputLines(valueOnly.Output));
+            Assert.Equal("2", count.Output.Trim());
+            string[] rows = SplitOutputLines(rendered.Output);
+            Assert.Equal(3, rows.Length);
+            Assert.All(
+                rows.Skip(1),
+                row => Assert.Contains(
+                    "\tVersion\t",
+                    row,
+                    StringComparison.Ordinal));
+            Assert.Equal(
+                ["field", "Version"],
+                SplitOutputLines(column.Output));
+            Assert.Equal(
+                ["Authors", "Version", "Authors", "Version"],
+                SplitOutputLines(ordered.Output)
+                    .Skip(1)
+                    .Select(row => row.Split('\t')[1]));
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_MultiplePackages_TableCombinesPackageInfoRows()
     {
         var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Info.One", "README.md", "one");

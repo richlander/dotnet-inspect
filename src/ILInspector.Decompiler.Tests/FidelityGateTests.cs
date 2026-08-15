@@ -252,6 +252,9 @@ public class FidelityGateTests
     /// </summary>
     static readonly string[] PinnedExact =
     {
+        // #3346 / #4113 review: the variable-less using resource keeps the
+        // explicit IDisposable conversion, so recompilation retains the box.
+        "BoxedDisposedOnlyUsingResource",
         // #3491: retired by the compiler-generated member correspondence. Every row
         // here differed only in a Roslyn state-machine ordinal — recompiling the
         // reconstructed fixture type renumbers `d__N`, and the constructor and field

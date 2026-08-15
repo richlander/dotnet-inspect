@@ -419,6 +419,31 @@ The coverage is not yet complete, and the gaps are on the feed path specifically
 source-generated context that does not reject duplicates. `runfaster` also still parses its trace
 inputs directly. Nothing gates the invariant, which is why the gaps persisted; see open work below.
 
+### NuGet metadata response bodies are bounded
+
+NuGetFetch reads service indexes, version indexes, and search responses headers-first, rejects an
+advertised `Content-Length` above the configured ceiling, and counts the bytes actually consumed
+when the length is absent or false. The default ceiling is 16 MiB. A separate body-phase timeout
+defaults to 30 seconds and never exceeds a shorter configured `HttpClient.Timeout`, because that
+client timeout stops applying once a headers-first request returns. Metadata requests also require
+Browser/Wasm streaming-response mode so the browser transport cannot buffer an unbounded body
+before the counting stream sees it.
+
+Oversize and body-timeout failures have dedicated exception types. They are not represented as
+`JsonException`, `HttpRequestException`, a null document, or an empty result, so existing malformed
+JSON handling and multi-source fallback cannot turn a resource-limit failure into success-shaped
+output. Direct `NuGetApi` stream consumers pass through the same bounded reader. Package payload
+streams (`.nupkg` and `.snupkg`) are deliberately excluded; their larger download policy belongs to
+the acquisition layer.
+
+This is gated by
+`NuGetMetadataLimitTests.Search_AdvertisedOversizeRejectsBeforeReadingTheBody`,
+`NuGetMetadataLimitTests.Search_UnderreportedLengthCannotBypassTheActualByteLimit`,
+`NuGetMetadataLimitTests.MetadataGets_RequestBrowserStreaming`,
+`NuGetMetadataLimitTests.StalledBodyUsesTheBodyPhaseTimeout`,
+`NuGetMetadataLimitTests.DirectNuGetApiReadersUseTheDefaultLimit`, and
+`NuGetMetadataLimitTests.PackagePayloadIsNotSubjectToTheMetadataLimit`.
+
 ### SourceLink provenance is read off the URL source is fetched from
 
 SourceLink map presence is not reported as successful usability. The
