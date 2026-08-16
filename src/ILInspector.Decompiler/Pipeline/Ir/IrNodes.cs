@@ -111,6 +111,14 @@ public sealed record MethodRef(
     public ParameterRefKindFacts ParameterRefKindsFacts { get; init; } = ParameterRefKindFacts.Unknown;
 
     /// <summary>
+    /// True when at least one parameter declaration is <c>ref readonly</c>.
+    /// Its call-site behavior is represented by <see cref="ArgumentRefKind.In"/>,
+    /// but declaration-producing raises must decline until their declaration
+    /// model can preserve the distinct keyword.
+    /// </summary>
+    public bool HasRefReadOnlyParameters { get; init; }
+
+    /// <summary>
     /// Per-parameter C# defaults (<c>[Optional]</c> + <c>Constant</c>), aligned
     /// 1:1 with <see cref="ParameterTypes"/>. Empty means the defaults were not
     /// resolved (the pipeline populates this only for same-assembly
@@ -3014,6 +3022,11 @@ public sealed class Lambda : IrExpression
 
     public TypeRef DelegateType { get; }
     public ImmutableArray<Parameter> Parameters { get; }
+    /// <summary>
+    /// Ref-kind evidence for explicitly typed lambda parameters. Empty when no
+    /// parameter is by-ref. <c>LambdaRaisingPassTests</c> gates preservation.
+    /// </summary>
+    public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; init; } = [];
     public ImmutableArray<TypeRef> Locals { get; }
     public ImmutableArray<string?> LocalNames { get; }
     public bool UsesUpdatedMemorySafetyRules { get; }
@@ -3091,10 +3104,36 @@ public sealed class LocalFunctionStatement : IrNode
         bool usesUpdatedMemorySafetyRules,
         bool skipLocalsInit,
         BlockContainer body)
+        : this(
+            name,
+            returnType,
+            parameters,
+            [],
+            isStatic,
+            locals,
+            localNames,
+            usesUpdatedMemorySafetyRules,
+            skipLocalsInit,
+            body)
+    {
+    }
+
+    public LocalFunctionStatement(
+        string name,
+        TypeRef returnType,
+        ImmutableArray<Parameter> parameters,
+        ImmutableArray<ArgumentRefKind> parameterRefKinds,
+        bool isStatic,
+        ImmutableArray<TypeRef> locals,
+        ImmutableArray<string?> localNames,
+        bool usesUpdatedMemorySafetyRules,
+        bool skipLocalsInit,
+        BlockContainer body)
     {
         Name = name;
         ReturnType = returnType;
         Parameters = parameters;
+        ParameterRefKinds = parameterRefKinds;
         IsStatic = isStatic;
         Locals = locals;
         LocalNames = localNames;
@@ -3106,6 +3145,7 @@ public sealed class LocalFunctionStatement : IrNode
     public string Name { get; }
     public TypeRef ReturnType { get; }
     public ImmutableArray<Parameter> Parameters { get; }
+    public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; }
     public bool IsStatic { get; }
     public ImmutableArray<TypeRef> Locals { get; }
     public ImmutableArray<string?> LocalNames { get; }
@@ -3136,18 +3176,32 @@ public sealed class LocalFunctionStatement : IrNode
 public sealed class LocalFunctionInvocation : IrExpression
 {
     public LocalFunctionInvocation(string name, TypeRef returnType, IEnumerable<IrExpression> arguments)
+        : this(name, returnType, arguments, [], [])
+    {
+    }
+
+    public LocalFunctionInvocation(
+        string name,
+        TypeRef returnType,
+        IEnumerable<IrExpression> arguments,
+        ImmutableArray<TypeRef> parameterTypes,
+        ImmutableArray<ArgumentRefKind> parameterRefKinds)
     {
         Name = name;
         ReturnType = returnType;
+        ParameterTypes = parameterTypes;
+        ParameterRefKinds = parameterRefKinds;
         foreach (var argument in arguments)
             AddChild(argument);
     }
 
     public string Name { get; }
     public TypeRef ReturnType { get; }
+    public ImmutableArray<TypeRef> ParameterTypes { get; }
+    public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; }
     public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => ReturnType;
-    public override IEnumerable<TypeRef> DirectTypes => [ReturnType];
+    public override IEnumerable<TypeRef> DirectTypes => ParameterTypes.Append(ReturnType);
 
     public override string Describe() => $"LocalFunctionInvocation {Name}";
 }

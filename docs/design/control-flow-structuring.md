@@ -359,6 +359,24 @@ Every pass in this layer carries these proof obligations in code review:
 6. **Honest fallback.** A rejected shape must remain visible: residual control
    flow, `UnsupportedNode`, or lowered fidelity. No success-shaped no-op fallback.
 
+`StructuringPass` checks loop-transfer ownership against the candidate tree it
+actually built, not against a separate simulation of that build. It builds from
+cloned blocks, verifies that existing `break`/`continue`/retry-`leave` transfers
+retain their enclosing owner and that every internal surviving `Leave` retains
+a label owner. It also rejects an actual retained-region build that places
+another arm after a terminal retained-merge branch. It then installs that
+candidate transactionally or declines. The compiler-backed and synthetic
+owner/decline boundaries are gated by `InfiniteLoopStructuringTests` and
+`StructuringGotoScopeTests`.
+
+Cloned statements retain `SourceOffset` as provenance, but semantic clones do
+not own that offset's printable label. Only the canonical surviving statement
+may render the label; `StructuringGotoScopeTests` gates the distinction so a
+clone cannot strand a later `goto` outside the clone's C# scope.
+When a later raise replaces a statement, the replacement inherits both its
+canonical or suppressed label-ownership state; `NullCoalescingAssignmentPassTests`
+gates both boundaries.
+
 ### Shared helpers and facts
 
 Prefer shared helpers over pass-local folklore:
@@ -395,16 +413,13 @@ not classify it as a jump predecessor. Nested `Leave` clone ownership has no
 executable-edge overlap; `StructuringFlowFactsTests` owns that separate contract.
 
 The pre-switch corpus also contains 12 blocks whose direct `Break` leaves the
-current block container and zero direct `Continue` blocks. A break is not a
-lexical fall-through edge, and wrapping it in a switch would capture its
-enclosing-loop owner, so switch raising declines it while the differential
-excludes `Cfg.Build`'s current default projection from the agreement claim. A
-terminal `Continue` is different: it has no successor in the section container,
-and a switch cannot capture its enclosing-loop owner, so switch raising accepts
-it as a terminating section. `Cfg.Build` still projects lexical-next
-fall-through for both structured transfers, so the differential excludes both
-from executable-edge agreement; for `Continue`, the two views actively disagree
-until the shared CFG can represent the enclosing owner. Another 45 blocks
+current block container and zero direct `Continue` blocks. Neither transfer has
+a lexical fall-through successor in that container, and `Cfg.Build` represents
+both as edge-free structured exits. Switch raising still declines `Break`
+because wrapping it in a switch would capture its enclosing-loop owner. A
+terminal `Continue` cannot be captured by the new switch, so switch raising
+accepts it as a terminating section and now agrees with `Cfg.Build`'s empty
+successor set. Another 45 blocks
 contain a conditional arm ending in `Break`; their other path has a real
 in-container fall-through edge, so the successor view continues to model that
 edge. A synthetic case where such an arm precedes `EndFinally` pins that the
@@ -440,10 +455,10 @@ containers, 48,559 resolved explicit edges, zero external explicit edges,
 terminators, zero `EndFilter` terminators, 12 direct `Break` blocks, zero direct
 `Continue` blocks, and 45 nested structured-transfer blocks with zero
 differences over the supported overlap. That evidence makes `Cfg.Build` the
-owner of flat structural edge semantics, but not yet the owner for direct
-structured transfers. Within the flat overlap, switch raising has a narrower
-acceptance domain rather than different edges; accepted structured `Continue`
-remains the explicit owner-aware exception outside that overlap.
+owner of flat structural edge semantics and direct structured-transfer
+fall-through semantics. Switch raising has a narrower acceptance domain rather
+than different edges: it declines a direct `Break` that a new switch would
+capture and accepts terminal `Continue` with the same empty successor set.
 `StructuringFlowFacts` remains a separate region-aware projection because its
 label and clone-ownership facts are not executable edges.
 

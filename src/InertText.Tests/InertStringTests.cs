@@ -475,6 +475,62 @@ public class InertStringTests
         Assert.Equal("[a\\u202Eb]", formatted.ToString());
     }
 
+    [Theory]
+    [InlineData("\u001B", TextConcern.Control)]
+    [InlineData("\u202E", TextConcern.Format)]
+    [InlineData("\u2028", TextConcern.LineSeparator)]
+    [InlineData("\u2029", TextConcern.ParagraphSeparator)]
+    [InlineData("\\", TextConcern.None)]
+    [InlineData("literal \\u202E text", TextConcern.None)]
+    public void Concerns_ClassifyWhyContainmentOccurred(
+        string source,
+        TextConcern expected)
+    {
+        InertString value = new(TextPolicy.Field, source);
+
+        Assert.Equal(expected, value.Concerns);
+        Assert.Equal(expected != TextConcern.None, value.RequiredContainment);
+    }
+
+    [Fact]
+    public void Concerns_ClassifyAnUnpairedSurrogate()
+    {
+        string source = new((char)0xD800, 1);
+
+        InertString value = new(TextPolicy.Field, source);
+
+        Assert.Equal(TextConcern.Surrogate, value.Concerns);
+        Assert.True(value.RequiredContainment);
+    }
+
+    [Fact]
+    public void Concerns_RespectThePolicyThatProducedTheValue()
+    {
+        InertString prose = new(TextPolicy.Prose, "first\nsecond");
+        InertString field = prose.EnsurePermitted(TextPolicy.Field);
+
+        Assert.Equal(TextConcern.None, prose.Concerns);
+        Assert.Equal(TextConcern.Control, field.Concerns);
+    }
+
+    [Fact]
+    public void Concerns_SurviveCompositionRestorationAndBounding()
+    {
+        InertString composed = InertString.Format(
+            TextPolicy.Field,
+            $"{"\\"}{"\u202E"}{"\u001B"}");
+        InertString restored = InertString.FromEncoded(
+            TextPolicy.Field,
+            composed.ToString());
+
+        Assert.Equal(
+            TextConcern.Format | TextConcern.Control,
+            composed.Concerns);
+        Assert.Equal(composed.Concerns, restored.Concerns);
+        Assert.Equal(TextConcern.Format, composed.Truncate(..8).Concerns);
+        Assert.Equal(TextConcern.Control, composed.Truncate(8..).Concerns);
+    }
+
     [Fact]
     public void FromEncoded_StringRetainsTheValidatedInstance()
     {
@@ -484,6 +540,7 @@ public class InertStringTests
 
         Assert.Same(encoded, restored.ToString());
         Assert.Equal(VisualForm.BmpHex, restored.Forms);
+        Assert.Equal(TextConcern.Format, restored.Concerns);
         Assert.False(restored.IsTruncated);
     }
 
@@ -498,6 +555,7 @@ public class InertStringTests
 
         Assert.Equal(Encoded, restored.ToString());
         Assert.Equal(VisualForm.BmpHex, restored.Forms);
+        Assert.Equal(TextConcern.Format, restored.Concerns);
     }
 
     [Fact]
@@ -626,6 +684,7 @@ public class InertStringTests
                 Assert.True(
                     restored.Equals(inert),
                     $"U+{codePoint:X} did not restore under {policy}.");
+                Assert.Equal(inert.Concerns, restored.Concerns);
                 Assert.Same(encoded, restored.ToString());
             }
         }
@@ -647,6 +706,7 @@ public class InertStringTests
             Assert.True(
                 restored.Equals(inert),
                 $"U+{codeUnit:X4} did not restore.");
+            Assert.Equal(TextConcern.Surrogate, restored.Concerns);
             Assert.Same(encoded, restored.ToString());
         }
     }
