@@ -250,11 +250,11 @@ public class StructuringGotoScopeTests
     [Fact]
     public void CompilerSharedTailWithNestedLeave_RemainsFullyStructured()
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        using var source = MetadataSource.Open(typeof(StructuringGotoScopeFixtures).Assembly.Location);
         var function = IrImporter.Import(
             source,
-            typeof(CfgSampleClass).FullName!,
-            nameof(CfgSampleClass.SharedTailWithNestedLeave))!;
+            typeof(StructuringGotoScopeFixtures).FullName!,
+            nameof(StructuringGotoScopeFixtures.SharedTailWithNestedLeave))!;
 
         IrPasses.Run(function);
         function.CheckInvariant();
@@ -265,5 +265,45 @@ public class StructuringGotoScopeTests
         string output = CSharpPrinter.Print(function).Output ?? "";
         Assert.DoesNotContain("goto IL_", output);
         Assert.DoesNotContain("IL_00", output);
+    }
+}
+
+static class StructuringGotoScopeFixtures
+{
+    static int _lastValue;
+
+    public static int SharedTailWithNestedLeave(
+        bool first,
+        bool second,
+        bool leaveTry)
+    {
+        int value = 0;
+        if (first)
+        {
+            value = 1;
+            goto Join;
+        }
+        if (second)
+        {
+            value = 2;
+            goto Join;
+        }
+        try
+        {
+            if (leaveTry)
+                goto Join;
+            value = 3;
+        }
+        finally
+        {
+            _lastValue = value;
+        }
+
+    Join:
+        _lastValue = value;
+        value += 4;
+        _lastValue = value;
+        value -= 4;
+        return value;
     }
 }

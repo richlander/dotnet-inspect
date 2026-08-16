@@ -1221,41 +1221,6 @@ public class CfgSampleClass
         }
     }
 
-    public static int SharedTailWithNestedLeave(
-        bool first,
-        bool second,
-        bool leaveTry)
-    {
-        int value = 0;
-        if (first)
-        {
-            value = 1;
-            goto Join;
-        }
-        if (second)
-        {
-            value = 2;
-            goto Join;
-        }
-        try
-        {
-            if (leaveTry)
-                goto Join;
-            value = 3;
-        }
-        finally
-        {
-            LastValue = value;
-        }
-
-    Join:
-        LastValue = value;
-        value += 4;
-        LastValue = value;
-        value -= 4;
-        return value;
-    }
-
     public static int SwitchLoopGotoDone(int value, bool repeat)
     {
         int result = 0;
