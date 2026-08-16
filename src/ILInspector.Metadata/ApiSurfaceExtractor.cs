@@ -968,7 +968,11 @@ public static class ApiSurfaceExtractor
                     new()
                     {
                         Kind = "add",
-                        ReturnAttributes = ReturnParameterAttributes(reader, adder.GetParameters())
+                        ReturnAttributes = ReturnParameterAttributes(
+                            reader,
+                            adder.GetParameters(),
+                            observeText,
+                            observeDecodeWork)
                     }
                 };
                 if (!accessors.Remover.IsNil)
@@ -978,7 +982,9 @@ public static class ApiSurfaceExtractor
                         Kind = "remove",
                         ReturnAttributes = ReturnParameterAttributes(
                             reader,
-                            reader.GetMethodDefinition(accessors.Remover).GetParameters())
+                            reader.GetMethodDefinition(accessors.Remover).GetParameters(),
+                            observeText,
+                            observeDecodeWork)
                     });
                 }
 

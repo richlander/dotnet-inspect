@@ -315,7 +315,18 @@ public sealed class ApiSurfaceExtractorBoundsTests
     public void PropertyAccessorReturnAttribute_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
-            BuildLargePropertyAccessorReturnAttributeImage(valueLength: 4_000_000));
+            BuildLargeAccessorReturnAttributeImage(
+                AccessorOwner.Property,
+                valueLength: 4_000_000));
+    }
+
+    [Fact]
+    public void EventAccessorReturnAttribute_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildLargeAccessorReturnAttributeImage(
+                AccessorOwner.Event,
+                valueLength: 4_000_000));
     }
 
     [Fact]
@@ -545,9 +556,11 @@ public sealed class ApiSurfaceExtractorBoundsTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildLargePropertyAccessorReturnAttributeImage(int valueLength)
+    static byte[] BuildLargeAccessorReturnAttributeImage(
+        AccessorOwner owner,
+        int valueLength)
     {
-        var metadata = Metadata("PropertyReturnAttribute");
+        var metadata = Metadata($"{owner}ReturnAttribute");
         AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
             metadata.GetOrAddString("Other"),
             new Version(1, 0, 0, 0),
@@ -573,7 +586,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.GetOrAddBlob(constructorSignature));
         TypeDefinitionHandle type = AddModuleAndPublicType(
             metadata,
-            "PropertyReturnAttribute");
+            $"{owner}ReturnAttribute");
         ParameterHandle returnParameter = metadata.AddParameter(
             ParameterAttributes.None,
             default,
@@ -584,32 +597,58 @@ public sealed class ApiSurfaceExtractorBoundsTests
             genericParameterCount: 0,
             isInstanceMethod: true).Parameters(
                 0,
-                returnType => returnType.Type().Int32(),
+                returnType =>
+                {
+                    if (owner == AccessorOwner.Property)
+                        returnType.Type().Int32();
+                    else
+                        returnType.Void();
+                },
                 _ => { });
-        MethodDefinitionHandle getter = metadata.AddMethodDefinition(
+        MethodDefinitionHandle accessor = metadata.AddMethodDefinition(
             MethodAttributes.Public
                 | MethodAttributes.Abstract
                 | MethodAttributes.Virtual,
             MethodImplAttributes.IL,
-            metadata.GetOrAddString("get_Value"),
+            metadata.GetOrAddString(
+                owner == AccessorOwner.Property ? "get_Value" : "add_Changed"),
             metadata.GetOrAddBlob(accessorSignature),
             bodyOffset: -1,
             returnParameter);
-        var propertySignature = new BlobBuilder();
-        new BlobEncoder(propertySignature).PropertySignature(
-            isInstanceProperty: true).Parameters(
-                0,
-                returnType => returnType.Type().Int32(),
-                _ => { });
-        PropertyDefinitionHandle property = metadata.AddProperty(
-            PropertyAttributes.None,
-            metadata.GetOrAddString("Value"),
-            metadata.GetOrAddBlob(propertySignature));
-        metadata.AddPropertyMap(type, property);
-        metadata.AddMethodSemantics(
-            property,
-            MethodSemanticsAttributes.Getter,
-            getter);
+        if (owner == AccessorOwner.Property)
+        {
+            var propertySignature = new BlobBuilder();
+            new BlobEncoder(propertySignature).PropertySignature(
+                isInstanceProperty: true).Parameters(
+                    0,
+                    returnType => returnType.Type().Int32(),
+                    _ => { });
+            PropertyDefinitionHandle property = metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(propertySignature));
+            metadata.AddPropertyMap(type, property);
+            metadata.AddMethodSemantics(
+                property,
+                MethodSemanticsAttributes.Getter,
+                accessor);
+        }
+        else
+        {
+            TypeReferenceHandle eventType = metadata.AddTypeReference(
+                assembly,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("EventHandler"));
+            EventDefinitionHandle @event = metadata.AddEvent(
+                EventAttributes.None,
+                metadata.GetOrAddString("Changed"),
+                eventType);
+            metadata.AddEventMap(type, @event);
+            metadata.AddMethodSemantics(
+                @event,
+                MethodSemanticsAttributes.Adder,
+                accessor);
+        }
         var value = new BlobBuilder(valueLength + 16);
         value.WriteUInt16(1);
         value.WriteCompressedInteger(valueLength);
@@ -1150,6 +1189,12 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Event,
         Interface,
         GenericConstraint,
+    }
+
+    enum AccessorOwner
+    {
+        Property,
+        Event,
     }
 
     static MetadataBuilder Metadata(string assemblyName)
