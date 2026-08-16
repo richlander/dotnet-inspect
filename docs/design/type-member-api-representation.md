@@ -65,12 +65,15 @@ of repeated in every row.
 | `TypeNode` | One API extraction operation | Rich signature facts and inputs to display or identity projections | Cross-layer public currency or definition correspondence |
 | `ApiType`, `ApiMember`, `ApiParameter` | Materialized, JSON-capable API output | API inventory, presentation fields, and persisted identity projections | Reader-local resolution or body identity |
 | `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
+| `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
 
 #### `DotnetInspector.Queries`
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | `ApiFacetDescriptor`, `ApiTypeInventoryResult`, `ApiMemberInventoryResult` | One materialized API inventory query | Stable filter identity, labels, ordering, defaults, counts, and the selected projection | Raw metadata kind or member identity |
+| `InspectionGraphMemberIdentity.AcquiredApi` | One loaded workspace context | Which acquisition registration and `MemberAnchor` own a Metadata API member subject | Portable artifact identity or body evidence |
+| `InspectionGraphTypeIdentity.AcquiredDefinition` | One loaded workspace context | Which acquisition registration and exact `MetadataTypeDefinitionName` own a type subject | Cross-context correspondence or structural signature shape |
 | `InspectionGraphAssemblyIdentity.Acquired` | One loaded workspace context | Which acquisition registration, assembly identity, and provenance own an assembly subject in a session-bound graph | Portable artifact identity or correspondence outside that acquisition |
 | `InspectionGraphPackageIdentity.Realized` | One portable inspection-graph subject | Which exact package version, producer, framework, and RID own the package subject | Assembly membership without the workspace package-boundary projection |
 

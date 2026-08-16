@@ -3,11 +3,61 @@ using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata;
 
+public sealed record IntegrationOpportunityTarget
+{
+    public IntegrationOpportunityTarget(
+        string assemblyName,
+        MetadataTypeDefinitionName type)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyName);
+        ArgumentNullException.ThrowIfNull(type);
+        AssemblyName = assemblyName;
+        Type = type;
+    }
+
+    public string AssemblyName { get; }
+    public MetadataTypeDefinitionName Type { get; }
+}
+
 public record IntegrationOpportunityInfo(
     string Integration,
     string Api,
     string IntegrationType,
-    string LookFor);
+    string LookFor)
+{
+    internal MetadataTypeDefinitionName? SourceTypeDefinition { get; init; }
+    internal IntegrationOpportunityTarget? Target { get; init; }
+
+    public MetadataTypeDefinitionName? GetSourceTypeDefinition() =>
+        SourceTypeDefinition;
+
+    public IntegrationOpportunityTarget? GetTarget() => Target;
+
+    // Preserve the original four-field row contract. Structured source and
+    // target evidence is derived from the same policy and metadata.
+    public virtual bool Equals(IntegrationOpportunityInfo? other) =>
+        ReferenceEquals(this, other)
+        || other is not null
+        && EqualityContract == other.EqualityContract
+        && string.Equals(
+            Integration,
+            other.Integration,
+            StringComparison.Ordinal)
+        && string.Equals(Api, other.Api, StringComparison.Ordinal)
+        && string.Equals(
+            IntegrationType,
+            other.IntegrationType,
+            StringComparison.Ordinal)
+        && string.Equals(LookFor, other.LookFor, StringComparison.Ordinal);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(
+            EqualityContract,
+            Integration,
+            Api,
+            IntegrationType,
+            LookFor);
+}
 
 public static class IntegrationOpportunityScanner
 {
@@ -27,12 +77,42 @@ public static class IntegrationOpportunityScanner
 
             var typeName = reader.GetFullTypeName(typeDefinition);
             var simpleName = TypeMatcher.GetSimpleName(typeName);
+            MetadataTypeDefinitionName? sourceType =
+                MetadataTypeDefinitionNameReader.Read(reader, handle)
+                    is MetadataTypeDefinitionNameReadResult.Read read
+                        ? read.Name
+                        : null;
 
-            AddAuthDomainGaps(gaps, existingIntegrations, typeName, simpleName);
-            AddCloudClientGaps(gaps, existingIntegrations, typeName, simpleName);
-            AddConfigurationGaps(gaps, existingIntegrations, typeName, simpleName);
-            AddDatabaseGaps(gaps, existingIntegrations, typeName, simpleName);
-            AddAiClientGaps(gaps, existingIntegrations, typeName, simpleName);
+            AddAuthDomainGaps(
+                gaps,
+                existingIntegrations,
+                typeName,
+                simpleName,
+                sourceType);
+            AddCloudClientGaps(
+                gaps,
+                existingIntegrations,
+                typeName,
+                simpleName,
+                sourceType);
+            AddConfigurationGaps(
+                gaps,
+                existingIntegrations,
+                typeName,
+                simpleName,
+                sourceType);
+            AddDatabaseGaps(
+                gaps,
+                existingIntegrations,
+                typeName,
+                simpleName,
+                sourceType);
+            AddAiClientGaps(
+                gaps,
+                existingIntegrations,
+                typeName,
+                simpleName,
+                sourceType);
         }
 
         return gaps.Values
@@ -46,7 +126,8 @@ public static class IntegrationOpportunityScanner
         Dictionary<string, IntegrationOpportunityInfo> gaps,
         IReadOnlySet<string> existingIntegrations,
         string typeName,
-        string simpleName)
+        string simpleName,
+        MetadataTypeDefinitionName? sourceType)
     {
         if (Has(existingIntegrations, EcosystemIntegrationNames.Authentication))
             return;
@@ -60,14 +141,16 @@ public static class IntegrationOpportunityScanner
             integration: EcosystemIntegrationNames.Authentication,
             api: typeName,
             integrationType: "Authentication/Identity registration",
-            lookFor: "AuthenticationBuilder, Add*Identity*, Add*Cognito*");
+            lookFor: "AuthenticationBuilder, Add*Identity*, Add*Cognito*",
+            sourceType);
     }
 
     private static void AddCloudClientGaps(
         Dictionary<string, IntegrationOpportunityInfo> gaps,
         IReadOnlySet<string> existingIntegrations,
         string typeName,
-        string simpleName)
+        string simpleName,
+        MetadataTypeDefinitionName? sourceType)
     {
         var cloudClient = (typeName.StartsWith("Amazon.", StringComparison.Ordinal)
                            || typeName.StartsWith("Azure.", StringComparison.Ordinal))
@@ -81,7 +164,8 @@ public static class IntegrationOpportunityScanner
                 integration: EcosystemIntegrationNames.DependencyInjection,
                 api: typeName,
                 integrationType: "IServiceCollection registration",
-                lookFor: "IServiceCollection, Add*");
+                lookFor: "IServiceCollection, Add*",
+                sourceType);
         }
 
         if (!Has(existingIntegrations, EcosystemIntegrationNames.Aspire))
@@ -90,7 +174,8 @@ public static class IntegrationOpportunityScanner
                 integration: EcosystemIntegrationNames.Aspire,
                 api: typeName,
                 integrationType: "AppHost resource builder",
-                lookFor: "IResourceBuilder<T>, Add*, *Resource");
+                lookFor: "IResourceBuilder<T>, Add*, *Resource",
+                sourceType);
         }
     }
 
@@ -98,7 +183,8 @@ public static class IntegrationOpportunityScanner
         Dictionary<string, IntegrationOpportunityInfo> gaps,
         IReadOnlySet<string> existingIntegrations,
         string typeName,
-        string simpleName)
+        string simpleName,
+        MetadataTypeDefinitionName? sourceType)
     {
         if (Has(existingIntegrations, EcosystemIntegrationNames.Configuration))
             return;
@@ -110,7 +196,8 @@ public static class IntegrationOpportunityScanner
                 integration: EcosystemIntegrationNames.Configuration,
                 api: typeName,
                 integrationType: "IConfigurationBuilder source",
-                lookFor: "IConfigurationBuilder, AddAzureAppConfiguration");
+                lookFor: "IConfigurationBuilder, AddAzureAppConfiguration",
+                sourceType);
         }
     }
 
@@ -118,7 +205,8 @@ public static class IntegrationOpportunityScanner
         Dictionary<string, IntegrationOpportunityInfo> gaps,
         IReadOnlySet<string> existingIntegrations,
         string typeName,
-        string simpleName)
+        string simpleName,
+        MetadataTypeDefinitionName? sourceType)
     {
         var databaseShape = typeName is "Npgsql.NpgsqlConnection"
             or "Microsoft.Data.SqlClient.SqlConnection"
@@ -135,7 +223,8 @@ public static class IntegrationOpportunityScanner
                 integration: EcosystemIntegrationNames.HealthChecks,
                 api: typeName,
                 integrationType: "IHealthChecksBuilder registration",
-                lookFor: "IHealthChecksBuilder, Add*");
+                lookFor: "IHealthChecksBuilder, Add*",
+                sourceType);
         }
 
         if (!Has(existingIntegrations, EcosystemIntegrationNames.Aspire))
@@ -144,7 +233,8 @@ public static class IntegrationOpportunityScanner
                 integration: EcosystemIntegrationNames.Aspire,
                 api: typeName,
                 integrationType: "AppHost resource builder",
-                lookFor: "IResourceBuilder<T>, Add*, *Resource");
+                lookFor: "IResourceBuilder<T>, Add*, *Resource",
+                sourceType);
         }
     }
 
@@ -152,7 +242,8 @@ public static class IntegrationOpportunityScanner
         Dictionary<string, IntegrationOpportunityInfo> gaps,
         IReadOnlySet<string> existingIntegrations,
         string typeName,
-        string simpleName)
+        string simpleName,
+        MetadataTypeDefinitionName? sourceType)
     {
         if (Has(existingIntegrations, EcosystemIntegrationNames.AI))
             return;
@@ -170,7 +261,9 @@ public static class IntegrationOpportunityScanner
             integration: EcosystemIntegrationNames.AI,
             api: typeName,
             integrationType: "Microsoft.Extensions.AI adapter",
-            lookFor: "IChatClient, AsIChatClient, IEmbeddingGenerator");
+            lookFor: "IChatClient, AsIChatClient, IEmbeddingGenerator",
+            sourceType,
+            IChatClientTarget());
     }
 
     private static bool Has(IReadOnlySet<string> integrations, string integration)
@@ -181,7 +274,9 @@ public static class IntegrationOpportunityScanner
         string integration,
         string api,
         string integrationType,
-        string lookFor)
+        string lookFor,
+        MetadataTypeDefinitionName? sourceType,
+        IntegrationOpportunityTarget? target = null)
     {
         var key = $"{integration}\0{integrationType}";
         var formattedApi = TypeResolver.FormatDisplayName(api);
@@ -193,8 +288,22 @@ public static class IntegrationOpportunityScanner
             integration,
             formattedApi,
             integrationType,
-            lookFor);
+            lookFor)
+        {
+            SourceTypeDefinition = sourceType,
+            Target = target,
+        };
     }
+
+    static IntegrationOpportunityTarget? IChatClientTarget() =>
+        MetadataTypeDefinitionName.Create(
+            "Microsoft.Extensions.AI",
+            ["IChatClient"])
+            is MetadataTypeDefinitionNameResult.Valid valid
+                ? new IntegrationOpportunityTarget(
+                    "Microsoft.Extensions.AI.Abstractions",
+                    valid.Name)
+                : null;
 
     private static int GetEvidenceRank(string evidence)
     {

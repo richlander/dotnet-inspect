@@ -20,8 +20,23 @@ internal static class EcosystemIntegrationProjection
                 continue;
 
             var typeName = reader.GetFullTypeName(typeDefinition);
-            AddType(buckets, typeName, "TypeDef");
-            AddStarterMethods(buckets, reader, typeDefinition, typeName);
+            MetadataTypeDefinitionName? definitionName =
+                MetadataTypeDefinitionNameReader.Read(reader, handle)
+                    is MetadataTypeDefinitionNameReadResult.Read read
+                        ? read.Name
+                        : null;
+            AddType(
+                buckets,
+                typeName,
+                "TypeDef",
+                definitionName);
+            AddStarterMethods(
+                buckets,
+                reader,
+                handle,
+                typeDefinition,
+                typeName,
+                definitionName);
         }
 
         List<EcosystemIntegrationSignalInfo> results = [];
@@ -30,32 +45,36 @@ internal static class EcosystemIntegrationProjection
         return results;
     }
 
-    private static void AddType(IntegrationBuckets buckets, string typeName, string source)
+    private static void AddType(
+        IntegrationBuckets buckets,
+        string typeName,
+        string source,
+        MetadataTypeDefinitionName? definitionName)
     {
         if (source == "TypeDef" && EcosystemIntegrationClassifier.TryGetAspNetCoreKind(typeName, out var aspNetCoreKind))
-            AddType(buckets.AspNetCore, typeName, source, aspNetCoreKind);
+            AddType(buckets.AspNetCore, typeName, source, aspNetCoreKind, definitionName);
         if (source == "TypeDef" && EcosystemIntegrationClassifier.TryGetAspireKind(typeName, out var aspireKind))
-            AddType(buckets.Aspire, typeName, source, aspireKind);
+            AddType(buckets.Aspire, typeName, source, aspireKind, definitionName);
         if (source == "TypeDef" && EcosystemIntegrationClassifier.TryGetAIKind(typeName, out var aiKind))
-            AddType(GetAIBucket(buckets, aiKind), typeName, source);
+            AddType(GetAIBucket(buckets, aiKind), typeName, source, definitionName);
         if (source == "TypeDef" && EcosystemIntegrationClassifier.TryGetAuthenticationKind(typeName, out var authenticationKind))
-            AddType(buckets.Authentication, typeName, source, authenticationKind);
+            AddType(buckets.Authentication, typeName, source, authenticationKind, definitionName);
         if (source == "TypeDef" && EcosystemIntegrationClassifier.TryGetConfigurationKind(typeName, out var configurationKind))
-            AddType(buckets.Configuration, typeName, source, configurationKind);
+            AddType(buckets.Configuration, typeName, source, configurationKind, definitionName);
         if (source == "TypeDef" && EcosystemIntegrationClassifier.TryGetOpenApiKind(typeName, out var openApiKind))
-            AddType(buckets.OpenApi, typeName, source, openApiKind);
+            AddType(buckets.OpenApi, typeName, source, openApiKind, definitionName);
         if (EcosystemIntegrationClassifier.TryGetDependencyInjectionKind(typeName, out var dependencyInjectionKind))
-            AddType(buckets.DependencyInjection, typeName, source, dependencyInjectionKind);
+            AddType(buckets.DependencyInjection, typeName, source, dependencyInjectionKind, definitionName);
         if (EcosystemIntegrationClassifier.IsLoggingType(typeName))
-            AddType(buckets.Logging, typeName, source);
+            AddType(buckets.Logging, typeName, source, definitionName);
         if (EcosystemIntegrationClassifier.IsOptionsType(typeName))
-            AddType(buckets.Options, typeName, source);
+            AddType(buckets.Options, typeName, source, definitionName);
         if (EcosystemIntegrationClassifier.IsHostingType(typeName))
-            AddType(buckets.Hosting, typeName, source);
+            AddType(buckets.Hosting, typeName, source, definitionName);
         if (EcosystemIntegrationClassifier.IsHealthChecksType(typeName))
-            AddType(buckets.HealthChecks, typeName, source);
+            AddType(buckets.HealthChecks, typeName, source, definitionName);
         if (EcosystemIntegrationClassifier.TryGetHttpClientKind(typeName, out var httpClientKind))
-            AddType(buckets.HttpClient, typeName, source, httpClientKind);
+            AddType(buckets.HttpClient, typeName, source, httpClientKind, definitionName);
     }
 
     private static IntegrationBucket GetAIBucket(IntegrationBuckets buckets, string kind) => kind switch
@@ -74,27 +93,47 @@ internal static class EcosystemIntegrationProjection
         _ => throw new InvalidOperationException($"Unknown AI integration kind '{kind}'.")
     };
 
-    private static void AddType(IntegrationBucket bucket, string typeName, string source)
-        => AddType(bucket, typeName, source, bucket.ApiKind);
+    private static void AddType(
+        IntegrationBucket bucket,
+        string typeName,
+        string source,
+        MetadataTypeDefinitionName? definitionName)
+        => AddType(
+            bucket,
+            typeName,
+            source,
+            bucket.ApiKind,
+            definitionName);
 
-    private static void AddType(IntegrationBucket bucket, string typeName, string source, string kind)
+    private static void AddType(
+        IntegrationBucket bucket,
+        string typeName,
+        string source,
+        string kind,
+        MetadataTypeDefinitionName? definitionName)
     {
         if (bucket.Types.TryGetValue(typeName, out var existing))
         {
             if (!existing.Split('/').Contains(source, StringComparer.Ordinal))
                 bucket.Types[typeName] = $"{existing}/{source}";
+            if (definitionName is not null)
+                bucket.TypeDefinitions.TryAdd(typeName, definitionName);
             return;
         }
 
         bucket.Types.Add(typeName, source);
         bucket.Kinds[typeName] = kind;
+        if (definitionName is not null)
+            bucket.TypeDefinitions.Add(typeName, definitionName);
     }
 
     private static void AddStarterMethods(
         IntegrationBuckets buckets,
         MetadataReader reader,
+        TypeDefinitionHandle typeDefinitionHandle,
         TypeDefinition typeDefinition,
-        string typeName)
+        string typeName,
+        MetadataTypeDefinitionName? definitionName)
     {
         var attributes = typeDefinition.Attributes;
         var isStatic = (attributes & TypeAttributes.Sealed) != 0
@@ -124,31 +163,57 @@ internal static class EcosystemIntegrationProjection
             }
 
             var api = $"{TypeResolver.FormatDisplayName(typeName)}.{methodName}(...)";
+            EcosystemIntegrationApiEvidence? evidence = null;
+            if (definitionName is not null)
+            {
+                ExtensionMemberAnchorInfo anchor =
+                    ApiMemberIdentity.CreateExtensionMethodAnchorInfo(
+                        reader,
+                        typeDefinitionHandle,
+                        method);
+                evidence = new EcosystemIntegrationApiEvidence(
+                    anchor.Anchor,
+                    definitionName,
+                    anchor.ExtendedTypeReference,
+                    anchor.ReturnTypeReference);
+            }
             if (EcosystemIntegrationClassifier.TryClassifyAspireStarterMethod(typeName, methodName, signature, out var aspireKind))
-                buckets.Aspire.Apis.TryAdd(api, aspireKind);
+                AddApi(buckets.Aspire, api, aspireKind, evidence);
             if (EcosystemIntegrationClassifier.TryClassifyAIStarterMethod(typeName, methodName, signature, out var aiKind))
-                GetAIBucket(buckets, aiKind).Apis.TryAdd(api, aiKind);
+                AddApi(GetAIBucket(buckets, aiKind), api, aiKind, evidence);
             if (EcosystemIntegrationClassifier.TryClassifyAuthenticationStarterMethod(methodName, signature, out var authenticationKind))
-                buckets.Authentication.Apis.TryAdd(api, authenticationKind);
+                AddApi(buckets.Authentication, api, authenticationKind, evidence);
             if (EcosystemIntegrationClassifier.TryClassifyConfigurationStarterMethod(methodName, signature, out var configurationKind))
-                buckets.Configuration.Apis.TryAdd(api, configurationKind);
+                AddApi(buckets.Configuration, api, configurationKind, evidence);
             if (EcosystemIntegrationClassifier.TryClassifyDependencyInjectionStarterMethod(typeName, methodName, signature, out var dependencyInjectionKind))
-                buckets.DependencyInjection.Apis.TryAdd(api, dependencyInjectionKind);
+                AddApi(buckets.DependencyInjection, api, dependencyInjectionKind, evidence);
             if (EcosystemIntegrationClassifier.TryClassifyLoggingStarterMethod(typeName, methodName, signature, out var loggingKind))
-                buckets.Logging.Apis.TryAdd(api, loggingKind);
+                AddApi(buckets.Logging, api, loggingKind, evidence);
             if (EcosystemIntegrationClassifier.TryClassifyOpenApiStarterMethod(typeName, methodName, signature, out var openApiKind))
-                buckets.OpenApi.Apis.TryAdd(api, openApiKind);
+                AddApi(buckets.OpenApi, api, openApiKind, evidence);
             if (EcosystemIntegrationClassifier.TryClassifyOptionsStarterMethod(methodName, signature, out var optionsKind))
-                buckets.Options.Apis.TryAdd(api, optionsKind);
+                AddApi(buckets.Options, api, optionsKind, evidence);
             if (EcosystemIntegrationClassifier.TryClassifyAspNetCoreStarterMethod(methodName, signature, out var aspNetCoreKind))
-                buckets.AspNetCore.Apis.TryAdd(api, aspNetCoreKind);
+                AddApi(buckets.AspNetCore, api, aspNetCoreKind, evidence);
             if (EcosystemIntegrationClassifier.TryClassifyHealthChecksStarterMethod(methodName, signature, out var healthChecksKind))
-                buckets.HealthChecks.Apis.TryAdd(api, healthChecksKind);
+                AddApi(buckets.HealthChecks, api, healthChecksKind, evidence);
             if (EcosystemIntegrationClassifier.TryClassifyHostingStarterMethod(typeName, methodName, signature, out var hostingKind))
-                buckets.Hosting.Apis.TryAdd(api, hostingKind);
+                AddApi(buckets.Hosting, api, hostingKind, evidence);
             if (EcosystemIntegrationClassifier.TryClassifyHttpClientStarterMethod(typeName, methodName, signature, out var httpClientKind))
-                buckets.HttpClient.Apis.TryAdd(api, httpClientKind);
+                AddApi(buckets.HttpClient, api, httpClientKind, evidence);
         }
+    }
+
+    static void AddApi(
+        IntegrationBucket bucket,
+        string api,
+        string kind,
+        EcosystemIntegrationApiEvidence? evidence)
+    {
+        if (!bucket.Apis.TryAdd(api, kind))
+            return;
+        if (evidence is not null)
+            bucket.ApiEvidence.Add(api, evidence);
     }
 
     private static void AddRows(List<EcosystemIntegrationSignalInfo> results, IntegrationBucket bucket)
@@ -158,13 +223,20 @@ internal static class EcosystemIntegrationProjection
                 bucket.Integration,
                 bucket.Apis[api],
                 api,
-                IntegrationSignalShape.Api));
+                IntegrationSignalShape.Api)
+            {
+                ApiEvidence = bucket.ApiEvidence.GetValueOrDefault(api),
+            });
 
         foreach (var type in OrderTypes(bucket.Types))
             results.Add(new EcosystemIntegrationSignalInfo(
                 bucket.Integration,
                 bucket.Kinds.TryGetValue(type, out var kind) ? kind : bucket.ApiKind,
-                TypeResolver.FormatDisplayName(type)));
+                TypeResolver.FormatDisplayName(type))
+            {
+                TypeDefinition =
+                    bucket.TypeDefinitions.GetValueOrDefault(type),
+            });
     }
 
     private static IEnumerable<string> OrderApis(Dictionary<string, string> apis)
@@ -257,8 +329,12 @@ internal static class EcosystemIntegrationProjection
         public string Integration { get; } = integration;
         public string ApiKind { get; } = apiKind;
         public Dictionary<string, string> Apis { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, EcosystemIntegrationApiEvidence>
+            ApiEvidence { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, string> Types { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, string> Kinds { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, MetadataTypeDefinitionName>
+            TypeDefinitions { get; } = new(StringComparer.Ordinal);
     }
 
     private sealed class IntegrationBuckets

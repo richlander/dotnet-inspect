@@ -30,6 +30,26 @@ public class EcosystemIntegrationScannerTests
         ];
 
         Assert.Equal(expected, signals);
+        EcosystemIntegrationApiEvidence api = Assert.IsType<
+            EcosystemIntegrationApiEvidence>(
+                signals[0].GetApiEvidence());
+        Assert.Equal("AddPublicThing", api.Member.MemberName);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.TestServiceCollectionExtensions",
+            api.DeclaringType.ToMetadataFullName());
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+            api.ReceiverType?.Type.ToMetadataFullName());
+        Assert.IsType<MetadataTypeReferenceScope.CurrentAssembly>(
+            api.ReceiverType?.Scope);
+        Assert.Equal(
+            "System.Void",
+            api.ReturnType?.Type.ToMetadataFullName());
+        Assert.IsType<MetadataTypeReferenceScope.IntrinsicCoreLibrary>(
+            api.ReturnType?.Scope);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+            signals[1].GetTypeDefinition()?.ToMetadataFullName());
 
         var scannedPresence =
             EcosystemIntegrationScanner.ScanPresence(peReader.GetMetadataReader());
