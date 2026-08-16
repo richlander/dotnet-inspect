@@ -222,8 +222,8 @@ public sealed record StructuralCloneComparison
 }
 
 /// <summary>
-/// Exact normalized structural comparison over two method bodies in one
-/// retained PE image.
+/// Exact normalized structural comparison and bounded discovery over method
+/// bodies in one retained PE image.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -242,7 +242,7 @@ public sealed record StructuralCloneComparison
 /// Nops and redundant branches are retained rather than normalized away.
 /// </para>
 /// </remarks>
-public static class StructuralCloneAnalysis
+public static partial class StructuralCloneAnalysis
 {
     internal const byte HasThisSignatureFlag = 0x20;
     internal const byte ExplicitThisSignatureFlag = 0x40;
@@ -261,77 +261,33 @@ public static class StructuralCloneAnalysis
             new(Guid.Empty, left);
         MetadataMethodAddress rightAddress =
             new(Guid.Empty, right);
-        bool hasMetadata;
-        try
-        {
-            hasMetadata = image.HasMetadata;
-        }
-        catch (Exception ex) when (
-            ex is BadImageFormatException
-                or ArgumentException
-                or ArgumentOutOfRangeException
-                or InvalidOperationException and not ObjectDisposedException
-                or OverflowException)
+        if (!TryGetMetadataReader(
+                image,
+                out MetadataReader reader,
+                out StructuralCloneMetadataFailure metadataFailure))
         {
             return MetadataReadFailure(
                 leftAddress,
                 rightAddress,
-                "metadata directory",
-                ex);
-        }
-        if (!hasMetadata)
-        {
-            throw new ArgumentException(
-                "Structural clone comparison requires a managed metadata image.",
-                nameof(image));
-        }
-
-        MetadataReader reader;
-        try
-        {
-            reader = image.GetMetadataReader();
-        }
-        catch (Exception ex) when (
-            ex is BadImageFormatException
-                or ArgumentException
-                or ArgumentOutOfRangeException
-                or InvalidOperationException
-                or OverflowException)
-        {
-            return MetadataReadFailure(
-                leftAddress,
-                rightAddress,
-                "metadata root",
-                ex);
+                metadataFailure.Subject,
+                metadataFailure.Exception);
         }
 
         ValidateHandle(reader, left, nameof(left));
         ValidateHandle(reader, right, nameof(right));
-        try
-        {
-            ModuleDefinition module = reader.GetModuleDefinition();
-            if (module.Mvid.IsNil)
-            {
-                throw new BadImageFormatException(
-                    "The module has no version identifier.");
-            }
-            Guid moduleVersionId = reader.GetGuid(module.Mvid);
-            leftAddress = new(moduleVersionId, left);
-            rightAddress = new(moduleVersionId, right);
-        }
-        catch (Exception ex) when (
-            ex is BadImageFormatException
-                or ArgumentException
-                or ArgumentOutOfRangeException
-                or InvalidOperationException
-                or OverflowException)
+        if (!TryGetModuleVersionId(
+                reader,
+                out Guid moduleVersionId,
+                out metadataFailure))
         {
             return MetadataReadFailure(
                 leftAddress,
                 rightAddress,
-                "module identity",
-                ex);
+                metadataFailure.Subject,
+                metadataFailure.Exception);
         }
+        leftAddress = new(moduleVersionId, left);
+        rightAddress = new(moduleVersionId, right);
         BodyProduction leftBody =
             Produce(image, reader, leftAddress, StructuralCloneSide.Left, limits);
         BodyProduction rightBody =
@@ -372,6 +328,83 @@ public static class StructuralCloneAnalysis
             ],
             new StructuralCloneVerificationReceipt(
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false));
+
+    static bool TryGetMetadataReader(
+        PEReader image,
+        out MetadataReader reader,
+        out StructuralCloneMetadataFailure failure)
+    {
+        bool hasMetadata;
+        try
+        {
+            hasMetadata = image.HasMetadata;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException and not ObjectDisposedException
+                or OverflowException)
+        {
+            reader = null!;
+            failure = new("metadata directory", ex);
+            return false;
+        }
+        if (!hasMetadata)
+        {
+            throw new ArgumentException(
+                "Structural clone analysis requires a managed metadata image.",
+                nameof(image));
+        }
+
+        try
+        {
+            reader = image.GetMetadataReader();
+            failure = default;
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            reader = null!;
+            failure = new("metadata root", ex);
+            return false;
+        }
+    }
+
+    static bool TryGetModuleVersionId(
+        MetadataReader reader,
+        out Guid moduleVersionId,
+        out StructuralCloneMetadataFailure failure)
+    {
+        try
+        {
+            ModuleDefinition module = reader.GetModuleDefinition();
+            if (module.Mvid.IsNil)
+            {
+                throw new BadImageFormatException(
+                    "The module has no version identifier.");
+            }
+            moduleVersionId = reader.GetGuid(module.Mvid);
+            failure = default;
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            moduleVersionId = Guid.Empty;
+            failure = new("module identity", ex);
+            return false;
+        }
+    }
 
     internal static StructuralCloneComparison Compare(
         StructuralCloneBodyFacts left,

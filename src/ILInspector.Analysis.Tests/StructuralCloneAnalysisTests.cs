@@ -113,6 +113,288 @@ public class StructuralCloneAnalysisTests
     }
 
     [Fact]
+    public void Discover_CompilerProducedPopulation_FindsClosedExactFamilies()
+    {
+        using PEReader image = OpenFixture();
+        MetadataReader reader = image.GetMetadataReader();
+        ImmutableArray<MethodDefinitionHandle> population =
+        [
+            Method(reader, nameof(StructuralCloneFixture.ExactPositiveA)),
+            Method(reader, nameof(StructuralCloneFixture.ExactPositiveB)),
+            Method(reader, nameof(StructuralCloneFixture.EdgeRoleNegativeA)),
+            Method(reader, nameof(StructuralCloneFixture.EdgeRoleNegativeB)),
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardByte)),
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardUInt)),
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardString)),
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardObject)),
+            Method(reader, nameof(StructuralCloneFixture.MetadataOperandsA)),
+            Method(reader, nameof(StructuralCloneFixture.MetadataOperandsB)),
+            Method(reader, nameof(StructuralCloneFixture.ExceptionHandlingA)),
+            Method(reader, nameof(StructuralCloneFixture.ExceptionHandlingB)),
+        ];
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(image, population);
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.Completed,
+            result.Disposition);
+        Assert.Empty(result.Blockers);
+        Assert.Empty(result.SuppressedBuckets);
+        Assert.Empty(result.UnresolvedComparisons);
+        Assert.Equal(4, result.Clusters.Length);
+        Assert.Equal(12, result.Receipt.ProcessedMethods);
+        Assert.Equal(10, result.Receipt.EligibleMethods);
+        Assert.Equal(2, result.Receipt.UnsupportedMethods);
+        Assert.Equal(4, result.Receipt.ExactComparisons);
+        Assert.Equal(1, result.Receipt.DifferentComparisons);
+
+        AssertCluster(
+            result,
+            Method(reader, nameof(StructuralCloneFixture.ExactPositiveA)),
+            Method(reader, nameof(StructuralCloneFixture.ExactPositiveB)));
+        AssertCluster(
+            result,
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardByte)),
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardUInt)));
+        AssertCluster(
+            result,
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardString)),
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardObject)));
+        AssertCluster(
+            result,
+            Method(reader, nameof(StructuralCloneFixture.MetadataOperandsA)),
+            Method(reader, nameof(StructuralCloneFixture.MetadataOperandsB)));
+
+        HashSet<MethodDefinitionHandle> clustered =
+        [
+            .. result.Clusters.SelectMany(static cluster =>
+                cluster.Members.Select(static member => member.Handle)),
+        ];
+        Assert.DoesNotContain(
+            Method(reader, nameof(StructuralCloneFixture.EdgeRoleNegativeA)),
+            clustered);
+        Assert.DoesNotContain(
+            Method(reader, nameof(StructuralCloneFixture.EdgeRoleNegativeB)),
+            clustered);
+    }
+
+    [Fact]
+    public void Discover_ThreeMemberFamily_UsesRepresentativeEvidence()
+    {
+        using PEReader image = OpenImage(BuildTripletAssembly([0x2A]));
+        ImmutableArray<MethodDefinitionHandle> population =
+        [
+            MetadataTokens.MethodDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2),
+            MetadataTokens.MethodDefinitionHandle(3),
+        ];
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(image, population);
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.Completed,
+            result.Disposition);
+        StructuralCloneCluster cluster = Assert.Single(result.Clusters);
+        Assert.Equal(3, cluster.Members.Length);
+        Assert.Equal(2, cluster.Evidence.Length);
+        Assert.All(
+            cluster.Evidence,
+            static evidence => Assert.Equal(
+                StructuralCloneRelation.Exact,
+                evidence.Relation));
+        Assert.Equal(2, result.Receipt.CandidateComparisons);
+    }
+
+    [Fact]
+    public void Discover_InputOrder_DoesNotChangeClusterIdentity()
+    {
+        using PEReader image = OpenImage(BuildTripletAssembly([0x2A]));
+        MethodDefinitionHandle first =
+            MetadataTokens.MethodDefinitionHandle(1);
+        MethodDefinitionHandle second =
+            MetadataTokens.MethodDefinitionHandle(2);
+        MethodDefinitionHandle third =
+            MetadataTokens.MethodDefinitionHandle(3);
+
+        StructuralCloneDiscoveryResult forward =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [first, second, third]);
+        StructuralCloneDiscoveryResult reverse =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [third, first, second]);
+
+        Assert.Equal(
+            Assert.Single(forward.Clusters).Identity,
+            Assert.Single(reverse.Clusters).Identity);
+    }
+
+    [Fact]
+    public void Discover_DuplicateHandles_AreCallerError()
+    {
+        using PEReader image = OpenImage(BuildTwinAssembly([0x2A]));
+        MethodDefinitionHandle method =
+            MetadataTokens.MethodDefinitionHandle(1);
+
+        Assert.Throws<ArgumentException>(
+            () => StructuralCloneAnalysis.Discover(
+                image,
+                [method, method]));
+    }
+
+    [Fact]
+    public void Discover_ExactComparisonBudget_CanComplete()
+    {
+        using PEReader image = OpenImage(BuildTripletAssembly([0x2A]));
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [
+                    MetadataTokens.MethodDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2),
+                    MetadataTokens.MethodDefinitionHandle(3),
+                ],
+                new StructuralCloneDiscoveryLimits(
+                    MaximumCandidateComparisons: 2));
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.Completed,
+            result.Disposition);
+        Assert.Single(result.Clusters);
+        Assert.Equal(2, result.Receipt.CandidateComparisons);
+    }
+
+    [Fact]
+    public void Discover_ExhaustedBudget_SuppressesLaterBucketsBeforeReplay()
+    {
+        using PEReader image = OpenFixture();
+        MetadataReader reader = image.GetMetadataReader();
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [
+                    Method(
+                        reader,
+                        nameof(StructuralCloneFixture.ExactPositiveA)),
+                    Method(
+                        reader,
+                        nameof(StructuralCloneFixture.ExactPositiveB)),
+                    Method(
+                        reader,
+                        nameof(StructuralCloneFixture.MetadataOperandsA)),
+                    Method(
+                        reader,
+                        nameof(StructuralCloneFixture.MetadataOperandsB)),
+                ],
+                new StructuralCloneDiscoveryLimits(
+                    MaximumCandidateComparisons: 1));
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.LimitReached,
+            result.Disposition);
+        Assert.Single(result.Clusters);
+        Assert.Single(result.SuppressedBuckets);
+        Assert.Equal(1, result.Receipt.CandidateComparisons);
+        Assert.Equal(6, result.Receipt.BodyProductions);
+    }
+
+    [Fact]
+    public void Discover_MidBucketBudget_EmitsNoPartialCluster()
+    {
+        using PEReader image = OpenImage(BuildTripletAssembly([0x2A]));
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [
+                    MetadataTokens.MethodDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2),
+                    MetadataTokens.MethodDefinitionHandle(3),
+                ],
+                new StructuralCloneDiscoveryLimits(
+                    MaximumCandidateComparisons: 1));
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.LimitReached,
+            result.Disposition);
+        Assert.Empty(result.Clusters);
+        StructuralCloneSuppressedBucket suppressed =
+            Assert.Single(result.SuppressedBuckets);
+        Assert.Equal(3, suppressed.Methods.Length);
+        Assert.Equal(
+            StructuralCloneDiscoveryBlockerKind.CandidateComparisonLimit,
+            suppressed.Reason.Kind);
+        Assert.Equal(1, result.Receipt.CandidateComparisons);
+        Assert.Equal(6, result.Receipt.BodyProductions);
+    }
+
+    [Fact]
+    public void Discover_MethodLimitAdmission_IsAtomic()
+    {
+        using PEReader image = OpenImage(BuildTwinAssembly([0x2A]));
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [
+                    MetadataTokens.MethodDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2),
+                ],
+                new StructuralCloneDiscoveryLimits(MaximumMethods: 1));
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.LimitReached,
+            result.Disposition);
+        Assert.Empty(result.Methods);
+        Assert.Equal(0, result.Receipt.ProcessedMethods);
+        Assert.Equal(0, result.Receipt.BodyProductions);
+        Assert.Equal(2, result.Receipt.SuppressedMethods);
+    }
+
+    [Fact]
+    public void Discover_MalformedModuleIdentity_ReturnsTypedFailure()
+    {
+        using PEReader image = OpenImage(
+            BuildMalformedModuleIdentityTwinAssembly());
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [
+                    MetadataTokens.MethodDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2),
+                ]);
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.Failed,
+            result.Disposition);
+        Assert.Empty(result.Methods);
+        StructuralCloneDiscoveryBlocker blocker =
+            Assert.Single(result.Blockers);
+        Assert.Equal(
+            StructuralCloneDiscoveryBlockerKind.MetadataReadFailure,
+            blocker.Kind);
+    }
+
+    [Fact]
+    public void Discover_InvalidLimits_AreCallerError()
+    {
+        using PEReader image = OpenImage(BuildTwinAssembly([0x2A]));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => StructuralCloneAnalysis.Discover(
+                image,
+                [MetadataTokens.MethodDefinitionHandle(1)],
+                new StructuralCloneDiscoveryLimits(
+                    MaximumCandidateComparisons: 0)));
+    }
+
+    [Fact]
     public void Compare_SameNamedLocalsFromDifferentAssemblyIdentities_AreDifferent()
     {
         using PEReader image = OpenImage(
@@ -1670,6 +1952,23 @@ public class StructuralCloneAnalysisTests
         => new(File.OpenRead(
             typeof(StructuralCloneFixture).Assembly.Location));
 
+    static void AssertCluster(
+        StructuralCloneDiscoveryResult result,
+        params MethodDefinitionHandle[] expected)
+    {
+        int[] expectedTokens =
+        [
+            .. expected
+                .Select(static method =>
+                    MetadataTokens.GetToken(method))
+                .Order(),
+        ];
+        Assert.Single(
+            result.Clusters,
+            cluster => cluster.Identity.MethodTokens.SequenceEqual(
+                expectedTokens));
+    }
+
     static MethodDefinitionHandle Method(
         MetadataReader reader,
         string name)
@@ -2052,6 +2351,27 @@ public class StructuralCloneAnalysisTests
             secondBody,
             implementation: implementation,
             attributes: attributes);
+        return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildTripletAssembly(byte[] il)
+    {
+        MetadataBuilder metadata = AssemblyMetadata();
+        AddFixtureType(metadata);
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        AddMethod(
+            metadata,
+            "First",
+            AddBody(bodyEncoder, il, localSignature: default));
+        AddMethod(
+            metadata,
+            "Second",
+            AddBody(bodyEncoder, il, localSignature: default));
+        AddMethod(
+            metadata,
+            "Third",
+            AddBody(bodyEncoder, il, localSignature: default));
         return Serialize(metadata, bodies);
     }
 
