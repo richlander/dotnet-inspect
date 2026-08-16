@@ -41,13 +41,15 @@ family.
 two exact `AnnotatedSourceDocument` values describing the same physical method
 body. Each product document carries assembly name, MVID, MethodDef token, body
 fingerprint, and source-facing member label. Each supported C# node carries the
-sorted IL-origin set retained by its contributing IR subtree and its
-same-origin rendered-IR ancestry depth. The issuer first requires equal physical
-method provenance, hashes each exact document revision, and then matches only
-evidence keys unique on both sides. If an origin family's node cardinality
-changes, the whole family is ambiguous rather than shifting ancestry-depth
-matches. Equal document-local ids, source coordinates, selected text, kind
-labels, and display order never establish cross-document identity.
+sorted IL-origin set retained by its contributing IR subtree. The issuer first
+requires equal physical method provenance, hashes each exact document revision,
+and then matches only origin sets unique on both sides. A repeated origin set is
+ambiguous even when nested nodes happen to occupy corresponding depths: wrapper
+substitution can shift those depths without preserving identity. A unique
+one-sided set is `NoCounterpart` only when every opposite-side node carries
+provenance; otherwise the incomplete population leaves it ambiguous. Equal
+document-local ids, source coordinates, selected text, kind labels, and display
+order never establish cross-document identity.
 
 The issued `CSharpNodeCorrespondenceResult` retains the exact documents and
 their revision identities, document-scoped node identities, the

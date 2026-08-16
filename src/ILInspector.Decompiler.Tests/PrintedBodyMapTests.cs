@@ -1912,6 +1912,26 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    public void AnnotatedSourceDocumentSourceRejectsTextThatCannotHashOrReplayExactly()
+    {
+        static AnnotatedSourceDocumentSource Make(string assemblyName, string subject)
+            => new(
+                assemblyName,
+                Guid.Parse("11111111-2222-3333-4444-555555555555"),
+                0x06000001,
+                new string('A', 64),
+                subject);
+
+        var assembly = Assert.Throws<ArgumentException>(() => Make("\ud800", "Fixture.M"));
+        Assert.Equal("AssemblyName", assembly.ParamName);
+        Assert.Contains("U+D800", assembly.Message, StringComparison.Ordinal);
+
+        var subject = Assert.Throws<ArgumentException>(() => Make("Fixture", "\udc00"));
+        Assert.Equal("Subject", subject.ParamName);
+        Assert.Contains("U+DC00", subject.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AnnotatedSourceDocumentRejectsOverlayTextThatIsNotWellFormedUtf16()
     {
         static AnnotatedSourceDocument Make(

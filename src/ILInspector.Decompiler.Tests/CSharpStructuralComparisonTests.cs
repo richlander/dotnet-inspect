@@ -1,3 +1,7 @@
+using System.Buffers.Binary;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
@@ -456,10 +460,10 @@ public class CSharpStructuralComparisonTests
     {
         var before = TrustedDocument(
             "return;",
-            new NodeSpec("ReturnStatement", "return;", [0x10], 0));
+            new NodeSpec("ReturnStatement", "return;", [0x10]));
         var after = TrustedDocument(
             "    break;",
-            new NodeSpec("BreakStatement", "break;", [0x10], 0));
+            new NodeSpec("BreakStatement", "break;", [0x10]));
 
         var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
 
@@ -492,10 +496,10 @@ public class CSharpStructuralComparisonTests
     {
         var before = TrustedDocument(
             "Call();",
-            new NodeSpec("InvocationExpression", "Call()", [0x10], 0));
+            new NodeSpec("InvocationExpression", "Call()", [0x10]));
         var after = TrustedDocument(
             "Call();",
-            new NodeSpec("InvocationExpression", "Call()", [0x20], 0));
+            new NodeSpec("InvocationExpression", "Call()", [0x20]));
 
         var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
 
@@ -513,11 +517,11 @@ public class CSharpStructuralComparisonTests
     {
         var before = TrustedDocument(
             "Call(); Call();",
-            new NodeSpec("InvocationExpression", "Call()", [0x10], 0),
-            new NodeSpec("InvocationExpression", "Call()", [0x10], 0, Occurrence: 1));
+            new NodeSpec("InvocationExpression", "Call()", [0x10]),
+            new NodeSpec("InvocationExpression", "Call()", [0x10], Occurrence: 1));
         var after = TrustedDocument(
             "Call();",
-            new NodeSpec("InvocationExpression", "Call()", [0x10], 0));
+            new NodeSpec("InvocationExpression", "Call()", [0x10]));
 
         var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
 
@@ -535,38 +539,16 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
-    public void IssueCorrespondence_DistinguishesNestedNodesWithSameIlOrigins()
+    public void IssueCorrespondence_PreservesAmbiguousNestedNodesWithSameIlOrigins()
     {
         var before = TrustedDocument(
             "Call();",
-            new NodeSpec("ExpressionStatement", "Call();", [0x10], 0),
-            new NodeSpec("InvocationExpression", "Call()", [0x10], 1));
+            new NodeSpec("InvocationExpression", "Call();", [0x10]),
+            new NodeSpec("NameExpression", "Call", [0x10]));
         var after = TrustedDocument(
             "await Call();",
-            new NodeSpec("ExpressionStatement", "await Call();", [0x10], 0),
-            new NodeSpec("AwaitExpression", "await Call()", [0x10], 1));
-
-        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
-
-        Assert.Equal(2, issued.Matches.Length);
-        var comparison = CSharpBodyDiff.CompareStructure(issued);
-        Assert.Equal(2, comparison.Rows.Length);
-        Assert.All(comparison.Rows, row =>
-            Assert.True(row.Change.HasFlag(CSharpStructuralChangeKind.Changed)));
-    }
-
-    [Fact]
-    public void IssueCorrespondence_DoesNotShiftMatchesWhenSameOriginWrapperIsInserted()
-    {
-        var before = TrustedDocument(
-            "Call();",
-            new NodeSpec("ExpressionStatement", "Call();", [0x10], 0),
-            new NodeSpec("InvocationExpression", "Call()", [0x10], 1));
-        var after = TrustedDocument(
-            "await Call();",
-            new NodeSpec("ExpressionStatement", "await Call();", [0x10], 0),
-            new NodeSpec("AwaitExpression", "await Call()", [0x10], 1),
-            new NodeSpec("InvocationExpression", "Call()", [0x10], 2));
+            new NodeSpec("AwaitExpression", "await Call();", [0x10]),
+            new NodeSpec("InvocationExpression", "Call", [0x10]));
 
         var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
 
@@ -581,15 +563,72 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void IssueCorrespondence_DoesNotShiftMatchesWhenSameOriginWrapperIsInserted()
+    {
+        var before = TrustedDocument(
+            "Call();",
+            new NodeSpec("ExpressionStatement", "Call();", [0x10]),
+            new NodeSpec("InvocationExpression", "Call()", [0x10]));
+        var after = TrustedDocument(
+            "await Call();",
+            new NodeSpec("ExpressionStatement", "await Call();", [0x10]),
+            new NodeSpec("AwaitExpression", "await Call()", [0x10]),
+            new NodeSpec("InvocationExpression", "Call()", [0x10]));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Empty(issued.Matches);
+        Assert.All(
+            issued.UnmatchedBefore,
+            node => Assert.Equal(CSharpUnmatchedNodeReason.Ambiguous, node.Reason));
+        Assert.All(
+            issued.UnmatchedAfter,
+            node => Assert.Equal(CSharpUnmatchedNodeReason.Ambiguous, node.Reason));
+        Assert.Empty(CSharpBodyDiff.CompareStructure(issued).Rows);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotInventCounterpartAcrossUnsupportedPopulation()
+    {
+        var before = TrustedDocument(
+            "Call();",
+            new NodeSpec("InvocationExpression", "Call()", [0x10]));
+        var after = new AnnotatedSourceDocument(
+            "Call();",
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "InvocationExpression",
+                    SourceLineKind.CSharp,
+                    [new(0, 6)])
+            ],
+            [],
+            [],
+            [],
+            Source());
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Empty(issued.Matches);
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.Ambiguous,
+            Assert.Single(issued.UnmatchedBefore).Reason);
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.Unsupported,
+            Assert.Single(issued.UnmatchedAfter).Reason);
+        Assert.Empty(CSharpBodyDiff.CompareStructure(issued).Rows);
+    }
+
+    [Fact]
     public void IssuedCorrespondence_RoundTripsDocumentNodeProvenanceAndUnmatchedNodes()
     {
         var before = TrustedDocument(
             "A(); B();",
-            new NodeSpec("InvocationExpression", "A()", [0x10], 0),
-            new NodeSpec("InvocationExpression", "B()", [0x20], 0));
+            new NodeSpec("InvocationExpression", "A()", [0x10]),
+            new NodeSpec("InvocationExpression", "B()", [0x20]));
         var after = TrustedDocument(
             "A();",
-            new NodeSpec("InvocationExpression", "A()", [0x10], 0));
+            new NodeSpec("InvocationExpression", "A()", [0x10]));
         var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
 
         string json = JsonSerializer.Serialize(
@@ -614,7 +653,7 @@ public class CSharpStructuralComparisonTests
         var withoutSource = Document("return;", "ReturnStatement", "return;");
         var trusted = TrustedDocument(
             "return;",
-            new NodeSpec("ReturnStatement", "return;", [0x10], 0));
+            new NodeSpec("ReturnStatement", "return;", [0x10]));
 
         Assert.Throws<ArgumentException>(() =>
             CSharpBodyDiff.IssueCorrespondence(withoutSource, trusted));
@@ -650,12 +689,39 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void ProductBodyFingerprint_HashesExactSignatureAndMethodBodyBytes()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var reader = source.Reader;
+        var method = reader.MethodDefinitions.Single(handle =>
+            reader.GetString(reader.GetMethodDefinition(handle).Name)
+                == nameof(CfgSampleClass.CallsKeywordInstanceMethod));
+        var definition = reader.GetMethodDefinition(method);
+        var body = source.Pe.GetMethodBody(definition.RelativeVirtualAddress);
+
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        AppendFingerprintInt32(hash, (int)definition.Attributes);
+        AppendFingerprintInt32(hash, (int)definition.ImplAttributes);
+        AppendFingerprintBytes(hash, reader.GetBlobBytes(definition.Signature));
+        AppendFingerprintBytes(
+            hash,
+            source.Pe
+                .GetSectionData(definition.RelativeVirtualAddress)
+                .GetContent(0, body.Size)
+                .AsSpan());
+
+        Assert.Equal(
+            System.Convert.ToHexString(hash.GetHashAndReset()),
+            CSharpBodyDiff.ComputeBodyFingerprint(source, method));
+    }
+
+    [Fact]
     public void IssuedComparison_ProjectsInterleavedIlWithoutInferringFromText()
     {
         const string beforeText = "return;\nIL_0000: ret";
         const string afterText = "break;\nIL_0000: ret";
         var source = Source();
-        var provenance = new AnnotatedSourceNodeProvenance([0], 0);
+        var provenance = new AnnotatedSourceNodeProvenance([0]);
         var before = new AnnotatedSourceDocument(
             beforeText,
             [
@@ -783,9 +849,7 @@ public class CSharpStructuralComparisonTests
                     node.Kind,
                     SourceLineKind.CSharp,
                     [new AnnotatedSourceSpan(start, node.Text.Length)],
-                    Provenance: new AnnotatedSourceNodeProvenance(
-                        node.IlOffsets,
-                        node.SameOriginDepth));
+                    Provenance: new AnnotatedSourceNodeProvenance(node.IlOffsets));
             })
             .ToArray();
         return new AnnotatedSourceDocument(text, sourceNodes, [], [], [], Source());
@@ -803,6 +867,18 @@ public class CSharpStructuralComparisonTests
         string Kind,
         string Text,
         IReadOnlyList<int> IlOffsets,
-        int SameOriginDepth,
         int Occurrence = 0);
+
+    static void AppendFingerprintBytes(IncrementalHash hash, ReadOnlySpan<byte> bytes)
+    {
+        AppendFingerprintInt32(hash, bytes.Length);
+        hash.AppendData(bytes);
+    }
+
+    static void AppendFingerprintInt32(IncrementalHash hash, int value)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32LittleEndian(bytes, value);
+        hash.AppendData(bytes);
+    }
 }

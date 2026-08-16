@@ -414,10 +414,9 @@ public sealed record PrintedBodyMap
 
         if (includeNodeProvenance)
         {
-            var offsetsByNode = new int[nodes.Count][];
             for (int id = 0; id < nodes.Count; id++)
             {
-                offsetsByNode[id] =
+                int[] offsets =
                 [
                     .. contributors[id]
                         .SelectMany(static node => node.Descendants.Prepend(node))
@@ -426,36 +425,12 @@ public sealed record PrintedBodyMap
                         .Distinct()
                         .Order()
                 ];
-            }
-
-            for (int id = 0; id < nodes.Count; id++)
-            {
-                int[] offsets = offsetsByNode[id];
                 if (offsets.Length == 0)
                     continue;
 
-                int sameOriginDepth = int.MaxValue;
-                foreach (var contributor in contributors[id])
-                {
-                    int depth = 0;
-                    var counted = new HashSet<int>();
-                    for (var ancestor = contributor.Parent; ancestor is not null; ancestor = ancestor.Parent)
-                    {
-                        if (!nodeIds.TryGetValue(ancestor, out int ancestorId)
-                            || ancestorId == id
-                            || !counted.Add(ancestorId)
-                            || !offsets.SequenceEqual(offsetsByNode[ancestorId]))
-                        {
-                            continue;
-                        }
-                        depth++;
-                    }
-                    sameOriginDepth = Math.Min(sameOriginDepth, depth);
-                }
-
                 nodes[id] = nodes[id] with
                 {
-                    Provenance = new AnnotatedSourceNodeProvenance(offsets, sameOriginDepth)
+                    Provenance = new AnnotatedSourceNodeProvenance(offsets)
                 };
             }
         }

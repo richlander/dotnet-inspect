@@ -8919,7 +8919,6 @@ public partial class CommandExecutionTests
             Assert.NotEmpty(offsets);
             Assert.Equal(offsets.Order(), offsets);
             Assert.Equal(offsets.Length, offsets.Distinct().Count());
-            Assert.True(provenance.GetProperty("same_origin_depth").GetInt32() >= 0);
         });
 
         // Every coordinate is an absolute, end-exclusive UTF-16 span into that

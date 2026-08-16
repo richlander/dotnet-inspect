@@ -169,7 +169,7 @@ public class AuthoredCorpusHarnessProcessTests
                 "ReturnStatement",
                 SourceLineKind.CSharp,
                 [new(0, 7)],
-                Provenance: new AnnotatedSourceNodeProvenance([0x10], 0))],
+                Provenance: new AnnotatedSourceNodeProvenance([0x10]))],
             [],
             [new AnnotatedSourceFact(
                 0,

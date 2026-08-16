@@ -240,8 +240,8 @@ public static partial class CSharpBodyDiff
             .ToArray();
         var beforeGroups = GroupByProvenance(beforeNodes);
         var afterGroups = GroupByProvenance(afterNodes);
-        var beforeOriginCounts = CountByOrigins(beforeNodes);
-        var afterOriginCounts = CountByOrigins(afterNodes);
+        bool beforePopulationComplete = beforeNodes.All(static node => node.Provenance is not null);
+        bool afterPopulationComplete = afterNodes.All(static node => node.Provenance is not null);
         var matches = ImmutableArray.CreateBuilder<CSharpNodeMatch>();
         var unmatchedBefore = ImmutableArray.CreateBuilder<CSharpUnmatchedNode>();
         var unmatchedAfter = ImmutableArray.CreateBuilder<CSharpUnmatchedNode>();
@@ -255,14 +255,10 @@ public static partial class CSharpBodyDiff
                 continue;
             }
 
-            var key = OriginKey.From(node.Provenance);
             var origins = OriginSet.From(node.Provenance);
-            var beforeCandidates = beforeGroups[key];
-            afterGroups.TryGetValue(key, out var afterCandidates);
-            int afterOriginCount = afterOriginCounts.GetValueOrDefault(origins);
-            bool originFamilyStable = beforeOriginCounts[origins] == afterOriginCount;
-            if (originFamilyStable
-                && beforeCandidates.Count == 1
+            var beforeCandidates = beforeGroups[origins];
+            afterGroups.TryGetValue(origins, out var afterCandidates);
+            if (beforeCandidates.Count == 1
                 && afterCandidates is { Count: 1 })
             {
                 var afterNode = afterCandidates[0];
@@ -277,7 +273,8 @@ public static partial class CSharpBodyDiff
                 unmatchedBefore.Add(new CSharpUnmatchedNode(
                     identity,
                     beforeCandidates.Count == 1
-                        && afterOriginCount == 0
+                        && (afterCandidates is null or { Count: 0 })
+                        && afterPopulationComplete
                         ? CSharpUnmatchedNodeReason.NoCounterpart
                         : CSharpUnmatchedNodeReason.Ambiguous,
                     node.Provenance));
@@ -293,21 +290,18 @@ public static partial class CSharpBodyDiff
                 continue;
             }
 
-            var key = OriginKey.From(node.Provenance);
             var origins = OriginSet.From(node.Provenance);
-            var afterCandidates = afterGroups[key];
-            beforeGroups.TryGetValue(key, out var beforeCandidates);
-            int beforeOriginCount = beforeOriginCounts.GetValueOrDefault(origins);
-            bool originFamilyStable = afterOriginCounts[origins] == beforeOriginCount;
-            if (originFamilyStable
-                && afterCandidates.Count == 1
+            var afterCandidates = afterGroups[origins];
+            beforeGroups.TryGetValue(origins, out var beforeCandidates);
+            if (afterCandidates.Count == 1
                 && beforeCandidates is { Count: 1 })
                 continue;
 
             unmatchedAfter.Add(new CSharpUnmatchedNode(
                 identity,
                 afterCandidates.Count == 1
-                    && beforeOriginCount == 0
+                    && (beforeCandidates is null or { Count: 0 })
+                    && beforePopulationComplete
                     ? CSharpUnmatchedNodeReason.NoCounterpart
                     : CSharpUnmatchedNodeReason.Ambiguous,
                 node.Provenance));
@@ -504,34 +498,20 @@ public static partial class CSharpBodyDiff
             input.Fidelity);
     }
 
-    static Dictionary<OriginKey, List<AnnotatedSourceNode>> GroupByProvenance(
+    static Dictionary<OriginSet, List<AnnotatedSourceNode>> GroupByProvenance(
         IReadOnlyList<AnnotatedSourceNode> nodes)
     {
-        var groups = new Dictionary<OriginKey, List<AnnotatedSourceNode>>();
+        var groups = new Dictionary<OriginSet, List<AnnotatedSourceNode>>();
         foreach (var node in nodes)
         {
             if (node.Provenance is null)
                 continue;
-            var key = OriginKey.From(node.Provenance);
+            var key = OriginSet.From(node.Provenance);
             if (!groups.TryGetValue(key, out var values))
                 groups[key] = values = [];
             values.Add(node);
         }
         return groups;
-    }
-
-    static Dictionary<OriginSet, int> CountByOrigins(
-        IReadOnlyList<AnnotatedSourceNode> nodes)
-    {
-        var counts = new Dictionary<OriginSet, int>();
-        foreach (var node in nodes)
-        {
-            if (node.Provenance is not { } provenance)
-                continue;
-            var origins = OriginSet.From(provenance);
-            counts[origins] = counts.GetValueOrDefault(origins) + 1;
-        }
-        return counts;
     }
 
     static bool SamePhysicalMethod(
@@ -570,14 +550,6 @@ public static partial class CSharpBodyDiff
                 "Correspondence does not match the product-issued result for its exact document revisions.",
                 nameof(correspondence));
         }
-    }
-
-    readonly record struct OriginKey(string Offsets, int SameOriginDepth)
-    {
-        public static OriginKey From(AnnotatedSourceNodeProvenance provenance)
-            => new(
-                string.Join(",", provenance.IlOffsets),
-                provenance.SameOriginDepth);
     }
 
     readonly record struct OriginSet(string Offsets)

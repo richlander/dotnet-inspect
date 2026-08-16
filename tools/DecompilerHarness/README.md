@@ -46,10 +46,13 @@ comments plus a compact rich-diff table from the resulting
 
 The documents must carry equal physical method provenance. The issuer binds its
 result to SHA-256 identities of the exact document values and matches only
-unique product-owned IL-origin sets plus their same-origin IR ancestry depth.
-Document-local ids, rendered coordinates, text, kind labels, and display order
-never establish identity. Nodes with absent, non-unique, or one-sided evidence
-remain explicit `Unsupported`, `Ambiguous`, or `NoCounterpart` rows;
+unique product-owned IL-origin sets. Repeated sets remain ambiguous even when
+rendered nodes occupy corresponding ancestry depths, because wrapper
+substitution can shift those depths without preserving identity. A unique
+one-sided set becomes `NoCounterpart` only when the opposite node population
+has complete provenance. Document-local ids, rendered coordinates, text, kind
+labels, and display order never establish identity. Other nodes remain explicit
+`Unsupported`, `Ambiguous`, or `NoCounterpart` rows;
 unsupported and ambiguous rows appear under **Correspondence gaps** rather than
 being guessed as additions or removals.
 

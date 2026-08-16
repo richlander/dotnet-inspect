@@ -8,27 +8,22 @@ namespace ILInspector.Decompiler;
 /// <remarks>
 /// <para>
 /// <see cref="IlOffsets"/> is the sorted, distinct set of imported IL offsets
-/// retained by the contributing IR subtree. <see cref="SameOriginDepth"/>
-/// distinguishes nested rendered nodes that own the same offset set by counting
-/// their rendered IR ancestors with that same evidence. Neither value is a
-/// source-text coordinate or display-derived identity.
+/// retained by the contributing IR subtree. It is not a source-text coordinate
+/// or display-derived identity.
 /// </para>
 /// <para>
-/// The pair is correspondence evidence, not a universal node identity. The
+/// The set is correspondence evidence, not a universal node identity. The
 /// correspondence issuer uses it only inside two documents proven to describe
-/// the same physical method body, and only when the pair is unique on both
+/// the same physical method body, and only when the set is unique on both
 /// sides.
 /// </para>
 /// </remarks>
 public sealed record AnnotatedSourceNodeProvenance
 {
     /// <summary>Creates validated node provenance.</summary>
-    public AnnotatedSourceNodeProvenance(
-        IReadOnlyList<int> IlOffsets,
-        int SameOriginDepth)
+    public AnnotatedSourceNodeProvenance(IReadOnlyList<int> IlOffsets)
     {
         ArgumentNullException.ThrowIfNull(IlOffsets);
-        ArgumentOutOfRangeException.ThrowIfNegative(SameOriginDepth);
 
         var offsets = IlOffsets.ToArray();
         if (offsets.Length == 0)
@@ -45,26 +40,20 @@ public sealed record AnnotatedSourceNodeProvenance
         }
 
         this.IlOffsets = Array.AsReadOnly(offsets);
-        this.SameOriginDepth = SameOriginDepth;
     }
 
     /// <summary>Sorted, distinct imported IL offsets retained by the rendered node.</summary>
     public IReadOnlyList<int> IlOffsets { get; }
 
-    /// <summary>Number of rendered IR ancestors carrying the same offset set.</summary>
-    public int SameOriginDepth { get; }
-
     /// <inheritdoc/>
     public bool Equals(AnnotatedSourceNodeProvenance? other)
         => other is not null
-            && SameOriginDepth == other.SameOriginDepth
             && IlOffsets.SequenceEqual(other.IlOffsets);
 
     /// <inheritdoc/>
     public override int GetHashCode()
     {
         var hash = new HashCode();
-        hash.Add(SameOriginDepth);
         foreach (int offset in IlOffsets)
             hash.Add(offset);
         return hash.ToHashCode();
@@ -78,6 +67,9 @@ public sealed record AnnotatedSourceNodeProvenance
 /// MVID and MethodDef token provide the durable metadata address; the body
 /// fingerprint closes the documented MVID-collision boundary. Correspondence
 /// requires this value to be present and exactly equal on both documents.
+/// <c>CSharpStructuralComparisonTests.ProductBodyFingerprint_HashesExactSignatureAndMethodBodyBytes</c>
+/// gates that the fingerprint covers the physical signature and complete raw
+/// method body, including its header and exception regions.
 /// </remarks>
 public sealed record AnnotatedSourceDocumentSource
 {
@@ -92,6 +84,14 @@ public sealed record AnnotatedSourceDocumentSource
         ArgumentException.ThrowIfNullOrWhiteSpace(AssemblyName);
         ArgumentException.ThrowIfNullOrWhiteSpace(BodyFingerprint);
         ArgumentException.ThrowIfNullOrWhiteSpace(Subject);
+        AnnotatedSourceText.ValidateWellFormedUtf16(
+            AssemblyName,
+            nameof(AssemblyName),
+            "Assembly name");
+        AnnotatedSourceText.ValidateWellFormedUtf16(
+            Subject,
+            nameof(Subject),
+            "Source-facing subject");
         if ((MethodToken & unchecked((int)0xFF000000)) != 0x06000000
             || (MethodToken & 0x00FFFFFF) == 0)
         {
@@ -477,7 +477,7 @@ public sealed record AnnotatedSourceDocument
         ArgumentNullException.ThrowIfNull(Facts);
         ArgumentNullException.ThrowIfNull(Targets);
 
-        ValidateWellFormedUtf16(Text, nameof(Text), "Text");
+        AnnotatedSourceText.ValidateWellFormedUtf16(Text, nameof(Text), "Text");
 
         var nodes = Nodes.ToArray();
         if (nodes.Any(node => node is null))
@@ -550,39 +550,6 @@ public sealed record AnnotatedSourceDocument
         return hash.ToHashCode();
     }
 
-    static void ValidateWellFormedUtf16(
-        string value,
-        string parameterName,
-        string valueName)
-    {
-        // A portable document is only useful if every string replays exactly:
-        // a lone surrogate has no UTF-8 form, so System.Text.Json writes U+FFFD
-        // in its place and the round trip comes back with different content.
-        // For Text, that would also invalidate every absolute span after it.
-        // Producers already contain this before a document exists: ILStringEscaper
-        // spells an unpaired code unit as visible ASCII \uXXXX, and the portable
-        // fact escaping does the same.
-        for (int index = 0; index < value.Length; index++)
-        {
-            char c = value[index];
-            if (!char.IsSurrogate(c))
-                continue;
-            if (char.IsHighSurrogate(c)
-                && index + 1 < value.Length
-                && char.IsLowSurrogate(value[index + 1]))
-            {
-                index++;
-                continue;
-            }
-
-            string half = char.IsHighSurrogate(c) ? "high" : "low";
-            throw new ArgumentException(
-                $"{valueName} must be well-formed UTF-16, but carries an unpaired {half} surrogate U+{(int)c:X4} at index {index}; "
-                    + "exact JSON replay would substitute U+FFFD for it.",
-                parameterName);
-        }
-    }
-
     static void ValidateNodes(AnnotatedSourceNode[] nodes, string text)
     {
         int previousIlOffset = -1;
@@ -595,7 +562,10 @@ public sealed record AnnotatedSourceDocument
                     $"Node ids must be contiguous from 0 in list order; slot {index} carries id {node.Id}.",
                     "Nodes");
             }
-            ValidateWellFormedUtf16(node.Kind, "Nodes", $"Node {index} kind");
+            AnnotatedSourceText.ValidateWellFormedUtf16(
+                node.Kind,
+                "Nodes",
+                $"Node {index} kind");
             AnnotatedSourceSpans.ValidateBounds(node.Spans, text, "Nodes");
 
             // Only the offset-bearing nodes are ordered, and only against each
@@ -633,10 +603,21 @@ public sealed record AnnotatedSourceDocument
             }
             if (fact.Descriptor is null || fact.Category is null)
                 throw new ArgumentException("Fact descriptors and categories cannot be null.", "Facts");
-            ValidateWellFormedUtf16(fact.Descriptor, "Facts", $"Fact {index} descriptor");
-            ValidateWellFormedUtf16(fact.Category, "Facts", $"Fact {index} category");
+            AnnotatedSourceText.ValidateWellFormedUtf16(
+                fact.Descriptor,
+                "Facts",
+                $"Fact {index} descriptor");
+            AnnotatedSourceText.ValidateWellFormedUtf16(
+                fact.Category,
+                "Facts",
+                $"Fact {index} category");
             if (fact.Detail is { } detail)
-                ValidateWellFormedUtf16(detail, "Facts", $"Fact {index} detail");
+            {
+                AnnotatedSourceText.ValidateWellFormedUtf16(
+                    detail,
+                    "Facts",
+                    $"Fact {index} detail");
+            }
             if (!Enum.IsDefined(fact.Conditionality))
                 throw new ArgumentException($"Unknown fact conditionality: {fact.Conditionality}.", "Facts");
             if (!Enum.IsDefined(fact.Origin))
@@ -729,6 +710,42 @@ public sealed record AnnotatedSourceDocument
                     $"Fact {fact.Descriptor} targets the IL instruction at offset {offset}, which is not its own offset {fact.SourceOffset}.",
                     "Targets");
             }
+        }
+    }
+}
+
+static class AnnotatedSourceText
+{
+    internal static void ValidateWellFormedUtf16(
+        string value,
+        string parameterName,
+        string valueName)
+    {
+        // A portable document is only useful if every string replays exactly:
+        // a lone surrogate has no UTF-8 form, so System.Text.Json writes U+FFFD
+        // in its place and the round trip comes back with different content.
+        // For Text, that would also invalidate every absolute span after it.
+        // Producers already contain this before a document exists: ILStringEscaper
+        // spells an unpaired code unit as visible ASCII \uXXXX, and the portable
+        // fact escaping does the same.
+        for (int index = 0; index < value.Length; index++)
+        {
+            char c = value[index];
+            if (!char.IsSurrogate(c))
+                continue;
+            if (char.IsHighSurrogate(c)
+                && index + 1 < value.Length
+                && char.IsLowSurrogate(value[index + 1]))
+            {
+                index++;
+                continue;
+            }
+
+            string half = char.IsHighSurrogate(c) ? "high" : "low";
+            throw new ArgumentException(
+                $"{valueName} must be well-formed UTF-16, but carries an unpaired {half} surrogate U+{(int)c:X4} at index {index}; "
+                    + "exact JSON replay would substitute U+FFFD for it.",
+                parameterName);
         }
     }
 }

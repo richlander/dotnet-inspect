@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Reflection;
@@ -958,64 +959,37 @@ public static partial class CSharpBodyDiff
     static string BodyFingerprint(MetadataSource source, MethodDefinition method)
     {
         var reader = source.Reader;
-        var builder = new StringBuilder();
-        builder.Append((int)method.Attributes).Append('|')
-            .Append((int)method.ImplAttributes).Append('|')
-            .Append(MethodSignatureFingerprint(reader, method)).Append('|');
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        AppendFingerprintInt32(hash, (int)method.Attributes);
+        AppendFingerprintInt32(hash, (int)method.ImplAttributes);
+        AppendFingerprintBytes(hash, reader.GetBlobBytes(method.Signature));
 
         if (method.RelativeVirtualAddress == 0)
         {
-            var noBodyHash = SHA256.HashData(Encoding.UTF8.GetBytes(builder.Append("<no-body>").ToString()));
-            return System.Convert.ToHexString(noBodyHash);
+            AppendFingerprintInt32(hash, -1);
+            return System.Convert.ToHexString(hash.GetHashAndReset());
         }
 
         var body = source.Pe.GetMethodBody(method.RelativeVirtualAddress);
-        builder
-            .Append(body.MaxStack).Append('|')
-            .Append(body.LocalVariablesInitialized).Append('|')
-            .Append(StandaloneSignatureFingerprint(reader, body.LocalSignature)).Append('|');
-        var decoded = MethodInstructions.Decode(body);
-        if (decoded.IsComplete)
-        {
-            foreach (var instruction in decoded.Instructions)
-            {
-                builder.Append(instruction.Offset).Append(':')
-                    .Append(instruction.OpCode).Append(':')
-                    .Append(instruction.Operand).Append(':')
-                    .Append(OperandFingerprint(reader, instruction)).Append(';');
-            }
-        }
-        else
-        {
-            builder.Append(System.Convert.ToHexString(body.GetILBytes() ?? []));
-        }
-
-        foreach (var region in body.ExceptionRegions)
-        {
-            builder.Append('|')
-                .Append(region.Kind).Append(':')
-                .Append(region.TryOffset).Append(':')
-                .Append(region.TryLength).Append(':')
-                .Append(region.HandlerOffset).Append(':')
-                .Append(region.HandlerLength).Append(':')
-                .Append(region.FilterOffset).Append(':')
-                .Append(EntityFingerprint(reader, region.CatchType));
-        }
-
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
-        return System.Convert.ToHexString(hash);
+        var bodyBytes = source.Pe
+            .GetSectionData(method.RelativeVirtualAddress)
+            .GetContent(0, body.Size);
+        AppendFingerprintBytes(hash, bodyBytes.AsSpan());
+        return System.Convert.ToHexString(hash.GetHashAndReset());
     }
 
-    static string OperandFingerprint(MetadataReader reader, DecodedInstruction instruction)
-        => instruction.Operand switch
-        {
-            OperandKind.InlineString => $"string:{reader.GetUserString(MetadataTokens.UserStringHandle((int)instruction.OperandValue))}",
-            OperandKind.InlineMethod or OperandKind.InlineField or OperandKind.InlineType or OperandKind.InlineTok
-                => EntityFingerprint(reader, MetadataTokens.EntityHandle((int)instruction.OperandValue)),
-            OperandKind.InlineSig => StandaloneSignatureFingerprint(reader, (StandaloneSignatureHandle)MetadataTokens.EntityHandle((int)instruction.OperandValue)),
-            OperandKind.InlineSwitch => string.Join(",", instruction.BranchTargets),
-            _ => instruction.OperandValue.ToString(CultureInfo.InvariantCulture),
-        };
+    static void AppendFingerprintBytes(IncrementalHash hash, ReadOnlySpan<byte> bytes)
+    {
+        AppendFingerprintInt32(hash, bytes.Length);
+        hash.AppendData(bytes);
+    }
+
+    static void AppendFingerprintInt32(IncrementalHash hash, int value)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32LittleEndian(bytes, value);
+        hash.AppendData(bytes);
+    }
 
     static string EntityFingerprint(MetadataReader reader, EntityHandle handle)
         => handle.Kind switch

@@ -89,8 +89,7 @@ internal static class StructuralReview
             document,
             "nodes",
             "provenance",
-            "il_offsets",
-            "same_origin_depth");
+            "il_offsets");
         ValidateObjectArray(
             document,
             "facts",
@@ -296,7 +295,7 @@ internal static class StructuralReview
     static string FormatEvidence(AnnotatedSourceNodeProvenance? evidence)
         => evidence is null
             ? ""
-            : $"{string.Join(", ", evidence.IlOffsets.Select(static offset => $"IL_{offset:X4}"))}; depth {evidence.SameOriginDepth}";
+            : string.Join(", ", evidence.IlOffsets.Select(static offset => $"IL_{offset:X4}"));
 
     static string FencedCSharp(string body)
     {
