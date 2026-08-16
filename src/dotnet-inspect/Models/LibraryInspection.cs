@@ -286,6 +286,27 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public AssemblyInfo? AssemblyInfo { get; set; }
 
+    [JsonIgnore]
+    internal List<AssemblyReferenceNode>? IdentifierConfusionReferenceClosure
+    {
+        get;
+        set;
+    }
+
+    [JsonIgnore]
+    internal IdentifierConfusionAuditFailureKind? IdentifierConfusionFailure
+    {
+        get;
+        set;
+    }
+
+    [JsonIgnore]
+    internal IdentifierConfusionAuditFailureKind? AssemblyReferenceFailureKind
+    {
+        get;
+        set;
+    }
+
     private FindingInspection<AssemblyReference>? _assemblyReferenceInspection;
 
     [JsonIgnore]
