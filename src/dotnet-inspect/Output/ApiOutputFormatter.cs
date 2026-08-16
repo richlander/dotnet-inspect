@@ -1397,9 +1397,9 @@ public static class ApiOutputFormatter
             && type.Members is [{ } single]
             && ApiMemberSectionDescriptors.HasAccessorTokens(single))
         {
-            methods = AccessorMethods(single, type)
-                .Where(m => !m.IsAbstract || includeAbstract)
-                .ToList();
+            // Keep every accessor in ordinal order. Applicability excludes abstract accessors
+            // from body-dependent views; removing one here would shift the ordinal of its sibling.
+            methods = AccessorMethods(single, type).ToList();
         }
 
         return methods;
@@ -1488,9 +1488,10 @@ public static class ApiOutputFormatter
             },
             IsStatic = owner.IsStatic,
             IsVirtual = owner.IsVirtual,
-            IsAbstract = owner.IsAbstract,
+            IsAbstract = accessorEntry?.IsAbstract ?? owner.IsAbstract,
             IsOverride = owner.IsOverride,
             IsSealed = owner.IsSealed,
+            HasMethodBody = accessorEntry?.HasMethodBody ?? owner.HasMethodBody,
             IsUnsafe = owner.IsUnsafe,
             Accessibility = accessibility,
             Documentation = owner.Documentation,

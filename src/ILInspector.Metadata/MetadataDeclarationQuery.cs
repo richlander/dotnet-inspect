@@ -194,8 +194,14 @@ public static class MetadataDeclarationQuery
                     MemberName = SanitizeIdentifier(eventName),
                     Accessors =
                     [
-                        .. (accessors.Adder.IsNil ? [] : new[] { new ApiAccessor { Kind = "add" } }),
-                        .. (accessors.Remover.IsNil ? [] : new[] { new ApiAccessor { Kind = "remove" } }),
+                        .. (accessors.Adder.IsNil ? [] : new[]
+                        {
+                            AccessorModel(reader, accessors.Adder, "add")
+                        }),
+                        .. (accessors.Remover.IsNil ? [] : new[]
+                        {
+                            AccessorModel(reader, accessors.Remover, "remove")
+                        }),
                     ]
                 },
                 SignatureDecodeStatus = degraded ? SignatureDecodeStatus.Degraded : null,
@@ -222,9 +228,11 @@ public static class MetadataDeclarationQuery
         {
             var method = reader.GetMethodDefinition(methodHandle);
             var methodName = reader.GetString(method.Name);
+            var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
             var isRetainedImplementationAccessor = explicitImplementationBodies.Contains(methodHandle)
                 && (methodName.Contains('.', StringComparison.Ordinal)
-                    || explicitInterfaceImplementationBodies.Contains(methodHandle));
+                    || (methodAccess != MethodAttributes.Public
+                        && explicitInterfaceImplementationBodies.Contains(methodHandle)));
             if (accessorMethods.Contains(methodHandle) && !isRetainedImplementationAccessor)
                 continue;
             if (methodName.StartsWith('<'))
@@ -291,6 +299,20 @@ public static class MetadataDeclarationQuery
 
     static bool HasMethodBody(MetadataReader reader, MethodDefinitionHandle handle)
         => !handle.IsNil && reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0;
+
+    static ApiAccessor AccessorModel(
+        MetadataReader reader,
+        MethodDefinitionHandle handle,
+        string kind)
+    {
+        var method = reader.GetMethodDefinition(handle);
+        return new ApiAccessor
+        {
+            Kind = kind,
+            HasMethodBody = method.RelativeVirtualAddress != 0,
+            IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
+        };
+    }
 
     /// <summary>
     /// The C#-declaration type parameters for a type — its own parameters only,
@@ -437,6 +459,8 @@ public static class MetadataDeclarationQuery
                 Kind = "get",
                 Accessibility = AccessorAccessibility(getterAccess, bestAccess),
                 ReturnAttributes = ReturnAttributes(reader, getter.GetParameters()).ToList(),
+                HasMethodBody = getter.RelativeVirtualAddress != 0,
+                IsAbstract = (getter.Attributes & MethodAttributes.Abstract) != 0,
             });
         }
 
@@ -447,6 +471,8 @@ public static class MetadataDeclarationQuery
                 Kind = "set",
                 Accessibility = AccessorAccessibility(setter.Attributes & MethodAttributes.MemberAccessMask, bestAccess),
                 ReturnAttributes = ReturnAttributes(reader, setter.GetParameters()).ToList(),
+                HasMethodBody = setter.RelativeVirtualAddress != 0,
+                IsAbstract = (setter.Attributes & MethodAttributes.Abstract) != 0,
             });
         }
 

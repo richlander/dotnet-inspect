@@ -410,6 +410,16 @@ public class ApiAccessor
     public string Kind { get; set; } = "";
     public string? Accessibility { get; set; }
     public List<string> ReturnAttributes { get; set; } = [];
+
+    /// <summary>
+    /// Body facts for the accessor MethodDef. These remain in-process because the serialized
+    /// API shape predates accessor-level body inspection.
+    /// </summary>
+    [JsonIgnore]
+    public bool? HasMethodBody { get; set; }
+
+    [JsonIgnore]
+    public bool? IsAbstract { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<SignatureDecodeStatus>))]
@@ -477,6 +487,13 @@ public class ApiType
     public List<TypeParameter> TypeParameters { get; set; } = [];
 
     public List<ApiMember> Members { get; set; } = [];
+
+    /// <summary>
+    /// One-based accessor ordinal selected for member-detail section discovery. This is request
+    /// state on a filtered in-process model, not part of the serialized API surface.
+    /// </summary>
+    [JsonIgnore]
+    public int? SelectedAccessorOrdinal { get; set; }
 
     // Source information (populated with --source-url)
     public string? SourceFilePath { get; set; }

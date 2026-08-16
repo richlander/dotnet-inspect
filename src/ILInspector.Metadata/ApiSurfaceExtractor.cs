@@ -462,7 +462,8 @@ public static class ApiSurfaceExtractor
                 var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
                 var isRetainedImplementationAccessor = isExplicitInterfaceImplementation
                     && (methodName.Contains('.', StringComparison.Ordinal)
-                        || explicitInterfaceImplementationBodies.Contains(methodHandle));
+                        || (methodAccess != MethodAttributes.Public
+                            && explicitInterfaceImplementationBodies.Contains(methodHandle)));
                 if (accessorMethods.Contains(methodHandle) && !isRetainedImplementationAccessor)
                     continue;
                 if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
@@ -835,17 +836,22 @@ public static class ApiSurfaceExtractor
                     new()
                     {
                         Kind = "add",
-                        ReturnAttributes = ReturnParameterAttributes(reader, adder.GetParameters())
+                        ReturnAttributes = ReturnParameterAttributes(reader, adder.GetParameters()),
+                        HasMethodBody = adder.RelativeVirtualAddress != 0,
+                        IsAbstract = (adder.Attributes & MethodAttributes.Abstract) != 0
                     }
                 };
                 if (!accessors.Remover.IsNil)
                 {
+                    var remover = reader.GetMethodDefinition(accessors.Remover);
                     accessorModels.Add(new ApiAccessor
                     {
                         Kind = "remove",
                         ReturnAttributes = ReturnParameterAttributes(
                             reader,
-                            reader.GetMethodDefinition(accessors.Remover).GetParameters())
+                            remover.GetParameters()),
+                        HasMethodBody = remover.RelativeVirtualAddress != 0,
+                        IsAbstract = (remover.Attributes & MethodAttributes.Abstract) != 0
                     });
                 }
 
@@ -1317,11 +1323,14 @@ public static class ApiSurfaceExtractor
     internal static HashSet<MethodDefinitionHandle> GetExplicitInterfaceImplementationBodies(
         MetadataReader reader, TypeDefinition typeDef)
     {
-        HashSet<EntityHandle> implementedInterfaces = [];
+        var context = GenericContext.ForType(reader, typeDef);
+        HashSet<string> implementedInterfaces = [];
         foreach (var interfaceHandle in typeDef.GetInterfaceImplementations())
         {
-            implementedInterfaces.Add(
-                reader.GetInterfaceImplementation(interfaceHandle).Interface);
+            var interfaceType = reader.GetInterfaceImplementation(interfaceHandle).Interface;
+            var interfaceName = TypeResolver.GetTypeName(reader, interfaceType, context);
+            if (interfaceName is not null)
+                implementedInterfaces.Add(interfaceName);
         }
 
         HashSet<MethodDefinitionHandle> handles = [];
@@ -1332,7 +1341,8 @@ public static class ApiSurfaceExtractor
                 && IsInterfaceMethodDeclaration(
                     reader,
                     implementation.MethodDeclaration,
-                    implementedInterfaces))
+                    implementedInterfaces,
+                    context))
             {
                 handles.Add((MethodDefinitionHandle)implementation.MethodBody);
             }
@@ -1344,7 +1354,8 @@ public static class ApiSurfaceExtractor
     private static bool IsInterfaceMethodDeclaration(
         MetadataReader reader,
         EntityHandle declaration,
-        IReadOnlySet<EntityHandle> implementedInterfaces)
+        IReadOnlySet<string> implementedInterfaces,
+        GenericContext context)
     {
         EntityHandle declaringType = declaration.Kind switch
         {
@@ -1361,7 +1372,8 @@ public static class ApiSurfaceExtractor
                 & TypeAttributes.Interface) != 0;
         }
 
-        return implementedInterfaces.Contains(declaringType);
+        var declaringTypeName = TypeResolver.GetTypeName(reader, declaringType, context);
+        return declaringTypeName is not null && implementedInterfaces.Contains(declaringTypeName);
     }
 
     /// <summary>
@@ -2873,19 +2885,29 @@ public static class ApiSurfaceExtractor
             var getStr = hasGetter ? FormatAccessor("get", getterAccess, Math.Max((int)getterAccess, (int)setterAccess)) : null;
             var setStr = hasSetter ? FormatAccessor("set", setterAccess, Math.Max((int)getterAccess, (int)setterAccess)) : null;
             if (hasGetter)
+            {
+                var getter = reader.GetMethodDefinition(accessors.Getter);
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "get",
                     Accessibility = AccessorAccessibility(getterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(reader, getter.GetParameters()),
+                    HasMethodBody = getter.RelativeVirtualAddress != 0,
+                    IsAbstract = (getter.Attributes & MethodAttributes.Abstract) != 0
                 });
+            }
             if (hasSetter)
+            {
+                var setter = reader.GetMethodDefinition(accessors.Setter);
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
                     Accessibility = AccessorAccessibility(setterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(reader, setter.GetParameters()),
+                    HasMethodBody = setter.RelativeVirtualAddress != 0,
+                    IsAbstract = (setter.Attributes & MethodAttributes.Abstract) != 0
                 });
+            }
             accessorStr = (getStr, setStr) switch
             {
                 (not null, not null) => $"{{ {getStr}; {setStr}; }}",
@@ -2899,28 +2921,32 @@ public static class ApiSurfaceExtractor
             if (hasPublicGetter && hasPublicSetter)
             {
                 accessorStr = "{ get; set; }";
-                accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
+                accessorModels.Add(AccessorModel(reader, accessors.Getter, "get"));
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters()),
+                    HasMethodBody = HasMethodBody(reader, accessors.Setter),
+                    IsAbstract = IsAbstractMethod(reader, accessors.Setter)
                 });
             }
             else if (hasPublicGetter && hasSetter)
             {
                 accessorStr = "{ get; private set; }";
-                accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
+                accessorModels.Add(AccessorModel(reader, accessors.Getter, "get"));
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
                     Accessibility = "private",
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters()),
+                    HasMethodBody = HasMethodBody(reader, accessors.Setter),
+                    IsAbstract = IsAbstractMethod(reader, accessors.Setter)
                 });
             }
             else if (hasPublicGetter)
             {
                 accessorStr = "{ get; }";
-                accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
+                accessorModels.Add(AccessorModel(reader, accessors.Getter, "get"));
             }
             else if (hasPublicSetter)
             {
@@ -2928,7 +2954,9 @@ public static class ApiSurfaceExtractor
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters()),
+                    HasMethodBody = HasMethodBody(reader, accessors.Setter),
+                    IsAbstract = IsAbstractMethod(reader, accessors.Setter)
                 });
             }
             else
@@ -3035,6 +3063,25 @@ public static class ApiSurfaceExtractor
             treeSignature.ReturnType.IsDegraded
                 || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
     }
+
+    private static ApiAccessor AccessorModel(
+        MetadataReader reader,
+        MethodDefinitionHandle handle,
+        string kind)
+    {
+        var method = reader.GetMethodDefinition(handle);
+        return new ApiAccessor
+        {
+            Kind = kind,
+            ReturnAttributes = ReturnParameterAttributes(reader, method.GetParameters()),
+            HasMethodBody = method.RelativeVirtualAddress != 0,
+            IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0
+        };
+    }
+
+    private static bool IsAbstractMethod(MetadataReader reader, MethodDefinitionHandle handle)
+        => !handle.IsNil
+            && (reader.GetMethodDefinition(handle).Attributes & MethodAttributes.Abstract) != 0;
 
     /// <summary>
     /// Formats a property accessor with its access level prefix when it differs from the property's overall level.

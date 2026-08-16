@@ -641,6 +641,9 @@ public class ApiCommand
             DerivedTypes = type.DerivedTypes,
             TypeParameters = type.TypeParameters,
             Members = filteredMembers,
+            SelectedAccessorOrdinal = options is MemberOptions { OverloadIndex: { } ordinal }
+                ? ordinal
+                : null,
             SourceFilePath = type.SourceFilePath,
             SourceUrl = type.SourceUrl,
             GitHubBrowseUrl = type.GitHubBrowseUrl,

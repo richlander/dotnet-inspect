@@ -145,6 +145,63 @@ public class InspectionViewDescriptorTests
         Assert.Equal(hasUnsafeOperations, ids.Contains(SectionNames.UnsafeOperations));
     }
 
+    [Theory]
+    [InlineData(1, false, false)]
+    [InlineData(2, true, true)]
+    public void MemberViews_UseSelectedAccessorBodyFacts(
+        int accessorOrdinal,
+        bool hasExecutableBodyViews,
+        bool hasCallerViews)
+    {
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            SelectedAccessorOrdinal = accessorOrdinal,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001,
+                    SetterToken = 0x06000002,
+                    HasMethodBody = true,
+                    IsAbstract = true,
+                    SignatureModel = new ApiSignature
+                    {
+                        Accessors =
+                        [
+                            new ApiAccessor
+                            {
+                                Kind = "get",
+                                HasMethodBody = false,
+                                IsAbstract = true
+                            },
+                            new ApiAccessor
+                            {
+                                Kind = "set",
+                                HasMethodBody = true,
+                                IsAbstract = false
+                            }
+                        ]
+                    }
+                }
+            ]
+        };
+
+        IReadOnlySet<string> ids = pipeline.GetInspectionViews(model)
+            .Select(view => view.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal(hasExecutableBodyViews, ids.Contains(SectionNames.DecompiledSource));
+        Assert.Equal(hasExecutableBodyViews, ids.Contains(SectionNames.IL));
+        Assert.Equal(hasCallerViews, ids.Contains(SectionNames.Callers));
+        Assert.Equal(hasCallerViews, ids.Contains(SectionNames.CallGraph));
+        Assert.Contains(SectionNames.UnsafeOperations, ids);
+    }
+
     [Fact]
     public void MemberViewSelection_RoundTripsThroughOwningPipeline()
     {

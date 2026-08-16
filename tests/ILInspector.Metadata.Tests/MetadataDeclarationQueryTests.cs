@@ -295,6 +295,31 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void TypeSurface_FoldsPublicInterfaceMethodImplAccessors()
+    {
+        using var stream = File.OpenRead(typeof(Half).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = GetTypeDefinitionHandle(reader, typeof(Half).FullName!);
+
+        var queried = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        var extracted = Assert.Single(
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true).Types,
+            type => type.FullName == typeof(Half).FullName);
+
+        foreach (var surface in new[] { queried, extracted })
+        {
+            Assert.Contains(surface.Members, member => member is { Name: "MaxValue", Kind: "property" });
+            Assert.DoesNotContain(surface.Members, member => member.Name == "get_MaxValue");
+            Assert.DoesNotContain(surface.Members, member => member.Name == "get_Zero");
+            Assert.DoesNotContain(surface.Members, member => member.Name == "get_Pi");
+        }
+    }
+
+    [Fact]
     public void PrivateScopeAccessors_AreNotClassifiedAsPublic()
     {
         var methodAccessibility = typeof(MetadataDeclarationQuery).GetMethod(

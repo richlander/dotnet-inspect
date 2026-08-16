@@ -744,15 +744,39 @@ public static class ApiMemberDetailSectionDescriptors
 
     private static bool HasExecutableBody(ApiType model)
         => model.Members.Count == 1
-           && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
+           && HasExecutableBody(model.Members[0], SelectedAccessor(model));
 
     private static bool HasBodyAnalysisTarget(ApiType model)
         => model.Members.Count == 1
-           && model.Members.Any(ApiMemberSectionDescriptors.HasBodyAnalysisTarget);
+           && HasBodyAnalysisTarget(model.Members[0], SelectedAccessor(model));
 
     private static bool HasBodyBackedMember(ApiType model)
         => model.Members.Count == 1
            && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+
+    private static bool HasExecutableBody(ApiMember member, ApiAccessor? accessor)
+        => accessor?.HasMethodBody
+            ?? ApiMemberSectionDescriptors.HasExecutableBody(member);
+
+    private static bool HasBodyAnalysisTarget(ApiMember member, ApiAccessor? accessor)
+        => accessor?.IsAbstract is { } isAbstract
+            ? !isAbstract
+            : ApiMemberSectionDescriptors.HasBodyAnalysisTarget(member);
+
+    private static ApiAccessor? SelectedAccessor(ApiType model)
+    {
+        if (model.SelectedAccessorOrdinal is not { } ordinal
+            || model.Members is not [{ } member]
+            || member.Kind is not ("property" or "event"))
+        {
+            return null;
+        }
+
+        var accessors = member.SignatureModel?.Accessors;
+        return accessors is not null && ordinal > 0 && ordinal <= accessors.Count
+            ? accessors[ordinal - 1]
+            : null;
+    }
 
     public sealed class Summary : ISectionDescriptor<ApiType>
     {
