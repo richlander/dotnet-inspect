@@ -85,10 +85,9 @@ public sealed class ByteNeutralityGateTests
     /// <para>
     /// <see cref="Emits"/> distinguishes a value the printer actually consumes today (the
     /// render changes, so the value is compiled back) from one that renders identically to
-    /// the default because a catalog value is not yet wired into emission (the deferred
-    /// var buckets). Inert values are pinned as no-ops on an input they <em>would</em>
-    /// govern once active, so the day emission lands the pin flips and forces an emitting
-    /// specimen.
+    /// the default because a catalog value is not yet wired into emission. An inert
+    /// value can be pinned as a no-op on an input it <em>would</em> govern once active,
+    /// so the day emission lands the pin flips and forces an emitting specimen.
     /// </para>
     /// </summary>
     sealed record ValueSpecimen(
@@ -123,16 +122,12 @@ public sealed class ByteNeutralityGateTests
         new("var-spelling-style", "var-when-type-apparent",
             typeof(VarWhenApparentSpecimen), nameof(VarWhenApparentSpecimen.ObjectCreation),
             "() -> corelib:System.Int32"),
-        // Declared-but-unwired var categories (deferred #3169). Pinned as no-ops on the
-        // input each would govern once emission lands: a built-in-type object creation
-        // and a not-apparent local. When the bucket is wired these renders diverge and
-        // ValueTokenState_MatchesEmits fails, forcing an emitting specimen.
         new("var-spelling-style", "var-for-built-in-types",
             typeof(VarWhenApparentSpecimen), nameof(VarWhenApparentSpecimen.BuiltInObjectCreation),
-            "() -> corelib:System.Int32", Emits: false),
+            "() -> corelib:System.Int32"),
         new("var-spelling-style", "var-elsewhere",
             typeof(VarWhenApparentSpecimen), nameof(VarWhenApparentSpecimen.NotApparent),
-            "() -> corelib:System.Int32", Emits: false),
+            "() -> corelib:System.Int32"),
         // Synthesis: suppress symbols so the product default invents `num`, while
         // slot-local-names restores V_0. Both forms must compile back identically.
         new("slot-local-names", "true",
@@ -259,10 +254,9 @@ public sealed class ByteNeutralityGateTests
         // Non-vacuity + wiring pin, fast (no compile-back). An emitting value must
         // actually change its specimen's render (off != on) — this is what makes the
         // compile-back proof below a real check rather than a comparison of two identical
-        // renders. An inert value (a declared-but-unwired var bucket) must render
-        // identically to the default (off == on) on the input it would govern; when the
-        // value becomes active that equality breaks and this test forces it into the
-        // emitting set.
+        // renders. An inert value must render identically to the default (off == on)
+        // on the input it would govern; when the value becomes active that equality
+        // breaks and this test forces it into the emitting set.
         foreach (var specimen in Specimens)
         {
             var offText = Render(specimen, StyleOptionCatalog.DefaultOptions);
@@ -296,59 +290,51 @@ public sealed class ByteNeutralityGateTests
         // `this.` qualifier). Comparing under the same contract the product's own fidelity
         // claims use keeps the gate consistent with those claims.
         //
-        // Batched over the large test assembly: one knob-off baseline for all emitting
-        // specimens, then one knob-on pass per declaring type. Turning a type's values on
-        // together also exercises the same-line interaction the catalog flags
-        // (qualification x var), while each method's site is governed by exactly one
-        // value, so the per-method verdict still isolates that value's neutrality.
+        // Batched over the large test assembly for the shared knob-off baseline. Each
+        // knob-on value is compiled separately with On(specimen): multi-value axes are
+        // single-select, so aggregating sibling values would silently leave only the
+        // final value enabled and make earlier comparisons knob-off versus knob-off.
         var emitting = Specimens.Where(s => s.Emits).ToArray();
         var off = CompileBackAll(emitting, StyleOptionCatalog.DefaultOptions);
 
-        foreach (var group in emitting.GroupBy(s => s.DeclaringType))
+        foreach (var specimen in emitting)
         {
-            var groupSpecimens = group.ToArray();
-            var onOptions = groupSpecimens.Aggregate(
-                StyleOptionCatalog.DefaultOptions, (o, s) => Knob(s.KnobId).WithValue(o, s.ValueToken));
-            var on = CompileBackAll(groupSpecimens, onOptions);
+            var on = CompileBackAll([specimen], On(specimen));
+            var offResult = off[Key(specimen)];
+            var onResult = on[Key(specimen)];
+            var label = $"{specimen.KnobId}={specimen.ValueToken}";
 
-            foreach (var specimen in groupSpecimens)
-            {
-                var offResult = off[Key(specimen)];
-                var onResult = on[Key(specimen)];
-                var label = $"{specimen.KnobId}={specimen.ValueToken}";
+            Assert.False(IsUncheckable(offResult.Status),
+                $"{label}: knob-off render did not compile back ({offResult.Status}: {offResult.Detail}).");
+            Assert.False(IsUncheckable(onResult.Status),
+                $"{label}: knob-on render did not compile back ({onResult.Status}: {onResult.Detail}).");
 
-                Assert.False(IsUncheckable(offResult.Status),
-                    $"{label}: knob-off render did not compile back ({offResult.Status}: {offResult.Detail}).");
-                Assert.False(IsUncheckable(onResult.Status),
-                    $"{label}: knob-on render did not compile back ({onResult.Status}: {onResult.Detail}).");
+            // Baseline anchor: the knob-off render must reach the specific compile-back
+            // status this specimen is expected to (Exact for most; the event specimen's
+            // benign OpcodeDiff). Without this the off-vs-on equality below would still
+            // pass if the baseline silently degraded (e.g. an unrelated regression made
+            // both renders OperandDiff), so pin the strongest status the baseline earns.
+            Assert.True(offResult.Status == specimen.ExpectedBaseline,
+                $"{label}: knob-off compile-back baseline is {offResult.Status}, expected " +
+                $"{specimen.ExpectedBaseline}. A changed baseline can hide an off-vs-on match that " +
+                $"is only equal because both renders regressed; re-establish or update the anchor.");
 
-                // Baseline anchor: the knob-off render must reach the specific compile-back
-                // status this specimen is expected to (Exact for most; the event specimen's
-                // benign OpcodeDiff). Without this the off-vs-on equality below would still
-                // pass if the baseline silently degraded (e.g. an unrelated regression made
-                // both renders OperandDiff), so pin the strongest status the baseline earns.
-                Assert.True(offResult.Status == specimen.ExpectedBaseline,
-                    $"{label}: knob-off compile-back baseline is {offResult.Status}, expected " +
-                    $"{specimen.ExpectedBaseline}. A changed baseline can hide an off-vs-on match that " +
-                    $"is only equal because both renders regressed; re-establish or update the anchor.");
+            var offDiff = offResult.FidelityDiff;
+            var onDiff = onResult.FidelityDiff;
+            Assert.True(offDiff is { IsAvailable: true },
+                $"{label}: knob-off compile-back fidelity is unavailable, so IL identity cannot be proven.");
+            Assert.True(onDiff is { IsAvailable: true },
+                $"{label}: knob-on compile-back fidelity is unavailable, so IL identity cannot be proven.");
 
-                var offDiff = offResult.FidelityDiff;
-                var onDiff = onResult.FidelityDiff;
-                Assert.True(offDiff is { IsAvailable: true },
-                    $"{label}: knob-off compile-back fidelity is unavailable, so IL identity cannot be proven.");
-                Assert.True(onDiff is { IsAvailable: true },
-                    $"{label}: knob-on compile-back fidelity is unavailable, so IL identity cannot be proven.");
+            // Opcode-level identity of the two recompiled bodies (fast belt).
+            Assert.Equal(offResult.RecompiledOpcodes, onResult.RecompiledOpcodes);
 
-                // Opcode-level identity of the two recompiled bodies (fast belt).
-                Assert.Equal(offResult.RecompiledOpcodes, onResult.RecompiledOpcodes);
-
-                // Operand/branch-target identity: both recompiled bodies deviate from the
-                // shared original identically under the fidelity contract, hence equal each other.
-                Assert.Equal(offDiff!.Outcome, onDiff!.Outcome);
-                Assert.True(offDiff.Rows.SequenceEqual(onDiff.Rows),
-                    $"{label}: knob-on recompiled body diverges from knob-off at the operand or " +
-                    $"branch-target level (contract-V1 diff-vs-original differs between the two renders).");
-            }
+            // Operand/branch-target identity: both recompiled bodies deviate from the
+            // shared original identically under the fidelity contract, hence equal each other.
+            Assert.Equal(offDiff!.Outcome, onDiff!.Outcome);
+            Assert.True(offDiff.Rows.SequenceEqual(onDiff.Rows),
+                $"{label}: knob-on recompiled body diverges from knob-off at the operand or " +
+                $"branch-target level (contract-V1 diff-vs-original differs between the two renders).");
         }
 
         static bool IsUncheckable(FidelityCheck.CompileBackStatus status) =>
