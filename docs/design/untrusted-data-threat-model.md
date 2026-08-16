@@ -390,8 +390,11 @@ type nodes, parameters, attributes, generic constraints, and interfaces. A
 separate per-type work estimate charges encoded names, signature nodes, and
 custom-attribute blobs before materializing their expanded forms. The exact
 retained-character total therefore remains unchanged while one wide signature,
-deeply nested generic head, high-rank array, default value, hidden signature, or
-attribute cannot allocate its complete amplified model before the check.
+deeply nested generic head or argument, nested or high-rank array, default value,
+hidden signature, or attribute cannot allocate its complete amplified model
+before the check. Composite type nodes carry non-materializing rendered-length
+estimates, and bounded decoding charges each constructed node's complete
+estimated output so repeated wrapping cannot reallocate an uncharged subtree.
 Visibility probes use bounded blob readers rather than copying skipped
 attribute values. The Browser separately applies the same bound while deriving
 type/member transport records, including canonical signatures, documentation
@@ -412,9 +415,12 @@ pre-decoding rejection.
 `OneWideTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneLargeCustomAttribute_StopsBeforeLargeAllocationAmplification`,
 `OneDeeplyNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
+`OneArgumentNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
+`OneNestedArrayType_StopsBeforeLargeAllocationAmplification`,
 `OneHugeArrayRank_StopsBeforeLargeAllocationAmplification`,
 `HiddenAutoPropertySignature_StopsBeforeLargeAllocationAmplification`,
 `HugeParameterDefault_StopsBeforeLargeAllocationAmplification`,
+`PropertyAccessorReturnAttribute_StopsBeforeLargeAllocationAmplification`,
 `LargeVisibilityAttribute_StopsBeforeDecodingItsMessage`,
 `RepeatedHiddenAttributeProbe_DoesNotCopyTheValueBlob`,
 `AssemblyContextApiSurfaceQueryTests.ExecuteBounded_SpendsRetainedTextAcrossParticipants`,

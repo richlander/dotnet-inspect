@@ -3083,7 +3083,8 @@ public static class ApiSurfaceExtractor
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Getter).GetParameters(),
-                        beforeRetainText)
+                        beforeRetainText,
+                        beforeDecodeWork)
                 });
             if (hasSetter)
                 accessorModels.Add(new ApiAccessor
@@ -3093,7 +3094,8 @@ public static class ApiSurfaceExtractor
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Setter).GetParameters(),
-                        beforeRetainText)
+                        beforeRetainText,
+                        beforeDecodeWork)
                 });
             accessorStr = (getStr, setStr) switch
             {
@@ -3114,7 +3116,8 @@ public static class ApiSurfaceExtractor
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Getter).GetParameters(),
-                        beforeRetainText)
+                        beforeRetainText,
+                        beforeDecodeWork)
                 });
                 accessorModels.Add(new ApiAccessor
                 {
@@ -3122,7 +3125,8 @@ public static class ApiSurfaceExtractor
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Setter).GetParameters(),
-                        beforeRetainText)
+                        beforeRetainText,
+                        beforeDecodeWork)
                 });
             }
             else if (hasPublicGetter && hasSetter)
@@ -3134,7 +3138,8 @@ public static class ApiSurfaceExtractor
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Getter).GetParameters(),
-                        beforeRetainText)
+                        beforeRetainText,
+                        beforeDecodeWork)
                 });
                 accessorModels.Add(new ApiAccessor
                 {
@@ -3143,7 +3148,8 @@ public static class ApiSurfaceExtractor
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Setter).GetParameters(),
-                        beforeRetainText)
+                        beforeRetainText,
+                        beforeDecodeWork)
                 });
             }
             else if (hasPublicGetter)
@@ -3155,7 +3161,8 @@ public static class ApiSurfaceExtractor
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Getter).GetParameters(),
-                        beforeRetainText)
+                        beforeRetainText,
+                        beforeDecodeWork)
                 });
             }
             else if (hasPublicSetter)
@@ -3167,7 +3174,8 @@ public static class ApiSurfaceExtractor
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Setter).GetParameters(),
-                        beforeRetainText)
+                        beforeRetainText,
+                        beforeDecodeWork)
                 });
             }
             else

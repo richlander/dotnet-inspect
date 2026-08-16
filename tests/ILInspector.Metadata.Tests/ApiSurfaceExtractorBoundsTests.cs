@@ -312,10 +312,31 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void PropertyAccessorReturnAttribute_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildLargePropertyAccessorReturnAttributeImage(valueLength: 4_000_000));
+    }
+
+    [Fact]
     public void OneDeeplyNestedTypeSpec_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
             BuildNestedTypeSpecFieldImage(depth: 500, nameLength: 3_900));
+    }
+
+    [Fact]
+    public void OneArgumentNestedTypeSpec_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildArgumentNestedTypeSpecFieldImage(depth: 511, nameLength: 1_700));
+    }
+
+    [Fact]
+    public void OneNestedArrayType_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildNestedArrayFieldImage(depth: 500, rank: 3_800));
     }
 
     [Fact]
@@ -521,6 +542,84 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.GetOrAddBlob(signature),
             bodyOffset: -1,
             MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildLargePropertyAccessorReturnAttributeImage(int valueLength)
+    {
+        var metadata = Metadata("PropertyReturnAttribute");
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().String());
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "PropertyReturnAttribute");
+        ParameterHandle returnParameter = metadata.AddParameter(
+            ParameterAttributes.None,
+            default,
+            sequenceNumber: 0);
+        var accessorSignature = new BlobBuilder();
+        new BlobEncoder(accessorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                _ => { });
+        MethodDefinitionHandle getter = metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("get_Value"),
+            metadata.GetOrAddBlob(accessorSignature),
+            bodyOffset: -1,
+            returnParameter);
+        var propertySignature = new BlobBuilder();
+        new BlobEncoder(propertySignature).PropertySignature(
+            isInstanceProperty: true).Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                _ => { });
+        PropertyDefinitionHandle property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(propertySignature));
+        metadata.AddPropertyMap(type, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            getter);
+        var value = new BlobBuilder(valueLength + 16);
+        value.WriteUInt16(1);
+        value.WriteCompressedInteger(valueLength);
+        for (int index = 0; index < valueLength; index++)
+            value.WriteByte((byte)'"');
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            returnParameter,
+            constructor,
+            metadata.GetOrAddBlob(value));
         return Serialize(metadata);
     }
 
@@ -737,6 +836,60 @@ public sealed class ApiSurfaceExtractorBoundsTests
             fieldSignature.WriteCompressedInteger(1);
             fieldSignature.WriteByte(0x12);
             WriteTypeDefOrRef(fieldSignature, argument);
+        }
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(fieldSignature));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildArgumentNestedTypeSpecFieldImage(int depth, int nameLength)
+    {
+        var metadata = Metadata("ArgumentNested");
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle head = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString($"{new string('H', nameLength)}`1"));
+        AddModuleAndPublicType(metadata, "ArgumentNested");
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte(0x06);
+        for (int index = 0; index < depth; index++)
+        {
+            fieldSignature.WriteByte(0x15);
+            fieldSignature.WriteByte(0x12);
+            WriteTypeDefOrRef(fieldSignature, head);
+            fieldSignature.WriteCompressedInteger(1);
+        }
+        fieldSignature.WriteByte(0x08);
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(fieldSignature));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNestedArrayFieldImage(int depth, int rank)
+    {
+        var metadata = Metadata("NestedArray");
+        AddModuleAndPublicType(metadata, "NestedArray");
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte(0x06);
+        for (int index = 0; index < depth; index++)
+            fieldSignature.WriteByte(0x14);
+        fieldSignature.WriteByte(0x08);
+        for (int index = 0; index < depth; index++)
+        {
+            fieldSignature.WriteCompressedInteger(rank);
+            fieldSignature.WriteCompressedInteger(0);
+            fieldSignature.WriteCompressedInteger(0);
         }
         metadata.AddFieldDefinition(
             FieldAttributes.Public,
