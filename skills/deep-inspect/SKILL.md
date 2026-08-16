@@ -7,14 +7,16 @@ description: Run and interpret opt-in expensive validation lanes: full slow test
 # dotnet-inspect: Deep Inspect
 
 Use this skill when a change needs expensive evidence outside normal PR CI.
-Deep Inspect is opt-in: run it manually when preparing risky PRs, and the test
-lane also runs during publish before packages are built.
+Deep Inspect is opt-in for risky PRs. Its `test` and decompiler-corpus jobs also
+run daily to certify a commit for release, and can be dispatched on demand
+during the day. Publish consumes that evidence rather than rerunning the slow
+suites.
 
 ## Lanes
 
 | Lane | Use for | Runs |
 | ---- | ------- | ---- |
-| `test` | Blocking proof before publish or risky merges | Full decompiler tests, full analysis tests, vendored ILAssembler restore, full IL round-trip sweep. |
+| `test` | Daily/on-demand release certification or blocking proof before risky merges | Full decompiler tests, full analysis tests, vendored ILAssembler restore, full IL round-trip sweep. |
 | `census` | Observational broad signal and triage | Real-world corpus sensor, validity predicate scan, uncapped validity sweep, assertion scan, analysis corpus sensor, paydirt recall. |
 | `package-sweep` | Weekly/on-demand discovery over current top NuGet packages | Product-backed package acquisition plus bounded per-library fully-raised, validity, defect-class, and promotion-candidate reporting. |
 | `authored-corpus` | Regression ratchet against checksum-verified authored source | Restores the pinned authored-source corpus and fails on quality regression or measurement-integrity loss. |
@@ -59,6 +61,13 @@ The corpus command runs as a separate workflow job and can take hours. Omit it
 only when intentionally reproducing the non-corpus `test` job rather than the
 complete dispatched `test` lane.
 
+A successful daily or manually dispatched `test` run certifies its exact
+`main` SHA for 36 hours. Publish requires the certification run ID. Publishing
+a later descendant remains an explicit operator decision. Its exact main-push
+`ci-required` result must succeed, but main-push CI does not run the PR-only
+substantive test jobs, and the certification does not claim to cover
+intervening changes.
+
 For the census lane, prefer the workflow so artifacts are retained. If running
 locally, use the same scripts/baselines as `deep-inspect.yml` and preserve the
 generated snapshots/cards under `/tmp` or `artifacts/` for review.
@@ -74,10 +83,9 @@ accepted for ongoing coverage.
 ## Reading results
 
 - Treat `test` failures as blockers: reproduce locally, identify the first
-  failing proof, and fix or explicitly defer before publish.
+  failing proof, and fix it before certification can authorize publish.
 - Treat `census` output as triage signal unless a command exits nonzero by
   design. Compare snapshots against committed baselines and route meaningful
   drift to issues or follow-up PRs.
 - Do not add broad/corpus-style tests to PR CI. Mark them
-  `[Trait("Speed", "Slow")]` and keep them in Deep Inspect / publish / full
-  local runs.
+  `[Trait("Speed", "Slow")]` and keep them in Deep Inspect / full local runs.

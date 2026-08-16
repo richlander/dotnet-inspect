@@ -414,7 +414,8 @@ Pull requests that change the browser prototype, its shared annotated-source
 viewer, product dependencies, or repository build inputs run the `inspect-web`
 CI job. That job compiles the platform-index generator, publishes the Release
 Wasm bundle, runs the browser-engine tests, and runs both JavaScript suites.
-`eng/test-ci-change-detection.cs` gates the path classification, and
+The `eng/CiChangeDetection` gate, invoked through
+`eng/test-ci-change-detection.cs`, gates the path classification, and
 `ci-required` includes the job's result.
 
 ## Interaction model

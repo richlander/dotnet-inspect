@@ -79,6 +79,17 @@ public class InspectionResult
     /// </summary>
     public PackageDeprecation? Deprecation { get; set; }
 
+    [JsonIgnore]
+    internal IdentifierConfusionAuditFailureKind?
+        IdentifierConfusionFailure { get; set; }
+
+    [JsonIgnore]
+    internal bool IdentifierConfusionRegistryScopeLimited
+    {
+        get;
+        set;
+    }
+
     /// <summary>
     /// Known security vulnerabilities for this package version.
     /// </summary>
@@ -250,16 +261,6 @@ public sealed record PackageFile(
     long Size,
     [property: JsonIgnore] bool IsReadme = false,
     [property: JsonIgnore] bool IsAgents = false);
-
-public sealed record PackageFileJsonRow(
-    string Path,
-    long Size);
-
-public sealed record PackageFileMultiJsonRow(
-    string Package,
-    string Version,
-    string Path,
-    long? Size);
 
 /// <summary>
 /// Content for one selected package file. Empty rows preserve package input
