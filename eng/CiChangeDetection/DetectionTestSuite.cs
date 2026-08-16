@@ -465,6 +465,21 @@ internal static class DetectionTestSuite
             selected: "ildiff",
             notSelected: "code");
 
+        Dictionary<string, string> ilDiffOwner = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "src/ILInspector.ILDiff/IlBodyDiff.cs",
+            outputs);
+        if (ilDiffOwner["code"] != "true"
+            || ilDiffOwner["csharpdiff"] != "true"
+            || ilDiffOwner["ildiff"] != "true")
+        {
+            throw new InvalidOperationException(
+                "IL diff owner routing canary skipped a required lane: " +
+                FormatValues(ilDiffOwner));
+        }
+
         Dictionary<string, string> ilRoundtrip = RunDetection(
             repository,
             body,

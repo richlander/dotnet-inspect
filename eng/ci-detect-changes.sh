@@ -332,6 +332,7 @@ while IFS= read -r -d '' file; do
   case "$file" in
     tools/CSharpDiffHarness/*) CSHARPDIFF=true ;;
     src/ILInspector.Decompiler/*) CSHARPDIFF=true ;;
+    src/ILInspector.ILDiff/*) CSHARPDIFF=true ;;
     src/ILInspector.Instructions/*) CSHARPDIFF=true ;;
     src/ILInspector.ControlFlow/*) CSHARPDIFF=true ;;
     src/DiffFixtures.V1/*) CSHARPDIFF=true ;;
@@ -346,6 +347,7 @@ while IFS= read -r -d '' file; do
   # cheap targeted build/smoke instead of the whole test suite.
   case "$file" in
     tools/IlDiffHarness/*) ILDIFF=true ;;
+    src/ILInspector.ILDiff/*) ILDIFF=true ;;
     src/ILInspector.Instructions/*) ILDIFF=true ;;
     src/ILInspector.ControlFlow/*) ILDIFF=true ;;
     src/DiffFixtures.V1/*) ILDIFF=true ;;

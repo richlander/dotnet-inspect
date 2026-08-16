@@ -46,6 +46,27 @@ public sealed class LayeringTests
     }
 
     [Fact]
+    public void InstructionDiff_DoesNotExpandInstructionSubstrate()
+    {
+        Assert.Equal(
+            "ILInspector.ILDiff",
+            typeof(IlBodyDiff).Assembly.GetName().Name);
+
+        string project = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src",
+            "ILInspector.Instructions",
+            "ILInspector.Instructions.csproj");
+        string[] closure = CommandErrorOwnershipTests.ProjectClosure(project)
+            .Select(path => Path.GetFileNameWithoutExtension(path)!)
+            .ToArray();
+
+        Assert.DoesNotContain("ILInspector.ILDiff", closure);
+        Assert.DoesNotContain("ILInspector.Findings", closure);
+        Assert.DoesNotContain("ILInspector.Text", closure);
+    }
+    [Fact]
+    [Fact]
     public void CoreQueries_AcquireDecompilerButNotResearch()
     {
         string project = Path.Combine(

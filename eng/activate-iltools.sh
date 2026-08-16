@@ -24,8 +24,9 @@
 # IlToolsActivationTests in src/dotnet-inspect.Tests, so the failure modes stay
 # fixed instead of being retyped correctly by every caller.
 #
-# CI does not need this file: `eng/restore-iltools.sh >> "$GITHUB_PATH"` hands
-# the lines to the runner, which does the joining itself.
+# CI does not need this file:
+# `eng/restore-iltools.sh --native-paths >> "$GITHUB_PATH"` hands the lines to
+# the runner, which does the joining itself.
 #
 # Note that `source file` with no arguments leaves the sourcing script's own
 # positional parameters visible here, and bash gives no way to tell those apart
