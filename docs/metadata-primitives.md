@@ -25,9 +25,11 @@ Resume consolidation in `ILInspector.MetadataPrimitives`, but consolidate
 - Provider-facing wrappers remain local when they turn the same mechanical
   rejection into different owner-specific outcomes.
 - Existing forwarded public identities in the `ILInspector.Metadata` namespace
-  remain unchanged in the first slice. A source, test, and corpus census should
-  expose which names are pinned by repository behavior and require new neutral
-  currencies to use `ILInspector.MetadataPrimitives`.
+  remain unchanged in the first slice. A source, test, and local-build corpus
+  census should expose which names are pinned by repository behavior and
+  require new neutral currencies to use `ILInspector.MetadataPrimitives`.
+  Published-package corpus snapshots retain their historical identities until
+  their separately reviewed package pin moves.
 
 This document records the decision only. It does not authorize combining the
 implementation slices or changing failure behavior without the focused
@@ -47,7 +49,7 @@ and each now contains both the shared TypeSpec guard and an older local
 TypeSpec policy. The new evidence is a concrete policy split below the semantic
 models, not a reason to revisit the models themselves.
 
-At `fe9bff974`:
+At `0ed6db8e7`:
 
 - Analysis has six project references, including direct references to both
   Metadata and MetadataPrimitives.
@@ -310,10 +312,13 @@ full type names are observable repository behavior:
   `LibraryFindingConsumerTests.TypeForwardersQueryProjection_RetainsFindingSemanticsAndDisplayProjection`
   pin the former name across runtime resolution, query output, and Finding
   projection;
-- `tools/DecompilerHarness/corpus/pr-quick-baseline.json` and
-  `tools/DecompilerHarness/corpus/real-world-baseline.json` pin forwarded and
-  non-forwarded MetadataPrimitives types whose full names still use
-  `ILInspector.Metadata`; PR and Deep Inspect consume those identities;
+- `tools/DecompilerHarness/corpus/pr-quick-baseline.json` inspects the local
+  build and pins forwarded and non-forwarded MetadataPrimitives types whose
+  full names still use `ILInspector.Metadata`;
+- `tools/DecompilerHarness/corpus/real-world-baseline.json` instead inspects
+  published `dotnet-inspect.any` 0.14.0. Its legacy names are a frozen external
+  snapshot, not evidence about current source, and change only when
+  `SELF_VERSION` is deliberately re-pinned and the corpus is re-harvested;
 - no test independently pins the forwarded
   `ILInspector.Metadata.MethodStructuralSignature` name;
 - a CLR type forwarder cannot preserve an old full type name while changing its
@@ -327,13 +332,16 @@ should instead:
 1. inventory every public primitive as a repo-pinned legacy name, an ungated
    forwarded name, or owner-native `ILInspector.MetadataPrimitives`;
 2. retain, migrate, or retire each old name deliberately, updating all exact
-   string and corpus expectations and adding or removing forwarding tests to
-   match;
+   string and local-build corpus expectations and adding or removing
+   forwarding tests to match;
 3. require new neutral currencies to use the owner-native namespace;
-4. add a source/forwarder/test/corpus census over every committed
-   `tools/DecompilerHarness/corpus/**/*baseline.json` that fails on an
-   unclassified public type, stale forwarding contract, or exact expectation
-   absent from the classification.
+4. add a source/forwarder/test/local-corpus census that fails on an
+   unclassified public type, stale forwarding contract, or exact local-build
+   expectation absent from the classification. The gate must also classify
+   every committed `tools/DecompilerHarness/corpus/**/*baseline.json` by input
+   provenance and fail on an unknown class. Published-package snapshots are
+   excluded from current-source name matching and must not be rewritten outside
+   their package-version re-harvest.
 
 This makes the mixed namespace deliberate without adding duplicate wrapper
 types. The classification property is currently **not gated**.
@@ -366,7 +374,8 @@ Keep the work in independently reviewable slices:
    and preserve the current 1,024-byte admission and rejection projections.
 2. **Namespace ownership classification** — inventory legacy forwarded
    identities and owner-native types, then add the
-   source/forwarder/test/corpus-expectation census.
+   source/forwarder/test/local-corpus expectation and baseline-provenance
+   census.
 3. **Optional local clarity** — rename ILDiff's two providers if the names
    continue to obscure their distinct projections.
 

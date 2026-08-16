@@ -301,10 +301,10 @@ types, in different assemblies, with **two distinct `public enum TypeRefKind`**:
 
 | | `ILInspector.Analysis` | `ILInspector.Decompiler.Pipeline` |
 | --- | --- | --- |
-| Class | `src/ILInspector.Analysis/TypeRef.cs:26` | `src/ILInspector.Decompiler/Pipeline/TypeRef.cs:63` |
-| Kind enum | `src/ILInspector.Analysis/TypeRef.cs:8` | `src/ILInspector.Decompiler/Pipeline/TypeRef.cs:6` |
-| Contract | "Semantic type identity for IL analysis. Display names are for humans; equality is structural." (`:23`) | "Symbolic type identity for the pipeline… Equality is semantic — structural over the shape, never textual." |
-| `FunctionPointer` kind | **absent** | **present** (`src/ILInspector.Decompiler/Pipeline/TypeRef.cs:24`) |
+| Class | `src/ILInspector.Analysis/TypeRef.cs` | `src/ILInspector.Decompiler/Pipeline/TypeRef.cs` |
+| Kind enum | Analysis `TypeRefKind` | Decompiler `TypeRefKind` |
+| Contract | "Semantic type identity for IL analysis. Display names are for humans; equality is structural." | "Symbolic type identity for the pipeline… Equality is semantic — structural over the shape, never textual." |
+| `FunctionPointer` kind | **absent** | **present** |
 | Provenance excluded from equality | `TrustedFrameworkAssembly`, `TrustedProtobufAssembly` | `ValueTypeHint` |
 | Corelib canonicalization | `CoreLibrary = "corelib"` | `CoreLibrary = "corelib"` |
 
@@ -370,7 +370,7 @@ only neutral mechanics with one bounded answer.**
 | --- | --- | --- |
 | Owner | `ILInspector.Metadata.ApiMemberIdentity` | `ILInspector.Research.ResearchMemberIdentity` |
 | Value | `MemberAnchor` | `MethodIdentity` |
-| Type identity | `string TypeFullName` (`src/ILInspector.MetadataPrimitives/MemberAnchor.cs:18`) | `TypeRef DeclaringType` (`src/ILInspector.Analysis/MemberIdentity.cs:65`) |
+| Type identity | `MemberAnchor.TypeFullName` | `MemberIdentity.DeclaringType` |
 | Nested types | `Outer.Inner` (`MetadataReaderExtensions.GetFullTypeName`) | `Outer+Inner` (`MetadataTypeDefinitionName.ToNestedMetadataName`) |
 
 `member-target-resolution.md` states the divergence is deliberate: "Body identity
@@ -383,18 +383,20 @@ nested ones. A predicate written as `type => type == typeof(Outer.Inner).FullNam
 produces `Outer+Inner`, matches nothing against the API vocabulary, and — absent a
 zero-match guard — passes vacuously.
 
-The split is enforced, not merely observed. `docs/design/implementation-diff.md:113-116`
+The split is enforced, not merely observed. The
+[Implementation Diff row currency contract](implementation-diff.md#row-currency-contract)
 records that the body substrate *could* embed a `MemberAnchor` and
 **deliberately does not**; the two carriers stay separate (`MemberAnchor` /
 `StableMemberKey` for API rows, `ResearchSubjectKey` for body rows), and
-`docs/design/implementation-diff.md:119` notes that reconstructing member
-identity from display text "would duplicate identity the wrapper already owns."
+reconstructing member identity from display text "would duplicate identity the
+wrapper already owns."
 
-**An anchor is not self-sufficient.** Per
-`docs/design/csharp-member-recompilation.md:313`, "`ModuleIdentity` includes module name and
-MVID so a member anchor is never interpreted without its physical metadata scope.
-Display text is not identity." A member identity is a *pair*: the anchor plus the
-module scope it was resolved in.
+**An anchor is not self-sufficient.** The
+[C# assembly round-trip design](csharp-member-recompilation.md) requires
+`ModuleIdentity` to include module name and MVID so a member anchor is never
+interpreted without its physical metadata scope. Display text is not identity.
+A member identity is a *pair*: the anchor plus the module scope it was resolved
+in.
 
 ### Selector vs. anchor
 
