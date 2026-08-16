@@ -72,7 +72,7 @@ public sealed record CSharpDocumentNodeIdentity(
 /// <summary>Evidence mechanism used to issue one cross-document match.</summary>
 public enum CSharpNodeMatchProvenance
 {
-    /// <summary>Unique equality of product-owned IL-origin set and same-origin IR depth.</summary>
+    /// <summary>Unique equality of a product-owned IL-origin set.</summary>
     IlOriginSet,
 }
 

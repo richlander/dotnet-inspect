@@ -5,6 +5,7 @@ using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Instructions;
 using ILInspector.Text;
 
 namespace ILInspector.Research;
@@ -464,14 +465,24 @@ public static partial class ResearchViews
                 : IlProjection.RenderIlBodyLines(source, methodToken.Value);
 
         var stream = CorrelatePortableSource(imported, csText, printedRanges, annotations, ilLines);
-        var csharpMap = PrintedBodyMap.Create(printedRanges, imported, annotations);
         AnnotatedSourceDocumentSource? documentSource = null;
+        IReadOnlySet<int>? provenanceOffsetAllowList = null;
         if (methodToken is { } token)
         {
             var entity = MetadataTokens.EntityHandle(token);
             if (entity.Kind == HandleKind.MethodDefinition)
             {
                 var handle = (MethodDefinitionHandle)entity;
+                var definition = source.Reader.GetMethodDefinition(handle);
+                var instructions = definition.RelativeVirtualAddress == 0
+                    ? null
+                    : MethodInstructions.Decode(
+                        source.Pe.GetMethodBody(definition.RelativeVirtualAddress));
+                provenanceOffsetAllowList = instructions is { IsComplete: true }
+                    ? instructions.Instructions
+                        .Select(static instruction => instruction.Offset)
+                        .ToHashSet()
+                    : new HashSet<int>();
                 documentSource = new AnnotatedSourceDocumentSource(
                     source.AssemblyName,
                     source.ModuleVersionId,
@@ -480,6 +491,11 @@ public static partial class ResearchViews
                     $"{type}.{method} (0x{token:X8})");
             }
         }
+        var csharpMap = PrintedBodyMap.Create(
+            printedRanges,
+            imported,
+            annotations,
+            provenanceOffsetAllowList);
         return MakeDocument(stream, csharpMap, headerFacts, documentSource);
     }
 

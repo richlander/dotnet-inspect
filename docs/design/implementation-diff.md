@@ -51,6 +51,11 @@ provenance; otherwise the incomplete population leaves it ambiguous. Equal
 document-local ids, source coordinates, selected text, kind labels, and display
 order never establish cross-document identity.
 
+The producer checks every origin against an instruction boundary in the
+fingerprinted physical body. A subtree that retains any offset imported from a
+nested or reconstructed companion method is unsupported as a whole; foreign
+offsets are never intersected into a plausible-looking partial identity.
+
 The issued `CSharpNodeCorrespondenceResult` retains the exact documents and
 their revision identities, document-scoped node identities, the
 `IlOriginSet` provenance for every match, and explicit unmatched Before and

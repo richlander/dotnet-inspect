@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
@@ -716,6 +717,96 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void ProductBodyFingerprint_HashesChainedMethodDataSections()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-physical-body-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string finallyPath = Path.Combine(directory, "finally.dll");
+        string faultPath = Path.Combine(directory, "fault.dll");
+
+        try
+        {
+            File.WriteAllBytes(
+                finallyPath,
+                BuildSyntheticMethodImage(
+                    new Guid("11111111-2222-3333-4444-555555555555"),
+                    ChainedSectionBody(0x0002)));
+            File.WriteAllBytes(
+                faultPath,
+                BuildSyntheticMethodImage(
+                    new Guid("11111111-2222-3333-4444-555555555555"),
+                    ChainedSectionBody(0x0004)));
+
+            using var finallySource = MetadataSource.OpenWithoutSymbols(finallyPath);
+            using var faultSource = MetadataSource.OpenWithoutSymbols(faultPath);
+            var method = MetadataTokens.MethodDefinitionHandle(1);
+            var finallyDefinition = finallySource.Reader.GetMethodDefinition(method);
+            var faultDefinition = faultSource.Reader.GetMethodDefinition(method);
+            var finallyBody = finallySource.Pe.GetMethodBody(finallyDefinition.RelativeVirtualAddress);
+            var faultBody = faultSource.Pe.GetMethodBody(faultDefinition.RelativeVirtualAddress);
+
+            Assert.Equal(24, finallyBody.Size);
+            Assert.Equal(finallyBody.Size, faultBody.Size);
+            Assert.Equal(
+                finallySource.Pe.GetSectionData(finallyDefinition.RelativeVirtualAddress)
+                    .GetContent(0, finallyBody.Size),
+                faultSource.Pe.GetSectionData(faultDefinition.RelativeVirtualAddress)
+                    .GetContent(0, faultBody.Size));
+
+            Assert.NotEqual(
+                CSharpBodyDiff.ComputePhysicalMethodFingerprint(finallySource, method),
+                CSharpBodyDiff.ComputePhysicalMethodFingerprint(faultSource, method));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProductDocument_RejectsNilModuleMvid()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-nil-mvid-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "fixture.dll");
+
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildSyntheticMethodImage(mvid: null, [0x06, 0x2A]));
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+
+            Assert.Equal(Guid.Empty, source.ModuleVersionId);
+            var projection = ResearchViews.ProjectMember(
+                new ResearchViews.MemberProjectionRequest(
+                    source,
+                    "Fixture",
+                    "M",
+                    MethodToken: 0x06000001,
+                    SourceDocument: true));
+
+            Assert.Null(projection.SourceDocument);
+            Assert.NotNull(projection.SourceDocumentFailure);
+            Assert.Contains(
+                "non-empty MVID",
+                string.Join(
+                    "; ",
+                    projection.SourceDocumentFailure.Diagnostics
+                        .Select(static diagnostic => diagnostic.ToString())),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void IssuedComparison_ProjectsInterleavedIlWithoutInferringFromText()
     {
         const string beforeText = "return;\nIL_0000: ret";
@@ -788,6 +879,43 @@ public class CSharpStructuralComparisonTests
             && row.Change.HasFlag(CSharpStructuralChangeKind.Changed));
         Assert.Contains("this.@event", comparison.After.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("IL_", comparison.After.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RealIteratorDocument_DoesNotTrustCompanionMethodOffsets()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var reader = source.Reader;
+        var method = reader.MethodDefinitions.Single(handle =>
+            reader.GetString(reader.GetMethodDefinition(handle).Name)
+                == nameof(CfgSampleClass.YieldTwo));
+        var definition = reader.GetMethodDefinition(method);
+        var instructions = MethodInstructions.Decode(
+            source.Pe.GetMethodBody(definition.RelativeVirtualAddress));
+        Assert.True(instructions.IsComplete);
+        var physicalOffsets = instructions.Instructions
+            .Select(static instruction => instruction.Offset)
+            .ToHashSet();
+
+        var document = ResearchViews.ProjectMember(
+            new ResearchViews.MemberProjectionRequest(
+                source,
+                typeof(CfgSampleClass).FullName!,
+                nameof(CfgSampleClass.YieldTwo),
+                MethodToken: MetadataTokens.GetToken(method),
+                SourceDocument: true)).SourceDocument!;
+
+        var yieldNodes = document.Nodes
+            .Where(node => node.Medium == SourceLineKind.CSharp
+                && node.Kind == "YieldReturnStatement")
+            .ToArray();
+        Assert.NotEmpty(yieldNodes);
+        Assert.All(yieldNodes, node => Assert.Null(node.Provenance));
+        Assert.All(
+            document.Nodes.Where(node => node.Provenance is not null),
+            node => Assert.All(
+                node.Provenance!.IlOffsets,
+                offset => Assert.Contains(offset, physicalOffsets)));
     }
 
     static AnnotatedSourceDocument Document(
@@ -880,5 +1008,72 @@ public class CSharpStructuralComparisonTests
         Span<byte> bytes = stackalloc byte[sizeof(int)];
         BinaryPrimitives.WriteInt32LittleEndian(bytes, value);
         hash.AppendData(bytes);
+    }
+
+    static byte[] ChainedSectionBody(ushort handlerFlags)
+    {
+        string flags = handlerFlags.ToString("X4");
+        return System.Convert.FromHexString(
+            "0B3008000500000000000000"
+            + "00DE01DC2A000000"
+            + "81040000"
+            + "01100000"
+            + flags[2..4] + flags[0..2]
+            + "00000303000100000000");
+    }
+
+    static byte[] BuildSyntheticMethodImage(Guid? mvid, byte[] methodBody)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("fixture.dll"),
+            mvid is { } value ? metadata.GetOrAddGuid(value) : default,
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("fixture"),
+            new Version(1, 0),
+            default,
+            default,
+            default,
+            default);
+
+        var signature = new BlobBuilder();
+        signature.WriteBytes(new byte[] { 0, 0, 1 });
+        var method = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            0,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("Fixture"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+
+        var il = new BlobBuilder();
+        il.WriteBytes(methodBody);
+        var builder = new ManagedPEBuilder(
+            new PEHeaderBuilder(
+                imageCharacteristics:
+                    Characteristics.ExecutableImage | Characteristics.Dll),
+            new MetadataRootBuilder(metadata),
+            il,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
     }
 }

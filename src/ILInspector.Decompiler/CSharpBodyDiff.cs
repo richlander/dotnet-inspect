@@ -968,12 +968,99 @@ public static partial class CSharpBodyDiff
             return System.Convert.ToHexString(hash.GetHashAndReset());
         }
 
-        var body = source.Pe.GetMethodBody(definition.RelativeVirtualAddress);
         var bodyBytes = source.Pe
             .GetSectionData(definition.RelativeVirtualAddress)
-            .GetContent(0, body.Size);
+            .GetContent();
+        int bodySize = PhysicalMethodBodySize(bodyBytes.AsSpan());
+        bodyBytes = bodyBytes[..bodySize];
         AppendFingerprintBytes(hash, bodyBytes.AsSpan());
         return System.Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    static int PhysicalMethodBodySize(ReadOnlySpan<byte> body)
+    {
+        if (body.IsEmpty)
+            throw new BadImageFormatException("Method body is empty.");
+
+        const int formatMask = 0x3;
+        const int tinyFormat = 0x2;
+        const int fatFormat = 0x3;
+        const int moreSections = 0x8;
+        const int fatSection = 0x40;
+        const int moreSectionData = 0x80;
+
+        int format = body[0] & formatMask;
+        if (format == tinyFormat)
+            return CheckedBodyEnd(1, body[0] >> 2, body.Length);
+        if (format != fatFormat || body.Length < 12)
+            throw new BadImageFormatException("Method body has an invalid header.");
+
+        ushort flagsAndSize = BinaryPrimitives.ReadUInt16LittleEndian(body);
+        int headerSize = (flagsAndSize >> 12) * sizeof(int);
+        if (headerSize < 12 || headerSize > body.Length)
+            throw new BadImageFormatException("Method body has an invalid fat header size.");
+
+        int codeSize = BinaryPrimitives.ReadInt32LittleEndian(body[4..]);
+        if (codeSize < 0)
+            throw new BadImageFormatException("Method body has a negative code size.");
+
+        int bodyEnd = CheckedBodyEnd(headerSize, codeSize, body.Length);
+        if ((flagsAndSize & moreSections) == 0)
+            return bodyEnd;
+
+        int sectionOffset = Align4(bodyEnd, body.Length);
+        while (true)
+        {
+            if (sectionOffset > body.Length - sizeof(int))
+                throw new BadImageFormatException("Method body data section header is truncated.");
+
+            byte sectionKind = body[sectionOffset];
+            int sectionSize = (sectionKind & fatSection) != 0
+                ? body[sectionOffset + 1]
+                    | body[sectionOffset + 2] << 8
+                    | body[sectionOffset + 3] << 16
+                : body[sectionOffset + 1];
+            if (sectionSize < sizeof(int))
+                throw new BadImageFormatException("Method body data section has an invalid size.");
+
+            bodyEnd = CheckedBodyEnd(sectionOffset, sectionSize, body.Length);
+            if ((sectionKind & moreSectionData) == 0)
+                return bodyEnd;
+
+            sectionOffset = Align4(bodyEnd, body.Length);
+        }
+    }
+
+    static int CheckedBodyEnd(int start, int length, int available)
+    {
+        int end;
+        try
+        {
+            end = checked(start + length);
+        }
+        catch (OverflowException ex)
+        {
+            throw new BadImageFormatException("Method body extent overflows its image section.", ex);
+        }
+        if (end > available)
+            throw new BadImageFormatException("Method body extends beyond its image section.");
+        return end;
+    }
+
+    static int Align4(int value, int available)
+    {
+        int aligned;
+        try
+        {
+            aligned = checked((value + 3) & ~3);
+        }
+        catch (OverflowException ex)
+        {
+            throw new BadImageFormatException("Method body section alignment overflows.", ex);
+        }
+        if (aligned > available)
+            throw new BadImageFormatException("Method body section alignment exceeds its image section.");
+        return aligned;
     }
 
     static string BodyFingerprint(MetadataSource source, MethodDefinition method)

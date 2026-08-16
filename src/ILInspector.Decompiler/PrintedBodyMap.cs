@@ -363,7 +363,8 @@ public sealed record PrintedBodyMap
         List<PrintedRegion> Regions,
         Dictionary<IrNode, int> NodeIds) Project(
             PrintedRangeMap ranges,
-            bool includeNodeProvenance)
+            bool includeNodeProvenance,
+            IReadOnlySet<int>? provenanceOffsetAllowList = null)
     {
         string[] lines = ranges.Output.Length == 0
             ? []
@@ -425,7 +426,9 @@ public sealed record PrintedBodyMap
                         .Distinct()
                         .Order()
                 ];
-                if (offsets.Length == 0)
+                if (offsets.Length == 0
+                    || provenanceOffsetAllowList is not null
+                        && offsets.Any(offset => !provenanceOffsetAllowList.Contains(offset)))
                     continue;
 
                 nodes[id] = nodes[id] with
@@ -450,11 +453,16 @@ public sealed record PrintedBodyMap
     /// <param name="ranges">The printer's node-keyed character ranges.</param>
     /// <param name="function">The printed function after raising or lowering.</param>
     /// <param name="annotations">The complete fact set for the member.</param>
+    /// <param name="provenanceOffsetAllowList">
+    /// Instruction boundaries in the physical method the document describes.
+    /// A node retaining any other method's offset remains unsupported.
+    /// </param>
     /// <returns>A portable C# body map with precise fact extents where available.</returns>
     public static PrintedBodyMap Create(
         PrintedRangeMap ranges,
         IrFunction function,
-        IReadOnlyList<IAnnotation> annotations)
+        IReadOnlyList<IAnnotation> annotations,
+        IReadOnlySet<int>? provenanceOffsetAllowList = null)
     {
         ArgumentNullException.ThrowIfNull(ranges);
         ArgumentNullException.ThrowIfNull(function);
@@ -462,7 +470,8 @@ public sealed record PrintedBodyMap
 
         var (lines, nodes, regions, nodeIds) = Project(
             ranges,
-            includeNodeProvenance: true);
+            includeNodeProvenance: true,
+            provenanceOffsetAllowList: provenanceOffsetAllowList);
         var printedNodes = AnnotationAnchor.ComputePrintedNodes(annotations, function, ranges);
         var statementSpans = AnnotationAnchor.ComputeSpans(function);
         var facts = new List<PrintedAnnotationSpan>(annotations.Count);

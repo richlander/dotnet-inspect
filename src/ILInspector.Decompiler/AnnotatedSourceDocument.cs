@@ -68,8 +68,10 @@ public sealed record AnnotatedSourceNodeProvenance
 /// fingerprint closes the documented MVID-collision boundary. Correspondence
 /// requires this value to be present and exactly equal on both documents.
 /// <c>CSharpStructuralComparisonTests.ProductBodyFingerprint_HashesExactSignatureAndMethodBodyBytes</c>
-/// gates that the fingerprint covers the physical signature and complete raw
-/// method body, including its header and exception regions.
+/// and
+/// <c>CSharpStructuralComparisonTests.ProductBodyFingerprint_HashesChainedMethodDataSections</c>
+/// gate that the fingerprint covers the physical signature and complete raw
+/// method body, including its header and every method-data section.
 /// </remarks>
 public sealed record AnnotatedSourceDocumentSource
 {
@@ -92,6 +94,12 @@ public sealed record AnnotatedSourceDocumentSource
             Subject,
             nameof(Subject),
             "Source-facing subject");
+        if (ModuleVersionId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Module version id must be a non-empty MVID.",
+                nameof(ModuleVersionId));
+        }
         if ((MethodToken & unchecked((int)0xFF000000)) != 0x06000000
             || (MethodToken & 0x00FFFFFF) == 0)
         {

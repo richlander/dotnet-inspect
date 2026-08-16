@@ -1932,6 +1932,21 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    public void AnnotatedSourceDocumentSourceRejectsMissingPhysicalModuleIdentity()
+    {
+        var error = Assert.Throws<ArgumentException>(() =>
+            new AnnotatedSourceDocumentSource(
+                "Fixture",
+                Guid.Empty,
+                0x06000001,
+                new string('A', 64),
+                "Fixture.M"));
+
+        Assert.Equal("ModuleVersionId", error.ParamName);
+        Assert.Contains("non-empty MVID", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AnnotatedSourceDocumentRejectsOverlayTextThatIsNotWellFormedUtf16()
     {
         static AnnotatedSourceDocument Make(
