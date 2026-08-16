@@ -148,6 +148,20 @@ public class StructuralCloneAnalysisTests
         Assert.Equal(2, result.Receipt.UnsupportedMethods);
         Assert.Equal(4, result.Receipt.ExactComparisons);
         Assert.Equal(1, result.Receipt.DifferentComparisons);
+        StructuralCloneMethodOutcome[] unsupported =
+        [
+            .. result.Methods.Where(static method =>
+                method.Disposition
+                    == StructuralCloneDisposition.Unsupported),
+        ];
+        Assert.Equal(2, unsupported.Length);
+        Assert.All(
+            unsupported,
+            static method => Assert.All(
+                method.Blockers,
+                static blocker => Assert.Equal(
+                    StructuralCloneDiscoveryBlockerKind.MethodUnsupported,
+                    blocker.Kind)));
 
         AssertCluster(
             result,

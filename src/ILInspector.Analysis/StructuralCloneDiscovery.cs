@@ -21,6 +21,7 @@ public enum StructuralCloneDiscoveryBlockerKind
 {
     MetadataReadFailure,
     MethodLimit,
+    MethodUnsupported,
     MethodProductionLimit,
     MethodProductionFailure,
     CandidateComparisonLimit,
@@ -626,21 +627,22 @@ public static partial class StructuralCloneAnalysis
             address,
             production.Disposition,
             [
-                .. production.Blockers.Select(static blocker =>
+                .. production.Blockers.Select(blocker =>
                     new StructuralCloneDiscoveryBlocker(
-                        blocker.Kind switch
+                        production.Disposition switch
                         {
-                            StructuralCloneBlockerKind.BodySizeLimit
-                                or StructuralCloneBlockerKind.InstructionLimit
-                                or StructuralCloneBlockerKind.BlockLimit
-                                or StructuralCloneBlockerKind.EdgeLimit
-                                or StructuralCloneBlockerKind.LocalLimit
-                                or StructuralCloneBlockerKind
-                                    .VerificationStepLimit =>
-                                    StructuralCloneDiscoveryBlockerKind
-                                        .MethodProductionLimit,
-                            _ => StructuralCloneDiscoveryBlockerKind
-                                .MethodProductionFailure,
+                            StructuralCloneDisposition.Unsupported =>
+                                StructuralCloneDiscoveryBlockerKind
+                                    .MethodUnsupported,
+                            StructuralCloneDisposition.LimitReached =>
+                                StructuralCloneDiscoveryBlockerKind
+                                    .MethodProductionLimit,
+                            StructuralCloneDisposition.Failed =>
+                                StructuralCloneDiscoveryBlockerKind
+                                    .MethodProductionFailure,
+                            _ => throw new InvalidOperationException(
+                                "Completed method production cannot have "
+                                    + "blockers."),
                         },
                         $"{blocker.Kind}: {blocker.Detail}")),
             ],
