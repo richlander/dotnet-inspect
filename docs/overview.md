@@ -55,6 +55,9 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
 - `src/ILInspector.Findings/` contains the domain-free observation, inspection, matching, transition, comparison, whole-census correlation, and exact-identity correlation contracts shared by product producers. The `timeline` command composes Metadata and Analysis producers over those same correlation contracts.
+- `src/ILInspector.ILDiff/` owns IL body and assembly comparison over decoded
+  instruction streams: canonicalization, alignment, Finding projection, typed
+  failures, and producer-owned diff presentation.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
