@@ -61,7 +61,7 @@ static class ArrayPoolOwnershipFlow
                 parameter.Kind == TypeRefKind.SzArray);
         bool hasRent = directCalls.Any(static call =>
             IsDirectInvocation(call)
-            && LeakTriageAnalyzer.IsArrayPoolRent(call.Callee));
+            && ArrayPoolUseClassifier.IsArrayPoolRent(call.Callee));
         if (!hasArrayParameter && !hasRent)
             return new(method, member, [], [], IsComplete: true);
 
@@ -87,9 +87,9 @@ static class ArrayPoolOwnershipFlow
                 static pair => pair.Value.Callee);
         var ignoredCandidates =
             ImmutableArray.CreateBuilder<LeakTriageCandidate>();
-        ImmutableArray<LeakTriageAnalyzer.RentedLocal> rents =
+        ImmutableArray<ArrayPoolUseClassifier.RentedLocal> rents =
         [
-            .. LeakTriageAnalyzer.FindRents(
+            .. ArrayPoolUseClassifier.FindRents(
                 method,
                 context.Instructions.Instructions,
                 context.Blocks,
@@ -189,8 +189,8 @@ static class ArrayPoolOwnershipFlow
                 continue;
             }
 
-            LeakTriageAnalyzer.UseClassification classification =
-                LeakTriageAnalyzer.ClassifyUse(
+            ArrayPoolUseClassifier.UseClassification classification =
+                ArrayPoolUseClassifier.ClassifyUse(
                     context.Instructions.Instructions,
                     members,
                     use.Offset,
@@ -198,25 +198,25 @@ static class ArrayPoolOwnershipFlow
                     isArgument: isArgument);
             switch (classification.Kind)
             {
-                case LeakTriageAnalyzer.UseKind.Release:
+                case ArrayPoolUseClassifier.UseKind.Release:
                     uses.Add(
                         new(
                             ArrayPoolOwnershipUseKind.ReturnedToPool,
                             classification.OperationOffset));
                     break;
-                case LeakTriageAnalyzer.UseKind.Store:
+                case ArrayPoolUseClassifier.UseKind.Store:
                     uses.Add(
                         new(
                             ArrayPoolOwnershipUseKind.Stored,
                             classification.OperationOffset));
                     break;
-                case LeakTriageAnalyzer.UseKind.Return:
+                case ArrayPoolUseClassifier.UseKind.Return:
                     uses.Add(
                         new(
                             ArrayPoolOwnershipUseKind.ReturnedToCaller,
                             classification.OperationOffset));
                     break;
-                case LeakTriageAnalyzer.UseKind.Forward:
+                case ArrayPoolUseClassifier.UseKind.Forward:
                     if (calls.TryGetValue(
                             classification.OperationOffset,
                             out DirectCall? call)
@@ -234,7 +234,7 @@ static class ArrayPoolOwnershipFlow
                         complete = false;
                     }
                     break;
-                case LeakTriageAnalyzer.UseKind.LocalUse:
+                case ArrayPoolUseClassifier.UseKind.LocalUse:
                     break;
                 default:
                     complete = false;

@@ -205,7 +205,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                             MetadataTokens.EntityHandle(token),
                             scope),
                         token =>
-                            LeakTriageAnalyzer.ResolveCatchTypeRef(
+                            ArrayPoolExceptionPathAnalyzer.ResolveCatchTypeRef(
                                 reader,
                                 MetadataTokens.EntityHandle(token),
                                 scope));
@@ -397,7 +397,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                         MetadataTokens.EntityHandle(token),
                         scope),
                     token =>
-                        LeakTriageAnalyzer.ResolveCatchTypeRef(
+                        ArrayPoolExceptionPathAnalyzer.ResolveCatchTypeRef(
                             reader,
                             MetadataTokens.EntityHandle(token),
                             scope));
