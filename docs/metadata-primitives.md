@@ -104,7 +104,10 @@ references MetadataPrimitives directly.
 
 Metadata retains product-facing definition identities, including
 `MetadataTypeDefinitionName` and `MetadataTypeDefinitionAddress`. Moving those
-currencies is not part of this decision.
+currencies is not part of this decision. That defining-assembly ownership is
+**not gated**; the first implementation slice must add
+`MetadataPrimitiveOwnershipTests.MetadataDefinitionCurrencies_RemainMetadataOwned`,
+covering both types and the absence of a primitives-owned proxy or forwarder.
 
 These mechanisms may expose handles, neutral values, typed results, or
 disposable admission scopes. They must not select a consumer's display,
@@ -179,8 +182,11 @@ anything the shared guard rejects.
 The shared guard currently merges depth and cumulative-byte exhaustion into
 one rejection kind, while the local decoders preserve separate reasons for
 active recursion, per-TypeSpec bytes, cumulative bytes, and unsafe structural
-nesting. Those reasons participate in rendered output, equality, hashing, and
-Decompiler fidelity diagnostics. Consolidation must not collapse them.
+nesting. Those reasons participate in rendered output and equality in both
+owners and in Decompiler fidelity diagnostics. Analysis also includes the
+reason in `TypeRef` hashing and graph identity; Decompiler currently omits it
+from `TypeRef.GetHashCode`. Consolidation must preserve each owner's actual
+behavior rather than making them incidentally uniform.
 The current rejection precedence is active recursion depth, per-TypeSpec bytes,
 cumulative bytes, then unsafe structural nesting; the shared guard must retain
 that order for the configured semantic-decoder path.
@@ -197,7 +203,8 @@ The first implementation slice should:
 4. remove the local counters and direct structural prescan only after the
    shared scope preserves cleanup and nested-entry behavior;
 5. preserve successful and rejected projections byte-for-byte, including
-   reason text, equality, hashing, and fidelity-diagnostic grouping.
+   reason text, equality, each owner's current hash behavior, and
+   fidelity-diagnostic grouping.
 
 The detailed admission result is not permission to change the existing shared
 string contract. `SignatureDecoder` and `GuardedSignatureDecoder` must continue
@@ -211,21 +218,22 @@ must update that gate so its accepted Analysis/Decompiler pattern is the shared
 `TypeSpecGuard`, then mutation-prove that bypassing the guard in either decoder
 fails. `TypeRefDecoderRecursionTests` in both owner suites must cover matching
 close-negative cases at 1,025 and 4,097 bytes, active-depth exhaustion, and
-unsafe structural nesting. A nested fixture must also violate the per-TypeSpec
-and cumulative limits together, pinning per-TypeSpec rejection precedence.
-Outcome tests must pin each owner's reason text and `TypeRef` equality before
-and after convergence. Exact top-level and nested string-outcome tests must pin
-the existing coarse rejection kind, detail, and `GetValueOrThrow` exception
-text.
+unsafe structural nesting. A co-violation matrix must pin every earlier reason
+against every later reason: depth with per-entry, cumulative, and structural;
+per-entry with cumulative and structural; and cumulative with structural.
+Outcome tests must pin each owner's reason text, `TypeRef` equality, and current
+hash behavior before and after convergence. Exact top-level and nested
+string-outcome tests must pin the existing coarse rejection kind, detail, and
+`GetValueOrThrow` exception text.
 
 Removing the 1,024-byte cap is explicitly deferred. A legal 4,095-byte generic
 shape can amplify into thousands of resolved names and millions of rendered
 characters. Before widening acceptance, each artifact operation must have
 separately enforced item and text budgets with typed rejection, as required by
-`bounded-metadata-traversal.md`. Evidence must include the worst-case wide
-generic shape with long resolved names, not only a representative accepted
-fixture. A later decision must own any acceptance, output, equality, or
-diagnostic-bucketing change.
+[bounded metadata traversal](design/bounded-metadata-traversal.md). Evidence
+must include the worst-case wide generic shape with long resolved names, not
+only a representative accepted fixture. A later decision must own any
+acceptance, output, equality, or diagnostic-bucketing change.
 
 ### 2. Keep decode mechanics separate from failure policy
 
@@ -242,15 +250,24 @@ methods. The shared owner is the prescan and TypeSpec admission mechanism;
 the consuming owner decides what rejection means.
 
 `StringSignatureDecodeBoundaryTests` currently scans Metadata and
-MetadataPrimitives only. Decompiler has two string-producing gateway families:
-`GuardedSignatureText` terminates signature text through `GetValueOrThrow`,
-while `CSharpBodyDiff.ResolveIdentityTypeName` terminates typed
-`TypeResolver.ResolveTypeName` failures through
-`MetadataIdentityResolutionException`. Closure across both families is
-therefore **not verified**. The first implementation slice must extend the gate
-to enumerate each gateway and its expected owner failure boundary, including
-both `SignatureDecoder` and `TypeResolver` string entry points. Mutations that
-remove, replace, or bypass either boundary must fail.
+MetadataPrimitives only. Decompiler has three string-producing metadata gateway
+families:
+
+- `GuardedSignatureText` terminates signature text through
+  `GetValueOrThrow`;
+- `CSharpBodyDiff.ResolveIdentityTypeName` terminates typed
+  `TypeResolver.ResolveTypeName` failures through
+  `MetadataIdentityResolutionException`;
+- direct `MetadataReaderExtensions.GetFullTypeName` calls reach
+  `TypeResolver.GetFullName`; some propagate its `BadImageFormatException`,
+  while one `IrImporter` boundary explicitly degrades to `"<type>"`.
+
+Closure across those families is **not verified**. The first implementation
+slice must add `DecompilerStringGatewayBoundaryTests`, using resolved symbols
+rather than owner-type text so extension-method calls cannot evade the census.
+Every call site must be classified by gateway and expected owner failure
+boundary. Mutations that remove, replace, bypass, or silently reclassify any
+boundary must fail.
 
 A generic decode helper belongs in MetadataPrimitives only if at least three
 consumers need the same typed outcome contract. Line-count reduction alone is
@@ -293,8 +310,10 @@ full type names are observable repository behavior:
   `LibraryFindingConsumerTests.TypeForwardersQueryProjection_RetainsFindingSemanticsAndDisplayProjection`
   pin the former name across runtime resolution, query output, and Finding
   projection;
-- `tools/DecompilerHarness/corpus/pr-quick-baseline.json` also pins that name
-  in CI-consumed self-inspection corpus identities;
+- `tools/DecompilerHarness/corpus/pr-quick-baseline.json` and
+  `tools/DecompilerHarness/corpus/real-world-baseline.json` pin forwarded and
+  non-forwarded MetadataPrimitives types whose full names still use
+  `ILInspector.Metadata`; PR and Deep Inspect consume those identities;
 - no test independently pins the forwarded
   `ILInspector.Metadata.MethodStructuralSignature` name;
 - a CLR type forwarder cannot preserve an old full type name while changing its
@@ -311,9 +330,10 @@ should instead:
    string and corpus expectations and adding or removing forwarding tests to
    match;
 3. require new neutral currencies to use the owner-native namespace;
-4. add a source/forwarder/test/corpus census that fails on an unclassified
-   public type, stale forwarding contract, or exact expectation absent from the
-   classification.
+4. add a source/forwarder/test/corpus census over every committed
+   `tools/DecompilerHarness/corpus/**/*baseline.json` that fails on an
+   unclassified public type, stale forwarding contract, or exact expectation
+   absent from the classification.
 
 This makes the mixed namespace deliberate without adding duplicate wrapper
 types. The classification property is currently **not gated**.

@@ -313,10 +313,8 @@ the same order, and the same *discipline* — both deliberately exclude advisory
 provenance from structural equality, each documenting the reasoning
 independently. They differ in exactly the capability that decides which
 consumers may use which: Analysis's decoder resolves function pointers and
-custom modifiers to `Unsupported` —
-`src/ILInspector.Analysis/TypeRefDecoder.cs:232` returns
-`TypeRef.Unsupported("function pointer")` and `:233-234` returns
-`TypeRef.Unsupported($"custom modifier (…)")`. The Decompiler carries
+custom modifiers to `Unsupported` through
+`TypeRefDecoder.GetFunctionPointerType` and `GetModifiedType`. The Decompiler carries
 `FunctionPointer` as a first-class kind and has `TypeRefCustomModifier` storage,
 but its decoder sees through ordinary declaration-site modifiers. It retains
 only the focused modifier subset needed for supported function-pointer
@@ -373,7 +371,7 @@ only neutral mechanics with one bounded answer.**
 | Owner | `ILInspector.Metadata.ApiMemberIdentity` | `ILInspector.Research.ResearchMemberIdentity` |
 | Value | `MemberAnchor` | `MethodIdentity` |
 | Type identity | `string TypeFullName` (`src/ILInspector.MetadataPrimitives/MemberAnchor.cs:18`) | `TypeRef DeclaringType` (`src/ILInspector.Analysis/MemberIdentity.cs:65`) |
-| Nested types | `Outer.Inner` (`src/ILInspector.Metadata/MetadataReaderExtensions.cs:33`) | `Outer+Inner` (`src/ILInspector.Analysis/LibraryBodyIndex.cs:3201`) |
+| Nested types | `Outer.Inner` (`MetadataReaderExtensions.GetFullTypeName`) | `Outer+Inner` (`MetadataTypeDefinitionName.ToNestedMetadataName`) |
 
 `member-target-resolution.md` states the divergence is deliberate: "Body identity
 deliberately has a different type-name vocabulary from API identity because it
