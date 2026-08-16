@@ -404,10 +404,12 @@ skip suppression across grouped package and single-library hosts.
 `PackageIntegrationsWorkspaceTests.LocalAcquisition_UsesOnlyValidNuspecCoordinates`
 and `RemoteAcquisition_UsesResolvedCoordinate` gate acquisition provenance.
 `InspectionGraphPackageBoundary` consumes those realized workspace members
-without reopening their artifacts. It validates package provenance against the
-exact realized package coordinate, retains acquisition-bound assembly subjects,
-and projects one package subject as a structured group, a package node, or
-both. `WorkspaceContextLoaderTests.PackageBoundary_ProjectsLoadedPackageAsGroupAndNode`
+without reopening their artifacts. It validates package identity and version
+against package provenance while keeping the effective acquisition target
+distinct from the selected physical asset target, retains acquisition-bound
+assembly subjects, and projects one package subject as a structured group, a
+package node, or both.
+`WorkspaceContextLoaderTests.PackageBoundary_ProjectsLoadedPackageAsGroupAndNode`
 gates the compiled package-acquisition path.
 `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic
 composition and the shared nonzero completion status used after Markdown,

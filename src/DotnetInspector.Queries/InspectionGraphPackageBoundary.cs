@@ -260,16 +260,10 @@ public sealed class InspectionGraphPackageBoundary
                 out NuGetVersion? version)
             || !StringComparer.Ordinal.Equals(
                 coordinate.Version,
-                version.ToNormalizedString().ToLowerInvariant())
-            || !StringComparer.OrdinalIgnoreCase.Equals(
-                coordinate.Framework,
-                package.Tfm)
-            || !StringComparer.OrdinalIgnoreCase.Equals(
-                coordinate.RuntimeIdentifier,
-                package.Rid))
+                version.ToNormalizedString().ToLowerInvariant()))
         {
             throw new ArgumentException(
-                "A realized package coordinate must match its assembly provenance.",
+                "A realized package coordinate's package identity and version must match its assembly provenance.",
                 parameterName);
         }
     }

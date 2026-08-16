@@ -131,15 +131,11 @@ public sealed class InspectionGraphPackageBoundaryTests
     }
 
     [Theory]
-    [InlineData("other.package", "1.0.0", "net11.0", null)]
-    [InlineData("sample.package", "2.0.0", "net11.0", null)]
-    [InlineData("sample.package", "1.0.0", "net10.0", null)]
-    [InlineData("sample.package", "1.0.0", "net11.0", "linux-x64")]
+    [InlineData("other.package", "1.0.0")]
+    [InlineData("sample.package", "2.0.0")]
     public void Create_RejectsPackageCoordinateThatConflictsWithProvenance(
         string packageId,
-        string version,
-        string framework,
-        string? runtimeIdentifier)
+        string version)
     {
         RealizedMemberCoordinate.Package package =
             Package("sample.package", "feed-a");
@@ -147,12 +143,44 @@ public sealed class InspectionGraphPackageBoundaryTests
             package,
             "Sample",
             provenancePackageId: packageId,
-            provenanceVersion: version,
-            provenanceFramework: framework,
-            provenanceRuntimeIdentifier: runtimeIdentifier);
+            provenanceVersion: version);
 
         Assert.Throws<ArgumentException>(
             () => InspectionGraphPackageBoundary.Create([member]));
+    }
+
+    [Fact]
+    public void Create_KeepsEffectiveAndPhysicalPackageTargetsDistinct()
+    {
+        var package = new RealizedMemberCoordinate.Package(
+            "sample.package",
+            "1.0.0",
+            "feed-a",
+            "net11.0",
+            "linux-x64");
+        WorkspaceContextMember member = PackageMember(
+            package,
+            "Sample",
+            provenanceFramework: "net10.0",
+            provenanceRuntimeIdentifier: "linux-musl-x64");
+
+        InspectionGraphPackageBoundary boundary =
+            InspectionGraphPackageBoundary.Create([member]);
+        InspectionGraphDocument document = boundary.Project(
+            InspectionGraphPackageBoundaryLens.PackageNodes);
+
+        var subject =
+            Assert.IsType<InspectionGraphSubject.PackageSubject>(
+                Assert.Single(document.Nodes).Subject);
+        var identity =
+            Assert.IsType<InspectionGraphPackageIdentity.Realized>(
+                subject.Identity);
+        Assert.Same(package, identity.Package);
+        var provenance =
+            Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
+                member.Participant.Assembly.Provenance);
+        Assert.Equal("net10.0", provenance.Tfm);
+        Assert.Equal("linux-musl-x64", provenance.Rid);
     }
 
     [Fact]

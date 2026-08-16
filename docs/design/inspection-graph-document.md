@@ -373,9 +373,11 @@ structured data and must not be recovered from a node label.
 
 `InspectionGraphPackageBoundary` implements this boundary over realized
 workspace members. It joins an acquired assembly to its package through the
-participant's opaque acquisition registration, validates the package asset
-provenance against the exact `RealizedMemberCoordinate.Package`, and projects
-the resulting package subject as an assembly group, a package node, or both.
+participant's opaque acquisition registration, validates the package identity
+and version against package-asset provenance, and projects the resulting
+package subject as an assembly group, a package node, or both. The realized
+framework and RID remain the effective acquisition target; provenance retains
+the selected physical asset target, which may differ after compatible fallback.
 Assembly nodes retain acquisition-bound identity, so matching metadata
 identities from two acquired artifacts do not collapse. A package-only lens
 retains only portable realized package coordinates.
