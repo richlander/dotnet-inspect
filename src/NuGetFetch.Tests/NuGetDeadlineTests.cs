@@ -234,6 +234,70 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task RequestDeadline_TranslatesHttpRequestAbort()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    StreamResponse(
+                        message,
+                        new HttpRequestAbortStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(40),
+                operation: TimeSpan.FromSeconds(1)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                async () =>
+                {
+                    byte[] buffer = new byte[1];
+                    _ = await package.ReadAsync(
+                        buffer,
+                        TestContext.Current.CancellationToken);
+                });
+
+        Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+    }
+
+    [Fact]
+    public async Task RequestDeadline_TranslatesSynchronousHttpRequestAbort()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    StreamResponse(
+                        message,
+                        new HttpRequestAbortStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(40),
+                operation: TimeSpan.FromSeconds(1)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        byte[] buffer = new byte[1];
+        Task<int> read = Task.Run(
+            () => package.Read(buffer, 0, buffer.Length),
+            TestContext.Current.CancellationToken);
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                async () => _ = await read);
+
+        Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+    }
+
+    [Fact]
     public async Task PerReadCancellation_IsNotReportedAsARequestTimeout()
     {
         using var client = new HttpClient(new DelayedHandler(
@@ -648,6 +712,51 @@ public sealed class NuGetDeadlineTests
                 _disposed.Set();
                 _disposedAsync.TrySetResult();
             }
+            base.Dispose(disposing);
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class HttpRequestAbortStream : Stream
+    {
+        private readonly TaskCompletionSource _disposed =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            _disposed.Task.GetAwaiter().GetResult();
+            throw new HttpRequestException("Simulated HTTP stream abort.");
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await _disposed.Task;
+            throw new HttpRequestException("Simulated HTTP stream abort.");
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                _disposed.TrySetResult();
             base.Dispose(disposing);
         }
 

@@ -5,7 +5,7 @@ namespace NuGetFetch;
 /// </summary>
 public sealed class NuGetRequestTimeoutException : TimeoutException
 {
-    internal NuGetRequestTimeoutException(
+    public NuGetRequestTimeoutException(
         TimeSpan timeout,
         OperationCanceledException innerException)
         : base($"NuGet request did not complete within {timeout}.", innerException)

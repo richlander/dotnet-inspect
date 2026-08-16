@@ -123,7 +123,11 @@ public sealed record NuGetFetchOptions
         return options with { MetadataBodyTimeout = bodyTimeout };
     }
 
-    internal static TimeSpan RequestTimeoutForClient(
+    /// <summary>
+    /// Gets the effective request deadline after applying a stricter
+    /// <see cref="HttpClient.Timeout"/>.
+    /// </summary>
+    public static TimeSpan RequestTimeoutForClient(
         NuGetFetchOptions options,
         TimeSpan clientTimeout)
     {

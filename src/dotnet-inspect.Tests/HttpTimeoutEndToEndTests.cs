@@ -91,7 +91,8 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     {
         string error = RunSearch(
             ["--http-timeout", "31"],
-            environmentValue: null);
+            environmentValue: null,
+            stallServiceIndex: true);
 
         Assert.Contains(31, TimeoutSeconds(error));
         Assert.DoesNotContain(30, TimeoutSeconds(error));
@@ -162,7 +163,10 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         return numbers;
     }
 
-    private string RunSearch(string[] leadingArgs, string? environmentValue)
+    private string RunSearch(
+        string[] leadingArgs,
+        string? environmentValue,
+        bool stallServiceIndex = false)
     {
         string executable = Path.Combine(
             Path.GetDirectoryName(ProductAssemblyPath())!,
@@ -184,7 +188,9 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         psi.ArgumentList.Add("search");
         psi.ArgumentList.Add("dotnet-inspect-timeout-probe");
         psi.ArgumentList.Add("--source");
-        psi.ArgumentList.Add($"http://127.0.0.1:{_port}/index.json");
+        psi.ArgumentList.Add(
+            $"http://127.0.0.1:{_port}/"
+            + (stallServiceIndex ? "slow-index.json" : "index.json"));
 
         // Explicitly cleared, not merely unset: an ambient value on the developer's machine
         // would otherwise decide the result of the cases that pass none.
@@ -243,6 +249,23 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
                 int read = await stream.ReadAsync(buffer, cancellationToken);
                 string request = Encoding.ASCII.GetString(buffer, 0, read);
                 string path = request.Split(' ').Skip(1).FirstOrDefault() ?? string.Empty;
+
+                if (path.StartsWith("/slow-index.json", StringComparison.Ordinal))
+                {
+                    // Send service-index headers and a partial body, then stall. The
+                    // above-default test proves discovery does not restore the old
+                    // 30-second package-helper body clamp.
+                    byte[] indexHead = Encoding.ASCII.GetBytes(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        + "Content-Length: 1024\r\nConnection: close\r\n\r\n");
+                    await stream.WriteAsync(indexHead, cancellationToken);
+                    await stream.WriteAsync(
+                        Encoding.UTF8.GetBytes("{"),
+                        cancellationToken);
+                    await stream.FlushAsync(cancellationToken);
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    return;
+                }
 
                 if (!path.StartsWith("/index.json", StringComparison.Ordinal))
                 {

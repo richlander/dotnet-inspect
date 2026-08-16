@@ -151,6 +151,9 @@ public static class NuGetSearchService
         List<string> failures = [];
         HashSet<(string Id, string Version)> seen = new(SearchResultKeyComparer.Instance);
         int searched = 0;
+        TimeSpan requestTimeout = NuGetFetchOptions.RequestTimeoutForClient(
+            fetchOptions,
+            client.Timeout);
 
         foreach (NuGetSource source in sources)
         {
@@ -158,9 +161,28 @@ public static class NuGetSearchService
             string? searchUrl;
             try
             {
-                searchUrl = await PackageExtractor.GetSearchQueryServiceAsync(client, source, log);
+                using var requestCancellation = new CancellationTokenSource(
+                    requestTimeout);
+                try
+                {
+                    searchUrl = await PackageExtractor.GetSearchQueryServiceAsync(
+                        client,
+                        source,
+                        log,
+                        requestCancellation.Token,
+                        Timeout.InfiniteTimeSpan);
+                }
+                catch (OperationCanceledException ex)
+                    when (requestCancellation.IsCancellationRequested)
+                {
+                    throw new NuGetRequestTimeoutException(
+                        requestTimeout,
+                        ex);
+                }
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            catch (Exception ex) when (ex is HttpRequestException
+                or TaskCanceledException
+                or TimeoutException)
             {
                 failures.Add(
                     $"{PackageSourceDisplay.ForDiagnostics(source)}: service index unavailable "

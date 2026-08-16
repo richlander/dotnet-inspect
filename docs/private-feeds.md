@@ -266,8 +266,10 @@ number, fails the command when given as a flag and is ignored when given as the 
 typed the flag just now, but a stale variable should not make every command fail.
 
 The configured value replaces the 30 second request deadline in either direction, including
-response-body consumption. Package searches use an operation ceiling four times that value so
-multiple pages remain finite without silently restoring the default.
+response-body consumption and service-index discovery. Search API pagination uses an operation
+ceiling four times that value so multiple pages remain finite without silently restoring the
+default. One shared ceiling around discovery and every selected source belongs to the package
+source-client work; each request remains bounded in the meantime.
 
 Fetching source content through SourceLink keeps the fixed 30 second timeout. Those URLs come
 from the package rather than from a feed you configured, so they are not covered by this setting.

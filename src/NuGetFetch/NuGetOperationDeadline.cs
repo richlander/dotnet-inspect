@@ -354,7 +354,9 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         private bool IsDeadlineAbort(Exception exception) =>
             _requestToken.IsCancellationRequested
-            && exception is IOException or ObjectDisposedException;
+            && exception is IOException
+                or HttpRequestException
+                or ObjectDisposedException;
 
         private void ThrowTranslated(Exception exception)
         {
