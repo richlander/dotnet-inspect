@@ -1384,7 +1384,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _reader.GetMethodDefinition(body);
             if (bodyDefinition.GetDeclaringType()
                     != typeHandle
-                || bodyDefinition.RelativeVirtualAddress == 0
+                || !HasAnalyzableIlBody(bodyDefinition)
                 || !IsMoveNextBody(body))
             {
                 return false;
@@ -1396,8 +1396,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
 
         foreach (var handle in type.GetMethods())
         {
-            if (_reader.GetMethodDefinition(handle)
-                    .RelativeVirtualAddress == 0
+            if (!HasAnalyzableIlBody(
+                    _reader.GetMethodDefinition(handle))
                 || !IsMoveNextBody(handle)
                 || !_reader.StringComparer.Equals(
                     _reader.GetMethodDefinition(handle).Name,
@@ -1411,6 +1411,17 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         }
         return !moveNext.IsNil;
     }
+
+    static bool HasAnalyzableIlBody(
+        MethodDefinition method)
+        => method.RelativeVirtualAddress != 0
+            && (method.Attributes
+                    & MethodAttributes.PinvokeImpl) == 0
+            && (method.ImplAttributes
+                    & (MethodImplAttributes.CodeTypeMask
+                        | MethodImplAttributes.ManagedMask
+                        | MethodImplAttributes.InternalCall))
+                == MethodImplAttributes.IL;
 
     bool ImplementsAsyncStateMachine(
         TypeDefinition type)

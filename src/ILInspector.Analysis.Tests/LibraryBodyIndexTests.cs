@@ -1541,6 +1541,27 @@ public class LibraryBodyIndexTests
                     "AnalyzeAsync",
                     StringComparison.Ordinal));
 
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: false,
+                    moveNextImplementation:
+                        MethodImplAttributes.InternalCall));
+            var nonIlMoveNext =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                nonIlMoveNext
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Contains(
+                nonIlMoveNext.Diagnostics,
+                diagnostic => diagnostic.Method.Contains(
+                    "AnalyzeAsync",
+                    StringComparison.Ordinal));
+
             foreach (byte unsupportedHeader
                 in new byte[] { 0x25, 0x60, 0xA0 })
             {
@@ -1765,7 +1786,9 @@ public class LibraryBodyIndexTests
         bool malformedSourceMethodImpl = false,
         bool sourceImplementsOtherInterface = true,
         bool incompatibleSourceMethodImpl = false,
-        bool moveNextHasBody = true)
+        bool moveNextHasBody = true,
+        MethodImplAttributes moveNextImplementation =
+            MethodImplAttributes.IL)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2017,7 +2040,7 @@ public class LibraryBodyIndexTests
                 | (!moveNextHasBody
                     ? MethodAttributes.Abstract
                     : 0),
-            MethodImplAttributes.IL,
+            moveNextImplementation,
             metadata.GetOrAddString("MoveNext"),
             metadata.GetOrAddBlob(
                 new byte[] { 0x20, 0x00, 0x01 }),
