@@ -69,12 +69,22 @@ internal static partial class WorkflowContract
             "jobs.test");
         var roundtripSteps = new Dictionary<string, YamlMappingNode>(
             StringComparer.Ordinal);
+        YamlMappingNode? ilDiffTestStep = null;
         foreach (YamlNode stepNode in testSteps.Children)
         {
             YamlMappingNode step = RequireMapping(
                 stepNode,
                 "jobs.test step");
             string? name = GetOptionalScalar(step, "name");
+            if (name == "Run IL diff tests")
+            {
+                if (ilDiffTestStep is not null)
+                {
+                    throw new InvalidOperationException(
+                        "jobs.test contains duplicate step: Run IL diff tests.");
+                }
+                ilDiffTestStep = step;
+            }
             if (name is "Restore vendored ILAssembler" or
                 "Run IL round-trip tests (fast)")
             {
@@ -85,6 +95,17 @@ internal static partial class WorkflowContract
                 }
             }
         }
+
+        if (ilDiffTestStep is null)
+        {
+            throw new InvalidOperationException(
+                "jobs.test is missing step: Run IL diff tests.");
+        }
+        RequireScalarValue(
+            ilDiffTestStep,
+            "run",
+            "dotnet run --project src/ILInspector.ILDiff.Tests -c Release",
+            "jobs.test Run IL diff tests");
 
         string roundtripCondition =
             "matrix.rid == 'linux-x64' && " +
