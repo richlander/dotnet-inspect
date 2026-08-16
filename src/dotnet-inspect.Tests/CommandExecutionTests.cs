@@ -16886,6 +16886,47 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DottedImpliedMemberWithDistinctGenericSelector_IsRejected()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.MemoryExtensions.Contains", "--platform", "System.Memory",
+            "-m", "AsSpan<T>", "-S", "Methods", "--count", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires exactly one member name", error);
+    }
+
+    [Fact]
+    public async Task Member_DottedImpliedMemberWithConflictingGenericArity_IsRejected()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            $"{typeof(MemberGenericSelectorFixture).FullName!}.GenericChoice<T>",
+            "--library", TestAssemblyPath,
+            "-m", "GenericChoice<T1,T2>", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot combine different generic arities", error);
+    }
+
+    [Fact]
+    public async Task Member_DottedImpliedMemberWithMatchingGenericArity_Resolves()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            $"{typeof(MemberGenericSelectorFixture).FullName!}.GenericChoice<T>",
+            "--library", TestAssemblyPath,
+            "-m", "GenericChoice<TValue>", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("GenericChoice<T>", output);
+        Assert.DoesNotContain("GenericChoice(string value)", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Member_GenericContainingTypeAndGenericMethod_ResolvesTheMember()
     {
         var (exit, output, error) = await RunAppAsync(

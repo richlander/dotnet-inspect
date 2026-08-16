@@ -96,10 +96,25 @@ public static class MemberCommand
                 {
                     impliedSelector.Name
                 };
+                if (options.MemberGenericArity is { } explicitArity
+                    && impliedSelector.GenericArity is { } impliedArity
+                    && explicitArity != impliedArity)
+                {
+                    CommandError.Write("A member selection cannot combine different generic arities.");
+                    return 1;
+                }
+
+                var mergedArity = options.MemberGenericArity ?? impliedSelector.GenericArity;
+                if (mergedArity.HasValue && mergedFilter.Count != 1)
+                {
+                    CommandError.Write("A generic arity selector requires exactly one member name.");
+                    return 1;
+                }
+
                 options = options with
                 {
                     MemberFilter = mergedFilter,
-                    MemberGenericArity = options.MemberGenericArity ?? impliedSelector.GenericArity
+                    MemberGenericArity = mergedArity
                 };
             }
 
