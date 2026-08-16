@@ -96,26 +96,57 @@ public static class MemberCommand
                 {
                     impliedSelector.Name
                 };
+                if (options.MemberGenericArity is { } explicitArity
+                    && impliedSelector.GenericArity is { } impliedArity
+                    && explicitArity != impliedArity)
+                {
+                    CommandError.Write("A member selection cannot combine different generic arities.");
+                    return 1;
+                }
+
+                var mergedArity = options.MemberGenericArity ?? impliedSelector.GenericArity;
+                if (mergedArity.HasValue && mergedFilter.Count != 1)
+                {
+                    CommandError.Write("A generic arity selector requires exactly one member name.");
+                    return 1;
+                }
+
                 options = options with
                 {
                     MemberFilter = mergedFilter,
-                    MemberGenericArity = options.MemberGenericArity ?? impliedSelector.GenericArity
+                    MemberGenericArity = mergedArity
                 };
             }
-            else if (options.MemberFilter.Count == 0 && options.Select is { Length: > 0 })
+
+            memberPipeline = ApiMemberSectionPipelines.Create(options);
+
+            // Structural discovery ignores -S. Once lookup has identified the actual member
+            // pipeline, report that schema directly just as the non-dotted path does.
+            if (options.Discover is not null && !options.EffectiveDiscovery)
             {
-                var actualPipeline = ApiMemberSectionPipelines.Create(options);
-                var actualSelect = SelectResolver.ResolveSelectAsSections(
-                    options.Select,
-                    actualPipeline.SelectableSectionNames,
-                    actualPipeline.InfoSectionNames,
-                    actualPipeline.GetCategoryMap(),
-                    selectDefault: options.SelectDefault);
-                if (SelectOutput.WriteUnresolved(actualSelect))
-                    return 1;
-                if (actualSelect.Sections != null)
-                    options = options with { IncludeSections = actualSelect.Sections };
+                return ApiCommand.ExecuteStructuralTypeDiscovery(options, memberPipeline);
             }
+
+            if (options.MemberSelectionDeferredToLookup)
+            {
+                if (ApiCommand.ReresolveSectionsForMemberLookup(options) is not { } resolved)
+                    return 1;
+                options = resolved;
+                memberPipeline = ApiMemberSectionPipelines.Create(options);
+            }
+            else if (ApiCommand.RevalidateResolvedMemberSections(options, memberPipeline) is { } revalidated)
+            {
+                options = revalidated;
+                if (options.MemberPipelineDeferredToLookup)
+                {
+                    if (ApiCommand.FinalizeResolvedMemberSelection(options, memberPipeline)
+                        is not { } finalized)
+                        return 1;
+                    options = finalized;
+                }
+            }
+            else
+                return 1;
 
             // Check each member filter before producing output
             if (options.MemberFilter.Count > 0)
@@ -151,8 +182,12 @@ public static class MemberCommand
             MemberOptions effectiveOptions = options;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
-            if (effectiveOptions.HasCallerScope)
+            var callersImplicitlySelected = ShouldImplicitlySelectCallers(effectiveOptions);
+            if (callersImplicitlySelected)
                 effectiveOptions = IncludeCallersSection(effectiveOptions);
+            var authoredSelection = callersImplicitlySelected
+                ? ExcludeCallersSection(effectiveOptions)
+                : effectiveOptions;
 
             // Keep member-name lookups as overload inventories. Only auto-select the lone
             // overload when the user explicitly asks for a selected-overload detail section.
@@ -165,7 +200,29 @@ public static class MemberCommand
                 var autoMemberName = effectiveOptions.MemberFilter.First();
                 var autoOverloads = GetCandidateMembers(apiType, effectiveOptions, autoMemberName);
                 if (autoOverloads.Count == 1)
-                    effectiveOptions = effectiveOptions with { OverloadIndex = 1 };
+                {
+                    var inventoryPipeline = ApiMemberSectionPipelines.Create(authoredSelection);
+                    if (ApiCommand.RevalidateResolvedMemberSections(
+                            authoredSelection,
+                            inventoryPipeline)
+                        is not { } inventorySections)
+                        return 1;
+
+                    inventorySections = inventorySections with
+                    {
+                        OverloadIndex = 1,
+                        AutoSelectedSingleOverload = true
+                    };
+                    var detailPipeline = ApiMemberSectionPipelines.Create(inventorySections);
+                    if (ApiCommand.FinalizeResolvedMemberSelection(
+                            inventorySections,
+                            detailPipeline)
+                        is not { } detailOptions)
+                        return 1;
+                    effectiveOptions = callersImplicitlySelected
+                        ? IncludeCallersSection(detailOptions)
+                        : detailOptions;
+                }
             }
 
             if (effectiveOptions.OverloadIndex.HasValue
@@ -205,7 +262,7 @@ public static class MemberCommand
             }
 
             if (effectiveOptions.OverloadIndex is null
-                && TryGetSelectedSingleOverloadSections(effectiveOptions, out var singleOverloadSections))
+                && TryGetSelectedSingleOverloadSections(authoredSelection, out var singleOverloadSections))
             {
                 var memberName = effectiveOptions.MemberFilter.First();
                 var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
@@ -337,7 +394,9 @@ public static class MemberCommand
 
             // For caller-scope queries without a specific overload, ensure DllPath is set so we can
             // open the member's own assembly index for aggregated callers across all overloads.
-            if (effectiveOptions.HasCallerScope && effectiveOptions.DllPath == null && apiDllPath != null)
+            if (effectiveOptions.HasCallerScope
+                && effectiveOptions.DllPath == null
+                && apiDllPath != null)
             {
                 effectiveOptions = effectiveOptions with { DllPath = apiDllPath };
             }
@@ -357,12 +416,9 @@ public static class MemberCommand
                     context.HttpClient,
                     logger);
 
-                // Supplying a caller scope is an explicit request for the Callers section, so it
-                // renders (with an empty-state note when nothing matches) even at low verbosity.
                 effectiveOptions = effectiveOptions with
                 {
-                    CallerScopeAssemblies = callerScopeAssemblySet.Assemblies,
-                    IncludeSections = IncludeCallersSection(effectiveOptions).IncludeSections
+                    CallerScopeAssemblies = callerScopeAssemblySet.Assemblies
                 };
             }
 
@@ -381,13 +437,28 @@ public static class MemberCommand
                 var schema = ApiCommand.ToQueryableSchema(
                     ApiCommand.GetTypeDocumentSchema(effectiveOptions),
                     effectiveOptions);
-                if (!ProjectionDiagnostics.ValidateProjection(schema, projectionSections, effectiveOptions.Fields, effectiveOptions.Columns))
+                if (!ApiCommand.ValidateTypeProjection(
+                        schema,
+                        projectionSections,
+                        effectiveOptions.Fields,
+                        effectiveOptions.Columns))
                     return 1;
             }
 
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
             if (writeExitCode != 0)
                 return writeExitCode;
+
+            if ((effectiveOptions.Count
+                 || !effectiveOptions.Tabular
+                 && !effectiveOptions.JsonOutput)
+                && apiType.Members is [{ Kind: "field" }])
+            {
+                ApiCommand.WarnEmptySelectedSections(
+                    apiType,
+                    effectiveOptions,
+                    ApiMemberSectionPipelines.Create(effectiveOptions));
+            }
 
             if (!effectiveOptions.FormatExplicitlySet && !effectiveOptions.IsRawOutput && effectiveOptions.OverloadIndex == null)
             {
@@ -513,8 +584,45 @@ public static class MemberCommand
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         includeSections.Add(SectionNames.Callers);
+        return options with
+        {
+            IncludeSections = includeSections,
+            CallerScopeSectionImplicitlySelected = true
+        };
+    }
+
+    private static MemberOptions ExcludeCallersSection(MemberOptions options)
+    {
+        var includeSections = options.IncludeSections is { } existing
+            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+            : [];
+        includeSections.Remove(SectionNames.Callers);
         return options with { IncludeSections = includeSections };
     }
+
+    private static bool ShouldImplicitlySelectCallers(MemberOptions options)
+        => options.HasCallerScope
+           && options.IncludeSections?.Contains(SectionNames.Callers) != true
+           && (!options.JsonOutput || options.IncludeSections is { Count: > 0 })
+           && !options.Tree
+           && !IsStandaloneMermaid(options)
+           && (options.IncludeSections is null || !UsesSingleSectionOutput(options));
+
+    private static bool UsesSingleSectionOutput(MemberOptions options)
+        => options.Discover is null
+           && (options.Count
+               || options.Print
+               || options.TabularExplicitlySet
+               || ShapeProjectionOutput.ActiveShapeCount(
+                   options.Value,
+                   options.Urls,
+                   options.Paths) > 0);
+
+    private static bool IsStandaloneMermaid(MemberOptions options)
+        => options.MermaidOutput
+           && (options.FormatFlagExplicitlySet
+               || options.IncludeSections is { Count: 1 } sections
+               && sections.Contains(SectionNames.CallGraph));
 
     private static readonly string[] SingleOverloadSectionNames =
     [
@@ -542,7 +650,8 @@ public static class MemberCommand
     ];
 
     private static bool IsPureSelector(string[]? select, string name) =>
-        select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
+        select is { Length: > 0 }
+        && select.All(selector => selector.Equals(name, StringComparison.OrdinalIgnoreCase));
 
     private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
         => GetTargetCandidates(apiType, options, memberName)

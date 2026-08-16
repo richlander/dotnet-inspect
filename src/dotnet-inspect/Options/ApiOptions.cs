@@ -285,11 +285,39 @@ public record TypeOptions : ApiOptions
 public record MemberOptions : ApiOptions
 {
     /// <summary>
+    /// True when a dotted type argument may resolve either as a namespace-qualified type or as
+    /// <c>Type.Member</c>. The member pipeline, selection, and structural discovery stay deferred
+    /// until metadata lookup determines which context is real.
+    /// </summary>
+    public bool MemberPipelineDeferredToLookup { get; init; }
+
+    /// <summary>
+    /// True when raw section selectors must also wait for the member pipeline selected by lookup.
+    /// Pre-resolved <see cref="ApiOptions.IncludeSections"/> still validate argument-only contracts
+    /// in the preamble, then use <see cref="MemberPipelineDeferredToLookup"/> for post-lookup
+    /// pipeline validation.
+    /// </summary>
+    public bool MemberSelectionDeferredToLookup { get; init; }
+
+    /// <summary>
     /// True when <see cref="ApiOptions.IncludeSections"/> was supplied before the command
     /// preamble. Retained raw selectors are provenance only and must not override that set or
     /// control later member-pipeline transitions.
     /// </summary>
     public bool MemberSectionsPreResolved { get; init; }
+
+    /// <summary>
+    /// True when a member-name inventory contained one overload and the command selected it to
+    /// produce requested detail evidence. The authored command remains an overload-inventory
+    /// query, so its advertised inventory sections stay valid alongside detail sections.
+    /// </summary>
+    internal bool AutoSelectedSingleOverload { get; init; }
+
+    /// <summary>
+    /// True when caller-scope resolution, rather than an authored selector, added Callers to
+    /// <see cref="ApiOptions.IncludeSections"/>.
+    /// </summary>
+    internal bool CallerScopeSectionImplicitlySelected { get; init; }
 
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }

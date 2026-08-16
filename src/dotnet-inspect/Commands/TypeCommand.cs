@@ -276,7 +276,11 @@ public static class TypeCommand
                     if (tabularProjection && effectiveOptions.IncludeSections is { Count: > 0 })
                     {
                         var projSchema = ApiCommand.GetTypeDocumentSchema(effectiveOptions);
-                        if (!ProjectionDiagnostics.ValidateProjection(projSchema, effectiveOptions.IncludeSections, effectiveOptions.Fields, effectiveOptions.Columns))
+                        if (!ApiCommand.ValidateTypeProjection(
+                                projSchema,
+                                effectiveOptions.IncludeSections,
+                                effectiveOptions.Fields,
+                                effectiveOptions.Columns))
                             return 1;
                     }
 

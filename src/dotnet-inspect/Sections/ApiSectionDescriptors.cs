@@ -566,10 +566,22 @@ public static class ApiMemberSectionPipelines
     public static bool UsesOverloadInventoryPipeline(ApiOptions options)
         => options is MemberOptions
            {
-              OverloadIndex: null,
               MemberDigest: null,
               MemberFilter.Count: > 0
-           };
+           } member
+           && (member.OverloadIndex is null || member.AutoSelectedSingleOverload);
+
+    internal static bool ShouldAggregateImplicitCallers(
+        ApiType type,
+        ApiOptions options)
+        => options is MemberOptions
+           {
+               CallerScopeSectionImplicitlySelected: true
+           }
+           && options.IncludeSections?.Contains(
+               SectionNames.Callers,
+               StringComparer.OrdinalIgnoreCase) == true
+           && type.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
 }
 
 /// <summary>

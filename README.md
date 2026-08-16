@@ -579,6 +579,9 @@ target. Bare `-S` returns high-value, fixed-length, network-free base sections.
 A single `type Type` uses `Type Info`, a type listing uses `API Info`, broad
 `member Type` summaries use `Method Groups`, `member Type -m Name` uses
 `Methods` overload rows, and a selected `member Type.Member:N` uses `Signature`.
+For a dotted `member Type.Member` target, metadata lookup first determines
+whether the final segment belongs to the type or implies a member, then
+discovery reports the matching pipeline.
 Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons.
 Package and library expose authored categories rather than a computed `@All`;
 workflow categories such as `@Source` and `@Audit` expand to focused section

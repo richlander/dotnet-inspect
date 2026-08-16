@@ -66,6 +66,66 @@ public class SourceResolverTests
     }
 
     [Fact]
+    public async Task ResolveAsync_BareNestedGenericType_ResolvesWholePlatformType()
+    {
+        const string typeName =
+            "System.Collections.Frozen.FrozenDictionary`2.AlternateLookup`1";
+
+        var source = await SourceResolver.ResolveAsync(
+            [typeName], explicitPackage: null, explicitAssembly: null, explicitPlatform: null,
+            NoSourceKeys, verbose: false);
+
+        Assert.Equal("System.Collections.Immutable", source.PlatformAssembly);
+        Assert.Equal(typeName, source.TypeName);
+        Assert.Null(source.PackagePath);
+        Assert.Null(source.AssemblyPath);
+    }
+
+    [Theory]
+    [InlineData("Nope`1.Nada`2")]
+    [InlineData("Nope<T>.Nada<A,B>")]
+    public async Task ResolveAsync_UnknownNestedGenericType_ReportsPlatformMiss(string typeName)
+    {
+        var source = await SourceResolver.ResolveAsync(
+            [typeName], explicitPackage: null, explicitAssembly: null, explicitPlatform: null,
+            NoSourceKeys, verbose: false);
+
+        Assert.True(source.VersionError);
+        Assert.Contains("looks like a type name", source.VersionErrorMessage);
+        Assert.Contains("Specify the source", source.VersionErrorMessage);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_GenericMemberOnKnownContainingType_FallsThroughForMemberPeeling()
+    {
+        const string target =
+            "System.Collections.Generic.List<T>.ConvertAll<TOutput>";
+
+        var source = await SourceResolver.ResolveAsync(
+            [target], explicitPackage: null, explicitAssembly: null, explicitPlatform: null,
+            NoSourceKeys, verbose: false);
+
+        Assert.False(source.VersionError);
+        Assert.Equal("System.Collections.Generic.List`1.ConvertAll`1", source.PackagePath);
+        Assert.Null(source.TypeName);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_GenericMemberOnPackageShapedContainingType_FallsThroughForMemberPeeling()
+    {
+        const string target =
+            "Newtonsoft.Json.Linq.JEnumerable<T>.GetEnumerator";
+
+        var source = await SourceResolver.ResolveAsync(
+            [target], explicitPackage: null, explicitAssembly: null, explicitPlatform: null,
+            NoSourceKeys, verbose: false);
+
+        Assert.False(source.VersionError);
+        Assert.Equal("Newtonsoft.Json.Linq.JEnumerable`1.GetEnumerator", source.PackagePath);
+        Assert.Null(source.TypeName);
+    }
+
+    [Fact]
     public async Task ResolveAsync_UnknownBareName_KeepsPackageFallback()
     {
         SkipIfCoreLibUnavailable();
