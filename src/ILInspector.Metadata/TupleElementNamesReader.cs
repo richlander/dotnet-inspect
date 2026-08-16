@@ -32,7 +32,10 @@ public static class TupleElementNamesReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
+            var attrTypeName = AttributeReader.GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (attrTypeName != KnownAttributeNames.TupleElementNamesAttribute) continue;
 
             var blob = reader.GetBlobReader(attr.Value);

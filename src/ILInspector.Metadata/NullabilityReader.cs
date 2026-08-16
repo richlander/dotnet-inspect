@@ -13,12 +13,26 @@ public static class NullabilityReader
     /// Gets the NullableContextAttribute default byte from custom attributes.
     /// Returns null if the attribute is not present.
     /// </summary>
-    public static byte? GetNullableContext(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    public static byte? GetNullableContext(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes)
+        => GetNullableContext(
+            reader,
+            attributes,
+            beforeMaterialize: null);
+
+    public static byte? GetNullableContext(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize)
     {
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
+            var attrTypeName = AttributeReader.GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (attrTypeName != KnownAttributeNames.NullableContextAttribute) continue;
 
             var blob = reader.GetBlobReader(attr.Value);
@@ -36,6 +50,15 @@ public static class NullabilityReader
     public static byte GetTypeNullableContext(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle)
+        => GetTypeNullableContext(
+            reader,
+            typeHandle,
+            beforeMaterialize: null);
+
+    public static byte GetTypeNullableContext(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        Action<int>? beforeMaterialize)
     {
         Span<TypeDefinitionHandle> chain =
             stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -53,7 +76,10 @@ public static class NullabilityReader
         for (int index = count - 1; index >= 0; index--)
         {
             var type = reader.GetTypeDefinition(chain[index]);
-            if (GetNullableContext(reader, type.GetCustomAttributes()) is { } context)
+            if (GetNullableContext(
+                    reader,
+                    type.GetCustomAttributes(),
+                    beforeMaterialize) is { } context)
                 return context;
         }
 
@@ -73,7 +99,10 @@ public static class NullabilityReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
+            var attrTypeName = AttributeReader.GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (attrTypeName != KnownAttributeNames.NullableAttribute) continue;
 
             var blob = reader.GetBlobReader(attr.Value);

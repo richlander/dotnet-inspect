@@ -477,15 +477,30 @@ public static class ApiSurfaceExtractor
             if (apiType.Kind == "struct")
             {
                 var typeAttributes = typeDef.GetCustomAttributes();
-                apiType.IsByRefLike = AttributeReader.HasAttribute(reader, typeAttributes, KnownAttributeNames.IsByRefLikeAttribute);
-                apiType.IsReadOnly = AttributeReader.HasAttribute(reader, typeAttributes, KnownAttributeNames.IsReadOnlyAttribute);
+                apiType.IsByRefLike = AttributeReader.HasAttribute(
+                    reader,
+                    typeAttributes,
+                    KnownAttributeNames.IsByRefLikeAttribute,
+                    observeDecodeWork);
+                apiType.IsReadOnly = AttributeReader.HasAttribute(
+                    reader,
+                    typeAttributes,
+                    KnownAttributeNames.IsReadOnlyAttribute,
+                    observeDecodeWork);
             }
 
             // Check if this is an extension class (static class with [Extension] attribute)
-            bool isExtensionClass = apiType.IsStatic && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes());
+            bool isExtensionClass = apiType.IsStatic
+                && AttributeReader.HasExtensionAttribute(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    observeDecodeWork);
 
             // Nullability context for annotated signatures
-            byte typeNullableContext = NullabilityReader.GetTypeNullableContext(reader, typeDefHandle);
+            byte typeNullableContext = NullabilityReader.GetTypeNullableContext(
+                reader,
+                typeDefHandle,
+                observeDecodeWork);
 
             apiType.TypeParameters = GenericParameters(
                 reader,
@@ -543,7 +558,10 @@ public static class ApiSurfaceExtractor
                 if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
                     continue;
 
-                string methodName = reader.GetString(method.Name);
+                string methodName = DecodeString(
+                    reader,
+                    method.Name,
+                    observeDecodeWork);
 
                 // Skip property accessors and event accessors
                 if (methodName.StartsWith("get_") || methodName.StartsWith("set_") ||
@@ -569,15 +587,22 @@ public static class ApiSurfaceExtractor
                     out var obsoleteMessage,
                     observeDecodeWork);
 
+                var methodAttributes = method.Attributes;
+                bool isExtensionMethod = isExtensionClass
+                    && (methodAttributes & MethodAttributes.Static) != 0
+                    && AttributeReader.HasExtensionAttribute(
+                        reader,
+                        method.GetCustomAttributes(),
+                        observeDecodeWork);
                 var signature = GetMethodSignature(
                     reader,
                     typeContext,
                     method,
                     typeNullableContext,
+                    isExtensionMethod,
                     observeText,
                     observeDecodeWork);
                 var isOperator = IsOperatorMethodName(methodName);
-                var methodAttributes = method.Attributes;
                 var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
                 var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
                 var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
@@ -640,7 +665,10 @@ public static class ApiSurfaceExtractor
                     ReturnType = ApiMemberIdentity.IsConversionOperator(methodName) ? signature.Model?.ReturnType : null,
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
                     IsUnsafe = HasUnsafeSignature(signature.Text)
-                        || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
+                        || AttributeReader.HasRequiresUnsafeAttribute(
+                            reader,
+                            method.GetCustomAttributes(),
+                            observeDecodeWork),
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -652,12 +680,10 @@ public static class ApiSurfaceExtractor
                 };
 
                 // Check for extension method
-                if (isExtensionClass && member.IsStatic && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes()))
+                if (isExtensionMethod)
                 {
                     member.IsExtension = true;
-                    member.ExtendedType =
-                        signature.Model?.Parameters.FirstOrDefault()
-                            ?.EffectiveCanonicalType;
+                    member.ExtendedType = signature.Model?.ExtensionReceiverType;
                     member.DeclaringType = apiType.FullName;
                 }
 
@@ -735,7 +761,10 @@ public static class ApiSurfaceExtractor
                     observeDecodeWork);
                 var member = new ApiMember
                 {
-                    Name = reader.GetString(prop.Name),
+                    Name = DecodeString(
+                        reader,
+                        prop.Name,
+                        observeDecodeWork),
                     Kind = "property",
                     Signature = propertySignature.Text,
                     SignatureModel = propertySignature.Model,
@@ -772,7 +801,10 @@ public static class ApiSurfaceExtractor
             // marked [CompilerGenerated], and shares the event's exact (unmangled) name. That
             // pre-scan and the per-field fold below are factored into shared helpers so
             // API-surface extraction and compile-back reconstruction agree on the fold.
-            var fieldLikeEventBackingFieldNames = FieldLikeEventBackingFieldNames(reader, typeDef);
+            var fieldLikeEventBackingFieldNames = FieldLikeEventBackingFieldNames(
+                reader,
+                typeDef,
+                observeDecodeWork);
             var autoPropertyBackingFields = AutoPropertyBackingFieldDescriptors(
                 reader,
                 typeDef,
@@ -787,7 +819,10 @@ public static class ApiSurfaceExtractor
                 if (fieldAccess != FieldAttributes.Public && !includeAll)
                     continue;
 
-                string fieldName = reader.GetString(field.Name);
+                string fieldName = DecodeString(
+                    reader,
+                    field.Name,
+                    observeDecodeWork);
                 if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
                     continue; // Skip compiler-generated (<...>) fields unless opted in
 
@@ -801,7 +836,12 @@ public static class ApiSurfaceExtractor
                     observeDecodeWork))
                     continue; // Skip a synthesized auto-property backing field (re-synthesized on reconstruction)
 
-                if (IsFieldLikeEventBackingField(reader, field, fieldName, fieldLikeEventBackingFieldNames))
+                if (IsFieldLikeEventBackingField(
+                        reader,
+                        field,
+                        fieldName,
+                        fieldLikeEventBackingFieldNames,
+                        observeDecodeWork))
                     continue; // Skip a field-like event's private, compiler-generated backing field
 
                 // Skip EditorBrowsable(Never) fields unless --all; obsolete are surfaced with marker.
@@ -1021,16 +1061,20 @@ public static class ApiSurfaceExtractor
                     });
                 }
 
+                string eventName = DecodeString(
+                    reader,
+                    evt.Name,
+                    observeDecodeWork);
                 var member = new ApiMember
                 {
-                    Name = reader.GetString(evt.Name),
+                    Name = eventName,
                     Kind = "event",
                     ReturnType = eventType,
-                    Signature = $"{eventType} {SanitizeIdentifier(reader.GetString(evt.Name))}",
+                    Signature = $"{eventType} {SanitizeIdentifier(eventName)}",
                     SignatureModel = new ApiSignature
                     {
                         ReturnType = eventType,
-                        MemberName = reader.GetString(evt.Name),
+                        MemberName = eventName,
                         Accessors = accessorModels
                     },
                     IsStatic = (adderAttributes & MethodAttributes.Static) != 0,
@@ -1330,12 +1374,20 @@ public static class ApiSurfaceExtractor
         // each parameter from scratch would rewalk the chain's whole tail, which is
         // quadratic in the number of parameters.
         var chain = new TypeParameterKindClassifier.ChainState();
+        IReadOnlyList<string> contextNames = includeVariance
+            ? context.TypeParameters
+            : context.MethodParameters;
         foreach (var paramHandle in handles)
         {
             var param = reader.GetGenericParameter(paramHandle);
             var typeParam = new TypeParameter
             {
-                Name = reader.GetString(param.Name)
+                Name = param.Index < contextNames.Count
+                    ? contextNames[param.Index]
+                    : DecodeString(
+                        reader,
+                        param.Name,
+                        beforeDecodeWork)
             };
             beforeRetain?.Invoke(typeParam.Name);
             var structured = new List<TypeParameterConstraint>();
@@ -1352,8 +1404,11 @@ public static class ApiSurfaceExtractor
                 param.GetCustomAttributes(),
                 nullableContext,
                 beforeDecodeWork);
-            var isUnmanaged = AttributeReader.HasAttribute(reader, param.GetCustomAttributes(),
-                KnownAttributeNames.IsUnmanagedAttribute);
+            var isUnmanaged = AttributeReader.HasAttribute(
+                reader,
+                param.GetCustomAttributes(),
+                KnownAttributeNames.IsUnmanagedAttribute,
+                beforeDecodeWork);
 
             if (GenericConstraintKeywords.PrimaryKeyword(attrs, nullable ?? 0, isUnmanaged) is { } primaryKeyword)
             {
@@ -1988,7 +2043,10 @@ public static class ApiSurfaceExtractor
     /// field-like) contribute a name; hand-authored or non-C# accessors are excluded so a
     /// legitimate same-named field is not suppressed.
     /// </summary>
-    static HashSet<string>? FieldLikeEventBackingFieldNames(MetadataReader reader, TypeDefinition typeDef)
+    static HashSet<string>? FieldLikeEventBackingFieldNames(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        Action<int>? beforeDecodeWork = null)
     {
         HashSet<string>? names = null;
         foreach (var eventHandle in typeDef.GetEvents())
@@ -1999,12 +2057,14 @@ public static class ApiSurfaceExtractor
                 || !AttributeReader.HasAttribute(
                     reader,
                     reader.GetMethodDefinition(adder).GetCustomAttributes(),
-                    KnownAttributeNames.CompilerGeneratedAttribute))
+                    KnownAttributeNames.CompilerGeneratedAttribute,
+                    beforeDecodeWork))
             {
                 continue;
             }
 
-            (names ??= new HashSet<string>(StringComparer.Ordinal)).Add(reader.GetString(eventDef.Name));
+            (names ??= new HashSet<string>(StringComparer.Ordinal)).Add(
+                DecodeString(reader, eventDef.Name, beforeDecodeWork));
         }
 
         return names;
@@ -2021,13 +2081,15 @@ public static class ApiSurfaceExtractor
         MetadataReader reader,
         FieldDefinition field,
         string fieldName,
-        HashSet<string>? fieldLikeEventBackingFieldNames)
+        HashSet<string>? fieldLikeEventBackingFieldNames,
+        Action<int>? beforeDecodeWork = null)
         => (field.Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.Private
            && fieldLikeEventBackingFieldNames?.Contains(fieldName) == true
            && AttributeReader.HasAttribute(
                reader,
                field.GetCustomAttributes(),
-               KnownAttributeNames.CompilerGeneratedAttribute);
+               KnownAttributeNames.CompilerGeneratedAttribute,
+               beforeDecodeWork);
 
     /// <summary>
     /// A declared auto-property's backing-field descriptor: the property's decoded return type and
@@ -2057,14 +2119,21 @@ public static class ApiSurfaceExtractor
         foreach (var propertyHandle in typeDef.GetProperties())
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
-            string propertyName = reader.GetString(property.Name);
+            string propertyName = DecodeString(
+                reader,
+                property.Name,
+                beforeDecodeWork);
             if (propertyName.Contains('<', StringComparison.Ordinal)
                 || propertyName.Contains('.', StringComparison.Ordinal))
             {
                 continue;
             }
 
-            if (!TryGetAutoPropertyAccessorStaticness(reader, property.GetAccessors(), out bool isStatic))
+            if (!TryGetAutoPropertyAccessorStaticness(
+                    reader,
+                    property.GetAccessors(),
+                    out bool isStatic,
+                    beforeDecodeWork))
                 continue; // Not an auto-property: no [CompilerGenerated] accessor.
 
             string? propertyType;
@@ -2109,12 +2178,17 @@ public static class ApiSurfaceExtractor
     static bool TryGetAutoPropertyAccessorStaticness(
         MetadataReader reader,
         PropertyAccessors accessors,
-        out bool isStatic)
+        out bool isStatic,
+        Action<int>? beforeDecodeWork = null)
     {
         if (!accessors.Getter.IsNil)
         {
             var getter = reader.GetMethodDefinition(accessors.Getter);
-            if (AttributeReader.HasAttribute(reader, getter.GetCustomAttributes(), KnownAttributeNames.CompilerGeneratedAttribute))
+            if (AttributeReader.HasAttribute(
+                    reader,
+                    getter.GetCustomAttributes(),
+                    KnownAttributeNames.CompilerGeneratedAttribute,
+                    beforeDecodeWork))
             {
                 isStatic = (getter.Attributes & MethodAttributes.Static) != 0;
                 return true;
@@ -2124,7 +2198,11 @@ public static class ApiSurfaceExtractor
         if (!accessors.Setter.IsNil)
         {
             var setter = reader.GetMethodDefinition(accessors.Setter);
-            if (AttributeReader.HasAttribute(reader, setter.GetCustomAttributes(), KnownAttributeNames.CompilerGeneratedAttribute))
+            if (AttributeReader.HasAttribute(
+                    reader,
+                    setter.GetCustomAttributes(),
+                    KnownAttributeNames.CompilerGeneratedAttribute,
+                    beforeDecodeWork))
             {
                 isStatic = (setter.Attributes & MethodAttributes.Static) != 0;
                 return true;
@@ -2159,7 +2237,11 @@ public static class ApiSurfaceExtractor
             return false;
         }
 
-        if (!AttributeReader.HasAttribute(reader, field.GetCustomAttributes(), KnownAttributeNames.CompilerGeneratedAttribute))
+        if (!AttributeReader.HasAttribute(
+                reader,
+                field.GetCustomAttributes(),
+                KnownAttributeNames.CompilerGeneratedAttribute,
+                beforeDecodeWork))
             return false;
 
         if (((field.Attributes & FieldAttributes.Static) != 0) != descriptor.IsStatic)
@@ -2290,10 +2372,14 @@ public static class ApiSurfaceExtractor
         GenericContext typeContext,
         MethodDefinition method,
         byte typeNullableContext,
+        bool captureExtensionReceiver = false,
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null)
     {
-        string name = reader.GetString(method.Name);
+        string name = DecodeString(
+            reader,
+            method.Name,
+            beforeDecodeWork);
         var context = GenericContext.ForMethod(
             reader,
             typeContext,
@@ -2311,7 +2397,10 @@ public static class ApiSurfaceExtractor
 
         // Determine the effective nullable default: method overrides type
         byte nullableDefault =
-            NullabilityReader.GetNullableContext(reader, method.GetCustomAttributes())
+            NullabilityReader.GetNullableContext(
+                reader,
+                method.GetCustomAttributes(),
+                beforeDecodeWork)
             ?? typeNullableContext;
 
         // Apply nullability to return type
@@ -2339,6 +2428,15 @@ public static class ApiSurfaceExtractor
 
         // Build parameter list with nullability
         var paramTypes = treeSignature.ParameterTypes;
+        string? extensionReceiverType = null;
+        if (captureExtensionReceiver && paramTypes.Length > 0)
+        {
+            beforeDecodeWork?.Invoke(
+                (int)Math.Min(
+                    paramTypes[0].EstimatedRenderedLength,
+                    int.MaxValue));
+            extensionReceiverType = paramTypes[0].RenderCanonical();
+        }
 
         List<string> parameters = [];
         List<ApiParameter> parameterModels = [];
@@ -2424,8 +2522,16 @@ public static class ApiSurfaceExtractor
         }
 
         string paramStr2 = string.Join(", ", parameters);
-        var returnType = FormatMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
-        var canonicalReturnType = FormatCanonicalMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
+        var returnType = FormatMethodReturnType(
+            reader,
+            treeSignature.ReturnType,
+            paramHandles,
+            beforeDecodeWork);
+        var canonicalReturnType = FormatCanonicalMethodReturnType(
+            reader,
+            treeSignature.ReturnType,
+            paramHandles,
+            beforeDecodeWork);
         var returnAttributes = ReturnParameterAttributes(
             reader,
             paramHandles,
@@ -2450,6 +2556,7 @@ public static class ApiSurfaceExtractor
             : SanitizeMemberDisplayName(name);
         return ($"{returnType} {displayName}({paramStr2})", new ApiSignature
         {
+            ExtensionReceiverType = extensionReceiverType,
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
             ReturnAttributes = returnAttributes,
@@ -2492,11 +2599,19 @@ public static class ApiSurfaceExtractor
             beforeRetain: beforeRetain,
             beforeMaterialize: beforeMaterialize);
 
-    private static string FormatMethodReturnType(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
+    private static string FormatMethodReturnType(
+        MetadataReader reader,
+        TypeNode returnType,
+        ParameterHandleCollection paramHandles,
+        Action<int>? beforeMaterialize = null)
     {
         var rendered = returnType.Render();
         if (!rendered.StartsWith("ref ", StringComparison.Ordinal)
-            || !IsReadOnlyByRefReturn(reader, returnType, paramHandles))
+            || !IsReadOnlyByRefReturn(
+                reader,
+                returnType,
+                paramHandles,
+                beforeMaterialize))
         {
             return rendered;
         }
@@ -2510,11 +2625,19 @@ public static class ApiSurfaceExtractor
     /// return modifiers used by member identity, differing from the display spelling only in
     /// tuple rendering.
     /// </summary>
-    private static string FormatCanonicalMethodReturnType(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
+    private static string FormatCanonicalMethodReturnType(
+        MetadataReader reader,
+        TypeNode returnType,
+        ParameterHandleCollection paramHandles,
+        Action<int>? beforeMaterialize = null)
     {
         var rendered = returnType.RenderCanonical();
         if (!rendered.StartsWith("ref ", StringComparison.Ordinal)
-            || !IsReadOnlyByRefReturn(reader, returnType, paramHandles))
+            || !IsReadOnlyByRefReturn(
+                reader,
+                returnType,
+                paramHandles,
+                beforeMaterialize))
         {
             return rendered;
         }
@@ -2522,12 +2645,20 @@ public static class ApiSurfaceExtractor
         return $"ref readonly {rendered["ref ".Length..]}";
     }
 
-    private static bool IsReadOnlyByRefReturn(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
+    private static bool IsReadOnlyByRefReturn(
+        MetadataReader reader,
+        TypeNode returnType,
+        ParameterHandleCollection paramHandles,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var handle in paramHandles)
         {
             var parameter = reader.GetParameter(handle);
-            if (parameter.SequenceNumber == 0 && HasReadOnlyByRefAttribute(reader, parameter.GetCustomAttributes()))
+            if (parameter.SequenceNumber == 0
+                && HasReadOnlyByRefAttribute(
+                    reader,
+                    parameter.GetCustomAttributes(),
+                    beforeMaterialize))
                 return true;
         }
 
@@ -2536,9 +2667,20 @@ public static class ApiSurfaceExtractor
             || returnType.HasRequiredModifier("System.Runtime.InteropServices", "InAttribute");
     }
 
-    private static bool HasReadOnlyByRefAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
-        => AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.IsReadOnlyAttribute)
-            || AttributeReader.HasAttribute(reader, attributes, "System.Runtime.CompilerServices.RequiresLocationAttribute");
+    private static bool HasReadOnlyByRefAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+        => AttributeReader.HasAttribute(
+                reader,
+                attributes,
+                KnownAttributeNames.IsReadOnlyAttribute,
+                beforeMaterialize)
+            || AttributeReader.HasAttribute(
+                reader,
+                attributes,
+                "System.Runtime.CompilerServices.RequiresLocationAttribute",
+                beforeMaterialize);
 
     private static (string? name, bool isParams, string? refKind, bool hasDefault, object? defaultValue, List<string> attributes) GetParameterInfo(
         MetadataReader reader,
@@ -2552,10 +2694,21 @@ public static class ApiSurfaceExtractor
             var param = reader.GetParameter(handle);
             if (param.SequenceNumber == sequenceNumber)
             {
-                string name = reader.GetString(param.Name);
+                string name = DecodeString(
+                    reader,
+                    param.Name,
+                    beforeMaterialize);
                 var attributes = param.GetCustomAttributes();
-                bool isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
-                    || AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.ParamCollectionAttribute);
+                bool isParams = AttributeReader.HasAttribute(
+                        reader,
+                        attributes,
+                        "System.ParamArrayAttribute",
+                        beforeMaterialize)
+                    || AttributeReader.HasAttribute(
+                        reader,
+                        attributes,
+                        KnownAttributeNames.ParamCollectionAttribute,
+                        beforeMaterialize);
                 var renderedAttributes = AttributeReader.RenderParameterAttributes(
                     reader,
                     handle,
@@ -3144,7 +3297,10 @@ public static class ApiSurfaceExtractor
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null)
     {
-        string name = reader.GetString(prop.Name);
+        string name = DecodeString(
+            reader,
+            prop.Name,
+            beforeDecodeWork);
         var typeNodeProvider = beforeRetainText is null
             ? TypeNodeProvider.Instance
             : new TypeNodeProvider(beforeRetainText, beforeDecodeWork);
@@ -3313,7 +3469,10 @@ public static class ApiSurfaceExtractor
             }
         }
 
-        var requiredPrefix = AttributeReader.HasRequiredMemberAttribute(reader, prop.GetCustomAttributes())
+        var requiredPrefix = AttributeReader.HasRequiredMemberAttribute(
+                reader,
+                prop.GetCustomAttributes(),
+                beforeDecodeWork)
             ? "required "
             : "";
         var isRequired = requiredPrefix.Length > 0;
@@ -3553,6 +3712,15 @@ public static class ApiSurfaceExtractor
     {
         if (text is not null)
             observe(text);
+    }
+
+    static string DecodeString(
+        MetadataReader reader,
+        StringHandle handle,
+        Action<int>? beforeDecodeWork)
+    {
+        beforeDecodeWork?.Invoke(reader.GetBlobReader(handle).Length);
+        return reader.GetString(handle);
     }
 
     static void AddText(ref long count, ApiSignature? signature)

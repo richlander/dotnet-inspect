@@ -26,12 +26,26 @@ public static class AttributeReader
     /// <summary>
     /// Checks if the member has the [Extension] attribute.
     /// </summary>
-    public static bool HasExtensionAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    public static bool HasExtensionAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes)
+        => HasExtensionAttribute(
+            reader,
+            attributes,
+            beforeMaterialize: null);
+
+    public static bool HasExtensionAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize)
     {
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
+            var attrTypeName = GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (attrTypeName == KnownAttributeNames.ExtensionAttribute)
                 return true;
         }
@@ -42,11 +56,25 @@ public static class AttributeReader
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         out string? markerName)
+        => TryGetExtensionMarkerName(
+            reader,
+            attributes,
+            out markerName,
+            beforeMaterialize: null);
+
+    public static bool TryGetExtensionMarkerName(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out string? markerName,
+        Action<int>? beforeMaterialize)
     {
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
+            var attrTypeName = GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (attrTypeName is not (ExtensionMarkerAttributeName or ExtensionMarkerNameAttributeName))
                 continue;
 
@@ -80,7 +108,10 @@ public static class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
+            var attrTypeName = GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
 
             if (attrTypeName == EditorBrowsableAttributeName)
             {
@@ -111,7 +142,10 @@ public static class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
+            var attrTypeName = GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (attrTypeName == EditorBrowsableAttributeName
                 && IsEditorBrowsableNever(reader, attr, beforeMaterialize))
                 return true;
@@ -131,7 +165,10 @@ public static class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
+            var attrTypeName = GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (attrTypeName == ObsoleteAttributeName)
             {
                 message = TryGetAttributeDisplayValue(
@@ -155,17 +192,51 @@ public static class AttributeReader
         return false;
     }
 
-    public static bool HasRequiredMemberAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
-        => HasAttribute(reader, attributes, KnownAttributeNames.RequiredMemberAttribute);
+    public static bool HasRequiredMemberAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes)
+        => HasRequiredMemberAttribute(
+            reader,
+            attributes,
+            beforeMaterialize: null);
+
+    public static bool HasRequiredMemberAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize)
+        => HasAttribute(
+            reader,
+            attributes,
+            KnownAttributeNames.RequiredMemberAttribute,
+            beforeMaterialize);
 
     /// <summary>
     /// Checks whether the member carries <c>RequiresUnsafeAttribute</c> — the
     /// metadata form of the <c>unsafe</c>/<c>extern</c> modifier stamped under the
     /// updated memory-safety rules. Tolerates the two namespace spellings.
     /// </summary>
-    public static bool HasRequiresUnsafeAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
-        => HasAttribute(reader, attributes, KnownAttributeNames.RequiresUnsafeAttribute)
-        || HasAttribute(reader, attributes, KnownAttributeNames.RequiresUnsafeAttributeCompilerServices);
+    public static bool HasRequiresUnsafeAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes)
+        => HasRequiresUnsafeAttribute(
+            reader,
+            attributes,
+            beforeMaterialize: null);
+
+    public static bool HasRequiresUnsafeAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize)
+        => HasAttribute(
+            reader,
+            attributes,
+            KnownAttributeNames.RequiresUnsafeAttribute,
+            beforeMaterialize)
+        || HasAttribute(
+            reader,
+            attributes,
+            KnownAttributeNames.RequiresUnsafeAttributeCompilerServices,
+            beforeMaterialize);
 
     private static bool IsCompilerCompatibilityObsolete(
         MetadataReader reader,
@@ -225,7 +296,10 @@ public static class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
+            var attrTypeName = GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (attrTypeName != KnownAttributeNames.CompilerFeatureRequiredAttribute)
                 continue;
 
@@ -262,12 +336,29 @@ public static class AttributeReader
     /// <summary>
     /// Checks if the member has a specific attribute by full type name.
     /// </summary>
-    public static bool HasAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes, string attributeTypeName)
+    public static bool HasAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        string attributeTypeName)
+        => HasAttribute(
+            reader,
+            attributes,
+            attributeTypeName,
+            beforeMaterialize: null);
+
+    public static bool HasAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        string attributeTypeName,
+        Action<int>? beforeMaterialize)
     {
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrName = GetAttributeTypeName(reader, attr.Constructor);
+            var attrName = GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (attrName == attributeTypeName)
                 return true;
         }
@@ -277,8 +368,22 @@ public static class AttributeReader
     /// <summary>
     /// Gets the fully qualified type name of an attribute from its constructor handle.
     /// </summary>
-    public static string? GetAttributeTypeName(MetadataReader reader, EntityHandle constructorHandle)
-        => AttributeDecoder.GetAttributeTypeName(reader, constructorHandle);
+    public static string? GetAttributeTypeName(
+        MetadataReader reader,
+        EntityHandle constructorHandle)
+        => GetAttributeTypeName(
+            reader,
+            constructorHandle,
+            beforeMaterialize: null);
+
+    public static string? GetAttributeTypeName(
+        MetadataReader reader,
+        EntityHandle constructorHandle,
+        Action<int>? beforeMaterialize)
+        => AttributeDecoder.GetAttributeTypeName(
+            reader,
+            constructorHandle,
+            beforeMaterialize);
 
     /// <summary>
     /// Gets custom attributes for a specific method, identified by type name, method name, and overload index.
@@ -403,14 +508,17 @@ public static class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var typeName = GetAttributeTypeName(reader, attr.Constructor);
+            var typeName = GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (typeName is null || IsReEmittedAttribute(typeName))
                 continue;
             if (skipAttribute?.Invoke(typeName) == true)
                 continue;
             beforeMaterialize?.Invoke(
                 reader.GetBlobReader(attr.Value).Length);
-            if (TryRenderAttribute(reader, attr, qualifyNames) is not { } rendered)
+            if (TryRenderAttribute(reader, attr, typeName, qualifyNames) is not { } rendered)
                 continue;
             int lastDot = typeName.LastIndexOf('.');
             if (lastDot > 0)
@@ -631,11 +739,14 @@ public static class AttributeReader
         return [];
     }
 
-    static string? TryRenderAttribute(MetadataReader reader, CustomAttribute attr, bool qualifyName)
+    static string? TryRenderAttribute(
+        MetadataReader reader,
+        CustomAttribute attr,
+        string typeName,
+        bool qualifyName)
     {
         if (AttributeDecoder.TryDecode(reader, attr) is not { } value)
             return null;
-        var typeName = GetAttributeTypeName(reader, attr.Constructor)!;
         string name = qualifyName ? GetQualifiedAttributeName(typeName) : TypeMatcher.GetShortAttributeName(typeName);
         var args = new List<string>();
         foreach (var arg in value.FixedArguments)

@@ -15,19 +15,79 @@ public static class AttributeDecoder
     /// <summary>
     /// The fully qualified type name of an attribute, from its constructor handle.
     /// </summary>
-    public static string? GetAttributeTypeName(MetadataReader reader, EntityHandle constructorHandle)
+    public static string? GetAttributeTypeName(
+        MetadataReader reader,
+        EntityHandle constructorHandle)
+        => GetAttributeTypeName(
+            reader,
+            constructorHandle,
+            beforeMaterialize: null);
+
+    public static string? GetAttributeTypeName(
+        MetadataReader reader,
+        EntityHandle constructorHandle,
+        Action<int>? beforeMaterialize)
     {
         if (constructorHandle.Kind == HandleKind.MemberReference)
         {
             var memberRef = reader.GetMemberReference((MemberReferenceHandle)constructorHandle);
+            if (!TryObserveTypeName(reader, memberRef.Parent, beforeMaterialize))
+                return null;
             return TypeResolver.GetTypeName(reader, memberRef.Parent);
         }
         if (constructorHandle.Kind == HandleKind.MethodDefinition)
         {
             var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)constructorHandle);
-            return TypeResolver.GetTypeNameFromDefinition(reader, methodDef.GetDeclaringType());
+            TypeDefinitionHandle declaringType = methodDef.GetDeclaringType();
+            if (!TryObserveTypeName(reader, declaringType, beforeMaterialize))
+                return null;
+            return TypeResolver.GetTypeNameFromDefinition(reader, declaringType);
         }
         return null;
+    }
+
+    static bool TryObserveTypeName(
+        MetadataReader reader,
+        EntityHandle handle,
+        Action<int>? beforeMaterialize)
+    {
+        if (beforeMaterialize is null)
+            return true;
+
+        for (int count = 0;
+             count < MetadataSafetyPolicy.MaxRelationshipNodes;
+             count++)
+        {
+            switch (handle.Kind)
+            {
+                case HandleKind.TypeReference:
+                    TypeReference typeReference =
+                        reader.GetTypeReference((TypeReferenceHandle)handle);
+                    beforeMaterialize(
+                        reader.GetBlobReader(typeReference.Name).Length
+                            + reader.GetBlobReader(typeReference.Namespace).Length);
+                    if (typeReference.ResolutionScope.Kind != HandleKind.TypeReference)
+                        return true;
+                    handle = typeReference.ResolutionScope;
+                    break;
+                case HandleKind.TypeDefinition:
+                    TypeDefinition typeDefinition =
+                        reader.GetTypeDefinition((TypeDefinitionHandle)handle);
+                    beforeMaterialize(
+                        reader.GetBlobReader(typeDefinition.Name).Length
+                            + reader.GetBlobReader(typeDefinition.Namespace).Length);
+                    TypeDefinitionHandle declaringType =
+                        typeDefinition.GetDeclaringType();
+                    if (declaringType.IsNil)
+                        return true;
+                    handle = declaringType;
+                    break;
+                default:
+                    return false;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

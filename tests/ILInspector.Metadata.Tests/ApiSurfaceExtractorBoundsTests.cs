@@ -272,6 +272,34 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void RepeatedLongSkippedAccessorName_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildRepeatedLongMethodNameImage(
+                methodCount: 10_000,
+                nameLength: 4_000,
+                prefix: "get_"));
+    }
+
+    [Fact]
+    public void RepeatedLongSkippedFieldName_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildRepeatedLongFieldNameImage(
+                fieldCount: 10_000,
+                nameLength: 4_000));
+    }
+
+    [Fact]
+    public void RepeatedLongVisibilityAttributeTypeName_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildRepeatedLongVisibilityAttributeTypeNameImage(
+                methodCount: 10_000,
+                nameLength: 4_000));
+    }
+
+    [Fact]
     public void OneWideSignature_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
@@ -542,7 +570,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
 
     static byte[] BuildRepeatedLongMethodNameImage(
         int methodCount,
-        int nameLength)
+        int nameLength,
+        string prefix = "")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -579,7 +608,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
             _ => { });
         BlobHandle signatureHandle = metadata.GetOrAddBlob(signature);
         StringHandle name =
-            metadata.GetOrAddString(new string('M', nameLength));
+            metadata.GetOrAddString(
+                prefix + new string('M', nameLength - prefix.Length));
         for (int index = 0; index < methodCount; index++)
         {
             metadata.AddMethodDefinition(
@@ -601,6 +631,113 @@ public sealed class ApiSurfaceExtractorBoundsTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildRepeatedLongFieldNameImage(
+        int fieldCount,
+        int nameLength)
+    {
+        var metadata = Metadata("FieldAmplification");
+        var fieldSignature = new BlobBuilder();
+        new BlobEncoder(fieldSignature).FieldSignature().Int32();
+        BlobHandle signatureHandle = metadata.GetOrAddBlob(fieldSignature);
+        StringHandle name = metadata.GetOrAddString(
+            "<" + new string('F', nameLength - 1));
+        for (int index = 0; index < fieldCount; index++)
+        {
+            metadata.AddFieldDefinition(
+                FieldAttributes.Public,
+                name,
+                signatureHandle);
+        }
+        AddModuleAndPublicType(metadata, "Amplifier");
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildRepeatedLongVisibilityAttributeTypeNameImage(
+        int methodCount,
+        int nameLength)
+    {
+        var metadata = Metadata("AttributeNameAmplification");
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle longAttributeType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString(
+                new string('A', nameLength - "Attribute".Length)
+                    + "Attribute"));
+        TypeReferenceHandle editorBrowsableType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.ComponentModel"),
+            metadata.GetOrAddString("EditorBrowsableAttribute"));
+        var emptyConstructorSignature = new BlobBuilder();
+        new BlobEncoder(emptyConstructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        MemberReferenceHandle longConstructor = metadata.AddMemberReference(
+            longAttributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(emptyConstructorSignature));
+        var editorBrowsableConstructorSignature = new BlobBuilder();
+        new BlobEncoder(editorBrowsableConstructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Int32());
+        MemberReferenceHandle editorBrowsableConstructor =
+            metadata.AddMemberReference(
+                editorBrowsableType,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(editorBrowsableConstructorSignature));
+        AddModuleAndPublicType(metadata, "Amplifier");
+        var methodSignature = new BlobBuilder();
+        new BlobEncoder(methodSignature).MethodSignature().Parameters(
+            0,
+            returnType => returnType.Void(),
+            _ => { });
+        BlobHandle methodSignatureHandle = metadata.GetOrAddBlob(methodSignature);
+        var emptyValue = new BlobBuilder();
+        emptyValue.WriteUInt16(1);
+        emptyValue.WriteUInt16(0);
+        BlobHandle emptyValueHandle = metadata.GetOrAddBlob(emptyValue);
+        var hiddenValue = new BlobBuilder();
+        hiddenValue.WriteUInt16(1);
+        hiddenValue.WriteInt32(1);
+        hiddenValue.WriteUInt16(0);
+        BlobHandle hiddenValueHandle = metadata.GetOrAddBlob(hiddenValue);
+        for (int index = 0; index < methodCount; index++)
+        {
+            MethodDefinitionHandle method = metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.Abstract,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString($"Method{index}"),
+                methodSignatureHandle,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+            metadata.AddCustomAttribute(
+                method,
+                longConstructor,
+                emptyValueHandle);
+            metadata.AddCustomAttribute(
+                method,
+                editorBrowsableConstructor,
+                hiddenValueHandle);
+        }
+        return Serialize(metadata);
     }
 
     static byte[] BuildWideSignatureImage(int parameterCount, int nameLength)

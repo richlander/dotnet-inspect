@@ -402,19 +402,25 @@ before the remaining chain is materialized. Tuple-name, nullability, and dynamic
 transform arrays charge their encoded blob before allocating arrays, and one
 type generic context is reused across all of that type's members.
 Visibility probes use bounded blob readers rather than copying skipped
-attribute values. The Browser separately applies the same bound while deriving
-type/member transport records, including canonical signatures, documentation
-IDs, and graph selectors that repeat declaring-type identity. It preflights
-each source model before creating those derived strings, and
-collision-qualified IDs are created and charged before their participant
-commits. An assembly that would exceed either remaining retained-text budget is
-abandoned whole, and the Browser reports truncation rather than presenting a
-shortened surface as complete.
+attribute values. Every bounded member-name decode and every namespace/name
+segment used to resolve an attribute type is also charged before SRM
+materializes it, including names inspected only to skip an accessor,
+compiler-generated field, or hidden member. The Browser separately applies the
+same bound while deriving type/member transport records, including canonical
+signatures, documentation IDs, and graph selectors that repeat declaring-type
+identity. It preflights each source model before creating those derived
+strings, and collision-qualified IDs are created and charged before their
+participant commits. An assembly that would exceed either remaining
+retained-text budget is abandoned whole, and the Browser reports truncation
+rather than presenting a shortened surface as complete.
 `BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
 gates aggregate ownership and eviction; its oversized-role case gates
 pre-decoding rejection.
 `ApiSurfaceExtractorBoundsTests.RetainedTextBudget_IsExact`,
 `RepeatedLongMemberName_StopsBeforeLargeAllocationAmplification`,
+`RepeatedLongSkippedAccessorName_StopsBeforeLargeAllocationAmplification`,
+`RepeatedLongSkippedFieldName_StopsBeforeLargeAllocationAmplification`,
+`RepeatedLongVisibilityAttributeTypeName_StopsBeforeLargeAllocationAmplification`,
 `OneWideSignature_StopsBeforeLargeAllocationAmplification`,
 `OneInterfaceHeavyType_StopsBeforeLargeAllocationAmplification`,
 `OneWideFieldSignature_StopsBeforeLargeAllocationAmplification`,
@@ -444,7 +450,10 @@ name: unbounded extraction allocated approximately 335 MB on the measuring
 host, while the bounded path allocated approximately 22 MB and returned typed
 truncation. The wide-signature and interface-heavy gates concentrate repeated
 4,000-character names inside one member and one type respectively and require
-each bounded path to allocate less than 64 MB.
+each bounded path to allocate less than 64 MB. The skipped-accessor canary uses
+a 92 KB image whose 10,000 repeated 4,000-character names allocated
+approximately 200 MB while escaping both retained text and member counts; the
+bounded path now returns typed truncation after approximately 4 MB.
 `BrowserEngineBoundaryTests.SurfaceProjection_LongDeclaringTypeStopsIncrementally`
 gates the derived-identity transport budget.
 `SurfaceProjection_OneHugeTypeStopsBeforeDerivedIdentities` and
