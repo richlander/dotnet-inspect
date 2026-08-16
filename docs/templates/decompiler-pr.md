@@ -115,35 +115,34 @@ For a changed rendered body, first acquire both exact revisions with:
 dotnet-inspect member {Type} {MethodSelector} {scope} \
   -S "Annotated Source Document"
 
-When a product owner can issue real cross-document node correspondence, produce
-the generated artifact from those two C# AnnotatedSourceDocument revisions:
+Save each product-emitted document separately, then produce the generated
+artifact directly from those exact revisions:
 
 dotnet run --project tools/DecompilerHarness -c Release -- \
-  --structural-review /tmp/comparison.json
+  --structural-review /tmp/before.json /tmp/after.json
 
 Paste the output verbatim. Its complete Before/After blocks and rich structural
-diff consume one CSharpStructuralComparison; do not manually place carets or
-reconstruct rows. Node ids are document-local. Correspondence must come from
-an explicit product owner, never equal ids, coordinates, selected text, labels,
-or display order. Fidelity and retained IL notes are independent evidence, not
-claims inferred from the C# transition.
+diff consume one CSharpStructuralComparison issued from physical-method and
+IL-origin provenance; do not manually place carets or reconstruct rows. Node ids
+remain document-local. Equal ids, coordinates, selected text, labels, and
+display order never establish correspondence. Fidelity and retained IL notes
+are independent evidence, not claims inferred from the C# transition.
 
-#4092 currently consumes comparison input but no product component maps
-base-render C# node ids to head-render C# node ids. When no correspondence
-issuer exists, write exactly:
+When either document lacks product provenance, the physical method identities
+differ, or the changed nodes are unsupported or ambiguous, write:
 
-Not generated — no product correspondence issuer
+Not generated — unsupported or ambiguous product correspondence: {detail}
 
-Do not fabricate comparison JSON. This current presentation gap does not by
-itself change the raise verdict; independent validity, correctness, fidelity,
-and corpus evidence still decide it.
+Do not fabricate comparison JSON. This presentation boundary does not by itself
+change the raise verdict; independent validity, correctness, fidelity, and
+corpus evidence still decide it.
 
 When this artifact is present, delete the duplicate code fences in the
 standalone Before and After sections below, but retain their validity,
 correctness, fidelity, taste, and commit verdicts.
 -->
 
-Structural review status: {generated artifact / Not generated — no product correspondence issuer}
+Structural review status: {generated artifact / Not generated — unsupported or ambiguous product correspondence: detail}
 
 ### Benchmark target
 
@@ -262,7 +261,7 @@ counts can rise even while some previously-passing test starts failing.
 | Decompiler fast suite | {total}, {failed} failed | {total}, {failed} failed |
 | Reduced fixture validity | Pass / not applicable | Pass / not applicable |
 | Reduced fixture fidelity | Pass / not currently checkable | Pass / not currently checkable |
-| Structural review | Base document acquired | Generated comparison attached / Not generated — no product correspondence issuer |
+| Structural review | Base document acquired | Generated comparison attached / unsupported or ambiguous correspondence named |
 | Real witness | `{Type::Method}` broken / not applicable | `{Type::Method}` fixed / not applicable |
 
 If Baseline shows any failures, name them and confirm they are unchanged by
