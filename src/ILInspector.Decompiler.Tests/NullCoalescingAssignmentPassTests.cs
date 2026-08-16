@@ -72,6 +72,47 @@ public class NullCoalescingAssignmentPassTests
     }
 
     [Fact]
+    public void LocalNullAssignment_PreservesSuppressedCloneLabel()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var then = new Block();
+        then.Add(new StoreLocal(
+            0,
+            stringType,
+            new LoadArgument(0, "fallback", stringType)));
+        var nullCheck = new IfStatement(
+            new LogicalNot(new LoadLocal(0, stringType)),
+            then,
+            elseArm: null);
+        nullCheck.SetSourceOffset(0x10);
+        nullCheck.SuppressSourceLabel();
+        var body = new BlockContainer();
+        var target = new Block(0x10);
+        target.Add(nullCheck);
+        target.Add(new Return(new LoadLocal(0, stringType)));
+        body.Add(target);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(
+                stringType,
+                [new Parameter("fallback", stringType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [stringType],
+            body);
+
+        new NullCoalescingAssignmentPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingAssignment>());
+        Assert.Equal(0x10, assignment.SourceOffset);
+        Assert.False(assignment.OwnsSourceLabel);
+        string output = CSharpPrinter.Print(function).Output ?? "";
+        Assert.DoesNotContain("IL_0010:", output);
+    }
+
+    [Fact]
     public void PrintRaised_RendersNullCoalescingAssignment()
     {
         var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignLocal))).Output;

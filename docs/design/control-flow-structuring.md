@@ -373,8 +373,9 @@ Cloned statements retain `SourceOffset` as provenance, but semantic clones do
 not own that offset's printable label. Only the canonical surviving statement
 may render the label; `StructuringGotoScopeTests` gates the distinction so a
 clone cannot strand a later `goto` outside the clone's C# scope.
-When a later raise replaces the canonical statement, the replacement inherits
-that label ownership; `NullCoalescingAssignmentPassTests` gates this boundary.
+When a later raise replaces a statement, the replacement inherits both its
+canonical or suppressed label-ownership state; `NullCoalescingAssignmentPassTests`
+gates both boundaries.
 
 ### Shared helpers and facts
 

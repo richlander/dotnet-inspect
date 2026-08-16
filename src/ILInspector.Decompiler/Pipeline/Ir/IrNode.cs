@@ -44,13 +44,16 @@ public abstract class IrNode
 
     /// <summary>
     /// Best-effort provenance for a node synthesized by a pass: adopt the source
-    /// offset of an existing node it derives from, but only when this node has
-    /// none of its own.
+    /// offset and label-ownership state of an existing node it replaces, but only
+    /// when this node has no provenance of its own.
     /// </summary>
     public void InheritSourceOffset(IrNode from)
     {
         if (SourceOffset < 0)
+        {
             SourceOffset = from.SourceOffset;
+            OwnsSourceLabel = from.OwnsSourceLabel;
+        }
     }
 
     /// <summary>One-line description for tree dumps; no recursion into children.</summary>
