@@ -244,8 +244,8 @@ public sealed record StructuralCloneComparison
 /// </remarks>
 public static class StructuralCloneAnalysis
 {
-    const byte HasThisSignatureFlag = 0x20;
-    const byte ExplicitThisSignatureFlag = 0x40;
+    internal const byte HasThisSignatureFlag = 0x20;
+    internal const byte ExplicitThisSignatureFlag = 0x40;
 
     /// <summary>Compares two method definitions from one retained managed PE image.</summary>
     public static StructuralCloneComparison Compare(
@@ -266,9 +266,42 @@ public static class StructuralCloneAnalysis
         ValidateLimits(limits ??= new StructuralCloneComparisonLimits());
 
         MetadataMethodAddress leftAddress =
-            MetadataMethodAddress.Create(reader, left);
+            new(Guid.Empty, left);
         MetadataMethodAddress rightAddress =
-            MetadataMethodAddress.Create(reader, right);
+            new(Guid.Empty, right);
+        try
+        {
+            ModuleDefinition module = reader.GetModuleDefinition();
+            if (module.Mvid.IsNil)
+            {
+                throw new BadImageFormatException(
+                    "The module has no version identifier.");
+            }
+            Guid moduleVersionId = reader.GetGuid(module.Mvid);
+            leftAddress = new(moduleVersionId, left);
+            rightAddress = new(moduleVersionId, right);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            return StructuralCloneComparison.NotCompleted(
+                leftAddress,
+                rightAddress,
+                StructuralCloneDisposition.Failed,
+                [
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.MetadataReadFailure,
+                        StructuralCloneSide.Both,
+                        $"The module identity is invalid: "
+                            + $"{ex.GetType().Name}: {ex.Message}"),
+                ],
+                new StructuralCloneVerificationReceipt(
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false));
+        }
         BodyProduction leftBody =
             Produce(image, reader, leftAddress, StructuralCloneSide.Left, limits);
         BodyProduction rightBody =
@@ -453,7 +486,12 @@ public static class StructuralCloneAnalysis
         }
 
         ImmutableArray<StructuralCloneBlocker> limitBlockers =
-            LimitsFor(instructions, locals.Length, limits, side);
+            LimitsFor(
+                instructions,
+                locals.Length,
+                CountModeledEdges(instructions),
+                limits,
+                side);
         if (!limitBlockers.IsEmpty)
         {
             return BodyProduction.NotCompleted(
@@ -553,11 +591,23 @@ public static class StructuralCloneAnalysis
                         side,
                         "The method definition has no IL body."));
             }
+            int methodGenericParameterCount =
+                definition.GetGenericParameters().Count;
+            int typeGenericParameterCount =
+                reader.GetTypeDefinition(
+                    definition.GetDeclaringType())
+                .GetGenericParameters()
+                .Count;
+            var signatureTypeProvider =
+                new StructuralCloneSignatureTypeProvider(
+                    typeGenericParameterCount,
+                    methodGenericParameterCount);
             BlobReader methodSignatureReader =
                 reader.GetBlobReader(definition.Signature);
             SignatureHeader methodSignatureHeader =
                 methodSignatureReader.ReadSignatureHeader();
             if (methodSignatureHeader.Kind != SignatureKind.Method
+                || HasInvalidMethodHeaderFlags(methodSignatureHeader)
                 || methodSignatureHeader.CallingConvention
                     is not (
                         SignatureCallingConvention.Default
@@ -596,7 +646,7 @@ public static class StructuralCloneAnalysis
 
             MethodSignature<StructuralCloneSignatureType> decodedSignature =
                 definition.DecodeSignature(
-                    new StructuralCloneSignatureTypeProvider(),
+                    signatureTypeProvider,
                     GenericScope.Empty);
             if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
                     reader,
@@ -611,6 +661,8 @@ public static class StructuralCloneAnalysis
                         "The method signature is incomplete or has trailing data."));
             }
             if (HasInvalidMethodTypePosition(decodedSignature)
+                || decodedSignature.GenericParameterCount
+                    != methodGenericParameterCount
                 || decodedSignature.RequiredParameterCount
                     != decodedSignature.ParameterTypes.Length)
             {
@@ -732,7 +784,7 @@ public static class StructuralCloneAnalysis
                 }
                 ImmutableArray<StructuralCloneSignatureType> localShapes =
                     localSignature.DecodeLocalSignature(
-                        new StructuralCloneSignatureTypeProvider(),
+                        signatureTypeProvider,
                         GenericScope.Empty);
                 bool hasVoid = false;
                 bool hasUnsupportedShape = false;
@@ -782,20 +834,26 @@ public static class StructuralCloneAnalysis
                 locals.Length,
                 CountModeledEdges(instructions),
                 bodyBytes);
-            if (instructions.Instructions.Length
-                > limits.MaximumInstructions)
+            ImmutableArray<StructuralCloneBlocker> limitBlockers =
+                LimitsFor(
+                    instructions,
+                    locals.Length,
+                    measurements.EdgeCount,
+                    limits,
+                    side);
+            if (!limitBlockers.IsEmpty)
             {
                 return BodyProduction.NotCompleted(
                     StructuralCloneDisposition.LimitReached,
-                    InstructionLimitBlocker(
-                        instructions.Instructions.Length,
-                        limits.MaximumInstructions,
-                        side),
+                    limitBlockers,
                     measurements);
             }
             if (InvalidMetadataOperand(
+                    image,
                     reader,
                     instructions,
+                    typeGenericParameterCount,
+                    methodGenericParameterCount,
                     side)
                 is { } operandFailure)
             {
@@ -992,15 +1050,24 @@ public static class StructuralCloneAnalysis
         return edgeCount;
     }
 
+    readonly record struct UserStringHeap(
+        PEMemoryBlock Metadata,
+        int Offset,
+        int Length);
+
     static MetadataOperandFailure? InvalidMetadataOperand(
+        PEReader image,
         MetadataReader reader,
         MethodInstructions body,
+        int typeGenericParameterCount,
+        int methodGenericParameterCount,
         StructuralCloneSide side)
     {
         var validityByOperand =
             new Dictionary<
                 (OperandKind Kind, long Value),
                 MetadataOperandValidity>();
+        UserStringHeap? userStrings = null;
         foreach (DecodedInstruction instruction in body.Instructions)
         {
             if (instruction.Operand is not (
@@ -1021,14 +1088,20 @@ public static class StructuralCloneAnalysis
                     (instruction.Operand, instruction.OperandValue);
                 if (!validityByOperand.TryGetValue(key, out validity))
                 {
-                    validity = instruction.Operand == OperandKind.InlineString
-                        ? ValidUserString(reader, instruction.OperandValue)
+                    validity = instruction.Operand
+                        == OperandKind.InlineString
+                        ? ValidUserString(
+                            reader,
+                            userStrings ??= ReadUserStringHeap(image),
+                            instruction.OperandValue)
                             ? MetadataOperandValidity.Valid
                             : MetadataOperandValidity.Invalid
                         : ValidateEntityOperand(
                             reader,
                             instruction.Operand,
-                            instruction.OperandValue);
+                            instruction.OperandValue,
+                            typeGenericParameterCount,
+                            methodGenericParameterCount);
                     validityByOperand.Add(key, validity);
                 }
             }
@@ -1074,6 +1147,7 @@ public static class StructuralCloneAnalysis
 
     static bool ValidUserString(
         MetadataReader reader,
+        UserStringHeap heap,
         long operandValue)
     {
         if (operandValue is <= 0 or > int.MaxValue)
@@ -1083,19 +1157,116 @@ public static class StructuralCloneAnalysis
             return false;
         int offset = token & 0x00FFFFFF;
         if (offset <= 0
+            || offset >= heap.Length
             || offset >= reader.GetHeapSize(HeapIndex.UserString))
         {
             return false;
         }
 
+        BlobReader entry = heap.Metadata.GetReader(
+            checked(heap.Offset + offset),
+            heap.Length - offset);
+        int length = entry.ReadCompressedInteger();
+        if (length <= 0
+            || length > entry.RemainingBytes
+            || ((length - 1) & 1) != 0)
+        {
+            return false;
+        }
+
+        bool requiresSpecialHandling = false;
+        for (int remaining = length - 1; remaining > 0; remaining -= 2)
+        {
+            ushort character = entry.ReadUInt16();
+            byte low = (byte)character;
+            requiresSpecialHandling |=
+                (character & 0xFF00) != 0
+                || low is >= 0x01 and <= 0x08
+                || low is >= 0x0E and <= 0x1F
+                || low is 0x27 or 0x2D or 0x7F;
+        }
+        byte expectedTerminal = requiresSpecialHandling
+            ? (byte)1
+            : (byte)0;
+        if (entry.ReadByte() != expectedTerminal)
+            return false;
+
         reader.GetUserString(MetadataTokens.UserStringHandle(offset));
         return true;
+    }
+
+    static UserStringHeap ReadUserStringHeap(PEReader image)
+    {
+        PEMemoryBlock metadata = image.GetMetadata();
+        BlobReader root = metadata.GetReader();
+        if (root.ReadUInt32() != 0x424A5342)
+            throw new BadImageFormatException("Invalid metadata root signature.");
+        root.ReadUInt16();
+        root.ReadUInt16();
+        root.ReadUInt32();
+        int versionLength = root.ReadInt32();
+        if (versionLength < 0 || versionLength > root.RemainingBytes)
+        {
+            throw new BadImageFormatException(
+                "Invalid metadata version-string length.");
+        }
+        root.Offset = checked(root.Offset + versionLength);
+        root.Offset = checked((root.Offset + 3) & ~3);
+        root.ReadUInt16();
+        int streamCount = root.ReadUInt16();
+        if (streamCount > root.RemainingBytes / 12)
+        {
+            throw new BadImageFormatException(
+                "Invalid metadata stream count.");
+        }
+
+        Span<byte> name = stackalloc byte[32];
+        for (int index = 0; index < streamCount; index++)
+        {
+            int offset = checked((int)root.ReadUInt32());
+            int length = checked((int)root.ReadUInt32());
+            int nameLength = 0;
+            while (true)
+            {
+                byte value = root.ReadByte();
+                if (value == 0)
+                    break;
+                if (nameLength == name.Length)
+                {
+                    throw new BadImageFormatException(
+                        "A metadata stream name exceeds 32 bytes.");
+                }
+                name[nameLength++] = value;
+            }
+            root.Offset = checked((root.Offset + 3) & ~3);
+
+            if (nameLength != 3
+                || name[0] != (byte)'#'
+                || name[1] != (byte)'U'
+                || name[2] != (byte)'S')
+            {
+                continue;
+            }
+            if (offset < 0
+                || length < 0
+                || offset > metadata.Length - length)
+            {
+                throw new BadImageFormatException(
+                    "The #US metadata stream is out of bounds.");
+            }
+            return new UserStringHeap(metadata, offset, length);
+        }
+
+        throw new BadImageFormatException(
+            "An ldstr operand requires a #US metadata stream.");
     }
 
     static MetadataOperandValidity ValidateEntityOperand(
         MetadataReader reader,
         OperandKind operand,
-        long operandValue)
+        long operandValue,
+        int typeGenericParameterCount,
+        int methodGenericParameterCount)
     {
         if (operandValue is <= 0 or > int.MaxValue)
             return MetadataOperandValidity.Invalid;
@@ -1108,7 +1279,9 @@ public static class StructuralCloneAnalysis
             return handle.Kind == HandleKind.StandaloneSignature
                 ? ValidateCallSiteSignature(
                     reader,
-                    (StandaloneSignatureHandle)handle)
+                    (StandaloneSignatureHandle)handle,
+                    typeGenericParameterCount,
+                    methodGenericParameterCount)
                 : MetadataOperandValidity.Invalid;
         }
 
@@ -1171,13 +1344,17 @@ public static class StructuralCloneAnalysis
 
     static MetadataOperandValidity ValidateCallSiteSignature(
         MetadataReader reader,
-        StandaloneSignatureHandle handle)
+        StandaloneSignatureHandle handle,
+        int typeGenericParameterCount,
+        int methodGenericParameterCount)
     {
         StandaloneSignature signature =
             reader.GetStandaloneSignature(handle);
         BlobReader headerReader =
             reader.GetBlobReader(signature.Signature);
-        if (headerReader.ReadSignatureHeader().Kind != SignatureKind.Method)
+        SignatureHeader header = headerReader.ReadSignatureHeader();
+        if (header.Kind != SignatureKind.Method
+            || HasInvalidMethodHeaderFlags(header))
             return MetadataOperandValidity.Invalid;
         if (!SignatureBlobGuard.IsSafeToDecode(
                 reader,
@@ -1196,7 +1373,9 @@ public static class StructuralCloneAnalysis
         {
             MethodSignature<StructuralCloneSignatureType> decoded =
                 signature.DecodeMethodSignature(
-                    new StructuralCloneSignatureTypeProvider(),
+                    new StructuralCloneSignatureTypeProvider(
+                        typeGenericParameterCount,
+                        methodGenericParameterCount),
                     GenericScope.Empty);
             if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
                     reader,
@@ -1226,8 +1405,9 @@ public static class StructuralCloneAnalysis
         BlobHandle signature)
     {
         BlobReader blob = reader.GetBlobReader(signature);
-        if (blob.ReadSignatureHeader().Kind
-            != SignatureKind.LocalVariables)
+        SignatureHeader header = blob.ReadSignatureHeader();
+        if (header.Kind != SignatureKind.LocalVariables
+            || header.RawValue != 0x07)
         {
             throw new BadImageFormatException(
                 "A method body local signature does not have the local-variable signature kind.");
@@ -1926,6 +2106,7 @@ public static class StructuralCloneAnalysis
     static ImmutableArray<StructuralCloneBlocker> LimitsFor(
         MethodInstructions instructions,
         int locals,
+        int edges,
         StructuralCloneComparisonLimits limits,
         StructuralCloneSide side)
         => LimitsFor(
@@ -1934,7 +2115,7 @@ public static class StructuralCloneAnalysis
                 : instructions.Instructions[^1].NextOffset,
             instructions.Instructions.Length,
             instructions.Blocks.Blocks.Length,
-            -1,
+            edges,
             locals,
             limits,
             side);
@@ -2057,6 +2238,11 @@ public static class StructuralCloneAnalysis
         => signature.ReturnType.IsPinned
             || signature.ParameterTypes.Any(
                 static type => type.IsVoid || type.IsPinned);
+
+    static bool HasInvalidMethodHeaderFlags(SignatureHeader header)
+        => (header.RawValue & 0x80) != 0
+            || (header.RawValue & ExplicitThisSignatureFlag) != 0
+                && (header.RawValue & HasThisSignatureFlag) == 0;
 
     internal static bool IsMalformedUnsafeSignature(
         MetadataReader reader,
@@ -2422,6 +2608,17 @@ readonly record struct StructuralCloneSignatureType(
 sealed class StructuralCloneSignatureTypeProvider
     : ISignatureTypeProvider<StructuralCloneSignatureType, GenericScope>
 {
+    readonly int _typeGenericParameterCount;
+    readonly int _methodGenericParameterCount;
+
+    public StructuralCloneSignatureTypeProvider(
+        int typeGenericParameterCount,
+        int methodGenericParameterCount)
+    {
+        _typeGenericParameterCount = typeGenericParameterCount;
+        _methodGenericParameterCount = methodGenericParameterCount;
+    }
+
     public StructuralCloneSignatureType GetPrimitiveType(
         PrimitiveTypeCode typeCode)
         => StructuralCloneSignatureType.Valid(
@@ -2494,9 +2691,18 @@ sealed class StructuralCloneSignatureTypeProvider
     public StructuralCloneSignatureType GetArrayType(
         StructuralCloneSignatureType elementType,
         ArrayShape shape)
-        => RequireNonVoid(
+    {
+        if (shape.Rank <= 0
+            || shape.Sizes.Length > shape.Rank
+            || shape.LowerBounds.Length > shape.Rank)
+        {
+            throw new BadImageFormatException(
+                "An array signature has an invalid shape.");
+        }
+        return RequireNonVoid(
             elementType,
             "An array element cannot be void or pinned.");
+    }
 
     public StructuralCloneSignatureType GetByReferenceType(
         StructuralCloneSignatureType elementType)
@@ -2547,17 +2753,36 @@ sealed class StructuralCloneSignatureTypeProvider
     public StructuralCloneSignatureType GetGenericTypeParameter(
         GenericScope genericContext,
         int index)
-        => StructuralCloneSignatureType.Valid();
+    {
+        if ((uint)index >= (uint)_typeGenericParameterCount)
+        {
+            throw new BadImageFormatException(
+                "A generic type parameter index is out of range.");
+        }
+        return StructuralCloneSignatureType.Valid();
+    }
 
     public StructuralCloneSignatureType GetGenericMethodParameter(
         GenericScope genericContext,
         int index)
-        => StructuralCloneSignatureType.Valid();
+    {
+        if ((uint)index >= (uint)_methodGenericParameterCount)
+        {
+            throw new BadImageFormatException(
+                "A generic method parameter index is out of range.");
+        }
+        return StructuralCloneSignatureType.Valid();
+    }
 
     public StructuralCloneSignatureType GetFunctionPointerType(
         MethodSignature<StructuralCloneSignatureType> signature)
     {
-        if (signature.Header.Kind != SignatureKind.Method)
+        if (signature.Header.Kind != SignatureKind.Method
+            || (signature.Header.RawValue & 0x80) != 0
+            || (signature.Header.RawValue
+                    & StructuralCloneAnalysis.ExplicitThisSignatureFlag) != 0
+                && (signature.Header.RawValue
+                    & StructuralCloneAnalysis.HasThisSignatureFlag) == 0)
         {
             throw new BadImageFormatException(
                 "A function pointer does not have a method signature.");

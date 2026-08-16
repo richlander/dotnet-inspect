@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 using ILInspector.Analysis.StructuralCloneFixtures;
 using ILInspector.Instructions;
@@ -272,6 +273,10 @@ public class StructuralCloneAnalysisTests
             BuildCalliTwinAssembly(
                 calli,
                 signature: [0x00, 0x01, 0x01, 0x01]));
+        using PEReader reservedHeaderImage = OpenImage(
+            BuildCalliTwinAssembly(
+                calli,
+                signature: [0x80, 0x00, 0x01]));
 
         StructuralCloneComparison invalid =
             StructuralCloneAnalysis.Compare(
@@ -312,6 +317,7 @@ public class StructuralCloneAnalysisTests
         AssertFailedMetadataOperand(trailingImage);
         AssertFailedMetadataOperand(nestedPropertyImage);
         AssertFailedMetadataOperand(voidParameterImage);
+        AssertFailedMetadataOperand(reservedHeaderImage);
         Assert.Equal(
             StructuralCloneRelation.Exact,
             StructuralCloneAnalysis.Compare(
@@ -451,6 +457,10 @@ public class StructuralCloneAnalysisTests
             },
             { new byte[] { 0x00, 0x00, 0x01, 0xFF } },
             { new byte[] { 0x00, 0x00, 0xFF } },
+            { new byte[] { 0x80, 0x00, 0x01 } },
+            { new byte[] { 0x40, 0x00, 0x01 } },
+            { new byte[] { 0x10, 0x01, 0x00, 0x01 } },
+            { new byte[] { 0x00, 0x00, 0x1B, 0x80, 0x00, 0x01 } },
         };
 
     public static TheoryData<byte[]> ValidMethodSignatures =>
@@ -747,7 +757,180 @@ public class StructuralCloneAnalysisTests
             { new byte[] { 0x07, 0x01, 0x10, 0x01 } },
             { new byte[] { 0x07, 0x01, 0x1D, 0x01 } },
             { new byte[] { 0x07, 0x01, 0x45, 0x01 } },
+            { new byte[] { 0x07, 0x01, 0x14, 0x08, 0x00, 0x00, 0x00 } },
+            { new byte[] { 0x07, 0x01, 0x14, 0x08, 0x01, 0x02, 0x01, 0x02, 0x00 } },
+            { new byte[] { 0x07, 0x01, 0x14, 0x08, 0x01, 0x00, 0x02, 0x00, 0x00 } },
+            { new byte[] { 0x07, 0x01, 0x13, 0x00 } },
+            { new byte[] { 0x07, 0x01, 0x1E, 0x00 } },
         };
+
+    [Fact]
+    public void Compare_ReservedLocalSignatureHeaderFailsBeforeLocalCount()
+    {
+        using PEReader image = OpenImage(
+            BuildLocalSignaturePairAssembly(
+                [0x87, 0x01, 0x08],
+                [0x87, 0x01, 0x08]));
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneDisposition.Failed,
+            comparison.Disposition);
+        Assert.Equal(0, comparison.Receipt.LeftLocals);
+        Assert.Equal(0, comparison.Receipt.RightLocals);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Compare_ValidGenericLocalScopesRemainSupported(
+        bool methodParameter)
+    {
+        using PEReader image = OpenImage(
+            BuildGenericLocalTwinAssembly(methodParameter));
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneRelation.Exact,
+            comparison.Relation);
+    }
+
+    [Fact]
+    public void Compare_MalformedUserStringTrailerFails()
+    {
+        using PEReader image = OpenImage(
+            BuildUserStringTwinAssembly(
+                "A",
+                replacementTerminal: 0x02));
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneDisposition.Failed,
+            comparison.Disposition);
+        Assert.Contains(
+            comparison.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneBlockerKind.InvalidMetadataOperand);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("A")]
+    [InlineData("\u0001")]
+    [InlineData("\u007F")]
+    [InlineData("\u0100")]
+    public void Compare_ValidUserStringTrailerRemainsSupported(
+        string text)
+    {
+        using PEReader image = OpenImage(
+            BuildUserStringTwinAssembly(
+                text,
+                replacementTerminal: null));
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneRelation.Exact,
+            comparison.Relation);
+    }
+
+    [Theory]
+    [InlineData("A", 1)]
+    [InlineData("\u0100", 0)]
+    public void Compare_IncorrectUserStringSemanticFlagFails(
+        string text,
+        byte replacementTerminal)
+    {
+        using PEReader image = OpenImage(
+            BuildUserStringTwinAssembly(
+                text,
+                replacementTerminal));
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneDisposition.Failed,
+            comparison.Disposition);
+        Assert.Contains(
+            comparison.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneBlockerKind.InvalidMetadataOperand);
+    }
+
+    [Fact]
+    public void Compare_MalformedModuleIdentityFailsWithoutThrowing()
+    {
+        using PEReader image = OpenImage(
+            BuildMalformedModuleIdentityTwinAssembly());
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneDisposition.Failed,
+            comparison.Disposition);
+        Assert.Null(comparison.Relation);
+        Assert.Contains(
+            comparison.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneBlockerKind.MetadataReadFailure);
+    }
+
+    [Fact]
+    public void Compare_EdgeLimitPrecedesMetadataOperandValidation()
+    {
+        using PEReader image = OpenImage(
+            BuildTwinAssembly(
+                BuildInvalidOperandDuplicateTargetSwitch(256)));
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2),
+                new StructuralCloneComparisonLimits(
+                    MaximumEdges: 1));
+
+        AssertLimit(
+            comparison,
+            StructuralCloneBlockerKind.EdgeLimit);
+        Assert.DoesNotContain(
+            comparison.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneBlockerKind.InvalidMetadataOperand);
+        Assert.Equal(257, comparison.Receipt.LeftEdges);
+        Assert.Equal(257, comparison.Receipt.RightEdges);
+    }
 
     [Fact]
     public void Compare_CustomModifiedVoidLocalFails()
@@ -1328,6 +1511,25 @@ public class StructuralCloneAnalysisTests
         return il;
     }
 
+    static byte[] BuildInvalidOperandDuplicateTargetSwitch(
+        int targetCount)
+    {
+        byte[] il = new byte[checked(
+            12 + targetCount * sizeof(int))];
+        il[0] = 0x16;
+        il[1] = 0x45;
+        BinaryPrimitives.WriteInt32LittleEndian(
+            il.AsSpan(2),
+            targetCount);
+        int callOffset = 6 + targetCount * sizeof(int);
+        il[callOffset] = 0x28;
+        BinaryPrimitives.WriteInt32LittleEndian(
+            il.AsSpan(callOffset + 1),
+            0x0600FFFF);
+        il[^1] = 0x2A;
+        return il;
+    }
+
     static MetadataMethodAddress Address(int row)
         => new(
             new Guid("11111111-2222-3333-4444-555555555555"),
@@ -1425,6 +1627,135 @@ public class StructuralCloneAnalysisTests
         AddMethod(metadata, "Left", firstBody);
         AddMethod(metadata, "Right", secondBody);
         return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildGenericLocalTwinAssembly(
+        bool methodParameter)
+    {
+        MetadataBuilder metadata = AssemblyMetadata();
+        TypeDefinitionHandle fixture = AddFixtureType(metadata);
+        StandaloneSignatureHandle locals =
+            AddLocalSignature(
+                metadata,
+                methodParameter
+                    ? [0x07, 0x01, 0x1E, 0x00]
+                    : [0x07, 0x01, 0x13, 0x00]);
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        BlobHandle methodSignature = metadata.GetOrAddBlob(
+            methodParameter
+                ? new byte[] { 0x10, 0x01, 0x00, 0x01 }
+                : new byte[] { 0x00, 0x00, 0x01 });
+        MethodDefinitionHandle left = AddMethod(
+            metadata,
+            "Left",
+            AddBody(bodyEncoder, [0x2A], locals),
+            methodSignature);
+        MethodDefinitionHandle right = AddMethod(
+            metadata,
+            "Right",
+            AddBody(bodyEncoder, [0x2A], locals),
+            methodSignature);
+        if (methodParameter)
+        {
+            metadata.AddGenericParameter(
+                left,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+            metadata.AddGenericParameter(
+                right,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        }
+        else
+        {
+            metadata.AddGenericParameter(
+                fixture,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        }
+        return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildUserStringTwinAssembly(
+        string text,
+        byte? replacementTerminal)
+    {
+        MetadataBuilder metadata = AssemblyMetadata();
+        UserStringHandle userString =
+            metadata.GetOrAddUserString(text);
+        int token =
+            0x70000000 | MetadataTokens.GetHeapOffset(userString);
+        byte[] il = [0x72, 0, 0, 0, 0, 0x26, 0x2A];
+        BinaryPrimitives.WriteInt32LittleEndian(
+            il.AsSpan(1),
+            token);
+        AddFixtureType(metadata);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        AddMethod(
+            metadata,
+            "Left",
+            AddBody(bodyEncoder, il, default));
+        AddMethod(
+            metadata,
+            "Right",
+            AddBody(bodyEncoder, il, default));
+        byte[] image = Serialize(metadata, bodies);
+        if (replacementTerminal is { } terminal)
+        {
+            int stream = FindUserStringStream(image);
+            int entry =
+                stream + MetadataTokens.GetHeapOffset(userString);
+            int entryLength = image[entry];
+            image[entry + entryLength] = terminal;
+        }
+        return image;
+    }
+
+    static byte[] BuildMalformedModuleIdentityTwinAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString("MalformedMvid.dll"),
+            MetadataTokens.GuidHandle(999),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedMvid"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        AddFixtureType(metadata);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        AddMethod(
+            metadata,
+            "Left",
+            AddBody(bodyEncoder, [0x2A], default));
+        AddMethod(
+            metadata,
+            "Right",
+            AddBody(bodyEncoder, [0x2A], default));
+        return Serialize(
+            metadata,
+            bodies,
+            suppressValidation: true);
     }
 
     static byte[] BuildLocalSignaturePairAssembly(
@@ -1835,7 +2166,8 @@ public class StructuralCloneAnalysisTests
         return metadata;
     }
 
-    static void AddFixtureType(MetadataBuilder metadata)
+    static TypeDefinitionHandle AddFixtureType(
+        MetadataBuilder metadata)
         => metadata.AddTypeDefinition(
             TypeAttributes.Public
                 | TypeAttributes.Abstract
@@ -1886,7 +2218,7 @@ public class StructuralCloneAnalysisTests
                     : MethodBodyAttributes.InitLocals));
     }
 
-    static void AddMethod(
+    static MethodDefinitionHandle AddMethod(
         MetadataBuilder metadata,
         string name,
         int bodyOffset,
@@ -1936,15 +2268,57 @@ public class StructuralCloneAnalysisTests
 
     static byte[] Serialize(
         MetadataBuilder metadata,
-        BlobBuilder methodBodies)
+        BlobBuilder methodBodies,
+        bool suppressValidation = false)
     {
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
-            new MetadataRootBuilder(metadata),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: suppressValidation),
             methodBodies,
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static int FindUserStringStream(byte[] image)
+    {
+        using PEReader pe = OpenImage(image);
+        int root = pe.PEHeaders.MetadataStartOffset;
+        int position = root + 12;
+        int versionLength =
+            BinaryPrimitives.ReadInt32LittleEndian(
+                image.AsSpan(position));
+        position += 4 + versionLength;
+        position = (position + 3) & ~3;
+        position += 2;
+        int streamCount =
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                image.AsSpan(position));
+        position += 2;
+
+        for (int index = 0; index < streamCount; index++)
+        {
+            int offset =
+                BinaryPrimitives.ReadInt32LittleEndian(
+                    image.AsSpan(position));
+            position += 8;
+            int nameStart = position;
+            while (image[position] != 0)
+                position++;
+            string name = Encoding.ASCII.GetString(
+                image,
+                nameStart,
+                position - nameStart);
+            position++;
+            position = (position + 3) & ~3;
+            if (name == "#US")
+                return root + offset;
+        }
+
+        throw new InvalidDataException(
+            "The fixture has no #US stream.");
     }
 }

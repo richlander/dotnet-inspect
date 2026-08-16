@@ -61,7 +61,9 @@ unsupported. Malformed or incomplete bodies fail visibly, including invalid
 local/argument slots, invalid metadata or user-string operands, non-method
 or incomplete method, local, and `calli` signatures, standalone-only calling
 conventions or sentinels on method definitions, position-invalid `void` types,
-non-method nested function-pointer signatures, and terminal fallthrough. Valid
+non-method nested function-pointer signatures, invalid array shapes or generic
+parameter indexes, reserved signature-header flags, malformed module identity,
+malformed `#US` terminal flags, and terminal fallthrough. Valid
 standalone unmanaged call sites, function-pointer signatures, `void` returns
 and pointers, pinned locals, and custom-modifier shapes remain supported within
 the guarded decode policy. Body-byte, instruction, block, CFG-edge, local, and
@@ -73,6 +75,14 @@ refinement rounds, and witness-search steps.
 counts, including edges.
 `Compare_InstructionLimitPrecedesMetadataOperandValidation` gates that the
 instruction bound applies before per-instruction metadata work.
+`Compare_EdgeLimitPrecedesMetadataOperandValidation` gates that measured edge
+limits stop before metadata-operand validation and graph materialization.
+`Compare_MalformedModuleIdentityFailsWithoutThrowing`,
+`Compare_MalformedUserStringTrailerFails`,
+`Compare_IncorrectUserStringSemanticFlagFails`,
+`Compare_MethodDefinitionRequiresCompleteMethodSignature`, and
+`Compare_MalformedLocalSignatureFailsAndRetainsMeasuredReceiptCounts` gate the
+corresponding fail-closed metadata boundaries.
 
 `StructuralCloneAnalysisTests` gates this policy with compiler-produced and
 synthetic close-positive/close-negative cases.
