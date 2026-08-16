@@ -2304,6 +2304,8 @@ public static class ApiOutputFormatter
         PerformanceTriageOptions? options = null,
         bool restrictToModelMembers = false)
     {
+        LibraryMetadataService.ReportOptimizationDiagnostics(
+            index);
         HashSet<int>? memberTokens = restrictToModelMembers
             ? type.Members.Where(m => m.MetadataToken is not null).Select(m => m.MetadataToken!.Value).ToHashSet()
             : null;

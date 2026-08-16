@@ -1,4 +1,5 @@
 using ILInspector.Analysis.AsyncSiblingFriendBaseFixtures;
+using System.Runtime.CompilerServices;
 
 namespace ILInspector.Analysis.AsyncSiblingFriendFixtures;
 
@@ -18,4 +19,11 @@ public sealed class FriendProtectedReceiver
         await Task.Yield();
         return other.PublicRead();
     }
+}
+
+public static class MalformedAsyncSourceFixture
+{
+    [AsyncStateMachine(null!)]
+    public static Task AnalyzeAsync()
+        => Task.CompletedTask;
 }

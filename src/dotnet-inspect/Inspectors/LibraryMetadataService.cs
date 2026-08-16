@@ -1533,6 +1533,7 @@ internal static class LibraryMetadataService
                 .ToList();
             return rows.Count > 0 ? rows : null;
         }
+
         catch (CostDeclarationException)
         {
             throw;
@@ -1600,6 +1601,7 @@ internal static class LibraryMetadataService
         try
         {
             var index = openIndex();
+            ReportOptimizationDiagnostics(index);
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             var rows = FilterAndOrderTriageOpportunities(
                     TriageOpportunities(index, options)
@@ -1650,6 +1652,19 @@ internal static class LibraryMetadataService
         {
             logger.LogWarning($"Error scanning optimization opportunities in {path}: {ex.Message}");
             return null;
+        }
+    }
+
+    internal static void ReportOptimizationDiagnostics(
+        Analysis.LibraryBodyIndex index)
+    {
+        foreach (Analysis.AnalysisDiagnostic diagnostic
+            in index.Diagnostics)
+        {
+            CommandError.WriteWarning(
+                $"performance analysis incomplete for "
+                + $"{diagnostic.Method}: "
+                + diagnostic.Message);
         }
     }
 

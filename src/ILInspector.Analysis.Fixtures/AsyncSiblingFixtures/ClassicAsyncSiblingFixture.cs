@@ -367,3 +367,25 @@ public sealed class ClassicNestedPrivateSiblingFixture
         }
     }
 }
+
+public interface IClassicHiddenBaseSiblingFixture
+{
+    int Read();
+
+    async Task<int> ReadAsync()
+    {
+        await Task.Yield();
+        return 1;
+    }
+}
+
+public interface IClassicHiddenDerivedSiblingFixture
+    : IClassicHiddenBaseSiblingFixture
+{
+    new async Task<int> ReadAsync()
+    {
+        await Task.Yield();
+        return ((IClassicHiddenBaseSiblingFixture)this)
+            .Read();
+    }
+}

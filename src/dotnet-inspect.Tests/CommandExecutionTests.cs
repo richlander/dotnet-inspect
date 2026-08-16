@@ -1298,6 +1298,64 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("library")]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task PerformanceTriage_ReportsIncompleteAnalysisAcrossScopes(
+        string command)
+    {
+        const string typeName =
+            "ILInspector.Analysis.AsyncSiblingFriendFixtures."
+            + "MalformedAsyncSourceFixture";
+        string assemblyPath =
+            FixtureCatalog.AnalysisAsyncSiblingFriend
+                .AssemblyPath();
+        string[] sourceArgs = command switch
+        {
+            "library" => [command, assemblyPath],
+            "type" =>
+            [
+                command,
+                typeName,
+                "--library",
+                assemblyPath,
+            ],
+            "member" =>
+            [
+                command,
+                typeName,
+                "AnalyzeAsync",
+                "--library",
+                assemblyPath,
+            ],
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(command),
+                command,
+                null),
+        };
+
+        var result = await RunAppAsync(
+        [
+            .. sourceArgs,
+            "-S",
+            command == "library"
+                ? SectionNames.PerformanceAsync
+                : SectionNames.PerformanceTriage,
+            "--tips",
+            "q",
+        ]);
+
+        Assert.Contains(
+            "warning: performance analysis incomplete",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "MalformedAsyncSourceFixture::AnalyzeAsync",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("asc")]
     [InlineData("desc")]
     public async Task PerformanceTriageOrderByCallerLoopDepth_PutsMissingEvidenceLast(string direction)

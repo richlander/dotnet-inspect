@@ -791,9 +791,14 @@ Research overlay bridge, and the application layer:
   body signals. Trusted framework-contract identities, exact interface-slot
   correspondence, friend-aware protected access, and nested private-access
   domains are gated by
+  `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,
   `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
   `OptimizationOpportunities_FriendAccessDoesNotProveProtectedReceiver`, and
   `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`.
+  Performance command projections report body-index diagnostics independently
+  of unsafe scanning;
+  `PerformanceTriage_ReportsIncompleteAnalysisAcrossScopes` gates library,
+  type, and member disclosure.
   `MethodInstructionFacts` owns the
   metadata-free local/argument-slot, operand, and single-branch-target grammar
   shared by safety and allocation

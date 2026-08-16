@@ -624,8 +624,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 _reader.GetMethodDefinition(
                         (MethodDefinitionHandle)sourceHandle)
                     .GetDeclaringType();
-            return TopLevelType(candidateReader, candidateType)
-                == TopLevelType(_reader, sourceType);
+            return TryTopLevelType(
+                    candidateReader,
+                    candidateType,
+                    out TypeDefinitionHandle candidateTopLevel)
+                && TryTopLevelType(
+                    _reader,
+                    sourceType,
+                    out TypeDefinitionHandle sourceTopLevel)
+                && candidateTopLevel == sourceTopLevel;
         }
         catch (Exception ex)
             when (IsRecoverableMethodFailure(ex))
@@ -634,17 +641,29 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         }
     }
 
-    static TypeDefinitionHandle TopLevelType(
+    internal static bool TryTopLevelType(
         MetadataReader reader,
-        TypeDefinitionHandle type)
+        TypeDefinitionHandle type,
+        out TypeDefinitionHandle topLevel)
     {
-        while (reader.GetTypeDefinition(type)
-                .GetDeclaringType()
-            is { IsNil: false } declaring)
+        Span<TypeDefinitionHandle> rootToLeaf =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeDefinitionDeclaringChain(
+                    reader,
+                    type,
+                    rootToLeaf,
+                    out int consumedNodes,
+                    out _,
+                    out _)
+            || consumedNodes == 0)
         {
-            type = declaring;
+            topLevel = default;
+            return false;
         }
-        return type;
+        topLevel = rootToLeaf[0];
+        return true;
     }
 
     TypeRelation SourceDerivesFrom(
@@ -779,7 +798,17 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             {
                 return false;
             }
-            TypeRelation relation = SourceTypeRelation(
+            TypeRelation relation =
+                (_reader.GetTypeDefinition(
+                        sourceMethod.GetDeclaringType())
+                    .Attributes
+                    & TypeAttributes.Interface) != 0
+                ? TypeDefinitionRelation(
+                    _reader,
+                    sourceMethod.GetDeclaringType(),
+                    candidateReader,
+                    candidateType)
+                : SourceTypeRelation(
                 sourceMethod.GetDeclaringType(),
                 asyncSource.DeclaringType,
                 candidateReader,

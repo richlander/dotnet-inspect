@@ -697,6 +697,9 @@ public class LibraryBodyIndexTests
             index.OptimizationOpportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        ClassicGenericSelfSiblingFixture<int>)
                 && opportunity.Method.Name
                     == nameof(
                         ClassicGenericSelfSiblingFixture<int>
@@ -705,6 +708,9 @@ public class LibraryBodyIndexTests
             index.OptimizationOpportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        ClassicGenericMethodSelfSiblingFixture)
                 && opportunity.Method.Name
                     == nameof(
                         ClassicGenericMethodSelfSiblingFixture
@@ -769,6 +775,9 @@ public class LibraryBodyIndexTests
             index.OptimizationOpportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        ClassicInterfaceCacheFixture)
                 && opportunity.Method.Name
                     == nameof(
                         ClassicInterfaceCacheFixture
@@ -777,6 +786,9 @@ public class LibraryBodyIndexTests
             index.OptimizationOpportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        ClassicInterfaceCacheFixture)
                 && opportunity.Method.Name
                     == nameof(
                         ClassicInterfaceCacheFixture
@@ -886,6 +898,71 @@ public class LibraryBodyIndexTests
                     == nameof(
                         ClassicNestedPrivateSiblingFixture.Consumer
                             .AnalyzeAsync));
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        IClassicHiddenDerivedSiblingFixture)
+                && opportunity.Method.Name
+                    == nameof(
+                        IClassicHiddenDerivedSiblingFixture
+                            .ReadAsync));
+    }
+
+    [Fact]
+    public void AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("CyclicNestedType.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("CyclicNestedType"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle cyclic =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPrivate,
+                metadata.GetOrAddString("Sample"),
+                metadata.GetOrAddString("Cyclic"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(cyclic, cyclic);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        using var peReader =
+            new PEReader(
+                new MemoryStream(image.ToArray()));
+
+        Assert.False(
+            LibraryBodyAnalysisBuilder.TryTopLevelType(
+                peReader.GetMetadataReader(),
+                cyclic,
+                out _));
     }
 
     [Fact]
@@ -916,7 +993,11 @@ public class LibraryBodyIndexTests
                     == "sync-call-in-async"
                 && opportunity.Method.Name
                     == "PublicAnalyzeAsync");
-        Assert.Empty(index.Diagnostics);
+        var diagnostic = Assert.Single(index.Diagnostics);
+        Assert.Contains(
+            "MalformedAsyncSourceFixture::AnalyzeAsync",
+            diagnostic.Method,
+            StringComparison.Ordinal);
     }
 
     [Fact]
