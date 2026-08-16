@@ -87,10 +87,17 @@ public class NuGetApiTests
     [InlineData("{}")]
     [InlineData("""{"resources":[]}""")]
     [InlineData("""{"version":null,"resources":[]}""")]
-    [InlineData("""{"resources":null}""")]
-    [InlineData("""{"resources":[null]}""")]
-    [InlineData("""{"resources":[{"@type":"PackageBaseAddress/3.0.0"}]}""")]
-    [InlineData("""{"resources":[{"@id":"https://example.com/flat/"}]}""")]
+    [InlineData("""{"version":"3.0.0","resources":null}""")]
+    [InlineData("""{"version":"3.0.0","resources":[null]}""")]
+    [InlineData("""{"version":"3.0.0","resources":[{"@type":"PackageBaseAddress/3.0.0"}]}""")]
+    [InlineData("""{"version":"3.0.0","resources":[{"@id":"https://example.com/flat/"}]}""")]
+    [InlineData(
+        """
+        {"version":"3.0.0","resources":[
+          {"@id":"https://example.com/flat/","@type":"PackageBaseAddress/3.0.0"},
+          null
+        ]}
+        """)]
     public async Task GetServiceIndexAsync_InvalidRequiredData_Throws(string json)
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
