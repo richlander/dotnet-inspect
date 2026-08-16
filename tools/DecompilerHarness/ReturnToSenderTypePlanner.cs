@@ -4132,10 +4132,7 @@ public static class CompileBackSourceComposer
                     : CompileBackMemberKind.Method;
 
     static bool IsOperatorMethod(MetadataReader reader, MethodDefinition method)
-        => OperatorNames.IsOperatorMethod(
-            reader.GetString(method.Name),
-            method.Attributes.HasFlag(MethodAttributes.SpecialName),
-            method.GetGenericParameters().Count);
+        => ILInspector.Metadata.OperatorMetadata.IsCSharpOperatorDeclaration(reader, method);
 
     sealed class TypeProducer
     {

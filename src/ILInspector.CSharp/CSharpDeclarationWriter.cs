@@ -2224,17 +2224,20 @@ internal static class CSharpDeclarationWriter
                 parameter => parameter.Modifier is "ref" or "out" or "ref readonly")
             : OperatorParametersHaveRefOrOutModifier(parameters);
         bool isPublic = member.Accessibility is null or "public";
-        if (!OperatorNames.IsCSharpOperatorDeclaration(
+        // Extraction proves declaring-type participation structurally. When that
+        // typed fact is absent — a JSON-round-tripped or shell-produced member —
+        // fall back to the shape this text still supports rather than parsing
+        // presentation text for a structural answer.
+        bool isCSharpDeclaration = member.CSharpOperatorDeclaration
+            ?? OperatorNames.IsCSharpOperatorDeclaration(
                 methodName,
                 member.IsStatic,
                 isPublic,
                 returnType,
                 parameterCount,
-                hasRefOrOutParameter)
-            || !HasRequiredOperatorSibling(type, member))
-        {
+                hasRefOrOutParameter);
+        if (!isCSharpDeclaration || !HasRequiredOperatorSibling(type, member))
             return signature;
-        }
 
         if (methodName.StartsWith("op_Checked", StringComparison.Ordinal)
             && (OperatorNames.MapBinaryOrUnary(methodName["op_Checked".Length..])
@@ -2262,6 +2265,7 @@ internal static class CSharpDeclarationWriter
         return (type.DeclaringMembers ?? type.Members).Any(candidate =>
             candidate.Kind == "operator"
             && candidate.Name == siblingName
+            && candidate.CSharpOperatorDeclaration is not false
             && SameOperatorSignature(member.SignatureModel, candidate.SignatureModel));
     }
 

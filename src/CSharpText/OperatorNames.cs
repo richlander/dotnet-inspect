@@ -5,65 +5,133 @@ namespace CSharpText;
 /// </summary>
 public static class OperatorNames
 {
+    /// <summary>
+    /// True for an operator method name that overloads on return type — the
+    /// conversion family. Identity producers append a return-type suffix for
+    /// these so two conversions sharing a source parameter stay distinct.
+    /// Wider than <see cref="IsCSharpConversionOperatorMethodName"/> because
+    /// <c>op_CheckedImplicit</c> is a recognized conversion name that C# has no
+    /// declaration syntax for.
+    /// </summary>
     public static bool IsConversionOperatorMethodName(string name)
+        => IsCSharpConversionOperatorMethodName(name) || name is "op_CheckedImplicit";
+
+    /// <summary>
+    /// True for the conversion operator names C# can spell as a declaration:
+    /// <c>implicit operator</c>, <c>explicit operator</c>, and
+    /// <c>explicit operator checked</c>.
+    /// </summary>
+    public static bool IsCSharpConversionOperatorMethodName(string name)
         => name is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
 
-    public static bool IsOperatorMethod(
+    /// <summary>
+    /// Metadata (CLI) operator classification: a <c>SpecialName</c>, nongeneric
+    /// method whose name is in the CLI operator vocabulary. This is the
+    /// vocabulary that API <c>Kind</c> and stable operator selectors use — it is
+    /// deliberately wider than what C# can declare, because a CLI operator
+    /// authored by another language is still an operator in metadata.
+    /// </summary>
+    public static bool IsMetadataOperatorMethod(
         string name,
         bool isSpecialName,
         int genericArity)
         => isSpecialName
             && genericArity == 0
-            && IsOperatorMethodName(name);
+            && IsMetadataOperatorMethodName(name);
 
-    public static bool IsOperatorMethodName(string name) =>
+    /// <summary>
+    /// The complete CLI operator method-name vocabulary: ECMA-335 I.10.3
+    /// (Table I.4 unary, Table I.5 binary, and the I.10.3.3 conversions), plus
+    /// the names later languages added under the same convention — C#'s checked
+    /// operators and C# 14 instance compound-assignment operators, and the
+    /// Visual Basic arithmetic names. Membership is by exact name; a
+    /// <c>op_</c> prefix alone is not an operator.
+    /// </summary>
+    public static bool IsMetadataOperatorMethodName(string name) =>
         IsConversionOperatorMethodName(name)
+        // ECMA-335 I.10.3.1, Table I.4 — unary operators.
+        || name is
+            "op_Decrement"
+            or "op_Increment"
+            or "op_UnaryNegation"
+            or "op_UnaryPlus"
+            or "op_LogicalNot"
+            or "op_True"
+            or "op_False"
+            or "op_AddressOf"
+            or "op_OnesComplement"
+            or "op_PointerDereference"
+        // ECMA-335 I.10.3.2, Table I.5 — binary operators.
         || name is
             "op_Addition"
             or "op_Subtraction"
             or "op_Multiply"
             or "op_Division"
             or "op_Modulus"
-            or "op_UnaryPlus"
-            or "op_UnaryNegation"
-            or "op_Increment"
-            or "op_Decrement"
+            or "op_ExclusiveOr"
             or "op_BitwiseAnd"
             or "op_BitwiseOr"
-            or "op_ExclusiveOr"
-            or "op_OnesComplement"
+            or "op_LogicalAnd"
+            or "op_LogicalOr"
+            or "op_Assign"
             or "op_LeftShift"
             or "op_RightShift"
+            or "op_SignedRightShift"
             or "op_UnsignedRightShift"
             or "op_Equality"
-            or "op_Inequality"
-            or "op_LessThan"
             or "op_GreaterThan"
-            or "op_LessThanOrEqual"
+            or "op_LessThan"
+            or "op_Inequality"
             or "op_GreaterThanOrEqual"
-            or "op_True"
-            or "op_False"
-            or "op_LogicalNot"
-            or "op_AdditionAssignment"
-            or "op_SubtractionAssignment"
+            or "op_LessThanOrEqual"
+            or "op_UnsignedRightShiftAssignment"
+            or "op_MemberSelection"
+            or "op_RightShiftAssignment"
             or "op_MultiplicationAssignment"
-            or "op_DivisionAssignment"
-            or "op_ModulusAssignment"
-            or "op_BitwiseAndAssignment"
-            or "op_BitwiseOrAssignment"
+            or "op_PointerToMemberSelection"
+            or "op_SubtractionAssignment"
             or "op_ExclusiveOrAssignment"
             or "op_LeftShiftAssignment"
-            or "op_RightShiftAssignment"
-            or "op_UnsignedRightShiftAssignment"
-            or "op_IncrementAssignment"
-            or "op_DecrementAssignment"
-            or "op_Exponent"
-            or "op_IntegerDivision"
-            or "op_Concatenate"
-            or "op_Like"
+            or "op_ModulusAssignment"
+            or "op_AdditionAssignment"
+            or "op_BitwiseAndAssignment"
+            or "op_BitwiseOrAssignment"
+            or "op_Comma"
+            or "op_DivisionAssignment"
+        // C# 14 instance compound assignment beyond the ECMA table.
+        || name is "op_IncrementAssignment" or "op_DecrementAssignment"
+        // Visual Basic arithmetic names sharing the convention.
+        || name is "op_Exponent" or "op_IntegerDivision" or "op_Concatenate" or "op_Like"
+        // C# checked operators (op_CheckedAddition, op_CheckedAdditionAssignment, ...).
         || name.StartsWith("op_Checked", StringComparison.Ordinal)
             && (MapBinaryOrUnary(name["op_Checked".Length..]) is not null
                 || MapCheckedAssignment(name["op_Checked".Length..]) is not null);
+
+    /// <summary>
+    /// True when C# has declaration syntax for <paramref name="name"/>. This is
+    /// the source-representability vocabulary, a strict subset of
+    /// <see cref="IsMetadataOperatorMethodName"/>: the CLI names C# cannot
+    /// declare (<c>op_AddressOf</c>, <c>op_LogicalAnd</c>, <c>op_Assign</c>,
+    /// <c>op_Comma</c>, <c>op_CheckedImplicit</c>, …) are excluded. Name
+    /// membership alone does not make a method representable — see
+    /// <see cref="IsCSharpOperatorDeclaration"/> for the shape proof.
+    /// </summary>
+    public static bool IsCSharpOperatorMethodName(string name)
+    {
+        if (IsCSharpConversionOperatorMethodName(name))
+            return true;
+        if (name.StartsWith("op_Checked", StringComparison.Ordinal))
+        {
+            string checkedSuffix = name["op_Checked".Length..];
+            return MapBinaryOrUnary(checkedSuffix) is not null
+                || MapCheckedAssignment(checkedSuffix) is not null;
+        }
+        if (!name.StartsWith("op_", StringComparison.Ordinal))
+            return false;
+
+        string suffix = name["op_".Length..];
+        return MapAssignment(suffix) is not null || CSharpUnaryOrBinaryArity(suffix) is not null;
+    }
 
     public static bool IsAssignmentOperatorMethodName(string name)
     {
@@ -101,16 +169,37 @@ public static class OperatorNames
         return parameterCount == expectedParameterCount;
     }
 
+    /// <summary>
+    /// True when a method's full shape is representable as a C# operator
+    /// declaration: a name C# can spell, the required accessibility and
+    /// static-ness, a legal parameter shape, a legal return shape, and
+    /// declaring-type participation. Every caller supplies the shape from its
+    /// own typed model; this method owns only the rule.
+    /// </summary>
+    /// <param name="declaringTypeParticipates">
+    /// Whether the declaring type appears where C# requires it — see
+    /// <see cref="DeclaringTypeParticipates"/>. Defaults to <see langword="true"/>
+    /// so a caller that cannot recover the structural fact keeps the shape-only
+    /// answer rather than silently rejecting a real operator.
+    /// </param>
     public static bool IsCSharpOperatorDeclaration(
         string methodName,
         bool isStatic,
         bool isPublic,
         string returnType,
         int parameterCount,
-        bool hasRefOrOutParameter = false)
+        bool hasRefOrOutParameter = false,
+        bool declaringTypeParticipates = true,
+        bool allowsNonBooleanResult = false)
     {
+        if (!IsCSharpOperatorMethodName(methodName))
+            return false;
+
         if (IsAssignmentOperatorMethodName(methodName))
         {
+            // The receiver of an instance compound-assignment operator is the
+            // declaring type by construction, so participation is not a separate
+            // obligation there.
             return IsCSharpInstanceAssignmentOperator(
                 methodName,
                 isStatic,
@@ -123,13 +212,46 @@ public static class OperatorNames
         if (!isStatic
             || !isPublic
             || returnType is "void" or "System.Void"
-            || hasRefOrOutParameter)
+            || hasRefOrOutParameter
+            || !declaringTypeParticipates
+            || RequiresBooleanReturn(methodName)
+                && !allowsNonBooleanResult
+                && returnType is not ("bool" or "System.Boolean"))
         {
             return false;
         }
 
         return CSharpOperatorParameterCount(methodName) == parameterCount;
     }
+
+    static bool RequiresBooleanReturn(string methodName)
+        => methodName is
+            "op_True"
+            or "op_False"
+            or "op_Equality"
+            or "op_Inequality"
+            or "op_LessThan"
+            or "op_GreaterThan"
+            or "op_LessThanOrEqual"
+            or "op_GreaterThanOrEqual";
+
+    /// <summary>
+    /// The C# declaring-type participation rule: a unary or binary operator
+    /// needs the declaring type among its parameters (CS0562/CS0563), a
+    /// conversion operator needs it as either the source or the target
+    /// (CS0556), and an instance compound-assignment operator has it as the
+    /// receiver. A caller decides type identity in its own model — including
+    /// <c>T?</c> and the declaring type's own instantiation — and reports only
+    /// the two positional answers here.
+    /// </summary>
+    public static bool DeclaringTypeParticipates(
+        string methodName,
+        bool anyParameterIsDeclaringType,
+        bool returnTypeIsDeclaringType)
+        => IsAssignmentOperatorMethodName(methodName)
+            || (IsConversionOperatorMethodName(methodName)
+                ? anyParameterIsDeclaringType || returnTypeIsDeclaringType
+                : anyParameterIsDeclaringType);
 
     public static string? MetadataNameFromSourceToken(
         string token,
@@ -366,7 +488,7 @@ public static class OperatorNames
 
     static int? CSharpOperatorParameterCount(string methodName)
     {
-        if (IsConversionOperatorMethodName(methodName))
+        if (IsCSharpConversionOperatorMethodName(methodName))
             return 1;
 
         string suffix = methodName.StartsWith("op_Checked", StringComparison.Ordinal)
@@ -375,7 +497,11 @@ public static class OperatorNames
                 ? methodName["op_".Length..]
                 : "";
 
-        return suffix switch
+        return CSharpUnaryOrBinaryArity(suffix);
+    }
+
+    static int? CSharpUnaryOrBinaryArity(string suffix)
+        => suffix switch
         {
             "UnaryPlus" or "UnaryNegation"
                 or "Increment" or "Decrement"
@@ -388,5 +514,4 @@ public static class OperatorNames
                 or "LessThanOrEqual" or "GreaterThanOrEqual" => 2,
             _ => null,
         };
-    }
 }

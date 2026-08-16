@@ -340,12 +340,8 @@ internal sealed class CrossAssemblyTypeResolver
                     FactState(IsDelegateType(reader, typeDef)),
                     FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
                     FactState(MethodDefinitionFacts.IsOperator(
-                        method,
-                        callee.Name,
-                        callee.HasThis,
-                        callee.ReturnType,
-                        callee.ParameterTypes,
-                        parameterRefKinds)),
+                        reader,
+                        method)),
                     MethodDefinitionFacts.ReadAccessorKind(reader, typeDef, methodHandle));
             }
 

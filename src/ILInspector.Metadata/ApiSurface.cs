@@ -583,6 +583,17 @@ public class ApiMember
     public ApiSignature? SignatureModel { get; set; }
 
     /// <summary>
+    /// Whether extraction proved this member representable as a C# operator
+    /// declaration — accessibility, static-ness, parameter and return shape, and
+    /// declaring-type participation all checked against the metadata. Null when
+    /// the fact was never extracted, most notably after a JSON round-trip, where
+    /// declaration rendering falls back to the shape it can still recompute
+    /// rather than recovering structural participation from display text.
+    /// </summary>
+    [JsonIgnore]
+    public bool? CSharpOperatorDeclaration { get; set; }
+
+    /// <summary>
     /// Set when guarded metadata decoding substituted part of this member's signature.
     /// Null means the signature decoded completely, including for older serialized surfaces.
     /// </summary>

@@ -558,6 +558,7 @@ internal sealed class LibraryBodyAnalysisBuilder :
         {
             SignatureHeader = signatureHeader,
             RequiredParameterCount = requiredParameterCount,
+            IsOperator = MetadataOperatorFacts.FromMethodDefinition(_reader, methodDef),
             IsVirtualDispatchOpen =
                 DispatchCanTargetOverride(
                     _reader.GetTypeDefinition(typeHandle),

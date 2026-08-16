@@ -89,27 +89,183 @@ public class OperatorNamesTests
         => Assert.Equal("op_SomeFutureOp", OperatorNames.FormatDisplayName("op_SomeFutureOp"));
 
     [Theory]
+    // C# operator names.
+    [InlineData("op_Addition")]
+    [InlineData("op_Implicit")]
+    [InlineData("op_Explicit")]
+    [InlineData("op_CheckedExplicit")]
     [InlineData("op_AdditionAssignment")]
     [InlineData("op_CheckedAdditionAssignment")]
     [InlineData("op_CheckedMultiplicationAssignment")]
     [InlineData("op_IncrementAssignment")]
     [InlineData("op_CheckedIncrementAssignment")]
+    // ECMA-335 I.10.3 names C# has no declaration syntax for.
+    [InlineData("op_AddressOf")]
+    [InlineData("op_PointerDereference")]
+    [InlineData("op_LogicalAnd")]
+    [InlineData("op_LogicalOr")]
+    [InlineData("op_Assign")]
+    [InlineData("op_SignedRightShift")]
+    [InlineData("op_Comma")]
+    [InlineData("op_MemberSelection")]
+    [InlineData("op_PointerToMemberSelection")]
+    [InlineData("op_UnsignedRightShiftAssignment")]
+    [InlineData("op_RightShiftAssignment")]
+    // Recognized by the operator convention, but not a C# declaration.
+    [InlineData("op_CheckedImplicit")]
+    // Other-language arithmetic names sharing the convention.
     [InlineData("op_Exponent")]
     [InlineData("op_IntegerDivision")]
     [InlineData("op_Concatenate")]
     [InlineData("op_Like")]
-    public void Recognizes_language_operator_names(string input)
-        => Assert.True(OperatorNames.IsOperatorMethodName(input));
+    public void Recognizes_metadata_operator_names(string input)
+        => Assert.True(OperatorNames.IsMetadataOperatorMethodName(input));
 
     [Theory]
     [InlineData("op_Custom")]
     [InlineData("op_SomeFutureOp")]
-    [InlineData("op_CheckedImplicit")]
+    [InlineData("op_")]
     [InlineData("op_CheckedModulusAssignment")]
     [InlineData("op_CheckedBitwiseAndAssignment")]
     [InlineData("op_CheckedUnsignedRightShiftAssignment")]
-    public void Rejects_unknown_op_prefix_names(string input)
-        => Assert.False(OperatorNames.IsOperatorMethodName(input));
+    [InlineData("op_CheckedLogicalNot")]
+    [InlineData("op_CheckedEquality")]
+    [InlineData("Addition")]
+    [InlineData("ToString")]
+    public void Rejects_non_operator_names(string input)
+    {
+        Assert.False(OperatorNames.IsMetadataOperatorMethodName(input));
+        Assert.False(OperatorNames.IsCSharpOperatorMethodName(input));
+    }
+
+    [Theory]
+    [InlineData("op_Addition", true)]
+    [InlineData("op_UnsignedRightShift", true)]
+    [InlineData("op_Implicit", true)]
+    [InlineData("op_CheckedExplicit", true)]
+    [InlineData("op_CheckedAddition", true)]
+    [InlineData("op_AdditionAssignment", true)]
+    [InlineData("op_CheckedIncrementAssignment", true)]
+    [InlineData("op_UnsignedRightShiftAssignment", true)]
+    // CLI vocabulary only: C# cannot declare any of these.
+    [InlineData("op_AddressOf", false)]
+    [InlineData("op_PointerDereference", false)]
+    [InlineData("op_LogicalAnd", false)]
+    [InlineData("op_LogicalOr", false)]
+    [InlineData("op_Assign", false)]
+    [InlineData("op_SignedRightShift", false)]
+    [InlineData("op_Comma", false)]
+    [InlineData("op_MemberSelection", false)]
+    [InlineData("op_PointerToMemberSelection", false)]
+    [InlineData("op_CheckedImplicit", false)]
+    [InlineData("op_Exponent", false)]
+    [InlineData("op_IntegerDivision", false)]
+    [InlineData("op_Concatenate", false)]
+    [InlineData("op_Like", false)]
+    public void CSharp_declaration_vocabulary_is_a_subset_of_the_metadata_vocabulary(
+        string input,
+        bool declarableInCSharp)
+    {
+        Assert.True(OperatorNames.IsMetadataOperatorMethodName(input));
+        Assert.Equal(declarableInCSharp, OperatorNames.IsCSharpOperatorMethodName(input));
+    }
+
+    [Theory]
+    // A metadata operator needs the SpecialName flag and zero generic arity;
+    // the name alone never classifies.
+    [InlineData("op_Addition", true, 0, true)]
+    [InlineData("op_Addition", false, 0, false)]
+    [InlineData("op_Addition", true, 1, false)]
+    [InlineData("op_LogicalAnd", true, 0, true)]
+    [InlineData("op_LogicalAnd", false, 0, false)]
+    [InlineData("op_IncrementAssignment", true, 1, false)]
+    [InlineData("op_Multiply", false, 0, false)]
+    [InlineData("op_Custom", true, 0, false)]
+    public void Metadata_operator_classification_requires_special_name_and_arity(
+        string name,
+        bool isSpecialName,
+        int genericArity,
+        bool expected)
+        => Assert.Equal(
+            expected,
+            OperatorNames.IsMetadataOperatorMethod(name, isSpecialName, genericArity));
+
+    [Theory]
+    // name, isStatic, isPublic, returnType, parameterCount, hasRefOrOut, participates, expected
+    [InlineData("op_Addition", true, true, "T", 2, false, true, true)]
+    [InlineData("op_Addition", true, true, "T", 2, false, false, false)]
+    [InlineData("op_Addition", false, true, "T", 2, false, true, false)]
+    [InlineData("op_Addition", true, false, "T", 2, false, true, false)]
+    [InlineData("op_Addition", true, true, "void", 2, false, true, false)]
+    [InlineData("op_Addition", true, true, "T", 1, false, true, false)]
+    [InlineData("op_Addition", true, true, "T", 2, true, true, false)]
+    [InlineData("op_UnaryNegation", true, true, "T", 1, false, true, true)]
+    [InlineData("op_Equality", true, true, "bool", 2, false, true, true)]
+    [InlineData("op_Equality", true, true, "T", 2, false, true, false)]
+    [InlineData("op_True", true, true, "System.Boolean", 1, false, true, true)]
+    [InlineData("op_True", true, true, "int", 1, false, true, false)]
+    [InlineData("op_Implicit", true, true, "T", 1, false, true, true)]
+    [InlineData("op_Implicit", true, true, "T", 1, false, false, false)]
+    // CLI-only names are never a C# declaration, whatever their shape.
+    [InlineData("op_LogicalAnd", true, true, "T", 2, false, true, false)]
+    [InlineData("op_Assign", true, true, "T", 2, false, true, false)]
+    [InlineData("op_CheckedImplicit", true, true, "T", 1, false, true, false)]
+    [InlineData("op_SignedRightShift", true, true, "T", 2, false, true, false)]
+    public void CSharp_operator_declaration_shape(
+        string name,
+        bool isStatic,
+        bool isPublic,
+        string returnType,
+        int parameterCount,
+        bool hasRefOrOutParameter,
+        bool declaringTypeParticipates,
+        bool expected)
+        => Assert.Equal(
+            expected,
+            OperatorNames.IsCSharpOperatorDeclaration(
+                name,
+                isStatic,
+                isPublic,
+                returnType,
+                parameterCount,
+                hasRefOrOutParameter,
+                declaringTypeParticipates));
+
+    [Fact]
+    public void CSharp_interface_operator_can_abstract_boolean_result()
+        => Assert.True(
+            OperatorNames.IsCSharpOperatorDeclaration(
+                "op_GreaterThan",
+                isStatic: true,
+                isPublic: true,
+                returnType: "TResult",
+                parameterCount: 2,
+                declaringTypeParticipates: true,
+                allowsNonBooleanResult: true));
+
+    [Theory]
+    // Binary/unary operators need the declaring type among their parameters.
+    [InlineData("op_Addition", true, false, true)]
+    [InlineData("op_Addition", false, true, false)]
+    [InlineData("op_Addition", false, false, false)]
+    // Conversions accept it as either source or target.
+    [InlineData("op_Implicit", false, true, true)]
+    [InlineData("op_Explicit", true, false, true)]
+    [InlineData("op_Explicit", false, false, false)]
+    // The receiver of an instance compound assignment is the declaring type.
+    [InlineData("op_AdditionAssignment", false, false, true)]
+    [InlineData("op_CheckedIncrementAssignment", false, false, true)]
+    public void Declaring_type_participation_rule(
+        string name,
+        bool anyParameterIsDeclaringType,
+        bool returnTypeIsDeclaringType,
+        bool expected)
+        => Assert.Equal(
+            expected,
+            OperatorNames.DeclaringTypeParticipates(
+                name,
+                anyParameterIsDeclaringType,
+                returnTypeIsDeclaringType));
 
     [Theory]
     [InlineData("op_AdditionAssignment", false, true, "void", 1, false, true)]

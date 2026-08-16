@@ -2136,12 +2136,8 @@ public static class IrImporter
                 {
                     IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
                     IsOperator = FactState(MethodDefinitionFacts.IsOperator(
-                        method,
-                        methodName,
-                        signature.Header.IsInstance,
-                        signature.ReturnType,
-                        signature.ParameterTypes,
-                        parameterRefKinds)),
+                        reader,
+                        method)),
                     AccessorKind = MethodDefinitionFacts.ReadAccessorKind(reader, declaringType, (MethodDefinitionHandle)handle),
                     ParameterRefKinds = parameterRefKinds.Kinds,
                     ParameterRefKindsFacts = parameterRefKinds.State,
@@ -2174,6 +2170,7 @@ public static class IrImporter
                     member,
                     memberName,
                     signature.Header.IsInstance,
+                    declaring,
                     returnType,
                     parameterTypes);
                 bool trustedPlatform = IsTrustedPlatformMemberReference(reader, member.Parent);
@@ -2348,6 +2345,7 @@ public static class IrImporter
         MemberReference member,
         string memberName,
         bool hasThis,
+        TypeRef declaringType,
         TypeRef returnType,
         ImmutableArray<TypeRef> parameterTypes)
     {
@@ -2377,12 +2375,8 @@ public static class IrImporter
                 return (
                     parameterRefKinds,
                     FactState(MethodDefinitionFacts.IsOperator(
-                        method,
-                        memberName,
-                        hasThis,
-                        returnType,
-                        parameterTypes,
-                        parameterRefKinds)),
+                        reader,
+                        method)),
                     FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
                     typeCompilerGenerated);
             }
@@ -2642,6 +2636,7 @@ public static class IrImporter
                         member,
                         name,
                         false,
+                        declaring,
                         TypeRef.Unsupported("field member reference"),
                         []).DeclaringTypeCompilerGenerated,
                     IsDynamic = MemberReferenceFieldIsDynamic(reader, member, name),

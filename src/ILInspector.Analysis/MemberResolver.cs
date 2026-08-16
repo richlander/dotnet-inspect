@@ -32,6 +32,7 @@ internal static class MemberResolver
                     RequiredParameterCount =
                         signature.RequiredParameterCount,
                     GenericArity = signature.GenericParameterCount,
+                    IsOperator = MetadataOperatorFacts.FromMethodDefinition(reader, method),
                 };
             }
             case HandleKind.MemberReference:

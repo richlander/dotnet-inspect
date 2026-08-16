@@ -169,6 +169,40 @@ public class MemberIdentityValueEqualityTests
         Assert.Equal(first.GetHashCode(), equivalent.GetHashCode());
     }
 
+    /// <summary>
+    /// The operator fact is part of a <em>definition's</em> identity: a
+    /// <see cref="MethodIdentity"/> names a MethodDef whose own metadata always
+    /// supplies the answer, so a hash that ignored it would let a real operator
+    /// and an ordinary <c>op_</c>-named method collide in an identity-keyed map.
+    /// A <see cref="MemberRef"/> is a reference, not a definition, and the same
+    /// member reached through a MemberRef token knows less than the same member
+    /// reached through a MethodDef token — so there the fact must stay out of
+    /// equality or one member stops being equal to itself.
+    /// </summary>
+    [Fact]
+    public void OperatorFact_IsIdentityForDefinitionsAndKnowledgeForReferences()
+    {
+        var unknown = Method(ImmutableArray.Create(Int32));
+        var isOperator = unknown with { IsOperator = MetadataOperatorFact.Yes };
+        var isNotOperator = unknown with { IsOperator = MetadataOperatorFact.No };
+
+        Assert.NotEqual(unknown, isOperator);
+        Assert.NotEqual(isOperator, isNotOperator);
+        Assert.NotEqual(isOperator.GetHashCode(), isNotOperator.GetHashCode());
+        Assert.Equal(isOperator, unknown with { IsOperator = MetadataOperatorFact.Yes });
+        Assert.Equal(
+            isOperator.GetHashCode(),
+            (unknown with { IsOperator = MetadataOperatorFact.Yes }).GetHashCode());
+
+        var memberUnknown = Member([Int32], [], []);
+        var memberOperator = memberUnknown with { IsOperator = MetadataOperatorFact.Yes };
+        var memberOrdinary = memberUnknown with { IsOperator = MetadataOperatorFact.No };
+
+        Assert.Equal(memberUnknown, memberOperator);
+        Assert.Equal(memberOperator, memberOrdinary);
+        Assert.Equal(memberOperator.GetHashCode(), memberOrdinary.GetHashCode());
+    }
+
     static MethodIdentity Method(
         ImmutableArray<TypeRef> parameterTypes,
         ImmutableArray<string> genericParameterNames = default)

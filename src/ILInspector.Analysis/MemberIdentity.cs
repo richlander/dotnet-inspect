@@ -21,6 +21,34 @@ public enum CallKind
 }
 
 /// <summary>
+/// Whether a member is an operator in the CLI metadata sense. A MethodDef
+/// carries the exact answer (its <c>SpecialName</c> flag, generic arity, and
+/// name are all present); an unresolved MemberRef carries none of them, so it
+/// stays <see cref="Unknown"/> rather than being inferred from the name.
+/// </summary>
+public enum MetadataOperatorFact
+{
+    Unknown,
+    No,
+    Yes,
+}
+
+/// <summary>
+/// Reads <see cref="MetadataOperatorFact"/> from a resolved method definition.
+/// Body identity producers use this so a body subject and an API anchor answer
+/// the operator question from the same evidence.
+/// </summary>
+public static class MetadataOperatorFacts
+{
+    public static MetadataOperatorFact FromMethodDefinition(
+        System.Reflection.Metadata.MetadataReader reader,
+        System.Reflection.Metadata.MethodDefinition method)
+        => ILInspector.Metadata.OperatorMetadata.IsMetadataOperator(reader, method)
+            ? MetadataOperatorFact.Yes
+            : MetadataOperatorFact.No;
+}
+
+/// <summary>
 /// A member's safety under the updated memory-safety rules, mirroring Roslyn's
 /// <c>CallerUnsafeMode</c> (see <c>PEMethodSymbol.CallerUnsafeMode</c>). A member
 /// "requires unsafe" when it carries <c>RequiresUnsafeAttribute</c> or has a
@@ -94,6 +122,14 @@ public sealed record MethodIdentity(
     internal int RequiredParameterCount { get; init; } = -1;
     internal bool IsVirtualDispatchOpen { get; init; }
 
+    /// <summary>
+    /// Whether this method is a metadata operator. Exact for a MethodDef, which
+    /// is what a body index holds; identity producers must not re-derive it from
+    /// the <c>op_</c> name prefix, which cannot tell an ordinary method named
+    /// <c>op_Multiply</c> from a real operator.
+    /// </summary>
+    public MetadataOperatorFact IsOperator { get; init; } = MetadataOperatorFact.Unknown;
+
     public bool Equals(MethodIdentity? other)
         => other is not null
             && AssemblyName == other.AssemblyName
@@ -107,6 +143,7 @@ public sealed record MethodIdentity(
             && IsExtension == other.IsExtension
             && CallerUnsafeMode == other.CallerUnsafeMode
             && GenericArity == other.GenericArity
+            && IsOperator == other.IsOperator
             && (SignatureHeader & 0x4F)
                 == (other.SignatureHeader & 0x4F)
             && ((SignatureHeader & 0x0F) != 0x05
@@ -130,6 +167,7 @@ public sealed record MethodIdentity(
         hash.Add(IsExtension);
         hash.Add(CallerUnsafeMode);
         hash.Add(GenericArity);
+        hash.Add(IsOperator);
         hash.Add(SignatureHeader & 0x4F);
         if ((SignatureHeader & 0x0F) == 0x05)
             hash.Add(RequiredParameterCount);
@@ -179,6 +217,25 @@ public sealed record MemberRef(
 
     /// <summary>The method-signature generic parameter count.</summary>
     public int GenericArity { get; init; }
+
+    /// <summary>
+    /// Whether this member is a metadata operator. A call target resolved to a
+    /// MethodDef carries the exact answer; a MemberRef into another assembly
+    /// carries no <c>SpecialName</c> flag, so it stays
+    /// <see cref="MetadataOperatorFact.Unknown"/> instead of being guessed from
+    /// the name.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately excluded from <see cref="Equals(MemberRef?)"/> and
+    /// <see cref="GetHashCode"/>. This is knowledge about the referenced
+    /// definition, not a component of the reference's identity: the same member
+    /// reached through a MethodDef token knows the answer while the same member
+    /// reached through a MemberRef token does not, and two references to one
+    /// member must still compare equal. <see cref="MethodIdentity.IsOperator"/>
+    /// is the opposite case — it names a definition, whose operator fact is
+    /// always read from that definition's own metadata — and does participate.
+    /// </remarks>
+    public MetadataOperatorFact IsOperator { get; init; } = MetadataOperatorFact.Unknown;
 
     /// <summary>
     /// The parameter signature with generic markers (VAR/MVAR) preserved — i.e. before

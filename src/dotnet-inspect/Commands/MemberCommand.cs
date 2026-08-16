@@ -195,8 +195,7 @@ public static class MemberCommand
 
                 var target = memberResolution.Target!;
                 var selected = target.ApiMember.Member;
-                apiType.DeclaringMembers ??= apiType.Members;
-                apiType.Members = [selected];
+                NarrowMembers(apiType, [selected]);
                 var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
                 effectiveOptions = effectiveOptions with
                 {
@@ -245,7 +244,7 @@ public static class MemberCommand
                     return 1;
                 }
 
-                apiType.Members = arityCandidates;
+                NarrowMembers(apiType, arityCandidates);
             }
 
             if (effectiveOptions.OverloadIndex is null
@@ -543,6 +542,19 @@ public static class MemberCommand
 
     private static bool IsPureSelector(string[]? select, string name) =>
         select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Narrows a type's rendered member inventory to a selection while retaining
+    /// the full declaring inventory. Declaration rendering asks the declaring
+    /// type about siblings a C# declaration requires — the <c>op_Inequality</c>
+    /// that lets <c>op_Equality</c> spell as <c>operator ==</c> — so every
+    /// narrowing path must record what it removed, not just the digest/index one.
+    /// </summary>
+    private static void NarrowMembers(ApiType apiType, List<ApiMember> members)
+    {
+        apiType.DeclaringMembers ??= apiType.Members;
+        apiType.Members = members;
+    }
 
     private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
         => GetTargetCandidates(apiType, options, memberName)

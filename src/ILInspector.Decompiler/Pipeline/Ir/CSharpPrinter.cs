@@ -483,6 +483,15 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool _checkedContext;
 
+    /// <summary>
+    /// Instance compound-assignment calls whose receiver was materialized into a
+    /// statement-level synthetic local, mapped to that local's name. C# requires
+    /// the left operand of a compound assignment to be a variable (CS0131), so a
+    /// receiver the IL inlined — <c>Get() += 1</c> — is bound to a local first
+    /// and the operator spelling then names that local.
+    /// </summary>
+    readonly Dictionary<Call, string> _materializedReceivers = [];
+
     /// <summary>An explicit base/this chain call lifted out of a constructor body to its signature initializer (base/this calls are invalid as body statements).</summary>
     string? _constructorChain;
     IrNode? _chainStatement;
@@ -2215,6 +2224,31 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).Append("}");
             CaptureContextRange(tupleSwitch, switchStart, sb.Length);
             sb.AppendLf(";");
+            return;
+        }
+        if (node is ExpressionStatement { Expression: Call instanceAssignment } assignmentStatement
+            && IsInstanceAssignmentOperatorCall(instanceAssignment)
+            && RequiresMaterializedReceiver(instanceAssignment))
+        {
+            var receiver = instanceAssignment.Arguments[0];
+            string localName = FreshSyntheticLocalName("__receiver");
+            sb.Append(pad)
+                .Append(TypeText(instanceAssignment.Callee.DeclaringType))
+                .Append(' ')
+                .Append(localName)
+                .Append(" = ")
+                .Append(Expression(receiver))
+                .AppendLf(";");
+            statementStartOverride = sb.Length;
+            _materializedReceivers[instanceAssignment] = localName;
+            try
+            {
+                sb.Append(pad).AppendLf(Statement(assignmentStatement)!);
+            }
+            finally
+            {
+                _materializedReceivers.Remove(instanceAssignment);
+            }
             return;
         }
         if (node is Return { Value: StackAllocate stackAllocate }
@@ -5499,8 +5533,8 @@ public sealed partial class CSharpPrinter
                 return null;
 
             string RenderSpelling() => isIncrement
-                ? $"{OperatorOperand(arguments[0])}{symbol}"
-                : $"{OperatorOperand(arguments[0])} {symbol} {InstanceAssignmentRightOperand(call)}";
+                ? $"{InstanceAssignmentReceiver(call)}{symbol}"
+                : $"{InstanceAssignmentReceiver(call)} {symbol} {InstanceAssignmentRightOperand(call)}";
             return !isChecked
                 ? RenderSpelling()
                 : WrapChecked(RenderSpelling);
@@ -5546,6 +5580,43 @@ public sealed partial class CSharpPrinter
         }
         return null;
     }
+
+    string InstanceAssignmentReceiver(Call call)
+        => _materializedReceivers.TryGetValue(call, out string? materialized)
+            ? materialized
+            : OperatorOperand(call.Arguments[0]);
+
+    /// <summary>
+    /// True when an instance compound-assignment call's receiver is not a C#
+    /// variable, so the operator spelling would be CS0131 ("the left-hand side
+    /// of an assignment must be a variable, property or indexer" — and a
+    /// property is not accepted for this operator form either). Release IL
+    /// routinely inlines a single-use receiver, producing exactly this shape
+    /// from <c>Box b = Get(); b += 1;</c>.
+    /// </summary>
+    /// <remarks>
+    /// A by-ref or pointer receiver is left alone: a struct receiver always
+    /// arrives as an address, its spelling is already a place, and binding the
+    /// pointed-to value to a local would mutate a copy.
+    /// </remarks>
+    static bool RequiresMaterializedReceiver(Call call)
+    {
+        if (call.Arguments.Count == 0)
+            return false;
+        var receiver = call.Arguments[0];
+        return !IsAssignableReceiverPlace(receiver)
+            && receiver.ResultType is not { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer };
+    }
+
+    static bool IsAssignableReceiverPlace(IrExpression receiver) => receiver switch
+    {
+        // Address-of forms print as the underlying place (OperatorOperand strips
+        // the address-of), and every one of those places is a C# variable.
+        LoadArgumentAddress or LoadLocalAddress or LoadFieldAddress or LoadElementAddress => true,
+        LoadArgument or LoadLocal or LoadStackSlot or LoadField or LoadElement => true,
+        LoadIndirect => true,
+        _ => false,
+    };
 
     string InstanceAssignmentRightOperand(Call call)
     {

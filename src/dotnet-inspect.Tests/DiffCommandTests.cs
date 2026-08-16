@@ -1380,6 +1380,80 @@ public class DiffCommandTests
             row.Evidence.Contains("requires a MetadataReader-backed comparison", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// An implementation diff joins IL evidence to API identity by selector, so
+    /// a body subject that spells the selector differently from its API anchor
+    /// silently loses that member's evidence. The <c>operator:</c> prefix is the
+    /// divergence that mattered: an ordinary method named <c>op_Multiply</c>
+    /// (no <c>SpecialName</c> flag) must keep the plain selector on both sides,
+    /// while a real operator keeps the prefixed one on both sides.
+    /// </summary>
+    [Fact]
+    public void BuildImplementationDiff_JoinsOrdinaryOpNamedMethodsAndRealOperators()
+    {
+        string oldPath = OperatorDiffAssembly(1);
+        string newPath = OperatorDiffAssembly(2);
+        try
+        {
+            var result = DiffCommand.BuildImplementationDiff(
+                [oldPath],
+                [newPath],
+                new DiffOptions { TypeFilter = ["Widget"] });
+
+            var ordinary = Assert.Single(
+                result.Members,
+                candidate => candidate.Subject.MemberName == "op_Multiply");
+            var real = Assert.Single(
+                result.Members,
+                candidate => candidate.Subject.MemberName == "op_Addition");
+
+            Assert.StartsWith("op_Multiply~", ordinary.Subject.Id, StringComparison.Ordinal);
+            Assert.StartsWith("operator:op_Addition~", real.Subject.Id, StringComparison.Ordinal);
+            Assert.True(ordinary.HasIlChanges);
+            Assert.True(real.HasIlChanges);
+        }
+        finally
+        {
+            File.Delete(oldPath);
+            File.Delete(newPath);
+        }
+    }
+
+    static string OperatorDiffAssembly(int constant)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"operator-diff-{constant}-{Guid.NewGuid():N}.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("OperatorDiff"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("OperatorDiff");
+        var type = module.DefineType(
+            "Widget",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+
+        Define("op_Addition", System.Reflection.MethodAttributes.SpecialName);
+        Define("op_Multiply", System.Reflection.MethodAttributes.PrivateScope);
+
+        type.CreateType();
+        assembly.Save(path);
+        return path;
+
+        void Define(string name, System.Reflection.MethodAttributes extra)
+        {
+            var method = type.DefineMethod(
+                name,
+                System.Reflection.MethodAttributes.Public
+                    | System.Reflection.MethodAttributes.Static
+                    | extra,
+                typeof(int),
+                [typeof(int), typeof(int)]);
+            var il = method.GetILGenerator();
+            il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4, constant);
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+    }
+
     [Fact]
     public void BuildImplementationDiffView_LabelsAuthoredSourceAsIndependentLane()
     {

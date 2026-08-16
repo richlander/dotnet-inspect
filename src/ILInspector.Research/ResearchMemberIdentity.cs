@@ -1,3 +1,4 @@
+using CSharpText;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -68,7 +69,10 @@ public static class ResearchMemberIdentity
 
     static BodyMemberIdentity BodyIdentityFromMethod(MethodIdentity method)
         => CreateBodyIdentity(
-            ApiMemberIdentity.GetMemberSelectorName(method.Name, method.IsExtension),
+            ApiMemberIdentity.GetMemberSelectorName(
+                method.Name,
+                method.IsExtension,
+                IsOperatorSelector(method.IsOperator, method.Name)),
             method.DeclaringType.ToQualifiedDisplayString(),
             method.Name == ".ctor" ? "#ctor" : method.Name,
             MethodGenericList(method),
@@ -84,7 +88,8 @@ public static class ResearchMemberIdentity
         => CreateBodyIdentity(
             ApiMemberIdentity.GetMemberSelectorName(
                 member.Name,
-                isExtensionMethod: false),
+                isExtensionMethod: false,
+                IsOperatorSelector(member.IsOperator, member.Name)),
             BodyTypeName(
                 GenericMemberIdentity.OpenDeclaringType(
                     member.DeclaringType)),
@@ -99,6 +104,22 @@ public static class ResearchMemberIdentity
             ApiMemberIdentity.IsConversionOperator(member.Name)
                 ? $"~{BodyTypeName(member.OpenSignatureReturn)}"
                 : "");
+
+    /// <summary>
+    /// Whether a body subject takes the <c>operator:</c> selector prefix. A
+    /// MethodDef answers exactly, which is what makes an ordinary method named
+    /// <c>op_Multiply</c> join its API anchor instead of splitting off into an
+    /// operator-prefixed subject. An unresolved MemberRef has no
+    /// <c>SpecialName</c> flag to read, so it falls back to the CLI operator
+    /// name vocabulary rather than dropping a real external operator's prefix.
+    /// </summary>
+    static bool IsOperatorSelector(MetadataOperatorFact fact, string name)
+        => fact switch
+        {
+            MetadataOperatorFact.Yes => true,
+            MetadataOperatorFact.No => false,
+            _ => OperatorNames.IsMetadataOperatorMethodName(name),
+        };
 
     static BodyMemberIdentity BodyIdentityFromTarget(ResolvedMemberTarget target)
     {

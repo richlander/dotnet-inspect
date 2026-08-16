@@ -1383,6 +1383,39 @@ public sealed class CSharpDeclarationWriterTests
             CSharpDeclarationWriter.RenderMemberDeclaration(type, equality));
     }
 
+    [Fact]
+    public void MemberDeclaration_RequiresRepresentableOperatorSibling()
+    {
+        var equality = new ApiMember
+        {
+            Name = "op_Equality",
+            Kind = "operator",
+            Signature = "bool op_Equality(Samples.Tuples left, Samples.Tuples right)",
+            IsStatic = true,
+            CSharpOperatorDeclaration = true,
+        };
+        var invalidInequality = new ApiMember
+        {
+            Name = "op_Inequality",
+            Kind = "operator",
+            Signature = "bool op_Inequality(Samples.Tuples left, Samples.Tuples right)",
+            IsStatic = true,
+            CSharpOperatorDeclaration = false,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Tuples",
+            Kind = "class",
+            Members = [equality],
+            DeclaringMembers = [equality, invalidInequality],
+        };
+
+        Assert.Equal(
+            "public static bool op_Equality(Samples.Tuples left, Samples.Tuples right)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, equality));
+    }
+
     [Theory]
     [InlineData(
         "op_AdditionAssignment",

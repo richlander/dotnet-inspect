@@ -816,13 +816,34 @@ public static class ApiMemberIdentity
         _ => member.Name
     };
 
+    /// <summary>
+    /// The selector name for a metadata method name when the operator fact is
+    /// not available. Falls back to the CLI operator name vocabulary, which is
+    /// the best answer without the <c>SpecialName</c> flag — prefer the overload
+    /// taking <c>isOperator</c> whenever the metadata is in hand.
+    /// </summary>
     public static string GetMemberSelectorName(string metadataMethodName, bool isExtensionMethod = false)
+        => GetMemberSelectorName(
+            metadataMethodName,
+            isExtensionMethod,
+            OperatorNames.IsMetadataOperatorMethodName(metadataMethodName));
+
+    /// <summary>
+    /// The selector name for a metadata method name with the operator fact
+    /// supplied by the caller's metadata. API anchors and body subjects both
+    /// route through here so the two agree on the <c>operator:</c> prefix.
+    /// </summary>
+    public static string GetMemberSelectorName(
+        string metadataMethodName,
+        bool isExtensionMethod,
+        bool isOperator)
         => metadataMethodName switch
         {
             ".ctor" => ".ctor",
             _ when isExtensionMethod => $"extension:{metadataMethodName}",
-            _ when metadataMethodName.StartsWith("op_", StringComparison.Ordinal) => $"operator:{metadataMethodName}",
-            _ when metadataMethodName.Contains('.', StringComparison.Ordinal) => $"explicit:{metadataMethodName}",
+            _ when isOperator => $"operator:{metadataMethodName}",
+            _ when metadataMethodName.Contains('.', StringComparison.Ordinal)
+                => $"explicit:{metadataMethodName}",
             _ => metadataMethodName,
         };
 
@@ -1129,29 +1150,12 @@ public static class ApiMemberIdentity
         string selectorName = GetMemberSelectorName(
             methodName,
             isExtensionMethod,
-            OperatorNames.IsOperatorMethod(
-                methodName,
-                method.Attributes.HasFlag(System.Reflection.MethodAttributes.SpecialName),
-                method.GetGenericParameters().Count));
+            OperatorMetadata.IsMetadataOperator(reader, method));
         return (
             CreateAnchor(typeFullName, selectorName, memberName, canonicalSignature),
             returnType,
             parameterTypes);
     }
-
-    static string GetMemberSelectorName(
-        string metadataMethodName,
-        bool isExtensionMethod,
-        bool isOperator)
-        => metadataMethodName switch
-        {
-            ".ctor" => ".ctor",
-            _ when isExtensionMethod => $"extension:{metadataMethodName}",
-            _ when isOperator => $"operator:{metadataMethodName}",
-            _ when metadataMethodName.Contains('.', StringComparison.Ordinal)
-                => $"explicit:{metadataMethodName}",
-            _ => metadataMethodName,
-        };
 
     static ImmutableArray<string> Render(
         ImmutableArray<AnchorSignatureType> types)

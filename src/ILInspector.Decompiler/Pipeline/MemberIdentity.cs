@@ -37,21 +37,37 @@ public static class MemberIdentity
         && typeNamespace == ns
         && typeName == name;
 
+    /// <summary>
+    /// Exact identity for a platform type that does not live in corelib. The
+    /// same logical type can ship from more than one assembly across .NET and
+    /// .NET Framework (or a facade), so the caller lists every accepted simple
+    /// name; the trust decision itself belongs to the caller's public-key-token
+    /// proof, never to this name comparison.
+    /// </summary>
     static bool IsFrameworkType(
         TypeRef? type,
-        string assembly,
+        ReadOnlySpan<string> assemblies,
         string ns,
         string name)
-        => NamedDefinition(type) is
+    {
+        if (NamedDefinition(type) is not
+            {
+                Kind: TypeRefKind.Definition,
+                Assembly: var typeAssembly,
+                Namespace: var typeNamespace,
+                Name: var typeName,
+            }
+            || typeNamespace != ns
+            || typeName != name)
         {
-        Kind: TypeRefKind.Definition,
-        Assembly: var typeAssembly,
-        Namespace: var typeNamespace,
-        Name: var typeName,
+            return false;
         }
-        && typeAssembly == assembly
-        && typeNamespace == ns
-        && typeName == name;
+
+        foreach (var assembly in assemblies)
+            if (typeAssembly == assembly)
+                return true;
+        return false;
+    }
 
     /// <summary>
     /// Exact identity for the core delegate families the compiler commonly emits
@@ -636,6 +652,12 @@ public static class MemberIdentity
                 && returnType.Equals(declaringType)
                 => true,
 
+            // BigInteger's int conversion is spelled as a cast. The type ships in
+            // System.Runtime.Numerics on .NET and in System.Numerics on .NET
+            // Framework (and through that facade), so both verified identities are
+            // accepted; the public-key-token proof
+            // (DeclaringTypeIsTrustedPlatform) is what keeps a same-named user
+            // type out, not the assembly simple name.
             {
                 Name: "op_Implicit",
                 DeclaringTypeIsTrustedPlatform: MetadataFactState.Yes,
@@ -644,7 +666,7 @@ public static class MemberIdentity
                 ReturnType: var returnType,
             } when IsFrameworkType(
                     declaringType,
-                    "System.Runtime.Numerics",
+                    ["System.Runtime.Numerics", "System.Numerics"],
                     "System.Numerics",
                     "BigInteger")
                 && value.Equals(s_int)

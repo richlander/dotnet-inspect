@@ -34,6 +34,114 @@ public class IrImporterTests
     static Block SingleBlock(IrFunction function)
         => (Block)Assert.Single(function.Body.Children);
 
+    /// <summary>
+    /// The decompiler's operator fact licenses C# operator <em>syntax</em> for a
+    /// call, so it is a source-representability proof, not the CLI operator
+    /// vocabulary. Hand-authored metadata that no C# compiler could have emitted
+    /// — a binary operator neither of whose operands is the declaring type, a
+    /// private one, a void-returning one, or a CLI-only operator name — must
+    /// stay an ordinary call: raising <c>Bad.op_Addition(1, 2)</c> to
+    /// <c>1 + 2</c> silently replaces the callee's result with integer addition.
+    /// </summary>
+    [Theory]
+    // name, participates, isPublic, isStatic, returnsDeclaringType, expected
+    [InlineData("op_Addition", true, true, true, true, MetadataFactState.Yes)]
+    [InlineData("op_Subtraction", true, true, true, true, MetadataFactState.Yes)]
+    // Neither operand is the declaring type (CS0563).
+    [InlineData("op_Multiply", false, true, true, true, MetadataFactState.No)]
+    // Not public.
+    [InlineData("op_Division", true, false, true, true, MetadataFactState.No)]
+    // Instance, and not the C# 14 compound-assignment form.
+    [InlineData("op_Modulus", true, true, false, true, MetadataFactState.No)]
+    // Void return (CS0590).
+    [InlineData("op_BitwiseAnd", true, true, true, false, MetadataFactState.No)]
+    // A CLI operator name C# cannot declare.
+    [InlineData("op_LogicalAnd", true, true, true, true, MetadataFactState.No)]
+    [InlineData("op_Assign", true, true, true, true, MetadataFactState.No)]
+    public void StaticOperatorFactRequiresCSharpRepresentableMetadata(
+        string name,
+        bool participates,
+        bool isPublic,
+        bool isStatic,
+        bool returnsDeclaringType,
+        MetadataFactState expected)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"operator-representability-{Guid.NewGuid():N}.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("OperatorRepresentability"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("OperatorRepresentability");
+        var type = module.DefineType("Bad", TypeAttributes.Public | TypeAttributes.Class);
+        var attributes = MethodAttributes.SpecialName
+            | (isPublic ? MethodAttributes.Public : MethodAttributes.Private)
+            | (isStatic ? MethodAttributes.Static : 0);
+        var parameters = isStatic
+            ? (participates ? [type, type] : new Type[] { typeof(int), typeof(int) })
+            : (participates ? [type] : new Type[] { typeof(int) });
+        var method = type.DefineMethod(
+            name,
+            attributes,
+            returnsDeclaringType ? type : typeof(void),
+            parameters);
+        var il = method.GetILGenerator();
+        if (returnsDeclaringType)
+            il.Emit(System.Reflection.Emit.OpCodes.Ldnull);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        type.CreateType();
+        assembly.Save(path);
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(peReader);
+            var typeDefinition = reader.GetTypeDefinition(
+                Assert.Single(
+                    reader.TypeDefinitions,
+                    handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == "Bad"));
+            var methodHandle = Assert.Single(
+                typeDefinition.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == name);
+
+            Assert.Equal(
+                expected,
+                IrImporter.ResolveMethod(reader, methodHandle, GenericScope.Empty).IsOperator);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void OperatorFactNo_KeepsTheCallAsAMethodInvocation()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var declaring = TypeRef.Definition("Attacker", "", "Bad");
+        var callee = new MethodRef(declaring, "op_Addition", intType, [intType, intType], HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.No,
+        };
+        var call = new Call(
+            callee,
+            isVirtual: false,
+            [new Constant(1, intType), new Constant(2, intType)]);
+        var block = new Block(0);
+        block.Add(new Return(call));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("op_Addition(1, 2)", output);
+        Assert.DoesNotContain("1 + 2", output);
+    }
+
     [Fact]
     public void InstanceAssignmentOperatorRejectsRefAndOutButAcceptsIn()
     {
@@ -6174,6 +6282,95 @@ public class EnumConstantTests
 
         Assert.Contains(".op_Implicit(value)", output);
         Assert.DoesNotContain("(BigInteger)value", output);
+    }
+
+    /// <summary>
+    /// <c>System.Numerics.BigInteger</c> ships from <c>System.Runtime.Numerics</c>
+    /// on .NET and from <c>System.Numerics</c> on .NET Framework and its facades.
+    /// Both are the same trusted framework identity once the declaring type's
+    /// public-key token is verified, so the int conversion spells as a cast for
+    /// either. The token proof is what excludes a lookalike — see the negatives
+    /// below, which use the very same names.
+    /// </summary>
+    [Theory]
+    [InlineData("System.Runtime.Numerics")]
+    [InlineData("System.Numerics")]
+    public void TrustedBigIntegerConversion_SpellsAsCast(string assembly)
+    {
+        string output = PrintBigIntegerLookalikeConversion(
+            assembly,
+            "System.Numerics",
+            "BigInteger",
+            MetadataFactState.Yes);
+
+        Assert.Contains("(BigInteger)value", output);
+        Assert.DoesNotContain("op_Implicit", output);
+    }
+
+    [Theory]
+    // The exact framework names without the token proof.
+    [InlineData("System.Runtime.Numerics", "System.Numerics", "BigInteger", MetadataFactState.Unknown)]
+    [InlineData("System.Numerics", "System.Numerics", "BigInteger", MetadataFactState.Unknown)]
+    [InlineData("System.Numerics", "System.Numerics", "BigInteger", MetadataFactState.No)]
+    // Token-proved platform assemblies, but not this type.
+    [InlineData("System.Numerics", "System.Numerics", "BigDecimal", MetadataFactState.Yes)]
+    [InlineData("System.Numerics", "Contoso.Numerics", "BigInteger", MetadataFactState.Yes)]
+    [InlineData("System.Numerics.Vectors", "System.Numerics", "BigInteger", MetadataFactState.Yes)]
+    public void UntrustedOrMismatchedBigIntegerConversion_RemainsMethodCall(
+        string assembly,
+        string typeNamespace,
+        string typeName,
+        MetadataFactState trustedPlatform)
+    {
+        string output = PrintBigIntegerLookalikeConversion(
+            assembly,
+            typeNamespace,
+            typeName,
+            trustedPlatform);
+
+        Assert.Contains(".op_Implicit(value)", output);
+        Assert.DoesNotContain($"({typeName})value", output);
+    }
+
+    static string PrintBigIntegerLookalikeConversion(
+        string assembly,
+        string typeNamespace,
+        string typeName,
+        MetadataFactState trustedPlatform)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var declaring = TypeRef.Definition(assembly, typeNamespace, typeName);
+        var callee = new MethodRef(
+            declaring,
+            "op_Implicit",
+            declaring,
+            [intType],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Unknown,
+            DeclaringTypeIsTrustedPlatform = trustedPlatform,
+        };
+        var call = new Call(
+            callee,
+            isVirtual: false,
+            [new LoadArgument(0, "value", intType)]);
+        var block = new Block(0);
+        block.Add(new Return(call));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            declaring,
+            [],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            signature,
+            [],
+            container);
+        return CSharpPrinter.Print(function).Output!.Trim();
     }
 
     [Fact]

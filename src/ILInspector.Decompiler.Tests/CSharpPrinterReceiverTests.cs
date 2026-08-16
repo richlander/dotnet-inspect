@@ -433,6 +433,80 @@ public sealed class CSharpPrinterReceiverTests
         return CSharpPrinter.Print(function).Output!.Trim();
     }
 
+    /// <summary>
+    /// C# 14 instance compound assignment requires its left operand to be a
+    /// variable (CS0131). Release IL inlines a single-use receiver, so
+    /// <c>Box b = Get(); b += 1;</c> arrives with the call itself as the
+    /// receiver — printing <c>Get() += 1;</c> would not compile. The receiver is
+    /// bound to a statement-level synthetic local instead, exactly once.
+    /// </summary>
+    [Fact]
+    public void InlinedReceiver_InstanceAssignment_IsMaterializedIntoALocal()
+    {
+        string body = PrintFixture(nameof(InstanceAssignmentFixtures.InlinedReceiver));
+
+        Assert.DoesNotContain("Create() +=", body);
+        Assert.Contains("InstanceAssignmentBox __receiver = InstanceAssignmentBoxFactory.Create();", body);
+        Assert.Contains("__receiver += 1;", body);
+        Assert.Equal(
+            1,
+            body.Split("InstanceAssignmentBoxFactory.Create()").Length - 1);
+        AssertCompiles("public static void M()", Indent(body), InstanceAssignmentDeclarations);
+    }
+
+    [Fact]
+    public void InlinedReceiver_CheckedInstanceAssignment_KeepsCheckedSpelling()
+    {
+        string body = PrintFixture(nameof(InstanceAssignmentFixtures.InlinedReceiverChecked));
+
+        Assert.DoesNotContain("Create() +=", body);
+        Assert.Contains("InstanceAssignmentBox __receiver = InstanceAssignmentBoxFactory.Create();", body);
+        Assert.Contains("checked { __receiver += 1; }", body);
+        AssertCompiles("public static void M()", Indent(body), InstanceAssignmentDeclarations);
+    }
+
+    [Fact]
+    public void AssignableReceiver_InstanceAssignment_IsUnchanged()
+    {
+        string body = PrintFixture(nameof(InstanceAssignmentFixtures.AssignableReceiver));
+
+        Assert.DoesNotContain("__receiver", body);
+        Assert.Contains(" += 1;", body);
+        Assert.Contains(" += 2;", body);
+        AssertCompiles("public static void M()", Indent(body), InstanceAssignmentDeclarations);
+    }
+
+    const string InstanceAssignmentDeclarations = """
+        public sealed class InstanceAssignmentBox
+        {
+            public int Value;
+            public void operator +=(int value) => Value += value;
+            public void operator checked +=(int value) => Value = checked(Value + value);
+        }
+
+        public static class InstanceAssignmentBoxFactory
+        {
+            public static InstanceAssignmentBox Create() => new InstanceAssignmentBox();
+        }
+        """;
+
+    static string PrintFixture(string methodName)
+    {
+        using var source = MetadataSource.Open(
+            typeof(InstanceAssignmentFixtures).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(InstanceAssignmentFixtures).FullName!,
+            methodName);
+        Assert.NotNull(function);
+        return CSharpPrinter.PrintRaised(function!, out _).Output!.TrimEnd();
+    }
+
+    static string Indent(string body)
+        => string.Join(
+            "\n",
+            body.Split('\n').Select(line => line.Length == 0 ? line : "        " + line));
+
     static void AssertCompiles(string header, string body, string extraDeclarations = "")
     {
         var errors = Recompile(header, body, extraDeclarations)
@@ -466,4 +540,48 @@ public sealed class CSharpPrinterReceiverTests
 
     static ImmutableArray<MetadataReference> RuntimeReferences()
         => RoslynTestReferences.TrustedPlatform;
+}
+
+/// <summary>
+/// Compiler-produced fixtures for the C# 14 instance compound-assignment
+/// receiver. Release IL for <c>InlinedReceiver</c> never stores the receiver,
+/// which is the shape that made the printer emit an unassignable left operand.
+/// </summary>
+public sealed class InstanceAssignmentBox
+{
+    public int Value;
+
+    public void operator +=(int value) => Value += value;
+
+    public void operator checked +=(int value) => Value = checked(Value + value);
+}
+
+public static class InstanceAssignmentBoxFactory
+{
+    public static InstanceAssignmentBox Create() => new();
+}
+
+public static class InstanceAssignmentFixtures
+{
+    public static void InlinedReceiver()
+    {
+        InstanceAssignmentBox box = InstanceAssignmentBoxFactory.Create();
+        box += 1;
+    }
+
+    public static void InlinedReceiverChecked()
+    {
+        InstanceAssignmentBox box = InstanceAssignmentBoxFactory.Create();
+        checked
+        {
+            box += 1;
+        }
+    }
+
+    public static void AssignableReceiver()
+    {
+        InstanceAssignmentBox box = InstanceAssignmentBoxFactory.Create();
+        box += 1;
+        box += 2;
+    }
 }

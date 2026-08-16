@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using CSharpText;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -85,54 +86,20 @@ internal static class MethodDefinitionFacts
     internal static bool IsUnmanagedCallersOnly(MetadataReader reader, MethodDefinition method)
         => HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.InteropServices", "UnmanagedCallersOnlyAttribute");
 
+    /// <summary>
+    /// The C#-raising operator proof for a resolved MethodDef. A raise spells a
+    /// CALL as operator syntax, so the bar is C# <em>source representability</em>
+    /// — strictly narrower than the CLI operator vocabulary that metadata and
+    /// API classification use (<see cref="OperatorNames.IsMetadataOperatorMethod"/>).
+    /// metadata that no C# compiler could have produced — a private operator, a
+    /// <c>ref</c> parameter, a void return, or a binary operator on a declaring
+    /// type that participates in neither operand — stays an ordinary call rather
+    /// than becoming operator syntax with different semantics.
+    /// </summary>
     internal static bool IsOperator(
-        MethodDefinition method,
-        string methodName,
-        bool hasThis,
-        TypeRef returnType,
-        ImmutableArray<TypeRef> parameterTypes,
-        ParameterRefKindResult parameterRefKinds)
-    {
-        if (!OperatorNames.IsOperatorMethod(
-                methodName,
-                (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
-                method.GetGenericParameters().Count))
-        {
-            return false;
-        }
-
-        if (!hasThis)
-            return true;
-
-        var access = method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask;
-        if (!OperatorNames.IsCSharpInstanceAssignmentOperator(
-            methodName,
-            isStatic: false,
-            isPublic: access == System.Reflection.MethodAttributes.Public,
-            returnType is { Namespace: "System", Name: "Void" } ? "void" : "",
-            parameterTypes.Length))
-        {
-            return false;
-        }
-
-        if (!parameterTypes.Any(type => type.Kind == TypeRefKind.ByRef))
-            return true;
-        if (parameterRefKinds.State != ParameterRefKindFacts.Known
-            || parameterRefKinds.Kinds.Length != parameterTypes.Length)
-        {
-            return false;
-        }
-
-        for (int i = 0; i < parameterTypes.Length; i++)
-        {
-            if (parameterTypes[i].Kind == TypeRefKind.ByRef
-                && parameterRefKinds.Kinds[i] != ArgumentRefKind.In)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
+        MetadataReader reader,
+        MethodDefinition method)
+        => OperatorMetadata.IsCSharpOperatorDeclaration(reader, method);
 
     internal static AccessorKind ReadAccessorKind(MetadataReader reader, TypeDefinition declaringType, MethodDefinitionHandle method)
     {
