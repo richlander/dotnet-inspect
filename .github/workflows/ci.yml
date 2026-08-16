@@ -325,7 +325,7 @@ jobs:
       - name: Run services tests
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
 
-      - name: Run inspection workspace tests
+      - name: Run inspection query tests
         run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
 
       # NuGetFetch is the HTTP and credential layer. Its live-network tests are tagged
@@ -493,6 +493,10 @@ jobs:
       - name: Run services tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
+
+      - name: Run query tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
 
       - name: Check ilasm/ildasm result
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.iltools.outcome != 'success' }}

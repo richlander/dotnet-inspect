@@ -72,6 +72,30 @@ public static class RealRenderFixtures
         }
     }
 
+    public static void RenderGenericEqualityFragment<T>(
+        RenderTreeBuilder builder,
+        T current,
+        T selected)
+    {
+        RenderFragment fragment = nested =>
+        {
+            if (current!.Equals(selected))
+                nested.AddContent(0, "equal");
+        };
+        builder.AddContent(0, fragment);
+    }
+
+    public static void RenderGenericEqualityLocal<T>(
+        RenderTreeBuilder builder,
+        T current,
+        T selected)
+    {
+        if (EqualsCore(current, selected))
+            builder.AddContent(0, "equal");
+
+        static bool EqualsCore(T left, T right) => left!.Equals(right);
+    }
+
     public static void InvokeConstructedCallbackInLoop(int[] values)
     {
         foreach (int value in values)

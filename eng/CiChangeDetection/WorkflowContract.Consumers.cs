@@ -144,6 +144,8 @@ internal static partial class WorkflowContract
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Run services tests"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
+            ["test-windows/Run query tests"] =
+                "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Check ilasm/ildasm result"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' && " +
                 "steps.iltools.outcome != 'success' }}",

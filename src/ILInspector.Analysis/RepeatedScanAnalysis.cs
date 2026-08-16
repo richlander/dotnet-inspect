@@ -134,6 +134,9 @@ internal static class RepeatedScanAnalysis
             new Dictionary<(int MethodToken, int NextOffset), string>();
         foreach (var call in directCalls)
         {
+            if (!IsInvocation(call))
+                continue;
+
             if (IsLinqMembershipScan(
                     call.Callee,
                     out var membershipOperation))
@@ -219,6 +222,13 @@ internal static class RepeatedScanAnalysis
         foreach (var (token, operation) in lazyReturning)
             scanningMethods.TryAdd(token, operation);
 
+        var methodMap = MethodDefinitionMap.Create(methods);
+        var recursiveTraversalTokens = directCalls
+            .Where(static call => call.Kind == CallKind.Call && call.InLoop)
+            .Where(call => methodMap.Resolve(call) == call.Caller.MetadataToken)
+            .Select(static call => call.Caller.MetadataToken)
+            .ToHashSet();
+
         var inMethodScanLoopTokens = new HashSet<int>();
         foreach (var opportunity in rawOpportunities)
         {
@@ -234,7 +244,8 @@ internal static class RepeatedScanAnalysis
         var emitted = new HashSet<int>();
         foreach (var call in directCalls)
         {
-            if (!call.InLoop)
+            if (!IsInvocation(call)
+                || !call.InLoop)
                 continue;
             int calleeToken = call.CalleeDefinitionToken;
             if (!scanningMethods.TryGetValue(
@@ -261,8 +272,42 @@ internal static class RepeatedScanAnalysis
                 reachByToken.GetValueOrDefault(calleeToken)));
         }
 
+        foreach (var call in directCalls)
+        {
+            int calleeToken = call.CalleeDefinitionToken;
+            if (!IsInvocation(call)
+                || !recursiveTraversalTokens.Contains(
+                    call.Caller.MetadataToken)
+                || !scanningMethods.TryGetValue(calleeToken, out var operation)
+                || !methodByToken.TryGetValue(calleeToken, out var method)
+                || suppressedMethodTokens.Contains(calleeToken)
+                || inMethodScanLoopTokens.Contains(calleeToken)
+                || call.Caller.MetadataToken == calleeToken
+                || !emitted.Add(calleeToken))
+            {
+                continue;
+            }
+
+            opportunities.Add(new OptimizationOpportunity(
+                method,
+                "scan-method-in-recursive-traversal",
+                $"Linearly scans a sequence (Enumerable.{operation}); invoked once per recursive traversal node by {call.Caller.DeclaringType.ToQualifiedDisplayString()}::{call.Caller.Name}",
+                "If the scan source is shared across recursive calls, build an index before recursion and reuse it; otherwise keep the node-local scan.",
+                "low",
+                true,
+                null,
+                "Potentially superlinear only when each recursive step scans the same growing sequence; static analysis has not proved source identity.",
+                reachByToken.GetValueOrDefault(calleeToken)));
+        }
+
         return opportunities.ToImmutable();
     }
+
+    static bool IsInvocation(DirectCall call) =>
+        call.Kind is
+            CallKind.Call
+            or CallKind.CallVirtual
+            or CallKind.NewObject;
 
     static bool IsEnumerableDefinition(TypeRef type)
         => FrameworkIdentity.IsKnownFrameworkType(
