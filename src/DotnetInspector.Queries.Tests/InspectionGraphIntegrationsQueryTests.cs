@@ -190,6 +190,63 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     .BindingAmbiguous);
     }
 
+    [Fact]
+    public void Execute_ReportsApiWhoseStructuredEvidenceIsUnavailable()
+    {
+        using var fixture = IntegrationFixture.Create(
+            overBudgetAdapterTypeName: true);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+
+        Assert.Contains(
+            document.Failures,
+            failure =>
+            {
+                var evidence =
+                    Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
+                        failure.Evidence);
+                return evidence.Producer == "integrations"
+                    && evidence.Kind
+                        == InspectionGraphIntegrationFailureKind
+                            .StructuredEvidenceUnavailable;
+            });
+    }
+
+    [Fact]
+    public void Execute_DeduplicatesRepeatedAssemblyReferenceRows()
+    {
+        using var fixture = IntegrationFixture.Create(
+            duplicateOpenAiReference: true);
+        var references = AssemblyContextReferencesQuery.Execute(
+            fixture.Context.Group);
+        var azureReferences = Assert.IsType<
+            AssemblyContextEntry<
+                System.Collections.Immutable.ImmutableArray<
+                    AssemblyReferenceIdentity>>.Available>(
+            Assert.Single(
+                references.Assemblies,
+                entry => entry.Subject.Identity.Name
+                    == "Azure.AI.OpenAI"));
+        Assert.Equal(
+            2,
+            azureReferences.Value.Count(reference =>
+                reference.Name == "OpenAI"));
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+
+        InspectionGraphEdge reference = Assert.Single(
+            document.Edges.Where(edge =>
+                edge.Relationship
+                    == InspectionGraphIntegrationsCatalog.MetadataReference
+                && AssemblyName(document.Nodes[edge.FromNodeId].Subject)
+                    == "Azure.AI.OpenAI"
+                && AssemblyName(document.Nodes[edge.ToNodeId].Subject)
+                    == "OpenAI"));
+        Assert.Single(reference.OccurrenceIds);
+    }
+
     static InspectionGraphNode Node(
         InspectionGraphDocument document,
         InspectionGraphSubject subject) =>
@@ -291,7 +348,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
         public void Dispose() => _workspace.Dispose();
 
         internal static IntegrationFixture Create(
-            bool duplicateHubAssembly = false)
+            bool duplicateHubAssembly = false,
+            bool overBudgetAdapterTypeName = false,
+            bool duplicateOpenAiReference = false)
         {
             (PersistedAssemblyBuilder abstractions, Type iChatClient) =
                 Abstractions();
@@ -317,7 +376,10 @@ public sealed class InspectionGraphIntegrationsQueryTests
 
             var openAiAdapter = Adapter(
                 "Microsoft.Extensions.AI.OpenAI",
-                "Microsoft.Extensions.AI.OpenAI.OpenAIClientExtensions",
+                overBudgetAdapterTypeName
+                    ? "Microsoft.Extensions.AI.OpenAI."
+                        + new string('x', 5000)
+                    : "Microsoft.Extensions.AI.OpenAI.OpenAIClientExtensions",
                 chatClient,
                 iChatClient);
             var bedrockAdapter = Adapter(
@@ -343,6 +405,19 @@ public sealed class InspectionGraphIntegrationsQueryTests
             ILGenerator receiptBody = openAiReceipt.GetILGenerator();
             receiptBody.Emit(OpCodes.Ldnull);
             receiptBody.Emit(OpCodes.Ret);
+            if (duplicateOpenAiReference)
+            {
+                var duplicateOpenAi = new PersistedAssemblyBuilder(
+                    new AssemblyName("OpenAI"),
+                    typeof(object).Assembly);
+                Type duplicateType = DefineClass(
+                    duplicateOpenAi.DefineDynamicModule("OpenAI"),
+                    "OpenAI.Chat.DuplicateReference");
+                azureClient.DefineField(
+                    "DuplicateReference",
+                    duplicateType,
+                    FieldAttributes.Public);
+            }
             azureClient.CreateType();
 
             List<PersistedAssemblyBuilder> builders =

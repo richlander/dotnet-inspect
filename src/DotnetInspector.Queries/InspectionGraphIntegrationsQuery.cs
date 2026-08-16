@@ -522,7 +522,18 @@ public static class InspectionGraphIntegrationsQuery
                             in available.EcosystemSignals)
                         {
                             if (signal.GetApiEvidence() is not { } api)
+                            {
+                                if (signal.Shape
+                                    == IntegrationSignalShape.Api)
+                                {
+                                    AddFailure(
+                                        "integrations",
+                                        available.Subject.Registration,
+                                        InspectionGraphIntegrationFailureKind
+                                            .StructuredEvidenceUnavailable);
+                                }
                                 continue;
+                            }
                             if (api.ReturnType is not { } targetType)
                             {
                                 AddFailure(
@@ -615,7 +626,7 @@ public static class InspectionGraphIntegrationsQuery
                             AssemblySubject(
                                 available.Subject.Registration);
                         foreach (AssemblyReferenceIdentity reference
-                            in available.Value)
+                            in available.Value.Distinct())
                         {
                             if (!TryBindInContext(
                                     available.Subject.Registration,

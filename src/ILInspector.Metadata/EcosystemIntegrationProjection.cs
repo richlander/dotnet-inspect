@@ -161,16 +161,25 @@ internal static class EcosystemIntegrationProjection
             {
                 continue;
             }
+            if (signature.ParameterTypes.Length == 0)
+                continue;
 
             var api = $"{TypeResolver.FormatDisplayName(typeName)}.{methodName}(...)";
             EcosystemIntegrationApiEvidence? evidence = null;
             if (definitionName is not null)
             {
-                ExtensionMemberAnchorInfo anchor =
-                    ApiMemberIdentity.CreateExtensionMethodAnchorInfo(
+                ExtensionMemberAnchorInfo anchor;
+                try
+                {
+                    anchor = ApiMemberIdentity.CreateExtensionMethodAnchorInfo(
                         reader,
                         typeDefinitionHandle,
                         method);
+                }
+                catch (BadImageFormatException)
+                {
+                    continue;
+                }
                 evidence = new EcosystemIntegrationApiEvidence(
                     anchor.Anchor,
                     definitionName,

@@ -64,7 +64,25 @@ public class EcosystemIntegrationScannerTests
         Assert.True(scannedPresence.HasDependencyInjectionSupport);
     }
 
-    private static MemoryStream BuildDependencyInjectionExtensionAssembly()
+    [Fact]
+    public void Scan_SkipsExtensionMethodWithoutReceiver()
+    {
+        using var stream = BuildDependencyInjectionExtensionAssembly(
+            includeMalformedExtension: true);
+        using var peReader = new PEReader(stream);
+
+        var signals = EcosystemIntegrationScanner.Scan(peReader);
+
+        Assert.Equal(2, signals.Count);
+        Assert.DoesNotContain(
+            signals,
+            signal => signal.Name.Contains(
+                "AddMalformedThing",
+                StringComparison.Ordinal));
+    }
+
+    private static MemoryStream BuildDependencyInjectionExtensionAssembly(
+        bool includeMalformedExtension = false)
     {
         var assemblyBuilder = new PersistedAssemblyBuilder(
             new AssemblyName("IntegrationVisibilityFixture"),
@@ -86,6 +104,16 @@ public class EcosystemIntegrationScannerTests
 
         DefineExtensionMethod(extensions, "AddPublicThing", MethodAttributes.Public);
         DefineExtensionMethod(extensions, "AddInternalThing", MethodAttributes.Assembly);
+        if (includeMalformedExtension)
+        {
+            var malformed = extensions.DefineMethod(
+                "AddMalformedThing",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(void),
+                Type.EmptyTypes);
+            malformed.SetCustomAttribute(extensionAttribute);
+            malformed.GetILGenerator().Emit(OpCodes.Ret);
+        }
 
         extensions.CreateType();
 
