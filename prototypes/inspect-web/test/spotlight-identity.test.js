@@ -167,6 +167,10 @@ test("ready status shows versioned linked build provenance", () => {
 });
 
 test("bare home paints before wasm engine download", () => {
+  const errorPackageRecovery =
+    appSource.match(/function openPackageFromError[\s\S]*?\n}\n\nfunction renderLoading/)?.[0] ?? "";
+  const loadingView =
+    appSource.match(/function renderLoading\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberDocumentation/)?.[0] ?? "";
   assert.doesNotMatch(appSource, /from "\/engine\.js"/);
   assert.match(
     appSource,
@@ -187,8 +191,14 @@ test("bare home paints before wasm engine download", () => {
     appSource,
     /state\.retryAction = \(\) => window\.location\.reload\(\)/);
   assert.match(
-    appSource,
+    errorPackageRecovery,
     /if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*loadPackage\(packageId, version, ""\)/);
+  assert.match(
+    loadingView,
+    /#error-package-query[\s\S]*openPackageFromError\(packageId, version\)/);
+  assert.doesNotMatch(
+    loadingView,
+    /#error-package-query[\s\S]*loadPackage\(packageId, version/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {
