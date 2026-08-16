@@ -392,6 +392,33 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void ProbeDefinition_ReturnsCurrentDefinitionProjection()
+    {
+        TypeDefinitionHandle handle = default;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            handle = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Target");
+        });
+
+        var defined = Assert.IsType<TypeDeclarationResult.Defined>(
+            MetadataTypeDeclarationProbe.ProbeDefinition(
+                image.Reader,
+                Name("N", "Target")));
+
+        Assert.Equal(
+            MetadataTokens.GetToken(handle),
+            defined.Definition.Value);
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Class,
+            defined.Kind);
+        Assert.Equal(0, defined.GenericParameterCount);
+    }
+
+    [Fact]
     public void TypeDefinitionIndex_VisitsDefinitionsOnceAndQueriesExactNames()
     {
         TypeDefinitionHandle first = default;

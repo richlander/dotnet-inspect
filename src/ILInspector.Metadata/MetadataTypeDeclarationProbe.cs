@@ -20,6 +20,11 @@ public static class MetadataTypeDeclarationProbe
         ArgumentNullException.ThrowIfNull(name);
 
         var candidates = new List<PendingCandidate>();
+        var referenceProjection =
+            new AssemblyReferenceProjectionCache(reader);
+        bool canDeclareCoreLibraryRoot =
+            reader.AssemblyReferences.Count == 0;
+        int coreLibraryRootCandidateCount = 0;
         int leafUtf8Length =
             System.Text.Encoding.UTF8.GetByteCount(name.Segments[^1]);
         long comparisonWork =
@@ -48,6 +53,11 @@ public static class MetadataTypeDeclarationProbe
             {
                 TypeDefinition definition =
                     reader.GetTypeDefinition(handle);
+                if (canDeclareCoreLibraryRoot
+                    && IsCoreLibraryRoot(reader, definition))
+                {
+                    coreLibraryRootCandidateCount++;
+                }
                 if (reader.GetBlobReader(definition.Name).Length
                     == leafUtf8Length)
                 {
@@ -83,16 +93,21 @@ public static class MetadataTypeDeclarationProbe
             if (match == MetadataTypeDefinitionNameMatch.Match)
             {
                 candidates.Add(
-                    new PendingValue(
-                        new TypeDeclarationCandidate.Definition(
-                            TypeDefinitionToken.FromHandle(
-                                reader,
-                                handle))));
-                if (candidates.Count == 2)
-                    return Complete(candidates);
+                    new PendingDefinition(
+                        handle,
+                        TypeDefinitionToken.FromHandle(
+                            reader,
+                            handle)));
             }
         }
-        return Complete(candidates);
+        bool declaresCoreLibraryRoot =
+            canDeclareCoreLibraryRoot
+            && coreLibraryRootCandidateCount == 1;
+        return Complete(
+            reader,
+            candidates,
+            referenceProjection,
+            declaresCoreLibraryRoot);
     }
 
     public static TypeDeclarationResult Probe(
