@@ -436,6 +436,12 @@ output. Direct `NuGetApi` stream consumers pass through the same bounded reader.
 streams (`.nupkg` and `.snupkg`) are deliberately excluded; their larger download policy belongs to
 the acquisition layer.
 
+Malformed service-index, version-index, and search documents propagate as `JsonException` rather
+than being represented as a null document, absent resource, empty version list, or empty search.
+This is gated by `NuGetApiTests.GetServiceIndexAsync_MalformedJson_Throws`,
+`NuGetApiTests.GetVersionIndexAsync_MalformedJson_Throws`, and
+`NuGetApiTests.GetSearchResponseAsync_MalformedJson_Throws`.
+
 This is gated by
 `NuGetMetadataLimitTests.Search_AdvertisedOversizeRejectsBeforeReadingTheBody`,
 `NuGetMetadataLimitTests.Search_UnderreportedLengthCannotBypassTheActualByteLimit`,

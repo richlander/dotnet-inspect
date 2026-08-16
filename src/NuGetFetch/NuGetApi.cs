@@ -16,19 +16,13 @@ public static class NuGetApi
             DefaultOptions,
             cancellationToken);
 
-    internal static async ValueTask<ServiceIndex?> DeserializeServiceIndexAsync(
+    internal static ValueTask<ServiceIndex?> DeserializeServiceIndexAsync(
         Stream json,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await JsonSerializer.DeserializeAsync(json, NuGetJsonContext.Default.ServiceIndex, cancellationToken).ConfigureAwait(false);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
+        CancellationToken cancellationToken) =>
+        JsonSerializer.DeserializeAsync(
+            json,
+            NuGetJsonContext.Default.ServiceIndex,
+            cancellationToken);
 
     public static ValueTask<VersionIndex?> GetVersionIndexAsync(
         Stream json,
@@ -39,25 +33,19 @@ public static class NuGetApi
             DefaultOptions,
             cancellationToken);
 
-    internal static async ValueTask<VersionIndex?> DeserializeVersionIndexAsync(
+    internal static ValueTask<VersionIndex?> DeserializeVersionIndexAsync(
         Stream json,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await JsonSerializer.DeserializeAsync(json, NuGetJsonContext.Default.VersionIndex, cancellationToken).ConfigureAwait(false);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
+        CancellationToken cancellationToken) =>
+        JsonSerializer.DeserializeAsync(
+            json,
+            NuGetJsonContext.Default.VersionIndex,
+            cancellationToken);
 
     /// <summary>
     /// Deserializes a NuGet V3 search response.
     /// </summary>
     /// <remarks>
-    /// Unlike the service-index and version-index readers above, a malformed
+    /// Like the service-index and version-index readers above, a malformed
     /// document propagates as <see cref="JsonException"/> instead of being
     /// reported as an absent response. A swallowed parse failure here is
     /// indistinguishable from a genuine zero-result search, which turns a hard
