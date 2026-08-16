@@ -759,6 +759,7 @@ public static class ApiSurfaceExtractor
                 {
                     AddInspectionFailure(
                         surface,
+                        budget,
                         "method accessibility",
                         methodHandle,
                         MetadataTypeNameFailure.Malformed(
@@ -928,6 +929,7 @@ public static class ApiSurfaceExtractor
                 {
                     AddInspectionFailure(
                         surface,
+                        budget,
                         "property accessors",
                         propHandle,
                         MetadataTypeNameFailure.Malformed(
@@ -974,6 +976,7 @@ public static class ApiSurfaceExtractor
                 {
                     AddInspectionFailure(
                         surface,
+                        budget,
                         "property accessibility",
                         propHandle,
                         MetadataTypeNameFailure.Malformed(
@@ -1123,6 +1126,7 @@ public static class ApiSurfaceExtractor
                 {
                     AddInspectionFailure(
                         surface,
+                        budget,
                         "field accessibility",
                         fieldHandle,
                         MetadataTypeNameFailure.Malformed(
@@ -1280,6 +1284,7 @@ public static class ApiSurfaceExtractor
                 {
                     AddInspectionFailure(
                         surface,
+                        budget,
                         "event accessors",
                         eventHandle,
                         MetadataTypeNameFailure.Malformed(
@@ -1304,6 +1309,7 @@ public static class ApiSurfaceExtractor
                     {
                         AddInspectionFailure(
                             surface,
+                            budget,
                             "event accessibility",
                             eventHandle,
                             MetadataTypeNameFailure.Malformed(
