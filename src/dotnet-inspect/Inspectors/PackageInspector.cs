@@ -27,6 +27,7 @@ internal static class PackageInspector
         bool forceLatest = false,
         Verbosity verbosity = Verbosity.Minimal,
         bool fetchMetadata = false,
+        bool requireIdentifierMetadata = false,
         bool verifyRidPackageAvailability = false,
         NuGetSourceOptions? sourceOptions = null)
     {
@@ -83,7 +84,10 @@ internal static class PackageInspector
                         logger.Log,
                         forceLatest,
                         metadataSourceOptions);
-                    ApplyMetadata(cached, metadata);
+                    ApplyMetadata(
+                        cached,
+                        metadata,
+                        requireIdentifierMetadata);
                 }
                 await ApplyToolWrapperClassificationAsync(
                     cached,
@@ -213,7 +217,10 @@ internal static class PackageInspector
                 logger.Log,
                 forceLatest,
                 metadataSourceOptions);
-            ApplyMetadata(result, metadata);
+            ApplyMetadata(
+                result,
+                metadata,
+                requireIdentifierMetadata);
         }
 
         await ApplyToolWrapperClassificationAsync(
@@ -463,7 +470,10 @@ internal static class PackageInspector
         return PackagePdbSource.Other;
     }
 
-    private static void ApplyMetadata(InspectionResult result, PackageMetadata metadata)
+    private static void ApplyMetadata(
+        InspectionResult result,
+        PackageMetadata metadata,
+        bool requireIdentifierMetadata)
     {
         result.Published = metadata.Published;
         result.TotalDownloads = metadata.TotalDownloads;
@@ -474,6 +484,16 @@ internal static class PackageInspector
         result.Owners = metadata.Owners;
         result.Deprecation = metadata.Deprecation;
         result.Vulnerabilities = metadata.Vulnerabilities;
+        result.IdentifierConfusionFailure =
+            requireIdentifierMetadata
+            && !metadata.DeprecationMetadataAvailable
+                ? IdentifierConfusionAuditFailureKind
+                    .PackageMetadataUnavailable
+                : null;
+        result.IdentifierConfusionRegistryScopeLimited =
+            requireIdentifierMetadata
+            && metadata.DeprecationMetadataAvailable
+            && !metadata.DeprecationMetadataSupported;
     }
 
     private static void PopulateLibraryFiles(string extractPath, InspectionResult result)

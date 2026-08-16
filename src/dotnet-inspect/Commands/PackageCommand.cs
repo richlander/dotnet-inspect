@@ -1,4 +1,3 @@
-using ILInspector.CSharp;
 using DotnetInspector.Models;
 using DotnetInspector.Core;
 using ILInspector.Metadata;
@@ -14,6 +13,7 @@ using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using InertText;
 using ILInspector.Findings;
 using Markout;
 using System.Buffers;
@@ -28,8 +28,20 @@ namespace DotnetInspector.Commands;
 public class PackageCommand
 {
     public const string Name = "package";
-    public static async Task<int> ExecuteAsync(InspectionOptions options)
+    public static Task<int> ExecuteAsync(InspectionOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        return ExecuteAsync(
+            options,
+            new CommandContext(options.Verbose));
+    }
+
+    internal static async Task<int> ExecuteAsync(
+        InspectionOptions options,
+        CommandContext context)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(context);
         var packageArgs = options.PackageArgs;
         var explicitVersion = options.ExplicitVersion;
         var catalog = PackageSectionDescriptors.CreateCatalog();
@@ -215,7 +227,6 @@ public class PackageCommand
         if (options.PackageLibrary != null && !ValidatePackageLibraryMode(options))
             return 1;
 
-        var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
         if (packageArgs.Length > 1)
@@ -656,6 +667,8 @@ public class PackageCommand
                     options.Discover,
                     PackageSections.Manifest,
                     pipeline);
+            bool wantsPackageMetadata =
+                RequiresPackageMetadata(options, pipeline);
             using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(options)
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
@@ -665,7 +678,8 @@ public class PackageCommand
                 target.IsLocalFile ? target.OriginalArgument : null,
                 nuspec, client, logger,
                 options.ForceLatest, options.Verbosity,
-                fetchMetadata: wantsSignals,
+                fetchMetadata: wantsPackageMetadata,
+                requireIdentifierMetadata: wantsPackageMetadata,
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
@@ -793,14 +807,34 @@ public class PackageCommand
                     }
                 }
 
-                return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
-                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
-                    verbosity: (int)userVerbosity, rootLabel: $"package {packageName}", fullSchema: fullSchemaMap,
-                    sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                    sectionCategories: pipeline.GetCategoryMap(),
-                    catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                    listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                    projection: options);
+                return PackageIntegrityExitCode(
+                    DiscoverOutput.ExecuteEffective(
+                        options.Discover,
+                        effective,
+                        schemaMap,
+                        tree: options.Tree,
+                        json: options.JsonOutput,
+                        tsv: options.Tsv,
+                        jsonl: options.Jsonl,
+                        markdown:
+                            !options.Tabular
+                            && !options.JsonOutput,
+                        verbosity: (int)userVerbosity,
+                        rootLabel: $"package {packageName}",
+                        fullSchema: fullSchemaMap,
+                        sectionCostAnnotations:
+                            pipeline.GetCostAnnotations(),
+                        sectionCategories:
+                            pipeline.GetCategoryMap(),
+                        catalogHiddenSections:
+                            options.Schema
+                                ? null
+                                : pipeline
+                                    .GetCatalogHiddenSections(),
+                        listedCategoryDoors:
+                            pipeline.GetListedCategoryDoors(),
+                        projection: options),
+                    result);
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
@@ -930,6 +964,9 @@ public class PackageCommand
             || options.IncludeSections?.Any(IsPackageFileSection) == true
             || (options.FixedOverview
                 && pipeline.BareSelectSectionNames.Any(IsPackageFileSection))
+            || options.IncludeSections?.Contains(PackageSections.Signals) == true
+            || options.IncludeSections?.Contains(PackageSections.AuditArtifactText) == true
+            || options.FixedOverview
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         if (!options.Count && !options.JsonOutput && rowSection == null)
         {
@@ -969,7 +1006,9 @@ public class PackageCommand
 
         if (options.JsonOutput)
         {
-            Console.WriteLine(JsonSerializer.Serialize(results.ToArray(), JsonContext.Default.InspectionResultArray));
+            Console.WriteLine(JsonSerializer.Serialize(
+                results.Select(PackageInspectionJson.Create).ToArray(),
+                PackageInspectionJsonContext.Default.PackageInspectionJsonArray));
             return PackageIntegrityExitCode([.. results]);
         }
 
@@ -992,12 +1031,40 @@ public class PackageCommand
     internal static int PackageIntegrityExitCode(
         int currentExitCode,
         params InspectionResult[] results)
-        => currentExitCode != 0
-            ? currentExitCode
-            : results.Any(
-                static result => result.SourceIntegrity?.Mismatched is > 0)
+    {
+        var identifierFailures = results
+            .Select(
+                (result, index) =>
+                    (
+                        Input: index + 1,
+                        Failure:
+                            result.IdentifierConfusionFailure))
+            .Where(
+                failure =>
+                    failure.Failure is not null)
+            .Select(
+                failure =>
+                    (
+                        failure.Input,
+                        Failure: failure.Failure!.Value))
+            .ToList();
+        foreach (var (input, failure) in identifierFailures)
+        {
+            CommandError.WriteWarning(
+                $"Identifier audit failed for package input #{input}: "
+                + IdentifierConfusionAudit.DescribeFailure(failure));
+        }
+
+        if (currentExitCode != 0)
+            return currentExitCode;
+
+        return results.Any(
+                static result =>
+                    result.SourceIntegrity?.Mismatched is > 0)
+            || identifierFailures.Count > 0
                 ? 1
                 : 0;
+    }
 
     internal static int WriteMultiPackageCount(
         IReadOnlyList<InspectionResult> results,
@@ -1544,16 +1611,13 @@ public class PackageCommand
     private static int WritePackagePrintProjection(InspectionResult result, string extractPath, InspectionOptions options)
     {
         var section = options.IncludeSections!.Single();
-        var view = new InspectionResultView(result);
-        List<PackageFileRow>? rows = section switch
-        {
-            PackageSections.FilesNuspec => view.NuspecFiles,
-            PackageSections.FilesReadme => view.PackageReadme,
-            PackageSections.FilesSkills => view.SkillFiles,
-            // ValidatePackagePrintSelection admits only the three sections above, so reaching
-            // here means the two lists disagree; say so rather than answering as if empty.
-            _ => throw new InvalidOperationException($"'{section}' is not a printable section.")
-        };
+        var predicate = PackageFileFamily.PredicateFor(section)
+            ?? throw new InvalidOperationException($"'{section}' is not a printable section.");
+        List<PackageFile>? sourceRows = result.PackageFiles?
+            .Where(predicate)
+            .ToList();
+        List<PackageFileText>? rows = new PackageInspectionText(result)
+            .SelectPackageFiles(predicate);
 
         // A family with no rows and a file listing that was never collected are different facts.
         // Reporting the second as the first would tell the caller this package ships no such
@@ -1563,6 +1627,11 @@ public class PackageCommand
             CommandError.Write(
                 $"the package file listing was not collected, so '{section}' cannot be printed.");
             return 1;
+        }
+        if (sourceRows is null || sourceRows.Count != rows.Count)
+        {
+            throw new InvalidOperationException(
+                $"The raw and presentation rows for '{section}' do not agree.");
         }
 
         // The shared writer refuses an empty payload, but it has no row to name the section from,
@@ -1578,22 +1647,28 @@ public class PackageCommand
         // so silently returning the whole document -- or an empty one -- would answer a question
         // they did not ask. Report that the scope does not apply to this document instead.
         var isReadmeSection = section.Equals(PackageSections.FilesReadme, StringComparison.OrdinalIgnoreCase);
-        if (options.ContentScope != PackageFileContentScope.Full
-            && rows.FirstOrDefault(row => !IsMarkdownDocument(row.Path, isReadmeSection)) is { } nonMarkdown)
+        int nonMarkdownIndex = options.ContentScope == PackageFileContentScope.Full
+            ? -1
+            : sourceRows.FindIndex(row => !IsMarkdownDocument(row.Path, isReadmeSection));
+        if (nonMarkdownIndex >= 0)
         {
             CommandError.Write(
-                $"--frontmatter/--yaml-header and --body apply to Markdown documents; '{nonMarkdown.Path}' is not Markdown.");
+                $"--frontmatter/--yaml-header and --body apply to Markdown documents; " +
+                $"'{rows[nonMarkdownIndex].Path}' is not Markdown.");
             return 1;
         }
 
         // Row identity is metadata, so the selection is resolved before any document is read and
         // the payload of exactly one row is acquired -- one --print authorizes one fetch.
         var printableRows = new List<PrintableRow>(rows.Count);
-        var sizeByPath = new Dictionary<string, long>(StringComparer.Ordinal);
+        var sourceByRow = new Dictionary<PrintableRow, PackageFile>(
+            ReferenceEqualityComparer.Instance);
         for (var i = 0; i < rows.Count; i++)
         {
-            printableRows.Add(new PrintableRow(i + 1, section, rows[i].Path, rows[i].Path, null));
-            sizeByPath[rows[i].Path] = rows[i].Size;
+            string path = rows[i].Path.ToString();
+            var row = new PrintableRow(i + 1, section, path, path, null);
+            printableRows.Add(row);
+            sourceByRow.Add(row, sourceRows[i]);
         }
 
         return PrintProjectionOutput.Write(
@@ -1602,7 +1677,7 @@ public class PackageCommand
                 extractPath,
                 result.PackageName ?? string.Empty,
                 result.Version ?? string.Empty,
-                new PackageFile(row.Path!, sizeByPath[row.Path!], IsReadme: isReadmeSection),
+                sourceByRow[row],
                 options.ContentScope,
                 normalizeGithubLinksToRaw: !options.BrowsableUrls).Content,
             new PrintProjectionOptions(
@@ -1690,29 +1765,49 @@ public class PackageCommand
             return [];
         }
 
-        string? value = field.ToLowerInvariant() switch
+        var text = new PackageInspectionText(result);
+        string? rawSigned = result.SignatureResult is null
+            ? null
+            : result.SignatureResult.IsUnsigned ? "Unsigned"
+                : result.SignatureResult.AuthorVerified || result.SignatureResult.RepositoryVerified ? "Verified"
+                : result.SignatureResult.StatusMessage;
+        string? containedSigned = text.SignatureResult is not { } signature
+            ? null
+            : signature.IsUnsigned ? "Unsigned"
+                : signature.AuthorVerified || signature.RepositoryVerified ? "Verified"
+                : signature.StatusMessage?.ToString();
+
+        (string? Raw, string? Contained) value = field.ToLowerInvariant() switch
         {
-            "version" => result.Version,
-            "readme" => result.PackageReadmeFile,
-            "repository" => result.Repository,
-            "repository commit" or "repository_commit" => result.RepositoryCommit,
-            "repository type" or "repository_type" => result.RepositoryType,
-            "license" => result.License,
-            "license url" or "license_url" => result.LicenseUrl,
-            "source" => result.Source,
-            "type" => result.PackageTypes is { Count: > 0 } ? string.Join(", ", result.PackageTypes) : null,
-            "signed" => result.SignatureResult is null
-                ? null
-                : result.SignatureResult.IsUnsigned ? "Unsigned"
-                    : result.SignatureResult.AuthorVerified || result.SignatureResult.RepositoryVerified ? "Verified"
-                    : result.SignatureResult.StatusMessage,
-            "size" => result.PackageSize?.ToString(CultureInfo.InvariantCulture),
-            _ => null
+            "version" => (result.Version, text.Version.ToString()),
+            "readme" => (result.PackageReadmeFile, text.PackageReadmeFile?.ToString()),
+            "repository" => (result.Repository, text.Repository?.ToString()),
+            "repository commit" or "repository_commit" => (
+                result.RepositoryCommit,
+                text.RepositoryCommit?.ToString()),
+            "repository type" or "repository_type" => (
+                result.RepositoryType,
+                text.RepositoryType?.ToString()),
+            "license" => (result.License, text.License?.ToString()),
+            "license url" or "license_url" => (result.LicenseUrl, text.LicenseUrl?.ToString()),
+            "source" => (result.Source, text.Source?.ToString()),
+            "type" => (
+                result.PackageTypes is { Count: > 0 } rawTypes
+                    ? string.Join(", ", rawTypes)
+                    : null,
+                text.PackageTypes is { Count: > 0 } containedTypes
+                    ? InertString.Join(", ", TextPolicy.Field, containedTypes).ToString()
+                    : null),
+            "signed" => (rawSigned, containedSigned),
+            "size" => (
+                result.PackageSize?.ToString(CultureInfo.InvariantCulture),
+                result.PackageSize?.ToString(CultureInfo.InvariantCulture)),
+            _ => (null, null)
         };
 
-        return string.IsNullOrWhiteSpace(value)
+        return string.IsNullOrWhiteSpace(value.Raw)
             ? []
-            : [new ShapeProjectionRow(1, section, value, Label: field)];
+            : [new ShapeProjectionRow(1, section, value.Contained!, Label: field)];
     }
 
     private static bool ValidatePathMatchMode(InspectionOptions options)
@@ -1882,13 +1977,18 @@ public class PackageCommand
                 packageSize = new FileInfo(resolution.NupkgPath).Length;
 
             bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
-                || DiscoverRequestsSection(options.Discover, PackageSections.Signals, PackageSectionDescriptors.CreatePipeline());
+                || DiscoverRequestsSection(
+                    options.Discover,
+                    PackageSections.Signals,
+                    pipeline);
             bool wantsRidPackageAvailability =
                 options.IncludeSections?.Contains(PackageSections.Manifest) == true
                 || DiscoverRequestsSection(
                     options.Discover,
                     PackageSections.Manifest,
                     pipeline);
+            bool wantsPackageMetadata =
+                RequiresPackageMetadata(options, pipeline);
             using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(options)
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
@@ -1903,7 +2003,8 @@ public class PackageCommand
                 logger,
                 options.ForceLatest,
                 options.Verbosity,
-                fetchMetadata: wantsSignals,
+                fetchMetadata: wantsPackageMetadata,
+                requireIdentifierMetadata: wantsPackageMetadata,
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
@@ -2430,9 +2531,10 @@ public class PackageCommand
         if (options.Bare)
             return PrintBarePackageFileContentRows(rows, options.OutputPath);
 
+        var textRows = rows.Select(PackageFileContentText.Create).ToList();
         var output = options.Jsonl
-            ? RenderPackageFileContentJsonl(rows)
-            : RenderPackageFileContentBlocks(rows);
+            ? RenderPackageFileContentJsonl(textRows)
+            : RenderPackageFileContentBlocks(textRows);
 
         if (!string.IsNullOrEmpty(options.OutputPath))
             File.WriteAllText(options.OutputPath, output);
@@ -2480,17 +2582,17 @@ public class PackageCommand
         }
     }
 
-    private static string RenderPackageFileContentJsonl(IReadOnlyList<PackageFileContent> rows)
+    private static string RenderPackageFileContentJsonl(IReadOnlyList<PackageFileContentText> rows)
     {
         var builder = new StringBuilder();
         foreach (var row in rows)
             builder
-                .Append(JsonSerializer.Serialize(row, PackageFileContentJsonContext.Default.PackageFileContent))
+                .Append(JsonSerializer.Serialize(row, PackageFileContentJsonContext.Default.PackageFileContentText))
                 .Append('\n');
         return builder.ToString();
     }
 
-    private static string RenderPackageFileContentBlocks(IReadOnlyList<PackageFileContent> rows)
+    private static string RenderPackageFileContentBlocks(IReadOnlyList<PackageFileContentText> rows)
     {
         var builder = new StringBuilder();
         for (var i = 0; i < rows.Count; i++)
@@ -2499,12 +2601,15 @@ public class PackageCommand
                 builder.AppendLine();
 
             var row = rows[i];
-            var path = row.Found ? row.Path : "<absent>";
+            var path = row.Found
+                ? row.PathText
+                : new InertString(TextPolicy.Field, "<absent>");
             // The separator is tool-owned framing, so its untrusted parts are
             // contained even though the file content below it is deliberately
             // raw -- otherwise a ZIP entry path forges a second separator.
-            builder.AppendLine(CSharpIdentifier.ContainRenderedText(
-                $"------------ {row.Package} :: {path} ------------"));
+            builder.AppendLine(InertString.Format(
+                TextPolicy.Field,
+                $"------------ {row.PackageText} :: {path} ------------").ToString());
             if (!row.Found)
             {
                 builder.AppendLine("(absent)");
@@ -2743,18 +2848,22 @@ public class PackageCommand
         var rows = results
             .SelectMany(result =>
             {
-                var files = GetPackageFileRows(result, section);
+                var text = new PackageInspectionText(result);
+                var files = GetPackageFileTextRows(result, text, section);
                 if (files.Count == 0)
-                    return options.SkipEmpty ? [] : [[result.PackageName, result.Version, "", ""]];
+                {
+                    return options.SkipEmpty
+                        ? []
+                        : [[text.PackageName.ToString(), text.Version.ToString(), "", ""]];
+                }
 
-                return files
-                    .Select(file => new[]
-                    {
-                        result.PackageName,
-                        result.Version,
-                        file.Path,
-                        file.Size.ToString(CultureInfo.InvariantCulture),
-                    });
+                return files.Select(file => new[]
+                {
+                    text.PackageName.ToString(),
+                    text.Version.ToString(),
+                    file.Path.ToString(),
+                    file.Size.ToString(CultureInfo.InvariantCulture),
+                });
             })
             .ToArray();
         var windowedRows = RowWindow.Apply(options.Rows, rows).ToArray();
@@ -2779,7 +2888,8 @@ public class PackageCommand
 
     private static void WritePackageFilesJsonl(InspectionResult result, string section)
     {
-        var files = GetPackageFileRows(result, section);
+        var text = new PackageInspectionText(result);
+        var files = GetPackageFileTextRows(result, text, section);
         if (files.Count == 0)
             return;
 
@@ -2798,16 +2908,17 @@ public class PackageCommand
         var rows = new List<PackageFileMultiJsonRow>();
         foreach (var result in results)
         {
-            var files = GetPackageFileRows(result, section);
+            var text = new PackageInspectionText(result);
+            var files = GetPackageFileTextRows(result, text, section);
             if (files.Count == 0)
             {
                 if (!options.SkipEmpty)
                 {
                     rows.Add(
                         new PackageFileMultiJsonRow(
-                            result.PackageName,
-                            result.Version,
-                            "",
+                            text.PackageName,
+                            text.Version,
+                            new InertString(TextPolicy.Field, ""),
                             null));
                 }
                 continue;
@@ -2817,8 +2928,8 @@ public class PackageCommand
             {
                 rows.Add(
                     new PackageFileMultiJsonRow(
-                        result.PackageName,
-                        result.Version,
+                        text.PackageName,
+                        text.Version,
                         file.Path,
                         file.Size));
             }
@@ -2982,6 +3093,34 @@ public class PackageCommand
         return [];
     }
 
+    private static List<PackageFileText> GetPackageFileTextRows(
+        InspectionResult result,
+        PackageInspectionText text,
+        string section)
+    {
+        if (section.Equals(PackageSections.Files, StringComparison.OrdinalIgnoreCase))
+            return text.Files ?? [];
+
+        if (section.Equals(PackageSections.FilesReadme, StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(result.PackageReadmeFile))
+                return [];
+
+            return text.SelectPackageFiles(file =>
+                    string.Equals(
+                        file.Path,
+                        result.PackageReadmeFile,
+                        StringComparison.OrdinalIgnoreCase))?
+                .Take(1)
+                .ToList() ?? [];
+        }
+
+        if (PackageFileFamily.PredicateFor(section) is { } predicate)
+            return text.SelectPackageFiles(predicate) ?? [];
+
+        return [];
+    }
+
     private static void WriteMultiPackageFieldTable(
         IReadOnlyList<InspectionResult> results,
         string section,
@@ -3123,10 +3262,13 @@ public class PackageCommand
 
     private static bool IsNetworkUsingPackageSection(string section) =>
         section.Equals(PackageSections.Signals, StringComparison.OrdinalIgnoreCase)
+        || section.Equals(
+            PackageSections.AuditIdentifierConfusion,
+            StringComparison.OrdinalIgnoreCase)
         || section.Equals(PackageSections.Statistics, StringComparison.OrdinalIgnoreCase)
         || section.Equals(PackageSections.Vulnerabilities, StringComparison.OrdinalIgnoreCase);
 
-    private static bool AllowsVulnerabilityTraffic(InspectionOptions options) =>
+    internal static bool AllowsVulnerabilityTraffic(InspectionOptions options) =>
         options.Verbosity >= Verbosity.Detailed
         || options.IncludeSections?.Any(IsNetworkUsingPackageSection) == true;
 
@@ -3235,6 +3377,16 @@ public class PackageCommand
         if (requiredVerbosity > libraryOptions.Verbosity)
             libraryOptions = libraryOptions with { Verbosity = requiredVerbosity };
 
+        var candidates = pipeline.GetCandidateSections(
+            libraryOptions.Verbosity,
+            libraryOptions.IncludeSections,
+            libraryOptions.FixedOverview);
+        libraryOptions = libraryOptions with
+        {
+            CollectIdentifierConfusionReferenceTree =
+                candidates.Contains(SectionNames.IdentifierConfusion),
+        };
+
         var scanners = pipeline.GetRequiredScanners(libraryOptions.Verbosity, libraryOptions.IncludeSections);
         List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
         if (libraryOptions.CollectReferenceTree)
@@ -3270,6 +3422,8 @@ public class PackageCommand
                 : null;
         List<LibraryInspection> inspections = [];
         List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
+        List<(string FileName, IdentifierConfusionAuditFailureKind FailureKind)>
+            identifierAuditFailures = [];
         foreach (var selection in selected)
         {
             string relativePath = Path.GetRelativePath(
@@ -3298,15 +3452,28 @@ public class PackageCommand
                     integrationOpportunitiesEntry: opportunities);
             }
 
-            LibraryInspection? inspection =
-                integrationsWorkspace is null
-                    ? await InspectAsync(null, null, null)
-                    : await InspectGroupedAssemblyAsync(
-                        integrationsWorkspace,
-                        selection.Path,
+            LibraryInspection? inspection;
+            try
+            {
+                inspection =
+                    integrationsWorkspace is null
+                        ? await InspectAsync(null, null, null)
+                        : await InspectGroupedAssemblyAsync(
+                            integrationsWorkspace,
+                            selection.Path,
+                            relativePath,
+                            groupedIntegrationsFailures,
+                            InspectAsync);
+            }
+            catch (LibraryMetadataService.IdentifierConfusionReferenceTraversalException ex)
+            {
+                identifierAuditFailures.Add(
+                    (
                         relativePath,
-                        groupedIntegrationsFailures,
-                        InspectAsync);
+                        ex.FailureKind));
+                continue;
+            }
+
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");
@@ -3324,8 +3491,21 @@ public class PackageCommand
             integrationsWorkspace is not null
             && WriteGroupedIntegrationsFailures(
                 groupedIntegrationsFailures);
+        identifierAuditFailures.AddRange(
+            inspections
+                .Where(
+                    inspection =>
+                        inspection.IdentifierConfusionFailure is not null)
+                .Select(
+                    inspection =>
+                        (
+                            inspection.FileName,
+                            inspection.IdentifierConfusionFailure!.Value)));
+        bool identifierAuditIncomplete =
+            WriteIdentifierAuditFailures(identifierAuditFailures);
         int completionExitCode =
-            AllLibrariesCompletionExitCode(integrationsIncomplete);
+            AllLibrariesCompletionExitCode(
+                integrationsIncomplete || identifierAuditIncomplete);
 
         if (inspections.Count == 0)
         {
@@ -3469,9 +3649,50 @@ public class PackageCommand
         return failures.Count > 0;
     }
 
+    internal static bool WriteIdentifierAuditFailures(
+        IEnumerable<(
+            string FileName,
+            IdentifierConfusionAuditFailureKind FailureKind)> auditFailures)
+    {
+        ArgumentNullException.ThrowIfNull(auditFailures);
+
+        var failures = auditFailures
+            .Distinct()
+            .ToList();
+
+        foreach (var (fileName, failureKind) in failures)
+        {
+            CommandError.WriteWarning(
+                $"Identifier audit failed for '{fileName}': "
+                + IdentifierConfusionAudit.DescribeFailure(failureKind));
+        }
+
+        return failures.Count > 0;
+    }
+
     internal static int AllLibrariesCompletionExitCode(
-        bool integrationsIncomplete) =>
-        integrationsIncomplete ? 1 : 0;
+        bool incomplete) =>
+        incomplete ? 1 : 0;
+
+    internal static bool RequiresPackageMetadata(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(pipeline);
+
+        return options.IncludeSections?.Contains(PackageSections.Signals) == true
+            || options.IncludeSections?.Contains(
+                PackageSections.AuditIdentifierConfusion) == true
+            || DiscoverRequestsSection(
+                options.Discover,
+                PackageSections.Signals,
+                pipeline)
+            || DiscoverRequestsSection(
+                options.Discover,
+                PackageSections.AuditIdentifierConfusion,
+                pipeline);
+    }
 
     private static LibraryOptions CreateLibraryOptions(string? assemblyName, string packageReference, InspectionOptions options)
         => new()
@@ -4213,13 +4434,19 @@ public class PackageCommand
 
         var group = selection.Group!;
         var tfm = selection.TargetFramework ?? group.TargetFramework;
+        var packageText = new PackageInspectionText(result);
+        var tfmText = new InertString(TextPolicy.Field, tfm);
 
         if (group.Dependencies.Count == 0)
         {
             var emptyView = new EmptyDepsView
             {
-                Title = $"{result.PackageName} ({result.Version})",
-                Description = $"No additional dependencies for {tfm}."
+                Title = InertString.Format(
+                    TextPolicy.Field,
+                    $"{packageText.PackageName} ({packageText.Version})").ToString(),
+                Description = InertString.Format(
+                    TextPolicy.Field,
+                    $"No additional dependencies for {tfmText}.").ToString()
             };
             Console.WriteLine(MarkoutSerializer.Serialize(emptyView, InspectionContext.Default));
             return 0;
@@ -4237,7 +4464,9 @@ public class PackageCommand
 
         var view = new PackageDependenciesView
         {
-            Title = CSharpIdentifier.ContainRenderedText($"{result.PackageName} {result.Version}"),
+            Title = InertString.Format(
+                TextPolicy.Field,
+                $"{packageText.PackageName} {packageText.Version}").ToString(),
             Dependencies = ToTreeNodes(depNodes)
         };
 
@@ -4259,13 +4488,16 @@ public class PackageCommand
     {
         return nodes.Select(n =>
         {
-            var label = CSharpIdentifier.ContainRenderedText(
-                !string.IsNullOrEmpty(n.Author)
-                    ? $"{n.PackageId} {n.Version} [{n.Author}]"
-                    : $"{n.PackageId} {n.Version}");
+            var packageId = new InertString(TextPolicy.Field, n.PackageId);
+            var version = new InertString(TextPolicy.Field, n.Version);
+            var label = !string.IsNullOrEmpty(n.Author)
+                ? InertString.Format(
+                    TextPolicy.Field,
+                    $"{packageId} {version} [{new InertString(TextPolicy.Field, n.Author)}]")
+                : InertString.Format(TextPolicy.Field, $"{packageId} {version}");
             return n.Children.Count > 0
-                ? new TreeNode(label) { Children = ToTreeNodes(n.Children) }
-                : new TreeNode(label);
+                ? new TreeNode(label.ToString()) { Children = ToTreeNodes(n.Children) }
+                : new TreeNode(label.ToString());
         }).ToList();
     }
 }
