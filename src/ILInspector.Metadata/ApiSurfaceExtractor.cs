@@ -822,6 +822,24 @@ public static class ApiSurfaceExtractor
                 var adderAttributes = adder.Attributes;
                 var isVirtualEvent = (adderAttributes & MethodAttributes.Virtual) != 0;
                 var isOverrideEvent = isVirtualEvent && (adderAttributes & MethodAttributes.NewSlot) == 0;
+                var accessorModels = new List<ApiAccessor>
+                {
+                    new()
+                    {
+                        Kind = "add",
+                        ReturnAttributes = ReturnParameterAttributes(reader, adder.GetParameters())
+                    }
+                };
+                if (!accessors.Remover.IsNil)
+                {
+                    accessorModels.Add(new ApiAccessor
+                    {
+                        Kind = "remove",
+                        ReturnAttributes = ReturnParameterAttributes(
+                            reader,
+                            reader.GetMethodDefinition(accessors.Remover).GetParameters())
+                    });
+                }
 
                 var member = new ApiMember
                 {
@@ -832,7 +850,8 @@ public static class ApiSurfaceExtractor
                     SignatureModel = new ApiSignature
                     {
                         ReturnType = eventType,
-                        MemberName = reader.GetString(evt.Name)
+                        MemberName = reader.GetString(evt.Name),
+                        Accessors = accessorModels
                     },
                     IsStatic = (adderAttributes & MethodAttributes.Static) != 0,
                     IsVirtual = isVirtualEvent,
