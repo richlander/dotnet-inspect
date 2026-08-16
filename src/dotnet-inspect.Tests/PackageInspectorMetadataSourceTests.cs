@@ -301,70 +301,6 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         InspectionResult result = await PackageInspector.InspectAsync(
             resolution,
             payloadPackage,
-    public async Task InspectAsync_IdentifierAuditMetadataIncludesAlternatePackageId()
-    {
-        const string source = "https://audit.example/v3/index.json";
-        using var client = new HttpClient(new RoutingHandler(request =>
-            request.RequestUri!.AbsolutePath switch
-            {
-                "/v3/index.json" => Json("""
-                    {
-                      "version": "3.0.0",
-                      "resources": [
-                        {
-                          "@id": "https://audit.example/registration/",
-                          "@type": "RegistrationsBaseUrl/3.6.0"
-                        }
-                      ]
-                    }
-                    """),
-                "/registration/private.package/1.0.0.json" => Json("""
-                    {
-                      "catalogEntry": {
-                        "deprecation": {
-                          "reasons": [ "Legacy" ],
-                          "alternatePackage": {
-                            "id": "Δelta.Tools"
-                          }
-                        }
-                      }
-                    }
-                    """),
-                _ => new HttpResponseMessage(HttpStatusCode.NotFound),
-            }));
-
-        var resolution = new PackageExtractionResult(
-            _root,
-            TempDir: null,
-            PackageName: "Private.Package",
-            Version: "1.0.0",
-            ProducerKey: NuGetCache.GetSourceKey(source));
-        var sourceOptions = new NuGetSourceOptions
-        {
-            Sources = [source],
-        };
-        InspectionResult withoutMetadata =
-            await PackageInspector.InspectAsync(
-                resolution,
-                "Private.Package",
-                "1.0.0",
-                isLocalFile: false,
-                localFilePath: null,
-                nuspec: null,
-                client,
-                new VerboseLogger(enabled: false),
-                forceLatest: true,
-                verbosity: Verbosity.Normal,
-                fetchMetadata: false,
-                sourceOptions: sourceOptions);
-        Assert.DoesNotContain(
-            IdentifierConfusionAudit.InspectPackage(withoutMetadata),
-            value => value.Location
-                == "Deprecation.AlternatePackageId");
-
-        InspectionResult result = await PackageInspector.InspectAsync(
-            resolution,
-            "Private.Package",
             "1.0.0",
             isLocalFile: false,
             localFilePath: null,
@@ -444,61 +380,6 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             resolution,
             packageName,
             version,
-            forceLatest: true,
-            verbosity: Verbosity.Normal,
-            fetchMetadata: true,
-            sourceOptions: sourceOptions);
-
-        IdentifierConfusionCase identifierCase = Assert.Single(
-            IdentifierConfusionAudit.InspectPackage(result),
-            value => value.Location
-                == "Deprecation.AlternatePackageId");
-        Assert.Equal("Package ID", identifierCase.Kind);
-        Assert.Contains(
-            0x0394,
-            identifierCase.Confusion.NonAsciiCodePoints);
-    }
-
-    [Fact]
-    public async Task InspectAsync_IdentifierAuditMetadataFailureRemainsVisible()
-    {
-        const string source = "https://audit-failure.example/v3/index.json";
-        using var client = new HttpClient(new RoutingHandler(request =>
-            request.RequestUri!.AbsolutePath switch
-            {
-                "/v3/index.json" => Json("""
-                    {
-                      "version": "3.0.0",
-                      "resources": [
-                        {
-                          "@id": "https://audit-failure.example/registration/",
-                          "@type": "RegistrationsBaseUrl/3.6.0"
-                        }
-                      ]
-                    }
-                    """),
-                "/registration/private.package/1.0.0.json" => Json(
-                    """{ "catalogEntry": "/catalog/private.package.json" }"""),
-                "/catalog/private.package.json" =>
-                    new HttpResponseMessage(HttpStatusCode.BadGateway),
-                _ => new HttpResponseMessage(HttpStatusCode.NotFound),
-            }));
-
-        var resolution = new PackageExtractionResult(
-            _root,
-            TempDir: null,
-            PackageName: "Private.Package",
-            Version: "1.0.0",
-            ProducerKey: NuGetCache.GetSourceKey(source));
-        var sourceOptions = new NuGetSourceOptions
-        {
-            Sources = [source],
-        };
-
-        InspectionResult result = await PackageInspector.InspectAsync(
-            resolution,
-            "Private.Package",
-            "1.0.0",
             isLocalFile: false,
             localFilePath: null,
             nuspec: null,
@@ -599,6 +480,139 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             wrapperVersion: "1.0.0+wrapper");
 
         Assert.True(Assert.Single(result.RuntimeIdentifierPackages).Exists);
+    }
+
+    [Fact]
+    public async Task InspectAsync_IdentifierAuditMetadataIncludesAlternatePackageId()
+    {
+        const string source = "https://audit.example/v3/index.json";
+        using var client = new HttpClient(new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        {
+                          "@id": "https://audit.example/registration/",
+                          "@type": "RegistrationsBaseUrl/3.6.0"
+                        }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/1.0.0.json" => Json("""
+                    {
+                      "catalogEntry": {
+                        "deprecation": {
+                          "reasons": [ "Legacy" ],
+                          "alternatePackage": {
+                            "id": "Δelta.Tools"
+                          }
+                        }
+                      }
+                    }
+                    """),
+                _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+            }));
+
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            PackageName: "Private.Package",
+            Version: "1.0.0",
+            ProducerKey: NuGetCache.GetSourceKey(source));
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [source],
+        };
+        InspectionResult withoutMetadata =
+            await PackageInspector.InspectAsync(
+                resolution,
+                "Private.Package",
+                "1.0.0",
+                isLocalFile: false,
+                localFilePath: null,
+                nuspec: null,
+                client,
+                new VerboseLogger(enabled: false),
+                forceLatest: true,
+                verbosity: Verbosity.Normal,
+                fetchMetadata: false,
+                sourceOptions: sourceOptions);
+        Assert.DoesNotContain(
+            IdentifierConfusionAudit.InspectPackage(withoutMetadata),
+            value => value.Location
+                == "Deprecation.AlternatePackageId");
+
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            "Private.Package",
+            "1.0.0",
+            isLocalFile: false,
+            localFilePath: null,
+            nuspec: null,
+            client,
+            new VerboseLogger(enabled: false),
+            forceLatest: true,
+            verbosity: Verbosity.Normal,
+            fetchMetadata: true,
+            sourceOptions: sourceOptions);
+
+        IdentifierConfusionCase identifierCase = Assert.Single(
+            IdentifierConfusionAudit.InspectPackage(result),
+            value => value.Location
+                == "Deprecation.AlternatePackageId");
+        Assert.Equal("Package ID", identifierCase.Kind);
+        Assert.Contains(
+            0x0394,
+            identifierCase.Confusion.NonAsciiCodePoints);
+    }
+
+    [Fact]
+    public async Task InspectAsync_IdentifierAuditMetadataFailureRemainsVisible()
+    {
+        const string source = "https://audit-failure.example/v3/index.json";
+        using var client = new HttpClient(new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        {
+                          "@id": "https://audit-failure.example/registration/",
+                          "@type": "RegistrationsBaseUrl/3.6.0"
+                        }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/1.0.0.json" => Json(
+                    """{ "catalogEntry": "/catalog/private.package.json" }"""),
+                "/catalog/private.package.json" =>
+                    new HttpResponseMessage(HttpStatusCode.BadGateway),
+                _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+            }));
+
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            PackageName: "Private.Package",
+            Version: "1.0.0",
+            ProducerKey: NuGetCache.GetSourceKey(source));
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [source],
+        };
+
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            "Private.Package",
+            "1.0.0",
+            isLocalFile: false,
+            localFilePath: null,
+            nuspec: null,
+            client,
+            new VerboseLogger(enabled: false),
             forceLatest: true,
             verbosity: Verbosity.Normal,
             fetchMetadata: true,
