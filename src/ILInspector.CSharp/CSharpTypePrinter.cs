@@ -392,11 +392,16 @@ public sealed class CSharpTypePrinter
         {
             var original = memberArray[i];
             var snapshot = type.Members[i];
-            var policy = overrides.TryGetValue(original, out var memberPolicy)
-                ? ResolveMemberPolicy(memberPolicy, snapshot)
-                : ResolveMemberPolicy(
-                    new CSharpMemberPolicy(original, request.BodyPolicy),
-                    snapshot);
+            var requestedPolicy = overrides.TryGetValue(original, out var memberPolicy)
+                ? memberPolicy
+                : new CSharpMemberPolicy(original, request.BodyPolicy);
+            ValidateResolvedBodyPolicy(
+                type,
+                snapshot,
+                requestedPolicy,
+                request.PrimaryConstructorParameters.Count,
+                parameterName);
+            var policy = ResolveMemberPolicy(requestedPolicy, snapshot);
             ValidateResolvedBodyPolicy(
                 type,
                 snapshot,

@@ -152,6 +152,11 @@ public abstract record ApiSurfaceExtractionResult
     public sealed record Exceeded(ApiSurfaceExtractionBound Bound) : ApiSurfaceExtractionResult;
 }
 
+internal readonly record struct ExplicitInterfaceMethodTarget(
+    EntityHandle Declaration,
+    string InterfaceTypeName,
+    string MethodName);
+
 /// <summary>
 /// Extracts public API surface from assemblies.
 /// </summary>
@@ -721,11 +726,13 @@ public static class ApiSurfaceExtractor
             apiType.Members = [];
 
             var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
-            var explicitInterfaceImplementationBodies =
-                GetExplicitInterfaceImplementationBodies(
+            var explicitInterfaceImplementationTargets =
+                GetExplicitInterfaceImplementationTargets(
                     reader,
                     typeDef,
                     observeDecodeWork);
+            var explicitInterfaceImplementationBodies =
+                explicitInterfaceImplementationTargets.Keys.ToHashSet();
             var accessorMethods = GetAccessorMethods(reader, typeDef);
             var canonicalAccessorMethods =
                 GetCanonicalAccessorMethods(reader, typeDef, observeDecodeWork);
@@ -1038,9 +1045,9 @@ public static class ApiSurfaceExtractor
                     observeDecodeWork);
                 bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
                     propertyName,
-                    explicitInterfaceImplementationBodies,
-                    accessors.Getter,
-                    accessors.Setter);
+                    explicitInterfaceImplementationTargets,
+                    (accessors.Getter, "get_"),
+                    (accessors.Setter, "set_"));
                 var member = new ApiMember
                 {
                     Name = propertyName,
@@ -1442,9 +1449,9 @@ public static class ApiSurfaceExtractor
                     (accessors.Remover, "remove"));
                 bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
                     eventName,
-                    explicitInterfaceImplementationBodies,
-                    accessors.Adder,
-                    accessors.Remover);
+                    explicitInterfaceImplementationTargets,
+                    (accessors.Adder, "add_"),
+                    (accessors.Remover, "remove_"));
 
                 var eventTypeNodeProvider = observeText is null
                     ? TypeNodeProvider.Instance
@@ -2094,10 +2101,11 @@ public static class ApiSurfaceExtractor
         return handles;
     }
 
-    internal static HashSet<MethodDefinitionHandle> GetExplicitInterfaceImplementationBodies(
-        MetadataReader reader,
-        TypeDefinition typeDef,
-        Action<int>? beforeDecodeWork = null)
+    internal static Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
+        GetExplicitInterfaceImplementationTargets(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            Action<int>? beforeDecodeWork = null)
     {
         var context = GenericContext.ForType(reader, typeDef);
         HashSet<MetadataNamedTypeReference> implementedInterfaces = [];
@@ -2113,56 +2121,76 @@ public static class ApiSurfaceExtractor
                 implementedInterfaces.Add(interfaceIdentity);
         }
 
-        HashSet<MethodDefinitionHandle> handles = [];
         Dictionary<EntityHandle, MetadataNamedTypeReference?> declarationTypes = [];
+        Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>> targets = [];
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             var implementation = reader.GetMethodImplementation(implementationHandle);
             if (implementation.MethodBody.Kind == HandleKind.MethodDefinition
-                && IsInterfaceMethodDeclaration(
+                && TryGetInterfaceMethodDeclaration(
                     reader,
                     implementation.MethodDeclaration,
                     implementedInterfaces,
                     context,
                     declarationTypes,
-                    beforeDecodeWork))
+                    beforeDecodeWork,
+                    out var target))
             {
-                handles.Add((MethodDefinitionHandle)implementation.MethodBody);
+                var body = (MethodDefinitionHandle)implementation.MethodBody;
+                if (!targets.TryGetValue(body, out var bodyTargets))
+                {
+                    bodyTargets = [];
+                    targets.Add(body, bodyTargets);
+                }
+                bodyTargets.Add(target);
             }
         }
 
-        return handles;
+        return targets;
     }
 
     internal static bool IsExplicitInterfaceAggregate(
         string name,
-        IReadOnlySet<MethodDefinitionHandle> explicitInterfaceImplementationBodies,
-        params MethodDefinitionHandle[] accessors)
+        IReadOnlyDictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
+            explicitInterfaceImplementationTargets,
+        params (MethodDefinitionHandle Handle, string DeclarationPrefix)[] accessors)
     {
-        if (!name.Contains('.', StringComparison.Ordinal))
+        int separator = name.LastIndexOf('.');
+        if (separator <= 0 || separator == name.Length - 1)
             return false;
 
+        string interfaceName = name[..separator];
+        string memberName = name[(separator + 1)..];
         bool hasAccessor = false;
         foreach (var accessor in accessors)
         {
-            if (accessor.IsNil)
+            if (accessor.Handle.IsNil)
                 continue;
             hasAccessor = true;
-            if (!explicitInterfaceImplementationBodies.Contains(accessor))
+            if (!explicitInterfaceImplementationTargets.TryGetValue(
+                    accessor.Handle,
+                    out var targets)
+                || !targets.Any(target =>
+                    target.InterfaceTypeName == interfaceName
+                    && target.MethodName == accessor.DeclarationPrefix + memberName))
+            {
                 return false;
+            }
         }
 
         return hasAccessor;
     }
 
-    private static bool IsInterfaceMethodDeclaration(
+    private static bool TryGetInterfaceMethodDeclaration(
         MetadataReader reader,
         EntityHandle declaration,
         IReadOnlySet<MetadataNamedTypeReference> implementedInterfaces,
         GenericContext context,
         Dictionary<EntityHandle, MetadataNamedTypeReference?> declarationTypes,
-        Action<int>? beforeDecodeWork)
+        Action<int>? beforeDecodeWork,
+        out ExplicitInterfaceMethodTarget target)
     {
+        target = default;
         EntityHandle declaringType = declaration.Kind switch
         {
             HandleKind.MethodDefinition =>
@@ -2172,11 +2200,16 @@ public static class ApiSurfaceExtractor
             _ => default,
         };
 
-        if (declaringType.Kind == HandleKind.TypeDefinition)
+        string? methodName = declaration.Kind switch
         {
-            return (reader.GetTypeDefinition((TypeDefinitionHandle)declaringType).Attributes
-                & TypeAttributes.Interface) != 0;
-        }
+            HandleKind.MethodDefinition => reader.GetString(
+                reader.GetMethodDefinition((MethodDefinitionHandle)declaration).Name),
+            HandleKind.MemberReference => reader.GetString(
+                reader.GetMemberReference((MemberReferenceHandle)declaration).Name),
+            _ => null,
+        };
+        if (methodName is null)
+            return false;
 
         if (!declarationTypes.TryGetValue(
                 declaringType,
@@ -2189,8 +2222,28 @@ public static class ApiSurfaceExtractor
                 beforeDecodeWork);
             declarationTypes.Add(declaringType, declaringTypeIdentity);
         }
-        return declaringTypeIdentity is not null
-            && implementedInterfaces.Contains(declaringTypeIdentity);
+        if (declaringTypeIdentity is null
+            || !implementedInterfaces.Contains(declaringTypeIdentity))
+        {
+            return false;
+        }
+
+        var declaringTypeName = TypeResolver.GetTypeName(reader, declaringType, context);
+        if (declaringTypeName is null)
+            return false;
+
+        if (declaringType.Kind == HandleKind.TypeDefinition
+            && (reader.GetTypeDefinition((TypeDefinitionHandle)declaringType).Attributes
+                & TypeAttributes.Interface) == 0)
+        {
+            return false;
+        }
+
+        target = new ExplicitInterfaceMethodTarget(
+            declaration,
+            declaringTypeName,
+            methodName);
+        return true;
     }
 
     /// <summary>
@@ -3386,7 +3439,7 @@ public static class ApiSurfaceExtractor
             || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
     }
 
-    private static List<string> ReturnParameterAttributes(
+    internal static List<string> ReturnParameterAttributes(
         MetadataReader reader,
         ParameterHandleCollection handles,
         Action<string>? beforeRetain = null,

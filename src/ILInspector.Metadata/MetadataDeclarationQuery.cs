@@ -94,6 +94,7 @@ public static class MetadataDeclarationQuery
                 _ => throw new InvalidOperationException(
                     "Unexpected metadata type-name result."),
             };
+        var typeContext = GenericContext.ForType(reader, typeDef);
         var type = new ApiType
         {
             Namespace = ns,
@@ -106,7 +107,7 @@ public static class MetadataDeclarationQuery
             IsSealed = (attributes & TypeAttributes.Sealed) != 0,
             IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
             Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
-            TypeParameters = TypeParameters(reader, typeDef.GetGenericParameters(), GenericContext.ForType(reader, typeDef)).ToList(),
+            TypeParameters = TypeParameters(reader, typeDef.GetGenericParameters(), typeContext).ToList(),
         };
 
         if ((attributes & TypeAttributes.Interface) != 0)
@@ -115,7 +116,7 @@ public static class MetadataDeclarationQuery
         }
         else if (!typeDef.BaseType.IsNil)
         {
-            var baseTypeName = TypeResolver.GetTypeName(reader, typeDef.BaseType);
+            var baseTypeName = TypeResolver.GetTypeName(reader, typeDef.BaseType, typeContext);
             type.BaseType = baseTypeName;
             type.Kind = baseTypeName switch
             {
@@ -129,12 +130,22 @@ public static class MetadataDeclarationQuery
         {
             type.Kind = "class";
         }
-
         type.IsStatic = type.IsSealed && type.IsAbstract;
         bool isExtensionClass = type.IsStatic
             && AttributeReader.HasExtensionAttribute(
                 reader,
                 typeDef.GetCustomAttributes());
+        foreach (var interfaceHandle in typeDef.GetInterfaceImplementations())
+        {
+            var implementation = reader.GetInterfaceImplementation(interfaceHandle);
+            var interfaceName = TypeResolver.GetTypeName(
+                reader,
+                implementation.Interface,
+                typeContext);
+            if (interfaceName is not null)
+                type.Interfaces.Add(interfaceName);
+        }
+
         var accessorMethods = ApiSurfaceExtractor.GetAccessorMethods(reader, typeDef);
         var canonicalAccessorMethods =
             ApiSurfaceExtractor.GetCanonicalAccessorMethods(reader, typeDef);
@@ -147,8 +158,10 @@ public static class MetadataDeclarationQuery
             : [];
         var explicitImplementationBodies =
             ApiSurfaceExtractor.GetExplicitImplementationBodies(reader, typeDef);
+        var explicitInterfaceImplementationTargets =
+            ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(reader, typeDef);
         var explicitInterfaceImplementationBodies =
-            ApiSurfaceExtractor.GetExplicitInterfaceImplementationBodies(reader, typeDef);
+            explicitInterfaceImplementationTargets.Keys.ToHashSet();
         foreach (var propertyHandle in typeDef.GetProperties())
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
@@ -160,9 +173,9 @@ public static class MetadataDeclarationQuery
             bool isExplicitInterfaceImplementation =
                 ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
                     propertyName,
-                    explicitInterfaceImplementationBodies,
-                    declaration.Getter,
-                    declaration.Setter);
+                    explicitInterfaceImplementationTargets,
+                    (declaration.Getter, "get_"),
+                    (declaration.Setter, "set_"));
             var signatureText = PropertySignatureText(declaration);
             type.Members.Add(new ApiMember
             {
@@ -242,9 +255,9 @@ public static class MetadataDeclarationQuery
             bool isExplicitInterfaceImplementation =
                 ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
                     eventName,
-                    explicitInterfaceImplementationBodies,
-                    accessors.Adder,
-                    accessors.Remover);
+                    explicitInterfaceImplementationTargets,
+                    (accessors.Adder, "add_"),
+                    (accessors.Remover, "remove_"));
             type.Members.Add(new ApiMember
             {
                 Name = eventName,
@@ -393,7 +406,9 @@ public static class MetadataDeclarationQuery
             MethodName = reader.GetString(method.Name),
             Accessibility = NonPublicAccessibility(
                 method.Attributes & MethodAttributes.MemberAccessMask),
-            ReturnAttributes = ReturnAttributes(reader, method.GetParameters()).ToList(),
+            ReturnAttributes = ApiSurfaceExtractor.ReturnParameterAttributes(
+                reader,
+                method.GetParameters()),
             HasMethodBody = method.RelativeVirtualAddress != 0,
             IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
             StructuralReturnType = AccessorStructuralReturnType(reader, typeDef, handle),

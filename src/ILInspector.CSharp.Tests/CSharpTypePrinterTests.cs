@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
@@ -367,12 +368,52 @@ public sealed class CSharpTypePrinterTests
                 Kind: "event",
                 IsExplicitInterfaceImplementation: true
             } && member.Name.EndsWith(".PropertyChanged", StringComparison.Ordinal));
+        type.Interfaces =
+        [
+            Assert.Single(
+                type.Interfaces,
+                interfaceName => interfaceName == "System.ComponentModel.INotifyPropertyChanged")
+        ];
         type.Members = [explicitEvent];
 
         var result = _printer.Print(new CSharpTypePrintRequest(type));
 
         Assert.Contains("INotifyPropertyChanged.PropertyChanged", result.Source, StringComparison.Ordinal);
         Assert.Contains("throw null;", result.Source, StringComparison.Ordinal);
+        AssertCompiles(result.Source);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceEventSkeletonDoesNotDiscardCallerBody()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Interfaces.Add("Samples.IEvents");
+        var explicitEvent = new ApiMember
+        {
+            Name = "Samples.IEvents.Changed",
+            Kind = "event",
+            ReturnType = "System.EventHandler",
+            IsExplicitInterfaceImplementation = true
+        };
+        type.Members.Add(explicitEvent);
+
+        var exception = Assert.Throws<ArgumentException>(
+            () => _printer.Print(new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides:
+                [
+                    new CSharpMemberPolicy(
+                        explicitEvent,
+                        CSharpBodyPolicy.Skeleton,
+                        new CSharpEventBody(
+                            CSharpAccessorBody.Throw,
+                            CSharpAccessorBody.Throw))
+                ])));
+
+        Assert.Contains(
+            "cannot carry an implementation body",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -4703,6 +4744,57 @@ public sealed class CSharpTypePrinterTests
             Name = name,
             Kind = "class"
         };
+
+    static void AssertCompiles(string source)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"csharp-type-printer-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(directory, "Generated.csproj"),
+                """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <LangVersion>preview</LangVersion>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+                </Project>
+                """);
+            File.WriteAllText(Path.Combine(directory, "Generated.cs"), source);
+
+            var startInfo = new ProcessStartInfo("dotnet")
+            {
+                WorkingDirectory = directory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            };
+            startInfo.ArgumentList.Add("build");
+            startInfo.ArgumentList.Add("Generated.csproj");
+            startInfo.ArgumentList.Add("-c");
+            startInfo.ArgumentList.Add("Release");
+            startInfo.ArgumentList.Add("--nologo");
+            startInfo.ArgumentList.Add("--verbosity");
+            startInfo.ArgumentList.Add("quiet");
+            using var process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Could not start dotnet build.");
+            string stdout = process.StandardOutput.ReadToEnd();
+            string stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            Assert.True(
+                process.ExitCode == 0,
+                $"Generated source did not compile.{Environment.NewLine}{stdout}{stderr}");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 
     static ApiMember CreateMethod(string name)
         => new()

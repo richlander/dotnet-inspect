@@ -410,6 +410,11 @@ public sealed class MetadataDeclarationQueryTests
                 StringComparison.Ordinal));
 
         Assert.Contains(
+            queried.Interfaces,
+            interfaceName => interfaceName.EndsWith(
+                ".IExplicitSurface",
+                StringComparison.Ordinal));
+        Assert.Contains(
             queried.Members,
             member => member.Name.EndsWith(".get_Value", StringComparison.Ordinal));
         Assert.Contains(
@@ -429,6 +434,19 @@ public sealed class MetadataDeclarationQueryTests
                 Kind: "event",
                 IsExplicitInterfaceImplementation: true
             } && member.Name.EndsWith(".Changed", StringComparison.Ordinal));
+        var queriedEvent = Assert.Single(
+            queried.Members,
+            member => member is
+            {
+                Kind: "event",
+                IsExplicitInterfaceImplementation: true
+            } && member.Name.EndsWith(".Changed", StringComparison.Ordinal));
+        Assert.Equal(
+            ["System.Diagnostics.CodeAnalysis.NotNull"],
+            queriedEvent.SignatureModel!.Accessors[0].ReturnAttributes);
+        Assert.Equal(
+            ["System.Diagnostics.CodeAnalysis.MaybeNull"],
+            queriedEvent.SignatureModel.Accessors[1].ReturnAttributes);
         Assert.Contains(
             extracted.Members,
             member => member.Kind == "explicit-interface-implementation"
@@ -453,25 +471,74 @@ public sealed class MetadataDeclarationQueryTests
     {
         var typeDef = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures.ExplicitSurface));
         var eventHandle = Assert.Single(typeDef.GetEvents());
-        var accessors = Reader.GetEventDefinition(eventHandle).GetAccessors();
-        var interfaceBodies =
-            ApiSurfaceExtractor.GetExplicitInterfaceImplementationBodies(Reader, typeDef);
+        var eventDefinition = Reader.GetEventDefinition(eventHandle);
+        var accessors = eventDefinition.GetAccessors();
+        string eventName = Reader.GetString(eventDefinition.Name);
+        var interfaceTargets =
+            ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(Reader, typeDef);
+        var adderTarget = Assert.Single(interfaceTargets[accessors.Adder]);
+        var removerTarget = Assert.Single(interfaceTargets[accessors.Remover]);
 
         Assert.True(ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
-            "IExplicitSurface.Changed",
-            interfaceBodies,
-            accessors.Adder,
-            accessors.Remover));
+            eventName,
+            interfaceTargets,
+            (accessors.Adder, "add_"),
+            (accessors.Remover, "remove_")));
         Assert.False(ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
-            "IExplicitSurface.Changed",
-            new HashSet<MethodDefinitionHandle> { accessors.Adder },
-            accessors.Adder,
-            accessors.Remover));
+            eventName,
+            new Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
+            {
+                [accessors.Adder] = [adderTarget]
+            },
+            (accessors.Adder, "add_"),
+            (accessors.Remover, "remove_")));
+        int separator = eventName.LastIndexOf('.');
         Assert.False(ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
-            "Base.Changed",
-            new HashSet<MethodDefinitionHandle>(),
-            accessors.Adder,
-            accessors.Remover));
+            eventName[..(separator + 1)] + "Other",
+            interfaceTargets,
+            (accessors.Adder, "add_"),
+            (accessors.Remover, "remove_")));
+        Assert.False(ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
+            eventName,
+            new Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
+            {
+                [accessors.Adder] = [adderTarget],
+                [accessors.Remover] =
+                [
+                    removerTarget with
+                    {
+                        InterfaceTypeName = "Other.IExplicitSurface"
+                    }
+                ]
+            },
+            (accessors.Adder, "add_"),
+            (accessors.Remover, "remove_")));
+    }
+
+    [Fact]
+    public void ExplicitAggregateIdentity_RejectsBaseClassMethodImplTargets()
+    {
+        string path = EmitBaseClassMethodImplEvent();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            var reader = peReader.GetMetadataReader();
+            var typeHandle = GetTypeDefinitionHandle(reader, "DerivedEvent");
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            var eventHandle = Assert.Single(typeDef.GetEvents());
+            var eventDefinition = reader.GetEventDefinition(eventHandle);
+            var accessors = eventDefinition.GetAccessors();
+
+            Assert.False(ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
+                reader.GetString(eventDefinition.Name),
+                ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(reader, typeDef),
+                (accessors.Adder, "add_"),
+                (accessors.Remover, "remove_")));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Theory]
@@ -1030,6 +1097,72 @@ public sealed class MetadataDeclarationQueryTests
         return path;
     }
 
+    static string EmitBaseClassMethodImplEvent()
+    {
+        var assemblyName = new AssemblyName("BaseClassMethodImplEvent");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        const MethodAttributes baseAttributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig;
+        var baseType = module.DefineType("BaseEvent", TypeAttributes.Public);
+        var baseAdder = baseType.DefineMethod(
+            "add_Changed",
+            baseAttributes,
+            typeof(void),
+            [typeof(EventHandler)]);
+        baseAdder.GetILGenerator().Emit(OpCodes.Ret);
+        var baseRemover = baseType.DefineMethod(
+            "remove_Changed",
+            baseAttributes,
+            typeof(void),
+            [typeof(EventHandler)]);
+        baseRemover.GetILGenerator().Emit(OpCodes.Ret);
+        var baseEvent = baseType.DefineEvent("Changed", EventAttributes.None, typeof(EventHandler));
+        baseEvent.SetAddOnMethod(baseAdder);
+        baseEvent.SetRemoveOnMethod(baseRemover);
+        var createdBase = baseType.CreateType();
+
+        const MethodAttributes derivedAttributes =
+            MethodAttributes.Private
+            | MethodAttributes.Virtual
+            | MethodAttributes.Final
+            | MethodAttributes.NewSlot
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig;
+        var derivedType = module.DefineType("DerivedEvent", TypeAttributes.Public, createdBase);
+        var adder = derivedType.DefineMethod(
+            "add_BaseChanged",
+            derivedAttributes,
+            typeof(void),
+            [typeof(EventHandler)]);
+        adder.GetILGenerator().Emit(OpCodes.Ret);
+        var remover = derivedType.DefineMethod(
+            "remove_BaseChanged",
+            derivedAttributes,
+            typeof(void),
+            [typeof(EventHandler)]);
+        remover.GetILGenerator().Emit(OpCodes.Ret);
+        var derivedEvent = derivedType.DefineEvent(
+            "BaseEvent.Changed",
+            EventAttributes.None,
+            typeof(EventHandler));
+        derivedEvent.SetAddOnMethod(adder);
+        derivedEvent.SetRemoveOnMethod(remover);
+        derivedType.DefineMethodOverride(adder, createdBase.GetMethod("add_Changed")!);
+        derivedType.DefineMethodOverride(remover, createdBase.GetMethod("remove_Changed")!);
+        derivedType.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"BaseClassMethodImplEvent-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
     static TypeDefinition GetTypeDefinition(Type type)
         => Reader.GetTypeDefinition(GetTypeDefinitionHandle(type));
 
@@ -1155,7 +1288,10 @@ public class MetadataDeclarationQueryFixtures
 
         event EventHandler IExplicitSurface.Changed
         {
+            [return: System.Diagnostics.CodeAnalysis.NotNull]
             add { }
+
+            [return: System.Diagnostics.CodeAnalysis.MaybeNull]
             remove { }
         }
     }
