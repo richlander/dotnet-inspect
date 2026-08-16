@@ -120,6 +120,24 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task PipelineIndependentMultiSectionSelection_ValidatesBeforeAcquisition()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "Missing.Type.Member",
+            AssemblyPath = Path.Combine(Path.GetTempPath(), "missing-member-selection.dll"),
+            Select = [SectionNames.DecompiledSource, SectionNames.OriginalSource],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(CountOutput.SingleSectionRequiredMessage, result.Error);
+        Assert.DoesNotContain("not found", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task EmptyPreResolvedSection_SelectsNoDefaultSections()
     {
         var options = new MemberOptions
@@ -274,6 +292,77 @@ public class MemberCallGraphSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.NotEqual(string.Empty, result.Output.Trim());
         Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData("count")]
+    [InlineData("table")]
+    [InlineData("tsv")]
+    [InlineData("jsonl")]
+    [InlineData("tree")]
+    [InlineData("mermaid")]
+    public async Task AutoSelectedDetail_WithCallerScope_ValidatesTheAuthoredSelection(
+        string format)
+    {
+        var options = new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections =
+            [
+                format is "tree" or "mermaid"
+                    ? SectionNames.CallGraph
+                    : SectionNames.Signature
+            ],
+            CallerScopeDirectories =
+            [
+                Path.GetDirectoryName(typeof(MemberCallGraphFixture).Assembly.Location)!
+            ],
+            Count = format == "count",
+            Tabular = format is "table" or "tsv" or "jsonl",
+            Tsv = format == "tsv",
+            Jsonl = format == "jsonl",
+            TabularExplicitlySet = format is "table" or "tsv" or "jsonl",
+            FormatExplicitlySet = format is "table" or "tsv" or "jsonl",
+            Tree = format == "tree",
+            MermaidOutput = format == "mermaid",
+            TipLevel = TipLevel.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.NotEqual(string.Empty, result.Output.Trim());
+        Assert.DoesNotContain("Error:", result.Error);
+        if (format is "table" or "tsv" or "jsonl")
+        {
+            Assert.Contains("signature", result.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("caller", result.Output, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task ImplicitCallers_DoesNotInvalidateAuthoredInventorySection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+                MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+                IncludeSections = [SectionNames.MemberIndex],
+                CallerScopeDirectories =
+                [
+                    Path.GetDirectoryName(typeof(MemberCallGraphFixture).Assembly.Location)!
+                ],
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains($"## {SectionNames.MemberIndex}", result.Output);
+        Assert.Contains($"## {SectionNames.Callers}", result.Output);
     }
 
     [Fact]

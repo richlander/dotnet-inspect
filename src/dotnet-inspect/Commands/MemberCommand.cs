@@ -280,6 +280,21 @@ public static class MemberCommand
                 }
             }
 
+            if (effectiveOptions is
+                {
+                    CallerScopeSectionImplicitlySelected: true,
+                    OverloadIndex: null
+                })
+            {
+                effectiveOptions = effectiveOptions with
+                {
+                    ImplicitCallerMemberTokens = GetImplicitCallerMembers(apiType, effectiveOptions)
+                        .Where(ApiMemberSectionDescriptors.IsBodyBacked)
+                        .SelectMany(member => BodyMethodTokens(apiType, member))
+                        .ToHashSet()
+                };
+            }
+
             if (effectiveOptions.OverloadIndex is null
                 && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
                 && effectiveOptions.MemberGenericArity.HasValue
@@ -397,11 +412,12 @@ public static class MemberCommand
 
             // For caller-scope queries without a specific overload, ensure DllPath is set so we can
             // open the member's own assembly index for aggregated callers across all overloads.
+            var callerTargetAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
             if (effectiveOptions.HasCallerScope
                 && effectiveOptions.DllPath == null
-                && apiDllPath != null)
+                && callerTargetAssembly != null)
             {
-                effectiveOptions = effectiveOptions with { DllPath = apiDllPath };
+                effectiveOptions = effectiveOptions with { DllPath = callerTargetAssembly };
             }
 
             // Expand --bin/--directory, --project, and --caller-package into assemblies
@@ -626,6 +642,44 @@ public static class MemberCommand
            && (options.FormatFlagExplicitlySet
                || options.IncludeSections is { Count: 1 } sections
                && sections.Contains(SectionNames.CallGraph));
+
+    private static IEnumerable<int> BodyMethodTokens(
+        ApiType type,
+        ApiMember member)
+    {
+        if (ApiMemberSectionDescriptors.IsMethodLike(member))
+        {
+            if (member.MetadataToken is { } token)
+                yield return token;
+            yield break;
+        }
+
+        if (!ApiMemberSectionDescriptors.HasAccessorTokens(member))
+            yield break;
+
+        foreach (var accessor in ApiOutputFormatter.AccessorMethods(member, type))
+        {
+            if (accessor.MetadataToken is { } token)
+                yield return token;
+        }
+    }
+
+    private static IEnumerable<ApiMember> GetImplicitCallerMembers(
+        ApiType type,
+        MemberOptions options)
+    {
+        IEnumerable<ApiMember> members = ApiOutputFormatter
+            .GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter)
+            .SelectMany(group => group.Value);
+        if (options.MemberGenericArity.HasValue && options.MemberFilter.Count == 1)
+        {
+            var memberName = options.MemberFilter.First();
+            var arityCandidates = GetCandidateMembers(type, options, memberName).ToHashSet();
+            members = members.Where(arityCandidates.Contains);
+        }
+
+        return members;
+    }
 
     private static readonly string[] SingleOverloadSectionNames =
     [

@@ -1630,7 +1630,7 @@ public class ApiCommand
                 && (mo4.OverloadIndex.HasValue || mo4.HasCallerScope))
             {
                 var requestedSections = GetRequestedMemberSections(type, mo4);
-                var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
+                var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections, mo4);
                 if (methods.Count > 0)
                 {
                     var analysisInspection = new ApiMemberAnalysisInspection(
@@ -2545,7 +2545,7 @@ public class ApiCommand
                 && (memberOptions.OverloadIndex.HasValue || memberOptions.HasCallerScope))
             {
                 var requestedSections = GetRequestedMemberSections(type, memberOptions);
-                var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
+                var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections, memberOptions);
                 if (methods.Count > 0)
                 {
                     var analysisInspection = new ApiMemberAnalysisInspection(

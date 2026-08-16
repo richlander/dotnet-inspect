@@ -577,11 +577,13 @@ public static class ApiMemberSectionPipelines
         => options is MemberOptions
            {
                CallerScopeSectionImplicitlySelected: true
-           }
+           } memberOptions
            && options.IncludeSections?.Contains(
                SectionNames.Callers,
                StringComparer.OrdinalIgnoreCase) == true
-           && type.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+           && (memberOptions.ImplicitCallerMemberTokens is { } tokens
+               ? tokens.Count > 0
+               : type.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked));
 }
 
 /// <summary>

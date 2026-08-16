@@ -319,6 +319,12 @@ public record MemberOptions : ApiOptions
     /// </summary>
     internal bool CallerScopeSectionImplicitlySelected { get; init; }
 
+    /// <summary>
+    /// Method definition tokens for the overload family targeted by an implicit Callers
+    /// selection. Null keeps the ordinary selected-member body scope.
+    /// </summary>
+    internal IReadOnlySet<int>? ImplicitCallerMemberTokens { get; init; }
+
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }
     public string? MemberDigest { get; init; }

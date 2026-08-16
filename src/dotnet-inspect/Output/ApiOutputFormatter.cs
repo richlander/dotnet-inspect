@@ -1435,14 +1435,39 @@ public static class ApiOutputFormatter
     /// </summary>
     internal static List<ApiMember> ResolveBodyMethods(
         ApiType type,
-        IReadOnlySet<string> requestedSections)
+        IReadOnlySet<string> requestedSections,
+        ApiOptions? options = null)
     {
         bool includeAbstract = requestedSections.Contains(SectionNames.UnsafeOperations);
-        var methods = type.Members
-            .Where(m => ApiMemberSectionDescriptors.IsMethodLike(m) && (!m.IsAbstract || includeAbstract))
-            .ToList();
+        var implicitCallerTokens = (options as MemberOptions)?.ImplicitCallerMemberTokens;
+        List<ApiMember> methods;
+        if (implicitCallerTokens is { } tokens)
+        {
+            methods = type.Members
+                .Where(ApiMemberSectionDescriptors.IsMethodLike)
+                .Where(member => member.MetadataToken is { } token && tokens.Contains(token))
+                .ToList();
+            var methodTokens = methods
+                .Select(member => member.MetadataToken)
+                .OfType<int>()
+                .ToHashSet();
+            methods.AddRange(type.Members
+                .Where(ApiMemberSectionDescriptors.HasAccessorTokens)
+                .SelectMany(member => AccessorMethods(member, type))
+                .Where(member => member.MetadataToken is { } token
+                    && tokens.Contains(token)
+                    && methodTokens.Add(token)));
+        }
+        else
+        {
+            methods = type.Members
+                .Where(m => ApiMemberSectionDescriptors.IsMethodLike(m)
+                    && (!m.IsAbstract || includeAbstract))
+                .ToList();
+        }
 
-        if (methods.Count == 0
+        if (implicitCallerTokens is null
+            && methods.Count == 0
             && type.Members is [{ } single]
             && ApiMemberSectionDescriptors.HasAccessorTokens(single))
         {
