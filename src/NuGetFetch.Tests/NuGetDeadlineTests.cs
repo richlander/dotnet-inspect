@@ -350,6 +350,76 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task EmptyAsyncRead_DoesNotDisarmTheRequestDeadline()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    StreamResponse(message, new StallingStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(40),
+                operation: TimeSpan.FromSeconds(1)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            0,
+            await package.ReadAsync(
+                Memory<byte>.Empty,
+                TestContext.Current.CancellationToken));
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                async () =>
+                {
+                    byte[] buffer = new byte[1];
+                    _ = await package.ReadAsync(
+                        buffer,
+                        TestContext.Current.CancellationToken);
+                });
+
+        Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+    }
+
+    [Fact]
+    public async Task EmptySyncRead_DoesNotDisarmTheRequestDeadline()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    StreamResponse(
+                        message,
+                        new DisposeAwareStallingStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(40),
+                operation: TimeSpan.FromSeconds(1)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, package.Read([], 0, 0));
+        byte[] buffer = new byte[1];
+        Task<int> read = Task.Run(
+            () => package.Read(buffer, 0, buffer.Length),
+            TestContext.Current.CancellationToken);
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                async () => _ = await read);
+
+        Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+    }
+
+    [Fact]
     public async Task OperationCeiling_IncludesPackageStreamConsumption()
     {
         using var client = new HttpClient(new DelayedHandler(

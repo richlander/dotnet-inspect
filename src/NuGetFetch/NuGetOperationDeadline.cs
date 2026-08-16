@@ -146,11 +146,14 @@ internal sealed class NuGetOperationDeadline : IDisposable
         public override int Read(byte[] buffer, int offset, int count)
         {
             ThrowIfDeadlineExpired();
+            if (count == 0)
+                return 0;
+
             try
             {
                 int read = inner.Read(buffer, offset, count);
                 ThrowIfDeadlineExpired();
-                if (read == 0)
+                if (read == 0 && count > 0)
                     CompleteDeadline();
                 return read;
             }
@@ -164,11 +167,14 @@ internal sealed class NuGetOperationDeadline : IDisposable
         public override int Read(Span<byte> buffer)
         {
             ThrowIfDeadlineExpired();
+            if (buffer.IsEmpty)
+                return 0;
+
             try
             {
                 int read = inner.Read(buffer);
                 ThrowIfDeadlineExpired();
-                if (read == 0)
+                if (read == 0 && !buffer.IsEmpty)
                     CompleteDeadline();
                 return read;
             }
@@ -183,6 +189,10 @@ internal sealed class NuGetOperationDeadline : IDisposable
             Memory<byte> buffer,
             CancellationToken cancellationToken = default)
         {
+            ThrowIfDeadlineExpired();
+            if (buffer.IsEmpty)
+                return 0;
+
             using CancellationTokenSource linked =
                 CancellationTokenSource.CreateLinkedTokenSource(
                     cancellationToken,
@@ -194,7 +204,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 if (cancellationToken.IsCancellationRequested)
                     throw new OperationCanceledException(cancellationToken);
                 ThrowIfDeadlineExpired();
-                if (read == 0)
+                if (read == 0 && !buffer.IsEmpty)
                     CompleteDeadline();
                 return read;
             }
