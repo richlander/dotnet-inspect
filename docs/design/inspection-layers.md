@@ -68,12 +68,14 @@ catalog generation for both traversal directions. These queries return typed
 results without choosing a renderer or output format.
 The library CLI executes metadata-image, direct assembly-reference,
 extension-method, custom-attribute, manifest-resource, type-forwarder, and
-union-type queries plus the Research-backed switch query through a typed,
-content-shaped registry over a host-owned `AssemblyInspectionSession`. The
-`References`, `Extension Methods`, `Custom Attributes`, `Resources`,
-`Switches`, `Type Forwarders`, `Union Types`, and `Library Info` sections bind
-to concrete query definitions rather than string scanner keys, and the CLI and
-package convenience route lower section selection into that same registry.
+union-type queries, the method-classification query, plus the Research-backed
+switch query through a typed, content-shaped registry over a host-owned
+`AssemblyInspectionSession`. The `References`, `Extension Methods`, `Custom
+Attributes`, `Resources`, `Switches`, `Type Forwarders`, `Union Types`,
+`P/Invoke Methods`, `Async Methods`, `Signals`, and `Library Info` sections
+bind to concrete query definitions rather than relying solely on string scanner
+keys, and the CLI and package convenience route lower section selection into
+that same registry.
 Library and package SourceLink sections
 execute a shared document prerequisite plus availability or integrity query
 over a host-owned `SourceLinkService`. The library CLI and package
@@ -266,8 +268,10 @@ consumer's convenience.
 ## Current migration state
 
 Metadata-image, direct-reference, assembly-context reference,
-package dependency-group, extension-method, custom-attribute,
-manifest-resource, type-forwarder, union-type, switch, SourceLink,
+package dependency-group, loaded dependency-coordinate match,
+extension-method, custom-attribute,
+manifest-resource, type-forwarder, union-type, classified-method, switch,
+SourceLink,
 API-comparison, Analysis body-signal comparison, Implementation comparison, and
 assembly-context Integrations inspection are the first vertical L1 canaries:
 
@@ -305,6 +309,11 @@ assembly-context Integrations inspection are the first vertical L1 canaries:
 - `UnionTypesQuery` returns deeply immutable, metadata-ordered union facts for
   `Union Types`. The CLI adds path-based Finding provenance and contains exact
   metadata identity at the presentation row boundary.
+- `ClassifiedMethodsQuery` returns immutable, metadata-ordered method
+  classifications shared by `Library Info`, P/Invoke Methods, Async Methods,
+  and Signals. The CLI adds path-based Finding provenance and compatibility
+  summaries after query execution, and P/Invoke and async rows contain exact
+  evidence at the presentation boundary.
 - `SwitchesQuery` lives in the optional Research-backed query companion. It
   composes attribute-declared metadata with Research-owned AppContext IL
   evidence into one immutable ordered inventory. The CLI adds path-based
@@ -338,8 +347,9 @@ assembly-context Integrations inspection are the first vertical L1 canaries:
   immutable participant snapshots. The entire `@Integrations` section family
   is query-owned; the CLI retains only command hosting and projection.
 - Metadata sections, `References`, `Library Info`, `Extension Methods`,
-  `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`,
-  `Union Types`, and the diff `Changes`, `Analysis Diff`, and
+  `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`, `Union
+  Types`, `P/Invoke Methods`, `Async Methods`, `Signals`, and the diff
+  `Changes`, `Analysis Diff`, and
   `Implementation Diff` sections bind to query definitions by object identity.
   A section may bind multiple definitions; diagnostic names are never lookup
   keys.
@@ -394,8 +404,8 @@ the L2 project split still need migration.
 
 The structural fix is completing L1. Outside the metadata, direct-reference,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
-union-type, switch, and SourceLink canaries, collection is still neither typed
-nor demand-driven:
+union-type, classified-method, switch, SourceLink, and type/member inventory
+canaries, collection is still neither typed nor demand-driven:
 
 - Data collection **mutates a shared aggregate** rather than returning typed
   results for most scanner families, so a consumer cannot yet take those
@@ -403,17 +413,18 @@ nor demand-driven:
 - The binding to residual collection is a **nullable string key** for the
   remaining scanner-backed sections. Metadata, `References`, `Library Info`,
   `Extension Methods`, `Custom Attributes`, `Resources`, `Type Forwarders`,
-  `Union Types`, `Switches`, SourceLink, and the diff `Changes`,
-  `Analysis Diff`, and `Implementation Diff` sections use checked
+  `Union Types`, `Switches`, `P/Invoke Methods`, `Async Methods`, `Signals`,
+  SourceLink, and the diff `Changes`, `Analysis Diff`, and `Implementation
+  Diff` sections use checked
   query-definition bindings.
 - The collection context is **path-shaped**, so a consumer without a filesystem
   cannot call the residual `LibraryMetadataService` orchestration. The
   implemented queries themselves take a borrowed content owner, not a path.
 
-Converting collection into typed, demand-driven, content-shaped queries is
-therefore the migration path for the split, not a follow-up to it. L2 is close
-to a project move as query coverage expands; the descriptor contract is already
-Markout-free apart from its name binding.
+Converting the remaining collection into typed, demand-driven, content-shaped
+queries is therefore the migration path for the split, not a follow-up to it.
+L2 is close to a project move as query coverage expands; the descriptor contract is
+already Markout-free apart from its name binding.
 
 ## Non-goals
 

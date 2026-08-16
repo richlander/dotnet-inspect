@@ -860,6 +860,12 @@ public static partial class BrowserInspectionEngine
         BrowserPackageWorkspace.Stats(),
         BrowserJsonContext.Default.BrowserPackageCacheStats);
 
+    /// <summary>Version, source revision, and build time embedded in this browser engine.</summary>
+    [JSExport]
+    public static string BuildIdentity() => JsonSerializer.Serialize(
+        BrowserBuildIdentityReader.Read(typeof(BrowserInspectionEngine).Assembly),
+        BrowserJsonContext.Default.BrowserBuildIdentity);
+
     /// <summary>
     /// Published package versions from the browser acquisition owner's bounded version-index
     /// reader. The JavaScript host does not fetch or parse the untrusted index independently.
@@ -879,12 +885,48 @@ public static partial class BrowserInspectionEngine
             declaredRange);
 
     [JSExport]
-    public static bool PackageVersionSatisfiesDependencyRange(
-        string packageVersion,
-        string? declaredRange) =>
-        PackageDependencyVersionRange.Satisfies(
-            packageVersion,
+    public static string MatchPackageDependencyCoordinate(
+        string packageId,
+        string? declaredRange,
+        string candidatesJson)
+    {
+        BrowserDependencyCoordinateCandidate[] candidates = JsonSerializer.Deserialize(
+            candidatesJson,
+            BrowserJsonContext.Default.BrowserDependencyCoordinateCandidateArray) ?? [];
+        PackageDependencyCoordinateMatch result = PackageDependencyCoordinateMatchQuery.Execute(
+            candidates.Select(candidate => new PackageDependencyCoordinateCandidate(
+                candidate.Key,
+                candidate.Provenance switch
+                {
+                    BrowserDependencyCoordinateProvenance.NuGetPackage =>
+                        PackageDependencyCoordinateKind.NuGetPackage,
+                    BrowserDependencyCoordinateProvenance.PlatformRuntime =>
+                        PackageDependencyCoordinateKind.PlatformRuntime,
+                    _ => throw new InvalidOperationException(
+                        "The dependency-coordinate provenance is invalid."),
+                },
+                candidate.PackageId,
+                candidate.Version,
+                candidate.TargetFramework)),
+            packageId,
             declaredRange);
+        var browserResult = new BrowserDependencyCoordinateMatch(
+            result.Status switch
+            {
+                PackageDependencyCoordinateMatchStatus.NoMatch =>
+                    BrowserDependencyCoordinateMatchOutcome.NoMatch,
+                PackageDependencyCoordinateMatchStatus.Unique =>
+                    BrowserDependencyCoordinateMatchOutcome.Unique,
+                PackageDependencyCoordinateMatchStatus.Ambiguous =>
+                    BrowserDependencyCoordinateMatchOutcome.Ambiguous,
+                _ => throw new InvalidOperationException(
+                    "The dependency-coordinate match outcome is invalid."),
+            },
+            result.CandidateKey);
+        return JsonSerializer.Serialize(
+            browserResult,
+            BrowserJsonContext.Default.BrowserDependencyCoordinateMatch);
+    }
 
     // The library-owned StyleOptionCatalog is the single source of truth for the decompiler style
     // taxonomy. These records carry its data across the Wasm boundary; the host retains no labels,
@@ -1039,7 +1081,7 @@ public static partial class BrowserInspectionEngine
     // Presentation over the neutral projection. docs/design/call-graph-projection.md makes
     // rendering host-owned on purpose: the projection carries identity, direction, cycles, and
     // boundaries, and every front end spells them for itself.
-    static string Mermaid(CallGraphProjection projection)
+    internal static string Mermaid(CallGraphProjection projection)
     {
         var builder = new StringBuilder("graph LR\n");
         foreach (CallGraphNode node in projection.Nodes)
@@ -1054,7 +1096,7 @@ public static partial class BrowserInspectionEngine
         foreach (CallGraphEdge edge in projection.Edges)
         {
             builder.Append("  n").Append(edge.From)
-                .Append(edge.LoopLabel is null ? " --> " : " -- loop --> ")
+                .Append(edge.AnyCallInLoop ? " -- loop --> " : " --> ")
                 .Append('n').Append(edge.To).Append('\n');
         }
 

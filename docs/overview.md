@@ -11,15 +11,14 @@ core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. Typed query-planning slices are implemented for project guidance,
 library metadata-image, direct-reference, assembly-context reference, package
-dependency-group, extension-method, custom-attribute,
-manifest-resource, type-forwarder, union-type, switch, SourceLink, Integrations,
-implementation relationships, type/member search, extension reachability,
-API-comparison, Analysis body-signal comparison, and Implementation comparison
-inspection. The `diff` Changes, Analysis Diff, and Implementation Diff sections
-consume
+package dependency-group, loaded dependency-coordinate match,
+extension-method, custom-attribute, manifest-resource, type-forwarder,
+union-type, classified-method, switch, SourceLink, Integrations, implementation
+relationships, type/member search, extension reachability, API-comparison,
+Analysis body-signal comparison, and Implementation comparison inspection. The
+`diff` Changes, Analysis Diff, and Implementation Diff sections consume
 producer-owned comparison results over host-resolved surfaces, body indexes,
 and retained assembly content.
-
 The library CLI, package `--all-libraries`, `extensions`, `implements`, and
 `find` now host workspace-backed queries. Independent search fan-out remains
 sequential and bounded to one retained participant at a time; group-scoped
@@ -31,10 +30,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, package dependency-group,
+  loaded dependency-coordinate match,
   extension-method, custom-attribute, manifest-resource, type-forwarder,
-  union-type, SourceLink, implementation-relationship, type/member search,
-  extension-reachability, API-comparison, and progressive call-graph queries. It
-  has no Markout, console, or filesystem-path dependency.
+  union-type, classified-method, SourceLink, implementation-relationship,
+  type/member search, extension-reachability, API-comparison, and progressive
+  call-graph queries. It has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained

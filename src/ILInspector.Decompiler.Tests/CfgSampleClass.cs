@@ -1217,6 +1217,7 @@ public class CfgSampleClass
                     goto Outer;
                 }
             }
+
         }
     }
 

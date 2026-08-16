@@ -613,6 +613,7 @@ Research overlay bridge, and the application layer:
 │                                                             │
 │  Workspace and binding-consistent assembly context groups   │
 │  Typed per-assembly and group-query coordination             │
+│  ApiInventoryQuery          type/member inventory facets    │
 ├─────────────────────────────────────────────────────────────┤
 │  ILInspector.Research (Fact overlay bridge)                 │
 │                                                             │
@@ -690,6 +691,21 @@ Research overlay bridge, and the application layer:
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
 - **CSharp** owns model-bound C# spelling through `CSharpFormatter` and exact typed-request composition through `CSharpTypePrinter`, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes. It does not depend on Decompiler or Research.
 - **CSharpText** owns dependency-free, model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source ranges. It has no metadata, SRM, PDB, SourceLink, acquisition, decompiler, or presentation dependency and does not claim to be a parser.
+  `DeclarationIndexBuilder` owns the single forward token traversal, scope and
+  trust state, and linear span finalization.
+  `DeclarationHeaderGrammar` owns pure header truncation, classification,
+  declarator splitting, operator and delegate naming, and extension-scope
+  recognition over an immutable enclosing-scope snapshot. It owns no traversal
+  or span state.
+  `DeclarationIndexTests.EveryDeclarationRoslynReports_IsReportedIdenticallyByTheIndex`
+  gates corpus-level projection parity.
+  `DeclarationIndexTests.EachDeclaratorCarriesItsOwnInitializerFact`,
+  `DeclarationIndexTests.ACheckedOperator_IsNamedForItsSymbolAlone`,
+  `DeclarationIndexTests.DelegatesFunctionPointersAndDestructors_AreClassifiedApart`,
+  `DeclarationIndexTests.AConstructorNamedExtension_IsNotAnExtensionBlock`,
+  and
+  `DeclarationIndexTests.AGenericExtensionBlock_IsTransparentJustLikeAPlainOne`
+  gate the header grammar's focused positive and close-negative cases.
 - **Metadata** owns PE/PDB extraction and raw typed correlations. It does not know SourceLink maps, GUIDs, URLs, or provenance and does not expose its readers.
 - **SourceLink** owns map extraction and processing, canonical source paths, URL decoration, provenance, high-level resolution, source Findings, and SourceLink-aware audits. SourceLinkFetch remains the single map/provenance grammar owner and does not depend on Metadata.
 - **ReturnToSender** remains tools-only and owns closure discovery, cluster membership, synthesis, accessibility flattening, and body-policy selection. It passes typed requests to CSharp rather than maintaining a parallel declaration model.
@@ -748,14 +764,23 @@ Research overlay bridge, and the application layer:
   method-local calls and safety evidence. It consumes one
   `ILibraryMethodAnalysisInfrastructure` implemented by the assembly builder;
   that contract supplies the caller-owned primary-image reader/PE pair,
-  method identity and generic scope, and the existing narrow metadata
-  resolvers without exposing them to topic producers.
+  while delegating method identity, generic scope, and the existing narrow
+  metadata resolvers to `LibraryBodyPrimaryMetadataResolver` without exposing
+  them to topic producers.
   `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gates partial failure
   publication, and
   `LibraryBodyIndex_PrefetchedImageScopeSkipsMalformedUnselectedBody` gates
-  scoped decode through the runner. The assembly builder retains the
-  metadata-ordered work list, parallel scheduling, primary-image metadata
-  judgments, and result aggregation. Cross-assembly type-definition binding,
+  scoped decode through the runner. `LibraryBodyPrimaryMetadataResolver` owns
+  primary-image method identity, unsafe/generated attribute judgments,
+  token/member/type/field/calli/value-type/delegate facts, async-state-machine
+  caching, and the allocation/optimization/call resolver adapters.
+  `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
+  `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
+  `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
+  representative identity, cached classification, and token-shape behavior.
+  The assembly builder retains the metadata-ordered work list, parallel
+  scheduling, assembly-level projections, and result aggregation.
+  Cross-assembly type-definition binding,
   referenced-image metadata lifetime, and the registration-keyed cache belong
   to `LibraryBodyReferenceMetadataResolver`, which composes
   `AssemblyReferenceBindingPolicy` and `TypeResolutionCatalog`.
@@ -809,6 +834,7 @@ src/dotnet-inspect/
 
 src/DotnetInspector.Services/   # Shared, app-agnostic services
 src/DotnetInspector.Packages/   # NuGet domain provider
+src/DotnetInspector.Queries/    # Typed inspection requests and results
 src/ILInspector.Metadata/       # PE/assembly domain provider
 src/ILInspector.CSharp/         # C# spelling and namespace/type views
 src/ILInspector.ControlFlow/    # Shared control-flow/dataflow kernels
@@ -840,3 +866,5 @@ src/ILInspector.Research/       # Registered fact overlay and annotated views
 10. **Research seam for R1/R2 overlays** — `ILInspector.Research` is the accepted bridge above Analysis (R1 lower representation) and Decompiler (R2 projection/recovery representation). Research owns the `ResearchFactRegistry`, annotation producers, and fact-overlay presenters, so new facts flow through one offset-keyed overlay instead of direct `Analysis <-> Decompiler` edges or bypass renderers.
 
 11. **Finding arity is semantic** — `Finding<T>` is a one-version observation and `PairFinding<T>` is a two-version transition. `IFinding` and `IPairFinding` provide separate heterogeneous collection contracts; repeated subject/descriptor/detail projections do not justify a misleading shared hierarchy. Research composes producer-owned observations, transitions, native structural diffs, failures, and provenance as evidence without wrapping them in a second universal row model. See [Finding Nomenclature](design/finding-nomenclature.md).
+
+12. **Analysis owns structural clone truth** — Exact method-body relationship and block/local correspondence are Analysis concerns over the shared instruction substrate. Candidate discovery and corpus orchestration remain outside the producer; Research may later project owner-issued provenance into implementation-diff presentation without making C# rendering a second verifier. The first A-vs-A contract and its explicit unsupported boundaries are in [Structural Clone Analysis](design/structural-clone-analysis.md).

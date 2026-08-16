@@ -296,7 +296,8 @@ value-type boxing) plus `allocation-hotspot` rows for methods that allocate
 heavily without matching a specific shape. The `type` and `member` commands keep
 the single `Performance Triage` lens.
 
-The tight markdown columns carry the ranked, human-facing fields; the full
+The tight markdown columns carry the ranked, human-facing fields, including a
+static `Priority` that is separate from evidence/rewrite `Confidence`; the full
 per-row diagnostics (shape, provenance, candidate id, native `Finding`, metadata
 `Token`, IL offset, allocation `Weight`, path/loop evidence, and the fix
 sentence) are preserved in the nested `performance` object of `--json`.
@@ -310,7 +311,15 @@ occurrence. Those fields let trace and version-diff tooling join a triage row to
 `analysis.allocation` or `analysis.call-site` evidence without parsing
 `Evidence` prose. Use `--top`, `--loop`, `--min-confidence`, and
 `--triage-shape` to ask the tool for the curated pay-dirt rows directly instead
-of post-processing. `--top` limits the ranked data before rendering; `-n N`
+of post-processing. The default ranking puts directly evidenced algorithmic amplification,
+avoidable cache-lookup factory allocations, and actionable high allocation
+weight first, then generic repeated costs. Recursive scan helpers remain medium
+priority unless source identity can establish shared-sequence amplification.
+Escape-unknown `small-array` rows
+remain medium priority even at high weight because no safe stack rewrite is
+proven. Static priority is not proof of runtime heat. `--top` limits the ranked data before
+rendering; flattened `Performance:*` output preserves that global order across
+kinds. `-n N`
 remains a renderer cap and is applied afterward if both are supplied. Drill
 candidates with `Call Graph` (a bounded bidirectional graph: inbound callers up
 to entry points and outbound calls in one view), and project per-node cost with
@@ -351,8 +360,8 @@ dotnet-inspect library MyLib.dll -S @Performance
 dotnet-inspect library MyLib.dll -S @Performance --count
 dotnet-inspect library MyLib.dll -S "Performance: Boxing" --json
 dotnet-inspect library MyLib.dll -S "Resource Triage" --jsonl
-dotnet-inspect library MyLib.dll --loop --min-confidence high --top 20 --tsv
-dotnet-inspect library MyLib.dll --triage-shape scan-method-in-loop-call,linq-scan-in-loop,string-build-in-loop --top 20 --tsv
+dotnet-inspect library MyLib.dll --where "Priority>=high" --top 20 --tsv
+dotnet-inspect library MyLib.dll --triage-shape scan-method-in-loop-call,scan-method-in-recursive-traversal,linq-scan-in-loop,string-build-in-loop --top 20 --tsv
 dotnet-inspect library MyLib.dll --triage-shape capturing-delegate --top 10 --jsonl
 dotnet-inspect library MyLib.dll --triage-shape allocation-fanout \
   --order-by "OncePaths desc" --top 20 --tsv
@@ -387,9 +396,16 @@ normal-return paths, not runtime bytes or workload frequency; virtual, external,
 delegate, recursive, and runtime-library effects remain opaque.
 
 Common `--triage-shape` values include `capturing-delegate`,
-`async-state-machine`, `box-value-type`, `small-array`, `linq-scan-in-loop`,
+`async-state-machine`, `box-value-type`, `generic-parameter-object-box`,
+`small-array`,
+`cache-lookup-factory-delegate`, `linq-scan-in-loop`,
+`scan-method-in-loop-call`, `scan-method-in-recursive-traversal`,
 `materialize-in-loop`, `string-build-in-loop`, `enumerator-allocation`, and
 `allocation-hotspot`.
+
+`generic-parameter-object-box` starts at medium priority because allocation
+depends on a value-type instantiation; exact local-loop evidence promotes it
+to high. Caller-loop evidence remains queryable but does not change priority.
 
 ### Decompiler
 
@@ -420,7 +436,9 @@ for compatibility. The same config file
 spellings using `.editorconfig` key names. Named enum labels that share one
 switch body are alphabetical by default; set
 `dotnet_inspect_style_enum_case_label_order = value` to retain recovered numeric
-order. `--taste` requests the whole
+order. Object creation uses target-typed `new(...)` by default; set
+`csharp_style_implicit_object_creation_when_type_is_apparent = false` to keep
+the explicit constructed type in `new T(...)`. `--taste` requests the whole
 oracle-endorsed set for one invocation without a config file. `Annotated Source`
 names the applied spellings in a trailing comment on the member signature, and
 drops its interleaved IL for any member a byte-divergent lens actually rewrote.
@@ -541,6 +559,10 @@ renders its coverage as a caveat.
 
 Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--value` for one scalar, `--urls` for URL lists, `--paths` for path lists, `--print` to materialize one selected-section document (`--row N|first|last` chooses a displayed row), `--json-array` to emit projected rows as one JSON array, `--rows N` to cap rendered table rows (`2..10` is inclusive, `2+10` is start plus count, and `10..` is open-ended), `--count` to reduce a selected section/vector to a row count, and `--mermaid` for diagrams. On `member -S "Call Graph"`, `--tree` and `--mermaid` are standalone formats; pair `--mermaid` with `--markdown` to embed the diagram in a Markdown document. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
 
+On `find`, plain `--json` retains the typed result shape. Add `--columns` or
+`--fields` to emit projected JSON with the same selected rows and snake_case
+fields as `--tsv` and `--jsonl`.
+
 Call Graph edge rows use the machine field names `from`, `from_group`,
 `to`, `to_group`, and `label` under `--tsv` and `--jsonl`. Markdown and
 `--table` retain the human headings `From`, `From Group`, `To`, `To Group`, and
@@ -552,6 +574,7 @@ Sections and fields are queryable without a template language:
 dotnet-inspect library System.Net.Security -S "Async*"
 dotnet-inspect member JsonSerializer --package System.Text.Json -D
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
+dotnet-inspect find JsonSerializer --platform System.Text.Json --columns Type,Library --json
 dotnet-inspect type --package System.Text.Json --columns Kind,Name
 dotnet-inspect library System.Text.Json -S Symbols --fields "PDB*;SourceLink"
 dotnet-inspect library System.Text.Json -S @Audit

@@ -65,17 +65,120 @@ public sealed record CallGraphNode(
     CallTreePerf? Perf = null,
     ImmutableArray<GraphNodeEvidence> GraphEvidence = default);
 
+/// <summary>The traversal half that first contributed one logical edge.</summary>
+public enum CallGraphEdgeOrigin
+{
+    Callers,
+    Callees,
+}
+
+/// <summary>Descriptive dispatch modality derived from one physical call.</summary>
+public enum CallGraphDispatchKind
+{
+    Direct,
+    Virtual,
+    FunctionPointer,
+    VirtualFunctionPointer,
+    Indirect,
+}
+
 /// <summary>
 /// One directed call edge. The direction is always "caller calls callee", so an inbound
 /// (reverse) tree is inverted during projection rather than left for the host to interpret.
 /// </summary>
 /// <param name="From">Id of the calling member.</param>
 /// <param name="To">Id of the called member.</param>
-/// <param name="LoopLabel">
-/// Non-null when the call occurs inside a loop at any collapsed call site: either the
-/// analysis loop hint or <c>"loop"</c>.
+/// <param name="AnyCallInLoop">
+/// Whether any retained physical call site supporting this edge occurs in a
+/// loop. Evidence-free trees fall back to their typed loop flag.
 /// </param>
-public readonly record struct CallGraphEdge(int From, int To, string? LoopLabel);
+/// <param name="Origin">
+/// The traversal half that first contributed the edge. Hosts may use this to
+/// preserve caller-side versus callee-side presentation without storing label
+/// text in the projection.
+/// </param>
+/// <param name="CallSiteIds">
+/// Dense ids into <see cref="CallGraphProjection.CallSites"/> for every retained
+/// physical call supporting this edge.
+/// </param>
+/// <param name="HasUnavailablePhysicalOccurrences">
+/// Whether one or more physical occurrences supporting this edge could not be
+/// retained because independently detached scopes disagreed on their logical
+/// endpoint identity.
+/// </param>
+/// <param name="LegacyLoopHint">
+/// The analysis hint retained only for an evidence-free tree edge. Physical
+/// call edges derive loop presentation from typed occurrence evidence.
+/// </param>
+public readonly record struct CallGraphEdge(
+    int From,
+    int To,
+    bool AnyCallInLoop,
+    CallGraphEdgeOrigin Origin,
+    ImmutableArray<int> CallSiteIds,
+    bool HasUnavailablePhysicalOccurrences,
+    string? LegacyLoopHint);
+
+/// <summary>
+/// Opaque identity for one physical call receipt. Catalog identities retain
+/// acquisition registration; synthetic identities retain structural caller
+/// identity.
+/// </summary>
+public sealed class CallGraphCallSiteIdentity
+    : IEquatable<CallGraphCallSiteIdentity>
+{
+    readonly GraphNodeStorageKey? _callerStorage;
+    readonly GraphNodeIdentity? _structuralCaller;
+
+    internal CallGraphCallSiteIdentity(
+        GraphNodeStorageKey? callerStorage,
+        GraphNodeIdentity? structuralCaller,
+        int ilOffset,
+        int operandToken)
+    {
+        if ((callerStorage is null) == (structuralCaller is null))
+        {
+            throw new ArgumentException(
+                "Exactly one physical caller identity is required.");
+        }
+
+        _callerStorage = callerStorage;
+        _structuralCaller = structuralCaller;
+        ILOffset = ilOffset;
+        OperandToken = operandToken;
+    }
+
+    public int ILOffset { get; }
+    public int OperandToken { get; }
+    public bool IsPortable =>
+        _callerStorage is null
+        && _structuralCaller!.IsPortable;
+
+    public bool Equals(CallGraphCallSiteIdentity? other) =>
+        other is not null
+        && Equals(_callerStorage, other._callerStorage)
+        && Equals(_structuralCaller, other._structuralCaller)
+        && ILOffset == other.ILOffset
+        && OperandToken == other.OperandToken;
+
+    public override bool Equals(object? obj) =>
+        obj is CallGraphCallSiteIdentity other && Equals(other);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(
+            _callerStorage,
+            _structuralCaller,
+            ILOffset,
+            OperandToken);
+}
+
+/// <summary>One physical call site retained behind a logical edge.</summary>
+public sealed record CallGraphCallSite(
+    int Id,
+    int EdgeId,
+    CallGraphCallSiteIdentity Identity,
+    DirectCall Call,
+    CallGraphDispatchKind DispatchKind);
 
 /// <summary>
 /// One stable row of a <see cref="CallGraphProjection"/>.
@@ -136,11 +239,13 @@ public sealed partial class CallGraphProjection
     private CallGraphProjection(
         ImmutableArray<CallGraphNode> nodes,
         ImmutableArray<CallGraphEdge> edges,
+        ImmutableArray<CallGraphCallSite> callSites,
         bool hasUnexploredTraversalBoundary,
         bool hasAnalysisFailureBoundary)
     {
         Nodes = nodes;
         Edges = edges;
+        CallSites = callSites;
         HasUnexploredTraversalBoundary =
             hasUnexploredTraversalBoundary;
         HasAnalysisFailureBoundary =
@@ -157,6 +262,12 @@ public sealed partial class CallGraphProjection
 
     /// <summary>Edges in deterministic first-seen order, always oriented caller → callee.</summary>
     public ImmutableArray<CallGraphEdge> Edges { get; }
+
+    /// <summary>
+    /// Physical call sites in deterministic first-seen order. Repeated
+    /// observations from the caller and callee walks appear once.
+    /// </summary>
+    public ImmutableArray<CallGraphCallSite> CallSites { get; }
 
     /// <summary>
     /// Rows in deterministic order, one per <see cref="Edges"/> entry. Row numbers are
@@ -211,16 +322,10 @@ public sealed partial class CallGraphProjection
         [
             .. Rows.Where(candidate =>
                 candidate.Edge.From == callerNodeId
-                && Nodes[candidate.Edge.To].GraphEvidence.Any(evidence =>
-                    evidence.Storage.Kind
-                        == GraphNodeStorageKind.CallSite
-                    && evidence.Storage.ModuleVersionId
-                        == call.Caller.ModuleVersionId
-                    && evidence.Storage.MethodToken
-                        == call.Caller.MetadataToken
-                    && evidence.Storage.ILOffset == call.ILOffset
-                    && evidence.Storage.OperandToken
-                        == call.OperandToken)),
+                && candidate.Edge.CallSiteIds.Any(callSiteId =>
+                    SamePhysicalCallSite(
+                        CallSites[callSiteId].Call,
+                        call))),
         ];
         if (exact.Length == 1)
         {
@@ -254,6 +359,18 @@ public sealed partial class CallGraphProjection
             : CallGraphRowMatch.NotProjected;
     }
 
+    static bool SamePhysicalCallSite(
+        DirectCall first,
+        DirectCall second) =>
+        first.Caller.AssemblyName
+            == second.Caller.AssemblyName
+        && first.Caller.ModuleVersionId
+            == second.Caller.ModuleVersionId
+        && first.Caller.MetadataToken
+            == second.Caller.MetadataToken
+        && first.ILOffset == second.ILOffset
+        && first.OperandToken == second.OperandToken;
+
     /// <summary>
     /// Projects the combined caller/target/callee view. Both roots are the selected
     /// overload: <paramref name="callerRoot"/>'s children are its inbound callers and
@@ -282,6 +399,10 @@ public sealed partial class CallGraphProjection
         bool useGraphEvidence =
             HasCompleteGraphEvidence(callerRoot)
             && HasCompleteGraphEvidence(calleeRoot);
+        bool useAcquisitionReceiptIdentity =
+            useGraphEvidence
+            && HasCompleteCallerDefinitions(callerRoot)
+            && HasCompleteCallerDefinitions(calleeRoot);
         if (callerRoot is not null && calleeRoot is not null
             && callerResolved == calleeResolved
             && Identity(callerRoot, useGraphEvidence)
@@ -292,7 +413,9 @@ public sealed partial class CallGraphProjection
             : callerResolved ? callerRoot!.Member
             : (calleeRoot ?? callerRoot)!.Member;
 
-        var builder = new Builder(useGraphEvidence);
+        var builder = new Builder(
+            useGraphEvidence,
+            useAcquisitionReceiptIdentity);
         // The selected overload is the single centered node shared by both trees; each
         // tree's root *is* that focus, so map both roots to the same id. This keeps a
         // bodiless placeholder root from becoming a second, stray "?" node.
@@ -354,12 +477,39 @@ public sealed partial class CallGraphProjection
         public List<GraphNodeEvidence> GraphEvidence { get; } = [];
     }
 
-    private sealed class Builder(bool useGraphEvidence)
+    private sealed class Builder(
+        bool useGraphEvidence,
+        bool useAcquisitionReceiptIdentity)
     {
+        private sealed class MutableEdge(
+            int from,
+            int to,
+            CallGraphEdgeOrigin origin)
+        {
+            public int From { get; } = from;
+            public int To { get; } = to;
+            public CallGraphEdgeOrigin Origin { get; } = origin;
+            public bool PhysicalAnyCallInLoop { get; set; }
+            public bool FallbackAnyCallInLoop { get; set; }
+            public bool HasUnavailablePhysicalOccurrences { get; set; }
+            public bool AnyCallInLoop =>
+                CallSiteIds.Count > 0
+                    ? PhysicalAnyCallInLoop
+                        || (HasUnavailablePhysicalOccurrences
+                            && FallbackAnyCallInLoop)
+                    : FallbackAnyCallInLoop;
+            public string? LegacyLoopHint { get; set; }
+            public List<int> CallSiteIds { get; } = [];
+        }
+
         private readonly Dictionary<GraphNodeIdentity, int> _ids = [];
         private readonly List<MutableNode> _nodes = [];
         private readonly Dictionary<(int From, int To), int> _edgeIndex = [];
-        private readonly List<CallGraphEdge> _edges = [];
+        private readonly List<MutableEdge> _edges = [];
+        private readonly Dictionary<
+            CallGraphCallSiteIdentity,
+            int> _callSiteIds = [];
+        private readonly List<CallGraphCallSite> _callSites = [];
 
         public int RegisterFocus(
             MemberRef member,
@@ -391,7 +541,14 @@ public sealed partial class CallGraphProjection
                     KindFor(child.Status),
                     child.Perf,
                     child.GraphEvidence);
-                AddEdge(childId, nodeId, LoopLabel(child.Perf));
+                AddEdge(
+                    childId,
+                    nodeId,
+                    child.ParentEdgeCallSites,
+                    child.ParentEdgeCallerDefinition,
+                    child.Perf is { InLoop: true },
+                    child.Perf?.LoopHint,
+                    CallGraphEdgeOrigin.Callers);
                 WalkCallers(child, childId);
             }
         }
@@ -407,7 +564,14 @@ public sealed partial class CallGraphProjection
                     KindFor(child.Status),
                     child.Perf,
                     child.GraphEvidence);
-                AddEdge(nodeId, childId, LoopLabel(child.Perf));
+                AddEdge(
+                    nodeId,
+                    childId,
+                    child.ParentEdgeCallSites,
+                    child.ParentEdgeCallerDefinition,
+                    child.Perf is { InLoop: true },
+                    child.Perf?.LoopHint,
+                    CallGraphEdgeOrigin.Callees);
                 WalkCallees(child, childId);
             }
         }
@@ -429,9 +593,24 @@ public sealed partial class CallGraphProjection
                         node.Perf,
                         [.. node.GraphEvidence]));
             }
+            var edges = ImmutableArray.CreateBuilder<CallGraphEdge>(
+                _edges.Count);
+            foreach (MutableEdge edge in _edges)
+            {
+                edges.Add(
+                    new CallGraphEdge(
+                        edge.From,
+                        edge.To,
+                        edge.AnyCallInLoop,
+                        edge.Origin,
+                        [.. edge.CallSiteIds],
+                        edge.HasUnavailablePhysicalOccurrences,
+                        edge.LegacyLoopHint));
+            }
             return new CallGraphProjection(
                 nodes.MoveToImmutable(),
-                [.. _edges],
+                edges.MoveToImmutable(),
+                [.. _callSites],
                 hasUnexploredTraversalBoundary,
                 hasAnalysisFailureBoundary);
         }
@@ -486,18 +665,110 @@ public sealed partial class CallGraphProjection
             node.GraphEvidence.Add(evidence);
         }
 
-        private void AddEdge(int from, int to, string? loopLabel)
+        private void AddEdge(
+            int from,
+            int to,
+            ImmutableArray<DirectCall> callSites,
+            GraphNodeStorageKey? callerDefinition,
+            bool fallbackInLoop,
+            string? fallbackLoopHint,
+            CallGraphEdgeOrigin origin)
         {
-            if (_edgeIndex.TryGetValue((from, to), out var index))
+            if (!_edgeIndex.TryGetValue((from, to), out int index))
             {
-                // A shared edge that is a loop call from any site keeps its loop annotation.
-                if (loopLabel is not null && _edges[index].LoopLabel is null)
-                    _edges[index] = _edges[index] with { LoopLabel = loopLabel };
+                index = _edges.Count;
+                _edgeIndex.Add((from, to), index);
+                _edges.Add(new MutableEdge(from, to, origin));
+            }
+
+            MutableEdge edge = _edges[index];
+            if (callSites.IsDefaultOrEmpty)
+            {
+                AddLegacyFallbackEvidence(
+                    edge,
+                    fallbackInLoop,
+                    fallbackLoopHint);
                 return;
             }
 
-            _edgeIndex[(from, to)] = _edges.Count;
-            _edges.Add(new CallGraphEdge(from, to, loopLabel));
+            foreach (DirectCall call in callSites)
+            {
+                ArgumentNullException.ThrowIfNull(call);
+                var identity = new CallGraphCallSiteIdentity(
+                    useAcquisitionReceiptIdentity
+                        ? callerDefinition
+                        : null,
+                    useAcquisitionReceiptIdentity
+                        ? null
+                        : GraphNodeIdentity.FromMember(
+                            _nodes[from].Member),
+                    call.ILOffset,
+                    call.OperandToken);
+                if (_callSiteIds.TryGetValue(
+                        identity,
+                        out int existingId))
+                {
+                    CallGraphCallSite existing =
+                        _callSites[existingId];
+                    if (existing.Call != call)
+                    {
+                        throw new InvalidOperationException(
+                            "One physical call-site identity cannot carry contradictory evidence.");
+                    }
+                    if (existing.EdgeId != index)
+                    {
+                        // Independently detached direction scopes can disagree
+                        // on the target identity for one physical receipt.
+                        AddUnavailablePhysicalEvidence(
+                            edge,
+                            fallbackInLoop,
+                            fallbackLoopHint);
+                        continue;
+                    }
+                    edge.LegacyLoopHint = null;
+                    edge.PhysicalAnyCallInLoop |= call.InLoop;
+                    continue;
+                }
+
+                edge.LegacyLoopHint = null;
+                edge.PhysicalAnyCallInLoop |= call.InLoop;
+                int id = _callSites.Count;
+                _callSiteIds.Add(identity, id);
+                _callSites.Add(
+                    new CallGraphCallSite(
+                        id,
+                        index,
+                        identity,
+                        call,
+                        DispatchKind(call)));
+                edge.CallSiteIds.Add(id);
+            }
+        }
+
+        static void AddLegacyFallbackEvidence(
+            MutableEdge edge,
+            bool inLoop,
+            string? loopHint)
+        {
+            edge.FallbackAnyCallInLoop |= inLoop;
+            if (edge.CallSiteIds.Count == 0
+                && inLoop
+                && edge.LegacyLoopHint is null)
+            {
+                edge.LegacyLoopHint = loopHint;
+            }
+        }
+
+        static void AddUnavailablePhysicalEvidence(
+            MutableEdge edge,
+            bool inLoop,
+            string? loopHint)
+        {
+            edge.HasUnavailablePhysicalOccurrences = true;
+            AddLegacyFallbackEvidence(
+                edge,
+                inLoop,
+                loopHint);
         }
     }
 
@@ -517,6 +788,38 @@ public sealed partial class CallGraphProjection
         foreach (CallTreeNode child in root.Children)
         {
             if (!HasCompleteGraphEvidence(child))
+                return false;
+        }
+
+        return true;
+    }
+
+    static bool HasCompleteCallerDefinitions(CallTreeNode? root)
+    {
+        if (root is null)
+            return true;
+
+        foreach (CallTreeNode child in root.Children)
+        {
+            if (!child.ParentEdgeCallSites.IsDefaultOrEmpty)
+            {
+                GraphNodeStorageKey? definition =
+                    child.ParentEdgeCallerDefinition;
+                if (definition is not
+                        {
+                            Kind: GraphNodeStorageKind.Definition,
+                        }
+                    || child.ParentEdgeCallSites.Any(call =>
+                        definition.ModuleVersionId
+                            != call.Caller.ModuleVersionId
+                        || definition.MethodToken
+                            != call.Caller.MetadataToken))
+                {
+                    return false;
+                }
+            }
+
+            if (!HasCompleteCallerDefinitions(child))
                 return false;
         }
 
@@ -588,13 +891,25 @@ public sealed partial class CallGraphProjection
             && (node.HasUnresolvedDispatch
                 || node.Children.Any(HasUnresolvedDispatch));
 
-    // The loop flag lives on the deeper (child) node and describes the parent↔child
-    // call edge: for a callee tree the parent calls the child in a loop; for a caller
-    // tree the child (caller) calls the parent in a loop.
-    private static string? LoopLabel(CallTreePerf? perf)
-        => perf is { InLoop: true } p
-            ? string.IsNullOrEmpty(p.LoopHint) ? "loop" : p.LoopHint
-            : null;
+    private static CallGraphDispatchKind DispatchKind(
+        DirectCall call) =>
+        call.Kind switch
+        {
+            CallKind.Call or CallKind.NewObject =>
+                CallGraphDispatchKind.Direct,
+            CallKind.CallVirtual when call.ExactTarget =>
+                CallGraphDispatchKind.Direct,
+            CallKind.CallVirtual =>
+                CallGraphDispatchKind.Virtual,
+            CallKind.LoadFunction =>
+                CallGraphDispatchKind.FunctionPointer,
+            CallKind.LoadVirtualFunction =>
+                CallGraphDispatchKind.VirtualFunctionPointer,
+            CallKind.CallIndirect =>
+                CallGraphDispatchKind.Indirect,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(call)),
+        };
 
     /// <summary>
     /// Combines two observations of the same member, one per walk direction.

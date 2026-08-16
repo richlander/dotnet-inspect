@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-signals
 version: 0.1.0
-description: Surface a dependency's observable signals — SourceLink, determinism, trim/AOT, license, vulnerabilities, age, dependency risk, and the unsafe/PInvoke surface — to judge how much caution it warrants. Observations, not verdicts.
+description: Surface a dependency's observable signals — provenance, compatibility, dependency risk, unsafe/PInvoke surface, artifact-text containment, and identifier confusion — to judge how much caution it warrants. Observations, not verdicts.
 ---
 
 # dotnet-inspect: dependency signals
@@ -20,7 +20,8 @@ dnx dotnet-inspect -y -- <command>
 `-S Signals` on `package` or `library` is the one-stop view. It reports
 SourceLink, determinism, trim/AOT compatibility, memory-safety metadata,
 unsafe/PInvoke surface, references, TFMs, manifest/docs, license,
-vulnerabilities, package age, and dependency risk.
+vulnerabilities, package age, dependency risk, and content-free summaries of
+artifact-text containment and identifier confusion where applicable.
 
 ```bash
 dnx dotnet-inspect -y -- package Microsoft.Extensions.AI -S Signals
@@ -29,15 +30,32 @@ dnx dotnet-inspect -y -- library System.Text.Json -S Signals
 
 ## Safety and interop surface
 
-`-S @Audit` includes `Unsafe Members` and `P/Invoke Methods` alongside library
-signals, symbols, and path audit evidence. `Switches` is a separate section;
-select it explicitly for feature-switch and trim/AOT knobs. (For unsafe
-operations inside one method, see the `correctness` skill; for what switches
-mean across versions, see `compatibility`.)
+`-S @Audit` expands the audit sections authored for the target. On libraries it
+includes `Unsafe Members`, `P/Invoke Methods`, and `Audit: Identifier
+Confusion` alongside signals, symbols, and path evidence. On packages it
+includes `Audit: Artifact Text` and `Audit: Identifier Confusion`. `Switches`
+is a separate section; select it explicitly for feature-switch and trim/AOT
+knobs. (For unsafe operations inside one method, see the `correctness` skill;
+for what switches mean across versions, see `compatibility`.)
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "@Audit,Switches"
 dnx dotnet-inspect -y -- library MyLib.dll -S "Unsafe Members,P/Invoke Methods"
+```
+
+`Signals` stays summary-only and never repeats a concerning value. Package
+`Artifact text containment` names the Unicode concern kinds found in
+package-model fields; its focused audit lists content-free field locations and
+concern kinds. Package and library `Identifier confusion` summarizes
+non-ASCII identifiers and reserved-prefix homoglyphs; its focused audit adds
+content-free locations, classifications, similarity, and code points. The
+explicit library audit resolves the transitive reference closure, while the
+Signals row stays bounded to the selected assembly and direct references.
+
+```bash
+dnx dotnet-inspect -y -- package MyPackage -S "Signals,Audit: Artifact Text"
+dnx dotnet-inspect -y -- package MyPackage -S "Signals,Audit: Identifier Confusion"
+dnx dotnet-inspect -y -- library MyLib.dll -S "Signals,Audit: Identifier Confusion"
 ```
 
 ## SourceLink provenance

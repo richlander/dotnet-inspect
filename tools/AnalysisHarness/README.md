@@ -24,6 +24,30 @@ dotnet "$DLL" --generated-fixtures alloc --json  # grade a subset (id/prefix/tag
 dotnet "$DLL" --generated-fixtures exception.unsuffixed.external --keep  # keep temp projects
 ```
 
+The structural clone relationship corpus is a separate product/harness
+boundary:
+
+```bash
+dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll
+dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll --json
+```
+
+The committed
+`corpus/structural-clone-relationships.json` ledger supplies candidate pairs
+and separately expected disposition/relation. It also records orthogonal
+difficulty, intent, actionability, and tag axes. The harness resolves the
+declared type and method names to SRM handles, then grades only
+`StructuralCloneAnalysis.Compare`; it owns no clone normalization,
+correspondence, or verification logic.
+
+The ledger is strict: missing or unknown fields, integer enum values, schema
+versions, duplicate IDs, unknown axis values, incomplete identities, and
+relation/disposition contradictions fail instead of silently shrinking
+coverage. An explicitly supplied `--relationship-ledger` must name a file;
+it never falls back to the committed corpus. `StructuralCloneCorpusTests` also
+requires every public method in the dedicated fixture type to appear in the
+ledger, preventing fixture or relationship inventory drift.
+
 Each fixture builds in isolation: a consumer assembly (the inspected one) plus, when the
 fixture is cross-assembly, a referenced external assembly (with an extern alias for the
 name-collision case). Isolation keeps same-fully-qualified-name and alias fixtures from clashing
@@ -126,6 +150,23 @@ That run is also an invocation-edge near miss: the current Caller Graph path to
 `RenderFragment`; it is not a call. The invocation-only census therefore
 correctly reports no witness. Proving that callback is repeatedly consumed
 requires a separate deferred-callback discriminator.
+
+## Historical performance recall
+
+The historical reference complements the local paydirt list with performance
+fixes from `dotnet/runtime`. It records all reviewed fixes, including current
+misses and explicit out-of-scope classes, while executable cells acquire exact
+before/after NuGet artifacts and gate the expected member+shape count:
+
+```bash
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --historical-performance-recall
+```
+
+This mode is explicitly network-capable; cached packages are reused. The
+committed reference contains coordinates and expectations, not copied runtime
+binaries. The generated Analysis fixtures separately keep each implemented
+discriminator executable in offline CI.
 
 A deferred-callback census measures that separate construction boundary:
 

@@ -49,6 +49,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["MemberBodyProducerExpressionBodyTests.cs"] = (1, "Product-output validity: decompiles a compiled single-switch-return member and asserts the expression-bodied rendering (#3088)."),
             ["LadderRung6GateTests.cs"] = (1, "Product-output validity: compiles synthesized rung-6 gate source."),
             ["LadderRung9GateTests.cs"] = (1, "Product-output validity: compiles synthesized rung-9 gate source with feature parse options."),
+            ["LambdaRaisingPassTests.cs"] = (1, "Product-output validity: compiles the recovered explicit ref-parameter lambda syntax."),
 
             // Malformed-input / input-matrix / semantic-model seam isolation.
             ["ClosureDiagnosticEvidenceTests.cs"] = (6, "Input matrix + semantic-model seam: many compile-error/closure sources across a Theory."),
@@ -118,9 +119,11 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     replaces a same-identity dependency to gate frozen-closure reuse.
     //   #4003 adds EnumCaseLabelOrderTests.cs (1 site): recompiles the canonical
     //     alphabetical output and proves a second decompilation is identical.
-    //   Combined: 40 files, 50 sites.
-    const int ExpectedDynamicFiles = 40;
-    const int ExpectedDynamicSites = 50;
+    //   #4238 adds LambdaRaisingPassTests.cs (1 site): recompiles recovered
+    //     explicit ref-parameter lambda syntax.
+    //   Combined: 41 files, 51 sites.
+    const int ExpectedDynamicFiles = 41;
+    const int ExpectedDynamicSites = 51;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];
