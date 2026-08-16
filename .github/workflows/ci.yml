@@ -325,7 +325,7 @@ jobs:
       - name: Run services tests
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
 
-      - name: Run inspection workspace tests
+      - name: Run inspection query tests
         run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
 
       # NuGetFetch is the HTTP and credential layer. Its live-network tests are tagged
@@ -477,6 +477,10 @@ jobs:
       - name: Run services tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
+
+      - name: Run query tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
 
   # net10.0 fallback build coverage. The official non-AOT "any" package targets
   # the net10.0 LTS floor (Directory.Build.props), but the full test lane builds

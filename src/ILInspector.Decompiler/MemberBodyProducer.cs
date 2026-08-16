@@ -1134,10 +1134,17 @@ public static class MemberBodyProducer
                         foreach (var attribute in AttributeReader.RenderEventAttributes(
                             reader, typeHandle, member.Name, bodyNamespaces))
                             sb.AppendLf($"    [{attribute}]");
-                    string declaration = (attributeMode == MemberRenderAttributeMode.All
-                        ? TerminatedDeclarationFormatter
-                        : ShellTerminatedDeclarationFormatter).FormatMember(type, member);
-                    sb.AppendLf($"    {declaration}");
+                    ComposeEvent(
+                        sb,
+                        pipelineSource,
+                        reader,
+                        typeHandle,
+                        type,
+                        member,
+                        bodyNamespaces,
+                        printerOptions,
+                        attributeMode,
+                        failOnDiagnostic: only is not null);
                     break;
                 }
             }
@@ -1780,6 +1787,131 @@ public static class MemberBodyProducer
             CSharpMemberLayout.Append(sb, accessorHead, body, 8, WrapExpressionBodyArrow(printerOptions), singleReturn);
         }
         sb.AppendLf("    }");
+    }
+
+    static void ComposeEvent(
+        StringBuilder sb, Pipeline.MetadataSource pipelineSource,
+        MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type, ApiMember member,
+        SortedSet<string> bodyNamespaces, Pipeline.PrinterOptions? printerOptions,
+        MemberRenderAttributeMode attributeMode, bool failOnDiagnostic)
+    {
+        var declarationFormatter = attributeMode == MemberRenderAttributeMode.All
+            ? DefaultDeclarationFormatter
+            : ShellDeclarationFormatter;
+        var terminatedDeclarationFormatter = attributeMode == MemberRenderAttributeMode.All
+            ? TerminatedDeclarationFormatter
+            : ShellTerminatedDeclarationFormatter;
+        var adderHandle = ResolveAccessorHandle(
+            reader,
+            typeHandle,
+            member.AdderToken,
+            $"add_{member.Name}");
+        var removerHandle = ResolveAccessorHandle(
+            reader,
+            typeHandle,
+            member.RemoverToken,
+            $"remove_{member.Name}");
+
+        if (member.IsAbstract
+            || adderHandle is not { } adder
+            || removerHandle is not { } remover
+            || reader.GetMethodDefinition(adder).RelativeVirtualAddress == 0
+            || reader.GetMethodDefinition(remover).RelativeVirtualAddress == 0
+            || HasMethodImplementationAccessor(reader, typeHandle, adder, remover)
+            || HasSameNamedEventField(reader, typeHandle, member))
+        {
+            sb.AppendLf($"    {terminatedDeclarationFormatter.FormatMember(type, member)}");
+            return;
+        }
+
+        string? adderBody = DecompileAccessor(
+            pipelineSource,
+            adder,
+            type.FullName,
+            $"add_{member.Name}",
+            bodyNamespaces,
+            out bool adderRequiresUnsafe,
+            out bool adderRequiresAsync,
+            out bool adderIsSingleExpression,
+            printerOptions,
+            failOnDiagnostic);
+        string? removerBody = DecompileAccessor(
+            pipelineSource,
+            remover,
+            type.FullName,
+            $"remove_{member.Name}",
+            bodyNamespaces,
+            out bool removerRequiresUnsafe,
+            out bool removerRequiresAsync,
+            out bool removerIsSingleExpression,
+            printerOptions,
+            failOnDiagnostic);
+
+        if (adderRequiresAsync || removerRequiresAsync)
+            throw new InvalidOperationException("C# events cannot carry an async accessor modifier.");
+        if (adderBody is null || removerBody is null)
+            throw new InvalidOperationException($"Event '{member.Name}' requires add and remove accessor bodies.");
+
+        var body = new CSharpEventBody(
+            CSharpAccessorBody.Block(adderBody),
+            CSharpAccessorBody.Block(removerBody))
+        {
+            RequiresUnsafeModifier = member.IsUnsafe
+                || adderRequiresUnsafe
+                || removerRequiresUnsafe
+        };
+        string declaration = declarationFormatter.FormatMemberWithBody(type, member, body);
+        sb.AppendLf($"    {declaration}");
+        sb.AppendLf("    {");
+        CSharpMemberLayout.Append(
+            sb,
+            declarationFormatter.FormatAccessorHead(type, member, "add"),
+            adderBody,
+            8,
+            WrapExpressionBodyArrow(printerOptions),
+            adderIsSingleExpression);
+        sb.AppendLf();
+        CSharpMemberLayout.Append(
+            sb,
+            declarationFormatter.FormatAccessorHead(type, member, "remove"),
+            removerBody,
+            8,
+            WrapExpressionBodyArrow(printerOptions),
+            removerIsSingleExpression);
+        sb.AppendLf("    }");
+    }
+
+    static bool HasMethodImplementationAccessor(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle adderHandle,
+        MethodDefinitionHandle removerHandle)
+    {
+        foreach (var implementationHandle in reader.GetTypeDefinition(typeHandle).GetMethodImplementations())
+        {
+            var body = reader.GetMethodImplementation(implementationHandle).MethodBody;
+            if (body.Kind == HandleKind.MethodDefinition
+                && ((MethodDefinitionHandle)body == adderHandle
+                    || (MethodDefinitionHandle)body == removerHandle))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool HasSameNamedEventField(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        ApiMember member)
+    {
+        var type = reader.GetTypeDefinition(typeHandle);
+        foreach (var fieldHandle in type.GetFields())
+        {
+            if (reader.GetString(reader.GetFieldDefinition(fieldHandle).Name) == member.Name)
+                return true;
+        }
+        return false;
     }
 
     static bool WrapExpressionBodyArrow(Pipeline.PrinterOptions? printerOptions)
