@@ -42,11 +42,20 @@ public static class PackageMetadataService
     private readonly record struct SearchPageResult(
         bool Found,
         int ResultCount,
-        long? TotalHits);
+        long? TotalHits,
+        bool DeprecationMetadataAvailable,
+        bool Indeterminate = false);
 
     private readonly record struct SearchFetchResult(
         bool Succeeded,
-        bool Found);
+        bool Found,
+        bool DeprecationMetadataAvailable,
+        bool Indeterminate = false);
+
+    private readonly record struct RegistrationMetadataResult(
+        string? CatalogEntryUrl,
+        bool DeprecationMetadataAvailable,
+        bool Indeterminate = false);
 
     private readonly record struct VulnerabilityFetchResult(
         bool Succeeded,
@@ -218,7 +227,7 @@ public static class PackageMetadataService
         string normalizedName,
         string normalizedVersion,
         bool registrationOnly) =>
-        $"v4-{(registrationOnly ? "published" : "full")}-"
+        $"v6-{(registrationOnly ? "published" : "full")}-"
         + $"{NuGetCache.GetSourceKey(source.Url)}-"
         + $"{normalizedName}@{normalizedVersion}";
 
@@ -256,6 +265,11 @@ public static class PackageMetadataService
             CompatibleResources(resources, "SearchQueryService");
         List<ServiceResource> vulnerabilityInfos =
             CompatibleResources(resources, "VulnerabilityInfo");
+        metadata.DeprecationMetadataSupported =
+            registrationResources.Count > 0
+            || searchQueryServices.Count > 0;
+        metadata.DeprecationMetadataAvailable =
+            !metadata.DeprecationMetadataSupported;
 
         bool found = false;
         bool sawExistenceEndpoint = false;
@@ -282,11 +296,21 @@ public static class PackageMetadataService
             {
                 try
                 {
-                    catalogEntryUrl = ApplyRegistrationMetadata(
+                    RegistrationMetadataResult registrationMetadata =
+                        ApplyRegistrationMetadata(
                         registrationResult.Content!,
                         registrationUrl,
+                        normalizedName,
+                        version,
                         metadata,
                         log);
+                    catalogEntryUrl =
+                        registrationMetadata.CatalogEntryUrl;
+                    metadata.DeprecationMetadataAvailable =
+                        registrationMetadata
+                            .DeprecationMetadataAvailable;
+                    sawIndeterminate |=
+                        registrationMetadata.Indeterminate;
                     found = true;
                     break;
                 }
@@ -366,8 +390,20 @@ public static class PackageMetadataService
                     log).ConfigureAwait(false);
                 if (catalogResult.IsSuccess)
                 {
-                    ApplyCatalogMetadata(catalogResult.Content!, metadata, log);
-                    catalogDataAvailable = true;
+                    if (ApplyCatalogMetadata(
+                            catalogResult.Content!,
+                            normalizedName,
+                            version,
+                            metadata,
+                            log))
+                    {
+                        catalogDataAvailable = true;
+                        metadata.DeprecationMetadataAvailable = true;
+                    }
+                    else
+                    {
+                        sawIndeterminate = true;
+                    }
                 }
             }
             catch (Exception ex) when (ex is not NetworkPolicyException)
@@ -397,6 +433,10 @@ public static class PackageMetadataService
                     if (searchResult.Succeeded)
                     {
                         searchDataAvailable = true;
+                        if (!metadata.DeprecationMetadataAvailable)
+                            sawIndeterminate |= searchResult.Indeterminate;
+                        if (searchResult.DeprecationMetadataAvailable)
+                            metadata.DeprecationMetadataAvailable = true;
                         break;
                     }
                 }
@@ -461,7 +501,8 @@ public static class PackageMetadataService
         return new SourceMetadataResult(
             SourcePresence.Present,
             metadata,
-            Cacheable: catalogDataAvailable
+            Cacheable: !sawIndeterminate
+                && catalogDataAvailable
                 && searchDataAvailable
                 && vulnerabilityDataAvailable);
     }
@@ -636,7 +677,8 @@ public static class PackageMetadataService
             if (!searchResult.IsSuccess)
                 return new SearchFetchResult(
                     Succeeded: false,
-                    Found: false);
+                    Found: false,
+                    DeprecationMetadataAvailable: false);
 
             SearchPageResult page = ApplySearchMetadata(
                 searchResult.Content!,
@@ -647,27 +689,35 @@ public static class PackageMetadataService
             if (page.Found)
                 return new SearchFetchResult(
                     Succeeded: true,
-                    Found: true);
+                    Found: true,
+                    page.DeprecationMetadataAvailable,
+                    page.Indeterminate);
             if (page.ResultCount == 0)
                 return new SearchFetchResult(
                     Succeeded: true,
-                    Found: false);
+                    Found: false,
+                    DeprecationMetadataAvailable: false);
 
             examined += page.ResultCount;
             if (page.TotalHits is > 0 && examined >= page.TotalHits)
                 return new SearchFetchResult(
                     Succeeded: true,
-                    Found: false);
+                    Found: false,
+                    DeprecationMetadataAvailable: false);
         }
 
         return new SearchFetchResult(
             Succeeded: true,
-            Found: false);
+            Found: false,
+            DeprecationMetadataAvailable: false);
     }
 
-    private static string? ApplyRegistrationMetadata(
+    private static RegistrationMetadataResult
+        ApplyRegistrationMetadata(
         string json,
         string registrationUrl,
+        string normalizedName,
+        string version,
         PackageMetadata metadata,
         Action<string>? log)
     {
@@ -685,37 +735,109 @@ public static class PackageMetadataService
 
         if (!root.TryGetProperty("catalogEntry", out JsonElement catalogElement))
         {
-            return null;
+            return new RegistrationMetadataResult(
+                CatalogEntryUrl: null,
+                DeprecationMetadataAvailable: false);
         }
 
         if (catalogElement.ValueKind == JsonValueKind.Object)
         {
+            if (!CatalogIdentityMatches(
+                    catalogElement,
+                    normalizedName,
+                    version))
+            {
+                log?.Invoke(
+                    "Ignoring catalog metadata for a different "
+                    + "package identity.");
+                return new RegistrationMetadataResult(
+                    CatalogEntryUrl: null,
+                    DeprecationMetadataAvailable: false,
+                    Indeterminate: true);
+            }
+
             ApplyCatalogElement(catalogElement, metadata, log);
-            return null;
+            return new RegistrationMetadataResult(
+                CatalogEntryUrl: null,
+                DeprecationMetadataAvailable: true);
         }
 
         string? catalogEntry = catalogElement.GetString();
         if (string.IsNullOrWhiteSpace(catalogEntry))
-            return null;
+        {
+            return new RegistrationMetadataResult(
+                CatalogEntryUrl: null,
+                DeprecationMetadataAvailable: false);
+        }
 
         try
         {
-            return ResolveReference(registrationUrl, catalogEntry);
+            return new RegistrationMetadataResult(
+                ResolveReference(
+                    registrationUrl,
+                    catalogEntry),
+                DeprecationMetadataAvailable: false);
         }
         catch (UriFormatException)
         {
             log?.Invoke("Ignoring malformed catalog entry URL.");
-            return null;
+            return new RegistrationMetadataResult(
+                CatalogEntryUrl: null,
+                DeprecationMetadataAvailable: false,
+                Indeterminate: true);
         }
     }
 
-    private static void ApplyCatalogMetadata(
+    private static bool ApplyCatalogMetadata(
         string json,
+        string normalizedName,
+        string version,
         PackageMetadata metadata,
         Action<string>? log)
     {
         using var doc = HardenedJson.Parse(json);
+        if (!CatalogIdentityMatches(
+                doc.RootElement,
+                normalizedName,
+                version))
+        {
+            log?.Invoke(
+                "Ignoring catalog metadata for a different "
+                + "package identity.");
+            return false;
+        }
+
         ApplyCatalogElement(doc.RootElement, metadata, log);
+        return true;
+    }
+
+    private static bool CatalogIdentityMatches(
+        JsonElement root,
+        string normalizedName,
+        string version)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            return false;
+
+        if (root.TryGetProperty("id", out JsonElement id)
+            && (id.ValueKind != JsonValueKind.String
+                || !string.Equals(
+                    id.GetString(),
+                    normalizedName,
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        if (!root.TryGetProperty(
+                "version",
+                out JsonElement catalogVersion))
+        {
+            return true;
+        }
+
+        return catalogVersion.ValueKind == JsonValueKind.String
+            && VersionsEqual(catalogVersion.GetString(), version);
     }
 
     private static void ApplyCatalogElement(
@@ -776,8 +898,15 @@ public static class PackageMetadataService
             return new SearchPageResult(
                 Found: false,
                 resultCount,
-                totalHits);
+                totalHits,
+                DeprecationMetadataAvailable: false);
         }
+
+        bool deprecationMetadataAvailable =
+            pkg.TryGetProperty(
+                "version",
+                out JsonElement packageVersion)
+            && VersionsEqual(packageVersion.GetString(), version);
 
         if (pkg.TryGetProperty("totalDownloads", out JsonElement downloads)
             && TryReadInt64(downloads, out long totalDownloads))
@@ -837,7 +966,8 @@ public static class PackageMetadataService
             };
         }
 
-        if (metadata.Deprecation is null
+        if (deprecationMetadataAvailable
+            && metadata.Deprecation is null
             && pkg.TryGetProperty(
                 "deprecation",
                 out JsonElement deprecationElement)
@@ -850,7 +980,9 @@ public static class PackageMetadataService
         return new SearchPageResult(
             Found: true,
             resultCount,
-            totalHits);
+            totalHits,
+            deprecationMetadataAvailable,
+            Indeterminate: !deprecationMetadataAvailable);
     }
 
     private static bool TryReadInt64(JsonElement element, out long value)

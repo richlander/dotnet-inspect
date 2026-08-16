@@ -52,6 +52,7 @@ public class PayloadLensContainmentTests : IDisposable
     private const string Bidi = "\u202E";
     private const string Escape = "\u001B";
     private const string LineSeparator = "\u2028";
+    private const string ZeroWidthSpace = "\u200B";
     private readonly string _cacheDirectory =
         Directory.CreateTempSubdirectory("payload-containment-cache-").FullName;
     private bool _deleteCacheOnDispose = true;
@@ -229,9 +230,133 @@ public class PayloadLensContainmentTests : IDisposable
         // The marker survives -- the entry name is still identifiable, so the
         // banner was not simply dropped -- while the hazard between its halves
         // is now visible text rather than an active override.
-        HostileOutputAssert.MarkersRendered(banner, "content-banner", "ENTRY", "MARKERPATH");
+        HostileOutputAssert.MarkersRendered(
+            banner,
+            "content-banner",
+            "HOSTILE",
+            "MARKERPACKAGE",
+            "ENTRY",
+            "MARKERPATH");
         Assert.Contains(@"\u202E", banner, StringComparison.Ordinal);
         HostileOutputAssert.NoRenderingHazard(banner, "content-banner");
+    }
+
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public void MultiPackageFileRows_ContainPackageAndPathMetadata(string format)
+    {
+        using var first = HostilePackage.Create();
+        using var second = HostilePackage.Create();
+
+        var (output, _) = RunCli(
+            [first.Path, second.Path, "--path", "ENTRY*", format, "--tips", "q"]);
+
+        HostileOutputAssert.MarkersRendered(
+            output,
+            $"multi-package-files-{format}",
+            "HOSTILE",
+            "MARKERPACKAGE",
+            "ENTRY",
+            "MARKERPATH");
+        HostileOutputAssert.NoRenderingHazard(output, $"multi-package-files-{format}");
+    }
+
+    [Fact]
+    public void MultiPackageInfoRows_ContainPackageMetadata()
+    {
+        using var first = HostilePackage.Create();
+        using var second = HostilePackage.Create();
+
+        var (output, _) = RunCli(
+            [first.Path, second.Path, "-S", "Package Info", "--table", "--tips", "q"]);
+
+        HostileOutputAssert.MarkersRendered(
+            output,
+            "multi-package-info",
+            "HOSTILE",
+            "MARKERPACKAGE");
+        HostileOutputAssert.NoRenderingHazard(output, "multi-package-info");
+    }
+
+    [Fact]
+    public void SinglePackageFileJsonl_ContainsPathMetadata()
+    {
+        using var package = HostilePackage.Create();
+
+        var (output, _) = RunCli(
+            [package.Path, "--path", "ENTRY*", "--jsonl", "--tips", "q"]);
+
+        HostileOutputAssert.MarkersRendered(
+            output,
+            "single-package-files-jsonl",
+            "ENTRY",
+            "MARKERPATH");
+        HostileOutputAssert.NoRenderingHazard(output, "single-package-files-jsonl");
+    }
+
+    [Fact]
+    public void ContentJsonl_ContainsMetadataAndPreservesThePayloadValue()
+    {
+        using var package = HostilePackage.Create();
+
+        var (output, _) = RunCli(
+            [package.Path, "--path", "README.md", "--content", "--jsonl", "--tips", "q"]);
+
+        HostileOutputAssert.MarkersRendered(
+            output,
+            "content-jsonl",
+            "HOSTILE",
+            "MARKERPACKAGE",
+            "MARKERBIDI",
+            "MARKERESC",
+            "MARKERLS");
+        HostileOutputAssert.NoRenderingHazard(output, "content-jsonl");
+
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(HostileReadme, document.RootElement.GetProperty("content").GetString());
+    }
+
+    [Fact]
+    public void EmptyDependencyTree_ContainsItsPackageTitle()
+    {
+        using var package = HostilePackage.Create(emptyDependencyGroup: true);
+
+        var (output, _) = RunCli([package.Path, "--dependencies", "--tips", "q"]);
+
+        HostileOutputAssert.MarkersRendered(
+            output,
+            "empty-dependency-tree",
+            "HOSTILE",
+            "MARKERPACKAGE");
+        HostileOutputAssert.NoRenderingHazard(output, "empty-dependency-tree");
+    }
+
+    [Fact]
+    public void PackageInfoValue_UsesThePackagePresentationBoundary()
+    {
+        using var package = HostilePackage.Create();
+
+        var (output, error) = RunCli(
+            [package.Path, "-S", "Package Info", "--fields", "Repository", "--value", "--tips", "q"]);
+
+        Assert.Empty(error);
+        Assert.Contains("MARKERREPOSITORY", output, StringComparison.Ordinal);
+        Assert.Contains(@"\u200B", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(ZeroWidthSpace, output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SkillPrint_UsesRawPathForAcquisition()
+    {
+        using var package = HostilePackage.Create();
+
+        var (output, error) = RunCli(
+            [package.Path, "-S", "Package skill files", "--print", "--bare", "--tips", "q"]);
+
+        Assert.Empty(error);
+        Assert.Equal("skill payload\n", output.ReplaceLineEndings("\n"));
     }
 
     /// <summary>
@@ -250,7 +375,7 @@ public class PayloadLensContainmentTests : IDisposable
 
         public string Path { get; }
 
-        public static HostilePackage Create()
+        public static HostilePackage Create(bool emptyDependencyGroup = false)
         {
             string directory = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(), "lens-" + Guid.NewGuid().ToString("N"));
@@ -259,16 +384,25 @@ public class PayloadLensContainmentTests : IDisposable
             string path = System.IO.Path.Combine(directory, "Hostile.Lens.1.0.0.nupkg");
             using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
             {
-                WriteEntry(archive, "Hostile.Lens.nuspec", """
+                string dependencies = emptyDependencyGroup
+                    ? """<dependencies><group targetFramework="net8.0" /></dependencies>"""
+                    : "";
+                WriteEntry(archive, "Hostile.Lens.nuspec", $"""
                     <?xml version="1.0" encoding="utf-8"?>
-                    <package><metadata><id>Hostile.Lens</id><version>1.0.0</version>
-                    <description>d</description><authors>a</authors></metadata></package>
+                    <package><metadata><id>HOSTILE{Bidi}MARKERPACKAGE</id><version>1.0.0</version>
+                    <description>d</description><authors>a</authors>
+                    <repository type="git" url="https://example.test/HOSTILE{ZeroWidthSpace}MARKERREPOSITORY" />
+                    {dependencies}</metadata></package>
                     """);
 
                 // --readme selects by name, so the hazard payload has to live
                 // under a recognized one; a hazard in the *name* would simply
                 // not be found, and the lens would emit nothing at all.
                 WriteEntry(archive, "README.md", HostileReadme);
+                WriteEntry(
+                    archive,
+                    "skills/ENTRY" + ZeroWidthSpace + "MARKERSKILL/SKILL.md",
+                    "skill payload\n");
 
                 // A second entry whose *name* carries the hazard, for the
                 // --content banner. Its body is benign so that a failure there
