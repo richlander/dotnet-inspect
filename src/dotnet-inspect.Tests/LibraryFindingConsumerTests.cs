@@ -876,7 +876,7 @@ public class LibraryFindingConsumerTests
             File.Copy(replacementPath, targetPath, overwrite: true);
             File.SetLastWriteTimeUtc(targetPath, replacementTimestamp);
 
-            CoreCache.Initialize("dotnet-inspect-test");
+            TestCache.InitializeSharedCore();
             using var httpClient = new HttpClient();
             LibraryInspection inspection = Assert.IsType<LibraryInspection>(
                 await LibraryMetadataService.InspectAsync(

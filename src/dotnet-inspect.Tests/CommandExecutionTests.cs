@@ -12873,6 +12873,9 @@ public partial class CommandExecutionTests
         var (warmExit, _, _) = await RunAppAsync(
             "library", "--package", "Newtonsoft.Json", "-S", "SourceLink: Availability", "--tips", "q");
         Assert.Equal(0, warmExit);
+        // A peer test used to repoint the process-global core cache here. That split the warm and
+        // discovery steps across roots, producing the order-dependent #3471 failure.
+        TestCache.InitializeSharedCore();
 
         // Full effective discovery is the explicit larger-budget gesture that may open the warmed
         // PDB. SourceLink members stay behind their domain door, never in the flat base catalog.

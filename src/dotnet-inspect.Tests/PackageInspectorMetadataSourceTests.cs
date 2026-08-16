@@ -21,7 +21,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     public PackageInspectorMetadataSourceTests()
     {
         Directory.CreateDirectory(_root);
-        CoreCache.Initialize("dotnet-inspect-test");
+        TestCache.InitializeSharedCore();
     }
 
     [Fact]
