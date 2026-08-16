@@ -547,7 +547,10 @@ public static class ApiSurfaceExtractor
             // Methods whose explicit `.override` MethodImpl targets
             // `System.Object::Finalize` — i.e. genuine class finalizers, the
             // slot the C# `~Type()` destructor compiles to.
-            var objectFinalizeOverrides = GetObjectFinalizeOverrides(reader, typeDef);
+            var objectFinalizeOverrides = GetObjectFinalizeOverrides(
+                reader,
+                typeDef,
+                observeDecodeWork);
 
             // Methods
             foreach (var methodHandle in typeDef.GetMethods())
@@ -628,7 +631,11 @@ public static class ApiSurfaceExtractor
                 var isFinalizer = apiType.Kind == "class"
                     && method.GetGenericParameters().Count == 0
                     && (objectFinalizeOverrides.Contains(methodHandle)
-                        || IsImplicitObjectFinalizeOverride(reader, typeDefHandle, method));
+                        || IsImplicitObjectFinalizeOverride(
+                            reader,
+                            typeDefHandle,
+                            method,
+                            observeDecodeWork));
 
                 var member = new ApiMember
                 {
@@ -1601,7 +1608,9 @@ public static class ApiSurfaceExtractor
     /// interface implementation.
     /// </summary>
     private static HashSet<MethodDefinitionHandle> GetObjectFinalizeOverrides(
-        MetadataReader reader, TypeDefinition typeDef)
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        Action<int>? beforeDecodeWork = null)
     {
         HashSet<MethodDefinitionHandle> handles = [];
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
@@ -1609,7 +1618,10 @@ public static class ApiSurfaceExtractor
             var implementation = reader.GetMethodImplementation(implementationHandle);
             if (implementation.MethodBody.Kind != HandleKind.MethodDefinition)
                 continue;
-            if (ReferencesObjectFinalize(reader, implementation.MethodDeclaration))
+            if (ReferencesObjectFinalize(
+                    reader,
+                    implementation.MethodDeclaration,
+                    beforeDecodeWork))
                 handles.Add((MethodDefinitionHandle)implementation.MethodBody);
         }
 
@@ -1675,9 +1687,15 @@ public static class ApiSurfaceExtractor
     /// </list>
     /// </summary>
     private static bool IsImplicitObjectFinalizeOverride(
-        MetadataReader reader, TypeDefinitionHandle typeDefHandle, MethodDefinition method)
+        MetadataReader reader,
+        TypeDefinitionHandle typeDefHandle,
+        MethodDefinition method,
+        Action<int>? beforeDecodeWork = null)
     {
-        if (!string.Equals(reader.GetString(method.Name), "Finalize", StringComparison.Ordinal))
+        if (!string.Equals(
+                DecodeString(reader, method.Name, beforeDecodeWork),
+                "Finalize",
+                StringComparison.Ordinal))
             return false;
 
         var attributes = method.Attributes;
@@ -1710,7 +1728,10 @@ public static class ApiSurfaceExtractor
             {
                 case HandleKind.TypeReference:
                     // Reached a cross-assembly base: only System.Object roots the object.Finalize slot.
-                    return IsSystemObjectType(reader, baseHandle);
+                    return IsSystemObjectType(
+                        reader,
+                        baseHandle,
+                        beforeDecodeWork);
                 case HandleKind.TypeDefinition:
                     var baseTypeHandle = (TypeDefinitionHandle)baseHandle;
                     if (!visited.Add(baseTypeHandle))
@@ -1719,10 +1740,16 @@ public static class ApiSurfaceExtractor
                     // the genuine object.Finalize is itself a NewSlot virtual, so testing
                     // DeclaresNewVirtualFinalize first would wrongly reject the real root when
                     // inspecting the core library that defines System.Object.
-                    if (IsSystemObjectType(reader, baseTypeHandle))
+                    if (IsSystemObjectType(
+                            reader,
+                            baseTypeHandle,
+                            beforeDecodeWork))
                         return true; // in-assembly System.Object (inspecting the core library itself)
                     var baseType = reader.GetTypeDefinition(baseTypeHandle);
-                    if (DeclaresNewVirtualFinalize(reader, baseType))
+                    if (DeclaresNewVirtualFinalize(
+                            reader,
+                            baseType,
+                            beforeDecodeWork))
                         return false; // custom Finalize slot introduced below object — not a destructor
                     currentType = baseType;
                     continue;
@@ -1743,12 +1770,18 @@ public static class ApiSurfaceExtractor
     /// is not the object finalizer and must not be spelled <c>~Type()</c>. A base that merely
     /// <em>overrides</em> Finalize (reuse-slot) does not introduce a new slot and is walked past.
     /// </summary>
-    private static bool DeclaresNewVirtualFinalize(MetadataReader reader, TypeDefinition type)
+    private static bool DeclaresNewVirtualFinalize(
+        MetadataReader reader,
+        TypeDefinition type,
+        Action<int>? beforeDecodeWork = null)
     {
         foreach (var methodHandle in type.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
-            if (!string.Equals(reader.GetString(method.Name), "Finalize", StringComparison.Ordinal))
+            if (!string.Equals(
+                    DecodeString(reader, method.Name, beforeDecodeWork),
+                    "Finalize",
+                    StringComparison.Ordinal))
                 continue;
             var attributes = method.Attributes;
             if ((attributes & MethodAttributes.Virtual) != 0
@@ -1804,25 +1837,43 @@ public static class ApiSurfaceExtractor
     /// (object lives in another assembly) and a <see cref="MethodDefinitionHandle"/>
     /// only when inspecting the assembly that defines <c>System.Object</c>.
     /// </summary>
-    private static bool ReferencesObjectFinalize(MetadataReader reader, EntityHandle methodDeclaration)
+    private static bool ReferencesObjectFinalize(
+        MetadataReader reader,
+        EntityHandle methodDeclaration,
+        Action<int>? beforeDecodeWork = null)
     {
         switch (methodDeclaration.Kind)
         {
             case HandleKind.MemberReference:
                 var memberRef = reader.GetMemberReference((MemberReferenceHandle)methodDeclaration);
-                return string.Equals(reader.GetString(memberRef.Name), "Finalize", StringComparison.Ordinal)
-                    && IsSystemObjectType(reader, memberRef.Parent);
+                return string.Equals(
+                        DecodeString(reader, memberRef.Name, beforeDecodeWork),
+                        "Finalize",
+                        StringComparison.Ordinal)
+                    && IsSystemObjectType(
+                        reader,
+                        memberRef.Parent,
+                        beforeDecodeWork);
             case HandleKind.MethodDefinition:
                 var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)methodDeclaration);
-                return string.Equals(reader.GetString(methodDef.Name), "Finalize", StringComparison.Ordinal)
-                    && IsSystemObjectType(reader, methodDef.GetDeclaringType());
+                return string.Equals(
+                        DecodeString(reader, methodDef.Name, beforeDecodeWork),
+                        "Finalize",
+                        StringComparison.Ordinal)
+                    && IsSystemObjectType(
+                        reader,
+                        methodDef.GetDeclaringType(),
+                        beforeDecodeWork);
             default:
                 return false;
         }
     }
 
     /// <summary>True when <paramref name="typeHandle"/> resolves to <c>System.Object</c>.</summary>
-    private static bool IsSystemObjectType(MetadataReader reader, EntityHandle typeHandle)
+    private static bool IsSystemObjectType(
+        MetadataReader reader,
+        EntityHandle typeHandle,
+        Action<int>? beforeDecodeWork = null)
     {
         switch (typeHandle.Kind)
         {
@@ -1836,9 +1887,18 @@ public static class ApiSurfaceExtractor
                 // its strong-name public-key token — so that an adversarial
                 // `System.Object` defined in an arbitrary or name-impersonating
                 // assembly is rejected.
-                return string.Equals(reader.GetString(typeRef.Namespace), "System", StringComparison.Ordinal)
-                    && string.Equals(reader.GetString(typeRef.Name), "Object", StringComparison.Ordinal)
-                    && ResolvesThroughCoreLibrary(reader, typeRef.ResolutionScope);
+                return string.Equals(
+                        DecodeString(reader, typeRef.Namespace, beforeDecodeWork),
+                        "System",
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        DecodeString(reader, typeRef.Name, beforeDecodeWork),
+                        "Object",
+                        StringComparison.Ordinal)
+                    && ResolvesThroughCoreLibrary(
+                        reader,
+                        typeRef.ResolutionScope,
+                        beforeDecodeWork);
             case HandleKind.TypeDefinition:
                 var typeDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeHandle);
                 // The genuine root object is the only `System.Object` with no
@@ -1847,8 +1907,14 @@ public static class ApiSurfaceExtractor
                 // requiring a nil base type rejects it while still accepting the
                 // real object when inspecting the assembly that defines it.
                 return typeDef.BaseType.IsNil
-                    && string.Equals(reader.GetString(typeDef.Namespace), "System", StringComparison.Ordinal)
-                    && string.Equals(reader.GetString(typeDef.Name), "Object", StringComparison.Ordinal);
+                    && string.Equals(
+                        DecodeString(reader, typeDef.Namespace, beforeDecodeWork),
+                        "System",
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        DecodeString(reader, typeDef.Name, beforeDecodeWork),
+                        "Object",
+                        StringComparison.Ordinal);
             default:
                 return false;
         }
@@ -1890,11 +1956,22 @@ public static class ApiSurfaceExtractor
     /// public-key token is rejected.
     /// </summary>
     internal static bool ResolvesThroughCoreLibrary(MetadataReader reader, EntityHandle resolutionScope)
+        => ResolvesThroughCoreLibrary(
+            reader,
+            resolutionScope,
+            beforeDecodeWork: null);
+
+    private static bool ResolvesThroughCoreLibrary(
+        MetadataReader reader,
+        EntityHandle resolutionScope,
+        Action<int>? beforeDecodeWork)
     {
         if (resolutionScope.Kind != HandleKind.AssemblyReference)
             return false;
         var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)resolutionScope);
-        if (!CoreLibraryPublicKeyTokens.TryGetValue(reader.GetString(assemblyRef.Name), out byte[][]? expectedTokens))
+        if (!CoreLibraryPublicKeyTokens.TryGetValue(
+                DecodeString(reader, assemblyRef.Name, beforeDecodeWork),
+                out byte[][]? expectedTokens))
             return false;
         if (!TryComputeToken(reader, assemblyRef, out byte[] token))
             return false;
@@ -2496,7 +2573,8 @@ public static class ApiSurfaceExtractor
                 defaultValue,
                 type,
                 hasDefault,
-                acceptsNullDefault);
+                acceptsNullDefault,
+                beforeDecodeWork);
             var paramStr = FormatParameter(
                 type,
                 paramName,
@@ -2896,7 +2974,12 @@ public static class ApiSurfaceExtractor
         => node.IsReferenceType
             || node.Render().StartsWith("System.Nullable<", StringComparison.Ordinal);
 
-    private static string FormatDefaultValue(MetadataReader reader, object? value, string typeName, bool acceptsNullDefault)
+    private static string FormatDefaultValue(
+        MetadataReader reader,
+        object? value,
+        string typeName,
+        bool acceptsNullDefault,
+        Action<int>? beforeDecodeWork = null)
     {
         // A null constant is `default(T)` for a non-nullable value-type parameter
         // (the only legal spelling — `T x = null` is CS1750), and a genuine `null`
@@ -2906,7 +2989,11 @@ public static class ApiSurfaceExtractor
         if (value == null)
             return acceptsNullDefault ? "null" : "default";
 
-        if (TryFormatEnumDefaultValue(reader, value, typeName) is { } enumValue)
+        if (TryFormatEnumDefaultValue(
+                reader,
+                value,
+                typeName,
+                beforeDecodeWork) is { } enumValue)
             return enumValue;
 
         if (!acceptsNullDefault
@@ -2928,11 +3015,22 @@ public static class ApiSurfaceExtractor
         };
     }
 
-    private static string? DefaultValueText(MetadataReader reader, object? value, string typeName, bool hasDefault, bool acceptsNullDefault)
+    private static string? DefaultValueText(
+        MetadataReader reader,
+        object? value,
+        string typeName,
+        bool hasDefault,
+        bool acceptsNullDefault,
+        Action<int>? beforeDecodeWork = null)
     {
         if (!hasDefault || value is DateTimeConstantDefault)
             return null;
-        return FormatDefaultValue(reader, value, typeName, acceptsNullDefault);
+        return FormatDefaultValue(
+            reader,
+            value,
+            typeName,
+            acceptsNullDefault,
+            beforeDecodeWork);
     }
 
     private static string EscapeCharLiteral(char c) => c switch
@@ -3036,7 +3134,11 @@ public static class ApiSurfaceExtractor
         return sb.ToString();
     }
 
-    private static string? TryFormatEnumDefaultValue(MetadataReader reader, object value, string typeName)
+    private static string? TryFormatEnumDefaultValue(
+        MetadataReader reader,
+        object value,
+        string typeName,
+        Action<int>? beforeDecodeWork = null)
     {
         if (!TryConvertEnumConstant(value, out var defaultValue))
             return null;
@@ -3071,7 +3173,7 @@ public static class ApiSurfaceExtractor
                     if (TryReadEnumConstant(reader, constant, out var memberValue)
                         && memberValue == defaultValue)
                     {
-                        return $"{typeName}.{reader.GetString(field.Name)}";
+                        return $"{typeName}.{DecodeString(reader, field.Name, beforeDecodeWork)}";
                     }
                 }
 
@@ -3547,7 +3649,8 @@ public static class ApiSurfaceExtractor
                 defaultValue,
                 paramType,
                 hasDefault,
-                acceptsNullDefault);
+                acceptsNullDefault,
+                beforeDecodeWork);
             var parameter = FormatParameter(
                 paramType,
                 paramName,
