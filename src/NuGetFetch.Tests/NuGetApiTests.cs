@@ -85,6 +85,8 @@ public class NuGetApiTests
 
     [Theory]
     [InlineData("{}")]
+    [InlineData("""{"resources":[]}""")]
+    [InlineData("""{"version":null,"resources":[]}""")]
     [InlineData("""{"resources":null}""")]
     [InlineData("""{"resources":[null]}""")]
     [InlineData("""{"resources":[{"@type":"PackageBaseAddress/3.0.0"}]}""")]

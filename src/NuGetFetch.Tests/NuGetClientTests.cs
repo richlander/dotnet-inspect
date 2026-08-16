@@ -64,7 +64,7 @@ public sealed class NuGetClientTests
 
         private static string ServiceIndex(string host) =>
             $$"""
-            {"resources":[{"@id":"https://{{host}}.example/flat/",
+            {"version":"3.0.0","resources":[{"@id":"https://{{host}}.example/flat/",
             "@type":"PackageBaseAddress/3.0.0"}]}
             """;
     }

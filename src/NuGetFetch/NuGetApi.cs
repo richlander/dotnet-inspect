@@ -30,6 +30,11 @@ public static class NuGetApi
             return null;
         }
 
+        if (index.Version is null)
+        {
+            throw InvalidMetadata("service index", "version");
+        }
+
         if (index.Resources is null)
         {
             throw InvalidMetadata("service index", "resources");
