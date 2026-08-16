@@ -18,14 +18,25 @@ public enum AssemblyBindingFailureKind
 /// </summary>
 public sealed record AssemblyBindingFailure
 {
-    public AssemblyBindingFailure(AssemblyBindingFailureKind kind)
+    public AssemblyBindingFailure(
+        AssemblyBindingFailureKind kind,
+        CandidateOpenFailureKind? candidateFailureKind = null)
     {
         if (!Enum.IsDefined(kind))
             throw new ArgumentOutOfRangeException(nameof(kind));
+        if (candidateFailureKind is { } candidateFailure
+            && !Enum.IsDefined(candidateFailure))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(candidateFailureKind));
+        }
+
         Kind = kind;
+        CandidateFailureKind = candidateFailureKind;
     }
 
     public AssemblyBindingFailureKind Kind { get; }
+    public CandidateOpenFailureKind? CandidateFailureKind { get; }
 }
 
 /// <summary>
