@@ -1,4 +1,4 @@
-using ILInspector.CSharp;
+using InertText;
 using Markout;
 
 namespace DotnetInspector.Views;
@@ -10,23 +10,25 @@ namespace DotnetInspector.Views;
 /// </summary>
 public class FlatDependency
 {
-    [MarkoutPropertyName("Target Framework")]
-    public string TargetFramework
+    private readonly InertString _targetFramework;
+    private readonly InertString _id;
+    private readonly InertString _version;
+
+    public FlatDependency(
+        InertString targetFramework,
+        InertString id,
+        InertString version)
     {
-        get => field;
-        set => field = CSharpIdentifier.ContainRenderedText(value);
-    } = "";
+        _targetFramework = targetFramework;
+        _id = id;
+        _version = version;
+    }
+
+    [MarkoutPropertyName("Target Framework")]
+    public string TargetFramework => _targetFramework.ToString();
 
     [MarkoutPropertyName("Package")]
-    public string Id
-    {
-        get => field;
-        set => field = CSharpIdentifier.ContainRenderedText(value);
-    } = "";
+    public string Id => _id.ToString();
 
-    public string Version
-    {
-        get => field;
-        set => field = CSharpIdentifier.ContainRenderedText(value);
-    } = "";
+    public string Version => _version.ToString();
 }

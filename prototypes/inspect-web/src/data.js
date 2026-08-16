@@ -46,6 +46,91 @@ export function assemblyDescriptorForType(assemblies, type) {
     || assembly.name === `${bare}.dll`) ?? null;
 }
 
+export function uniqueCompatiblePackage(
+  packages,
+  packageId,
+  declaredRange,
+  versionSatisfies) {
+  const matches = packages.filter(candidate =>
+    !candidate.isRuntimePack
+    && candidate.id.toLowerCase() === packageId.toLowerCase()
+    && versionSatisfies(candidate.version, declaredRange));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function dependencyGraphPackageKey(pkg) {
+  return `open\u0000${packageIdentityKey(pkg)}`;
+}
+
+export function dependencyGraphExternalKey(packageId, declaredRange) {
+  return `external\u0000${packageId.toLowerCase()}\u0000${declaredRange || ""}`;
+}
+
+export function ensureBoundedGraphNode(nodes, key, create, limit) {
+  const existing = nodes.get(key);
+  if (existing) return { node: existing, truncated: false };
+  if (nodes.size >= limit) return { node: null, truncated: true };
+  const node = create();
+  nodes.set(key, node);
+  return { node, truncated: false };
+}
+
+export function dependencyGraphRenderSignature(graph) {
+  if (!graph) return "";
+  const navigation = [...graph.nodeInfoById.entries()].map(([nodeId, info]) => [
+    nodeId,
+    info.kind,
+    info.packageKey || "",
+    info.id || "",
+    info.versionRange || ""
+  ]);
+  return JSON.stringify([
+    graph.definition,
+    Boolean(graph.truncated),
+    graph.nodeLimit,
+    navigation
+  ]);
+}
+
+export function createDependencyGraphRenderSequence() {
+  let current = 0;
+  return {
+    begin() {
+      return ++current;
+    },
+    invalidate() {
+      current++;
+    },
+    isCurrent(candidate) {
+      return candidate === current;
+    }
+  };
+}
+
+export function createDependencyGraphPendingState(dataset) {
+  return {
+    isPending(signature) {
+      return dataset.graphPending === signature;
+    },
+    begin(signature, sequence) {
+      dataset.graphPending = signature;
+      dataset.graphPendingSequence = String(sequence);
+    },
+    invalidate() {
+      delete dataset.graphPending;
+      delete dataset.graphPendingSequence;
+    },
+    complete(signature, sequence) {
+      if (dataset.graphPending !== signature
+        || dataset.graphPendingSequence !== String(sequence)) {
+        return false;
+      }
+      this.invalidate();
+      return true;
+    }
+  };
+}
+
 export function normalizeShareTabs(list) {
   if (!Array.isArray(list)) {
     return {
@@ -143,6 +228,28 @@ export function removeWorkspacePackage(packages, activePackage, packageKey) {
     ? remaining[Math.min(index, remaining.length - 1)] ?? null
     : activePackage;
   return { packages: remaining, active, closed };
+}
+
+export function dependencyGroupSelectionMessage(data) {
+  return data?.dependencyGroupError || "";
+}
+
+export function dependencyGraphGroupSelectionIndex(
+  data,
+  selectedGroupIndex,
+  resolvedGroupIndex) {
+  return data?.dependencyGroupError
+    ? selectedGroupIndex
+    : resolvedGroupIndex;
+}
+
+export function selectedDependencyGroup(data, selectedGroupIndex = null) {
+  const groups = data?.dependencyGroups || [];
+  if (!groups.length) return null;
+  const selected = groups.find(group => group.index === selectedGroupIndex);
+  if (selected) return selected;
+  if (data?.dependencyGroupError) return null;
+  return groups.find(group => group.isActive) || null;
 }
 
 export function spotlightCandidateKey(pkg, typeId) {

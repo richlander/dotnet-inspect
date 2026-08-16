@@ -100,7 +100,7 @@ public sealed class ForLoopPass : IIrPass
     static Dictionary<int, List<IrNode>> CollectTargetSources(IrNode scope)
     {
         var targets = new Dictionary<int, List<IrNode>>();
-        foreach (var node in DescendantsOutsideNestedFunctions(scope))
+        foreach (var node in scope.DescendantsOutsideNestedFunctions)
         {
             switch (node)
             {
@@ -130,18 +130,6 @@ public sealed class ForLoopPass : IIrPass
             targets.Add(offset, sources);
         }
         sources.Add(source);
-    }
-
-    static IEnumerable<IrNode> DescendantsOutsideNestedFunctions(IrNode node)
-    {
-        foreach (var child in node.Children)
-        {
-            yield return child;
-            if (child is Lambda or LocalFunctionStatement)
-                continue;
-            foreach (var descendant in DescendantsOutsideNestedFunctions(child))
-                yield return descendant;
-        }
     }
 
     /// <summary>True when a loop increment store value is a user-defined <c>op_CheckedIncrement</c>/<c>op_CheckedDecrement</c> call — a checked increment that has no for-header spelling.</summary>

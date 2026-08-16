@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
 using System.Reflection;
@@ -155,6 +156,139 @@ public partial class CommandExecutionTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         File.WriteAllBytes(path, image.ToArray());
+    }
+
+    private static void WriteReferenceFixtureAssembly(
+        string path,
+        string assemblyName,
+        params string[] references)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        foreach (string reference in references)
+        {
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(reference),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        }
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
+    private static void WriteMalformedAssemblyReferenceNameAssembly(
+        string path)
+    {
+        WriteReferenceFixtureAssembly(
+            path,
+            "Malformed.Reference.Root",
+            "System.Runtime");
+        byte[] bytes = File.ReadAllBytes(path);
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        Assert.True(
+            reader.GetHeapSize(HeapIndex.Blob) <= ushort.MaxValue
+            && reader.GetHeapSize(HeapIndex.String) <= ushort.MaxValue);
+        int assemblyReferenceNameOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.AssemblyRef)
+            + (4 * sizeof(ushort))
+            + sizeof(uint)
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(
+                assemblyReferenceNameOffset,
+                sizeof(ushort)),
+            ushort.MaxValue);
+        File.WriteAllBytes(path, bytes);
+    }
+
+    private static (string RootPath, string TempDir)
+        CreateIdentifierConfusionReferenceGraph()
+    {
+        const string directName = "\u0405ystem.Direct";
+        const string transitiveName = "Micr\u03BFsoft.Transitive";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        WriteReferenceFixtureAssembly(
+            Path.Combine(tempDir, $"{directName}.dll"),
+            directName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(tempDir, $"{transitiveName}.dll"),
+            transitiveName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(tempDir, "Bridge.dll"),
+            "Bridge",
+            transitiveName);
+        string rootPath = Path.Combine(tempDir, "Root.dll");
+        WriteReferenceFixtureAssembly(rootPath, "Root", directName, "Bridge");
+        return (rootPath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateIdentifierConfusionReferencePackage()
+    {
+        const string directName = "\u0405ystem.Direct";
+        const string transitiveName = "Micr\u03BFsoft.Transitive";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var libraryDirectory = Path.Combine(packageRoot, "lib", "net8.0");
+        Directory.CreateDirectory(libraryDirectory);
+
+        WriteReferenceFixtureAssembly(
+            Path.Combine(libraryDirectory, $"{directName}.dll"),
+            directName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(libraryDirectory, $"{transitiveName}.dll"),
+            transitiveName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(libraryDirectory, "Bridge.dll"),
+            "Bridge",
+            transitiveName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(libraryDirectory, "Root.dll"),
+            "Root",
+            directName,
+            "Bridge");
+
+        var packagePath = Path.Combine(tempDir, "Identifier.Reference.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
     }
 
     private static void WriteMalformedTypeNameAssembly(string path)
@@ -865,6 +999,29 @@ public partial class CommandExecutionTests
                 "NUGET_PACKAGES",
                 original);
         }
+    }
+
+    private static async Task<(int Exit, string Output, string Error)>
+        RunAppInDirectoryAsync(
+            string workingDirectory,
+            params string[] args)
+    {
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add(typeof(CommandLineBuilder).Assembly.Location);
+        foreach (string arg in args)
+            startInfo.ArgumentList.Add(arg);
+
+        using Process process = Process.Start(startInfo)!;
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        return (process.ExitCode, await output, await error);
     }
 
     private static IEnumerable<string> JsonStrings(JsonElement element)
@@ -11916,6 +12073,627 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames()
+    {
+        var (rootPath, tempDir) = CreateIdentifierConfusionReferenceGraph();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.True(
+                exit == 0,
+                $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.Contains("AssemblyInfo.References[", output);
+            Assert.Contains("IdentifierConfusionReferenceClosure[", output);
+            Assert.Contains("U+0405→S", output);
+            Assert.Contains("U+03BF→O", output);
+            Assert.Equal(2, CountOutput.CountMarkdownTableRows(output));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_DeduplicatesDiamondClosure()
+    {
+        const string concerningName = "Micr\u03BFsoft.Shared";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-diamond-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, $"{concerningName}.dll"),
+                concerningName);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Alpha.dll"),
+                "Alpha",
+                concerningName);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "Bridge",
+                "Alpha",
+                concerningName);
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "Bridge");
+
+            var audit = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+            var tree = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--tree",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, audit.Exit);
+            Assert.Empty(audit.Error);
+            Assert.Equal(
+                1,
+                CountOutput.CountMarkdownTableRows(audit.Output));
+            Assert.Equal(0, tree.Exit);
+            Assert.Empty(tree.Error);
+            Assert.Equal(
+                1,
+                tree.Output.Split(
+                    concerningName,
+                    StringSplitOptions.None).Length - 1);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_PreservesCaseDistinctUnresolvedReferences()
+    {
+        const string upperName = "Micr\u039fsoft.Hidden";
+        const string lowerName = "micr\u03bfsoft.hidden";
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-case-distinct-unresolved-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "Bridge",
+                upperName,
+                lowerName);
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "Bridge");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(
+                2,
+                CountOutput.CountMarkdownTableRows(output));
+            Assert.Contains("U+039F→O", output);
+            Assert.Contains("U+03BF→O", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAllLibrariesIdentifierConfusionAudit_CollectsTransitiveReferences()
+    {
+        var (packagePath, tempDir) = CreateIdentifierConfusionReferencePackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Using TFM: net8.0", error);
+            Assert.Contains("IdentifierConfusionReferenceClosure[", output);
+            Assert.Contains("U+03BF→O", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_FullEffectiveDiscoveryIncludesTransitiveOnlyConcern()
+    {
+        const string transitiveName = "Micr\u03BFsoft.DiscoveryOnly";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-discovery-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, $"{transitiveName}.dll"),
+                transitiveName);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "Bridge",
+                transitiveName);
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(rootPath, "Root", "Bridge");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-D",
+                SectionNames.IdentifierConfusion,
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Location | column |", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_DoesNotRepeatDirectReferenceFromClosure()
+    {
+        const string concerningName = "\u0405ystem.Duplicate";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-duplicate-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, $"{concerningName}.dll"),
+                concerningName);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "Bridge",
+                concerningName);
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "Bridge",
+                concerningName);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("AssemblyInfo.References[", output);
+            Assert.DoesNotContain("IdentifierConfusionReferenceClosure[", output);
+            Assert.Equal(1, CountOutput.CountMarkdownTableRows(output));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_FailsWhenResolvedReferenceCannotBeRead()
+    {
+        var (rootPath, tempDir) = CreateIdentifierConfusionReferenceGraph();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Bridge.dll"), "not a managed assembly");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Equal(
+                "Error: Identifier audit could not inspect assembly "
+                + "references: invalid assembly metadata."
+                + Environment.NewLine,
+                error);
+
+            var category = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                "@Audit",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, category.Exit);
+            Assert.Contains("## Signals", category.Output);
+            Assert.Contains(
+                "## Audit: Identifier Confusion",
+                category.Output);
+            Assert.Contains("U+0405→S", category.Output);
+            Assert.Equal(
+                "Warning: Identifier audit failed: invalid assembly metadata"
+                + Environment.NewLine,
+                category.Error);
+
+            var relative = await RunAppInDirectoryAsync(
+                tempDir,
+                "library",
+                "Root.dll",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, relative.Exit);
+            Assert.Empty(relative.Output);
+            Assert.Equal(
+                "Error: Identifier audit could not inspect assembly "
+                + "references: invalid assembly metadata."
+                + Environment.NewLine,
+                relative.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryPackageIdentifierConfusionAudit_FailsWithoutPartialDocument()
+    {
+        var (packagePath, tempDir) =
+            CreateIdentifierConfusionReferencePackage();
+        try
+        {
+            string bridgePath = Path.Combine(
+                tempDir,
+                "content",
+                "lib",
+                "net8.0",
+                "Bridge.dll");
+            File.WriteAllText(
+                bridgePath,
+                "not a managed assembly");
+            File.Delete(packagePath);
+            ZipFile.CreateFromDirectory(
+                Path.Combine(tempDir, "content"),
+                packagePath);
+
+            var result = await RunAppAsync(
+                "library",
+                "Root.dll",
+                "--package",
+                packagePath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                "Error: Identifier audit could not inspect assembly "
+                + "references: invalid assembly metadata."
+                + Environment.NewLine,
+                result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure()
+    {
+        var (packagePath, tempDir) = CreateIdentifierConfusionReferencePackage();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "content");
+            string libraryDirectory = Path.Combine(packageRoot, "lib", "net8.0");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(libraryDirectory, "A.Valid.dll"),
+                "\u0405ystem.Valid");
+            File.WriteAllText(
+                Path.Combine(libraryDirectory, "Bridge.dll"),
+                "not a managed assembly");
+            File.Delete(packagePath);
+            ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("U+0405→S", output);
+            Assert.Equal(
+                [
+                    "Using TFM: net8.0",
+                    "Warning: Identifier audit failed for "
+                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
+                ],
+                error.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.DoesNotContain("Bridge", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-decode-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteMalformedAssemblyReferenceNameAssembly(rootPath);
+
+            var signals = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.Signals,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, signals.Exit);
+            Assert.Equal(
+                "Warning: Identifier audit failed: invalid assembly metadata"
+                + Environment.NewLine,
+                signals.Error);
+            Assert.Contains(
+                "| Identity | Identifier confusion | Unavailable "
+                + "| invalid assembly metadata |",
+                signals.Output);
+            Assert.DoesNotContain(
+                "| Identity | Identifier confusion | None |",
+                signals.Output);
+
+            var audit = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, audit.Exit);
+            Assert.Empty(audit.Output);
+            Assert.Equal(
+                "Error: Identifier audit could not inspect assembly "
+                + "references: invalid assembly metadata."
+                + Environment.NewLine,
+                audit.Error);
+            Assert.DoesNotContain(rootPath, audit.Error);
+
+            var discovery = await RunAppAsync(
+                "library",
+                rootPath,
+                "-D",
+                SectionNames.IdentifierConfusion,
+                "--effective");
+
+            Assert.Equal(1, discovery.Exit);
+            Assert.Empty(discovery.Output);
+            Assert.Equal(audit.Error, discovery.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibrarySignals_FullEffectiveDiscoveryPropagatesReferenceFailure()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-signals-discovery-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteMalformedAssemblyReferenceNameAssembly(rootPath);
+
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                var discovery = await RunAppAsync(
+                    "library",
+                    rootPath,
+                    "-D",
+                    SectionNames.Signals,
+                    "--effective",
+                    "--tips",
+                    "q");
+
+                Assert.Equal(1, discovery.Exit);
+                Assert.Contains("| Area | column |", discovery.Output);
+                Assert.Equal(
+                    "Warning: Identifier audit failed: invalid assembly metadata"
+                    + Environment.NewLine,
+                    discovery.Error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryPackageSignals_FullEffectiveDiscoveryWarnsOnce()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-package-signals-discovery-test-{Guid.NewGuid():N}");
+        string content = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net8.0");
+        Directory.CreateDirectory(libraryDirectory);
+        try
+        {
+            WriteMalformedAssemblyReferenceNameAssembly(
+                Path.Combine(libraryDirectory, "Root.dll"));
+            string packagePath = Path.Combine(
+                tempDir,
+                "Identifier.Package.Signals.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var discovery = await RunAppAsync(
+                "library",
+                "Root.dll",
+                "--package",
+                packagePath,
+                "-D",
+                SectionNames.Signals,
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, discovery.Exit);
+            Assert.Contains("| Area | column |", discovery.Output);
+            Assert.Equal(
+                "Warning: Identifier audit failed: invalid assembly metadata"
+                + Environment.NewLine,
+                discovery.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAllLibrariesIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-decode-package-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(packageRoot, "lib", "net8.0");
+        Directory.CreateDirectory(libraryDirectory);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(libraryDirectory, "A.Valid.dll"),
+                "\u0405ystem.Valid");
+            WriteMalformedAssemblyReferenceNameAssembly(
+                Path.Combine(libraryDirectory, "Root.dll"));
+            string packagePath = Path.Combine(
+                tempDir,
+                "Identifier.Reference.Decode.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("U+0405→S", output);
+            Assert.Equal(
+                [
+                    "Using TFM: net8.0",
+                    "Warning: Identifier audit failed for "
+                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
+                ],
+                error.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.DoesNotContain("System.Runtime", error);
+
+            var signals = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                SectionNames.Signals,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, signals.Exit);
+            Assert.Contains(
+                "| Identity | Identifier confusion | Unavailable "
+                + "| invalid assembly metadata |",
+                signals.Output);
+            Assert.DoesNotContain(
+                "| Identity | Identifier confusion | None |",
+                signals.Output);
+            Assert.Equal(
+                [
+                    "Using TFM: net8.0",
+                    "Warning: Identifier audit failed for "
+                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
+                ],
+                signals.Error.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_EmptySelectedSection_CountsZero()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -11942,6 +12720,71 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_SelectedReferences_TreeResolvesBareRelativePath()
+    {
+        var (_, tempDir) = CreateIdentifierConfusionReferenceGraph();
+        try
+        {
+            var (exit, output, error) = await RunAppInDirectoryAsync(
+                tempDir,
+                "library",
+                "Root.dll",
+                "-S",
+                SectionNames.References,
+                "--tree",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Micr\u03bFsoft.Transitive", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryReferenceTree_ReadFailureDiagnosticIsContentFree()
+    {
+        var (rootPath, tempDir) = CreateIdentifierConfusionReferenceGraph();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "not a managed assembly");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--tree",
+                "--verbose",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## References", output);
+            Assert.Equal(
+                [
+                    "Inspecting: Root.dll",
+                    "Warning: Could not inspect a resolved assembly "
+                    + "reference: invalid assembly metadata",
+                ],
+                error.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.DoesNotContain("Bridge", error);
+            Assert.DoesNotContain(tempDir, error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_SelectedReferences_TreeDepthOneStopsAtDirectReferences()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -11952,6 +12795,63 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("System.Collections", output);
         Assert.DoesNotContain("System.Private.CoreLib", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SelectedReferences_TreeDedupUsesShallowestPath()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"reference-shallowest-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Leaf.dll"),
+                "Leaf");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Target.dll"),
+                "Target",
+                "Leaf");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "B.dll"),
+                "B",
+                "Target");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "A.dll"),
+                "A",
+                "B");
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "A",
+                "Target");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--tree",
+                "--depth",
+                "3",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Leaf", output);
+            Assert.Equal(
+                1,
+                output.Split(
+                    "Target ",
+                    StringSplitOptions.None).Length - 1);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -15178,6 +16078,44 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_DiscoverSchema_ListsArtifactTextAuditColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "-D",
+            PackageSections.AuditArtifactText,
+            "--schema",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Location | column |", output);
+        Assert.Contains("| Concerns | column |", output);
+    }
+
+    [Fact]
+    public async Task Package_DiscoverSchema_ListsIdentifierConfusionAuditColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "-D",
+            PackageSections.AuditIdentifierConfusion,
+            "--schema",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Location | column |", output);
+        Assert.Contains("| Kind | column |", output);
+        Assert.Contains("| Concern | column |", output);
+        Assert.Contains("| Reserved Prefix | column |", output);
+        Assert.Contains("| Similarity | column |", output);
+        Assert.Contains("| Characters | column |", output);
+    }
+
+    [Fact]
     public async Task Package_DiscoverTree_UsesDiscoveryTreeNotFileTree()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
@@ -15694,6 +16632,63 @@ public partial class CommandExecutionTests
             Assert.Empty(singleCountError);
             Assert.Empty(multiCountError);
             Assert.Equal(singleCountOutput, multiCountOutput);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_PreservesHealthyIdentifierAuditResults()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-multitfm-test-{Guid.NewGuid():N}");
+        try
+        {
+            var content = Path.Combine(tempDir, "content");
+            var net8Dir = Path.Combine(content, "lib", "net8.0");
+            var net10Dir = Path.Combine(content, "lib", "net10.0");
+            Directory.CreateDirectory(net8Dir);
+            Directory.CreateDirectory(net10Dir);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(net8Dir, "Lib.dll"),
+                "\u0405ystem.Healthy");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(net10Dir, "Lib.dll"),
+                "Lib",
+                "Bridge");
+            File.WriteAllText(
+                Path.Combine(net10Dir, "Bridge.dll"),
+                "not a managed assembly");
+            var packagePath = Path.Combine(
+                tempDir,
+                "Identifier.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Lib.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("### Lib.dll (net8.0)", output);
+            Assert.Contains("U+0405→S", output);
+            Assert.Contains(
+                "Warning: Identifier audit failed for "
+                + "'lib/net10.0/Lib.dll': invalid assembly metadata",
+                error);
+            Assert.DoesNotContain(
+                "IdentifierConfusionReferenceTraversalException",
+                error);
         }
         finally
         {
@@ -19514,6 +20509,992 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiplePackages_SignatureJsonPopulatesEachSubject()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(2, document.RootElement.GetArrayLength());
+            Assert.All(
+                document.RootElement.EnumerateArray(),
+                package =>
+                {
+                    JsonElement signature =
+                        package.GetProperty("signature_result");
+                    Assert.Equal(
+                        JsonValueKind.Object,
+                        signature.ValueKind);
+                    Assert.True(
+                        signature.GetProperty("is_unsigned").GetBoolean());
+                });
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_CountProjectionMissReportsCleanError()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Projection.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Projection.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--json",
+                "--count",
+                "--columns",
+                "Publisher");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "No columns matched projection: Publisher",
+                error);
+            Assert.DoesNotContain(
+                "System.InvalidOperationException",
+                error);
+            Assert.DoesNotContain(
+                "MarkoutWriter.ThrowIfProjectionMatchedNothing",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_SignatureCountIgnoresPresentationAndWindowsCombinedRows()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Count.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Count.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var json = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--json",
+                "--count");
+            var defaultFormat = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--count");
+            var tsv = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--tsv",
+                "--count");
+            var windowed = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--json",
+                "--count",
+                "--rows",
+                "1");
+            var table = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--table");
+            var tsvRows = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--fields",
+                "Signed",
+                "--columns",
+                "Package;Value",
+                "--tsv");
+            var jsonl = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--fields",
+                "Signed",
+                "--jsonl");
+            var overlappingFields = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--fields",
+                "Signed;*",
+                "--tsv");
+            var overlappingCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--fields",
+                "Signed;*",
+                "--count");
+
+            Assert.Equal(0, json.Exit);
+            Assert.Equal(0, defaultFormat.Exit);
+            Assert.Equal(0, tsv.Exit);
+            Assert.Equal(0, windowed.Exit);
+            Assert.Equal(0, table.Exit);
+            Assert.Equal(0, tsvRows.Exit);
+            Assert.Equal(0, jsonl.Exit);
+            Assert.Equal(0, overlappingFields.Exit);
+            Assert.Equal(0, overlappingCount.Exit);
+            Assert.Empty(json.Error);
+            Assert.Empty(defaultFormat.Error);
+            Assert.Empty(tsv.Error);
+            Assert.Empty(windowed.Error);
+            Assert.Empty(table.Error);
+            Assert.Empty(tsvRows.Error);
+            Assert.Empty(jsonl.Error);
+            Assert.Empty(overlappingFields.Error);
+            Assert.Empty(overlappingCount.Error);
+            Assert.Equal(json.Output, defaultFormat.Output);
+            Assert.Equal(json.Output, tsv.Output);
+            Assert.True(
+                int.Parse(json.Output, CultureInfo.InvariantCulture) > 1);
+            Assert.Equal("1", windowed.Output.Trim());
+            Assert.Contains("Test.Signature.Count.One", table.Output);
+            Assert.Contains("Test.Signature.Count.Two", table.Output);
+            Assert.Equal(
+                [
+                    "package\tvalue",
+                    "Test.Signature.Count.One\tNo",
+                    "Test.Signature.Count.Two\tNo",
+                ],
+                SplitOutputLines(tsvRows.Output));
+            foreach (string row in SplitOutputLines(jsonl.Output))
+            {
+                using var document = JsonDocument.Parse(row);
+                Assert.Equal(
+                    ["package", "field", "value"],
+                    document.RootElement
+                        .EnumerateObject()
+                        .Select(property => property.Name));
+                Assert.Equal(
+                    "Signed",
+                    document.RootElement.GetProperty("field").GetString());
+                Assert.Equal(
+                    "No",
+                    document.RootElement.GetProperty("value").GetString());
+            }
+            Assert.Equal(
+                SplitOutputLines(overlappingFields.Output).Length - 1,
+                int.Parse(
+                    overlappingCount.Output,
+                    CultureInfo.InvariantCulture));
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_FixedOverviewCountIncludesPackageFiles()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Overview.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Overview.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "--count");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Package nuspec file | 2 |", output);
+            Assert.Contains("| Package README file | 2 |", output);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FixedOverviewCountValidatesFieldsAndRenderedColumns()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Overview.Projection.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Overview.Projection.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "--count",
+                "--fields",
+                "Bogus");
+            var renderedColumn = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "--count",
+                "--columns",
+                "Field");
+            var rendered = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "--columns",
+                "Field");
+            var selectedCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "Signature",
+                "--count",
+                "--columns",
+                "Field");
+            var selectedRendered = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "Signature",
+                "--columns",
+                "Field",
+                "--table");
+            var selectedUnknownColumn = await RunAppAsync(
+                "package",
+                firstPackage,
+                "-S",
+                "Signature",
+                "--count",
+                "--columns",
+                "Bogus");
+
+            Assert.Equal(1, count.Exit);
+            Assert.Equal(0, renderedColumn.Exit);
+            Assert.Equal(0, rendered.Exit);
+            Assert.Equal(0, selectedCount.Exit);
+            Assert.Equal(0, selectedRendered.Exit);
+            Assert.Equal(1, selectedUnknownColumn.Exit);
+            Assert.Empty(count.Output);
+            Assert.Empty(renderedColumn.Error);
+            Assert.Empty(rendered.Error);
+            Assert.Empty(selectedCount.Error);
+            Assert.Empty(selectedRendered.Error);
+            Assert.Contains(
+                "No columns matched projection: Bogus",
+                selectedUnknownColumn.Error);
+            Assert.Contains(
+                "No fields matched projection: Bogus",
+                count.Error);
+            Assert.DoesNotContain(
+                "| Package Info | 0 |",
+                renderedColumn.Output);
+            Assert.DoesNotContain(
+                "| Signature | 0 |",
+                renderedColumn.Output);
+            Assert.Contains(
+                "| Field |",
+                rendered.Output);
+            Assert.Contains(
+                "Field",
+                selectedRendered.Output);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_MixedCountMapUsesCombinedColumns()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.MixedProjection.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.MixedProjection.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var bothSections = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info,Package README file",
+                "--count",
+                "--columns",
+                "Package,Path");
+            var packageInfoOnly = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info,Package README file",
+                "--count",
+                "--columns",
+                "Field");
+            var fixedOverview = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "--count",
+                "--columns",
+                "Package");
+            var valueColumn = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "--count",
+                "--columns",
+                "Value");
+            var signatureCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--count",
+                "--columns",
+                "Package");
+
+            Assert.Equal(0, bothSections.Exit);
+            Assert.Equal(0, packageInfoOnly.Exit);
+            Assert.Equal(0, fixedOverview.Exit);
+            Assert.Equal(0, valueColumn.Exit);
+            Assert.Equal(0, signatureCount.Exit);
+            Assert.Empty(bothSections.Error);
+            Assert.Empty(packageInfoOnly.Error);
+            Assert.Empty(fixedOverview.Error);
+            Assert.Empty(valueColumn.Error);
+            Assert.Empty(signatureCount.Error);
+            string packageInfoRow = Assert.Single(
+                bothSections.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries),
+                row => row.StartsWith(
+                    "| Package Info |",
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                "| Package README file | 2 |",
+                bothSections.Output);
+            Assert.Contains(packageInfoRow, packageInfoOnly.Output);
+            Assert.DoesNotContain(
+                "| Package Info | 0 |",
+                packageInfoOnly.Output);
+            Assert.Contains(
+                "| Package README file | 0 |",
+                packageInfoOnly.Output);
+            Assert.Contains(packageInfoRow, fixedOverview.Output);
+            Assert.Contains(
+                "| Package README file | 2 |",
+                fixedOverview.Output);
+            Assert.Contains(
+                $"| Signature | {signatureCount.Output.Trim()} |",
+                fixedOverview.Output);
+            Assert.DoesNotContain(
+                "| Signature | 0 |",
+                valueColumn.Output);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_MultiSectionFileCountsHonorEmptyRows()
+    {
+        var (withReadme, withReadmeDir) =
+            CreateLocalReadmePackage(
+                "Test.CountMap.Readme",
+                "README.md",
+                "readme");
+        var (withoutReadme, withoutReadmeDir) =
+            CreateLocalPackageWithoutReadme(
+                "Test.CountMap.NoReadme");
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                withReadme,
+                withoutReadme,
+                "-S",
+                "Package README file,Signature",
+                "--count");
+            var skipEmpty = await RunAppAsync(
+                "package",
+                withReadme,
+                withoutReadme,
+                "-S",
+                "Package README file,Signature",
+                "--count",
+                "--skip-empty");
+            var tail = await RunAppAsync(
+                "package",
+                withReadme,
+                withoutReadme,
+                "-S",
+                "Package README file",
+                "--columns",
+                "Path",
+                "--rows",
+                "1",
+                "--tail",
+                "--tsv");
+            var tailWithoutHeader = await RunAppAsync(
+                "package",
+                withReadme,
+                withoutReadme,
+                "-S",
+                "Package README file",
+                "--columns",
+                "Path",
+                "--rows",
+                "1",
+                "--tail",
+                "--tsv",
+                "--no-header");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal(0, skipEmpty.Exit);
+            Assert.Equal(0, tail.Exit);
+            Assert.Equal(0, tailWithoutHeader.Exit);
+            Assert.Empty(count.Error);
+            Assert.Empty(skipEmpty.Error);
+            Assert.Empty(tail.Error);
+            Assert.Empty(tailWithoutHeader.Error);
+            Assert.Contains(
+                "| Package README file | 2 |",
+                count.Output);
+            Assert.Contains(
+                "| Package README file | 1 |",
+                skipEmpty.Output);
+            Assert.Equal(
+                "path\n\n",
+                tail.Output.ReplaceLineEndings("\n"));
+            Assert.Equal(
+                "\n",
+                tailWithoutHeader.Output.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Directory.Delete(withReadmeDir, recursive: true);
+            Directory.Delete(withoutReadmeDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_FilesJsonlWindowsCombinedRows()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Jsonl.Window.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Jsonl.Window.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "--path",
+                "@readme",
+                "--jsonl",
+                "--rows",
+                "1");
+            var projected = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package README file",
+                "--jsonl",
+                "--columns",
+                "p*;SIZE;path");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(0, projected.Exit);
+            Assert.Empty(error);
+            Assert.Empty(projected.Error);
+            string row = Assert.Single(
+                output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+            using var _ = JsonDocument.Parse(row);
+            foreach (string projectedRow in projected.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries))
+            {
+                using var document = JsonDocument.Parse(projectedRow);
+                JsonProperty[] properties =
+                    [.. document.RootElement.EnumerateObject()];
+                Assert.Equal(
+                    ["package", "path", "size"],
+                    properties.Select(property => property.Name));
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    properties[2].Value.ValueKind);
+            }
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_FileProjectionAgreesAcrossCountAndRows()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.FileProjection.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.FileProjection.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package README file",
+                "--count",
+                "--columns",
+                "Package");
+            var rows = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package README file",
+                "--tsv",
+                "--columns",
+                "Package");
+            var pathCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "--path",
+                "@readme",
+                "--count",
+                "--columns",
+                "Package");
+            var fieldCount = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package files",
+                "--count",
+                "--fields",
+                "Path");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal(0, rows.Exit);
+            Assert.Equal(0, pathCount.Exit);
+            Assert.Equal(0, fieldCount.Exit);
+            Assert.Empty(count.Error);
+            Assert.Empty(rows.Error);
+            Assert.Empty(pathCount.Error);
+            Assert.Empty(fieldCount.Error);
+            Assert.Equal("2", count.Output.Trim());
+            Assert.Equal("2", pathCount.Output.Trim());
+            Assert.True(
+                int.Parse(
+                    fieldCount.Output,
+                    CultureInfo.InvariantCulture) > 2);
+            Assert.Equal(
+                [
+                    "package",
+                    "Test.FileProjection.One",
+                    "Test.FileProjection.Two",
+                ],
+                SplitOutputLines(rows.Output));
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_DiscoverRefusalPrecedesCountProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiDiscoverProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "-D",
+                "--count",
+                "--fields",
+                "Name");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Multiple package inspection cannot be combined with -D/--discover.",
+                error);
+            Assert.DoesNotContain(
+                "No fields matched projection",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiSectionCountRejectsTabularFormats()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiSectionCountFormat",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var single = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "@Files",
+                "--jsonl",
+                "--count");
+            var multiple = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "-S",
+                "@Files",
+                "--tsv",
+                "--count");
+            var fixedOverview = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "-S",
+                "--tsv",
+                "--count");
+
+            Assert.Equal(1, single.Exit);
+            Assert.Equal(1, multiple.Exit);
+            Assert.Equal(1, fixedOverview.Exit);
+            Assert.Empty(single.Output);
+            Assert.Empty(multiple.Output);
+            Assert.Empty(fixedOverview.Output);
+            Assert.Contains(
+                "--table, --tsv, and --jsonl display one section at a time",
+                single.Error);
+            Assert.Contains(
+                "--table, --tsv, and --jsonl display one section at a time",
+                multiple.Error);
+            Assert.Contains(
+                "--table, --tsv, and --jsonl display one section at a time",
+                fixedOverview.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_LibraryModesAreRejected()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiLibraryMode",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var library = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "--library",
+                "Test.Package.MultiLibraryMode.dll",
+                "--tsv");
+            var allLibraries = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "--all-libraries",
+                "--tsv");
+
+            Assert.Equal(1, library.Exit);
+            Assert.Equal(1, allLibraries.Exit);
+            Assert.Empty(library.Output);
+            Assert.Empty(allLibraries.Output);
+            Assert.Contains(
+                "Multiple package inspection cannot be combined with --library.",
+                library.Error);
+            Assert.Contains(
+                "Multiple package inspection cannot be combined with --all-libraries.",
+                allLibraries.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PackageInfoFieldsAgreeWithCount()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Fields.One",
+                "README.md",
+                "one",
+                extraNuspecMetadata:
+                """
+                <licenseUrl>https://example.test/license</licenseUrl>
+                """);
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Fields.Two",
+                "README.md",
+                "two",
+                extraNuspecMetadata:
+                """
+                <licenseUrl>https://example.test/license</licenseUrl>
+                """);
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Ver*",
+                "--columns",
+                "Package",
+                "--tsv",
+                "--count");
+            var rendered = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Ver*",
+                "--tsv");
+            var column = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--columns",
+                "Field",
+                "--tsv",
+                "--rows",
+                "1");
+            var ordered = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Authors;Version",
+                "--tsv");
+            var absent = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Owners;Version",
+                "--tsv");
+            var valueOnly = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Version",
+                "--columns",
+                "Value",
+                "--tsv");
+            var overlappingNames = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "License;License URL",
+                "--tsv");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal(0, rendered.Exit);
+            Assert.Equal(0, column.Exit);
+            Assert.Equal(0, ordered.Exit);
+            Assert.Equal(0, absent.Exit);
+            Assert.Equal(0, valueOnly.Exit);
+            Assert.Equal(0, overlappingNames.Exit);
+            Assert.Empty(count.Error);
+            Assert.Empty(rendered.Error);
+            Assert.Empty(column.Error);
+            Assert.Empty(ordered.Error);
+            Assert.Contains(
+                "Note: 1 field has no data: Owners",
+                absent.Error);
+            Assert.Empty(valueOnly.Error);
+            Assert.Contains(
+                "Note: 1 field has no data: License",
+                overlappingNames.Error);
+            string[] overlappingRows =
+                SplitOutputLines(overlappingNames.Output);
+            Assert.Equal(3, overlappingRows.Length);
+            Assert.All(
+                overlappingRows.Skip(1),
+                row => Assert.Contains(
+                    "\tLicense URL\t",
+                    row,
+                    StringComparison.Ordinal));
+            Assert.Equal(
+                ["value", "1.0.0", "1.0.0"],
+                SplitOutputLines(valueOnly.Output));
+            Assert.Equal("2", count.Output.Trim());
+            string[] rows = SplitOutputLines(rendered.Output);
+            Assert.Equal(3, rows.Length);
+            Assert.All(
+                rows.Skip(1),
+                row => Assert.Contains(
+                    "\tVersion\t",
+                    row,
+                    StringComparison.Ordinal));
+            Assert.Equal(
+                ["field", "Version"],
+                SplitOutputLines(column.Output));
+            Assert.Equal(
+                ["Authors", "Version", "Authors", "Version"],
+                SplitOutputLines(ordered.Output)
+                    .Skip(1)
+                    .Select(row => row.Split('\t')[1]));
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_MultiplePackages_TableCombinesPackageInfoRows()
     {
         var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Info.One", "README.md", "one");
@@ -19677,6 +21658,41 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiplePackages_FixedOverviewCountPopulatesSections()
+    {
+        var (firstPackagePath, firstTempDir) =
+            CreateLocalReadmePackage(
+                "Test.FixedOverview.One",
+                "README.md",
+                "one");
+        var (secondPackagePath, secondTempDir) =
+            CreateLocalReadmePackage(
+                "Test.FixedOverview.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackagePath,
+                secondPackagePath,
+                "-S",
+                "--count",
+                "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Package nuspec file | 2 |", output);
+            Assert.Contains("| Signature | 6 |", output);
+        }
+        finally
+        {
+            Directory.Delete(firstTempDir, recursive: true);
+            Directory.Delete(secondTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_MultiplePackages_SignalsUseSelectedTfm()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
@@ -19702,6 +21718,77 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_SignalsIncludePackageFileConcerns()
+    {
+        var (cleanPackage, cleanTempDir) = CreateLocalReadmePackage(
+            "Test.Containment.Clean",
+            "README.md",
+            "readme");
+        var (hostilePackage, hostileTempDir) = CreateLocalReadmePackage(
+            "Test.Containment.Hostile",
+            "README.md",
+            "readme",
+            extraFiles: [("docs/\u202Esecret.txt", "payload")]);
+        try
+        {
+            var single = await RunAppAsync(
+                "package",
+                hostilePackage,
+                "-v:q",
+                "-S",
+                PackageSections.Signals,
+                "--json",
+                "--tips",
+                "q");
+            var multi = await RunAppAsync(
+                "package",
+                cleanPackage,
+                hostilePackage,
+                "-v:q",
+                "-S",
+                PackageSections.Signals,
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.True(
+                single.Exit == 0,
+                $"exit={single.Exit}\nstdout:\n{single.Output}\nstderr:\n{single.Error}");
+            Assert.True(
+                multi.Exit == 0,
+                $"exit={multi.Exit}\nstdout:\n{multi.Output}\nstderr:\n{multi.Error}");
+            Assert.Empty(single.Error);
+            Assert.Empty(multi.Error);
+
+            using var singleDocument = JsonDocument.Parse(single.Output);
+            using var multiDocument = JsonDocument.Parse(multi.Output);
+            JsonElement singleSignal = Assert.Single(
+                singleDocument.RootElement.GetProperty("audit_signals").EnumerateArray(),
+                IsArtifactTextContainmentSignal);
+            JsonElement hostileResult = Assert.Single(
+                multiDocument.RootElement.EnumerateArray(),
+                package => package.GetProperty("package_name").GetString()
+                    == "Test.Containment.Hostile");
+            JsonElement multiSignal = Assert.Single(
+                hostileResult.GetProperty("audit_signals").EnumerateArray(),
+                IsArtifactTextContainmentSignal);
+
+            Assert.Equal("Required", singleSignal.GetProperty("value").GetString());
+            Assert.Equal("format/bidi (Cf)", singleSignal.GetProperty("evidence").GetString());
+            Assert.Equal("Required", multiSignal.GetProperty("value").GetString());
+            Assert.Equal("format/bidi (Cf)", multiSignal.GetProperty("evidence").GetString());
+        }
+        finally
+        {
+            Directory.Delete(cleanTempDir, recursive: true);
+            Directory.Delete(hostileTempDir, recursive: true);
+        }
+
+        static bool IsArtifactTextContainmentSignal(JsonElement signal)
+            => signal.GetProperty("signal").GetString() == "Artifact text containment";
     }
 
     [Fact]
