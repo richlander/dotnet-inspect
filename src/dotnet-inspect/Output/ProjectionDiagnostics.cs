@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Markout;
 
 namespace DotnetInspector.Output;
@@ -192,7 +193,139 @@ public static class ProjectionDiagnostics
     private static void DiagnoseRendered(string[]? requestedNames, string renderedOutput, string kind)
     {
         var missing = DocumentSchema.DiagnoseRendered(requestedNames, renderedOutput);
+        if (missing.Length > 0)
+        {
+            var renderedNames = ExtractRenderedNames(renderedOutput);
+            var matched = MatchedRequests(missing, renderedNames);
+            missing = [.. missing.Where(name => !matched.Contains(name))];
+        }
         ReportMissing(missing, kind);
+    }
+
+    private static string[] ExtractRenderedNames(string renderedOutput)
+    {
+        if (string.IsNullOrWhiteSpace(renderedOutput))
+            return [];
+
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lines = renderedOutput.ReplaceLineEndings("\n").Split('\n');
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith('{'))
+                continue;
+
+            try
+            {
+                using var document = JsonDocument.Parse(trimmed);
+                if (document.RootElement.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                foreach (var property in document.RootElement.EnumerateObject())
+                {
+                    AddRenderedName(names, property.Name);
+                    if (property.NameEquals("field")
+                        && property.Value.ValueKind == JsonValueKind.String)
+                    {
+                        AddRenderedName(names, property.Value.GetString());
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                // This is not JSONL; other rendered formats are handled below.
+            }
+        }
+
+        ExtractMarkdownTableNames(lines, names);
+        ExtractPlainTableNames(lines, names);
+        return [.. names];
+    }
+
+    private static void ExtractMarkdownTableNames(
+        string[] lines,
+        HashSet<string> names)
+    {
+        for (var i = 0; i + 1 < lines.Length; i++)
+        {
+            if (!MarkdownScan.IsTableLine(lines[i])
+                || !MarkdownScan.IsSeparatorLine(lines[i + 1]))
+            {
+                continue;
+            }
+
+            var headers = ParseMarkdownRow(lines[i]);
+            foreach (var header in headers)
+                AddRenderedName(names, header);
+
+            var fieldIndex = Array.FindIndex(
+                headers,
+                header => header.Equals("Field", StringComparison.OrdinalIgnoreCase));
+            if (fieldIndex < 0)
+                continue;
+
+            for (i += 2; i < lines.Length && MarkdownScan.IsTableLine(lines[i]); i++)
+            {
+                var cells = ParseMarkdownRow(lines[i]);
+                if (fieldIndex < cells.Length)
+                    AddRenderedName(names, cells[fieldIndex]);
+            }
+        }
+    }
+
+    private static void ExtractPlainTableNames(
+        string[] lines,
+        HashSet<string> names)
+    {
+        var firstLine = Array.FindIndex(lines, line => !string.IsNullOrWhiteSpace(line));
+        if (firstLine < 0)
+            return;
+
+        var headerLine = lines[firstLine].Trim();
+        if (headerLine.StartsWith('{')
+            || headerLine.StartsWith('#')
+            || MarkdownScan.IsTableLine(headerLine))
+        {
+            return;
+        }
+
+        var headers = SplitPlainRow(headerLine);
+        foreach (var header in headers)
+            AddRenderedName(names, header);
+
+        var fieldIndex = Array.FindIndex(
+            headers,
+            header => header.Equals("Field", StringComparison.OrdinalIgnoreCase));
+        if (fieldIndex < 0)
+            return;
+
+        for (var i = firstLine + 1; i < lines.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(lines[i]))
+                break;
+
+            var cells = SplitPlainRow(lines[i].Trim());
+            if (fieldIndex < cells.Length)
+                AddRenderedName(names, cells[fieldIndex]);
+        }
+    }
+
+    private static string[] ParseMarkdownRow(string line) =>
+        [.. line.Trim().Trim('|').Split('|').Select(cell => cell.Trim())];
+
+    private static string[] SplitPlainRow(string line) =>
+        line.Contains('\t')
+            ? [.. line.Split('\t').Select(cell => cell.Trim())]
+            : Regex.Split(line, @"\s{2,}");
+
+    private static void AddRenderedName(HashSet<string> names, string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return;
+
+        names.Add(name);
+        if (name.Contains('_'))
+            names.Add(name.Replace('_', ' '));
     }
 
     private static string[] UnmatchedRequests(

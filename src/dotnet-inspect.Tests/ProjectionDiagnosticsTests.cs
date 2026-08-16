@@ -132,4 +132,35 @@ public class ProjectionDiagnosticsTests
         Assert.Contains("1 column has no data: Bogus", error, StringComparison.Ordinal);
         Assert.DoesNotContain("Field", error, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("{\"kind\":\"interface\"}\n")]
+    [InlineData("kind\ninterface\n")]
+    [InlineData("Kind\ninterface\n")]
+    public async Task DiagnoseRendered_WildcardMatchesRenderedColumn(string rendered)
+    {
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseRendered(["K*", "Bogus"], rendered);
+            return Task.FromResult(0);
+        });
+
+        Assert.Contains("1 field has no data: Bogus", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("K*", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("{\"field\":\"Kind\",\"value\":\"class\"}\n")]
+    [InlineData("field\tvalue\nKind\tclass\n")]
+    [InlineData("| Field | Value |\n| ----- | ----- |\n| Kind | class |\n")]
+    public async Task DiagnoseRendered_WildcardMatchesRenderedFieldIdentity(string rendered)
+    {
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseRendered(["K*"], rendered);
+            return Task.FromResult(0);
+        });
+
+        Assert.Empty(error);
+    }
 }

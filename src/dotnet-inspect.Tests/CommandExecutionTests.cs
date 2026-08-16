@@ -6287,6 +6287,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, json.Exit);
         Assert.Equal(0, jsonl.Exit);
+        Assert.Equal(json.Error, jsonl.Error);
 
         using var jsonDocument = JsonDocument.Parse(json.Output);
         var actual = Assert.Single(
