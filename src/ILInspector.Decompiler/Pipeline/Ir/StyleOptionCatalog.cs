@@ -152,8 +152,9 @@ public sealed record StyleOptionValue
     /// <summary>
     /// The <c>.dotnet-inspectconfig</c> key whose <c>= true</c> selects this value
     /// (and whose <c>= false</c> deselects it), or <see langword="null"/> when the
-    /// value is not directly config-selectable — the default/off value of a knob,
-    /// or an API-only knob with no config vocabulary. Oracle-endorsed keys use the
+    /// value is not directly config-selectable. A key normally lives on a
+    /// non-default value, but may live on the default value when the mirrored
+    /// editorconfig preference defaults on. Oracle-endorsed keys use the
     /// editorconfig <c>dotnet_style_*</c> vocabulary; tool-owned values (e.g. the
     /// branchless "bool hack") use a <c>dotnet_inspect_style_*</c> key.
     /// </summary>
@@ -310,7 +311,7 @@ public sealed record StyleOptionDescriptor
     public bool CorpusEndorsed => CorpusEndorsedValue is not null;
 
     /// <summary>
-    /// The config key that turns a two-state (boolean) knob on, or
+    /// The config key that controls the second value of a two-state knob, or
     /// <see langword="null"/> for an API-only or multi-value knob. Multi-value
     /// axes may use either per-value keys or <see cref="ValueConfigKey"/>.
     /// Convenience for the common boolean case
@@ -364,14 +365,15 @@ public sealed record StyleOptionDescriptor
 /// The catalog of every configurable <see cref="PrinterOptions"/> knob, exposed as the
 /// shared source of truth for hosts (CLI config resolution, a Wasm UI, the "full
 /// taste" aggregate) so option metadata lives in exactly one place and cannot
-/// drift between the library and its consumers. Most knobs are two-state
-/// (boolean) toggles; the guarded-boolean-return family is a single multi-value
-/// axis whose value domain the descriptor carries directly.
+/// drift between the library and its consumers. Each knob carries its complete
+/// value domain, whether that is a plain boolean or semantic tokens such as
+/// object-creation and guarded-return styles.
 /// </summary>
 public static class StyleOptionCatalog
 {
     private const string GuardedReturnId = "guarded-boolean-return-style";
     private const string VarStyleId = "var-spelling-style";
+    private const string ObjectCreationStyleId = "object-creation-style";
     private const string EnumLabelOrderId = "enum-case-label-order";
 
     // Value tokens for the guarded-boolean-return family axis.
@@ -384,6 +386,10 @@ public static class StyleOptionCatalog
     private const string VarStyleBuiltInTypes = "var-for-built-in-types";
     private const string VarStyleWhenApparent = "var-when-type-apparent";
     private const string VarStyleElsewhere = "var-elsewhere";
+
+    // Value tokens for the object-creation-spelling axis.
+    private const string ObjectCreationExplicit = "explicit";
+    private const string ObjectCreationTargetTyped = "target-typed";
 
     // Value tokens for shared-body enum case-label ordering.
     private const string EnumLabelAlphabetical = "alphabetical";
@@ -451,12 +457,11 @@ public static class StyleOptionCatalog
 
     /// <summary>
     /// Every configurable knob, in a stable presentation order (formatting and
-    /// spelling first, then the byte-divergent lens). Two-state knobs carry a
-    /// <c>false</c>/<c>true</c> value domain; the guarded-boolean-return knob is a
-    /// single multi-value axis (<c>flat</c> / <c>conditional-expression</c> /
-    /// <c>branchless</c>). The catalog is exhaustive: the drift-guard test asserts
-    /// every backing <see cref="PrinterOptions"/> property is reachable through
-    /// some descriptor value.
+    /// spelling first, then the byte-divergent lens). Plain booleans carry a
+    /// <c>false</c>/<c>true</c> domain; semantic axes carry stable named tokens.
+    /// The catalog is exhaustive: the drift-guard test asserts every backing
+    /// <see cref="PrinterOptions"/> property is reachable through some descriptor
+    /// value.
     /// </summary>
     public static IReadOnlyList<StyleOptionDescriptor> Options { get; } =
     [
@@ -543,6 +548,7 @@ public static class StyleOptionCatalog
             with: static (o, v) => o with { QualifyEventAccess = v }),
         GuardedBooleanReturnStyle(),
         VarSpellingStyle(),
+        ObjectCreationStyle(),
         EnumCaseLabelOrderStyle(),
         Boolean(
             id: "prefer-long-literal-suffix",
@@ -920,6 +926,36 @@ public static class StyleOptionCatalog
                     ConfigKey = "csharp_style_var_elsewhere",
                     IsSelected = static o => o.PreferVarElsewhere,
                     SetSelected = static (o, on) => o with { PreferVarElsewhere = on },
+                },
+            ],
+        };
+
+    private static StyleOptionDescriptor ObjectCreationStyle()
+        => new()
+        {
+            Id = ObjectCreationStyleId,
+            Title = "Use explicit object creation",
+            Summary = "Keep the constructed type in new T(...) instead of shortening to target-typed new(...) where the assignment target already supplies it.",
+            Tier = StyleOptionTier.Spelling,
+            ByteDivergent = false,
+            DefaultValue = ObjectCreationTargetTyped,
+            Values =
+            [
+                new StyleOptionValue
+                {
+                    Token = ObjectCreationExplicit,
+                    ChoiceId = "explicit-object-creation",
+                    Title = "Explicit new T(...)",
+                    IsSelected = static o => !o.PreferImplicitObjectCreation,
+                    SetSelected = static (o, on) => o with { PreferImplicitObjectCreation = !on },
+                },
+                new StyleOptionValue
+                {
+                    Token = ObjectCreationTargetTyped,
+                    Title = "Target-typed new(...) (default)",
+                    ConfigKey = "csharp_style_implicit_object_creation_when_type_is_apparent",
+                    IsSelected = static o => o.PreferImplicitObjectCreation,
+                    SetSelected = static (o, on) => o with { PreferImplicitObjectCreation = on },
                 },
             ],
         };
