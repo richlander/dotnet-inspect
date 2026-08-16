@@ -1188,6 +1188,7 @@ public record class OptimizationOpportunitySummary
     public string? EvidenceMethod { get; init; }
     public string Evidence { get; init; } = "";
     public string Fix { get; init; } = "";
+    public string Priority { get; init; } = "";
     public string Confidence { get; init; } = "";
     public string Loop { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

@@ -269,6 +269,14 @@ public sealed class OptimizationOpportunityAnalysisTests
             TypeRef boxed)
             => false;
 
+        public bool GenericParameterCanBeValueType(
+            TypeRef genericParameter)
+            => false;
+
+        public bool IsStableReceiverGetter(
+            DecodedInstruction instruction)
+            => false;
+
         public bool IsAsyncStateMachineType(TypeRef? type)
             => false;
 

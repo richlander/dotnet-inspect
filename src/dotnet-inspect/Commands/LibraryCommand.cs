@@ -460,8 +460,6 @@ public class LibraryCommand
             commandQueryDemand.AddRange(DiscoveryQueries);
         if (options.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
-        if (scanners.Contains(LibrarySections.ScannerAuditSignals))
-            commandQueryDemand.Add(("Signals scanner", AssemblyReferencesQuery.Definition));
 
         var queries = pipeline.GetRequiredQueries(
             discoveryInspection && !fullEffectiveDiscovery

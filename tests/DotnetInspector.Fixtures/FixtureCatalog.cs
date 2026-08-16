@@ -71,6 +71,8 @@ public static class FixtureIds
     public const string AnalysisFacade = "analysis.facade";
     public const string AnalysisLookalike = "analysis.lookalike";
     public const string AnalysisOwnershipFlow = "analysis.ownership-flow";
+    public const string AnalysisTopLevelAsync = "analysis.top-level-async";
+    public const string AnalysisTopLevelClassicAsync = "analysis.top-level-classic-async";
     public const string AnalysisProtobuf = "analysis.protobuf";
     public const string AnalysisRender = "analysis.render";
     public const string AnalysisSpoofSystemLinq = "analysis.spoof.system-linq";
@@ -196,6 +198,20 @@ public static class FixtureCatalog
         "ILInspector.Analysis.OwnershipFlowFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "analysis", "ownership-flow");
+
+    public static readonly FixtureDefinition AnalysisTopLevelAsync = Fixture(
+        FixtureIds.AnalysisTopLevelAsync,
+        "ILInspector.Analysis.TopLevelAsyncFixtures",
+        "ILInspector.Analysis.TopLevelAsyncFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.OutputKind),
+        "analysis", "top-level", "async");
+
+    public static readonly FixtureDefinition AnalysisTopLevelClassicAsync = Fixture(
+        FixtureIds.AnalysisTopLevelClassicAsync,
+        "ILInspector.Analysis.TopLevelClassicAsyncFixtures",
+        "ILInspector.Analysis.TopLevelClassicAsyncFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.OutputKind),
+        "analysis", "top-level", "async", "classic-async");
 
     public static readonly FixtureDefinition AnalysisCallerGraphCallerTwin = Fixture(
         FixtureIds.AnalysisCallerGraphCallerTwin,
@@ -448,6 +464,8 @@ public static class FixtureCatalog
         DiffAsmTarget,
         AnalysisCallerGraphCaller,
         AnalysisOwnershipFlow,
+        AnalysisTopLevelAsync,
+        AnalysisTopLevelClassicAsync,
         AnalysisCallerGraphCallerTwin,
         AnalysisCallerGraphIndirectCaller,
         AnalysisCallerGraphLookalikeCaller,
@@ -498,6 +516,8 @@ public static class FixtureCatalog
             AnalysisCallerGraphTargetV2,
             AnalysisCallerGraphCaller,
             AnalysisOwnershipFlow,
+            AnalysisTopLevelAsync,
+            AnalysisTopLevelClassicAsync,
             AnalysisCallerGraphCallerTwin,
             AnalysisCallerGraphIndirectCaller,
             AnalysisCallerGraphLookalikeCaller,

@@ -9,6 +9,43 @@ namespace ILInspector.Analysis.Tests;
 public class TypeReferenceOriginTests
 {
     [Fact]
+    public void SignatureTypeKind_IsRetainedOutsideLegacyEquality()
+    {
+        using MetadataReaderProvider provider = BuildMetadata(
+            metadata =>
+            {
+                AssemblyReferenceHandle assembly =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString("Target"),
+                        new Version(1, 0, 0, 0),
+                        culture: default,
+                        publicKeyOrToken: default,
+                        flags: default,
+                        hashValue: default);
+                return metadata.AddTypeReference(
+                    assembly,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("T"));
+            });
+        MetadataReader reader = provider.GetMetadataReader();
+        TypeReferenceHandle handle =
+            MetadataTokens.TypeReferenceHandle(1);
+
+        TypeRef valueType = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            handle,
+            rawTypeKind: 0x11);
+        TypeRef classType = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            handle,
+            rawTypeKind: 0x12);
+
+        Assert.Equal(0x11, valueType.RawTypeKind);
+        Assert.Equal(0x12, classType.RawTypeKind);
+        Assert.Equal(valueType, classType);
+    }
+
+    [Fact]
     public void AssemblyReference_RetainsFullIdentityAndStructuredName()
     {
         using MetadataReaderProvider provider = BuildMetadata(
@@ -91,6 +128,7 @@ public class TypeReferenceOriginTests
 
         Assert.Equal(["Outer+Inner"], literal.Resolution!.Type.Segments);
         Assert.Equal(["Outer", "Inner"], nested.Resolution!.Type.Segments);
+        Assert.NotEqual(nested.Resolution, literal.Resolution);
     }
 
     [Fact]

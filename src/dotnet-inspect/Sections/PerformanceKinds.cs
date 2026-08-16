@@ -27,14 +27,16 @@ public static class PerformanceKinds
     /// </summary>
     public static string SectionForShape(string? shape) => NormalizeShape(shape) switch
     {
-        "box-value-type" => SectionNames.PerformanceBoxing,
+        "box-value-type"
+        or "generic-parameter-object-box" => SectionNames.PerformanceBoxing,
 
         "small-array"
         or "temporary-byte-array-copy"
         or "span-to-array-copy"
         or "stackalloc-candidate" => SectionNames.PerformanceArrays,
 
-        "capturing-delegate"
+        "cache-lookup-factory-delegate"
+        or "capturing-delegate"
         or "instance-method-group-delegate" => SectionNames.PerformanceClosures,
 
         "enumerator-allocation" => SectionNames.PerformanceEnumerators,
@@ -42,6 +44,7 @@ public static class PerformanceKinds
         "linq-scan-in-loop"
         or "materialize-in-loop"
         or "scan-method-in-loop-call"
+        or "scan-method-in-recursive-traversal"
         or "string-build-in-loop" => SectionNames.PerformanceLoops,
 
         "allocation-hotspot"

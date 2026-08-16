@@ -3989,11 +3989,13 @@ static class FidelityCheck
     /// <summary>
     /// The product's whole-member render for a target method — the CSharp-owned
     /// signature (from Metadata's model) composed with the decompiler body —
-    /// replacing the harness's self-spelled signature. Ordinary constructors and
-    /// properties, and custom events are safe to migrate because the scaffold already applies the
+    /// replacing the harness's self-spelled signature. Ordinary constructors,
+    /// recovered destructors, properties, and custom events are safe to migrate
+    /// because the scaffold already applies the
     /// decompiler's separately captured lifted field initializers to reconstructed
     /// fields, while property and event renders own both accessor declarations and bodies.
-    /// Field-like and explicit-interface events remain on their existing fallback paths.
+    /// Field-like and explicit-interface events, and finalizers that cannot be
+    /// recovered as destructors, remain on their existing fallback paths.
     /// Non-essential custom attributes are omitted because the skeleton does not
     /// reproduce arbitrary attribute inheritance; compilation-required attributes
     /// such as <c>SkipLocalsInit</c> remain.
@@ -4013,7 +4015,7 @@ static class FidelityCheck
         if (!TargetApiIndex(pe).TryGetValue(token, out var entry))
             return null;
         if (isPrimaryConstructor
-            || entry.Member.Kind is not ("method" or "operator" or "constructor" or "property" or "event"))
+            || entry.Member.Kind is not ("method" or "operator" or "constructor" or "finalizer" or "property" or "event"))
             return null;
         if (entry.Member.Kind == "property"
             && entry.Type.Kind == "struct"
@@ -4039,6 +4041,12 @@ static class FidelityCheck
         if (entry.Member.Kind == "constructor"
             && SyntaxFactory.ParseMemberDeclaration(result.Text)
                 is not ConstructorDeclarationSyntax)
+        {
+            return null;
+        }
+        if (entry.Member.Kind == "finalizer"
+            && SyntaxFactory.ParseMemberDeclaration(result.Text)
+                is not DestructorDeclarationSyntax)
         {
             return null;
         }

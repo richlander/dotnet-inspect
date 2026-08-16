@@ -6964,6 +6964,47 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_FlagsScanMethodInvokedPerRecursiveTraversalNode()
+    {
+        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == "GetTraversalChildren"
+            && o.Shape == "scan-method-in-recursive-traversal"));
+        Assert.True(op.InLoop);
+        Assert.Equal("low", op.Confidence);
+        Assert.Contains("TraverseWithSequenceScan", op.Evidence, StringComparison.Ordinal);
+        Assert.Contains("recursive traversal node", op.Evidence, StringComparison.Ordinal);
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == "GetChildrenOutsideTraversal"
+            && o.Shape == "scan-method-in-recursive-traversal");
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_FunctionLoadIsNotARecursiveInvocation()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+
+        Assert.Contains(
+            index.DirectCalls,
+            call =>
+                call.Caller.Name
+                    == "LoadScanFunctionDuringTraversal"
+                && call.Callee.Name
+                    == "GetChildrenOutsideTraversal"
+                && call.Kind == CallKind.LoadFunction);
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity =>
+                opportunity.Method.Name
+                    == "GetChildrenOutsideTraversal"
+                && opportunity.Shape
+                    == "scan-method-in-recursive-traversal");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_FlagsImmediateLazyQueryTerminalInvokedInCallerLoop()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -7195,6 +7236,14 @@ public class LibraryBodyIndexTests
 
         Assert.DoesNotContain(index.OptimizationOpportunities, o =>
             o.Method.Name == "RenderWithDelegateLoop");
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name.Contains(
+                "RenderGenericEqualityFragment",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name.Contains(
+                "RenderGenericEqualityLocal",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -7375,6 +7424,102 @@ public class LibraryBodyIndexTests
         // it allocates a delegate per call -> a single instance-method-group-delegate row.
         var shape = Assert.Single(DelegateShapes(index, methodName));
         Assert.Equal("instance-method-group-delegate", shape);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ConcurrentDictionaryInstanceFactory_IsCacheLookupDelegate()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ConcurrentDictionaryInstanceFactory)
+            && o.Shape == "cache-lookup-factory-delegate"));
+        Assert.Equal("high", op.Confidence);
+        Assert.Contains("cache hits", op.SafeFixDirection, StringComparison.Ordinal);
+
+        Assert.Contains(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ConcurrentDictionaryStableGetterFactory)
+            && o.Shape == "cache-lookup-factory-delegate");
+
+        var lookalike = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.UserGetOrAddInstanceFactory)
+            && o.Shape == "instance-method-group-delegate"));
+        Assert.DoesNotContain("ConcurrentDictionary", lookalike.Evidence, StringComparison.Ordinal);
+
+        var freshReceiver = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ConcurrentDictionaryFreshReceiverFactory)
+            && o.Shape == "instance-method-group-delegate"));
+        Assert.DoesNotContain("cache hits", freshReceiver.SafeFixDirection, StringComparison.Ordinal);
+
+        var virtualReceiver = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ConcurrentDictionaryVirtualGetterFactory)
+            && o.Shape == "instance-method-group-delegate"));
+        Assert.DoesNotContain("cache hits", virtualReceiver.SafeFixDirection, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle getterHandle = reader.MethodDefinitions
+            .Single(handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                "get_StableFactory"));
+        int classified = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            stableReceiverGetterClassified: handle =>
+            {
+                if (handle == getterHandle)
+                    Interlocked.Increment(ref classified);
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+
+        Assert.Equal(1, classified);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        Assert.True(reader.MethodDefinitions.Count >= 200);
+        int built = 0;
+        bool parallelStarted = false;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            asyncStateMachineTypesBuilt:
+                () => Interlocked.Increment(ref built),
+            parallelBuildStarting: () =>
+            {
+                parallelStarted = true;
+                Assert.Equal(1, Volatile.Read(ref built));
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+
+        Assert.True(parallelStarted);
+        Assert.Equal(1, built);
     }
 
     [Fact]
@@ -7731,12 +7876,20 @@ public class LibraryBodyIndexTests
 
     static IEnumerable<string> DelegateShapes(LibraryBodyIndex index, string methodName)
         => index.OptimizationOpportunities
-            .Where(o => o.Method.Name == methodName && o.Shape is "delegate-allocation" or "capturing-delegate" or "instance-method-group-delegate")
+            .Where(o => o.Method.Name == methodName && o.Shape is "delegate-allocation" or "capturing-delegate" or "instance-method-group-delegate" or "cache-lookup-factory-delegate")
             .Select(o => o.Shape);
 
     static System.Collections.Generic.List<OptimizationOpportunity> BoxRows(LibraryBodyIndex index, string methodName)
         => index.OptimizationOpportunities
             .Where(o => o.Method.Name == methodName && o.Shape == "box-value-type")
+            .ToList();
+
+    static System.Collections.Generic.List<OptimizationOpportunity> GenericObjectBoxRows(
+        LibraryBodyIndex index,
+        string methodName)
+        => index.OptimizationOpportunities
+            .Where(o => o.Method.Name == methodName
+                && o.Shape == "generic-parameter-object-box")
             .ToList();
 
     static System.Collections.Generic.List<OptimizationOpportunity> HotspotRows(LibraryBodyIndex index, string methodName)
@@ -8356,6 +8509,979 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_GenericObjectEqualsBox_IsReported()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(GenericObjectBoxRows(
+            index,
+            nameof(OptimizationOpportunityFixtures.GenericObjectEquals)));
+        Assert.Equal("medium", row.Confidence);
+        Assert.Contains("value-type instantiations", row.Caveat);
+        Assert.Null(row.RuntimeAllocationType);
+        Assert.Null(row.SourceFinding);
+        Assert.Null(row.Operation);
+        Assert.Equal(PerformanceTriageProvenance.Unmatched, row.Provenance);
+        Assert.Null(row.Weight);
+        Assert.Null(row.EstimatedSizeBytes);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_GenericObjectEqualsInLocalFunction_IsReported()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var row = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name.Contains(
+                nameof(OptimizationOpportunityFixtures.GenericObjectEqualsLocalFunction),
+                StringComparison.Ordinal)
+            && o.Shape == "generic-parameter-object-box"));
+        Assert.Contains("value-type instantiations", row.Caveat);
+        Assert.Equal(
+            nameof(OptimizationOpportunityFixtures.GenericObjectEqualsLocalFunction),
+            row.SourceOwner?.Name);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_LiftedOwnerBody_IsIndexedOnce()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle ownerHandle = reader.MethodDefinitions
+            .Single(handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                nameof(OptimizationOpportunityFixtures.MultipleLiftedFunctions)));
+        int indexed = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            methodBodyReferenceIndexed: handle =>
+            {
+                if (handle == ownerHandle)
+                    Interlocked.Increment(ref indexed);
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+
+        Assert.Equal(1, indexed);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_SourceGeneratedAncestryIsClassifiedOncePerType()
+    {
+        byte[] image = EmitAssembly(
+            "GeneratedAncestry",
+            metadata =>
+            {
+                AssemblyReferenceHandle runtime =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString("System.Runtime"),
+                        new Version(9, 0, 0, 0),
+                        default,
+                        default,
+                        default,
+                        default);
+                TypeReferenceHandle attributeType =
+                    metadata.AddTypeReference(
+                        runtime,
+                        metadata.GetOrAddString("Custom"),
+                        metadata.GetOrAddString("MarkAttribute"));
+                var signature = new BlobBuilder();
+                signature.WriteByte(0x20);
+                signature.WriteByte(0);
+                signature.WriteByte(1);
+                MemberReferenceHandle constructor =
+                    metadata.AddMemberReference(
+                        attributeType,
+                        metadata.GetOrAddString(".ctor"),
+                        metadata.GetOrAddBlob(signature));
+                var value = new BlobBuilder();
+                value.WriteUInt16(1);
+                value.WriteUInt16(0);
+                BlobHandle valueHandle =
+                    metadata.GetOrAddBlob(value);
+
+                TypeDefinitionHandle parent = default;
+                for (int i = 0; i < 32; i++)
+                {
+                    TypeDefinitionHandle handle =
+                        metadata.AddTypeDefinition(
+                            i == 0
+                                ? TypeAttributes.Public
+                                : TypeAttributes.NestedPublic,
+                            i == 0
+                                ? metadata.GetOrAddString("N")
+                                : default,
+                            metadata.GetOrAddString($"A{i}"),
+                            default,
+                            MetadataTokens.FieldDefinitionHandle(1),
+                            MetadataTokens.MethodDefinitionHandle(1));
+                    for (int j = 0; j < 16; j++)
+                    {
+                        metadata.AddCustomAttribute(
+                            handle,
+                            constructor,
+                            valueHandle);
+                    }
+                    if (!parent.IsNil)
+                        metadata.AddNestedType(handle, parent);
+                    parent = handle;
+                }
+                for (int i = 0; i < 1_000; i++)
+                {
+                    TypeDefinitionHandle leaf =
+                        metadata.AddTypeDefinition(
+                            TypeAttributes.NestedPublic,
+                            default,
+                            metadata.GetOrAddString($"L{i}"),
+                            default,
+                            MetadataTokens.FieldDefinitionHandle(1),
+                            MetadataTokens.MethodDefinitionHandle(1));
+                    metadata.AddNestedType(leaf, parent);
+                }
+            });
+        using var stream = new MemoryStream(image);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        int classified = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            "GeneratedAncestry.dll",
+            reader,
+            peReader,
+            resolver: null,
+            sourceGeneratedTypeClassified:
+                _ => Interlocked.Increment(ref classified));
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+
+        Assert.Equal(reader.TypeDefinitions.Count, classified);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_RepeatedMemberRef_IsResolvedOnce()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition fixture = reader.TypeDefinitions
+            .Select(reader.GetTypeDefinition)
+            .Single(type => reader.StringComparer.Equals(
+                type.Name,
+                "MemberRefLiftedOverloadFixture`1"));
+        MethodDefinitionHandle ownerHandle = fixture.GetMethods()
+            .First(handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                "Owner"));
+        int resolved = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            methodReferenceResolved: (method, _) =>
+            {
+                if (method == ownerHandle)
+                    Interlocked.Increment(ref resolved);
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: new HashSet<int>
+            {
+                MetadataTokens.GetToken(ownerHandle),
+            },
+            typeScope: null));
+
+        Assert.Equal(1, resolved);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DistinctMethodSpecsShareMemberRefResolution()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle ownerHandle = reader.MethodDefinitions
+            .Single(handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                nameof(OptimizationOpportunityFixtures
+                    .DistinctMethodSpecsWithSharedMemberRef)));
+        int emptyResolutions = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            methodReferenceResolved: (method, operand) =>
+            {
+                if (method != ownerHandle)
+                    return;
+                EntityHandle handle = MetadataTokens.EntityHandle(operand);
+                if (handle.Kind == HandleKind.MemberReference
+                    && reader.StringComparer.Equals(
+                        reader.GetMemberReference(
+                            (MemberReferenceHandle)handle).Name,
+                        "Empty"))
+                {
+                    Interlocked.Increment(ref emptyResolutions);
+                }
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: new HashSet<int>
+            {
+                MetadataTokens.GetToken(ownerHandle),
+            },
+            typeScope: null));
+
+        Assert.Equal(1, emptyResolutions);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce()
+    {
+        byte[] image = EmitLiftedMemberReferenceReplayAssembly(
+            referenceCount: 100,
+            ownerCount: 1,
+            parameterCount: 2_000,
+            distinctSignatureBlobs: true);
+
+        Assert.Equal(1, CountMethodReferenceResolutions(image));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies()
+    {
+        byte[] image = EmitLiftedMemberReferenceReplayAssembly(
+            referenceCount: 1,
+            ownerCount: 100,
+            parameterCount: 2_000);
+
+        Assert.Equal(1, CountMethodReferenceResolutions(image));
+    }
+
+    static byte[] EmitLiftedMemberReferenceReplayAssembly(
+        int referenceCount,
+        int ownerCount,
+        int parameterCount,
+        bool distinctSignatureBlobs = false)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("DuplicateMemberRefs.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("DuplicateMemberRefs"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Sample"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var liftedSignatureHandles =
+            new BlobHandle[referenceCount];
+        int liftedSignatureLength = 0;
+        var referenceTokens = new int[referenceCount];
+        for (int i = 0; i < referenceTokens.Length; i++)
+        {
+            var liftedSignature = new BlobBuilder();
+            liftedSignature.WriteByte(0);
+            liftedSignature.WriteCompressedInteger(parameterCount);
+            liftedSignature.WriteByte(1);
+            for (int parameter = 0;
+                parameter < parameterCount;
+                parameter++)
+            {
+                liftedSignature.WriteByte(
+                    distinctSignatureBlobs
+                        && parameter == parameterCount - 1
+                            ? checked((byte)(i + 2))
+                            : (byte)8);
+            }
+            liftedSignatureLength = liftedSignature.Count;
+            liftedSignatureHandles[i] =
+                metadata.GetOrAddBlob(liftedSignature);
+            referenceTokens[i] = MetadataTokens.GetToken(
+                metadata.AddMemberReference(
+                    type,
+                    metadata.GetOrAddString(
+                        "<Owner>g__Core|0_0"),
+                    liftedSignatureHandles[i]));
+        }
+        if (distinctSignatureBlobs)
+        {
+            Assert.Equal(
+                referenceCount,
+                liftedSignatureHandles.Distinct().Count());
+        }
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var ownerIl = new BlobBuilder();
+        foreach (int token in referenceTokens)
+        {
+            ownerIl.WriteByte((byte)ILOpCode.Call);
+            ownerIl.WriteInt32(token);
+        }
+        ownerIl.WriteByte((byte)ILOpCode.Ret);
+        int ownerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(ownerIl),
+            maxStack: 0);
+        var liftedIl = new BlobBuilder();
+        liftedIl.WriteByte((byte)ILOpCode.Ret);
+        int liftedBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(liftedIl),
+            maxStack: 0);
+        var ownerSignature = new BlobBuilder();
+        ownerSignature.WriteByte(0);
+        ownerSignature.WriteByte(0);
+        ownerSignature.WriteByte(1);
+        BlobHandle ownerSignatureHandle =
+            metadata.GetOrAddBlob(ownerSignature);
+        for (int i = 0; i < ownerCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Owner"),
+                ownerSignatureHandle,
+                ownerBody,
+                MetadataTokens.ParameterHandle(1));
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Private | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("<Owner>g__Core|0_0"),
+            liftedSignatureHandles[0],
+            liftedBody,
+            MetadataTokens.ParameterHandle(1));
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        byte[] bytes = image.ToArray();
+        if (distinctSignatureBlobs)
+        {
+            using var stream = new MemoryStream(bytes, writable: false);
+            using var reader = new PEReader(stream);
+            int blobStream = MetadataStreamOffset(
+                bytes,
+                reader.PEHeaders.MetadataStartOffset,
+                "#Blob");
+            int prefixLength = liftedSignatureLength switch
+            {
+                <= 0x7F => 1,
+                <= 0x3FFF => 2,
+                _ => 4,
+            };
+            foreach (BlobHandle handle in liftedSignatureHandles)
+            {
+                int lastByte = blobStream
+                    + MetadataTokens.GetHeapOffset(handle)
+                    + prefixLength
+                    + liftedSignatureLength
+                    - 1;
+                bytes[lastByte] = 8;
+            }
+        }
+        return bytes;
+    }
+
+    static int CountMethodReferenceResolutions(byte[] image)
+    {
+        using var stream = new MemoryStream(image);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        int resolved = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            "DuplicateMemberRefs.dll",
+            reader,
+            peReader,
+            resolver: null,
+            methodReferenceResolved: (_, _) =>
+                Interlocked.Increment(ref resolved));
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+        return resolved;
+    }
+
+    [Theory]
+    [InlineData(0x0F, 0x00)]
+    [InlineData(0xFF, 0x00)]
+    [InlineData(0x1E, 0x7F)]
+    public void OptimizationOpportunities_MalformedMethodSpecCannotAuthenticateOwner(
+        byte malformedType,
+        byte genericParameterIndex)
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        using (var stream = new MemoryStream(image, writable: false))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            MethodDefinitionHandle owner = reader.MethodDefinitions
+                .Single(handle => reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    nameof(OptimizationOpportunityFixtures
+                        .GenericObjectEqualsLocalFunction)));
+            MethodDefinition definition =
+                reader.GetMethodDefinition(owner);
+            MethodBodyBlock body =
+                peReader.GetMethodBody(
+                    definition.RelativeVirtualAddress);
+            MethodSpecificationHandle specification =
+                LibraryMethodAnalysisRunner.DecodeBody(
+                        body.GetILBytes() ?? [],
+                        body.ExceptionRegions)
+                    .Instructions
+                    .Select(instruction =>
+                        MetadataTokens.EntityHandle(
+                            MethodInstructionFacts.OperandInt32(
+                                instruction)))
+                    .Where(handle =>
+                        handle.Kind
+                            == HandleKind.MethodSpecification)
+                    .Select(handle =>
+                        (MethodSpecificationHandle)handle)
+                    .Single(handle =>
+                    {
+                        EntityHandle method =
+                            reader.GetMethodSpecification(handle).Method;
+                        return method.Kind == HandleKind.MethodDefinition
+                            && reader.GetString(
+                                reader.GetMethodDefinition(
+                                    (MethodDefinitionHandle)method).Name)
+                                .StartsWith(
+                                    "<GenericObjectEqualsLocalFunction>"
+                                        + "g__EqualsCore|",
+                                    StringComparison.Ordinal);
+                    });
+            BlobHandle signature =
+                reader.GetMethodSpecification(specification).Signature;
+            int blobStream = MetadataStreamOffset(
+                image,
+                peReader.PEHeaders.MetadataStartOffset,
+                "#Blob");
+            int blob = blobStream
+                + MetadataTokens.GetHeapOffset(signature);
+            Assert.Equal(4, image[blob]);
+            Assert.Equal(0x1E, image[blob + 3]);
+            image[blob + 3] = malformedType;
+            image[blob + 4] = genericParameterIndex;
+        }
+
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedMethodSpec.dll",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            row =>
+                row.Shape == "generic-parameter-object-box"
+                && row.Method.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures
+                        .GenericObjectEqualsLocalFunction),
+                    StringComparison.Ordinal));
+        Assert.NotEmpty(index.Diagnostics);
+    }
+
+    [Fact]
+    public void LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope()
+    {
+        byte[] image = EmitAssembly(
+            "SameName",
+            metadata =>
+            {
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Sample"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+                AssemblyReferenceHandle external =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString("SameName"),
+                        new Version(2, 0, 0, 0),
+                        default,
+                        metadata.GetOrAddBlob(
+                            new byte[]
+                            {
+                                0, 17, 34, 51,
+                                68, 85, 102, 119,
+                            }),
+                        default,
+                        default);
+                metadata.AddTypeReference(
+                    external,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Sample"));
+            });
+        using var stream = new MemoryStream(image);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle localHandle =
+            reader.TypeDefinitions.Last();
+        TypeReferenceHandle externalHandle =
+            reader.TypeReferences.Single();
+        TypeRef local = TypeRefDecoder.Instance.GetTypeFromDefinition(
+            reader,
+            localHandle,
+            0);
+        TypeRef external = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            externalHandle,
+            0);
+
+        Assert.Equal(local, external);
+        Assert.False(
+            LibraryBodyAnalysisBuilder
+                .SameMethodReferenceDeclaringType(
+                    local,
+                    external));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_TopLevelLocalFunction_IsReported()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath());
+
+        var row = Assert.Single(index.OptimizationOpportunities.Where(
+            opportunity =>
+                opportunity.Shape == "generic-parameter-object-box"
+                && opportunity.Method.Name.Contains(
+                    "TopLevelEqual",
+                    StringComparison.Ordinal)));
+
+        Assert.Equal("<Main>$", row.SourceOwner?.Name);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_AsyncTopLevelLocalFunction_IsReported()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisTopLevelAsync.AssemblyPath());
+
+        var row = Assert.Single(index.OptimizationOpportunities.Where(
+            opportunity =>
+                opportunity.Shape == "generic-parameter-object-box"
+                && opportunity.Method.Name.Contains(
+                    "TopLevelAsyncEqual",
+                    StringComparison.Ordinal)));
+
+        Assert.Equal("<Main>$", row.SourceOwner?.Name);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ClassicAsyncTopLevelLocalFunction_IsReported()
+    {
+        string path =
+            FixtureCatalog.AnalysisTopLevelClassicAsync.AssemblyPath();
+        using (var stream = File.OpenRead(path))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            MethodDefinition owner = reader.MethodDefinitions
+                .Select(reader.GetMethodDefinition)
+                .Single(method =>
+                    reader.StringComparer.Equals(method.Name, "<Main>$"));
+            Assert.False(
+                owner.ImplAttributes.HasFlag(MethodImplAttributes.Async));
+            Assert.Contains(
+                owner.GetCustomAttributes(),
+                handle =>
+                    AttributeDecoder.GetAttributeTypeName(
+                        reader,
+                        reader.GetCustomAttribute(handle).Constructor)
+                    == "System.Runtime.CompilerServices.AsyncStateMachineAttribute");
+        }
+
+        var index = LibraryBodyIndex.Open(path);
+
+        var row = Assert.Single(index.OptimizationOpportunities.Where(
+            opportunity =>
+                opportunity.Shape == "generic-parameter-object-box"
+                && opportunity.Method.Name.Contains(
+                    "TopLevelClassicAsyncEqual",
+                    StringComparison.Ordinal)));
+
+        Assert.Equal("<Main>$", row.SourceOwner?.Name);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce()
+    {
+        string path =
+            FixtureCatalog.AnalysisTopLevelClassicAsync.AssemblyPath();
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        int built = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            typeDefinitionIndexBuilt:
+                () => Interlocked.Increment(ref built));
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+
+        Assert.Equal(1, built);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_ClassicAsyncDottedStateMachineName_IsSuppressed()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-classic-async-dotted-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "DottedStateMachine.dll");
+        try
+        {
+            byte[] image = File.ReadAllBytes(
+                FixtureCatalog.AnalysisTopLevelClassicAsync.AssemblyPath());
+            ReplaceUniqueAscii(
+                image,
+                "Program+<<Main>$>d__0",
+                "Program.<<Main>$>d__0");
+            File.WriteAllBytes(path, image);
+
+            var index = LibraryBodyIndex.Open(path);
+
+            Assert.DoesNotContain(
+                index.OptimizationOpportunities,
+                opportunity =>
+                    opportunity.Shape == "generic-parameter-object-box"
+                    && opportunity.Method.Name.Contains(
+                        "TopLevelClassicAsyncEqual",
+                        StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_TopLevelNameWithoutEntryPoint_IsSuppressed()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-no-entry-point-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "NoEntryPoint.dll");
+        try
+        {
+            byte[] image = File.ReadAllBytes(
+                FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath());
+            using (var peReader = new PEReader(
+                new MemoryStream(image, writable: false)))
+            {
+                int corHeaderOffset =
+                    peReader.PEHeaders.CorHeaderStartOffset;
+                System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(
+                    image.AsSpan(corHeaderOffset + 20, sizeof(int)),
+                    0);
+            }
+            File.WriteAllBytes(path, image);
+
+            var index = LibraryBodyIndex.Open(path);
+
+            Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+                opportunity.Shape == "generic-parameter-object-box"
+                && opportunity.Method.Name.Contains(
+                    "TopLevelEqual",
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_SourceGeneratedLiftedMethods_AreNotReported()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+            opportunity.Shape == "generic-parameter-object-box"
+            && (opportunity.Method.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures.SourceGeneratedLocalFunction),
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures.SourceGeneratedLambda),
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    nameof(SourceGeneratedOptimizationFixtures.SourceGeneratedTypeLambda),
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    nameof(GeneratedMethodNestingFixtures.Nested.SourceGeneratedNestedLocal),
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    nameof(GeneratedMethodNestingFixtures.Nested.SourceGeneratedNestedLambda),
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    "GeneratedCore",
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    nameof(OptimizationOpportunityFixtures.CompilerGeneratedOwner),
+                    StringComparison.Ordinal)
+                || opportunity.Method.Name.Contains(
+                    nameof(CompilerGeneratedOwnerContainer.CompilerGeneratedTypeOwner),
+                    StringComparison.Ordinal)));
+
+        Assert.Contains(index.OptimizationOpportunities, opportunity =>
+            opportunity.Shape == "generic-parameter-object-box"
+            && opportunity.Method.Name.Contains(
+                "AuthoredCore",
+                StringComparison.Ordinal)
+            && opportunity.SourceOwner?.Name == "Handle");
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_MemberRefLiftedOverloads_MatchFullSignature()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-lifted-overloads-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "LiftedOverloads.dll");
+        try
+        {
+            byte[] image = File.ReadAllBytes(
+                typeof(MemberRefLiftedOverloadFixture<>).Assembly.Location);
+            ReplaceUniqueAscii(
+                image,
+                "<Owner>g__Core|1_0",
+                "<Owner>g__Core|0_0");
+            File.WriteAllBytes(path, image);
+
+            var index = LibraryBodyIndex.Open(path);
+            var rows = index.OptimizationOpportunities
+                .Where(opportunity =>
+                    opportunity.Shape == "generic-parameter-object-box"
+                    && opportunity.Method.DeclaringType.Name.Contains(
+                        nameof(MemberRefLiftedOverloadFixture<object>),
+                        StringComparison.Ordinal))
+                .ToArray();
+
+            Assert.Equal(2, rows.Length);
+            Assert.Equal(
+                2,
+                rows.Select(row => row.SourceOwner?.MetadataToken)
+                    .Distinct()
+                    .Count());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_MemberRefFunctionPointers_MatchRawSignature()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-lifted-function-pointers-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "LiftedFunctionPointers.dll");
+        try
+        {
+            byte[] image = File.ReadAllBytes(
+                typeof(MemberRefFunctionPointerFixture<>).Assembly.Location);
+            ReplaceUniqueAscii(
+                image,
+                "<Owner>g__Core|1_0",
+                "<Owner>g__Core|0_0");
+            File.WriteAllBytes(path, image);
+
+            var index = LibraryBodyIndex.Open(path);
+            var rows = index.OptimizationOpportunities
+                .Where(opportunity =>
+                    opportunity.Shape == "generic-parameter-object-box"
+                    && opportunity.Method.DeclaringType.Name.Contains(
+                        nameof(MemberRefFunctionPointerFixture<object>),
+                        StringComparison.Ordinal))
+                .ToArray();
+
+            Assert.Equal(2, rows.Length);
+            Assert.Equal(
+                2,
+                rows.Select(row => row.SourceOwner?.MetadataToken)
+                    .Distinct()
+                    .Count());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact(Timeout = 10_000)]
+    public void OptimizationOpportunities_CyclicNestedTypes_Terminate()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-cyclic-nesting-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "CyclicNesting.dll");
+        try
+        {
+            File.WriteAllBytes(path, EmitAssembly("CyclicNesting", metadata =>
+            {
+                TypeDefinitionHandle a = metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString("A"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+                TypeDefinitionHandle b = metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString("B"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+                metadata.AddNestedType(a, b);
+                metadata.AddNestedType(b, a);
+            }));
+
+            var index = LibraryBodyIndex.Open(path);
+
+            Assert.Empty(index.OptimizationOpportunities);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static void ReplaceUniqueAscii(
+        byte[] image,
+        string oldValue,
+        string newValue)
+    {
+        Assert.Equal(oldValue.Length, newValue.Length);
+        byte[] oldBytes = System.Text.Encoding.ASCII.GetBytes(oldValue);
+        byte[] newBytes = System.Text.Encoding.ASCII.GetBytes(newValue);
+        int replacements = 0;
+        for (int i = 0; i <= image.Length - oldBytes.Length; i++)
+        {
+            if (!image.AsSpan(i, oldBytes.Length).SequenceEqual(oldBytes))
+                continue;
+
+            newBytes.CopyTo(image.AsSpan(i, newBytes.Length));
+            replacements++;
+        }
+
+        Assert.Equal(1, replacements);
+    }
+
+    static int MetadataStreamOffset(
+        byte[] image,
+        int metadataRoot,
+        string streamName)
+    {
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataRoot + 12, 4));
+        int position = metadataRoot + 16
+            + ((versionLength + 3) & ~3);
+        int streamCount = BinaryPrimitives.ReadUInt16LittleEndian(
+            image.AsSpan(position + 2, 2));
+        position += 4;
+        for (int i = 0; i < streamCount; i++)
+        {
+            int offset = BinaryPrimitives.ReadInt32LittleEndian(
+                image.AsSpan(position, 4));
+            position += 8;
+            int nameStart = position;
+            while (image[position] != 0)
+                position++;
+            string name = System.Text.Encoding.ASCII.GetString(
+                image,
+                nameStart,
+                position - nameStart);
+            position = (position + 4) & ~3;
+            if (name == streamName)
+                return metadataRoot + offset;
+        }
+
+        throw new BadImageFormatException(
+            $"Metadata stream {streamName} was not found.");
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ReferenceGenericObjectEquals))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.NamedClassGenericObjectEquals))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.GenericTypedEquals))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.StaticObjectEquals))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.PassesGenericToObjectConsumer))]
+    [InlineData(nameof(OptimizationOpportunityFixtures.CompilerGeneratedOrdinaryGenericObjectEquals))]
+    public void OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported(
+        string methodName)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        Assert.Empty(GenericObjectBoxRows(index, methodName));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_NullableBox_NotReported()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -8671,6 +9797,8 @@ public class LibraryBodyIndexTests
         return (path, directory);
     }
 }
+
+public class GenericConstraintBase;
 
 public class OptimizationOpportunityFixtures
 {
@@ -9495,6 +10623,44 @@ public class OptimizationOpportunityFixtures
     }
 
     private readonly ColdStackGuard _stackGuard = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _concurrentCache = new();
+    private readonly FreshFactory _stableFactory = new();
+    private readonly UserGetOrAddCache _userCache = new();
+
+    public int ConcurrentDictionaryInstanceFactory(string key)
+        => _concurrentCache.GetOrAdd(key, InstanceParseLength);
+
+    public int ConcurrentDictionaryFreshReceiverFactory(string key)
+        => _concurrentCache.GetOrAdd(
+            key,
+            new FreshFactory().Create);
+
+    public int ConcurrentDictionaryStableGetterFactory(string key)
+        => _concurrentCache.GetOrAdd(
+            key,
+            StableFactory.Create);
+
+    public int ConcurrentDictionaryStableGetterFactoryTwice(
+        string first,
+        string second)
+        => _concurrentCache.GetOrAdd(
+                first,
+                StableFactory.Create)
+            + _concurrentCache.GetOrAdd(
+                second,
+                StableFactory.Create);
+
+    private FreshFactory StableFactory => _stableFactory;
+
+    public int ConcurrentDictionaryVirtualGetterFactory(string key)
+        => _concurrentCache.GetOrAdd(
+            key,
+            VirtualFactory.Create);
+
+    protected virtual FreshFactory VirtualFactory => _stableFactory;
+
+    public int UserGetOrAddInstanceFactory(string key)
+        => _userCache.GetOrAdd(key, InstanceParseLength);
 
     public int StackGuardFallback(int value)
     {
@@ -9605,6 +10771,17 @@ public class OptimizationOpportunityFixtures
         public int GetValue() => 42;
     }
 
+    private sealed class UserGetOrAddCache
+    {
+        public int GetOrAdd(string key, Func<string, int> valueFactory)
+            => valueFactory(key);
+    }
+
+    protected sealed class FreshFactory
+    {
+        public int Create(string value) => value.Length;
+    }
+
     // A user-defined type whose name echoes the closure suffix `c__DisplayClass`
     // but lacks the compiler-generated `<>` marker. A field store here must be a
     // plain Field escape, never a false Capture.
@@ -9678,6 +10855,81 @@ public class OptimizationOpportunityFixtures
     {
         return value;
     }
+
+    public static bool GenericObjectEquals<T>(T left, T right)
+        => left!.Equals(right);
+
+    public static bool GenericObjectEqualsLocalFunction<T>(T left, T right)
+    {
+        return EqualsCore(left, right);
+
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+
+    public static int MultipleLiftedFunctions(int value)
+    {
+        return AddOne(value) + AddTwo(value);
+
+        static int AddOne(int item) => item + 1;
+        static int AddTwo(int item) => item + 2;
+    }
+
+    public static bool DistinctMethodSpecsWithSharedMemberRef<T>(
+        T left,
+        T right)
+    {
+        int length = Array.Empty<int>().Length
+            + Array.Empty<string>().Length;
+        return length == 0 && Core(left, right);
+
+        static bool Core(T x, T y) => x!.Equals(y);
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("test", "1.0")]
+    public static bool SourceGeneratedLocalFunction<T>(T left, T right)
+    {
+        return EqualsCore(left, right);
+
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("test", "1.0")]
+    public static Func<T, bool> SourceGeneratedLambda<T>(T right)
+        => left => left!.Equals(right);
+
+    public static bool ReferenceGenericObjectEquals<T>(T left, T right)
+        where T : class
+        => left.Equals(right);
+
+    public static bool NamedClassGenericObjectEquals<T>(T left, T right)
+        where T : GenericConstraintBase
+        => left.Equals(right);
+
+    [System.Runtime.CompilerServices.CompilerGenerated]
+    public static bool CompilerGeneratedOrdinaryGenericObjectEquals<T>(
+        T left,
+        T right)
+        => left!.Equals(right);
+
+    [System.Runtime.CompilerServices.CompilerGenerated]
+    public static bool CompilerGeneratedOwner<T>(T left, T right)
+    {
+        return EqualsCore(left, right);
+
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+
+    public static bool GenericTypedEquals<T>(T left, T right)
+        where T : System.IEquatable<T>
+        => left.Equals(right);
+
+    public static bool StaticObjectEquals<T>(T left, T right)
+        => object.Equals(left, right);
+
+    public static void PassesGenericToObjectConsumer<T>(
+        T value,
+        System.Collections.ArrayList sink)
+        => sink.Add(value);
 
     // Boxing a Nullable<T> allocates only when non-null -> conservatively NOT reported.
     public static object? BoxesNullable(int? value)
@@ -10388,6 +11640,102 @@ public struct BoxFixtureStruct<T>
 public class SourceGeneratedOptimizationFixtures
 {
     public static int[] MakesSmallArray() => new int[4];
+
+    public static Func<T, bool> SourceGeneratedTypeLambda<T>(T right)
+        => left => left!.Equals(right);
+}
+
+public class GeneratedMethodNestingFixtures
+{
+    public class Nested
+    {
+        [System.CodeDom.Compiler.GeneratedCode("test", "1.0")]
+        public static bool SourceGeneratedNestedLocal<T>(T left, T right)
+        {
+            return NestedCore(left, right);
+
+            static bool NestedCore(T x, T y) => x!.Equals(y);
+        }
+
+        [System.CodeDom.Compiler.GeneratedCode("test", "1.0")]
+        public static Func<T, bool> SourceGeneratedNestedLambda<T>(T right)
+            => left => left!.Equals(right);
+    }
+}
+
+public class MixedGeneratedOverloadFixtures
+{
+    [System.CodeDom.Compiler.GeneratedCode("test", "1.0")]
+    public static bool Handle<T>(T left, T right, int marker)
+    {
+        return GeneratedCore(left, right);
+
+        static bool GeneratedCore(T x, T y) => x!.Equals(y);
+    }
+
+    public static bool Handle<T>(T left, T right, string marker)
+    {
+        return AuthoredCore(left, right);
+
+        static bool AuthoredCore(T x, T y) => x!.Equals(y);
+    }
+}
+
+public static class MemberRefLiftedOverloadFixture<TOuter>
+{
+    public static bool Owner<T>(T left, T right, int marker)
+    {
+        return Core(left, right) & Core(left, right);
+
+        static bool Core(T x, T y) => x!.Equals(y);
+    }
+
+    public static bool Owner<T>(T left, T right, string marker)
+    {
+        return Core(left, right, marker.Length);
+
+        static bool Core(T x, T y, int ignored) => x!.Equals(y);
+    }
+}
+
+[System.Runtime.CompilerServices.CompilerGenerated]
+public class CompilerGeneratedOwnerContainer
+{
+    public static bool CompilerGeneratedTypeOwner<T>(T left, T right)
+    {
+        return EqualsCore(left, right);
+
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+}
+
+public static unsafe class MemberRefFunctionPointerFixture<TOuter>
+{
+    public static bool Owner<T>(
+        T left,
+        T right,
+        delegate*<int, void> marker)
+    {
+        return Core(left, right, marker);
+
+        static bool Core(
+            T x,
+            T y,
+            delegate*<int, void> ignored) => x!.Equals(y);
+    }
+
+    public static bool Owner<T>(
+        T left,
+        T right,
+        delegate*<string, void> marker)
+    {
+        return Core(left, right, marker);
+
+        static bool Core(
+            T x,
+            T y,
+            delegate*<string, void> ignored) => x!.Equals(y);
+    }
 }
 
 public static class OpportunityLeverageFixtures

@@ -1180,6 +1180,7 @@ public record OptimizationOpportunityRow(
     string? EvidenceMethod,
     string Evidence,
     string Fix,
+    string Priority,
     string Confidence,
     string Loop,
     string? CallerLoop,
@@ -1233,6 +1234,9 @@ public record OptimizationOpportunityRow(
     /// <inheritdoc cref="LibraryViewText"/>
     public string Fix { get; init; } =
         LibraryViewText.Contain(Fix);
+
+    public string Priority { get; init; } =
+        LibraryViewText.Contain(Priority);
 
     public string Confidence { get; init; } = Confidence;
 
