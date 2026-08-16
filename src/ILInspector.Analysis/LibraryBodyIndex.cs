@@ -1130,7 +1130,8 @@ public sealed class LibraryBodyIndex
             int token,
             int depth,
             bool inLoop = false,
-            bool hasVirtualDispatchOccurrence = false)
+            bool hasVirtualDispatchOccurrence = false,
+            ImmutableArray<DirectCall> parentEdgeCallSites = default)
         {
             MethodIdentity? definition =
                 token == 0 ? null : DeclaredMethod(token);
@@ -1149,6 +1150,9 @@ public sealed class LibraryBodyIndex
                     Diagnostic = diagnostic,
                     HasUnresolvedDispatch =
                         hasUnresolvedDispatch,
+                    ParentEdgeCallSites = parentEdgeCallSites.IsDefault
+                        ? []
+                        : parentEdgeCallSites,
                 };
 
             if (token == 0 || !callsByCaller.TryGetValue(token, out var edges))
@@ -1207,6 +1211,9 @@ public sealed class LibraryBodyIndex
                         Item: group.FirstOrDefault(
                             item => item.Edge.InLoop,
                             group.First()),
+                        Calls: group
+                            .Select(item => item.Edge)
+                            .ToImmutableArray(),
                         HasVirtualDispatch:
                             group.Any(item =>
                                 item.Edge.Kind
@@ -1231,7 +1238,8 @@ public sealed class LibraryBodyIndex
                         edgeGroup.Item.Token,
                         depth + 1,
                         edge.InLoop,
-                        edgeGroup.HasVirtualDispatch));
+                        edgeGroup.HasVirtualDispatch,
+                        edgeGroup.Calls));
             }
 
             var status = truncated
@@ -1321,7 +1329,12 @@ public sealed class LibraryBodyIndex
         int created = 1;
         var expanded = new HashSet<int>();
 
-        CallTreeNode Build(MemberRef member, int token, int depth, bool inLoop)
+        CallTreeNode Build(
+            MemberRef member,
+            int token,
+            int depth,
+            bool inLoop,
+            ImmutableArray<DirectCall> parentEdgeCallSites = default)
         {
             // Reverse-graph semantics: the selected member is the target/sink, and the
             // entry points are the far callers — not the tree root. Label accordingly so
@@ -1333,18 +1346,39 @@ public sealed class LibraryBodyIndex
             // toward the target inside a loop (not "this method is loop-heavy").
             var loopHint = inLoop ? "loop call" : null;
             var sig = token != 0 ? Signals.GetValueOrDefault(token, MethodSignals.None) : MethodSignals.None;
+
+            CallTreeNode Node(
+                CallTreeStatus status,
+                ImmutableArray<CallTreeNode> children,
+                CallTreePerf perf) =>
+                new(member, null, status, children, perf)
+                {
+                    ParentEdgeCallSites = parentEdgeCallSites.IsDefault
+                        ? []
+                        : parentEdgeCallSites,
+                };
+
             if (token == 0 || !reverseEdges.TryGetValue(token, out var edges))
             {
                 var leafStatus = token == 0 && depth > 0 ? CallTreeStatus.External : CallTreeStatus.Leaf;
-                return new CallTreeNode(member, null, leafStatus, [], new CallTreePerf(0, 0, 1, inLoop, loopHint, classification, sig));
+                return Node(
+                    leafStatus,
+                    [],
+                    new CallTreePerf(0, 0, 1, inLoop, loopHint, classification, sig));
             }
 
             var fanin = edges.Length;
             if (depth >= maxDepth)
-                return new CallTreeNode(member, null, CallTreeStatus.DepthLimited, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig));
+                return Node(
+                    CallTreeStatus.DepthLimited,
+                    [],
+                    new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig));
 
             if (!expanded.Add(token))
-                return new CallTreeNode(member, null, CallTreeStatus.AlreadyShown, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig));
+                return Node(
+                    CallTreeStatus.AlreadyShown,
+                    [],
+                    new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig));
 
             var children = ImmutableArray.CreateBuilder<CallTreeNode>();
             bool truncated = false;
@@ -1357,18 +1391,31 @@ public sealed class LibraryBodyIndex
                 }
                 created++;
                 var caller = edge.Caller;
+                ImmutableArray<DirectCall> callSites =
+                [
+                    .. GetDirectCallsByCaller()[
+                            caller.MetadataToken]
+                        .Where(call =>
+                            ResolveCalleeToken(call) == token)
+                        .OrderBy(call => call.ILOffset)
+                        .ThenBy(call => call.OperandToken),
+                ];
                 children.Add(Build(
                     CallTreeMember.FromDefinition(caller),
                     caller.MetadataToken,
                     depth + 1,
-                    edge.InLoop));
+                    edge.InLoop,
+                    callSites));
             }
 
             var nodeStatus = truncated
                 ? CallTreeStatus.Truncated
                 : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
             var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
-            return new CallTreeNode(member, null, nodeStatus, children.ToImmutable(), new CallTreePerf(0, fanin, maxTreeDepth, inLoop, loopHint, classification, sig));
+            return Node(
+                nodeStatus,
+                children.ToImmutable(),
+                new CallTreePerf(0, fanin, maxTreeDepth, inLoop, loopHint, classification, sig));
         }
 
         return Build(rootMember, rootMethodToken, 0, false);

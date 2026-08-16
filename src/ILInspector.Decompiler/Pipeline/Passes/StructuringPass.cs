@@ -43,6 +43,12 @@ internal sealed class StructuringFlowFacts
     public required HashSet<int> SwitchTargets { get; init; }
     /// <summary>Targets of every explicit control transfer, including descendant <see cref="Leave"/> nodes — the offsets whose labels structuring must preserve.</summary>
     public required HashSet<int> BranchTargets { get; init; }
+    /// <summary>
+    /// Targets of transfers already nested inside structured IR. Structuring
+    /// does not consume those transfers, so their target blocks cannot be
+    /// cloned as terminators or lose their canonical label owner.
+    /// </summary>
+    public required HashSet<int> PreservedTargets { get; init; }
 
     /// <summary>
     /// Collects the facts in one walk. The dispatch facts (the predecessor-index
@@ -65,58 +71,71 @@ internal sealed class StructuringFlowFacts
         var clonePredecessorIndices = new Dictionary<int, List<int>>();
         var switchTargets = new HashSet<int>();
         var branchTargets = new HashSet<int>();
+        var preservedTargets = new HashSet<int>();
         for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
         {
             var block = blocks[blockIndex];
-            foreach (var child in block.Children)
+            foreach (var node in block.DescendantsOutsideNestedFunctions)
             {
-                if (child is Branch branch)
+                bool direct = ReferenceEquals(node.Parent, block);
+                if (node is Branch branch)
                 {
-                    unconditionalTargets.Add(branch.TargetOffset);
                     branchTargets.Add(branch.TargetOffset);
                     AddPredecessor(clonePredecessorIndices, branch.TargetOffset, blockIndex);
-                    if (includeDispatchFacts)
+                    if (direct)
                     {
-                        AddPredecessor(branchPredecessorIndices, branch.TargetOffset, blockIndex);
-                        AddPredecessor(jumpPredecessorIndices, branch.TargetOffset, blockIndex);
+                        unconditionalTargets.Add(branch.TargetOffset);
+                        if (includeDispatchFacts)
+                        {
+                            AddPredecessor(branchPredecessorIndices, branch.TargetOffset, blockIndex);
+                            AddPredecessor(jumpPredecessorIndices, branch.TargetOffset, blockIndex);
+                        }
                     }
+                    else
+                        preservedTargets.Add(branch.TargetOffset);
                 }
-                else if (child is Leave leave)
+                else if (node is Leave leave)
                 {
                     branchTargets.Add(leave.TargetOffset);
+                    preservedTargets.Add(leave.TargetOffset);
+                    AddPredecessor(clonePredecessorIndices, leave.TargetOffset, blockIndex);
                 }
-                else if (child is ConditionalBranch conditional)
+                else if (node is ConditionalBranch conditional)
                 {
-                    conditionalTargetCounts[conditional.TargetOffset] =
-                        conditionalTargetCounts.GetValueOrDefault(conditional.TargetOffset) + 1;
                     branchTargets.Add(conditional.TargetOffset);
                     AddPredecessor(clonePredecessorIndices, conditional.TargetOffset, blockIndex);
-                    if (includeDispatchFacts)
+                    if (direct)
                     {
-                        AddPredecessor(conditionalPredecessorIndices, conditional.TargetOffset, blockIndex);
-                        AddPredecessor(jumpPredecessorIndices, conditional.TargetOffset, blockIndex);
+                        conditionalTargetCounts[conditional.TargetOffset] =
+                            conditionalTargetCounts.GetValueOrDefault(conditional.TargetOffset) + 1;
+                        if (includeDispatchFacts)
+                        {
+                            AddPredecessor(conditionalPredecessorIndices, conditional.TargetOffset, blockIndex);
+                            AddPredecessor(jumpPredecessorIndices, conditional.TargetOffset, blockIndex);
+                        }
                     }
+                    else
+                        preservedTargets.Add(conditional.TargetOffset);
                 }
-                else if (child is SwitchBranch switchBranch)
+                else if (node is SwitchBranch switchBranch)
                 {
                     foreach (int target in switchBranch.TargetOffsets)
                     {
-                        unconditionalTargets.Add(target);
                         branchTargets.Add(target);
                         AddPredecessor(clonePredecessorIndices, target, blockIndex);
-                        if (includeDispatchFacts)
+                        if (direct)
                         {
-                            switchTargets.Add(target);
-                            AddPredecessor(jumpPredecessorIndices, target, blockIndex);
+                            unconditionalTargets.Add(target);
+                            if (includeDispatchFacts)
+                            {
+                                switchTargets.Add(target);
+                                AddPredecessor(jumpPredecessorIndices, target, blockIndex);
+                            }
                         }
+                        else
+                            preservedTargets.Add(target);
                     }
                 }
-            }
-
-            foreach (var leave in block.Descendants.OfType<Leave>())
-            {
-                branchTargets.Add(leave.TargetOffset);
-                AddPredecessor(clonePredecessorIndices, leave.TargetOffset, blockIndex);
             }
         }
 
@@ -131,6 +150,7 @@ internal sealed class StructuringFlowFacts
             ClonePredecessorIndices = clonePredecessorIndices,
             SwitchTargets = switchTargets,
             BranchTargets = branchTargets,
+            PreservedTargets = preservedTargets,
         };
     }
 
@@ -186,6 +206,13 @@ public sealed class StructuringPass : IIrPass
         public required Dictionary<int, HashSet<int>> CloneOwnerIndices { get; init; }
         public required Dictionary<int, IReadOnlyList<IrNode>> TerminatorSnapshots { get; init; }
         public required HashSet<int> FallenInto { get; init; }
+        /// <summary>
+        /// Structured transfers synthesized while building a candidate loop.
+        /// They are owned by that candidate by construction and are excluded
+        /// from the post-build ownership check.
+        /// </summary>
+        public required HashSet<IrNode> GeneratedLoopTransfers { get; init; }
+        public required HashSet<IrNode> GeneratedLoopOwners { get; init; }
         public required bool IsComparisonTree { get; init; }
         /// <summary>
         /// Return-terminator offsets reached by two or more conditional guards
@@ -198,6 +225,7 @@ public sealed class StructuringPass : IIrPass
         public required HashSet<int> ScatteredReturnDispatchTargets { get; init; }
         public int? RegionExitLeaveTarget { get; init; }
         public int? RetainedMergeIndex { get; init; }
+        public bool CandidateOwnershipUnsafe { get; set; }
 
         /// <summary>
         /// First-wins recorder for the deepest direct stop reason, populated only
@@ -305,7 +333,7 @@ public sealed class StructuringPass : IIrPass
 
         var snapshots = BuildTerminatorSnapshots(
             blocks,
-            flowFacts.UnconditionalTargets,
+            NonInlinableTerminatorTargets(flowFacts),
             flowFacts.ConditionalTargetCounts,
             fallenInto,
             isComparisonTree,
@@ -337,6 +365,8 @@ public sealed class StructuringPass : IIrPass
             CloneOwnerIndices = [],
             TerminatorSnapshots = snapshots,
             FallenInto = fallenInto,
+            GeneratedLoopTransfers = [],
+            GeneratedLoopOwners = [],
             IsComparisonTree = isComparisonTree,
             ScatteredReturnDispatchTargets = scatteredReturnDispatchTargets,
             RegionExitLeaveTarget = NormalEhContinuationTarget(container),
@@ -352,8 +382,35 @@ public sealed class StructuringPass : IIrPass
             return;
         }
 
-        if (!Validate(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null, continueTarget: null))
+        var buildBlocks = blocks.Select(CloneBlock).ToList();
+        var buildCtx = CreateRetainedCtx(
+            ctx,
+            buildBlocks,
+            retainedMergeIndex: null,
+            recorder);
+        if (!Validate(buildCtx, 0, buildBlocks.Count, joinIndex: buildBlocks.Count, breakTarget: null, continueTarget: null))
         {
+            if (TryStructureRetainedRegions(container, ctx, context))
+                return;
+            context.StructuringDiagnostics?.RecordStop(recorder?.Reason ?? "unknown");
+            return;
+        }
+
+        var structured = BuildRegion(
+            buildCtx,
+            0,
+            buildBlocks.Count,
+            joinIndex: buildBlocks.Count,
+            breakTarget: null,
+            continueTarget: null);
+        if (buildCtx.CandidateOwnershipUnsafe
+            || HasDanglingInternalLeaveTarget(
+                buildCtx,
+                structured,
+                start: 0,
+                stop: buildBlocks.Count))
+        {
+            recorder?.Record("loop-changes-control-flow-owner");
             if (TryStructureRetainedRegions(container, ctx, context))
                 return;
             context.StructuringDiagnostics?.RecordStop(recorder?.Reason ?? "unknown");
@@ -366,7 +423,6 @@ public sealed class StructuringPass : IIrPass
             $"structure container at IL_{blocks[0].StartOffset:X4} ({blocks.Count} blocks) into nested if/diamond regions",
             container);
 
-        var structured = BuildRegion(ctx, 0, blocks.Count, joinIndex: blocks.Count, breakTarget: null, continueTarget: null);
         var replacement = new BlockContainer();
         replacement.Add(structured);
         container.ReplaceWith(replacement);
@@ -415,13 +471,25 @@ public sealed class StructuringPass : IIrPass
             while (cursor < range.Start)
                 replacement.Add(clonedBlocks[cursor++]);
 
-            replacement.Add(BuildRegion(
+            var built = BuildRegion(
                 buildContexts[rangeIndex],
                 range.Start,
                 range.Merge,
                 joinIndex: range.Merge,
                 breakTarget: null,
-                continueTarget: null));
+                continueTarget: null);
+            if (buildContexts[rangeIndex].CandidateOwnershipUnsafe
+                || HasDanglingInternalLeaveTarget(
+                    buildContexts[rangeIndex],
+                    built,
+                    range.Start,
+                    range.Merge))
+            {
+                context.StructuringDiagnostics?.RecordRetainedDecline(
+                    "retained-loop-changes-control-flow-owner");
+                return false;
+            }
+            replacement.Add(built);
             cursor = range.Merge;
             context.StructuringDiagnostics?.RecordRetainedRegion();
         }
@@ -603,16 +671,33 @@ public sealed class StructuringPass : IIrPass
             sourceCtx,
             clonedBlocks,
             retained ? candidate.Merge : null);
-        return Validate(
+        if (!Validate(
+                ctx,
+                candidate.Start,
+                candidate.Merge,
+                joinIndex: candidate.Merge,
+                breakTarget: null,
+                continueTarget: null))
+        {
+            return false;
+        }
+
+        var built = BuildRegion(
             ctx,
             candidate.Start,
             candidate.Merge,
             joinIndex: candidate.Merge,
             breakTarget: null,
             continueTarget: null);
+        return !ctx.CandidateOwnershipUnsafe
+            && !HasDanglingInternalLeaveTarget(ctx, built, candidate.Start, candidate.Merge);
     }
 
-    static Ctx CreateRetainedCtx(Ctx sourceCtx, IReadOnlyList<Block> blocks, int? retainedMergeIndex)
+    static Ctx CreateRetainedCtx(
+        Ctx sourceCtx,
+        IReadOnlyList<Block> blocks,
+        int? retainedMergeIndex,
+        StopRecorder? recorder = null)
     {
         var flowFacts = StructuringFlowFacts.Collect(blocks);
         var fallenInto = new HashSet<int>();
@@ -622,7 +707,7 @@ public sealed class StructuringPass : IIrPass
 
         var snapshots = BuildTerminatorSnapshots(
             blocks,
-            flowFacts.UnconditionalTargets,
+            NonInlinableTerminatorTargets(flowFacts),
             flowFacts.ConditionalTargetCounts,
             fallenInto,
             sourceCtx.IsComparisonTree,
@@ -648,11 +733,13 @@ public sealed class StructuringPass : IIrPass
             CloneOwnerIndices = [],
             TerminatorSnapshots = snapshots,
             FallenInto = fallenInto,
+            GeneratedLoopTransfers = [],
+            GeneratedLoopOwners = [],
             IsComparisonTree = sourceCtx.IsComparisonTree,
             ScatteredReturnDispatchTargets = sourceCtx.ScatteredReturnDispatchTargets,
             RegionExitLeaveTarget = sourceCtx.RegionExitLeaveTarget,
             RetainedMergeIndex = retainedMergeIndex,
-            Recorder = null,
+            Recorder = recorder,
         };
     }
 
@@ -664,6 +751,8 @@ public sealed class StructuringPass : IIrPass
         CloneOwnerIndices = [],
         TerminatorSnapshots = template.TerminatorSnapshots,
         FallenInto = template.FallenInto,
+        GeneratedLoopTransfers = [],
+        GeneratedLoopOwners = [],
         IsComparisonTree = template.IsComparisonTree,
         ScatteredReturnDispatchTargets = template.ScatteredReturnDispatchTargets,
         RegionExitLeaveTarget = template.RegionExitLeaveTarget,
@@ -700,17 +789,6 @@ public sealed class StructuringPass : IIrPass
             // (continueTarget == i) so the body walk does not re-enter the loop.
             if (continueTarget != i && FindInfiniteLoopShape(ctx, i, stop) is { } latch)
             {
-                if (ProspectiveLoopOwnershipIsUnsafe(
-                    ctx,
-                    i,
-                    latch + 1,
-                    blocks[i].StartOffset,
-                    cloneContinueTarget: i,
-                    breakTargetOffsets: null))
-                {
-                    ctx.Recorder?.Record("loop-changes-control-flow-owner");
-                    return false;
-                }
                 if (!Validate(ctx, i, latch + 1, joinIndex: latch + 1, breakTarget: latch + 1, continueTarget: i))
                     return false;
                 i = latch + 1;
@@ -808,22 +886,6 @@ public sealed class StructuringPass : IIrPass
                         var loopRegionExitBreakTarget = LoopExitReachesRegionExit(ctx, loop.ContinueAt, stop)
                             ? loop.ContinueAt
                             : (int?)null;
-                        var breakTargetOffsets = new HashSet<int>();
-                        if (loop.ContinueAt < blocks.Count)
-                            breakTargetOffsets.Add(blocks[loop.ContinueAt].StartOffset);
-                        if (loopRegionExitBreakTarget is not null && ctx.RegionExitLeaveTarget is { } regionExitTarget)
-                            breakTargetOffsets.Add(regionExitTarget);
-                        if (ProspectiveLoopOwnershipIsUnsafe(
-                            ctx,
-                            i + 1,
-                            branchTarget,
-                            blocks[branchTarget].StartOffset,
-                            cloneContinueTarget: continueTarget,
-                            breakTargetOffsets))
-                        {
-                            ctx.Recorder?.Record("loop-changes-control-flow-owner");
-                            return false;
-                        }
                         if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget, loopRegionExitBreakTarget))
                             return false;
                         i = loop.ContinueAt;
@@ -978,60 +1040,8 @@ public sealed class StructuringPass : IIrPass
         return true;
     }
 
-    static bool ProspectiveLoopOwnershipIsUnsafe(
-        Ctx ctx,
-        int start,
-        int stop,
-        int retryTargetOffset,
-        int? cloneContinueTarget,
-        HashSet<int>? breakTargetOffsets)
-    {
-        var blocks = ctx.Blocks;
-        for (int index = start; index < stop; index++)
-        {
-            var root = blocks[index];
-            if (LoopBodyOwnershipIsUnsafe(root, retryTargetOffset, breakTargetOffsets))
-                return true;
-
-            if (root.Children.Count == 0
-                || root.Children[^1] is not ConditionalBranch branch
-                || !ctx.FlowFacts.OffsetToIndex.TryGetValue(branch.TargetOffset, out int target)
-                || target <= stop)
-            {
-                continue;
-            }
-
-            if (IsInlinableTerminator(ctx, target))
-            {
-                var clonedSnapshot = CloneTerminatorSnapshot(
-                    ctx,
-                    target,
-                    blocks[target].StartOffset);
-                if (LoopBodyOwnershipIsUnsafe(clonedSnapshot, retryTargetOffset, breakTargetOffsets))
-                    return true;
-                continue;
-            }
-
-            if (cloneContinueTarget is { } cloneLoopHead
-                && IsLeaveRetryLoopHead(ctx, cloneLoopHead)
-                && TryClonePastRegionTerminator(ctx, target, out var clonedTerminator))
-            {
-                if (LoopBodyOwnershipIsUnsafe(clonedTerminator, retryTargetOffset, breakTargetOffsets))
-                    return true;
-                continue;
-            }
-
-            if (TryBuildPastRegionTarget(ctx, target, out var pastRegion, out int inlinedStop)
-                && CanDuplicatePastRegionBody(ctx, target, inlinedStop, index, pastRegion)
-                && LoopBodyOwnershipIsUnsafe(pastRegion, retryTargetOffset, breakTargetOffsets))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
     static bool LoopBodyOwnershipIsUnsafe(
+        Ctx ctx,
         IrNode root,
         int retryTargetOffset,
         HashSet<int>? breakTargetOffsets)
@@ -1040,6 +1050,8 @@ public sealed class StructuringPass : IIrPass
         {
             if (node is Continue)
             {
+                if (ctx.GeneratedLoopTransfers.Contains(node))
+                    continue;
                 if (!HasOwnerBeforeRoot(
                     node,
                     root,
@@ -1051,6 +1063,8 @@ public sealed class StructuringPass : IIrPass
             }
             if (node is Break)
             {
+                if (ctx.GeneratedLoopTransfers.Contains(node))
+                    continue;
                 if (!HasOwnerBeforeRoot(
                     node,
                     root,
@@ -1063,32 +1077,55 @@ public sealed class StructuringPass : IIrPass
             if (node is not Leave leave || !CanRaiseRetryLeave(leave))
                 continue;
 
-            if (leave.TargetOffset == retryTargetOffset
-                && HasOwnerBeforeRoot(
+            IrNode? owner = null;
+            if (leave.TargetOffset == retryTargetOffset)
+            {
+                owner = OwnerBeforeRoot(
                     leave,
                     root,
-                    static ancestor => ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
-            {
-                return true;
+                    static ancestor => ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement);
             }
-            if (breakTargetOffsets?.Contains(leave.TargetOffset) == true
-                && HasOwnerBeforeRoot(
+            else if (breakTargetOffsets?.Contains(leave.TargetOffset) == true)
+            {
+                owner = OwnerBeforeRoot(
                     leave,
                     root,
-                    static ancestor => ancestor is Switch or WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
-            {
-                return true;
+                    static ancestor => ancestor is Switch or WhileLoop or DoWhileLoop or ForLoop or ForeachStatement);
             }
+            if (owner is not null && !ctx.GeneratedLoopOwners.Contains(owner))
+                return true;
         }
         return false;
     }
 
+    static bool HasDanglingInternalLeaveTarget(
+        Ctx ctx,
+        IrNode root,
+        int start,
+        int stop)
+    {
+        var survivingLabels = root.DescendantsAndSelfOutsideNestedFunctions
+            .Where(static node => node.OwnsSourceLabel && node.SourceOffset >= 0)
+            .Select(static node => node.SourceOffset)
+            .ToHashSet();
+        return root.DescendantsOutsideNestedFunctions
+            .OfType<Leave>()
+            .Any(leave =>
+                ctx.FlowFacts.OffsetToIndex.TryGetValue(leave.TargetOffset, out int target)
+                && target >= start
+                && target < stop
+                && !survivingLabels.Contains(leave.TargetOffset));
+    }
+
     static bool HasOwnerBeforeRoot(IrNode node, IrNode root, Func<IrNode, bool> isOwner)
+        => OwnerBeforeRoot(node, root, isOwner) is not null;
+
+    static IrNode? OwnerBeforeRoot(IrNode node, IrNode root, Func<IrNode, bool> isOwner)
     {
         for (var ancestor = node.Parent; ancestor is not null && !ReferenceEquals(ancestor, root); ancestor = ancestor.Parent)
             if (isOwner(ancestor))
-                return true;
-        return false;
+                return ancestor;
+        return null;
     }
 
     /// <summary>
@@ -1437,7 +1474,8 @@ public sealed class StructuringPass : IIrPass
             return false;
 
         body = BuildRegion(inlineCtx, 0, 1, joinIndex: 1, breakTarget: null, continueTarget: null);
-        return true;
+        SuppressClonedSourceLabels(body);
+        return !inlineCtx.CandidateOwnershipUnsafe;
     }
 
     static bool TryBuildPastRegionTarget(Ctx ctx, int target, out Block body, out int inlinedStop)
@@ -1461,6 +1499,9 @@ public sealed class StructuringPass : IIrPass
                 continue;
 
             body = BuildRegion(inlineCtx, 0, clonedBlocks.Count, joinIndex: clonedBlocks.Count, breakTarget: null, continueTarget: null);
+            if (inlineCtx.CandidateOwnershipUnsafe)
+                continue;
+            SuppressClonedSourceLabels(body);
             inlinedStop = stop;
             return true;
         }
@@ -1525,7 +1566,7 @@ public sealed class StructuringPass : IIrPass
         var scatteredReturnDispatchTargets = new HashSet<int>();
         var snapshots = BuildTerminatorSnapshots(
             blocks,
-            flowFacts.UnconditionalTargets,
+            NonInlinableTerminatorTargets(flowFacts),
             flowFacts.ConditionalTargetCounts,
             fallenInto,
             isComparisonTree,
@@ -1539,6 +1580,8 @@ public sealed class StructuringPass : IIrPass
             CloneOwnerIndices = [],
             TerminatorSnapshots = snapshots,
             FallenInto = fallenInto,
+            GeneratedLoopTransfers = [],
+            GeneratedLoopOwners = [],
             IsComparisonTree = isComparisonTree,
             ScatteredReturnDispatchTargets = scatteredReturnDispatchTargets,
             RegionExitLeaveTarget = null,
@@ -1927,7 +1970,7 @@ public sealed class StructuringPass : IIrPass
     /// </summary>
     static Dictionary<int, IReadOnlyList<IrNode>> BuildTerminatorSnapshots(
         IReadOnlyList<Block> blocks,
-        HashSet<int> unconditionalTargets,
+        HashSet<int> nonInlinableTargets,
         Dictionary<int, int> conditionalTargetCounts,
         HashSet<int> fallenInto,
         bool isComparisonTree,
@@ -1935,9 +1978,16 @@ public sealed class StructuringPass : IIrPass
     {
         var snapshots = new Dictionary<int, IReadOnlyList<IrNode>>();
         for (int i = 0; i < blocks.Count; i++)
-            if (IsSharedTerminator(blocks[i], unconditionalTargets, conditionalTargetCounts, fallenInto, isComparisonTree, scatteredReturnDispatchTargets))
+            if (IsSharedTerminator(blocks[i], nonInlinableTargets, conditionalTargetCounts, fallenInto, isComparisonTree, scatteredReturnDispatchTargets))
                 snapshots[i] = blocks[i].Children.ToList();
         return snapshots;
+    }
+
+    static HashSet<int> NonInlinableTerminatorTargets(StructuringFlowFacts flowFacts)
+    {
+        var targets = new HashSet<int>(flowFacts.UnconditionalTargets);
+        targets.UnionWith(flowFacts.PreservedTargets);
+        return targets;
     }
 
     /// <summary>
@@ -1954,7 +2004,17 @@ public sealed class StructuringPass : IIrPass
         var clone = new Block(startOffset);
         foreach (var statement in ctx.TerminatorSnapshots[index])
             clone.Add(statement.Clone());
+        SuppressClonedSourceLabels(clone);
         return clone;
+    }
+
+    static void SuppressClonedSourceLabels(IrNode root)
+    {
+        foreach (var statement in root.DescendantsOutsideNestedFunctions
+            .Where(static node => node.Parent is Block))
+        {
+            statement.SuppressSourceLabel();
+        }
     }
 
     /// <summary>Whether control reaching the end of this block continues into its successor (vs. returning, throwing, or branching away).</summary>
@@ -2000,10 +2060,19 @@ public sealed class StructuringPass : IIrPass
                     breakTarget: latch + 1,
                     continueTarget: i,
                     suppressStartTargetLabel: true);
+                if (LoopBodyOwnershipIsUnsafe(
+                    ctx,
+                    loopBody,
+                    blocks[i].StartOffset,
+                    breakTargetOffsets: null))
+                {
+                    ctx.CandidateOwnershipUnsafe = true;
+                }
                 ReplaceRetryLeavesWithContinues(loopBody, blocks[i].StartOffset);
                 if (fallthroughExits)
                     loopBody.Add(new Break());
                 var loop = new WhileLoop(TrueLiteral(), loopBody);
+                ctx.GeneratedLoopOwners.Add(loop);
                 if (ctx.FlowFacts.BranchTargets.Contains(blocks[i].StartOffset))
                     loop.SetSourceOffset(blocks[i].StartOffset);
                 result.Add(loop);
@@ -2033,6 +2102,7 @@ public sealed class StructuringPass : IIrPass
                 {
                     var next = new Break();
                     next.InheritSourceOffset(leave);
+                    ctx.GeneratedLoopTransfers.Add(next);
                     result.Add(next);
                     i++;
                     break;
@@ -2043,6 +2113,7 @@ public sealed class StructuringPass : IIrPass
                 {
                     var next = new Break();
                     next.InheritSourceOffset(leave);
+                    ctx.GeneratedLoopTransfers.Add(next);
                     result.Add(next);
                     i++;
                     break;
@@ -2053,6 +2124,7 @@ public sealed class StructuringPass : IIrPass
                 {
                     var next = new Continue();
                     next.InheritSourceOffset(leave);
+                    ctx.GeneratedLoopTransfers.Add(next);
                     result.Add(next);
                     i++;
                     break;
@@ -2079,6 +2151,7 @@ public sealed class StructuringPass : IIrPass
                     {
                         var next = new Break();
                         next.InheritSourceOffset(branch);
+                        ctx.GeneratedLoopTransfers.Add(next);
                         result.Add(next);
                         i++;
                         break;
@@ -2096,6 +2169,22 @@ public sealed class StructuringPass : IIrPass
                             ? loop.ContinueAt
                             : (int?)null;
                         var body = BuildRegion(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget, loopRegionExitBreakTarget);
+                        var breakTargetOffsets = new HashSet<int>();
+                        if (loop.ContinueAt < blocks.Count)
+                            breakTargetOffsets.Add(blocks[loop.ContinueAt].StartOffset);
+                        if (loopRegionExitBreakTarget is not null
+                            && ctx.RegionExitLeaveTarget is { } loopRegionExitTarget)
+                        {
+                            breakTargetOffsets.Add(loopRegionExitTarget);
+                        }
+                        if (LoopBodyOwnershipIsUnsafe(
+                            ctx,
+                            body,
+                            blocks[branchTarget].StartOffset,
+                            breakTargetOffsets))
+                        {
+                            ctx.CandidateOwnershipUnsafe = true;
+                        }
                         ReplaceRetryLeavesWithContinues(body, blocks[branchTarget].StartOffset);
                         if (loop.ContinueAt < blocks.Count)
                             ReplaceRetryLeavesWithBreaks(body, blocks[loop.ContinueAt].StartOffset);
@@ -2103,6 +2192,7 @@ public sealed class StructuringPass : IIrPass
                             ReplaceRetryLeavesWithBreaks(body, regionExitTarget);
                         var condition = BuildWhileCondition(loop);
                         var whileLoop = new WhileLoop(condition, body);
+                        ctx.GeneratedLoopOwners.Add(whileLoop);
                         if (ctx.FlowFacts.BranchTargets.Contains(blocks[branchTarget].StartOffset))
                             whileLoop.SetSourceOffset(blocks[branchTarget].StartOffset);
                         result.Add(whileLoop);
@@ -2116,6 +2206,8 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (ctx.RetainedMergeIndex == branchTarget)
                     {
+                        if (i + 1 != stop)
+                            ctx.CandidateOwnershipUnsafe = true;
                         result.Add(last);
                         i++;
                         break;
@@ -2131,7 +2223,9 @@ public sealed class StructuringPass : IIrPass
                     if (breakTarget == target)
                     {
                         var breakArm = new Block(block.StartOffset);
-                        breakArm.Add(new Break());
+                        var next = new Break();
+                        ctx.GeneratedLoopTransfers.Add(next);
+                        breakArm.Add(next);
                         result.Add(new IfStatement(condition, breakArm, null));
                         i++;
                         break;
