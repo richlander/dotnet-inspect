@@ -183,6 +183,9 @@ internal sealed class CrossAssemblyTypeResolver
             ParameterRefKindsFacts = needsRefKinds && resolved.ParameterRefKinds.State != ParameterRefKindFacts.Unknown
                 ? resolved.ParameterRefKinds.State
                 : callee.ParameterRefKindsFacts,
+            HasRefReadOnlyParameters = needsRefKinds && resolved.ParameterRefKinds.State != ParameterRefKindFacts.Unknown
+                ? resolved.ParameterRefKinds.HasRefReadOnlyParameters
+                : callee.HasRefReadOnlyParameters,
             RequiresUnsafe = callee.RequiresUnsafe || (needsUnsafe && resolved.RequiresUnsafe),
             ReturnIsDynamic = needsReturnDynamic ? resolved.ReturnIsDynamic : callee.ReturnIsDynamic,
             CompilerGenerated = needsGenerated ? resolved.CompilerGenerated : callee.CompilerGenerated,
