@@ -2983,7 +2983,6 @@ public static class CompileBackSourceComposer
                     : DeclarationAccessibility(methodDeclaration.Accessibility),
                 ConstructorInitializer: targetConstructorInitializer,
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName,
-                DeclarationSignature: explicitInterfaceDeclarationSignature,
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function),
                 MetadataToken: MetadataTokens.GetToken(targetMethod))
         ];
