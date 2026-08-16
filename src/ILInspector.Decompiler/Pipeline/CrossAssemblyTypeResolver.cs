@@ -640,9 +640,9 @@ internal sealed class CrossAssemblyTypeResolver
                 }
                 if (resolved.Assembly != expected.Assembly)
                     return false;
-                // Trusted platform facades are intentionally canonicalized to
-                // one core-library identity across target-framework versions.
-                if (resolved.Assembly == TypeRef.CoreLibrary)
+                // Trusted platform assemblies are resolved version-agnostically,
+                // and their facades share one canonical core-library identity.
+                if (allowCoreLibraryAliases || resolved.Assembly == TypeRef.CoreLibrary)
                     return true;
                 return resolved.ResolutionAssembly is not { } resolvedAssembly
                     || expected.ResolutionAssembly is not { } expectedAssembly

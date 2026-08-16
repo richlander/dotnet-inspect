@@ -116,6 +116,7 @@ public class ReferenceEqualityMetadataFactsTests
         AssertEquivalentAssemblyIdentityMatches(v1Type);
         Assert.False(CrossAssemblyTypeResolver.SameSignatureType(v1Type, v2Type, allowCoreLibraryAliases: false));
         AssertCoreLibraryVersionAliasesMatch();
+        AssertPlatformVersionAliasesMatch();
 
         var operatorFree = ImmutableHashSet.Create(v1Identity);
         Assert.Contains("return left == right;", PrintSynthetic(v1Type, operatorFree));
@@ -171,6 +172,43 @@ public class ReferenceEqualityMetadataFactsTests
             runtime11);
 
         Assert.True(CrossAssemblyTypeResolver.SameSignatureType(first, second, allowCoreLibraryAliases: false));
+    }
+
+    static void AssertPlatformVersionAliasesMatch()
+    {
+        const string ns = "System.Linq";
+        var definitionName = MetadataTypeDefinitionName.Create(ns, ["IOrderedEnumerable`1"]) switch
+        {
+            MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+            _ => throw new InvalidOperationException("IOrderedEnumerable metadata name is invalid"),
+        };
+        var systemLinq8 = new AssemblyReferenceIdentity(
+            "System.Linq",
+            new Version(8, 0, 0, 0),
+            null,
+            "b03f5f7f11d50a3a");
+        var systemLinq11 = systemLinq8 with { Version = new Version(11, 0, 0, 0) };
+        var first = TypeRef.DefinitionWithResolution(
+            "System.Linq",
+            ns,
+            "IOrderedEnumerable`1",
+            ValueTypeHint.ReferenceType,
+            MetadataFactState.Unknown,
+            null,
+            definitionName,
+            systemLinq8);
+        var second = TypeRef.DefinitionWithResolution(
+            "System.Linq",
+            ns,
+            "IOrderedEnumerable`1",
+            ValueTypeHint.ReferenceType,
+            MetadataFactState.Unknown,
+            null,
+            definitionName,
+            systemLinq11);
+
+        Assert.False(CrossAssemblyTypeResolver.SameSignatureType(first, second, allowCoreLibraryAliases: false));
+        Assert.True(CrossAssemblyTypeResolver.SameSignatureType(first, second, allowCoreLibraryAliases: true));
     }
 
     static IrFunction Import(MetadataSource source, string methodName)
