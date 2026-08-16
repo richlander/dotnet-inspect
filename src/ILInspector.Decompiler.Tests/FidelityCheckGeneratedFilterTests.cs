@@ -400,6 +400,28 @@ public class FidelityCheckGeneratedFilterTests
                     remove { }
                 }
             }
+
+            public class BaseEventFixture
+            {
+                private EventHandler? _changed;
+
+                public virtual event EventHandler? Changed
+                {
+                    add => _changed += value;
+                    remove => _changed -= value;
+                }
+            }
+
+            public sealed class OverrideEventFixture : BaseEventFixture
+            {
+                private EventHandler? _changed;
+
+                public override event EventHandler? Changed
+                {
+                    add => _changed += value;
+                    remove => _changed -= value;
+                }
+            }
             """);
         try
         {
@@ -420,6 +442,11 @@ public class FidelityCheckGeneratedFilterTests
                 handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
                     == "ExplicitEventFixture"));
             var explicitEvent = reader.GetEventDefinition(Assert.Single(explicitType.GetEvents()));
+            var overrideType = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "OverrideEventFixture"));
+            var overrideEvent = reader.GetEventDefinition(Assert.Single(overrideType.GetEvents()));
 
             using var source = MetadataSource.Open(assemblyPath);
             var wholeMember = FidelityCheck.TryRenderTargetMember(
@@ -445,6 +472,12 @@ public class FidelityCheckGeneratedFilterTests
                 pe,
                 source,
                 explicitEvent.GetAccessors().Adder,
+                targeted: true,
+                isPrimaryConstructor: false));
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                overrideEvent.GetAccessors().Adder,
                 targeted: true,
                 isPrimaryConstructor: false));
 
@@ -479,6 +512,18 @@ public class FidelityCheckGeneratedFilterTests
                     method => method.Method == "remove_Changed"));
             Assert.True(targetedRemover.UsedProductWholeMember);
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, targetedRemover.Status);
+
+            var overrideResults = FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "OverrideEventFixture",
+                    method => method.Method is "add_Changed" or "remove_Changed")
+                .ToList();
+            Assert.Equal(2, overrideResults.Count);
+            foreach (var result in overrideResults)
+            {
+                Assert.False(result.UsedProductWholeMember, result.Method);
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            }
         }
         finally
         {

@@ -4024,6 +4024,12 @@ static class FidelityCheck
         {
             return null;
         }
+        if (entry.Member.Kind == "event" && entry.Member.IsOverride)
+        {
+            // The compile-back skeleton does not reconstruct non-target base events.
+            // An override event therefore cannot bind until event stubs exist.
+            return null;
+        }
 
         var result = targeted
             ? RenderTargetMember(entry.Type, entry.Member, source)
