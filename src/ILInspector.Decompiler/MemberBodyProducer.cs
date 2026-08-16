@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -5,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using CSharpText;
 using ILInspector.CSharp;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Text;
@@ -62,6 +64,20 @@ public sealed record MemberRenderResult(
     public bool IsComplete => Status == MemberBodyProductionStatus.Complete;
 }
 
+/// <summary>Controls custom attributes in a product-owned whole-member render.</summary>
+public enum MemberRenderAttributeMode
+{
+    /// <summary>Render the member, return, and parameter attributes in metadata.</summary>
+    All,
+
+    /// <summary>
+    /// Render only attributes required to preserve compilation semantics.
+    /// Currently this retains method-level <c>SkipLocalsInit</c>; declaration,
+    /// return, and parameter attributes are omitted with their namespace imports.
+    /// </summary>
+    CompilationRequired,
+}
+
 /// <summary>
 /// Projects a whole type as one C# listing: the type declaration, field
 /// declarations (including non-public fields, for context the bodies
@@ -73,7 +89,13 @@ public sealed record MemberRenderResult(
 public static class MemberBodyProducer
 {
     static readonly CSharpFormatter DefaultDeclarationFormatter = CreateDeclarationFormatter();
+    static readonly CSharpFormatter ShellDeclarationFormatter =
+        CreateDeclarationFormatter(includeSignatureAttributes: false);
     static readonly CSharpFormatter TerminatedDeclarationFormatter = CreateDeclarationFormatter(terminateMemberDeclaration: true);
+    static readonly CSharpFormatter ShellTerminatedDeclarationFormatter =
+        CreateDeclarationFormatter(
+            terminateMemberDeclaration: true,
+            includeSignatureAttributes: false);
 
     /// <summary>
     /// Resolves one module-scoped method address into another live metadata
@@ -242,11 +264,19 @@ public static class MemberBodyProducer
     /// Prefer the <see cref="IAssemblyReferenceResolver"/> overload when a
     /// caller needs identity- or stream-backed resolution.
     /// <paramref name="printerOptions"/> defaults to the shipped output.
+    /// <paramref name="attributeMode"/> defaults to the shipped output.
     /// </summary>
-    public static MemberRenderResult ProduceMember(ApiType type, ApiMember member, string dllPath, string? pdbPath, Pipeline.MetadataContext? context = null, Pipeline.PrinterOptions? printerOptions = null)
+    public static MemberRenderResult ProduceMember(
+        ApiType type,
+        ApiMember member,
+        string dllPath,
+        string? pdbPath,
+        Pipeline.MetadataContext? context = null,
+        Pipeline.PrinterOptions? printerOptions = null,
+        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All)
     {
         var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
-        return ProduceMember(type, member, dllPath, pdbPath, resolver, context, printerOptions);
+        return ProduceMember(type, member, dllPath, pdbPath, resolver, context, printerOptions, attributeMode);
     }
 
     /// <summary>
@@ -260,14 +290,34 @@ public static class MemberBodyProducer
     /// members that produce no listing output, return
     /// <see cref="MemberBodyProductionStatus.Absent"/>. Omitting
     /// <paramref name="printerOptions"/> preserves the shipped output.
+    /// <paramref name="attributeMode"/> defaults to
+    /// <see cref="MemberRenderAttributeMode.All"/>.
     /// </summary>
-    public static MemberRenderResult ProduceMember(ApiType type, ApiMember member, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null, Pipeline.PrinterOptions? printerOptions = null)
+    public static MemberRenderResult ProduceMember(
+        ApiType type,
+        ApiMember member,
+        string dllPath,
+        string? pdbPath,
+        IAssemblyReferenceResolver resolver,
+        Pipeline.MetadataContext? context = null,
+        Pipeline.PrinterOptions? printerOptions = null,
+        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(member);
-        var start = ResolvedAssemblyReference.CreateFromPath(
-            dllPath,
-            AssemblyResolutionProvenance.Local("StartAssembly"));
+        if (!Enum.IsDefined(attributeMode))
+            throw new ArgumentOutOfRangeException(nameof(attributeMode));
+        ResolvedAssemblyReference start;
+        try
+        {
+            start = ResolvedAssemblyReference.CreateFromPath(
+                dllPath,
+                AssemblyResolutionProvenance.Local("StartAssembly"));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return FailedMemberRender(ex);
+        }
         return ComposeMemberCore(
             type,
             member,
@@ -278,7 +328,8 @@ public static class MemberBodyProducer
                 resolver,
                 ctx),
             context,
-            printerOptions);
+            printerOptions,
+            attributeMode);
     }
 
     /// <summary>
@@ -286,11 +337,17 @@ public static class MemberBodyProducer
     /// default sibling policy (<see cref="Pipeline.MetadataSource.DefaultAssemblyReferenceResolver"/>).
     /// Prefer the <see cref="IAssemblyReferenceResolver"/> overload when a
     /// caller needs identity- or stream-backed resolution.
+    /// <paramref name="attributeMode"/> defaults to the shipped output.
     /// </summary>
-    public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(ApiType type, string dllPath, string? pdbPath, Pipeline.MetadataContext? context = null)
+    public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(
+        ApiType type,
+        string dllPath,
+        string? pdbPath,
+        Pipeline.MetadataContext? context = null,
+        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All)
     {
         var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
-        return ProduceMembers(type, dllPath, pdbPath, resolver, context);
+        return ProduceMembers(type, dllPath, pdbPath, resolver, context, attributeMode);
     }
 
     /// <summary>
@@ -302,15 +359,41 @@ public static class MemberBodyProducer
     /// whole type rather than once per member — the cost model a caller rendering
     /// many members of the same type (such as the compile-back harness) needs.
     /// The returned map is keyed by the same <see cref="ApiMember"/> instances in
-    /// <see cref="ApiType.Members"/> (reference identity). Members that produce no
-    /// listing output are mapped to <see cref="MemberBodyProductionStatus.Absent"/>.
+    /// <see cref="ApiType.Members"/> (reference identity). The result contains
+    /// one entry for every member. Members that produce no listing output are
+    /// mapped to <see cref="MemberBodyProductionStatus.Absent"/>; shared setup
+    /// failures map every otherwise-unrendered member to
+    /// <see cref="MemberBodyProductionStatus.Failed"/>.
+    /// <paramref name="attributeMode"/> defaults to
+    /// <see cref="MemberRenderAttributeMode.All"/>.
     /// </summary>
-    public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
+    public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(
+        ApiType type,
+        string dllPath,
+        string? pdbPath,
+        IAssemblyReferenceResolver resolver,
+        Pipeline.MetadataContext? context = null,
+        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All)
     {
         ArgumentNullException.ThrowIfNull(type);
-        var start = ResolvedAssemblyReference.CreateFromPath(
-            dllPath,
-            AssemblyResolutionProvenance.Local("StartAssembly"));
+        if (!Enum.IsDefined(attributeMode))
+            throw new ArgumentOutOfRangeException(nameof(attributeMode));
+        ResolvedAssemblyReference start;
+        try
+        {
+            start = ResolvedAssemblyReference.CreateFromPath(
+                dllPath,
+                AssemblyResolutionProvenance.Local("StartAssembly"));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            var failed = FailedMemberRender(ex);
+            var results = new Dictionary<ApiMember, MemberRenderResult>(
+                ReferenceEqualityComparer.Instance);
+            foreach (var member in type.Members)
+                results[member] = failed;
+            return results;
+        }
         return ComposeMembersBatch(
             type,
             () => ResolveDefinition(start, type, resolver, context),
@@ -319,7 +402,8 @@ public static class MemberBodyProducer
                 pdbPath,
                 resolver,
                 ctx),
-            context);
+            context,
+            attributeMode);
     }
 
     static ResolvedTypeDefinition? ResolveDefinition(
@@ -460,7 +544,7 @@ public static class MemberBodyProducer
                 stream?.Dispose();
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             // Degrade honestly: the section renders the reason instead of
             // silently disappearing.
@@ -474,7 +558,8 @@ public static class MemberBodyProducer
         Func<ResolvedTypeDefinition?> locateType,
         Func<ResolvedTypeDefinition, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
         Pipeline.MetadataContext? context,
-        Pipeline.PrinterOptions? printerOptions)
+        Pipeline.PrinterOptions? printerOptions,
+        MemberRenderAttributeMode attributeMode)
     {
         if (type.Kind is "delegate")
             return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, []);
@@ -508,7 +593,18 @@ public static class MemberBodyProducer
                 var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
                 var sb = new StringBuilder();
                 bool any = false;
-                ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any, only: member, printerOptions: printerOptions);
+                ComposeMembers(
+                    sb,
+                    type,
+                    pipelineSource,
+                    reader,
+                    typeHandle,
+                    union,
+                    bodyNamespaces,
+                    ref any,
+                    only: member,
+                    printerOptions: printerOptions,
+                    attributeMode: attributeMode);
 
                 if (!any)
                     return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
@@ -528,14 +624,11 @@ public static class MemberBodyProducer
                 stream?.Dispose();
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             // Degrade honestly, matching ComposeCore: the failure reason is the
             // rendered text instead of silently disappearing.
-            return new MemberRenderResult(
-                MemberBodyProductionStatus.Failed,
-                $"// {DiagnosticIds.InternalError}: member source unavailable: {ex.GetType().Name}: {ex.Message}",
-                []);
+            return FailedMemberRender(ex);
         }
     }
 
@@ -552,16 +645,34 @@ public static class MemberBodyProducer
         ApiType type,
         Func<ResolvedTypeDefinition?> locateType,
         Func<ResolvedTypeDefinition, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
-        Pipeline.MetadataContext? context)
+        Pipeline.MetadataContext? context,
+        MemberRenderAttributeMode attributeMode)
     {
         var results = new Dictionary<ApiMember, MemberRenderResult>(ReferenceEqualityComparer.Instance);
+        var absent = new MemberRenderResult(
+            MemberBodyProductionStatus.Absent,
+            Text: null,
+            []);
+
+        void FillMissing(MemberRenderResult result)
+        {
+            foreach (var member in type.Members)
+                results.TryAdd(member, result);
+        }
+
         if (type.Kind is "delegate")
+        {
+            FillMissing(absent);
             return results;
+        }
 
         try
         {
             if (locateType() is not { } definition)
+            {
+                FillMissing(absent);
                 return results;
+            }
 
             Stream? stream = null;
             PEReader? peReader = null;
@@ -574,7 +685,10 @@ public static class MemberBodyProducer
                 if (!definition.Address.TryResolve(
                         reader,
                         out TypeDefinitionHandle typeHandle))
+                {
+                    FillMissing(absent);
                     return results;
+                }
 
                 using var pipelineSource = openPipelineSource(
                     definition,
@@ -583,20 +697,37 @@ public static class MemberBodyProducer
 
                 foreach (var member in type.Members)
                 {
-                    var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
-                    var sb = new StringBuilder();
-                    bool any = false;
-                    ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any, only: member);
-
-                    if (!any)
+                    try
                     {
-                        results[member] = new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
-                        continue;
-                    }
+                        var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+                        var sb = new StringBuilder();
+                        bool any = false;
+                        ComposeMembers(
+                            sb,
+                            type,
+                            pipelineSource,
+                            reader,
+                            typeHandle,
+                            union,
+                            bodyNamespaces,
+                            ref any,
+                            only: member,
+                            attributeMode: attributeMode);
 
-                    var imports = new SortedSet<string>(bodyNamespaces, StringComparer.Ordinal);
-                    string text = ShortenQualifiedNames(sb.ToString(), reader, imports);
-                    results[member] = new MemberRenderResult(MemberBodyProductionStatus.Complete, text, imports.ToArray());
+                        if (!any)
+                        {
+                            results[member] = new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
+                            continue;
+                        }
+
+                        var imports = new SortedSet<string>(bodyNamespaces, StringComparer.Ordinal);
+                        string text = ShortenQualifiedNames(sb.ToString(), reader, imports);
+                        results[member] = new MemberRenderResult(MemberBodyProductionStatus.Complete, text, imports.ToArray());
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                    {
+                        results[member] = FailedMemberRender(ex);
+                    }
                 }
 
                 return results;
@@ -607,13 +738,18 @@ public static class MemberBodyProducer
                 stream?.Dispose();
             }
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // Degrade honestly: return whatever composed so far; the caller falls
-            // back to its own rendering for any member missing from the map.
+            FillMissing(FailedMemberRender(ex));
             return results;
         }
     }
+
+    static MemberRenderResult FailedMemberRender(Exception ex)
+        => new(
+            MemberBodyProductionStatus.Failed,
+            $"// {DiagnosticIds.InternalError}: member source unavailable: {ex.GetType().Name}: {ex.Message}",
+            []);
 
     sealed record UnionDeclarationInfo(
         IReadOnlyList<string> CaseTypes,
@@ -646,10 +782,12 @@ public static class MemberBodyProducer
     }
 
     static CSharpFormatter CreateDeclarationFormatter(
-        bool terminateMemberDeclaration = false)
+        bool terminateMemberDeclaration = false,
+        bool includeSignatureAttributes = true)
         => new(new CSharpFormatOptions
         {
             IncludeCustomAttributes = false,
+            IncludeSignatureAttributes = includeSignatureAttributes,
             IncludeObsoleteAttribute = false,
             OmitInterfaceMemberModifiers = true,
             TerminateMemberDeclaration = terminateMemberDeclaration
@@ -758,7 +896,7 @@ public static class MemberBodyProducer
             {
                 fieldType = GuardedSignatureText.FieldText(reader, field, genericContext);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 sb.AppendLf($"    // field {reader.GetString(field.Name)}: {DiagnosticIds.InternalError}: signature undecodable ({ex.GetType().Name})");
                 any = true;
@@ -808,7 +946,9 @@ public static class MemberBodyProducer
     static void ComposeMembers(
         StringBuilder sb, ApiType type, Pipeline.MetadataSource pipelineSource,
         MetadataReader reader, TypeDefinitionHandle typeHandle, UnionDeclarationInfo? union,
-        SortedSet<string> bodyNamespaces, ref bool any, ApiMember? only = null, Pipeline.PrinterOptions? printerOptions = null)
+        SortedSet<string> bodyNamespaces, ref bool any, ApiMember? only = null,
+        Pipeline.PrinterOptions? printerOptions = null,
+        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All)
     {
         // Per-name running overload index — the same positional pairing the
         // member command uses for Name:N — used only when a member carries no
@@ -878,11 +1018,22 @@ public static class MemberBodyProducer
                             member.Name,
                             index,
                             bodyPublicOnly);
-                    var attributes = memberHandle is { } attrHandle
-                        ? AttributeReader.RenderMethodAttributes(reader, attrHandle, bodyNamespaces)
-                        : AttributeReader.RenderMethodAttributes(reader, typeHandle, member.Name, index, publicOnly, bodyNamespaces);
-                    foreach (var attribute in attributes)
-                        sb.AppendLf($"    [{attribute}]");
+                    if (attributeMode == MemberRenderAttributeMode.All)
+                    {
+                        var attributes = memberHandle is { } attrHandle
+                            ? AttributeReader.RenderMethodAttributes(reader, attrHandle, bodyNamespaces)
+                            : AttributeReader.RenderMethodAttributes(reader, typeHandle, member.Name, index, publicOnly, bodyNamespaces);
+                        foreach (var attribute in attributes)
+                            sb.AppendLf($"    [{attribute}]");
+                    }
+                    else if (memberHandle is { } requiredAttributeHandle
+                        && AttributeReader.HasAttribute(
+                            reader,
+                            reader.GetMethodDefinition(requiredAttributeHandle).GetCustomAttributes(),
+                            KnownAttributeNames.SkipLocalsInitAttribute))
+                    {
+                        sb.AppendLf("    [global::System.Runtime.CompilerServices.SkipLocalsInit]");
+                    }
 
                     string? constructorChain = null;
                     bool requiresUnsafeContext = false;
@@ -890,7 +1041,7 @@ public static class MemberBodyProducer
                     bool bodyIsDestructor = false;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions);
+                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic: only is not null);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -942,9 +1093,12 @@ public static class MemberBodyProducer
                             // not silently re-inject the mandatory base call.
                             SuppressDestructorSyntax = member.IsFinalizer && !bodyIsDestructor
                         };
+                    var declarationFormatter = attributeMode == MemberRenderAttributeMode.All
+                        ? DefaultDeclarationFormatter
+                        : ShellDeclarationFormatter;
                     var declaration = bodyShape is null
-                        ? DefaultDeclarationFormatter.FormatMember(type, member)
-                        : DefaultDeclarationFormatter.FormatMemberWithBody(type, member, bodyShape);
+                        ? declarationFormatter.FormatMember(type, member)
+                        : declarationFormatter.FormatMemberWithBody(type, member, bodyShape);
                     AppendMember(sb, declaration, body, WrapExpressionBodyArrow(printerOptions), constructorChain, bodyIsSingleExpressionBody, DisableSignatureWrapping(printerOptions));
                     break;
                 }
@@ -954,10 +1108,21 @@ public static class MemberBodyProducer
                     if (!first) sb.AppendLf();
                     first = false;
                     any = true;
-                    foreach (var attribute in AttributeReader.RenderPropertyAttributes(
-                        reader, typeHandle, member.Name, bodyNamespaces))
-                        sb.AppendLf($"    [{attribute}]");
-                    ComposeProperty(sb, pipelineSource, reader, typeHandle, type, member, bodyNamespaces, printerOptions);
+                    if (attributeMode == MemberRenderAttributeMode.All)
+                        foreach (var attribute in AttributeReader.RenderPropertyAttributes(
+                            reader, typeHandle, member.Name, bodyNamespaces))
+                            sb.AppendLf($"    [{attribute}]");
+                    ComposeProperty(
+                        sb,
+                        pipelineSource,
+                        reader,
+                        typeHandle,
+                        type,
+                        member,
+                        bodyNamespaces,
+                        printerOptions,
+                        attributeMode,
+                        failOnDiagnostic: only is not null);
                     break;
                 }
 
@@ -966,10 +1131,13 @@ public static class MemberBodyProducer
                     if (!first) sb.AppendLf();
                     first = false;
                     any = true;
-                    foreach (var attribute in AttributeReader.RenderEventAttributes(
-                        reader, typeHandle, member.Name, bodyNamespaces))
-                        sb.AppendLf($"    [{attribute}]");
-                    string declaration = TerminatedDeclarationFormatter.FormatMember(type, member);
+                    if (attributeMode == MemberRenderAttributeMode.All)
+                        foreach (var attribute in AttributeReader.RenderEventAttributes(
+                            reader, typeHandle, member.Name, bodyNamespaces))
+                            sb.AppendLf($"    [{attribute}]");
+                    string declaration = (attributeMode == MemberRenderAttributeMode.All
+                        ? TerminatedDeclarationFormatter
+                        : ShellTerminatedDeclarationFormatter).FormatMember(type, member);
                     sb.AppendLf($"    {declaration}");
                     break;
                 }
@@ -1015,7 +1183,7 @@ public static class MemberBodyProducer
                 var signature = GuardedSignatureText.PropertyText(reader, property, genericContext);
                 hasObjectValueGetter = signature.ReturnType is "object" or "System.Object";
             }
-            catch
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 return null;
             }
@@ -1043,7 +1211,7 @@ public static class MemberBodyProducer
             {
                 signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             }
-            catch
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 return null;
             }
@@ -1225,21 +1393,294 @@ public static class MemberBodyProducer
     static string ContainedIdentifier(string name) => Pipeline.CSharpNaming.ContainedIdentifier(name);
 
     /// <summary>An accessor that just passes through the auto-property backing field — `return this.Name;` or `this.Name = value;`.</summary>
-    static bool IsTrivialAutoAccessor(string keyword, string? body, string name)
+    static bool IsTrivialAutoAccessor(string keyword, string? body, string name, bool isStatic)
     {
         string escapedName = ContainedIdentifier(name);
+        string target = $"this.{escapedName}";
+        if (isStatic)
+        {
+            string? text = body?.Trim();
+            string? expression = keyword == "get"
+                && text?.StartsWith("return ", StringComparison.Ordinal) == true
+                && text.EndsWith(';')
+                    ? text[7..^1]
+                    : keyword != "get"
+                        && text?.EndsWith(" = value;", StringComparison.Ordinal) == true
+                            ? text[..^9]
+                            : null;
+            return expression == escapedName
+                || expression?.EndsWith($".{escapedName}", StringComparison.Ordinal) == true;
+        }
         return keyword == "get"
-            ? body?.Trim() == $"return this.{escapedName};"
-            : body?.Trim() == $"this.{escapedName} = value;";
+            ? body?.Trim() == $"return {target};"
+            : body?.Trim() == $"{target} = value;";
+    }
+
+    static bool IsCompilerGeneratedAutoProperty(
+        Pipeline.MetadataSource source,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        ApiMember member,
+        MethodDefinitionHandle? getterHandle,
+        MethodDefinitionHandle? setterHandle)
+    {
+        if (getterHandle is null && setterHandle is null)
+            return false;
+
+        foreach (var handle in new[] { getterHandle, setterHandle })
+        {
+            if (handle is not { } accessor)
+                continue;
+            var method = reader.GetMethodDefinition(accessor);
+            if (((method.Attributes & MethodAttributes.Static) != 0) != member.IsStatic
+                || !AttributeReader.HasAttribute(
+                    reader,
+                    method.GetCustomAttributes(),
+                    KnownAttributeNames.CompilerGeneratedAttribute))
+            {
+                return false;
+            }
+        }
+
+        var type = reader.GetTypeDefinition(typeHandle);
+        var genericContext = GenericContext.ForType(reader, type);
+        PropertyDefinitionHandle propertyHandle = default;
+        foreach (var candidateHandle in type.GetProperties())
+        {
+            var candidate = reader.GetPropertyDefinition(candidateHandle);
+            if (reader.GetString(candidate.Name) != member.Name)
+                continue;
+            var candidateAccessors = candidate.GetAccessors();
+            if (getterHandle is { } getter && candidateAccessors.Getter != getter
+                || setterHandle is { } setter && candidateAccessors.Setter != setter)
+            {
+                continue;
+            }
+            if (!propertyHandle.IsNil)
+                return false;
+            propertyHandle = candidateHandle;
+        }
+        if (propertyHandle.IsNil)
+            return false;
+
+        MethodSignature<string> propertySignature;
+        try
+        {
+            propertySignature = GuardedSignatureText.PropertyText(
+                reader,
+                reader.GetPropertyDefinition(propertyHandle),
+                genericContext);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return false;
+        }
+
+        FieldDefinitionHandle backingFieldHandle = default;
+        string backingFieldName = $"<{member.Name}>k__BackingField";
+        foreach (var fieldHandle in type.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (reader.GetString(field.Name) != backingFieldName)
+                continue;
+
+            string fieldType;
+            try
+            {
+                fieldType = GuardedSignatureText.FieldText(reader, field, genericContext);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                continue;
+            }
+
+            if ((field.Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.Private
+                && ((field.Attributes & FieldAttributes.Static) != 0) == member.IsStatic
+                && AttributeReader.HasAttribute(
+                    reader,
+                    field.GetCustomAttributes(),
+                    KnownAttributeNames.CompilerGeneratedAttribute)
+                && fieldType == propertySignature.ReturnType)
+            {
+                if (!backingFieldHandle.IsNil)
+                    return false;
+                backingFieldHandle = fieldHandle;
+            }
+        }
+        if (backingFieldHandle.IsNil)
+            return false;
+
+        return (getterHandle is null
+                || AccessorReferencesBackingField(
+                    source,
+                    typeHandle,
+                    getterHandle.Value,
+                    backingFieldHandle,
+                    member.IsStatic ? ILOpCode.Ldsfld : ILOpCode.Ldfld))
+            && (setterHandle is null
+                || AccessorReferencesBackingField(
+                    source,
+                    typeHandle,
+                    setterHandle.Value,
+                    backingFieldHandle,
+                    member.IsStatic ? ILOpCode.Stsfld : ILOpCode.Stfld));
+    }
+
+    static bool AccessorReferencesBackingField(
+        Pipeline.MetadataSource source,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle accessorHandle,
+        FieldDefinitionHandle backingFieldHandle,
+        ILOpCode expectedOpCode)
+    {
+        var method = source.Reader.GetMethodDefinition(accessorHandle);
+        if (method.RelativeVirtualAddress == 0)
+            return false;
+
+        var instructions = MethodInstructions.Decode(
+            source.Pe.GetMethodBody(method.RelativeVirtualAddress));
+        if (!instructions.IsComplete)
+            return false;
+
+        var fieldReferences = instructions.Instructions
+            .Where(instruction => instruction.Operand == OperandKind.InlineField)
+            .ToList();
+        return fieldReferences is [{ OpCode: var opCode, OperandValue: var operand }]
+            && opCode == expectedOpCode
+            && FieldOperandMatchesBackingField(
+                source.Reader,
+                typeHandle,
+                MetadataTokens.EntityHandle((int)operand),
+                backingFieldHandle);
+    }
+
+    static bool FieldOperandMatchesBackingField(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        EntityHandle operandHandle,
+        FieldDefinitionHandle backingFieldHandle)
+    {
+        if (operandHandle.Kind == HandleKind.FieldDefinition)
+            return operandHandle == backingFieldHandle;
+        if (operandHandle.Kind != HandleKind.MemberReference)
+            return false;
+
+        var typeParameters = ImmutableArray.CreateRange(
+            reader.GetTypeDefinition(typeHandle)
+                .GetGenericParameters()
+                .Select(handle => reader.GetString(reader.GetGenericParameter(handle).Name)));
+        var scope = new Pipeline.GenericScope(typeParameters, []);
+        var operand = Pipeline.IrImporter.ResolveField(reader, operandHandle, scope);
+        var backingField = Pipeline.IrImporter.ResolveField(reader, backingFieldHandle, scope);
+        var operandDeclaringType = operand.DeclaringType.Kind == Pipeline.TypeRefKind.GenericInstance
+            ? operand.DeclaringType.ElementType
+            : operand.DeclaringType;
+        return operand.Name == backingField.Name
+            && operand.Type.Equals(backingField.Type)
+            && operandDeclaringType?.Equals(backingField.DeclaringType) == true;
+    }
+
+    /// <summary>
+    /// Product-owned proof that an accessor belongs to a compiler auto-property
+    /// whose bodies are safe to replace with accessor semicolons. The compile-back
+    /// struct gate consumes this instead of reconstructing the proof; gated by
+    /// <c>StructFalseAutoProperty_RemainsOnLegacyFallback</c>.
+    /// </summary>
+    internal static bool IsCompilerGeneratedAutoPropertyAccessor(
+        Pipeline.MetadataSource source,
+        ApiMember member,
+        MethodDefinitionHandle accessorHandle)
+    {
+        try
+        {
+            var reader = source.Reader;
+            var typeHandle = reader.GetMethodDefinition(accessorHandle).GetDeclaringType();
+            var getterHandle = ResolveAccessorHandle(
+                reader,
+                typeHandle,
+                member.GetterToken,
+                $"get_{member.Name}");
+            var setterHandle = ResolveAccessorHandle(
+                reader,
+                typeHandle,
+                member.SetterToken,
+                $"set_{member.Name}");
+            if (accessorHandle != getterHandle && accessorHandle != setterHandle
+                || !IsCompilerGeneratedAutoProperty(
+                    source,
+                    reader,
+                    typeHandle,
+                    member,
+                    getterHandle,
+                    setterHandle))
+            {
+                return false;
+            }
+
+            var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+            if (getterHandle is { } getter)
+            {
+                string? body = DecompileAccessor(
+                    source,
+                    getter,
+                    "",
+                    "",
+                    bodyNamespaces,
+                    out _,
+                    out bool requiresAsync,
+                    out _,
+                    printerOptions: null,
+                    failOnDiagnostic: true);
+                if (requiresAsync
+                    || !IsTrivialAutoAccessor("get", body, member.Name, member.IsStatic))
+                {
+                    return false;
+                }
+            }
+
+            if (setterHandle is { } setter)
+            {
+                string keyword = member.SignatureModel?.Accessors.Any(
+                    accessor => accessor.Kind == "init") == true
+                        ? "init"
+                        : "set";
+                string? body = DecompileAccessor(
+                    source,
+                    setter,
+                    "",
+                    "",
+                    bodyNamespaces,
+                    out _,
+                    out bool requiresAsync,
+                    out _,
+                    printerOptions: null,
+                    failOnDiagnostic: true);
+                if (requiresAsync
+                    || !IsTrivialAutoAccessor(keyword, body, member.Name, member.IsStatic))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return false;
+        }
     }
 
     static void ComposeProperty(
         StringBuilder sb, Pipeline.MetadataSource pipelineSource,
         MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type, ApiMember member,
-        SortedSet<string> bodyNamespaces, Pipeline.PrinterOptions? printerOptions)
+        SortedSet<string> bodyNamespaces, Pipeline.PrinterOptions? printerOptions,
+        MemberRenderAttributeMode attributeMode, bool failOnDiagnostic)
     {
         string typeFullName = type.FullName;
-        string signature = DefaultDeclarationFormatter.FormatMember(type, member);
+        var declarationFormatter = attributeMode == MemberRenderAttributeMode.All
+            ? DefaultDeclarationFormatter
+            : ShellDeclarationFormatter;
+        string signature = declarationFormatter.FormatMember(type, member);
         int accessorList = signature.IndexOf('{');
         string head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         bool requiresUnsafeContext = member.IsUnsafe || signature.Contains('*', StringComparison.Ordinal);
@@ -1247,21 +1688,42 @@ public static class MemberBodyProducer
         var getterHandle = ResolveAccessorHandle(reader, typeHandle, member.GetterToken, $"get_{member.Name}");
         var setterHandle = ResolveAccessorHandle(reader, typeHandle, member.SetterToken, $"set_{member.Name}");
 
-        var accessors = new List<(string Keyword, string? Body, bool RequiresUnsafeContext, bool SingleReturnExpression)>();
+        var accessors = new List<(string Keyword, string Head, string? Body, bool RequiresUnsafeContext, bool RequiresAsyncContext, bool SingleReturnExpression)>();
         if (accessorList >= 0)
         {
             string list = signature[accessorList..];
             if (list.Contains("get;", StringComparison.Ordinal))
-                accessors.Add(("get", DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe, out var getSingleReturn, printerOptions), getRequiresUnsafe, getSingleReturn));
+                accessors.Add((
+                    "get",
+                    declarationFormatter.FormatAccessorHead(type, member, "get"),
+                    DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe, out var getRequiresAsync, out var getSingleReturn, printerOptions, failOnDiagnostic),
+                    getRequiresUnsafe,
+                    getRequiresAsync,
+                    getSingleReturn));
             if (list.Contains("set;", StringComparison.Ordinal))
-                accessors.Add(("set", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe, out var setSingleReturn, printerOptions), setRequiresUnsafe, setSingleReturn));
+                accessors.Add((
+                    "set",
+                    declarationFormatter.FormatAccessorHead(type, member, "set"),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe, out var setRequiresAsync, out var setSingleReturn, printerOptions, failOnDiagnostic),
+                    setRequiresUnsafe,
+                    setRequiresAsync,
+                    setSingleReturn));
             if (list.Contains("init;", StringComparison.Ordinal))
-                accessors.Add(("init", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe, out var initSingleReturn, printerOptions), initRequiresUnsafe, initSingleReturn));
+                accessors.Add((
+                    "init",
+                    declarationFormatter.FormatAccessorHead(type, member, "init"),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe, out var initRequiresAsync, out var initSingleReturn, printerOptions, failOnDiagnostic),
+                    initRequiresUnsafe,
+                    initRequiresAsync,
+                    initSingleReturn));
         }
+
+        if (accessors.Any(accessor => accessor.RequiresAsyncContext))
+            throw new InvalidOperationException("C# properties cannot carry an async accessor modifier.");
 
         if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext))
         {
-            signature = DefaultDeclarationFormatter.FormatMemberWithBody(
+            signature = declarationFormatter.FormatMemberWithBody(
                 type,
                 member,
                 new CSharpPropertyBody(null, null) { RequiresUnsafeModifier = true });
@@ -1279,9 +1741,20 @@ public static class MemberBodyProducer
         // passthrough (the body printer de-mangled <Name>k__BackingField to
         // this.Name). Render `{ get; set; }` with no bodies — decompiling them
         // would recurse (a getter that returns the property itself).
-        if (accessors.All(a => IsTrivialAutoAccessor(a.Keyword, a.Body, member.Name)))
+        if (IsCompilerGeneratedAutoProperty(
+                pipelineSource,
+                reader,
+                typeHandle,
+                member,
+                getterHandle,
+                setterHandle)
+            && accessors.All(a => IsTrivialAutoAccessor(
+                a.Keyword,
+                a.Body,
+                member.Name,
+                member.IsStatic)))
         {
-            sb.AppendLf($"    {head} {{ {string.Join(" ", accessors.Select(a => $"{a.Keyword};"))} }}");
+            sb.AppendLf($"    {head} {{ {string.Join(" ", accessors.Select(a => $"{a.Head};"))} }}");
             return;
         }
 
@@ -1292,7 +1765,7 @@ public static class MemberBodyProducer
         // body is one multi-line 'return <expr>;' also folds to an expression
         // body (a raised switch return, issue #3088; a wrapped single expression,
         // issue #3084), gated on the printer's typed single-return signal.
-        if (accessors is [("get", { } loneGet, _, var loneGetSingleReturn)]
+        if (accessors is [("get", "get", { } loneGet, _, _, var loneGetSingleReturn)]
             && (loneGetSingleReturn || CSharpExpressionBody.FromSingleStatement(loneGet) is not null))
         {
             CSharpMemberLayout.Append(sb, head, loneGet, 4, WrapExpressionBodyArrow(printerOptions), loneGetSingleReturn, DisableSignatureWrapping(printerOptions));
@@ -1303,9 +1776,9 @@ public static class MemberBodyProducer
         sb.AppendLf("    {");
         for (int i = 0; i < accessors.Count; i++)
         {
-            var (keyword, body, _, singleReturn) = accessors[i];
+            var (_, accessorHead, body, _, _, singleReturn) = accessors[i];
             if (i > 0) sb.AppendLf();
-            CSharpMemberLayout.Append(sb, keyword, body, 8, WrapExpressionBodyArrow(printerOptions), singleReturn);
+            CSharpMemberLayout.Append(sb, accessorHead, body, 8, WrapExpressionBodyArrow(printerOptions), singleReturn);
         }
         sb.AppendLf("    }");
     }
@@ -1365,7 +1838,8 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? memberHandle,
         string typeFullName, ApiMember member, int overloadIndex,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
+        bool failOnDiagnostic)
     {
         // Prefer the member's own metadata handle — the canonical same-reader
         // addressing (see docs/design/member-body-substrate.md). The caller has
@@ -1376,7 +1850,7 @@ public static class MemberBodyProducer
         if (memberHandle is { } methodHandle)
             return DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, methodHandle),
-                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions);
+                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
 
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
@@ -1385,7 +1859,7 @@ public static class MemberBodyProducer
             publicOnly: member.Kind != "explicit-interface-implementation"
                 && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
                 && member.Accessibility is null,
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
     }
 
     /// <summary>
@@ -1426,7 +1900,7 @@ public static class MemberBodyProducer
         {
             method = reader.GetMethodDefinition(methodHandle);
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return null;
         }
@@ -1456,45 +1930,66 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? accessorHandle,
         string typeFullName, string accessorName,
         SortedSet<string> bodyNamespaces, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions)
+        out bool requiresAsyncContext, out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions,
+        bool failOnDiagnostic)
+    {
         // Prefer the accessor's own handle (fixes indexer get_Item/set_Item
         // drift, where name+index:0 always selects the first indexer's
         // accessor). Fall back to the by-name path — accessors are non-public
         // special-name methods, counted across all visibilities — when no valid
         // handle is available.
-        => accessorHandle is { } handle
-            ? DecompileFunction(pipelineSource,
-                Pipeline.IrImporter.Import(pipelineSource, handle),
-                bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out _, printerOptions)
-            : DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
-            publicOnly: false, bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out _, printerOptions);
+        var function = accessorHandle is { } handle
+            ? Pipeline.IrImporter.Import(pipelineSource, handle)
+            : Pipeline.IrImporter.Import(
+                pipelineSource,
+                typeFullName,
+                accessorName,
+                overloadIndex: 0,
+                publicOnly: false);
+        var body = DecompileFunction(
+            pipelineSource,
+            function,
+            bodyNamespaces,
+            out _,
+            out requiresUnsafeContext,
+            out bodyIsSingleExpressionBody,
+            out _,
+            printerOptions,
+            failOnDiagnostic);
+        requiresAsyncContext = function is not null
+            && (function.RequiresAsyncBodyModifier
+                || function.IsRuntimeAsync == Pipeline.MetadataFactState.Yes);
+        return body;
+    }
 
     /// <summary>
     /// Imports one method to typed IR, runs the raising passes, and prints the
     /// body. A null import means no IL body
-    /// (abstract/extern) — nothing to render, not an error. PrintRaised never
-    /// throws; an import or pass failure surfaces as an honest diagnostic. The
-    /// types the body references contribute their namespaces to the listing's
-    /// using block (the printer renders simple names).
+    /// (abstract/extern) — nothing to render, not an error. Import or print
+    /// failures stay as diagnostic text in whole-type listings and escalate to
+    /// the typed <c>Failed</c> result in per-member rendering. OOM propagates.
     /// </summary>
     static string? DecompileMethod(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
         bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
+        bool failOnDiagnostic)
         => DecompileFunction(pipelineSource,
             Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly),
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
 
     /// <summary>
     /// Runs the raising passes and prints an already-imported function. A null
     /// function means no IL body (abstract/extern) — nothing to render, not an
     /// error. The two addressing front doors (handle-direct and name+ordinal)
-    /// share this body so they render identically.
+    /// share this body so they render identically. Pipeline failures throw to
+    /// the member-result boundary, which reports them as <c>Failed</c>.
     /// </summary>
     static string? DecompileFunction(
         Pipeline.MetadataSource pipelineSource, Pipeline.IrFunction? function,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
+        bool failOnDiagnostic)
     {
         constructorChain = null;
         requiresUnsafeContext = false;
@@ -1506,6 +2001,13 @@ public static class MemberBodyProducer
         var result = Pipeline.CSharpPrinter.PrintRaised(
             function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method), printerOptions,
             typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
+        if (failOnDiagnostic
+            && (!result.Succeeded
+            || result.Diagnostics.Any(static diagnostic =>
+                diagnostic.Id == DiagnosticIds.InternalError)))
+        {
+            throw new InvalidOperationException(DiagnosticComment(result));
+        }
         constructorChain = result.ConstructorChain;
         requiresUnsafeContext = result.RequiresUnsafeBodyModifier;
         bodyIsSingleExpressionBody = result.BodyIsSingleExpressionBody;

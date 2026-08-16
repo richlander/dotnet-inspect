@@ -8,6 +8,114 @@ using CSharpText;
 
 namespace ILInspector.Metadata;
 
+/// <summary>How much of an assembly's API surface one extraction projects.</summary>
+public enum ApiSurfaceExtractionScope
+{
+    /// <summary>
+    /// The default consumer surface: public types with their public members, minus the types and
+    /// members the extractor hides.
+    /// </summary>
+    Public,
+
+    /// <summary>Every type and member the extractor reaches, including non-public and hidden ones.</summary>
+    IncludeAll,
+
+    /// <summary>
+    /// The default consumer surface plus non-public types, each carrying its complete member
+    /// list. A public type keeps its public member list, and a public type the extractor hides
+    /// stays hidden rather than re-entering with an include-all member list.
+    /// </summary>
+    PublicWithNonPublicTypes,
+}
+
+/// <summary>Which retention bound stopped a bounded API-surface extraction.</summary>
+public enum ApiSurfaceExtractionBound
+{
+    /// <summary>The extraction would have retained more types than the caller allows.</summary>
+    Types,
+
+    /// <summary>The extraction would have retained more members than the caller allows.</summary>
+    Members,
+
+    /// <summary>The extraction would have retained more inspection failures than allowed.</summary>
+    InspectionFailures,
+
+    /// <summary>The extraction would have retained more type forwarders than allowed.</summary>
+    TypeForwarders,
+
+    /// <summary>The image contains more metadata rows than the caller allows the walk to inspect.</summary>
+    MetadataRows,
+}
+
+/// <summary>
+/// The hard retention bounds one bounded API-surface extraction runs under.
+/// </summary>
+/// <remarks>
+/// A bound is enforced <em>before</em> the row that would exceed it is retained, so a caller with
+/// a fixed output budget never materializes a surface larger than the budget it declared. Zero is
+/// a legal bound: it means "this extraction has no remaining budget", which is exactly what a
+/// caller spending one shared budget across several images has left when it is full.
+/// </remarks>
+public sealed record ApiSurfaceExtractionBounds
+{
+    public ApiSurfaceExtractionBounds(
+        int maxTypes,
+        int maxMembers,
+        int maxInspectionFailures,
+        int maxTypeForwarders,
+        int maxMetadataRows)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxTypes);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMembers);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxInspectionFailures);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxTypeForwarders);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMetadataRows);
+        MaxTypes = maxTypes;
+        MaxMembers = maxMembers;
+        MaxInspectionFailures = maxInspectionFailures;
+        MaxTypeForwarders = maxTypeForwarders;
+        MaxMetadataRows = maxMetadataRows;
+    }
+
+    /// <summary>The most types the extraction may retain.</summary>
+    public int MaxTypes { get; }
+
+    /// <summary>The most members the extraction may retain across every retained type.</summary>
+    public int MaxMembers { get; }
+
+    /// <summary>The most rejected metadata rows the extraction may retain as failures.</summary>
+    public int MaxInspectionFailures { get; }
+
+    /// <summary>The most type forwarders the extraction may retain.</summary>
+    public int MaxTypeForwarders { get; }
+
+    /// <summary>The most metadata rows the extraction may inspect.</summary>
+    public int MaxMetadataRows { get; }
+}
+
+/// <summary>The outcome of one bounded API-surface extraction.</summary>
+/// <remarks>
+/// The extraction is whole or absent. There is no partial case: an image that does not fit the
+/// declared bounds is reported as <see cref="Exceeded"/> and its partially built surface is
+/// discarded, so no consumer can mistake a shortened type or member list for the image's surface.
+/// </remarks>
+public abstract record ApiSurfaceExtractionResult
+{
+    private protected ApiSurfaceExtractionResult()
+    {
+    }
+
+    /// <summary>The image's whole surface fit the declared bounds.</summary>
+    public sealed record Extracted(ApiSurface Surface, int MetadataRows)
+        : ApiSurfaceExtractionResult;
+
+    /// <summary>
+    /// The extraction was abandoned before retaining the row that would have exceeded
+    /// <see cref="Bound"/>. Nothing is returned for this image.
+    /// </summary>
+    public sealed record Exceeded(ApiSurfaceExtractionBound Bound) : ApiSurfaceExtractionResult;
+}
+
 /// <summary>
 /// Extracts public API surface from assemblies.
 /// </summary>
@@ -16,10 +124,180 @@ public static class ApiSurfaceExtractor
     private const string OptionalAttributeName = "System.Runtime.InteropServices.Optional";
     private const string DateTimeConstantAttributeName = "System.Runtime.CompilerServices.DateTimeConstant";
 
-    public static ApiSurface Extract(PEReader peReader, bool includeAll = false, bool typesOnly = false, bool includeCompilerGenerated = false)
+    /// <summary>
+    /// Extracts the public type identities and member-kind counts needed by the compact platform
+    /// API view without decoding signatures or materializing rich member models.
+    /// </summary>
+    public static ApiSurface ExtractSummary(PEReader peReader)
     {
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
+
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+        {
+            int publicMethodCount = surface.PublicMethodCount;
+            int publicPropertyCount = surface.PublicPropertyCount;
+            int publicEventCount = surface.PublicEventCount;
+            int publicFieldCount = surface.PublicFieldCount;
+            try
+            {
+                var typeDef = reader.GetTypeDefinition(typeDefHandle);
+                if (!typeDef.IsPublic)
+                    continue;
+
+                var typeAttributes = typeDef.Attributes;
+                string metadataName = reader.GetString(typeDef.Name);
+                if (TypeFilters.IsCompilerGenerated(metadataName))
+                    continue;
+
+                if (AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
+                    continue;
+
+                var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
+                var apiType = new ApiType
+                {
+                    Namespace = typeNamespace,
+                    Name = typeName,
+                    MetadataName = GetMetadataName(reader, typeDefHandle),
+                    DefinitionName =
+                        MetadataTypeDefinitionNameReader.Read(reader, typeDefHandle)
+                        is MetadataTypeDefinitionNameReadResult.Read read
+                            ? read.Name
+                            : null,
+                    Kind = "class",
+                    Members = []
+                };
+
+                bool isExtensionClass =
+                    (typeAttributes & (TypeAttributes.Sealed | TypeAttributes.Abstract))
+                        == (TypeAttributes.Sealed | TypeAttributes.Abstract)
+                    && AttributeReader.HasExtensionAttribute(
+                        reader,
+                        typeDef.GetCustomAttributes());
+                CountSummaryMembers(
+                    reader,
+                    typeDef,
+                    apiType,
+                    surface,
+                    isExtensionClass);
+                surface.Types.Add(apiType);
+                surface.PublicTypeCount++;
+            }
+            catch (MetadataRowRejectedException ex)
+            {
+                surface.PublicMethodCount = publicMethodCount;
+                surface.PublicPropertyCount = publicPropertyCount;
+                surface.PublicEventCount = publicEventCount;
+                surface.PublicFieldCount = publicFieldCount;
+                AddInspectionFailure(
+                    surface,
+                    budget: null,
+                    ex.Operation,
+                    typeDefHandle,
+                    ex.Failure);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                surface.PublicMethodCount = publicMethodCount;
+                surface.PublicPropertyCount = publicPropertyCount;
+                surface.PublicEventCount = publicEventCount;
+                surface.PublicFieldCount = publicFieldCount;
+                AddInspectionFailure(
+                    surface,
+                    budget: null,
+                    "type summary row",
+                    typeDefHandle,
+                    MetadataTypeNameFailure.Malformed(typeDefHandle, ex.Message));
+            }
+        }
+
+        AttachLocalExtensionMethods(surface);
+        ExtractTypeForwarders(reader, surface);
+        return surface;
+    }
+
+    public static ApiSurface Extract(PEReader peReader, bool includeAll = false, bool typesOnly = false, bool includeCompilerGenerated = false)
+        => Extract(
+            peReader,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly,
+            includeCompilerGenerated);
+
+    /// <summary>
+    /// Extracts one API surface at an explicit scope.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ApiSurfaceExtractionScope.PublicWithNonPublicTypes"/> is a single walk, not a
+    /// composition of two: the per-type decision below is exactly "would the public surface have
+    /// kept this type?", and only a type the public surface excludes for its visibility carries
+    /// the include-all member rules. Composing it from two extractions materialized the same
+    /// image's surface twice and discarded most of the second.
+    /// </remarks>
+    public static ApiSurface Extract(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => Extract(peReader, scope, typesOnly, includeCompilerGenerated, budget: null);
+
+    /// <summary>
+    /// Extracts one API surface at an explicit scope under hard retention bounds, abandoning the
+    /// image before it retains the type or member that would exceed them.
+    /// </summary>
+    /// <remarks>
+    /// This is the bounded peer of <see cref="Extract(PEReader, ApiSurfaceExtractionScope, bool, bool)"/>,
+    /// and the only way to get a hard bound: checking an unbounded extraction's totals afterwards
+    /// proves nothing about what was materialized to produce them. A host with a fixed output
+    /// budget — Browser/Wasm is the motivating one — spends that budget image by image and gets
+    /// <see cref="ApiSurfaceExtractionResult.Exceeded"/> for the first image that does not fit,
+    /// rather than a surface it must then discard. Gated by
+    /// <c>ApiSurfaceExtractorBoundsTests</c>.
+    /// </remarks>
+    public static ApiSurfaceExtractionResult ExtractBounded(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+    {
+        ArgumentNullException.ThrowIfNull(bounds);
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
+
+        try
+        {
+            var budget = new ExtractionBudget(bounds);
+            ApiSurface surface = Extract(
+                peReader,
+                scope,
+                typesOnly,
+                includeCompilerGenerated,
+                budget);
+            return new ApiSurfaceExtractionResult.Extracted(
+                surface,
+                budget.MetadataRows);
+        }
+        catch (ExtractionBoundExceededException exceeded)
+        {
+            return new ApiSurfaceExtractionResult.Exceeded(exceeded.Bound);
+        }
+    }
+
+    static ApiSurface Extract(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly,
+        bool includeCompilerGenerated,
+        ExtractionBudget? budget)
+    {
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
+
+        var surface = new ApiSurface();
+        var reader = peReader.GetMetadataReader();
+        budget?.AdmitMetadataRows(reader);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -36,7 +314,7 @@ public static class ApiSurfaceExtractor
             // non-public types, including nested private/internal types, so ranking/triage rows
             // that already surface non-public IL can be copied into type/member drill commands.
             // Compiler-generated types are still skipped below regardless.
-            if (!typeDef.IsPublic && !includeAll)
+            if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
                 continue;
 
             string metadataName = reader.GetString(typeDef.Name);
@@ -47,11 +325,24 @@ public static class ApiSurfaceExtractor
             if (TypeFilters.IsCompilerGenerated(metadataName) && !includeCompilerGenerated)
                 continue;
 
-            // Skip EditorBrowsable(Never) and Obsolete types unless --all
-            if (!includeAll && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
+            // Whether this type's members follow the include-all rules. Every member decision
+            // below reads this local, so the composed scope keeps a public type's public member
+            // list while a non-public type carries its complete one.
+            bool includeAll = scope == ApiSurfaceExtractionScope.IncludeAll
+                || (scope == ApiSurfaceExtractionScope.PublicWithNonPublicTypes
+                    && !typeDef.IsPublic);
+
+            // Skip EditorBrowsable(Never) and Obsolete types unless --all. A public type the
+            // extractor hides stays hidden in the composed scope too: it is suppressed, not
+            // demoted into the non-public bucket with an include-all member list.
+            if (!includeAll
+                && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
+            {
                 continue;
+            }
 
             var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
+            budget?.BeginType();
 
             var apiType = new ApiType
             {
@@ -267,6 +558,7 @@ public static class ApiSurfaceExtractor
                     member.DeclaringType = apiType.FullName;
                 }
 
+                budget?.RetainMember();
                 apiType.Members.Add(member);
                 surface.PublicMethodCount++;
             }
@@ -345,6 +637,7 @@ public static class ApiSurfaceExtractor
                     SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
                 };
 
+                budget?.RetainMember();
                 apiType.Members.Add(member);
                 surface.PublicPropertyCount++;
             }
@@ -463,6 +756,7 @@ public static class ApiSurfaceExtractor
                     }
                 }
 
+                budget?.RetainMember();
                 apiType.Members.Add(member);
                 surface.PublicFieldCount++;
             }
@@ -556,11 +850,13 @@ public static class ApiSurfaceExtractor
                         : MetadataTokens.GetToken(accessors.Remover)
                 };
 
+                budget?.RetainMember();
                 apiType.Members.Add(member);
                 surface.PublicEventCount++;
             }
             } // end if (!typesOnly)
 
+            budget?.RetainType();
             surface.Types.Add(apiType);
             surface.PublicTypeCount++;
             }
@@ -572,6 +868,7 @@ public static class ApiSurfaceExtractor
                 surface.PublicFieldCount = publicFieldCount;
                 AddInspectionFailure(
                     surface,
+                    budget,
                     ex.Operation,
                     typeDefHandle,
                     ex.Failure);
@@ -584,15 +881,157 @@ public static class ApiSurfaceExtractor
                 surface.PublicFieldCount = publicFieldCount;
                 AddInspectionFailure(
                     surface,
+                    budget,
                     "type row",
                     typeDefHandle,
                     MetadataTypeNameFailure.Malformed(typeDefHandle, ex.Message));
             }
         }
 
-        AttachLocalExtensionMethods(surface);
+        AttachLocalExtensionMethods(surface, budget);
 
         // Extract type forwarders (ExportedTypes that are forwarded to other assemblies)
+        ExtractTypeForwarders(reader, surface, budget);
+
+        ApiMemberIdentity.PopulateCanonicalIdentities(surface);
+
+        return surface;
+    }
+
+    private static void CountSummaryMembers(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        ApiType apiType,
+        ApiSurface surface,
+        bool isExtensionClass)
+    {
+        var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
+            bool isExplicitImplementation = explicitImplementationBodies.Contains(methodHandle);
+            if (methodAccess != MethodAttributes.Public && !isExplicitImplementation)
+                continue;
+
+            string methodName = reader.GetString(method.Name);
+            if (methodName.StartsWith("get_", StringComparison.Ordinal)
+                || methodName.StartsWith("set_", StringComparison.Ordinal)
+                || methodName.StartsWith("add_", StringComparison.Ordinal)
+                || methodName.StartsWith("remove_", StringComparison.Ordinal)
+                || methodName.StartsWith('<'))
+            {
+                continue;
+            }
+
+            if (!isExplicitImplementation
+                && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
+            {
+                continue;
+            }
+
+            var member = new ApiMember
+            {
+                Name = methodName,
+                Kind = "method",
+                IsStatic = (method.Attributes & MethodAttributes.Static) != 0
+            };
+            if (isExtensionClass
+                && member.IsStatic
+                && AttributeReader.HasExtensionAttribute(
+                    reader,
+                    method.GetCustomAttributes()))
+            {
+                int token = MetadataTokens.GetToken(methodHandle);
+                member.IsExtension = true;
+                member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
+                member.DeclaringType = apiType.FullName;
+                member.MetadataToken = token;
+                member.Signature = token.ToString("X8", CultureInfo.InvariantCulture);
+            }
+
+            apiType.Members.Add(member);
+            surface.PublicMethodCount++;
+        }
+
+        foreach (var propertyHandle in typeDef.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            var accessors = property.GetAccessors();
+            MethodAttributes bestAccess = 0;
+            if (!accessors.Getter.IsNil)
+            {
+                bestAccess = reader.GetMethodDefinition(accessors.Getter).Attributes
+                    & MethodAttributes.MemberAccessMask;
+            }
+            if (!accessors.Setter.IsNil)
+            {
+                var setterAccess = reader.GetMethodDefinition(accessors.Setter).Attributes
+                    & MethodAttributes.MemberAccessMask;
+                if (setterAccess > bestAccess)
+                    bestAccess = setterAccess;
+            }
+
+            if (bestAccess != MethodAttributes.Public
+                || AttributeReader.HasEditorBrowsableNeverAttribute(reader, property.GetCustomAttributes()))
+            {
+                continue;
+            }
+
+            apiType.Members.Add(new ApiMember
+            {
+                Name = reader.GetString(property.Name),
+                Kind = "property"
+            });
+            surface.PublicPropertyCount++;
+        }
+
+        foreach (var fieldHandle in typeDef.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if ((field.Attributes & FieldAttributes.FieldAccessMask) != FieldAttributes.Public)
+                continue;
+
+            string fieldName = reader.GetString(field.Name);
+            if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated: false)
+                || AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
+            {
+                continue;
+            }
+
+            apiType.Members.Add(new ApiMember { Name = fieldName, Kind = "field" });
+            surface.PublicFieldCount++;
+        }
+
+        foreach (var eventHandle in typeDef.GetEvents())
+        {
+            var evt = reader.GetEventDefinition(eventHandle);
+            var accessors = evt.GetAccessors();
+            if (accessors.Adder.IsNil)
+                continue;
+
+            var adder = reader.GetMethodDefinition(accessors.Adder);
+            if ((adder.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
+                || AttributeReader.HasEditorBrowsableNeverAttribute(reader, evt.GetCustomAttributes()))
+            {
+                continue;
+            }
+
+            apiType.Members.Add(new ApiMember
+            {
+                Name = reader.GetString(evt.Name),
+                Kind = "event"
+            });
+            surface.PublicEventCount++;
+        }
+    }
+
+    private static void ExtractTypeForwarders(
+        MetadataReader reader,
+        ApiSurface surface,
+        ExtractionBudget? budget = null)
+    {
         foreach (var exportedTypeHandle in reader.ExportedTypes)
         {
             try
@@ -614,6 +1053,7 @@ public static class ApiSurfaceExtractor
                     _ => throw new InvalidOperationException(
                         "Unknown exported-type relationship result."),
                 };
+                budget?.BeginTypeForwarder();
 
                 // Get the target assembly
                 string targetAssembly = "";
@@ -623,7 +1063,7 @@ public static class ApiSurfaceExtractor
                     targetAssembly = reader.GetString(assemblyRef.Name);
                 }
 
-                surface.TypeForwarders.Add(new TypeForwarder
+                var typeForwarder = new TypeForwarder
                 {
                     DefinitionName =
                         MetadataTypeDefinitionNameReader.Read(
@@ -634,12 +1074,15 @@ public static class ApiSurfaceExtractor
                             : null,
                     TypeName = fullName,
                     TargetAssembly = targetAssembly
-                });
+                };
+                budget?.RetainTypeForwarder();
+                surface.TypeForwarders.Add(typeForwarder);
             }
             catch (MetadataRowRejectedException ex)
             {
                 AddInspectionFailure(
                     surface,
+                    budget,
                     ex.Operation,
                     exportedTypeHandle,
                     ex.Failure);
@@ -648,15 +1091,12 @@ public static class ApiSurfaceExtractor
             {
                 AddInspectionFailure(
                     surface,
+                    budget,
                     "type forwarder row",
                     exportedTypeHandle,
                     MetadataTypeNameFailure.Malformed(exportedTypeHandle, ex.Message));
             }
         }
-
-        ApiMemberIdentity.PopulateCanonicalIdentities(surface);
-
-        return surface;
     }
 
     private static byte? GetEffectiveNullable(
@@ -1191,7 +1631,9 @@ public static class ApiSurfaceExtractor
     private static bool IsOperatorMethodName(string methodName) =>
         methodName.StartsWith("op_", StringComparison.Ordinal);
 
-    private static void AttachLocalExtensionMethods(ApiSurface surface)
+    private static void AttachLocalExtensionMethods(
+        ApiSurface surface,
+        ExtractionBudget? budget = null)
     {
         var targets = surface.Types
             .SelectMany(type => GetTypeMatchKeys(type).Select(key => (key, type)))
@@ -1219,6 +1661,7 @@ public static class ApiSurfaceExtractor
                     .ToList()
                     .IndexOf(extension) + 1;
 
+                budget?.RetainAttachedMember();
                 targetType.Members.Add(new ApiMember
                 {
                     Name = extension.Name,
@@ -2159,15 +2602,19 @@ public static class ApiSurfaceExtractor
 
     private static void AddInspectionFailure(
         ApiSurface surface,
+        ExtractionBudget? budget,
         string operation,
         EntityHandle subject,
         MetadataTypeNameFailure failure)
-        => surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+    {
+        budget?.RetainInspectionFailure();
+        surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
             operation,
             failure.SubjectToken ?? MetadataTokens.GetToken(subject),
             failure.Mechanism,
             failure.Kind,
             failure.Detail));
+    }
 
     private static bool IsEnum(MetadataReader reader, TypeDefinition typeDef)
         => !typeDef.BaseType.IsNil
@@ -2317,7 +2764,12 @@ public static class ApiSurfaceExtractor
                     ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters())
                 });
             if (hasSetter)
-                accessorModels.Add(new ApiAccessor { Kind = "set", Accessibility = AccessorAccessibility(setterAccess, Math.Max((int)getterAccess, (int)setterAccess)) });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "set",
+                    Accessibility = AccessorAccessibility(setterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
+                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                });
             accessorStr = (getStr, setStr) switch
             {
                 (not null, not null) => $"{{ {getStr}; {setStr}; }}",
@@ -2332,13 +2784,22 @@ public static class ApiSurfaceExtractor
             {
                 accessorStr = "{ get; set; }";
                 accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
-                accessorModels.Add(new ApiAccessor { Kind = "set" });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "set",
+                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                });
             }
             else if (hasPublicGetter && hasSetter)
             {
                 accessorStr = "{ get; private set; }";
                 accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
-                accessorModels.Add(new ApiAccessor { Kind = "set", Accessibility = "private" });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "set",
+                    Accessibility = "private",
+                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                });
             }
             else if (hasPublicGetter)
             {
@@ -2348,7 +2809,11 @@ public static class ApiSurfaceExtractor
             else if (hasPublicSetter)
             {
                 accessorStr = "{ set; }";
-                accessorModels.Add(new ApiAccessor { Kind = "set" });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "set",
+                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                });
             }
             else
             {
@@ -2523,4 +2988,116 @@ public static class ApiSurfaceExtractor
         FieldAttributes.FamORAssem => "protected internal",
         _ => null // Public
     };
+
+    /// <summary>
+    /// The running retention count of one bounded extraction.
+    /// </summary>
+    /// <remarks>
+    /// Members are counted against the bound as they are built but committed only when their type
+    /// is, so a type the walk rejects mid-way does not spend budget on members no surface will
+    /// carry. That keeps a bounded extraction's accepted set identical to the unbounded one's
+    /// whenever the image fits, which is what lets a caller treat the bound as a budget rather
+    /// than as an approximation.
+    /// </remarks>
+    private sealed class ExtractionBudget(ApiSurfaceExtractionBounds bounds)
+    {
+        int _types;
+        int _members;
+        int _pendingMembers;
+        int _inspectionFailures;
+        int _typeForwarders;
+
+        public int MetadataRows { get; private set; }
+
+        /// <summary>Refuses an image whose metadata shape exceeds the remaining walk budget.</summary>
+        public void AdmitMetadataRows(MetadataReader reader)
+        {
+            foreach (TableIndex table in Enum.GetValues<TableIndex>())
+            {
+                int rows = reader.GetTableRowCount(table);
+                if (rows > bounds.MaxMetadataRows - MetadataRows)
+                {
+                    throw new ExtractionBoundExceededException(
+                        ApiSurfaceExtractionBound.MetadataRows);
+                }
+                MetadataRows += rows;
+            }
+        }
+
+        /// <summary>Starts a retained type, refusing before its model or members are built.</summary>
+        public void BeginType()
+        {
+            if (_types >= bounds.MaxTypes)
+                throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
+            _pendingMembers = 0;
+        }
+
+        /// <summary>Counts one member of the type currently being built.</summary>
+        public void RetainMember()
+        {
+            if (_members + _pendingMembers >= bounds.MaxMembers)
+                throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Members);
+            _pendingMembers++;
+        }
+
+        /// <summary>Commits the type currently being built and its members.</summary>
+        public void RetainType()
+        {
+            if (_types >= bounds.MaxTypes)
+                throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
+            _types++;
+            _members += _pendingMembers;
+            _pendingMembers = 0;
+        }
+
+        /// <summary>Counts one member attached to a type that is already committed.</summary>
+        public void RetainAttachedMember()
+        {
+            if (_members >= bounds.MaxMembers)
+                throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Members);
+            _members++;
+        }
+
+        /// <summary>Counts one retained metadata-row rejection.</summary>
+        public void RetainInspectionFailure()
+        {
+            if (_inspectionFailures >= bounds.MaxInspectionFailures)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.InspectionFailures);
+            }
+            _inspectionFailures++;
+        }
+
+        /// <summary>Refuses before a type-forwarder model is built.</summary>
+        public void BeginTypeForwarder()
+        {
+            if (_typeForwarders >= bounds.MaxTypeForwarders)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.TypeForwarders);
+            }
+        }
+
+        /// <summary>Counts one retained type forwarder.</summary>
+        public void RetainTypeForwarder()
+        {
+            if (_typeForwarders >= bounds.MaxTypeForwarders)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.TypeForwarders);
+            }
+            _typeForwarders++;
+        }
+    }
+
+    /// <summary>
+    /// The abandonment signal of a bounded extraction. It is private to this extractor and caught
+    /// by <see cref="ExtractBounded"/>, so a bound never surfaces as an exception to a caller.
+    /// </summary>
+    private sealed class ExtractionBoundExceededException(ApiSurfaceExtractionBound bound)
+        : Exception("The API-surface extraction exceeded a declared retention bound.")
+    {
+        public ApiSurfaceExtractionBound Bound { get; } = bound;
+    }
 }

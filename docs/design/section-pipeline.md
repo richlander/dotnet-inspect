@@ -70,17 +70,17 @@ The library catalog calls `WithoutComputedPoles`; it does not expose computed
 
 ```csharp
 registry.Add(
-    "Switches",
+    "ClassifiedMethods",
     SectionCost.NetworkFree,
-    ctx => ctx.Model.SwitchInspection =
+    ctx => ctx.Model.Apply(
         ctx.Scan(
-            session => LibraryMetadataService.ScanSwitches(
+            session => LibraryMetadataService.ScanClassifiedMethods(
                 session,
                 ctx.AssemblyPath,
                 ctx.Logger),
-            () => LibraryMetadataService.ScanSwitches(
+            () => LibraryMetadataService.ScanClassifiedMethods(
                 ctx.AssemblyPath,
-                ctx.Logger)));
+                ctx.Logger))));
 ```
 
 `AddBundle` registers prerequisite closure without adding work or declaring a
@@ -194,8 +194,10 @@ definitions, while `Extension Methods`, `Custom Attributes`, `Resources`, and
 immutable result per facet therefore supplies the summary count and detailed
 rows without string scanner keys or duplicate metadata passes. `Union Types`
 binds `UnionTypesQuery` for its detailed rows; the deeply immutable result
-preserves metadata order and exact identity until the row boundary. A section
-may bind multiple typed queries; its effective cost is the maximum over every
+preserves metadata order and exact identity until the row boundary. `Switches`
+binds the Research-backed `SwitchesQuery`, which composes declared metadata
+with AppContext IL evidence into one immutable ordered result. A section may
+bind multiple typed queries; its effective cost is the maximum over every
 query's prerequisite closure.
 
 ## Effectiveness

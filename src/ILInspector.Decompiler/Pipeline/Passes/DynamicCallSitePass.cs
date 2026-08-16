@@ -44,8 +44,7 @@ public sealed class DynamicCallSitePass : IIrPass
         // numbering and receives its own pipeline run, so its blocks and
         // definitions must neither be transformed here nor contaminate a
         // candidate's confinement. Walk with the nested-function boundary.
-        foreach (var block in GenericDeclarationPatternProof
-            .DescendantsOutsideNestedFunctions(function).OfType<Block>().ToList())
+        foreach (var block in function.DescendantsOutsideNestedFunctions.OfType<Block>().ToList())
         {
             var children = block.Children;
             for (int i = 0; i + 1 < children.Count; i++)
@@ -323,7 +322,7 @@ public sealed class DynamicCallSitePass : IIrPass
         // the use is ambiguous — both decline.
         LoadField targetInstanceLoad = null!;
         LoadField cacheArgLoad = null!;
-        foreach (var node in DescendantsAndSelfOutsideNestedFunctions(useStatement))
+        foreach (var node in useStatement.DescendantsAndSelfOutsideNestedFunctions)
         {
             if (node is not Call candidate)
                 continue;
@@ -712,7 +711,7 @@ public sealed class DynamicCallSitePass : IIrPass
         // lambda/local function's identically numbered slot or local belongs to a
         // separate pool and must neither veto this candidate nor be treated as an
         // extra definition/use of it.
-        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             switch (node)
             {
@@ -780,18 +779,6 @@ public sealed class DynamicCallSitePass : IIrPass
             if (ReferenceEquals(candidate, node))
                 return true;
         return false;
-    }
-
-    // The use statement and its descendants, without crossing into nested
-    // lambda/local-function bodies (their storage pools are independent and are
-    // raised by their own pipeline run).
-    static IEnumerable<IrNode> DescendantsAndSelfOutsideNestedFunctions(IrNode node)
-    {
-        yield return node;
-        if (node is Lambda or LocalFunctionStatement)
-            yield break;
-        foreach (var descendant in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(node))
-            yield return descendant;
     }
 
     static bool IsNonGeneric(MethodRef callee) => callee.TypeArguments.IsDefaultOrEmpty;

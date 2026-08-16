@@ -196,11 +196,10 @@ internal static class LibraryMetadataService
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
             inspection.HasUnionTypes = presenceFlags.HasUnionTypes;
-            HashSet<SwitchInfo> appContextSwitches = [];
-            AddAppContextSwitches(
-                appContextSwitches,
-                AppContextSwitchProjectionProducer.Produce(pdbContext.MethodBodies));
-            inspection.SwitchCount = presenceFlags.SwitchCount + appContextSwitches.Count;
+            var appContextSwitches =
+                AppContextSwitchProjectionProducer.ProduceInventory(
+                    pdbContext.MethodBodies);
+            inspection.SwitchCount = presenceFlags.SwitchCount + appContextSwitches.Length;
             inspection.HasSwitches = inspection.SwitchCount > 0;
 
             if (integrationsEntry is not null)
@@ -333,6 +332,17 @@ internal static class LibraryMetadataService
                 }
             }
 
+            if ((needsAuditSignals
+                    || options.CollectIdentifierConfusionReferenceTree)
+                && inspection.AssemblyReferenceInspection
+                    is FindingInspection<AssemblyReference>.Failed)
+            {
+                IdentifierConfusionAuditFailureKind failure =
+                    inspection.AssemblyReferenceFailureKind
+                    ?? IdentifierConfusionAuditFailureKind.InspectionFailed;
+                inspection.IdentifierConfusionFailure = failure;
+            }
+
             // The query produces the flat direct-reference currency. Tree traversal remains a
             // path-owning CLI projection over that result.
             if (collectReferenceTree
@@ -350,6 +360,33 @@ internal static class LibraryMetadataService
                     logger,
                     deduplicate: true,
                     maxDepth: options.ReferenceTreeDepth);
+            }
+
+            if (options.CollectIdentifierConfusionReferenceTree
+                && inspection.AssemblyReferenceIdentities is { Count: > 0 } auditReferences)
+            {
+                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                visited.Add(
+                    inspection.AssemblyInfo.AssemblyName
+                    ?? Path.GetFileNameWithoutExtension(path));
+
+                try
+                {
+                    inspection.IdentifierConfusionReferenceClosure =
+                        BuildTransitiveReferences(
+                            auditReferences,
+                            path,
+                            visited,
+                            logger,
+                            deduplicate: true,
+                            failOnReadError: true);
+                }
+                catch (
+                    IdentifierConfusionReferenceTraversalException ex)
+                {
+                    inspection.IdentifierConfusionFailure =
+                        ex.FailureKind;
+                }
             }
 
             inspection.FileSize = pdbContext.FileSize;
@@ -420,6 +457,10 @@ internal static class LibraryMetadataService
             throw;
         }
         catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (IdentifierConfusionReferenceTraversalException)
         {
             throw;
         }
@@ -678,25 +719,50 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         int depth = 0,
         bool deduplicate = false,
-        Dictionary<string, int>? globalSeen = null,
-        int? maxDepth = null)
+        int? maxDepth = null,
+        bool failOnReadError = false)
     {
+        string fullAssemblyPath = Path.GetFullPath(assemblyPath);
+        StringComparer pathComparer = ReferenceTreePathComparer(
+            OperatingSystem.IsWindows());
         var bindingPolicies = new Dictionary<string, IAssemblyBindingPolicy>(
-            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-                ? StringComparer.OrdinalIgnoreCase
-                : StringComparer.Ordinal);
+            pathComparer);
         IAssemblyBindingPolicy bindingPolicy =
             ReferenceTreeBindingPolicyFor(assemblyPath, bindingPolicies);
+        var visitedPaths = new HashSet<string>(pathComparer)
+        {
+            fullAssemblyPath
+        };
+        if (deduplicate)
+        {
+            return BuildDeduplicatedTransitiveReferences(
+                references,
+                bindingPolicy,
+                bindingPolicies,
+                Path.GetDirectoryName(fullAssemblyPath)
+                    ?? throw new InvalidOperationException(
+                        "The assembly path has no containing directory."),
+                visited,
+                visitedPaths,
+                logger,
+                depth,
+                maxDepth,
+                failOnReadError);
+        }
+
         return BuildTransitiveReferences(
             references,
             bindingPolicy,
             bindingPolicies,
+            Path.GetDirectoryName(fullAssemblyPath)
+                ?? throw new InvalidOperationException(
+                    "The assembly path has no containing directory."),
             visited,
+            visitedPaths,
             logger,
             depth,
-            deduplicate,
-            globalSeen,
-            maxDepth);
+            maxDepth,
+            failOnReadError);
     }
 
     private static IAssemblyBindingPolicy ReferenceTreeBindingPolicyFor(
@@ -728,27 +794,240 @@ internal static class LibraryMetadataService
         return created;
     }
 
+    private sealed record DeduplicatedReferenceNode(
+        AssemblyReferenceNode Value)
+    {
+        public List<DeduplicatedReferenceNode> Children { get; } = [];
+    }
+
+    private readonly record struct PendingAssemblyReference(
+        AssemblyReferenceIdentity Reference,
+        IAssemblyBindingPolicy BindingPolicy,
+        string BindingScope,
+        int Depth,
+        DeduplicatedReferenceNode? Parent);
+
+    private static List<AssemblyReferenceNode>
+        BuildDeduplicatedTransitiveReferences(
+            IReadOnlyList<AssemblyReferenceIdentity> references,
+            IAssemblyBindingPolicy bindingPolicy,
+            Dictionary<string, IAssemblyBindingPolicy> bindingPolicies,
+            string bindingScope,
+            HashSet<string> visited,
+            HashSet<string> visitedPaths,
+            VerboseLogger logger,
+            int depth,
+            int? maxDepth,
+            bool failOnReadError)
+    {
+        List<DeduplicatedReferenceNode> roots = [];
+        var seen = new HashSet<AssemblyReferenceTraversalKey>(
+            AssemblyReferenceTraversalKeyComparer.Instance);
+        var pending = new Queue<PendingAssemblyReference>(
+            references
+                .OrderBy(reference => reference.Name)
+                .Select(
+                    reference =>
+                        new PendingAssemblyReference(
+                            reference,
+                            bindingPolicy,
+                            bindingScope,
+                            depth,
+                            Parent: null)));
+
+        while (pending.Count > 0)
+        {
+            PendingAssemblyReference next = pending.Dequeue();
+            AssemblyReferenceIdentity reference = next.Reference;
+            var node = new AssemblyReferenceNode
+            {
+                Name = reference.Name,
+                Version = reference.Version?.ToString() ?? "",
+                PublicKeyToken = reference.PublicKeyToken,
+                Depth = next.Depth,
+            };
+
+            AssemblyBindingSelection selection =
+                next.BindingPolicy.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(reference),
+                        AssemblyBindingOrigin.Global(),
+                        AssemblyResolutionScope.Any));
+            ResolvedAssemblyReference? resolved =
+                (selection as AssemblyBindingSelection.Selected)
+                    ?.Assembly;
+            if (selection is AssemblyBindingSelection.Unavailable
+                unavailable)
+            {
+                node.ResolutionFailure =
+                    AssemblyReferenceResolutionFailure.Unavailable;
+                IdentifierConfusionAuditFailureKind failure =
+                    ClassifyIdentifierConfusionBindingFailure(
+                        unavailable.Failure);
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        failure);
+                }
+                logger.LogWarning(
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(failure));
+            }
+            else if (selection is AssemblyBindingSelection.Rejected
+                rejected)
+            {
+                node.ResolutionFailure =
+                    AssemblyReferenceResolutionFailure.Rejected;
+                IdentifierConfusionAuditFailureKind failure =
+                    ClassifyIdentifierConfusionBindingFailure(
+                        rejected.Failure);
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        failure);
+                }
+                logger.LogWarning(
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(failure));
+            }
+
+            node.Path = resolved?.Path;
+            node.ResolvedFrom =
+                resolved?.Provenance
+                    is AssemblyResolutionProvenance.PlatformAsset
+                    ? "platform"
+                    : resolved is null
+                        ? null
+                        : "local";
+
+            string? resolvedPath =
+                resolved?.Path is { } selectedPath
+                    ? Path.GetFullPath(selectedPath)
+                    : null;
+            bool isRootCycle = resolved is not null
+                && (resolvedPath is not null
+                    ? visitedPaths.Contains(resolvedPath)
+                    : visited.Contains(resolved.Identity.Name));
+            if (isRootCycle)
+                continue;
+
+            AssemblyReferenceTraversalKey traversalKey =
+                resolvedPath is not null
+                    ? AssemblyReferenceTraversalKey.ForResolvedPath(
+                        resolvedPath)
+                    : AssemblyReferenceTraversalKey.ForReference(
+                        reference,
+                        next.BindingScope);
+            if (!seen.Add(traversalKey))
+                continue;
+
+            var treeNode = new DeduplicatedReferenceNode(node);
+            if (next.Parent is null)
+                roots.Add(treeNode);
+            else
+                next.Parent.Children.Add(treeNode);
+
+            if (resolved is null)
+                continue;
+
+            try
+            {
+                var (childReferences, company) =
+                    AssemblyInspector
+                        .ExtractReferenceIdentitiesAndCompany(
+                            resolved);
+                node.Company = company;
+                if (childReferences.Count == 0
+                    || (maxDepth is not null
+                        && next.Depth + 1 >= maxDepth.Value))
+                {
+                    continue;
+                }
+
+                IAssemblyBindingPolicy childBindingPolicy =
+                    resolved.Path is { } childPath
+                        ? ReferenceTreeBindingPolicyFor(
+                            childPath,
+                            bindingPolicies)
+                        : next.BindingPolicy;
+                string childBindingScope =
+                    resolvedPath is not null
+                        ? Path.GetDirectoryName(resolvedPath)
+                            ?? next.BindingScope
+                        : next.BindingScope;
+                foreach (AssemblyReferenceIdentity childReference in
+                    childReferences.OrderBy(
+                        childReference =>
+                            childReference.Name))
+                {
+                    pending.Enqueue(
+                        new PendingAssemblyReference(
+                            childReference,
+                            childBindingPolicy,
+                            childBindingScope,
+                            next.Depth + 1,
+                            treeNode));
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (IdentifierConfusionReferenceTraversalException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (
+                failOnReadError
+                || ex is IOException
+                    or UnauthorizedAccessException
+                    or BadImageFormatException)
+            {
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        ClassifyIdentifierConfusionReferenceFailure(ex),
+                        ex);
+                }
+
+                logger.LogWarning(
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(
+                        ClassifyIdentifierConfusionReferenceFailure(ex)));
+            }
+        }
+
+        List<AssemblyReferenceNode> flattened = [];
+        foreach (DeduplicatedReferenceNode root in roots)
+            FlattenDeduplicatedReferenceTree(root, flattened);
+        return flattened;
+    }
+
+    private static void FlattenDeduplicatedReferenceTree(
+        DeduplicatedReferenceNode node,
+        List<AssemblyReferenceNode> flattened)
+    {
+        flattened.Add(node.Value);
+        foreach (DeduplicatedReferenceNode child in node.Children)
+            FlattenDeduplicatedReferenceTree(child, flattened);
+    }
+
     private static List<AssemblyReferenceNode> BuildTransitiveReferences(
         IReadOnlyList<AssemblyReferenceIdentity> references,
         IAssemblyBindingPolicy bindingPolicy,
         Dictionary<string, IAssemblyBindingPolicy> bindingPolicies,
+        string bindingScope,
         HashSet<string> visited,
+        HashSet<string> visitedPaths,
         VerboseLogger logger,
         int depth,
-        bool deduplicate,
-        Dictionary<string, int>? globalSeen,
-        int? maxDepth)
+        int? maxDepth,
+        bool failOnReadError)
     {
-        globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<AssemblyReferenceNode> nodes = [];
 
         foreach (var reference in references.OrderBy(r => r.Name))
         {
-            if (deduplicate && globalSeen.TryGetValue(reference.Name, out int seenDepth) && seenDepth <= depth)
-            {
-                continue;
-            }
-
             var node = new AssemblyReferenceNode
             {
                 Name = reference.Name,
@@ -757,23 +1036,6 @@ internal static class LibraryMetadataService
                 Depth = depth
             };
 
-            if (visited.Contains(reference.Name))
-            {
-                if (!deduplicate)
-                {
-                    node.IsCyclic = true;
-                    nodes.Add(node);
-                }
-                continue;
-            }
-
-            if (deduplicate)
-            {
-                globalSeen[reference.Name] = depth;
-            }
-
-            visited.Add(reference.Name);
-
             AssemblyBindingSelection selection = bindingPolicy.Select(
                 new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(reference),
@@ -781,19 +1043,37 @@ internal static class LibraryMetadataService
                     AssemblyResolutionScope.Any));
             ResolvedAssemblyReference? resolved =
                 (selection as AssemblyBindingSelection.Selected)?.Assembly;
-            if (selection is AssemblyBindingSelection.Unavailable)
+            if (selection is AssemblyBindingSelection.Unavailable unavailable)
             {
                 node.ResolutionFailure =
                     AssemblyReferenceResolutionFailure.Unavailable;
+                IdentifierConfusionAuditFailureKind failure =
+                    ClassifyIdentifierConfusionBindingFailure(
+                        unavailable.Failure);
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        failure);
+                }
                 logger.LogWarning(
-                    "An assembly reference could not be resolved because a candidate was unavailable.");
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(failure));
             }
-            else if (selection is AssemblyBindingSelection.Rejected)
+            else if (selection is AssemblyBindingSelection.Rejected rejected)
             {
                 node.ResolutionFailure =
                     AssemblyReferenceResolutionFailure.Rejected;
+                IdentifierConfusionAuditFailureKind failure =
+                    ClassifyIdentifierConfusionBindingFailure(
+                        rejected.Failure);
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        failure);
+                }
                 logger.LogWarning(
-                    "An assembly reference could not be resolved because binding was rejected.");
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(failure));
             }
 
             node.Path = resolved?.Path;
@@ -802,6 +1082,21 @@ internal static class LibraryMetadataService
                 : resolved is null
                     ? null
                     : "local";
+
+            string? resolvedPath = resolved?.Path is { } selectedPath
+                ? Path.GetFullPath(selectedPath)
+                : null;
+            bool isCyclic = resolved is not null
+                && (resolvedPath is not null
+                    ? visitedPaths.Contains(resolvedPath)
+                    : visited.Contains(resolved.Identity.Name));
+            if (isCyclic)
+            {
+                node.IsCyclic = true;
+                nodes.Add(node);
+                continue;
+            }
+
             nodes.Add(node);
 
             if (resolved != null)
@@ -814,38 +1109,207 @@ internal static class LibraryMetadataService
                     if (childRefs.Count > 0
                         && (maxDepth is null || depth + 1 < maxDepth.Value))
                     {
-                        var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
+                        var branchVisited = new HashSet<string>(
+                            visited,
+                            StringComparer.OrdinalIgnoreCase)
+                        {
+                            resolved.Identity.Name
+                        };
+                        var branchVisitedPaths = new HashSet<string>(
+                            visitedPaths,
+                            visitedPaths.Comparer);
+                        if (resolvedPath is not null)
+                            branchVisitedPaths.Add(resolvedPath);
                         IAssemblyBindingPolicy childBindingPolicy =
-                            resolved.Path is { } resolvedPath
+                            resolved.Path is { } childPath
                                 ? ReferenceTreeBindingPolicyFor(
-                                    resolvedPath,
+                                    childPath,
                                     bindingPolicies)
                                 : bindingPolicy;
                         var childNodes = BuildTransitiveReferences(
                             childRefs,
                             childBindingPolicy,
                             bindingPolicies,
+                            resolvedPath is not null
+                                ? Path.GetDirectoryName(resolvedPath)
+                                    ?? bindingScope
+                                : bindingScope,
                             branchVisited,
+                            branchVisitedPaths,
                             logger,
                             depth + 1,
-                            deduplicate,
-                            globalSeen,
-                            maxDepth);
+                            maxDepth,
+                            failOnReadError);
                         nodes.AddRange(childNodes);
                     }
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (IdentifierConfusionReferenceTraversalException)
+                {
+                    throw;
+                }
                 catch (Exception ex) when (
-                    ex is IOException
+                    failOnReadError
+                    || ex is IOException
                         or UnauthorizedAccessException
                         or BadImageFormatException)
                 {
+                    if (failOnReadError)
+                    {
+                        throw new IdentifierConfusionReferenceTraversalException(
+                            ClassifyIdentifierConfusionReferenceFailure(ex),
+                            ex);
+                    }
+
                     logger.LogWarning(
-                        "A resolved assembly reference could not be read; its children were omitted.");
+                        "Could not inspect a resolved assembly reference: "
+                        + IdentifierConfusionAudit.DescribeFailure(
+                            ClassifyIdentifierConfusionReferenceFailure(ex)));
                 }
             }
         }
 
         return nodes;
+    }
+
+    internal static StringComparer ReferenceTreePathComparer(bool isWindows) =>
+        isWindows
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
+    private readonly record struct AssemblyReferenceTraversalKey(
+        string? ResolvedPath,
+        AssemblyReferenceIdentity? Reference,
+        string? BindingScope)
+    {
+        public static AssemblyReferenceTraversalKey ForResolvedPath(
+            string resolvedPath) =>
+            new(resolvedPath, null, null);
+
+        public static AssemblyReferenceTraversalKey ForReference(
+            AssemblyReferenceIdentity reference,
+            string bindingScope) =>
+            new(null, reference, bindingScope);
+    }
+
+    private sealed class AssemblyReferenceTraversalKeyComparer
+        : IEqualityComparer<AssemblyReferenceTraversalKey>
+    {
+        private static readonly StringComparer PathComparer =
+            ReferenceTreePathComparer(OperatingSystem.IsWindows());
+
+        public static AssemblyReferenceTraversalKeyComparer Instance
+        {
+            get;
+        } = new();
+
+        public bool Equals(
+            AssemblyReferenceTraversalKey x,
+            AssemblyReferenceTraversalKey y)
+        {
+            if (x.ResolvedPath is not null
+                || y.ResolvedPath is not null)
+            {
+                return x.ResolvedPath is not null
+                    && y.ResolvedPath is not null
+                    && PathComparer.Equals(
+                        x.ResolvedPath,
+                        y.ResolvedPath);
+            }
+
+            return x.Reference is { } xReference
+                && y.Reference is { } yReference
+                && PathComparer.Equals(
+                    x.BindingScope,
+                    y.BindingScope)
+                && StringComparer.Ordinal.Equals(
+                    xReference.Name,
+                    yReference.Name)
+                && EqualityComparer<Version?>.Default.Equals(
+                    xReference.Version,
+                    yReference.Version)
+                && StringComparer.OrdinalIgnoreCase.Equals(
+                    xReference.Culture,
+                    yReference.Culture)
+                && StringComparer.OrdinalIgnoreCase.Equals(
+                    xReference.PublicKeyToken,
+                    yReference.PublicKeyToken);
+        }
+
+        public int GetHashCode(AssemblyReferenceTraversalKey value)
+        {
+            var hash = new HashCode();
+            if (value.ResolvedPath is not null)
+            {
+                hash.Add(value.ResolvedPath, PathComparer);
+            }
+            else if (value.Reference is { } reference)
+            {
+                hash.Add(value.BindingScope, PathComparer);
+                hash.Add(
+                    reference.Name,
+                    StringComparer.Ordinal);
+                hash.Add(reference.Version);
+                hash.Add(
+                    reference.Culture,
+                    StringComparer.OrdinalIgnoreCase);
+                hash.Add(
+                    reference.PublicKeyToken,
+                    StringComparer.OrdinalIgnoreCase);
+            }
+            return hash.ToHashCode();
+        }
+    }
+
+    private static IdentifierConfusionAuditFailureKind
+        ClassifyIdentifierConfusionBindingFailure(
+            AssemblyBindingFailure failure) =>
+        failure.CandidateFailureKind switch
+        {
+            CandidateOpenFailureKind.InvalidImage =>
+                IdentifierConfusionAuditFailureKind.InvalidAssemblyMetadata,
+            CandidateOpenFailureKind.Unreadable =>
+                IdentifierConfusionAuditFailureKind.AssemblyUnreadable,
+            CandidateOpenFailureKind.ResourceBudget =>
+                IdentifierConfusionAuditFailureKind.InspectionFailed,
+            _ => IdentifierConfusionAuditFailureKind.InspectionFailed,
+        };
+
+    private static IdentifierConfusionAuditFailureKind
+        ClassifyIdentifierConfusionReferenceFailure(Exception exception) =>
+        exception switch
+        {
+            BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException =>
+                IdentifierConfusionAuditFailureKind.InvalidAssemblyMetadata,
+            IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or ObjectDisposedException =>
+                IdentifierConfusionAuditFailureKind.AssemblyUnreadable,
+            _ => IdentifierConfusionAuditFailureKind.InspectionFailed,
+        };
+
+    internal sealed class IdentifierConfusionReferenceTraversalException
+        : InvalidOperationException
+    {
+        public IdentifierConfusionReferenceTraversalException(
+            IdentifierConfusionAuditFailureKind failureKind,
+            Exception? innerException = null)
+            : base(
+                "Identifier audit could not inspect assembly references: "
+                + IdentifierConfusionAudit.DescribeFailure(failureKind)
+                + ".",
+                innerException)
+        {
+            FailureKind = failureKind;
+        }
+
+        public IdentifierConfusionAuditFailureKind FailureKind { get; }
     }
 
     /// <summary>
@@ -1646,76 +2110,6 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static FindingInspection<SwitchInfo> ScanSwitches(
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanSwitches(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning switches in {path}: {ex.Message}");
-            return FailedInspection<SwitchInfo>(
-                path, MetadataFindings.SwitchDescriptor, ex);
-        }
-    }
-
-    internal static FindingInspection<SwitchInfo> ScanSwitches(
-        AssemblyInspectionSession session,
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            HashSet<SwitchInfo> switches = [.. session.Switches()];
-            if (session.HasMetadata)
-            {
-                AddAppContextSwitches(
-                    switches,
-                    AppContextSwitchProjectionProducer.Produce(
-                        session.MethodBodies));
-            }
-
-            var orderedSwitches = switches
-                .OrderBy(s => s.Kind, StringComparer.Ordinal)
-                .ThenBy(s => s.Switch, StringComparer.Ordinal)
-                .ThenBy(s => s.Api, StringComparer.Ordinal)
-                .ToList();
-            return MetadataFindings.InspectSwitches(
-                orderedSwitches,
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(
-                $"Error scanning switches in {path}: {ex.Message}");
-            return FailedInspection<SwitchInfo>(
-                path,
-                MetadataFindings.SwitchDescriptor,
-                ex);
-        }
-    }
-
-    static void AddAppContextSwitches(
-        HashSet<SwitchInfo> switches,
-        IEnumerable<AppContextSwitchOccurrence> occurrences)
-    {
-        foreach (var occurrence in occurrences)
-        {
-            if (occurrence.Switch.StartsWith("System.Resources.UseSystemResourceKeys", StringComparison.Ordinal)
-                || occurrence.Switch.StartsWith("TestSwitch.", StringComparison.Ordinal)
-                || occurrence.Switch.StartsWith("Switch.", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            switches.Add(new SwitchInfo("AppContext", occurrence.Switch, occurrence.Api));
-        }
-    }
-
     private static void ApplyQueryResults(
         string path,
         LibraryInspection inspection,
@@ -1761,6 +2155,13 @@ internal static class LibraryMetadataService
                 out ResourcesResult? resources))
         {
             ApplyResourcesResult(path, inspection, logger, resources);
+        }
+
+        if (results.TryGet(
+                SwitchesQuery.Definition,
+                out SwitchesResult? switches))
+        {
+            ApplySwitchesResult(path, inspection, logger, switches);
         }
 
         if (results.TryGet(
@@ -1878,6 +2279,7 @@ internal static class LibraryMetadataService
         {
             case AssemblyReferencesResult.Available available:
                 inspection.AssemblyReferenceIdentities = available.Identities;
+                inspection.AssemblyReferenceFailureKind = null;
                 if (inspection.AssemblyInfo is not null)
                 {
                     inspection.AssemblyInfo.References = available.References.IsEmpty
@@ -1893,6 +2295,9 @@ internal static class LibraryMetadataService
             case AssemblyReferencesResult.Failed failed:
                 logger.LogWarning(
                     $"Error reading assembly references of {path}: {failed.Error.Message}");
+                inspection.AssemblyReferenceFailureKind =
+                    ClassifyIdentifierConfusionReferenceFailure(
+                        failed.Error);
                 inspection.AssemblyReferenceInspection =
                     FailedInspection<AssemblyReference>(
                         path,
@@ -2062,6 +2467,37 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown union-types result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplySwitchesResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        SwitchesResult result)
+    {
+        switch (result)
+        {
+            case SwitchesResult.Available available:
+                inspection.SwitchInspection =
+                    MetadataFindings.InspectSwitches(
+                        available.Switches,
+                        FindingSubjectFor(path));
+                break;
+
+            case SwitchesResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning switches in {path}: {failed.Error.Message}");
+                inspection.SwitchInspection =
+                    FailedInspection<SwitchInfo>(
+                        path,
+                        MetadataFindings.SwitchDescriptor,
+                        failed.Error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown switches result '{result.GetType().Name}'.");
         }
     }
 

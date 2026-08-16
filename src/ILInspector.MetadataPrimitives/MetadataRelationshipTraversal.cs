@@ -20,6 +20,26 @@ public static class MetadataSafetyPolicy
     public const int MaxStructuralSignatureWorkChars = 4 * 1024 * 1024;
 
     /// <summary>
+    /// Maximum work charged while constructing one member-anchor signature
+    /// tree. Type-name occurrences are charged by character length with a
+    /// short-leaf floor, and every composite type node (arrays, pointers,
+    /// generics, function pointers) is charged a fixed per-node unit, so
+    /// discarded modifier subtrees that are deep or wide cannot amplify past
+    /// this ceiling before rejection. TypeDef/TypeRef leaves charge from
+    /// UTF-8 storage and materialize names only when rendered, so unique long
+    /// discarded modifiers cannot force large string allocations on cache
+    /// miss either. Gated by
+    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchor_WideGenericModoptsFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchor_WideTypeRefGenericModoptsFailBeforeLargeAllocation</c>,
+    /// and
+    /// <c>CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation</c>.
+    /// </summary>
+    public const int MaxAnchorSignatureWorkChars =
+        MaxStructuralSignatureWorkChars;
+
+    /// <summary>
     /// Maximum type nodes examined before decoding one metadata signature.
     /// This bounds the iterative guard stack and SRM's decoded parameter/type
     /// materialization for structurally shallow but hostile signatures. Gated by
@@ -41,10 +61,44 @@ public static class MetadataSafetyPolicy
     public const int MaxCorrespondenceCandidates = 1024;
 
     /// <summary>
+    /// Maximum <see cref="BadImageFormatException"/> failures while decoding
+    /// method anchors during one classified-method scan. Each failure is
+    /// already bounded per anchor, but catch-and-continue would otherwise
+    /// multiply that cost by method count on hostile multi-method images.
+    /// Gated by
+    /// <c>Scan_MultiMethodHostileIdentitiesFailClosedBeforeLargeAllocation</c>.
+    /// </summary>
+    public const int MaxClassificationIdentityDecodeFailures = 3;
+
+    /// <summary>
+    /// Maximum cumulative anchor-signature work charged across one classified-
+    /// method scan. Prevents many near-limit successful identities from
+    /// multiplying per-anchor cost when none individually trips the failure
+    /// counter. Gated by
+    /// <c>Scan_NearLimitMultiMethodIdentitiesFailClosedBeforeLargeAllocation</c>.
+    /// </summary>
+    public const int MaxClassificationScanWorkChars =
+        MaxAnchorSignatureWorkChars;
+
+    /// <summary>
     /// Maximum unique handles in one TypeDef, TypeRef, or ExportedType
     /// relationship chain.
     /// </summary>
     public const int MaxRelationshipNodes = 256;
+
+    /// <summary>
+    /// Maximum characters in one structured type name: its namespace plus every root-to-leaf
+    /// segment, plus one delimiter per segment boundary.
+    /// </summary>
+    /// <remarks>
+    /// The segment-count ceiling alone bounds nesting depth, not size: each of up to
+    /// <see cref="MaxRelationshipNodes"/> segments carries an artifact-authored string of
+    /// arbitrary length, so a malformed image can encode a name of hundreds of megabytes within
+    /// the depth budget. Real names are far smaller — the deepest generated names in the .NET
+    /// libraries are a few hundred characters — so this ceiling only trips on input that was
+    /// never a name.
+    /// </remarks>
+    public const int MaxTypeNameCharacters = 4096;
 
     /// <summary>
     /// Decodes one metadata string only after its UTF-8 storage is within the

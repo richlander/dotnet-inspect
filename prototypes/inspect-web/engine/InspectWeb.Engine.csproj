@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPublishable>true</IsPublishable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <WasmEnableExceptionHandling>false</WasmEnableExceptionHandling>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="InspectWeb.Engine.Tests" />
+    <!--
+      Every browser interaction that inspects an assembly runs inside a workspace, through a public
+      product query that owns the session. BannedSymbols.txt makes the compiler enforce that;
+      Directory.Build.targets already escalates RS0030 to an error for every .csproj.
+      BrowserEngineLayeringTests pins this wiring.
+    -->
+    <AdditionalFiles Include="BannedSymbols.txt" />
+    <ProjectReference Include="..\acquisition\InspectWeb.Acquisition.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\..\..\src\CSharpText\CSharpText.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.CSharpBodySlicer\DotnetInspector.CSharpBodySlicer.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Research\ILInspector.Research.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
+    <Content Include="..\index.html" Link="wwwroot\index.html" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\src\app.js" Link="wwwroot\src\app.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\src\annotated-source-view.js" Link="wwwroot\src\annotated-source-view.js" CopyToOutputDirectory="PreserveNewest" />
+    <!--
+      The AnnotatedSourceDocument model is owned by the annotated-source-viewer prototype and
+      linked here verbatim, so the two prototypes share one validator and one coordinate
+      implementation. It deliberately overwrites the repository-tree re-export at the same path.
+    -->
+    <Content Include="..\..\annotated-source-viewer\src\document-model.js" Link="wwwroot\src\document-model.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\src\data.js" Link="wwwroot\src\data.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\src\platform-index.js" Link="wwwroot\src\platform-index.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\src\styles.css" Link="wwwroot\src\styles.css" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\assets\dotnet-inspect-bot.png" Link="wwwroot\assets\dotnet-inspect-bot.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\assets\bots\*.png" Link="wwwroot\assets\bots\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\assets\platform-index.tsv" Link="wwwroot\assets\platform-index.tsv" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="DisableRuntimeAsync" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <Features>runtime-async=off</Features>
+    </PropertyGroup>
+  </Target>
+</Project>

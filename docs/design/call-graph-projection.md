@@ -86,7 +86,9 @@ The projection owns everything a host must not re-invent in JavaScript:
   correspondence is removed. Detached trees from separate scopes can therefore
   join the same exact physical definition without collapsing different versions
   or artifacts, while repeated unresolved occurrences remain joined within
-  their original scope. These boundaries are gated by
+  their original scope. `CallGraphNode.Identity` exposes the exact identity the
+  projection used; adapters retain that currency rather than reconstructing it
+  from `MemberRef`. These boundaries are gated by
   `DetachedVersionSkewedDefinitionsRemainDistinct`,
   `DetachedRepeatedExternalOccurrencesStayJoined`, and
   `DetachedArtifactIdentityIgnoresAcquisitionRegistration`.
@@ -341,6 +343,49 @@ logical node was expanded elsewhere in the same direction.
 `AnnotatedMemberDocument_HonorsACalleeNodeBudget` gate the positive and empty
 bounded cases.
 
+An opt-in `OwnershipFlow` body producer adds `ArrayPool<T>` ownership paths to
+that same overlay without changing graph acquisition. Analysis computes compact
+per-method summaries while each selected body is already decoded: rent origins,
+array-parameter effects, physical forwarding calls, pool returns, field stores,
+and array returns to the caller. It reuses the body's existing
+`MethodInstructions` for reaching definitions and retains no IL, blocks, or
+dataflow state. A calls/signature discriminator skips reaching definitions for
+bodies with neither a rent nor an array parameter.
+`MemberCallGraphView.OwnershipEvidence` carries those summaries from the same
+indexes that produced the current graph tier; Research joins forwarding calls
+to stable edge rows and performs no body, graph, or source acquisition.
+
+The first body-scoped tier can therefore expose a rent and its forwarding edge
+before the callee body is available. A later full tier supersedes the scoped
+index and completes the path from already-retained summaries. Terminal
+`Finding<ArrayPoolOwnershipPathWitness>` payloads distinguish `ReturnedToPool`,
+`Stored`, and `ReturnedToCaller`, and retain every physical forwarding
+coordinate even when repeated call sites collapse onto one logical edge row.
+Finding identity uses those physical coordinates plus the typed sink identity,
+not labels or row numbers alone.
+
+Ownership completeness remains separate from positive Findings:
+`NotRequested`, `TraversalBoundary`, `IncompleteCorrespondence`,
+`BodyUnavailable`, `AnalysisFailure`, `WitnessBudget`, and `PathBudget` are
+independent flags. Address-taken, local-alias, unsupported-stack, unresolved,
+or failed body evidence is incomplete rather than a safe outcome. A catalog
+node without a matching physical definition never borrows a structurally
+similar body from another image. The feature is not in
+`MemberCallGraphOptions`' default producer set, so callers pay the reaching-
+definitions and retained-summary cost only when they request ownership flow.
+
+`AnnotatedOwnershipProgressesWithoutReacquiringGraphWork` gates scoped-to-full
+progression and unchanged build/source-open counts.
+`AnnotatedOwnershipComposesTypedTerminalPaths` gates multi-hop, instance, and
+constructor forwarding; `OwnershipWitnessBudgetPreservesPhysicalCallIdentity`
+and `OwnershipPathBudgetLeavesForwardedPathIncomplete` gate the two budgets.
+`AddressTakenRentIsRetainedAsIncomplete` and
+`OwnershipForwardedToABodilessCalleeIsIncomplete` gate the close negative
+cases. `IndirectCallShapesAreRetainedAsIncomplete` and
+`OwnershipIndirectCallShapesDoNotProduceSafeFindings` gate that `ldftn`,
+`ldvirtftn`, and `calli` remain unsupported/incomplete rather than entering the
+direct-call stack model.
+
 The query declares no graph or Analysis acquisition.
 `AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite` test
 gates graph-session reuse by asserting unchanged session build/source-open
@@ -383,6 +428,14 @@ The browser engine consumes the same projection and generates its own Mermaid; i
 reconstructs no graph identity, direction, truncation, cycles, or labels. The CLI
 and the browser deliberately do not share a Mermaid generator — sharing the
 *graph* is the point, not sharing the *format*.
+Browser navigation transports the projected display spelling separately from
+the exact metadata type name; the latter preserves nested `+` delimiters and
+generic arity and is the only spelling used to resolve a graph target.
+Constructed generic declaring types recover that name and assembly from their
+definition. Synthetic array and function-pointer declaring shapes remain
+renderable but intentionally carry no navigable definition identity. Property
+and event accessors resolve through their opaque body selector when no physical
+method token survives projection.
 
 Coverage lives in `src/ILInspector.Analysis.Tests/CallGraphProjectionTests.cs`
 (edge direction and inversion, duplicates/cycles, node-kind precedence,

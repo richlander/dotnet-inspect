@@ -6,8 +6,119 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Services.Tests;
 
+[Collection(ManifestPathEnvironmentCollection.Name)]
 public class AssemblyDependencyResolverTests
 {
+    [Fact]
+    public void ResolveAll_DepsJsonLocalPathCannotEscapeTargetDirectory()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-deps-path-").FullName;
+        try
+        {
+            string targetDirectory = Path.Combine(root, "target");
+            string outsideDirectory = Path.Combine(root, "outside");
+            Directory.CreateDirectory(targetDirectory);
+            Directory.CreateDirectory(outsideDirectory);
+            string targetPath = Path.Combine(targetDirectory, "Target.dll");
+            string outsidePath = Path.Combine(outsideDirectory, "Escape.dll");
+            File.WriteAllText(targetPath, "");
+            File.WriteAllText(outsidePath, "");
+            File.WriteAllText(
+                Path.Combine(targetDirectory, "Target.deps.json"),
+                """
+                {
+                  "targets": {
+                    "net9.0": {
+                      "Escape/1.0.0": {
+                        "runtime": {
+                          "Escape.dll": {
+                            "localPath": "../outside/Escape.dll"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "libraries": {}
+                }
+                """);
+
+            var resolver = CreateManifestOnlyResolver(targetPath);
+
+            Assert.DoesNotContain(
+                resolver.ResolveAll(),
+                dependency => dependency.Path == Path.GetFullPath(outsidePath));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ResolveAll_DepsJsonPackagePathCannotEscapeGlobalPackagesRoot()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-deps-path-").FullName;
+        try
+        {
+            string targetDirectory = Path.Combine(root, "target");
+            string packagesRoot = Path.Combine(root, "packages");
+            string outsideDirectory = Path.Combine(root, "outside");
+            Directory.CreateDirectory(targetDirectory);
+            Directory.CreateDirectory(packagesRoot);
+            Directory.CreateDirectory(outsideDirectory);
+            string targetPath = Path.Combine(targetDirectory, "Target.dll");
+            string outsidePath = Path.Combine(outsideDirectory, "Escape.dll");
+            File.WriteAllText(targetPath, "");
+            File.WriteAllText(outsidePath, "");
+            File.WriteAllText(
+                Path.Combine(targetDirectory, "Target.deps.json"),
+                """
+                {
+                  "targets": {
+                    "net9.0": {
+                      "Escape/1.0.0": {
+                        "runtime": {
+                          "Escape.dll": {}
+                        }
+                      }
+                    }
+                  },
+                  "libraries": {
+                    "Escape/1.0.0": {
+                      "path": "../outside"
+                    }
+                  }
+                }
+                """);
+            using var environment =
+                new NuGetPackagesEnvironment(packagesRoot);
+
+            var resolver = CreateManifestOnlyResolver(targetPath);
+
+            Assert.DoesNotContain(
+                resolver.ResolveAll(),
+                dependency => dependency.Path == Path.GetFullPath(outsidePath));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static AssemblyDependencyResolver CreateManifestOnlyResolver(
+        string targetPath)
+        => new(
+            new AssemblyDependencyResolutionOptions(targetPath)
+            {
+                PackageRoots = [],
+                IncludeSiblingAssemblies = false,
+                IncludeTrustedPlatformAssemblies = false,
+                IncludeAspNetCoreSharedFramework = false,
+                IncludeDepsJsonAssets = true,
+            });
+
     [Fact]
     public void Select_NameMatchingUnreadableCandidateIsUnavailable()
     {
@@ -45,6 +156,9 @@ public class AssemblyDependencyResolverTests
             Assert.Equal(
                 AssemblyBindingFailureKind.CandidateUnavailable,
                 selection.Failure.Kind);
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                selection.Failure.CandidateFailureKind);
         }
         finally
         {
@@ -90,6 +204,9 @@ public class AssemblyDependencyResolverTests
             Assert.Equal(
                 AssemblyBindingFailureKind.CandidateUnavailable,
                 selection.Failure.Kind);
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                selection.Failure.CandidateFailureKind);
         }
         finally
         {

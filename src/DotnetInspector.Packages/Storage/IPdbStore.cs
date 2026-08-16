@@ -2,8 +2,9 @@ namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Host-neutral persistence for resolved Portable PDB payloads, keyed by a
-/// store-relative identity (for example <c>{package}/{version}/{symbolKey}/{assembly}.pdb</c>
-/// or <c>servers/{pdbName}/{symbolKey}/{pdbName}</c>).
+/// store-relative identity (for example
+/// <c>{package}/{version}/{contentIdentity}/{assembly}.pdb</c> or
+/// <c>servers/{providerHost}/{pdbName}/{contentIdentity}/{pdbName}</c>).
 /// </summary>
 /// <remarks>
 /// The filesystem implementation (<see cref="FileSystemPdbStore"/>) maps keys to
@@ -17,7 +18,8 @@ public interface IPdbStore
 {
     /// <summary>
     /// Opens the cached PDB payload for <paramref name="key"/>, or returns
-    /// <c>null</c> when the entry is absent.
+    /// <c>null</c> when the entry is absent. A returned stream must be fresh,
+    /// readable, seekable, and positioned at zero; the caller owns it.
     /// </summary>
     ValueTask<Stream?> TryOpenAsync(string key, CancellationToken cancellationToken = default);
 

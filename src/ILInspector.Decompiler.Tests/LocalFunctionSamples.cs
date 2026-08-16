@@ -33,6 +33,42 @@ public static class UnraisedLocalFunctionSamples
     }
 }
 
+public static class LocalFunctionArgumentSamples
+{
+    public static int RefArgument(int value)
+    {
+        return Read(ref value);
+        static int Read(ref int source) => source + 1;
+    }
+
+    public static bool OutArgument(out int value)
+    {
+        return Assign(out value);
+        static bool Assign(out int target) => TryValue("42", out target);
+    }
+
+    static bool TryValue(string text, out int value) => int.TryParse(text, out value);
+
+    public static int InArgument(int value)
+    {
+        return Read(in value);
+        static int Read(in int source) => source + 1;
+    }
+
+    public static int ValueArgument(int value)
+    {
+        return Read(value);
+        static int Read(int source) => source + 1;
+    }
+
+    public static int RecursiveOptionalArgument(int value)
+    {
+        return Read(ref value);
+        static int Read(ref int source, int retry = 1)
+            => retry == 0 ? source : Read(ref source);
+    }
+}
+
 // Two local functions in DISJOINT scopes sharing one source name, so the compiler emits
 // <M>g__Pick|0_0 and <M>g__Pick|0_1. One is raised and one is declined: the declined
 // call must not be spelled `Pick`, which would silently bind to the raised function.
@@ -159,6 +195,38 @@ public static class LocalFunctionInGenericMethodSamples
     {
         static T Core(T v) => v;
         return Core(value);
+    }
+}
+
+// Non-generic local functions inside a generic TYPE. Calls to their synthesized
+// methods use a MemberRef whose declaring type is the host's self-instantiation
+// (GenericTypeLocalFunctionSamples<T>), while the method body lives on the generic
+// type definition. Cross-method import must address that definition without losing
+// the type parameters that are already in scope at the recovered declaration site.
+public static class GenericTypeLocalFunctionSamples<T>
+{
+    public static int NoTypeParameter(int value)
+    {
+        static int Own(int input) => input + 1;
+        return Own(value);
+    }
+
+    public static T TypeParameterOnly(T value)
+    {
+        static T Own(T input) => input;
+        return Own(value);
+    }
+
+    public static U TypeAndMethodParameters<U>(T typeValue, U methodValue)
+    {
+        static U Own(T _, U value) => value;
+        return Own(typeValue, methodValue);
+    }
+
+    public static int OwnMethodParameter(T value)
+    {
+        static int Own<U>(U input) => 2;
+        return Own<T>(value);
     }
 }
 

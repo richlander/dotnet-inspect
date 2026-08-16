@@ -9,7 +9,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>SRM-only metadata primitives shared by the inspection, analysis, and decompiler layers</Description>
+    <Description>Dependency-free metadata and name-matching primitives shared by inspection layers</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 

@@ -97,7 +97,7 @@ public sealed class AssemblyDependencyResolver :
     readonly AssemblyDependencyResolutionOptions _options;
     readonly ConcurrentDictionary<
         string,
-        Lazy<ResolvedAssemblyReference?>> _descriptors =
+        Lazy<AssemblyDescriptorResolution>> _descriptors =
             new(StringComparer.Ordinal);
     IReadOnlyList<ResolvedAssemblyDependency>? _resolved;
     IReadOnlyList<ResolvedAssemblyDependency>? _allCandidates;
@@ -248,7 +248,7 @@ public sealed class AssemblyDependencyResolver :
     {
         var candidates =
             _allCandidates ??= CollectDependencies(deduplicate: false);
-        bool candidateUnavailable = false;
+        CandidateOpenFailureKind? candidateFailure = null;
         CandidateTier? activeTier = null;
 
         foreach (var dependency in candidates)
@@ -264,24 +264,27 @@ public sealed class AssemblyDependencyResolver :
             if (activeTier is { } previousTier
                 && tier != previousTier)
             {
-                if (candidateUnavailable
+                if (candidateFailure is not null
                     || scope != AssemblyResolutionScope.Platform)
                 {
                     return new AssemblyResolutionAttempt(
                         Assembly: null,
-                        candidateUnavailable);
+                        candidateFailure);
                 }
             }
             activeTier = tier;
 
             bool allowVersionRollForward = scope == AssemblyResolutionScope.Platform
                 && _options.AllowPlatformAssemblyVersionRollForward;
-            ResolvedAssemblyReference? selected = Descriptor(
+            AssemblyDescriptorResolution descriptor = DescriptorResult(
                 dependency.Path,
                 ResolutionProvenance(dependency));
+            ResolvedAssemblyReference? selected = descriptor.Assembly;
             if (selected is null)
             {
-                candidateUnavailable = true;
+                candidateFailure ??=
+                    descriptor.FailureKind
+                    ?? CandidateOpenFailureKind.Unreadable;
                 continue;
             }
             if (!identity.MatchesCandidate(
@@ -294,14 +297,14 @@ public sealed class AssemblyDependencyResolver :
 
             return new AssemblyResolutionAttempt(
                 selected,
-                CandidateUnavailable: false);
+                CandidateFailure: null);
         }
 
-        if (candidateUnavailable)
+        if (candidateFailure is not null)
         {
             return new AssemblyResolutionAttempt(
                 Assembly: null,
-                CandidateUnavailable: true);
+                candidateFailure);
         }
 
         // The target may reference an older platform contract than the running
@@ -322,15 +325,18 @@ public sealed class AssemblyDependencyResolver :
                 useRuntimeAssemblies: _options.PreferImplementationAssemblies);
             if (path is not null)
             {
-                ResolvedAssemblyReference? selected = Descriptor(
+                AssemblyDescriptorResolution descriptor = DescriptorResult(
                     path,
                     AssemblyResolutionProvenance.Platform(
                         framework ?? "InstalledPlatform",
                         frameworkVersion: null,
                         AssemblyDependencyProvenance.InstalledPlatformAssembly.ToString()));
+                ResolvedAssemblyReference? selected = descriptor.Assembly;
                 if (selected is null)
                 {
-                    candidateUnavailable = true;
+                    candidateFailure ??=
+                        descriptor.FailureKind
+                        ?? CandidateOpenFailureKind.Unreadable;
                 }
                 else if (identity.MatchesCandidate(
                         selected.Identity,
@@ -339,14 +345,14 @@ public sealed class AssemblyDependencyResolver :
                 {
                     return new AssemblyResolutionAttempt(
                         selected,
-                        CandidateUnavailable: false);
+                        CandidateFailure: null);
                 }
             }
         }
 
         return new AssemblyResolutionAttempt(
             Assembly: null,
-            candidateUnavailable);
+            candidateFailure);
     }
 
     static CandidateTier TierFor(
@@ -403,7 +409,8 @@ public sealed class AssemblyDependencyResolver :
         {
             return AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable));
+                    AssemblyBindingFailureKind.CandidateUnavailable,
+                    ClassifyCandidateOpenFailure(ex)));
         }
     }
 
@@ -414,10 +421,11 @@ public sealed class AssemblyDependencyResolver :
         AssemblyResolutionAttempt attempt = ResolveCore(identity, scope);
         if (attempt.Assembly is { } assembly)
             return AssemblyBindingSelection.Found(assembly);
-        return attempt.CandidateUnavailable
+        return attempt.CandidateFailure is { } candidateFailure
             ? AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable))
+                    AssemblyBindingFailureKind.CandidateUnavailable,
+                    candidateFailure))
             : AssemblyBindingSelection.NotFound();
     }
 
@@ -426,16 +434,17 @@ public sealed class AssemblyDependencyResolver :
     {
         string targetPath = Path.GetFullPath(
             _options.TargetAssemblyPath);
-        ResolvedAssemblyReference? target = Descriptor(
+        AssemblyDescriptorResolution target = DescriptorResult(
             targetPath,
             AssemblyResolutionProvenance.Local(
                 "intrinsic core library"));
-        return target is null
+        return target.Assembly is null
             ? AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable))
+                    AssemblyBindingFailureKind.CandidateUnavailable,
+                    target.FailureKind))
             : IntrinsicCoreLibraryBinding.Select(
-                target,
+                target.Assembly,
                 facade => SelectReference(facade, scope));
     }
 
@@ -465,27 +474,49 @@ public sealed class AssemblyDependencyResolver :
 
     ResolvedAssemblyReference? Descriptor(
         string path,
+        AssemblyResolutionProvenance provenance)
+    {
+        AssemblyDescriptorResolution result =
+            DescriptorResult(path, provenance);
+        if (result.FailureKind
+            is CandidateOpenFailureKind.ResourceBudget)
+        {
+            throw new AssemblyDependencySnapshotBudgetExceededException(
+                _options.MaxSnapshotImageBytes);
+        }
+
+        return result.Assembly;
+    }
+
+    AssemblyDescriptorResolution DescriptorResult(
+        string path,
         AssemblyResolutionProvenance provenance) =>
         _descriptors.GetOrAdd(
             path,
             (path, provenance) =>
-                new Lazy<ResolvedAssemblyReference?>(
+                new Lazy<AssemblyDescriptorResolution>(
                     () => CreateDescriptor(path, provenance),
                     LazyThreadSafetyMode.ExecutionAndPublication),
             provenance).Value;
 
-    ResolvedAssemblyReference? CreateDescriptor(
+    AssemblyDescriptorResolution CreateDescriptor(
         string path,
         AssemblyResolutionProvenance provenance)
     {
         if (!_options.SnapshotAssemblyImages)
         {
-            return ResolvedAssemblyReference.TryCreateFromPath(
+            bool created = ResolvedAssemblyReference.TryCreateFromPath(
                 path,
                 provenance,
-                out ResolvedAssemblyReference? reference)
-                    ? reference
-                    : null;
+                out ResolvedAssemblyReference? reference,
+                out Exception? failure);
+            return created
+                ? new(reference, FailureKind: null)
+                : new(
+                    Assembly: null,
+                    ClassifyCandidateOpenFailure(
+                        failure
+                        ?? new BadImageFormatException()));
         }
 
         long reservedBytes = 0;
@@ -509,7 +540,11 @@ public sealed class AssemblyDependencyResolver :
             using var reader =
                 new System.Reflection.PortableExecutable.PEReader(stream);
             if (!reader.HasMetadata)
-                return null;
+            {
+                return new(
+                    Assembly: null,
+                    CandidateOpenFailureKind.InvalidImage);
+            }
 
             ResolvedAssemblyReference result =
                 ResolvedAssemblyReference.Create(
@@ -519,14 +554,26 @@ public sealed class AssemblyDependencyResolver :
                 () => new MemoryStream(image, writable: false),
                 provenance);
             reservedBytes = 0;
-            return result;
+            return new(result, FailureKind: null);
+        }
+        catch (AssemblyDependencySnapshotBudgetExceededException)
+        {
+            return new(
+                Assembly: null,
+                CandidateOpenFailureKind.ResourceBudget);
         }
         catch (Exception ex) when (
             ex is IOException
                 or UnauthorizedAccessException
-                or BadImageFormatException)
+                or NotSupportedException
+                or ObjectDisposedException
+                or BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
-            return null;
+            return new(
+                Assembly: null,
+                ClassifyCandidateOpenFailure(ex));
         }
         finally
         {
@@ -556,6 +603,19 @@ public sealed class AssemblyDependencyResolver :
             _snapshotImageBytes -= bytes;
     }
 
+    static CandidateOpenFailureKind ClassifyCandidateOpenFailure(
+        Exception exception) =>
+        exception switch
+        {
+            BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException =>
+                CandidateOpenFailureKind.InvalidImage,
+            AssemblyDependencySnapshotBudgetExceededException =>
+                CandidateOpenFailureKind.ResourceBudget,
+            _ => CandidateOpenFailureKind.Unreadable,
+        };
+
     readonly record struct AssemblyBindingRequestKey(
         AssemblyBindingTarget Target,
         AssemblyAcquisitionRegistration? Origin,
@@ -581,7 +641,11 @@ public sealed class AssemblyDependencyResolver :
 
     readonly record struct AssemblyResolutionAttempt(
         ResolvedAssemblyReference? Assembly,
-        bool CandidateUnavailable);
+        CandidateOpenFailureKind? CandidateFailure);
+
+    sealed record AssemblyDescriptorResolution(
+        ResolvedAssemblyReference? Assembly,
+        CandidateOpenFailureKind? FailureKind);
 
     public static IReadOnlyList<string> PackageDependencyReferencePaths(string targetPath)
         => PackageDependencyReferencePaths(targetPath, packageRoots: null);
@@ -1060,15 +1124,29 @@ public sealed class AssemblyDependencyResolver :
             if (asset.Value.ValueKind == JsonValueKind.Object &&
                 asset.Value.TryGetProperty("localPath", out var localPathElement) &&
                 localPathElement.ValueKind == JsonValueKind.String &&
-                localPathElement.GetString() is { Length: > 0 } localPath)
-                addReference(Path.Combine(targetDirectory, NativePath(localPath)));
+                localPathElement.GetString() is { Length: > 0 } localPath &&
+                StorePath.TryResolveUnderRoot(
+                    targetDirectory,
+                    localPath,
+                    out string? resolvedLocalPath))
+            {
+                addReference(resolvedLocalPath);
+            }
 
-            if (libraryPaths.TryGetValue(library.Name, out var packagePath))
-                addReference(Path.Combine(GlobalPackagesRoot(), NativePath(packagePath), NativePath(asset.Name)));
+            if (libraryPaths.TryGetValue(library.Name, out var packagePath)
+                && StorePath.TryResolveUnderRoot(
+                    GlobalPackagesRoot(),
+                    packagePath,
+                    out string? packageDirectory)
+                && StorePath.TryResolveUnderRoot(
+                    packageDirectory,
+                    asset.Name,
+                    out string? resolvedAssetPath))
+            {
+                addReference(resolvedAssetPath);
+            }
         }
     }
-
-    static string NativePath(string path) => path.Replace('/', Path.DirectorySeparatorChar);
 
     static string GlobalPackagesRoot()
     {

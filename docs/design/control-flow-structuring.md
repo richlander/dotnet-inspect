@@ -394,26 +394,56 @@ region exit with no successor, switch raising declines it, and structuring does
 not classify it as a jump predecessor. Nested `Leave` clone ownership has no
 executable-edge overlap; `StructuringFlowFactsTests` owns that separate contract.
 
-The pre-switch corpus also contains 12 blocks whose direct `Break`/`Continue`
-leaves the current block container. Those are not lexical fall-through edges:
-switch raising declines them explicitly, while the differential excludes
-`Cfg.Build`'s current default projection from the agreement claim. Another 45
-blocks contain a conditional arm ending in `Break`; their other path has a real
-in-container fall-through edge, so switch raising continues to model that edge.
-Synthetic cases separately pin direct non-final transfers and transfers owned
-by a nested loop. This is the measured prerequisite for consolidation:
-`Cfg.Build` must first represent or reject direct structured transfers before
-switch raising can consume it wholesale.
+The pre-switch corpus also contains 12 blocks whose direct `Break` leaves the
+current block container and zero direct `Continue` blocks. A break is not a
+lexical fall-through edge, and wrapping it in a switch would capture its
+enclosing-loop owner, so switch raising declines it while the differential
+excludes `Cfg.Build`'s current default projection from the agreement claim. A
+terminal `Continue` is different: it has no successor in the section container,
+and a switch cannot capture its enclosing-loop owner, so switch raising accepts
+it as a terminating section. `Cfg.Build` still projects lexical-next
+fall-through for both structured transfers, so the differential excludes both
+from executable-edge agreement; for `Continue`, the two views actively disagree
+until the shared CFG can represent the enclosing owner. Another 45 blocks
+contain a conditional arm ending in `Break`; their other path has a real
+in-container fall-through edge, so the successor view continues to model that
+edge. A synthetic case where such an arm precedes `EndFinally` pins that the
+independent unsupported terminator declines the block instead.
+
+`ControlFlowViews_AgreeOnSyntheticBoundaryTerminators` owns these boundaries in
+the fast `Area=Pass` lane, including a terminal `Continue`, a non-final transfer,
+an explicitly branched lexical-next edge, and a transfer owned by a nested loop.
+It also asserts that the default pipeline still contains exactly one
+`SwitchRaisingPass` anchor before constructing the pre-switch slice. This is the
+measured prerequisite for consolidation: `Cfg.Build` must first represent or
+reject direct structured transfers before switch raising can consume it
+wholesale.
+
+The compiler-produced loop/switch/`continue` witness is an output canary, not a
+corpus instance of that pre-switch boundary. Both before and after the original
+differential change, the default pipeline raises the switch, moves the
+post-switch statement into `default`, and renders the terminating cases with
+`break`; no `Continue` exists before switch raising because structuring runs
+later. The terminal-`Continue` acceptance is therefore unreachable in today's
+single default-pipeline pass and has zero corpus coverage; it is a supported
+boundary for an already-structured input, pinned directly rather than presented
+as measured default behavior. `SwitchRaisingTerminalContinuationTests` pins the
+compiler-produced no-movement result, an already-structured loop where terminal
+`Continue` nodes remain `continue` after switch wrapping, a mixed
+continue/joining switch, and the close negative where a nested loop-owned
+`Break` still forces the wrapping attempt to decline.
 
 On the .NET 11 Preview 7 CoreLib, the gate covers 42,640 methods, 45,505
 containers, 48,559 resolved explicit edges, zero external explicit edges,
 53,367 implicit fall-through edges (including 342 switch default edges),
 122,969 switch-modeled blocks, 113 terminal `Leave`s, 10 `EndFinally`
-terminators, zero `EndFilter` terminators, 12 direct structured-transfer blocks,
-and 45 nested structured-transfer blocks with zero differences over the
-supported overlap. That evidence makes `Cfg.Build` the owner of flat structural
-edge semantics, but not yet the owner for direct structured transfers. Switch
-raising's supported view has a narrower acceptance domain, not different edges.
+terminators, zero `EndFilter` terminators, 12 direct `Break` blocks, zero direct
+`Continue` blocks, and 45 nested structured-transfer blocks with zero
+differences over the supported overlap. That evidence makes `Cfg.Build` the
+owner of flat structural edge semantics, but not yet the owner for direct
+structured transfers. Within the flat overlap, switch raising has a narrower
+acceptance domain rather than different edges; accepted structured `Continue`
+remains the explicit owner-aware exception outside that overlap.
 `StructuringFlowFacts` remains a separate region-aware projection because its
 label and clone-ownership facts are not executable edges.
 
@@ -580,12 +610,12 @@ only when the post-dominator machinery is proven.
 
    *Scope addition (2026-08-12, from
    [#4063](https://github.com/richlander/dotnet-inspect/issues/4063)):* the
-   join primitive covers back-edge regions from day one — a non-crossing
-   region whose only back-edges target its head raises as `while`/
-   `while(true)` with the postdom-LCA exit as the break target. Loop-specific
-   mechanisms (continue placement, condition hoisting for effectful latches,
-   labeled break, conditional rotated entries) remain follow-on slices on top
-   of this shared core.
+   join plan represents and classifies back-edge regions from day one. The
+   first retained-label production slice consumes only proven acyclic forward
+   regions; raising a non-crossing region whose back-edges target its head as
+   `while`/`while (true)` remains a follow-on, together with continue placement,
+   condition hoisting for effectful latches, labeled break, and conditional
+   rotated entries.
 
    *Status: shared-terminator merge slice landed (partial).* The first slice of
    step 4 relaxes the all-or-nothing invariant for one safe case: a shared
@@ -605,6 +635,17 @@ only when the post-dominator machinery is proven.
    carrying a base/this constructor-chain call (it must stay the body's first
    statement for the `: base(...)` lift; duplicating it would strand a bare chain
    call, CS0175).
+
+   *Status: first retained-label production slice implemented.* The existing
+   whole-container all-or-nothing path still runs first. Only after it declines,
+   the product-owned join plan selects the furthest valid merge for the current
+   range, proves single entry and a merge reached by at least two explicit
+   transfers, and plans sequential tail ranges before mutation. The slice
+   retains unconditional and conditional gotos to the merge, preserves each
+   merge label when the tail is structured, and declines crossing, unrooted,
+   EH/switch, external-entry, and back-edge-entangled regions. Unrelated
+   back-edge regions in untouched tail ranges do not veto an eligible forward
+   region; unresolved loop regions remain represented but flat.
 
    *Finding — the acyclic residual splits three ways, and the return-tail merge
    is NOT a terminator-duplication win.* Of the ~1,208 `conditional-branch`
@@ -984,11 +1025,13 @@ add to the step-4 plan:
 1. **Merge selection**: deepest-valid post-dominator plus recursive
    re-application to the tail — nearest-first structures only a prefix of
    multi-merge containers (readable but visibly half-done).
-2. **Back-edge regions are in scope from day one** (see the corrected loop
-   entry under *Out of scope*).
-3. **Definite assignment**: retained gotos inside a structured tree flood
-   locals to `= default` (`Matrix4x4::Decompose` 1→7); the #631 CFG-based DA
-   walk must learn in-tree retained gotos. Cosmetic, but a merge-bar
-   implementation fixes it.
+2. **Back-edge regions are represented and classified from day one**; the first
+   production behavior slice declines unresolved loop regions while allowing an
+   unrelated loop in an untouched tail (see the corrected loop entry under
+   *Out of scope*).
+3. **Definite assignment**: the production slice extends the #631 analysis with
+   a forward structured-goto walk, so assignments reaching a retained merge are
+   intersected with lexical fallthrough instead of flooding locals to
+   `= default` (`Matrix4x4::Decompose` was 1→7 in the probe).
 4. **Sequencing** (unchanged from the spike): wire the rec-#2 real-world
    corpus baseline as the regression sensor before the rewrite lands.

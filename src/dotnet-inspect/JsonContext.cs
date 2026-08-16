@@ -65,6 +65,16 @@ public partial class JsonContext : JsonSerializerContext
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(PackageInspectionJson))]
+[JsonSerializable(typeof(PackageInspectionJson[]))]
+internal partial class PackageInspectionJsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(DiffDocumentView))]
 internal partial class DiffJsonContext : JsonSerializerContext
 {
@@ -85,7 +95,7 @@ internal partial class PackageFileMultiJsonRowContext : JsonSerializerContext
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(PackageFileContent))]
+[JsonSerializable(typeof(PackageFileContentText))]
 internal partial class PackageFileContentJsonContext : JsonSerializerContext
 {
 }
@@ -125,25 +135,9 @@ public partial class ApiTypeCompactJsonContext : JsonSerializerContext
 {
 }
 
-[JsonSourceGenerationOptions(
-    WriteIndented = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    UseStringEnumConverter = true)]
-[JsonSerializable(typeof(AnnotatedSourceDocument))]
-internal partial class AnnotatedSourceDocumentJsonContext : JsonSerializerContext
-{
-}
-
-[JsonSourceGenerationOptions(
-    WriteIndented = false,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    UseStringEnumConverter = true)]
-[JsonSerializable(typeof(AnnotatedSourceDocument))]
-internal partial class AnnotatedSourceDocumentCompactJsonContext : JsonSerializerContext
-{
-}
+// The AnnotatedSourceDocument wire shape is owned by ILInspector.Decompiler
+// (AnnotatedSourceDocumentJsonContext / AnnotatedSourceDocumentCompactJsonContext), because the
+// document has more than one producer and one consumer contract.
 
 // Extensions command JSON contexts
 [JsonSourceGenerationOptions(

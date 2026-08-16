@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -11,7 +12,12 @@ namespace ILInspector.Metadata;
 /// <summary>
 /// CodeView debug info needed for symbol server lookup (no SRM types in signature).
 /// </summary>
-public record CodeViewInfo(Guid Guid, int Age, string PdbFileName, bool IsPortable);
+public record CodeViewInfo(
+    Guid Guid,
+    int Age,
+    string PdbFileName,
+    bool IsPortable,
+    uint Stamp = 0);
 
 /// <summary>
 /// Source document info for strict verification (no SRM types in signature).
@@ -53,7 +59,14 @@ public sealed record PdbMemberDocumentInfo(
     int StartLine,
     int EndLine,
     bool IsPrimaryDocument = false,
-    bool IsFinalizer = false);
+    bool IsFinalizer = false)
+{
+    /// <summary>
+    /// Sorted distinct 1-based start lines of this method's visible sequence points in this
+    /// document. Points from another document are never mixed into this collection.
+    /// </summary>
+    public ImmutableArray<int> SequencePointStartLines { get; init; } = [];
+}
 
 /// <summary>A method's portable-PDB document and visible source range.</summary>
 public sealed record PdbMethodDocumentInfo(
@@ -61,7 +74,11 @@ public sealed record PdbMethodDocumentInfo(
     int StartLine,
     int EndLine,
     byte[]? Checksum = null,
-    string? ChecksumAlgorithm = null);
+    string? ChecksumAlgorithm = null)
+{
+    /// <summary>Sorted distinct visible sequence-point start lines in <see cref="FilePath"/>.</summary>
+    public ImmutableArray<int> SequencePointStartLines { get; init; } = [];
+}
 
 /// <summary>A source location recovered from portable-PDB sequence points.</summary>
 public sealed record PdbILOffsetLocation(
@@ -439,12 +456,54 @@ public class PdbContext : IDisposable
     {
         try
         {
-            var stream = File.OpenRead(pdbFilePath);
+            LoadPdbFromStream(
+                File.OpenRead(pdbFilePath),
+                pdbLocation,
+                symbolServer,
+                pdbFilePath);
+        }
+        catch (Exception ex)
+            when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log?.Invoke($"Error loading PDB: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Loads a Portable PDB from caller-supplied content. This method takes
+    /// ownership of <paramref name="pdbStream"/> on every outcome.
+    /// </summary>
+    /// <remarks>
+    /// <c>PdbIdentityTests.LoadPdbFromStream_WindowsHeaderDisposesContentBeforeSrm</c>
+    /// gates ownership on the early-return path before SRM can dispose the
+    /// stream itself. <paramref name="throwOnReadFailure"/> lets an acquisition
+    /// boundary keep store read failures visible after the content has already
+    /// been accepted; malformed-content failures retain the existing logged
+    /// outcome.
+    /// </remarks>
+    public void LoadPdbFromStream(
+        Stream pdbStream,
+        string? pdbLocation = null,
+        string? symbolServer = null,
+        string? portablePdbPath = null,
+        bool throwOnReadFailure = false)
+    {
+        ArgumentNullException.ThrowIfNull(pdbStream);
+
+        MetadataReaderProvider? provider = null;
+        bool retained = false;
+        try
+        {
+            if (!pdbStream.CanRead || !pdbStream.CanSeek)
+            {
+                throw new IOException(
+                    "Portable PDB content must be readable and seekable.");
+            }
 
             // Check for Portable PDB magic header (BSJB)
             byte[] header = new byte[4];
-            stream.ReadExactly(header, 0, 4);
-            stream.Position = 0;
+            pdbStream.ReadExactly(header, 0, 4);
+            pdbStream.Position = 0;
 
             if (header[0] != 'B' || header[1] != 'S' || header[2] != 'J' || header[3] != 'B')
             {
@@ -455,37 +514,53 @@ public class PdbContext : IDisposable
                     PdbFormat = "Windows";
                     _log?.Invoke("Windows PDB detected (not supported)");
                 }
-                stream.Dispose();
                 return;
             }
 
-            var provider = MetadataReaderProvider.FromPortablePdbStream(stream);
+            provider = MetadataReaderProvider.FromPortablePdbStream(
+                pdbStream,
+                MetadataStreamOptions.PrefetchMetadata);
             var reader = provider.GetMetadataReader();
             if (!PdbMatchesAssembly(reader))
             {
-                provider.Dispose();
-                stream.Dispose();
-                _log?.Invoke($"Portable PDB identity mismatch: {Path.GetFileName(pdbFilePath)} does not match {_assemblyDisplayName}");
+                string suppliedName = portablePdbPath is null
+                    ? "supplied content"
+                    : Path.GetFileName(portablePdbPath);
+                _log?.Invoke(
+                    $"Portable PDB identity mismatch: {suppliedName} does not match {_assemblyDisplayName}");
                 return;
             }
 
-            _disposables.Add(stream);
+            _disposables.Add(pdbStream);
             _disposables.Add(provider);
             _pdbProvider = provider;
             _pdbReader = reader;
+            retained = true;
 
             HasPdb = true;
             PdbVersion++;
             PdbFormat = "Portable";
             PdbLocation = pdbLocation ?? "Standalone";
-            PortablePdbPath = pdbFilePath;
+            PortablePdbPath = portablePdbPath;
             SymbolServer = symbolServer;
 
             _log?.Invoke($"Loaded PDB: {PdbFormat}, {PdbLocation}");
         }
         catch (Exception ex)
+            when ((!throwOnReadFailure && ex is IOException)
+                || ex is BadImageFormatException
+                || ex is InvalidOperationException
+                || ex is ArgumentException)
         {
             _log?.Invoke($"Error loading PDB: {ex.Message}");
+        }
+        finally
+        {
+            if (!retained)
+            {
+                provider?.Dispose();
+                pdbStream.Dispose();
+            }
         }
     }
 
@@ -796,32 +871,23 @@ public class PdbContext : IDisposable
     {
         try
         {
-            var debugInfo = _pdbReader!.GetMethodDebugInformation(
-                methodHandle.ToDebugInformationHandle());
-            if (debugInfo.Document.IsNil)
+            var ranges = ReadVisibleSequencePointDocuments(methodHandle);
+            var primary = ranges.FirstOrDefault(static range => range.IsPrimaryDocument);
+            if (primary is null)
                 return null;
 
-            int minLine = int.MaxValue;
-            int maxLine = 0;
-            foreach (var point in debugInfo.GetSequencePoints())
-            {
-                if (point.IsHidden)
-                    continue;
-                minLine = Math.Min(minLine, point.StartLine);
-                maxLine = Math.Max(maxLine, point.EndLine);
-            }
-            if (minLine == int.MaxValue)
-                return null;
-
-            var document = _pdbReader.GetDocument(debugInfo.Document);
+            var document = _pdbReader!.GetDocument(primary.Document);
             return new PdbMethodDocumentInfo(
                 _pdbReader.GetString(document.Name),
-                minLine,
-                maxLine,
+                primary.StartLine,
+                primary.EndLine,
                 document.Hash.IsNil ? null : _pdbReader.GetBlobBytes(document.Hash),
                 document.Hash.IsNil
                     ? null
-                    : MapHashAlgorithm(_pdbReader.GetGuid(document.HashAlgorithm)));
+                    : MapHashAlgorithm(_pdbReader.GetGuid(document.HashAlgorithm)))
+            {
+                SequencePointStartLines = primary.StartLines,
+            };
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or InvalidOperationException
@@ -986,33 +1052,7 @@ public class PdbContext : IDisposable
         foreach (var methodHandle in EnumerateSelectedMethods(metadata, metadataTokens))
         {
             int metadataToken = MetadataTokens.GetToken(methodHandle);
-            var debugInfo = _pdbReader.GetMethodDebugInformation(methodHandle.ToDebugInformationHandle());
-            var currentDocument = debugInfo.Document;
-            var primaryDocument = debugInfo.Document;
-            Dictionary<DocumentHandle, (int StartLine, int EndLine)> ranges = [];
-
-            foreach (var point in debugInfo.GetSequencePoints())
-            {
-                if (!point.Document.IsNil)
-                    currentDocument = point.Document;
-                if (point.IsHidden || currentDocument.IsNil)
-                    continue;
-                // Multi-document methods may omit the root document; in that case,
-                // the first visible sequence point is the stable presentation choice.
-                if (primaryDocument.IsNil)
-                    primaryDocument = currentDocument;
-
-                if (ranges.TryGetValue(currentDocument, out var range))
-                {
-                    ranges[currentDocument] = (
-                        Math.Min(range.StartLine, point.StartLine),
-                        Math.Max(range.EndLine, point.EndLine));
-                }
-                else
-                {
-                    ranges[currentDocument] = (point.StartLine, point.EndLine);
-                }
-            }
+            var ranges = ReadVisibleSequencePointDocuments(methodHandle);
 
             if (ranges.Count == 0)
                 continue;
@@ -1024,9 +1064,9 @@ public class PdbContext : IDisposable
                 method);
             bool isFinalizer = ApiSurfaceExtractor.IsFinalizerMethod(metadata, methodHandle);
 
-            foreach (var (documentHandle, range) in ranges
-                .OrderBy(static item => MetadataTokens.GetRowNumber(item.Key)))
+            foreach (var range in ranges)
             {
+                var documentHandle = range.Document;
                 var document = _pdbReader.GetDocument(documentHandle);
                 string filePath = _pdbReader.GetString(document.Name);
                 yield return new PdbMemberDocumentInfo(
@@ -1036,11 +1076,78 @@ public class PdbContext : IDisposable
                     filePath,
                     range.StartLine,
                     range.EndLine,
-                    IsPrimaryDocument: documentHandle == primaryDocument,
-                    IsFinalizer: isFinalizer);
+                    IsPrimaryDocument: range.IsPrimaryDocument,
+                    IsFinalizer: isFinalizer)
+                {
+                    SequencePointStartLines = range.StartLines,
+                };
             }
         }
     }
+
+    private IReadOnlyList<SequencePointDocumentRange> ReadVisibleSequencePointDocuments(
+        MethodDefinitionHandle methodHandle)
+    {
+        var debugInfo = _pdbReader!.GetMethodDebugInformation(
+            methodHandle.ToDebugInformationHandle());
+        var currentDocument = debugInfo.Document;
+        var firstVisibleDocument = default(DocumentHandle);
+        Dictionary<DocumentHandle, MutableSequencePointDocumentRange> byDocument = [];
+
+        foreach (var point in debugInfo.GetSequencePoints())
+        {
+            if (!point.Document.IsNil)
+                currentDocument = point.Document;
+            if (point.IsHidden || currentDocument.IsNil)
+                continue;
+
+            if (firstVisibleDocument.IsNil)
+                firstVisibleDocument = currentDocument;
+            if (!byDocument.TryGetValue(currentDocument, out var range))
+            {
+                range = new MutableSequencePointDocumentRange();
+                byDocument.Add(currentDocument, range);
+            }
+
+            range.StartLine = Math.Min(range.StartLine, point.StartLine);
+            range.EndLine = Math.Max(range.EndLine, point.EndLine);
+            range.StartLines.Add(point.StartLine);
+        }
+
+        if (byDocument.Count == 0)
+            return [];
+
+        var primaryDocument = !debugInfo.Document.IsNil
+            && byDocument.ContainsKey(debugInfo.Document)
+                ? debugInfo.Document
+                : firstVisibleDocument;
+
+        return
+        [
+            .. byDocument
+                .OrderBy(static item => MetadataTokens.GetRowNumber(item.Key))
+                .Select(item => new SequencePointDocumentRange(
+                    item.Key,
+                    item.Value.StartLine,
+                    item.Value.EndLine,
+                    [.. item.Value.StartLines.Distinct().Order()],
+                    item.Key == primaryDocument)),
+        ];
+    }
+
+    private sealed class MutableSequencePointDocumentRange
+    {
+        public int StartLine = int.MaxValue;
+        public int EndLine;
+        public List<int> StartLines { get; } = [];
+    }
+
+    private sealed record SequencePointDocumentRange(
+        DocumentHandle Document,
+        int StartLine,
+        int EndLine,
+        ImmutableArray<int> StartLines,
+        bool IsPrimaryDocument);
 
     /// <summary>
     /// Enumerates type-to-document relationships recovered from method debug information.
@@ -1393,7 +1500,12 @@ public class PdbContext : IDisposable
                 if (isPortable)
                 {
                     portableCodeView = cvData;
-                    PdbId = new CodeViewInfo(cvData.Guid, cvData.Age, Path.GetFileName(cvData.Path), true);
+                    PdbId = new CodeViewInfo(
+                        cvData.Guid,
+                        cvData.Age,
+                        Path.GetFileName(cvData.Path),
+                        true,
+                        entry.Stamp);
                 }
                 else
                 {
@@ -1401,7 +1513,12 @@ public class PdbContext : IDisposable
                     if (portableCodeView == null)
                     {
                         // Only use Windows PDB as fallback
-                        PdbId = new CodeViewInfo(cvData.Guid, cvData.Age, Path.GetFileName(cvData.Path), false);
+                        PdbId = new CodeViewInfo(
+                            cvData.Guid,
+                            cvData.Age,
+                            Path.GetFileName(cvData.Path),
+                            false,
+                            entry.Stamp);
                     }
                 }
             }
@@ -1469,24 +1586,47 @@ public class PdbContext : IDisposable
     }
 
     private bool PdbMatchesAssembly(MetadataReader pdbReader)
-    {
-        if (PdbId is not { IsPortable: true } expected)
-            return true;
+        => PortablePdbIdentityMatches(
+            PdbId,
+            pdbReader.DebugMetadataHeader?.Id,
+            _log);
 
-        var id = pdbReader.DebugMetadataHeader?.Id;
-        if (id is not { Length: >= 16 })
+    internal static bool PortablePdbIdentityMatches(
+        CodeViewInfo? expected,
+        ImmutableArray<byte>? pdbContentId,
+        Action<string>? log)
+    {
+        if (expected is null)
+            return true;
+        if (!expected.IsPortable)
         {
-            _log?.Invoke("PDB identity missing or too short to verify");
+            log?.Invoke(
+                "Portable PDB identity cannot be verified because the assembly has no Portable CodeView entry");
+            return false;
+        }
+
+        if (pdbContentId is not { Length: >= 20 } id)
+        {
+            log?.Invoke("PDB identity missing or too short to verify");
             return false;
         }
 
         Span<byte> guidBytes = stackalloc byte[16];
-        id.Value.AsSpan(0, 16).CopyTo(guidBytes);
+        id.AsSpan(0, 16).CopyTo(guidBytes);
         var actual = new Guid(guidBytes);
-        if (actual == expected.Guid)
+        uint actualStamp =
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                id.AsSpan(16, 4));
+        if (actual == expected.Guid
+            && actualStamp == expected.Stamp)
+        {
             return true;
+        }
 
-        _log?.Invoke($"PDB GUID mismatch: assembly expects {expected.Guid:D}; PDB has {actual:D}");
+        log?.Invoke(
+            "PDB identity mismatch: assembly expects "
+            + $"{expected.Guid:D}/{expected.Stamp:x8}; PDB has "
+            + $"{actual:D}/{actualStamp:x8}");
         return false;
     }
 }

@@ -62,7 +62,7 @@ public class MetadataImageOverviewTests
     /// hold its own table header. The CLI header is left intact, so this is a
     /// corrupt table stream rather than an absent one.
     /// </summary>
-    static byte[] SelfWithCorruptTableStream()
+    internal static byte[] SelfWithCorruptTableStream()
     {
         byte[] bytes = File.ReadAllBytes(SelfPath);
 

@@ -4,133 +4,62 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: 'CI run ID identifying the commit to publish (used only to resolve the SHA; all packages are built fresh in this workflow)'
+        description: 'Successful main CI run identifying the commit to publish'
         required: true
+      certification_run_id:
+        description: 'Fresh successful Deep Inspect test run certifying this commit or an ancestor'
+        required: true
+      allow_later_commit:
+        description: 'Allow publishing a later main commit than the certified commit'
+        required: true
+        default: false
+        type: boolean
       confirm:
         description: 'Type "publish" to confirm NuGet release'
         required: true
 
 permissions:
+  actions: read
   contents: write
   id-token: write
 
 jobs:
-  # Resolve the exact commit to publish from the given CI run, so every package
-  # built below (Windows/macOS/Linux RIDs + portable) comes from one commit.
+  # Resolve and validate the exact commit to publish. A fresh Deep Inspect run
+  # certifies the same commit by default. The operator may explicitly publish a
+  # later descendant with successful main CI after reviewing the intervening
+  # changes; a divergent or older commit is never accepted.
   resolve:
     runs-on: ubuntu-26.04
     if: github.event.inputs.confirm == 'publish'
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
     steps:
-      - name: Resolve CI run commit
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Validate certification and resolve commit
         id: sha
-        run: |
-          SHA=$(gh run view ${{ github.event.inputs.run_id }} \
-            --repo ${{ github.repository }} --json headSha -q .headSha)
-          echo "Resolved CI run ${{ github.event.inputs.run_id }} -> $SHA"
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Build the RID-specific Native AOT packages. These run only at publish time
-  # so per-PR/per-merge CI never has to build or upload release artifacts.
-  # Windows/macOS build on their native runners; the Linux RIDs build here too
-  # (they used to be partially smoke-tested by CI's pack jobs).
-  deep-inspect-test:
-    needs: resolve
-    runs-on: ubuntu-26.04
-    if: github.event.inputs.confirm == 'publish'
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.resolve.outputs.sha }}
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
-
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
-          restore-keys: |
-            nuget-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Build product, tests, and fixtures
-        run: dotnet build dotnet-inspect.slnx -c Release
-
-      - name: Install ilasm/ildasm
-        id: iltools
-        continue-on-error: true
         shell: bash
-        run: eng/restore-iltools.sh --rid linux-x64 >> "$GITHUB_PATH"
-
-      - name: Run CLI tests (including slow integration)
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release
-
-      - name: Run decompiler tests (including slow, excluding corpus sweep)
-        # The multi-hour corpus sweep runs in the decompiler-corpus job so it
-        # gets its own timeout budget; everything else (incl. slow round-trip /
-        # compile-back gates that need ilasm/ildasm above) runs here.
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
-
-      - name: Run analysis tests (including slow)
-        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release
-
-      - name: Restore vendored ILAssembler
-        run: bash eng/restore-ilassembler.sh
-
-      - name: Run IL round-trip tests (including slow sweep)
-        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
-
-      # Deliberately last: the suites above still report their results when
-      # acquisition fails, but publishing must not proceed after replacing its
-      # oracle comparisons with skips.
-      - name: Check ilasm/ildasm result
-        if: steps.iltools.outcome != 'success'
+        env:
+          CERTIFICATION_RUN_ID: ${{ inputs.certification_run_id }}
+          TARGET_RUN_ID: ${{ inputs.run_id }}
+          ALLOW_LATER_COMMIT: ${{ inputs.allow_later_commit }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "::error::Restoring ilasm/ildasm failed, so every test that uses them skipped." >&2
-          echo "This release cannot certify oracle-backed results. See the 'Install ilasm/ildasm' step." >&2
-          exit 1
-
-  # The decompiler corpus sweep is multi-hour; give it its own 6h job budget
-  # instead of sharing deep-inspect-test's budget with the CLI, analysis, and
-  # round-trip suites (the combined job risked exceeding the timeout). Mirrors
-  # the deep-inspect.yml corpus split. It needs no ilasm/ildasm (the corpus
-  # oracle is Roslyn compile-back). build-native/build-portable/publish gate on
-  # this job too, so a corpus regression still blocks the release.
-  decompiler-corpus:
-    needs: resolve
-    runs-on: ubuntu-26.04
-    if: github.event.inputs.confirm == 'publish'
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.resolve.outputs.sha }}
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
-
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
-          restore-keys: |
-            nuget-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Run decompiler corpus sweep
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate corpus
+          bash eng/validate-release-evidence.sh \
+            "$CERTIFICATION_RUN_ID" \
+            "$TARGET_RUN_ID" \
+            "$ALLOW_LATER_COMMIT" \
+            36 \
+            "$GITHUB_OUTPUT"
 
   build-native:
-    needs: [resolve, deep-inspect-test, decompiler-corpus]
+    needs: resolve
     strategy:
       fail-fast: false
       matrix:
@@ -171,7 +100,7 @@ jobs:
   # TFM-agnostic pointer. These used to come from CI's pack job; they are now
   # built here at publish time so CI never produces release artifacts.
   build-portable:
-    needs: [resolve, deep-inspect-test, decompiler-corpus]
+    needs: resolve
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
@@ -212,7 +141,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [resolve, deep-inspect-test, decompiler-corpus, build-native, build-portable]
+    needs: [resolve, build-native, build-portable]
     runs-on: ubuntu-26.04
     if: github.event.inputs.confirm == 'publish'
     environment: nuget
@@ -268,6 +197,22 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
+
+      - name: Revalidate certification before publish
+        env:
+          CERTIFICATION_RUN_ID: ${{ inputs.certification_run_id }}
+          TARGET_RUN_ID: ${{ inputs.run_id }}
+          ALLOW_LATER_COMMIT: ${{ inputs.allow_later_commit }}
+          RESOLVED_SHA: ${{ needs.resolve.outputs.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash eng/validate-release-evidence.sh \
+            "$CERTIFICATION_RUN_ID" \
+            "$TARGET_RUN_ID" \
+            "$ALLOW_LATER_COMMIT" \
+            36 \
+            "$RUNNER_TEMP/revalidated-evidence" \
+            "$RESOLVED_SHA"
       
       - name: NuGet login (OIDC → temp API key)
         id: login
@@ -313,5 +258,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ needs.resolve.outputs.sha }}
           files: packages/*.nupkg
           generate_release_notes: true

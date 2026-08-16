@@ -374,6 +374,8 @@ internal static class PackageIndexCache
         using var writer = new Utf8JsonWriter(buffer);
         writer.WriteStartObject();
         writer.WriteString("targetFramework", group.TargetFramework);
+        if (group.IsImplicitManifestGroup)
+            writer.WriteBoolean("isImplicitManifestGroup", true);
         writer.WritePropertyName("dependencies");
         writer.WriteStartArray();
         foreach (var dependency in group.Dependencies ?? [])
@@ -406,7 +408,12 @@ internal static class PackageIndexCache
         return new DependencyGroup
         {
             TargetFramework = root.GetProperty("targetFramework").GetString() ?? "",
-            Dependencies = dependencies
+            Dependencies = dependencies,
+            IsImplicitManifestGroup =
+                root.TryGetProperty(
+                    "isImplicitManifestGroup",
+                    out JsonElement isImplicitManifestGroup)
+                && isImplicitManifestGroup.GetBoolean()
         };
     }
 

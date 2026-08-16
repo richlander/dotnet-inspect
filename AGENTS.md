@@ -14,16 +14,6 @@ rules. Detailed design, subsystem mechanics, version requirements, and
 historical context belong with their owning code, workflow, or focused
 documentation.
 
-### Nightshift is opt-in
-
-`NIGHTSHIFT.md`, the `nightshift` skills, and the
-`nightshift`/`turnstile`/`octoshift` tools describe a separate multi-agent
-operating model with its own vocabulary and its own stricter gates. **They apply
-only when you have been explicitly told that you are working in Nightshift mode
-for this session.** Otherwise they are inapplicable: follow this file, and do
-not adopt Nightshift roles, orders, gates, or tooling merely because you noticed
-those documents exist.
-
 ### Markout changes use the co-development loop
 
 When a change needs new or altered Markout behavior, read
@@ -64,6 +54,16 @@ change ready to merge.
 - Use one development worktree per PR, plus temporary worktrees for independent
   reviews. Do not reuse a worktree across unrelated changes.
 - Never amend commits; create follow-up commits.
+- **Conflict recovery is the first priority for an open PR.** When GitHub
+  reports a merge conflict, stop tests, reviews, lower-stack restacks, and
+  unrelated follow-up work on that PR. Integrate the effective base, resolve
+  the conflict, re-read these instructions and the task-relevant docs, and push
+  the replacement head immediately so CI starts. Run required local validation
+  against that exact pushed head after the push or in parallel with CI. This is
+  the standing exception to the validate-before-push order below; it changes
+  sequencing only, and the PR remains unready until local validation, CI, and
+  required review are clean. Recover a stack bottom-up so every child rests on
+  a conflict-free parent.
 - Form one frozen candidate for each review round. Immediately before local
   validation, fetch and integrate the effective base, record that base tip, and
   then keep the resulting head fixed through validation, push, CI, and review.
@@ -269,16 +269,16 @@ wrapper is the one tested copy of that logic; `IlToolsActivationTests` in
 goes back to hand-rolling the assembly.
 
 The script pins the `ilasm`/`ildasm` version for CI and local runs alike;
-`ci.yml`, `deep-inspect.yml`, and `release.yml` invoke `eng/restore-iltools.sh`
-directly, appending its output to `$GITHUB_PATH` so the runner does the joining.
-Only `ci.yml` passes `--mdv`, because it is the only workflow that runs the
-metadata oracle suite. Each install step is `continue-on-error` so that a feed
-outage does not cost every other result in the lane, but a terminal
+`ci.yml` and `deep-inspect.yml` invoke `eng/restore-iltools.sh` directly,
+appending its output to `$GITHUB_PATH` so the runner does the joining. Only
+`ci.yml` passes `--mdv`, because it is the only workflow that runs the metadata
+oracle suite. Each install step is `continue-on-error` so that a feed outage
+does not cost every other result in the lane, but a terminal
 `Check ilasm/ildasm[/mdv] result` step fails the lane if acquisition failed:
-losing oracle coverage is red, not a quietly shorter skip list. In
-`release.yml`, that failed test lane blocks every package build and publish
-job. `IlToolsActivationTests.SlowWorkflows_FailAfterOracleRestoreFailure`
-gates the Deep Inspect and publish wiring.
+losing oracle coverage is red, not a quietly shorter skip list. Deep Inspect
+cannot certify that commit, so `release.yml` rejects the run before building
+packages. `IlToolsActivationTests.SlowWorkflows_FailAfterOracleRestoreFailure`
+gates the Deep Inspect wiring.
 
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.

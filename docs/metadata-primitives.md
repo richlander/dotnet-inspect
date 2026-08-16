@@ -53,6 +53,7 @@ referencing only SRM (BCL):
                 │  TypeResolver, SignatureDecoder  │  (← cluster, migrates together)
                 │  AttributeDecoder (decode core)  │
                 │  method-handle resolution        │
+                │  StringDistance (name ranking)    │
                 └─────────────────────────────┘
                    ▲            ▲            ▲
        ┌───────────┘            │            └───────────┐
@@ -77,6 +78,7 @@ correspondence.
   `DecodeValue` wrapper, attribute-type-name resolution, and the
   re-emitted-attribute noise filter
 - method-handle resolution by name + overload
+- dependency-free edit distance and normalized similarity for suggestion ranking
 
 ### What stays
 
@@ -84,6 +86,18 @@ correspondence.
 - `ApiSurfaceExtractor`, `PdbContext`, ILInspector.SourceLink, and the rest of the
   metadata *product* surface
 - each consumer's own `TypeRef`/IR model and its `ISignatureTypeProvider<T>`
+- exact ordered line comparison and `TextFindings` in `ILInspector.Text`
+
+`StringDistance` is a neutral BCL-only matching primitive, not presentation.
+Metadata type/member lookup and CLI command/section selection share the same
+algorithm, so its owner must sit below both consumers. This does not make the
+assembly a general text layer: line inspection, comparison, and Finding
+projection remain in `ILInspector.Text`.
+`LayeringTests.MetadataNameMatching_DoesNotDependOnFindingBackedText` gates both
+the primitive owner and the absence of `ILInspector.Text` from Metadata's
+project closure. Metadata still references `ILInspector.Findings` directly for
+its own `MetadataFindings` producers; this move removes the unrelated Text edge,
+not that intentional Finding ownership.
 
 ## Guarded string-signature decoding
 
