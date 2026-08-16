@@ -51,6 +51,17 @@ public static class MetadataMemberSignatureShape
         SignatureShapeWorkBudget workBudget)
     {
         MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+        if (!TryDeclaringTypeGenericParameterCount(
+                reader,
+                method.GetDeclaringType(),
+                workBudget,
+                out int typeGenericParameterCount))
+        {
+            return MemberSignatureShapeResult.Unavailable(
+                "The declaring TypeDef generic-parameter rows do not match its metadata name.");
+        }
+
+        var context = new SignatureContext(typeGenericParameterCount);
         var provider = new Provider(workBudget);
         var fallback = TypeResult.Unavailable("The metadata signature is malformed.");
         GuardedProviderDecode.DecodeResult<MethodSignature<TypeResult>> decoded =
@@ -58,11 +69,20 @@ public static class MetadataMemberSignatureShape
                 reader,
                 method,
                 provider,
-                context: (object?)null,
+                context,
                 fallback);
         if (decoded.IsDegraded)
             return MemberSignatureShapeResult.Unavailable(
                 "The metadata signature exceeds the decode safety limits.");
+
+        if (decoded.Value.Header.IsGeneric
+                != (decoded.Value.GenericParameterCount > 0)
+            || provider.MaxMethodGenericParameterPosition
+                >= decoded.Value.GenericParameterCount)
+        {
+            return MemberSignatureShapeResult.Unavailable(
+                "The MethodDef generic signature is not representable.");
+        }
 
         GenericParameterHandleCollection genericParameters =
             method.GetGenericParameters();
@@ -380,7 +400,7 @@ public static class MetadataMemberSignatureShape
 
     static bool GenericParametersAreConsistent(
         MetadataReader reader,
-        MethodDefinitionHandle methodHandle,
+        EntityHandle owner,
         GenericParameterHandleCollection handles,
         int signatureCount,
         SignatureShapeWorkBudget workBudget)
@@ -393,12 +413,110 @@ public static class MetadataMemberSignatureShape
         {
             workBudget.ChargeNode();
             GenericParameter parameter = reader.GetGenericParameter(handle);
-            if (parameter.Parent != methodHandle
+            if (parameter.Parent != owner
                 || parameter.Index != expectedIndex++)
             {
                 return false;
             }
         }
+        return true;
+    }
+
+    static bool TryDeclaringTypeGenericParameterCount(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        SignatureShapeWorkBudget workBudget,
+        out int genericParameterCount)
+    {
+        Span<TypeDefinitionHandle> hierarchy =
+            stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                reader,
+                typeHandle,
+                hierarchy,
+                out int count,
+                out EntityHandle terminal,
+                out _)
+            || count == 0
+            || !terminal.IsNil)
+        {
+            genericParameterCount = 0;
+            return false;
+        }
+
+        int cumulativeArity = 0;
+        for (int i = 0; i < count; i++)
+        {
+            TypeDefinitionHandle handle = hierarchy[i];
+            TypeDefinition definition = reader.GetTypeDefinition(handle);
+            workBudget.ChargeNode();
+            if (!TryMetadataNameSegment(
+                    workBudget.ReadString(reader, definition.Name),
+                    out NamedTypeSegment? segment)
+                || segment.Arity > int.MaxValue - cumulativeArity)
+            {
+                genericParameterCount = 0;
+                return false;
+            }
+
+            cumulativeArity += segment.Arity;
+            if (!GenericParametersAreConsistent(
+                    reader,
+                    handle,
+                    definition.GetGenericParameters(),
+                    cumulativeArity,
+                    workBudget))
+            {
+                genericParameterCount = 0;
+                return false;
+            }
+        }
+
+        genericParameterCount = cumulativeArity;
+        return true;
+    }
+
+    static bool TryMetadataNameSegment(
+        string metadataName,
+        out NamedTypeSegment segment)
+    {
+        int tick = metadataName.LastIndexOf('`');
+        if (tick < 0)
+        {
+            segment = new NamedTypeSegment(
+                metadataName,
+                0,
+                SignatureShapeList<TypeSignatureShape>.Empty);
+            return !string.IsNullOrEmpty(metadataName);
+        }
+
+        ReadOnlySpan<char> suffix = metadataName.AsSpan(tick + 1);
+        if (tick == 0
+            || metadataName.AsSpan(0, tick).Contains('`')
+            || suffix.IsEmpty
+            || suffix[0] == '0')
+        {
+            segment = null!;
+            return false;
+        }
+
+        int arity = 0;
+        foreach (char character in suffix)
+        {
+            int digit = character - '0';
+            if ((uint)digit > 9
+                || arity > (int.MaxValue - digit) / 10)
+            {
+                segment = null!;
+                return false;
+            }
+            arity = (arity * 10) + digit;
+        }
+
+        segment = new NamedTypeSegment(
+            metadataName[..tick],
+            arity,
+            SignatureShapeList<TypeSignatureShape>.Empty);
         return true;
     }
 
@@ -446,9 +564,13 @@ public static class MetadataMemberSignatureShape
         }
     }
 
-    sealed class Provider : ISignatureTypeProvider<TypeResult, object?>
+    sealed record SignatureContext(int TypeGenericParameterCount);
+
+    sealed class Provider : ISignatureTypeProvider<TypeResult, SignatureContext>
     {
         readonly SignatureShapeWorkBudget _workBudget;
+
+        internal int MaxMethodGenericParameterPosition { get; private set; } = -1;
 
         internal Provider(SignatureShapeWorkBudget workBudget)
         {
@@ -477,7 +599,7 @@ public static class MetadataMemberSignatureShape
 
         public TypeResult GetTypeFromSpecification(
             MetadataReader reader,
-            object? context,
+            SignatureContext context,
             TypeSpecificationHandle handle,
             byte rawTypeKind)
         {
@@ -587,21 +709,29 @@ public static class MetadataMemberSignatureShape
             return TypeResult.Available(instantiated);
         }
 
-        public TypeResult GetGenericMethodParameter(object? context, int index)
+        public TypeResult GetGenericMethodParameter(
+            SignatureContext context,
+            int index)
         {
+            _ = context;
             _workBudget.ChargeNode();
-            return index < 0
-                ? TypeResult.Unavailable("A method generic-parameter position is invalid.")
-                : TypeResult.Available(
-                    new GenericParameterTypeSignatureShape(
-                        SignatureGenericParameterKind.Method,
-                        index));
+            if (index < 0)
+                return TypeResult.Unavailable("A method generic-parameter position is invalid.");
+
+            if (index > MaxMethodGenericParameterPosition)
+                MaxMethodGenericParameterPosition = index;
+            return TypeResult.Available(
+                new GenericParameterTypeSignatureShape(
+                    SignatureGenericParameterKind.Method,
+                    index));
         }
 
-        public TypeResult GetGenericTypeParameter(object? context, int index)
+        public TypeResult GetGenericTypeParameter(
+            SignatureContext context,
+            int index)
         {
             _workBudget.ChargeNode();
-            return index < 0
+            return index < 0 || index >= context.TypeGenericParameterCount
                 ? TypeResult.Unavailable("A type generic-parameter position is invalid.")
                 : TypeResult.Available(
                     new GenericParameterTypeSignatureShape(
@@ -612,6 +742,17 @@ public static class MetadataMemberSignatureShape
         public TypeResult GetFunctionPointerType(MethodSignature<TypeResult> signature)
         {
             _workBudget.ChargeNode();
+            if (signature.Header.IsInstance
+                || signature.Header.HasExplicitThis
+                || signature.Header.IsGeneric
+                || signature.GenericParameterCount != 0
+                || signature.RequiredParameterCount != signature.ParameterTypes.Length
+                || CallingConvention(signature.Header.CallingConvention) is not { } convention)
+            {
+                return TypeResult.Unavailable(
+                    "The function-pointer signature has unrepresentable header attributes.");
+            }
+
             if (signature.ReturnType.Shape is null)
             {
                 return TypeResult.Unavailable(
@@ -633,7 +774,7 @@ public static class MetadataMemberSignatureShape
 
             return TypeResult.Available(
                 new FunctionPointerTypeSignatureShape(
-                    CallingConvention(signature.Header.CallingConvention),
+                    convention,
                     signature.ReturnType.Shape,
                     new(parameters)));
         }
@@ -679,12 +820,32 @@ public static class MetadataMemberSignatureShape
 
             var segments = new NamedTypeSegment[count];
             string @namespace = "";
+            int cumulativeArity = 0;
             for (int i = 0; i < count; i++)
             {
-                TypeDefinition definition = reader.GetTypeDefinition(hierarchy[i]);
+                TypeDefinitionHandle definitionHandle = hierarchy[i];
+                TypeDefinition definition = reader.GetTypeDefinition(definitionHandle);
                 _workBudget.ChargeNode();
-                segments[i] = Segment(
-                    _workBudget.ReadString(reader, definition.Name));
+                if (!TryMetadataNameSegment(
+                        _workBudget.ReadString(reader, definition.Name),
+                        out NamedTypeSegment? segment)
+                    || segment.Arity > int.MaxValue - cumulativeArity)
+                {
+                    return TypeResult.Unavailable(
+                        "The metadata type name has a noncanonical generic arity.");
+                }
+                cumulativeArity += segment.Arity;
+                if (!GenericParametersAreConsistent(
+                        reader,
+                        definitionHandle,
+                        definition.GetGenericParameters(),
+                        cumulativeArity,
+                        _workBudget))
+                {
+                    return TypeResult.Unavailable(
+                        "The TypeDef generic-parameter rows do not match its metadata name.");
+                }
+                segments[i] = segment;
                 string candidateNamespace =
                     _workBudget.ReadString(reader, definition.Namespace);
                 if (string.IsNullOrEmpty(@namespace)
@@ -722,8 +883,14 @@ public static class MetadataMemberSignatureShape
             {
                 TypeReference reference = reader.GetTypeReference(hierarchy[i]);
                 _workBudget.ChargeNode();
-                segments[i] = Segment(
-                    _workBudget.ReadString(reader, reference.Name));
+                if (!TryMetadataNameSegment(
+                        _workBudget.ReadString(reader, reference.Name),
+                        out NamedTypeSegment? segment))
+                {
+                    return TypeResult.Unavailable(
+                        "The metadata type name has a noncanonical generic arity.");
+                }
+                segments[i] = segment;
                 string candidateNamespace =
                     _workBudget.ReadString(reader, reference.Namespace);
                 if (string.IsNullOrEmpty(@namespace)
@@ -750,29 +917,6 @@ public static class MetadataMemberSignatureShape
                 : TypeResult.Available(named);
         }
 
-        static NamedTypeSegment Segment(string metadataName)
-        {
-            int tick = metadataName.LastIndexOf('`');
-            if (tick < 0)
-            {
-                return new NamedTypeSegment(
-                    metadataName,
-                    0,
-                    SignatureShapeList<TypeSignatureShape>.Empty);
-            }
-
-            return int.TryParse(metadataName.AsSpan(tick + 1), out int arity)
-                && arity >= 0
-                ? new NamedTypeSegment(
-                    metadataName[..tick],
-                    arity,
-                    SignatureShapeList<TypeSignatureShape>.Empty)
-                : new NamedTypeSegment(
-                    metadataName,
-                    0,
-                    SignatureShapeList<TypeSignatureShape>.Empty);
-        }
-
         static TypeResult Wrap(
             TypeResult value,
             Func<TypeSignatureShape, TypeSignatureShape> wrapper)
@@ -788,7 +932,7 @@ public static class MetadataMemberSignatureShape
                 : named.Namespace + "." + typeName;
         }
 
-        static string CallingConvention(SignatureCallingConvention convention)
+        static string? CallingConvention(SignatureCallingConvention convention)
             => convention switch
             {
                 SignatureCallingConvention.Default => "managed",
@@ -796,9 +940,8 @@ public static class MetadataMemberSignatureShape
                 SignatureCallingConvention.StdCall => "StdCall",
                 SignatureCallingConvention.ThisCall => "ThisCall",
                 SignatureCallingConvention.FastCall => "FastCall",
-                SignatureCallingConvention.VarArgs => "VarArgs",
                 SignatureCallingConvention.Unmanaged => "unmanaged",
-                _ => convention.ToString(),
+                _ => null,
             };
 
         static string? PrimitiveName(PrimitiveTypeCode typeCode)

@@ -357,6 +357,30 @@ public unsafe class MetadataMemberSignatureShapeTests
     }
 
     [Fact]
+    public void MetadataAdapter_RefusesZeroArityGenericHeader()
+    {
+        byte[] image = BuildRawSignatureImage(
+            [0x10, 0x00, 0x00, 0x01]);
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("generic signature", result.UnavailableReason);
+    }
+
+    [Fact]
+    public void MetadataAdapter_RefusesMethodGenericPositionOutsideHeaderArity()
+    {
+        byte[] image = BuildRawSignatureImage(
+            [0x00, 0x01, 0x01, 0x1e, 0x00]);
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("generic signature", result.UnavailableReason);
+    }
+
+    [Fact]
     public void MetadataAdapter_RefusesNonContiguousGenericParameterRows()
     {
         byte[] image = BuildGenericMethodImage(
@@ -380,6 +404,86 @@ public unsafe class MetadataMemberSignatureShapeTests
 
         Assert.True(result.IsAvailable, result.UnavailableReason);
         Assert.Equal(2, result.Shape!.GenericArity);
+    }
+
+    [Fact]
+    public void MetadataAdapter_RefusesMissingDeclaringTypeGenericRows()
+    {
+        byte[] image = BuildTypeGenericMethodImage(addGenericParameter: false);
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("declaring TypeDef", result.UnavailableReason);
+    }
+
+    [Fact]
+    public void MetadataAdapter_AllowsConsistentDeclaringTypeGenericRows()
+    {
+        byte[] image = BuildTypeGenericMethodImage(addGenericParameter: true);
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.True(result.IsAvailable, result.UnavailableReason);
+        Assert.Equal(
+            new GenericParameterTypeSignatureShape(
+                SignatureGenericParameterKind.Type,
+                0),
+            result.Shape!.Parameters.Single().Type);
+    }
+
+    [Fact]
+    public void MetadataAdapter_AllowsCumulativeNestedTypeGenericRows()
+    {
+        byte[] image = BuildNestedTypeGenericMethodImage();
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.True(result.IsAvailable, result.UnavailableReason);
+        Assert.Equal(
+            new GenericParameterTypeSignatureShape(
+                SignatureGenericParameterKind.Type,
+                1),
+            result.Shape!.Parameters.Single().Type);
+    }
+
+    [Theory]
+    [InlineData("Foo`+1")]
+    [InlineData("Foo`01")]
+    [InlineData("Foo` 1")]
+    [InlineData("Foo`1`1")]
+    public void MetadataAdapter_RefusesNoncanonicalTypeReferenceArity(
+        string metadataName)
+    {
+        byte[] image = BuildGenericTypeReferenceImage(metadataName);
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("noncanonical generic arity", result.UnavailableReason);
+    }
+
+    [Fact]
+    public void MetadataAdapter_RefusesUnrepresentableFunctionPointerHeaders()
+    {
+        byte[][] signatures =
+        [
+            [0x00, 0x01, 0x01, 0x1b, 0x20, 0x00, 0x01],
+            [0x00, 0x01, 0x01, 0x1b, 0x60, 0x00, 0x01],
+            [0x00, 0x01, 0x01, 0x1b, 0x10, 0x00, 0x00, 0x01],
+            [0x00, 0x01, 0x01, 0x1b, 0x05, 0x00, 0x01],
+        ];
+
+        foreach (byte[] signature in signatures)
+        {
+            MemberSignatureShapeResult result =
+                ReadCraftedShape(BuildRawSignatureImage(signature));
+
+            Assert.False(result.IsAvailable);
+            Assert.Contains(
+                "unrepresentable header attributes",
+                result.UnavailableReason);
+        }
     }
 
     [Fact]
@@ -493,6 +597,112 @@ public unsafe class MetadataMemberSignatureShapeTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildRawSignatureImage(
+        byte[] signature,
+        string typeName = "C")
+    {
+        var metadata = CreateMetadataBuilder();
+        AddMethodAndType(
+            metadata,
+            metadata.GetOrAddBlob(signature),
+            typeName);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildTypeGenericMethodImage(bool addGenericParameter)
+    {
+        var metadata = CreateMetadataBuilder();
+        MethodDefinitionHandle method = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x01, 0x01, 0x13, 0x00 }),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Interface,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C`1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        if (addGenericParameter)
+        {
+            metadata.AddGenericParameter(
+                type,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGenericTypeReferenceImage(string metadataName)
+    {
+        var metadata = CreateMetadataBuilder();
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Referenced"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            0,
+            default);
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(metadataName));
+        AddMethodAndType(
+            metadata,
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x01, 0x01, 0x15, 0x12, 0x05, 0x01, 0x08 }));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNestedTypeGenericMethodImage()
+    {
+        var metadata = CreateMetadataBuilder();
+        MethodDefinitionHandle method = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x01, 0x01, 0x13, 0x01 }),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        TypeDefinitionHandle outer = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Outer`1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        TypeDefinitionHandle inner = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Abstract,
+            default,
+            metadata.GetOrAddString("Inner`1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        metadata.AddNestedType(inner, outer);
+        metadata.AddGenericParameter(
+            outer,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        metadata.AddGenericParameter(
+            inner,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        metadata.AddGenericParameter(
+            inner,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("U"),
+            index: 1);
+        return Serialize(metadata);
+    }
+
     static byte[] BuildGenericMethodWithLongNames(
         int genericParameterCount,
         int genericParameterNameLength)
@@ -520,7 +730,8 @@ public unsafe class MetadataMemberSignatureShapeTests
 
     static MethodDefinitionHandle AddMethodAndType(
         MetadataBuilder metadata,
-        BlobHandle signature)
+        BlobHandle signature,
+        string typeName = "C")
     {
         MethodDefinitionHandle method = metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual,
@@ -532,7 +743,7 @@ public unsafe class MetadataMemberSignatureShapeTests
         metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Interface,
             metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("C"),
+            metadata.GetOrAddString(typeName),
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             method);

@@ -220,15 +220,34 @@ Only canonical `mss1:` transport participates in candidate correspondence.
 Legacy signature text is accepted solely to validate an already selected
 exact-token record; it is not candidate-selection currency.
 
-Metadata projection fails closed when the MethodDef signature header and its
-owned, contiguous GenericParam rows disagree. One cumulative work budget covers
-the full projection, including custom-modifier subtrees erased from the final
-shape and generic-parameter names read for legacy exact-token validation.
+Metadata projection fails closed when a generic signature header is
+noncanonical, when a MethodDef header and its owned contiguous GenericParam rows
+disagree, or when a declaring TypeDef chain's canonical name arities and
+cumulative owned rows disagree. Positional generic references must also fit
+those validated bounds. Metadata arity suffixes accept only nonzero canonical
+ASCII decimal, and function-pointer headers carrying instance, explicit-this,
+generic, or vararg semantics are unavailable because the shared shape cannot
+represent them. These properties are gated by
 `MetadataAdapter_RefusesGenericHeaderWithoutOwnedRows`,
 `MetadataAdapter_RefusesNonContiguousGenericParameterRows`,
-`MetadataAdapter_RefusesErasedModifierAmplificationBeforeLargeAllocation`, and
+`MetadataAdapter_RefusesZeroArityGenericHeader`,
+`MetadataAdapter_RefusesMethodGenericPositionOutsideHeaderArity`,
+`MetadataAdapter_RefusesMissingDeclaringTypeGenericRows`,
+`MetadataAdapter_AllowsCumulativeNestedTypeGenericRows`,
+`MetadataAdapter_RefusesNoncanonicalTypeReferenceArity`, and
+`MetadataAdapter_RefusesUnrepresentableFunctionPointerHeaders`.
+
+One cumulative work budget covers the full metadata projection, including
+custom-modifier subtrees erased from the final shape and generic-parameter names
+read for legacy exact-token validation.
+`MetadataAdapter_RefusesErasedModifierAmplificationBeforeLargeAllocation` and
 `LegacyCompatibility_RefusesGenericNameAmplificationBeforeLargeAllocation`
 gate those properties.
+
+Source declaration parsing computes parenthesis correspondence in one bounded
+linear pass rather than rescanning nested candidate lists.
+`SourceShape_NestedParameterListCandidatesStayWithinLinearTime` gates the
+accepted-input time ceiling.
 
 ## Motivating scenarios
 

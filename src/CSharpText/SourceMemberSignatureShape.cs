@@ -144,11 +144,13 @@ public static class SourceMemberSignatureShape
         out int open,
         out int close)
     {
+        int[] matchingClose = ParenthesisMatches(tokens);
         for (int i = 0; i < tokens.Length; i++)
         {
             if (tokens[i].Text != "(" || tokens[i].Depth != 0 || tokens[i].BracketDepth != 0)
                 continue;
-            if (!TryFindMatching(tokens, i, "(", ")", out int candidateClose))
+            int candidateClose = matchingClose[i];
+            if (candidateClose < 0)
                 break;
 
             int next = candidateClose + 1;
@@ -167,6 +169,25 @@ public static class SourceMemberSignatureShape
         open = -1;
         close = -1;
         return false;
+    }
+
+    static int[] ParenthesisMatches(SourceToken[] tokens)
+    {
+        var matchingClose = new int[tokens.Length];
+        Array.Fill(matchingClose, -1);
+        var opens = new Stack<int>();
+        for (int i = 0; i < tokens.Length; i++)
+        {
+            if (tokens[i].Text == "(")
+            {
+                opens.Push(i);
+            }
+            else if (tokens[i].Text == ")" && opens.TryPop(out int open))
+            {
+                matchingClose[open] = i;
+            }
+        }
+        return matchingClose;
     }
 
     static bool TryFindIndexerParameters(

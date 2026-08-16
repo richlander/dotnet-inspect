@@ -1,4 +1,5 @@
 using CSharpText;
+using System.Diagnostics;
 
 namespace CSharpText.Tests;
 
@@ -209,6 +210,25 @@ public class MemberSignatureShapeTests
 
         Assert.False(result.IsAvailable);
         Assert.Contains("safety limit", result.UnavailableReason);
+    }
+
+    [Fact]
+    public void SourceShape_NestedParameterListCandidatesStayWithinLinearTime()
+    {
+        const int depth = 130_000;
+        string declaration =
+            new string('(', depth) + "a" + new string(')', depth) + " x";
+
+        var timer = Stopwatch.StartNew();
+        MemberSignatureShapeResult result = SourceMemberSignatureShape.Create(
+            declaration,
+            SourceMemberSignatureKind.Method);
+        timer.Stop();
+
+        Assert.False(result.IsAvailable);
+        Assert.True(
+            timer.Elapsed < TimeSpan.FromSeconds(5),
+            $"Nested parameter-list candidates took {timer.Elapsed}.");
     }
 
     [Fact]
