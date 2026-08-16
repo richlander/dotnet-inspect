@@ -146,6 +146,9 @@ internal static partial class WorkflowContract
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Run query tests"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
+            ["test-windows/Check ilasm/ildasm result"] =
+                "${{ !cancelled() && steps.build.outcome == 'success' && " +
+                "steps.iltools.outcome != 'success' }}",
             ["decompiler-gates/Upload gate report"] = "always()",
             ["csharp-diff-smoke/Upload C# Diff smoke artifact"] = "always()",
             ["il-diff-smoke/Upload IL Diff smoke artifact"] = "always()",
@@ -155,6 +158,7 @@ internal static partial class WorkflowContract
         {
             "test/Run PR decompiler corpus sensor",
             "test/Install ilasm/ildasm/mdv",
+            "test-windows/Install ilasm/ildasm",
             "decompiler-gates/Run decompiler gates",
         };
         var allowedShell = new Dictionary<string, string>(
@@ -162,6 +166,8 @@ internal static partial class WorkflowContract
         {
             ["test/Run PR decompiler corpus sensor"] = "bash",
             ["test/Install ilasm/ildasm/mdv"] = "bash",
+            ["test-windows/Install ilasm/ildasm"] = "bash",
+            ["test-windows/Check ilasm/ildasm result"] = "bash",
             ["csharp-diff-smoke/Run C# Diff baseline smoke"] = "bash",
             ["il-diff-smoke/Run IL Diff baseline smoke"] = "bash",
             ["skill-gate/Run embedded skill tests"] = "bash",
@@ -173,13 +179,22 @@ internal static partial class WorkflowContract
                 "decompiler_pr_corpus",
             ["test/Install ilasm/ildasm/mdv"] = "iltools",
             ["test-windows/Build"] = "build",
+            ["test-windows/Install ilasm/ildasm"] = "iltools",
             ["decompiler-gates/Run decompiler gates"] = "gates",
+        };
+        var allowedTimeoutMinutes = new Dictionary<string, string>(
+            StringComparer.Ordinal)
+        {
+            ["test-windows/Install ilasm/ildasm"] = "5",
+            ["decompiler-gates/Run decompiler gates"] = "45",
         };
         var seenIf = new HashSet<string>(StringComparer.Ordinal);
         var seenContinueOnError =
             new HashSet<string>(StringComparer.Ordinal);
         var seenShell = new HashSet<string>(StringComparer.Ordinal);
         var seenId = new HashSet<string>(StringComparer.Ordinal);
+        var seenTimeoutMinutes =
+            new HashSet<string>(StringComparer.Ordinal);
 
         foreach (string jobName in jobNames)
         {
@@ -220,6 +235,12 @@ internal static partial class WorkflowContract
                     key,
                     allowedId,
                     seenId);
+                ValidateOptionalStepValue(
+                    step,
+                    "timeout-minutes",
+                    key,
+                    allowedTimeoutMinutes,
+                    seenTimeoutMinutes);
 
                 string? continueOnError =
                     GetOptionalScalar(step, "continue-on-error");
@@ -253,6 +274,10 @@ internal static partial class WorkflowContract
             seenId,
             allowedId.Keys,
             "consumer step ids");
+        RequireSeenExactly(
+            seenTimeoutMinutes,
+            allowedTimeoutMinutes.Keys,
+            "consumer step timeout minutes");
     }
 
     private static void ValidateOptionalStepValue(
