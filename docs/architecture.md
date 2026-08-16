@@ -766,8 +766,15 @@ Research overlay bridge, and the application layer:
   `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
   `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
   representative identity, cached classification, and token-shape behavior.
+  `LibraryBodyAnalysisAccumulator` receives the completed per-method result
+  array in metadata order, merges every topic and partial diagnostic, computes
+  the call-derived non-heap and exception-type assembly projections, and
+  constructs the immutable `LibraryBodyAnalysisResult`.
+  `ParallelBuild_IsOrderStable_AcrossRepeatedOpens` gates deterministic ordered
+  output, while `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` also
+  gates partial-result accumulation.
   The assembly builder retains the metadata-ordered work list, parallel
-  scheduling, assembly-level projections, and result aggregation.
+  scheduling, and service lifetime composition.
   Cross-assembly type-definition binding,
   referenced-image metadata lifetime, and the registration-keyed cache belong
   to `LibraryBodyReferenceMetadataResolver`, which composes
