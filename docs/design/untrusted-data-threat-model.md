@@ -387,14 +387,20 @@ extractor charges every string-bearing model field as it retains each member,
 type, inspection failure, type forwarder, and late canonical identity; repeated
 references are charged per field. It observes text incrementally while decoding
 type nodes, parameters, attributes, generic constraints, and interfaces. A
-separate per-type work estimate charges encoded names, signature nodes, and
-custom-attribute blobs before materializing their expanded forms. The exact
+separate extraction-wide work ledger charges encoded names, signature nodes,
+and custom-attribute blobs before materializing their expanded forms. It grants
+one fixed decode floor, then only bounded credit for retained model text;
+accepted or rejected type candidates cannot rearm the floor. The exact
 retained-character total therefore remains unchanged while one wide signature,
 deeply nested generic head or argument, nested or high-rank array, default value,
 hidden signature, or attribute cannot allocate its complete amplified model
 before the check. Composite type nodes carry non-materializing rendered-length
 estimates, and bounded decoding charges each constructed node's complete
 estimated output so repeated wrapping cannot reallocate an uncharged subtree.
+Structured nested type names are read once and enforce their cumulative limit
+before the remaining chain is materialized. Tuple-name, nullability, and dynamic
+transform arrays charge their encoded blob before allocating arrays, and one
+type generic context is reused across all of that type's members.
 Visibility probes use bounded blob readers rather than copying skipped
 attribute values. The Browser separately applies the same bound while deriving
 type/member transport records, including canonical signatures, documentation
@@ -417,6 +423,10 @@ pre-decoding rejection.
 `OneDeeplyNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneArgumentNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneNestedArrayType_StopsBeforeLargeAllocationAmplification`,
+`EnclosingTypeNameChain_StopsBeforeLargeAllocationAmplification`,
+`RejectedTypes_SpendDecodeWorkAcrossTheExtraction`,
+`LargeTransformArray_StopsBeforeLargeAllocationAmplification`,
+`RepeatedMethodGenericContext_ReusesTypeParameterNames`,
 `OneHugeArrayRank_StopsBeforeLargeAllocationAmplification`,
 `HiddenAutoPropertySignature_StopsBeforeLargeAllocationAmplification`,
 `HugeParameterDefault_StopsBeforeLargeAllocationAmplification`,

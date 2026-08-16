@@ -206,8 +206,9 @@ public static class AttributeReader
         Action<int>? beforeMaterialize)
     {
         int blobLength = reader.GetBlobReader(attribute.Value).Length;
-        beforeMaterialize?.Invoke(blobLength);
-        if (blobLength > Encoding.UTF8.GetByteCount(expected) + 16)
+        int maximumComparableLength = Encoding.UTF8.GetByteCount(expected) + 16;
+        beforeMaterialize?.Invoke(Math.Min(blobLength, maximumComparableLength));
+        if (blobLength > maximumComparableLength)
             return false;
         return string.Equals(
             TryGetAttributeDisplayValue(reader, attribute),
@@ -244,7 +245,8 @@ public static class AttributeReader
         CustomAttribute attr,
         Action<int>? beforeMaterialize)
     {
-        beforeMaterialize?.Invoke(reader.GetBlobReader(attr.Value).Length);
+        beforeMaterialize?.Invoke(
+            Math.Min(reader.GetBlobReader(attr.Value).Length, 6));
         // Check if the value is EditorBrowsableState.Never (value = 1)
         var value = reader.GetBlobReader(attr.Value);
         // Attribute blob format: 2-byte prolog (0x0001), then the enum value as int32

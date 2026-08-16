@@ -25,7 +25,10 @@ public static class DynamicReader
     /// from custom attributes. Returns null when the attribute is not present.
     /// The no-argument marker form returns a one-element array.
     /// </summary>
-    public static byte[]? GetDynamicFlags(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    public static byte[]? GetDynamicFlags(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var attrHandle in attributes)
         {
@@ -49,6 +52,7 @@ public static class DynamicReader
             {
                 int count = blob.ReadInt32();
                 if (count < 0 || count > blob.RemainingBytes - 2) return null;
+                beforeMaterialize?.Invoke(blob.Length);
                 var flags = new byte[count];
                 for (int i = 0; i < count; i++)
                     flags[i] = (byte)(blob.ReadByte() != 0 ? 1 : 0);
@@ -89,13 +93,19 @@ public static class DynamicReader
     /// number. Sequence 0 = return type, 1+ = parameters.
     /// </summary>
     public static byte[]? GetParameterDynamicFlags(
-        MetadataReader reader, ParameterHandleCollection paramHandles, int sequenceNumber)
+        MetadataReader reader,
+        ParameterHandleCollection paramHandles,
+        int sequenceNumber,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var handle in paramHandles)
         {
             var param = reader.GetParameter(handle);
             if (param.SequenceNumber == sequenceNumber)
-                return GetDynamicFlags(reader, param.GetCustomAttributes());
+                return GetDynamicFlags(
+                    reader,
+                    param.GetCustomAttributes(),
+                    beforeMaterialize);
         }
         return null;
     }

@@ -360,12 +360,12 @@ public static class ApiSurfaceExtractor
             observeDecodeWork?.Invoke(
                 reader.GetBlobReader(typeDef.Name).Length
                     + reader.GetBlobReader(typeDef.Namespace).Length);
-            string metadataName = reader.GetString(typeDef.Name);
+            string leafMetadataName = reader.GetString(typeDef.Name);
 
             // Skip compiler-generated types unless explicitly requested. The opt-in
             // surfaces closure/display/state-machine types and their real fields so
             // tooling (and compile-back reconstruction) can enumerate captured state.
-            if (TypeFilters.IsCompilerGenerated(metadataName) && !includeCompilerGenerated)
+            if (TypeFilters.IsCompilerGenerated(leafMetadataName) && !includeCompilerGenerated)
                 continue;
 
             // Whether this type's members follow the include-all rules. Every member decision
@@ -387,21 +387,42 @@ public static class ApiSurfaceExtractor
                 continue;
             }
 
-            var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
+            MetadataTypeDefinitionName definitionName =
+                MetadataTypeDefinitionNameReader.Read(
+                    reader,
+                    typeDefHandle,
+                    observeDecodeWork)
+                switch
+                {
+                    MetadataTypeDefinitionNameReadResult.Read read => read.Name,
+                    MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                        throw new MetadataRowRejectedException(
+                            "type identity",
+                            rejected.Failure),
+                    _ => throw new InvalidOperationException(
+                        "Unknown type-definition name result.")
+                };
+            int projectedNameLength = definitionName.Namespace.Length;
+            foreach (string segment in definitionName.Segments)
+                projectedNameLength = checked(projectedNameLength + segment.Length + 1);
+            observeDecodeWork?.Invoke(checked(projectedNameLength * 2));
+            string? typeNamespace = definitionName.Namespace.Length == 0
+                ? null
+                : definitionName.Namespace;
+            string typeName = string.Join(".", definitionName.Segments);
+            string flattenedMetadataName = definitionName.ToNestedMetadataName();
+            var typeContext = GenericContext.ForType(
+                reader,
+                typeDef,
+                observeDecodeWork);
             budget?.BeginType();
 
             var apiType = new ApiType
             {
                 Namespace = typeNamespace,
                 Name = typeName,
-                MetadataName = GetMetadataName(reader, typeDefHandle),
-                DefinitionName =
-                    MetadataTypeDefinitionNameReader.Read(
-                        reader,
-                        typeDefHandle)
-                    is MetadataTypeDefinitionNameReadResult.Read read
-                        ? read.Name
-                        : null,
+                MetadataName = flattenedMetadataName,
+                DefinitionName = definitionName,
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
@@ -429,7 +450,7 @@ public static class ApiSurfaceExtractor
                     reader,
                     typeDef.BaseType,
                     typeDef.GetCustomAttributes(),
-                    GenericContext.ForType(reader, typeDef),
+                    typeContext,
                     baseTypeName,
                     observeText,
                     observeDecodeWork);
@@ -465,9 +486,6 @@ public static class ApiSurfaceExtractor
 
             // Nullability context for annotated signatures
             byte typeNullableContext = NullabilityReader.GetTypeNullableContext(reader, typeDefHandle);
-
-            // Get type's generic context for resolving interface type parameters
-            var typeContext = GenericContext.ForType(reader, typeDef);
 
             apiType.TypeParameters = GenericParameters(
                 reader,
@@ -553,7 +571,7 @@ public static class ApiSurfaceExtractor
 
                 var signature = GetMethodSignature(
                     reader,
-                    typeDef,
+                    typeContext,
                     method,
                     typeNullableContext,
                     observeText,
@@ -637,7 +655,8 @@ public static class ApiSurfaceExtractor
                 if (isExtensionClass && member.IsStatic && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes()))
                 {
                     member.IsExtension = true;
-                    member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
+                    member.ExtendedType =
+                        signature.Model?.Parameters.FirstOrDefault()?.Type;
                     member.DeclaringType = apiType.FullName;
                 }
 
@@ -706,7 +725,7 @@ public static class ApiSurfaceExtractor
 
                 var propertySignature = GetPropertySignature(
                     reader,
-                    typeDef,
+                    typeContext,
                     prop,
                     accessors,
                     typeNullableContext,
@@ -808,7 +827,7 @@ public static class ApiSurfaceExtractor
                     if (fieldName == "value__")
                         apiType.EnumUnderlyingType = DecodeFieldType(
                             reader,
-                            typeDef,
+                            typeContext,
                             field,
                             typeNullableContext,
                             observeText,
@@ -818,7 +837,7 @@ public static class ApiSurfaceExtractor
                 {
                     (fieldType, fieldSignatureDegraded) = DecodeFieldType(
                         reader,
-                        typeDef,
+                        typeContext,
                         field,
                         typeNullableContext,
                         observeText,
@@ -923,11 +942,18 @@ public static class ApiSurfaceExtractor
                 var eventType = ResolveRequiredTypeName(
                     reader,
                     evt.Type,
-                    GenericContext.ForType(reader, typeDef),
+                    typeContext,
                     observeText,
                     observeDecodeWork);
-                var eventNullableBytes = NullabilityReader.GetNullableBytes(reader, evt.GetCustomAttributes());
-                eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(reader, adder.GetParameters(), 1);
+                var eventNullableBytes = NullabilityReader.GetNullableBytes(
+                    reader,
+                    evt.GetCustomAttributes(),
+                    observeDecodeWork);
+                eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(
+                    reader,
+                    adder.GetParameters(),
+                    1,
+                    observeDecodeWork);
                 if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
                     eventType += "?";
                 // A `dynamic` event handler (e.g. EventHandler<dynamic>) or a
@@ -935,9 +961,15 @@ public static class ApiSurfaceExtractor
                 // generic instantiation, so re-decode the TypeSpec through the
                 // TypeNode tree to recover the dynamic / tuple view. Plain events
                 // are untouched.
-                var eventTupleNames = TupleElementNamesReader.GetTupleElementNames(reader, evt.GetCustomAttributes());
+                var eventTupleNames = TupleElementNamesReader.GetTupleElementNames(
+                    reader,
+                    evt.GetCustomAttributes(),
+                    observeDecodeWork);
                 var eventDynamicFlags = evt.Type.Kind == HandleKind.TypeSpecification
-                    ? DynamicReader.GetDynamicFlags(reader, evt.GetCustomAttributes())
+                    ? DynamicReader.GetDynamicFlags(
+                        reader,
+                        evt.GetCustomAttributes(),
+                        observeDecodeWork)
                     : null;
                 if (evt.Type.Kind == HandleKind.TypeSpecification
                     && (eventDynamicFlags is not null || eventTupleNames is not null))
@@ -946,7 +978,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         (TypeSpecificationHandle)evt.Type,
                         new TypeNodeProvider(observeText, observeDecodeWork),
-                        GenericContext.ForType(reader, typeDef),
+                        typeContext,
                         (TypeNode)new DegradedTypeNode());
                     // Skip a rejected/degraded decode: its bare "object"/"dynamic" render
                     // would obliterate the resolved eventType string computed above.
@@ -1268,9 +1300,15 @@ public static class ApiSurfaceExtractor
     }
 
     private static byte? GetEffectiveNullable(
-        MetadataReader reader, CustomAttributeHandleCollection attributes, byte nullableContext)
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        byte nullableContext,
+        Action<int>? beforeDecodeWork = null)
     {
-        var bytes = NullabilityReader.GetNullableBytes(reader, attributes);
+        var bytes = NullabilityReader.GetNullableBytes(
+            reader,
+            attributes,
+            beforeDecodeWork);
         if (bytes is { Length: > 0 })
             return bytes[0];
         return nullableContext != 0 ? nullableContext : null;
@@ -1308,7 +1346,11 @@ public static class ApiSurfaceExtractor
                 typeParam.Variance = variance;
             }
 
-            var nullable = GetEffectiveNullable(reader, param.GetCustomAttributes(), nullableContext);
+            var nullable = GetEffectiveNullable(
+                reader,
+                param.GetCustomAttributes(),
+                nullableContext,
+                beforeDecodeWork);
             var isUnmanaged = AttributeReader.HasAttribute(reader, param.GetCustomAttributes(),
                 KnownAttributeNames.IsUnmanagedAttribute);
 
@@ -1331,7 +1373,12 @@ public static class ApiSurfaceExtractor
                     beforeDecodeWork);
                 if (constraintTypeName is "System.ValueType" or "System.Object")
                     continue;
-                var formatted = FormatConstraintType(reader, constraint, constraintTypeName, nullableContext);
+                var formatted = FormatConstraintType(
+                    reader,
+                    constraint,
+                    constraintTypeName,
+                    nullableContext,
+                    beforeDecodeWork);
                 beforeRetain?.Invoke(formatted);
                 beforeRetain?.Invoke(formatted);
                 typeParam.Constraints.Add(formatted);
@@ -1367,9 +1414,17 @@ public static class ApiSurfaceExtractor
     }
 
     private static string FormatConstraintType(
-        MetadataReader reader, GenericParameterConstraint constraint, string constraintTypeName, byte nullableContext)
+        MetadataReader reader,
+        GenericParameterConstraint constraint,
+        string constraintTypeName,
+        byte nullableContext,
+        Action<int>? beforeDecodeWork)
     {
-        var nullable = GetEffectiveNullable(reader, constraint.GetCustomAttributes(), nullableContext);
+        var nullable = GetEffectiveNullable(
+            reader,
+            constraint.GetCustomAttributes(),
+            nullableContext,
+            beforeDecodeWork);
         return nullable == 2 && !constraintTypeName.EndsWith("?", StringComparison.Ordinal)
             ? $"{constraintTypeName}?"
             : constraintTypeName;
@@ -1431,13 +1486,12 @@ public static class ApiSurfaceExtractor
 
     private static (string Text, bool IsDegraded) DecodeFieldType(
         MetadataReader reader,
-        TypeDefinition typeDef,
+        GenericContext context,
         FieldDefinition field,
         byte typeNullableContext,
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null)
     {
-        var context = GenericContext.ForType(reader, typeDef);
         var typeNodeProvider = beforeRetainText is null
             ? TypeNodeProvider.Instance
             : new TypeNodeProvider(beforeRetainText, beforeDecodeWork);
@@ -1447,14 +1501,23 @@ public static class ApiSurfaceExtractor
             typeNodeProvider,
             context,
             (TypeNode)new DegradedTypeNode());
-        var fieldBytes = NullabilityReader.GetNullableBytes(reader, field.GetCustomAttributes());
+        var fieldBytes = NullabilityReader.GetNullableBytes(
+            reader,
+            field.GetCustomAttributes(),
+            beforeDecodeWork);
         int pos = 0;
         fieldNode.ApplyNullability(fieldBytes, ref pos, typeNullableContext);
-        var fieldDynamicFlags = DynamicReader.GetDynamicFlags(reader, field.GetCustomAttributes());
+        var fieldDynamicFlags = DynamicReader.GetDynamicFlags(
+            reader,
+            field.GetCustomAttributes(),
+            beforeDecodeWork);
         pos = 0;
         fieldNode.ApplyDynamic(fieldDynamicFlags, ref pos);
         fieldNode.ApplyTupleNames(
-            TupleElementNamesReader.GetTupleElementNames(reader, field.GetCustomAttributes()));
+            TupleElementNamesReader.GetTupleElementNames(
+                reader,
+                field.GetCustomAttributes(),
+                beforeDecodeWork));
         return (fieldNode.Render(), fieldNode.IsDegraded);
     }
 
@@ -2223,14 +2286,18 @@ public static class ApiSurfaceExtractor
 
     private static (string Text, ApiSignature Model, bool IsDegraded) GetMethodSignature(
         MetadataReader reader,
-        TypeDefinition typeDef,
+        GenericContext typeContext,
         MethodDefinition method,
         byte typeNullableContext,
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null)
     {
         string name = reader.GetString(method.Name);
-        var context = GenericContext.ForMethod(reader, typeDef, method);
+        var context = GenericContext.ForMethod(
+            reader,
+            typeContext,
+            method,
+            beforeDecodeWork);
         var typeNodeProvider = beforeRetainText is null
             ? TypeNodeProvider.Instance
             : new TypeNodeProvider(beforeRetainText, beforeDecodeWork);
@@ -2248,14 +2315,26 @@ public static class ApiSurfaceExtractor
 
         // Apply nullability to return type
         var paramHandles = method.GetParameters();
-        var returnBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, 0);
+        var returnBytes = NullabilityReader.GetParameterNullableBytes(
+            reader,
+            paramHandles,
+            0,
+            beforeDecodeWork);
         int pos = 0;
         treeSignature.ReturnType.ApplyNullability(returnBytes, ref pos, nullableDefault);
-        var returnDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, 0);
+        var returnDynamicFlags = DynamicReader.GetParameterDynamicFlags(
+            reader,
+            paramHandles,
+            0,
+            beforeDecodeWork);
         pos = 0;
         treeSignature.ReturnType.ApplyDynamic(returnDynamicFlags, ref pos);
         treeSignature.ReturnType.ApplyTupleNames(
-            TupleElementNamesReader.GetParameterTupleElementNames(reader, paramHandles, 0));
+            TupleElementNamesReader.GetParameterTupleElementNames(
+                reader,
+                paramHandles,
+                0,
+                beforeDecodeWork));
 
         // Build parameter list with nullability
         var paramTypes = treeSignature.ParameterTypes;
@@ -2265,14 +2344,26 @@ public static class ApiSurfaceExtractor
         for (int i = 0; i < paramTypes.Length; i++)
         {
             // Apply nullability to this parameter's type tree
-            var paramBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, i + 1);
+            var paramBytes = NullabilityReader.GetParameterNullableBytes(
+                reader,
+                paramHandles,
+                i + 1,
+                beforeDecodeWork);
             pos = 0;
             paramTypes[i].ApplyNullability(paramBytes, ref pos, nullableDefault);
-            var paramDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, i + 1);
+            var paramDynamicFlags = DynamicReader.GetParameterDynamicFlags(
+                reader,
+                paramHandles,
+                i + 1,
+                beforeDecodeWork);
             pos = 0;
             paramTypes[i].ApplyDynamic(paramDynamicFlags, ref pos);
             paramTypes[i].ApplyTupleNames(
-                TupleElementNamesReader.GetParameterTupleElementNames(reader, paramHandles, i + 1));
+                TupleElementNamesReader.GetParameterTupleElementNames(
+                    reader,
+                    paramHandles,
+                    i + 1,
+                    beforeDecodeWork));
             string type = paramTypes[i].Render();
             string canonicalType = paramTypes[i].RenderCanonical();
 
@@ -2866,7 +2957,10 @@ public static class ApiSurfaceExtractor
     {
         if (typeHandle.Kind != HandleKind.TypeSpecification)
             return fallback;
-        if (DynamicReader.GetDynamicFlags(reader, attributes) is not { } flags)
+        if (DynamicReader.GetDynamicFlags(
+                reader,
+                attributes,
+                beforeDecodeWork) is not { } flags)
             return fallback;
         var node = GuardedProviderDecode.TypeSpec(
             reader,
@@ -3041,7 +3135,7 @@ public static class ApiSurfaceExtractor
 
     private static (string Text, ApiSignature Model, bool IsDegraded) GetPropertySignature(
         MetadataReader reader,
-        TypeDefinition typeDef,
+        GenericContext context,
         PropertyDefinition prop,
         PropertyAccessors accessors,
         byte typeNullableContext,
@@ -3050,7 +3144,6 @@ public static class ApiSurfaceExtractor
         Action<int>? beforeDecodeWork = null)
     {
         string name = reader.GetString(prop.Name);
-        var context = GenericContext.ForType(reader, typeDef);
         var typeNodeProvider = beforeRetainText is null
             ? TypeNodeProvider.Instance
             : new TypeNodeProvider(beforeRetainText, beforeDecodeWork);
@@ -3062,14 +3155,23 @@ public static class ApiSurfaceExtractor
             (TypeNode)new DegradedTypeNode());
 
         // Apply nullability to the property type
-        var propBytes = NullabilityReader.GetNullableBytes(reader, prop.GetCustomAttributes());
+        var propBytes = NullabilityReader.GetNullableBytes(
+            reader,
+            prop.GetCustomAttributes(),
+            beforeDecodeWork);
         int pos = 0;
         treeSignature.ReturnType.ApplyNullability(propBytes, ref pos, typeNullableContext);
-        var propDynamicFlags = DynamicReader.GetDynamicFlags(reader, prop.GetCustomAttributes());
+        var propDynamicFlags = DynamicReader.GetDynamicFlags(
+            reader,
+            prop.GetCustomAttributes(),
+            beforeDecodeWork);
         pos = 0;
         treeSignature.ReturnType.ApplyDynamic(propDynamicFlags, ref pos);
         treeSignature.ReturnType.ApplyTupleNames(
-            TupleElementNamesReader.GetTupleElementNames(reader, prop.GetCustomAttributes()));
+            TupleElementNamesReader.GetTupleElementNames(
+                reader,
+                prop.GetCustomAttributes(),
+                beforeDecodeWork));
 
         // Determine accessor visibility
         MethodAttributes getterAccess = 0;
@@ -3235,14 +3337,26 @@ public static class ApiSurfaceExtractor
         List<ApiParameter> parameterModels = [];
         for (var i = 0; i < paramTypes.Length; i++)
         {
-            var paramBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, i + 1);
+            var paramBytes = NullabilityReader.GetParameterNullableBytes(
+                reader,
+                paramHandles,
+                i + 1,
+                beforeDecodeWork);
             pos = 0;
             paramTypes[i].ApplyNullability(paramBytes, ref pos, parameterNullableContext);
-            var paramDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, i + 1);
+            var paramDynamicFlags = DynamicReader.GetParameterDynamicFlags(
+                reader,
+                paramHandles,
+                i + 1,
+                beforeDecodeWork);
             pos = 0;
             paramTypes[i].ApplyDynamic(paramDynamicFlags, ref pos);
             paramTypes[i].ApplyTupleNames(
-                TupleElementNamesReader.GetParameterTupleElementNames(reader, paramHandles, i + 1));
+                TupleElementNamesReader.GetParameterTupleElementNames(
+                    reader,
+                    paramHandles,
+                    i + 1,
+                    beforeDecodeWork));
             var paramType = paramTypes[i].Render();
             var canonicalParamType = paramTypes[i].RenderCanonical();
             var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) =
@@ -3337,10 +3451,11 @@ public static class ApiSurfaceExtractor
     private static string? AccessorAccessibility(MethodAttributes access, int bestAccess)
         => (int)access == bestAccess ? null : GetAccessibility(access);
 
-    /// <summary>
-    /// Gets the first parameter type for extension methods.
-    /// </summary>
-    private static string? GetFirstParameterType(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+    /// <summary>Gets the first parameter type for the lightweight extraction path.</summary>
+    private static string? GetFirstParameterType(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
     {
         var context = GenericContext.ForMethod(reader, typeDef, method);
         return GuardedSignatureText.MethodText(reader, method, context)
@@ -3534,15 +3649,18 @@ public static class ApiSurfaceExtractor
     /// <remarks>
     /// Members and retained text are counted as they are built but committed only when their type
     /// is, so a rejected type spends no retention budget. The exact retained total is gated by
-    /// <c>ApiSurfaceExtractorBoundsTests.RetainedTextBudget_IsExact</c>. A separate pending decode
-    /// work estimate may reject an allocation-amplifying type before its expanded model exists;
-    /// the hostile-shape allocation tests in that class gate that safety boundary.
+    /// <c>ApiSurfaceExtractorBoundsTests.RetainedTextBudget_IsExact</c>. A separate monotonic
+    /// extraction-wide decode-work estimate may reject allocation-amplifying input before its
+    /// expanded model exists; the hostile-shape allocation tests in that class gate that safety
+    /// boundary.
     /// </remarks>
     private sealed class ExtractionBudget(ApiSurfaceExtractionBounds bounds)
     {
         const int DecodeWorkWeight = 16;
+        const int RetainedTextDecodeWorkCreditWeight = DecodeWorkWeight * 4;
         // Small exact retention budgets still need enough work room to decode one ordinary type.
-        // The hostile-shape allocation tests gate this floor below their 64 MiB ceiling.
+        // It is granted once per extraction; retained model text then earns bounded additional
+        // work so rejected or amplification-heavy candidates cannot rearm the floor.
         const int MinimumDecodeWorkLimit = 32_000_000;
         int _types;
         int _members;
@@ -3552,7 +3670,7 @@ public static class ApiSurfaceExtractor
         int _retainedTextCharacters;
         int _pendingTextCharacters;
         int _pendingObservedTextCharacters;
-        int _pendingDecodeWork;
+        long _decodeWork;
 
         public int MetadataRows { get; private set; }
         public int RetainedTextCharacters => _retainedTextCharacters;
@@ -3578,7 +3696,6 @@ public static class ApiSurfaceExtractor
             _pendingMembers = 0;
             _pendingTextCharacters = 0;
             _pendingObservedTextCharacters = 0;
-            _pendingDecodeWork = 0;
         }
 
         /// <summary>Admits a retained type before its model or members are built.</summary>
@@ -3609,7 +3726,6 @@ public static class ApiSurfaceExtractor
             _pendingMembers = 0;
             _pendingTextCharacters = 0;
             _pendingObservedTextCharacters = 0;
-            _pendingDecodeWork = 0;
         }
 
         /// <summary>Counts one member attached to a type that is already committed.</summary>
@@ -3668,16 +3784,18 @@ public static class ApiSurfaceExtractor
             if (encodedCharacters < 0)
                 throw new ArgumentOutOfRangeException(nameof(encodedCharacters));
             long next =
-                (long)encodedCharacters * DecodeWorkWeight + _pendingDecodeWork;
-            long limit = Math.Max(
-                bounds.MaxRetainedTextCharacters,
-                MinimumDecodeWorkLimit);
+                (long)encodedCharacters * DecodeWorkWeight + _decodeWork;
+            long creditedCharacters =
+                (long)_retainedTextCharacters + _pendingTextCharacters;
+            long limit =
+                MinimumDecodeWorkLimit
+                + creditedCharacters * RetainedTextDecodeWorkCreditWeight;
             if (next > limit || next < 0)
             {
                 throw new ExtractionBoundExceededException(
                     ApiSurfaceExtractionBound.RetainedTextCharacters);
             }
-            _pendingDecodeWork = (int)next;
+            _decodeWork = next;
         }
 
         void RetainPendingText(long characters)
