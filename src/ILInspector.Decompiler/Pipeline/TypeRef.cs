@@ -338,7 +338,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         return FunctionPointer(cleanReturn, cleanParameters, convention, parameterRefKinds);
     }
 
-    static TypeRef FunctionPointer(
+    internal static TypeRef FunctionPointer(
         TypeRef returnType,
         ImmutableArray<TypeRef> parameters,
         string callingConvention,

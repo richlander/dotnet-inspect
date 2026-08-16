@@ -387,27 +387,44 @@ public sealed class DynamicTypeViewTests
     }
 
     [Theory]
-    [InlineData(new byte[] { 0, 0, 0, 0 })]                         // invalid prolog
-    [InlineData(new byte[] { 1, 0, 0 })]                            // truncated marker form
-    [InlineData(new byte[] { 1, 0, 1, 0 })]                         // named argument present
-    [InlineData(new byte[] { 1, 0, 1, 0, 0, 0, 2, 0, 0 })]          // invalid bool
-    [InlineData(new byte[] { 1, 0, 1, 0, 0, 0, 1, 0, 0, 0 })]       // trailing byte
-    public void MalformedAttributeEncoding_ReturnsNoDynamicFlags(byte[] blob)
+    [InlineData(false, new byte[] { 0, 0, 0, 0 })]                         // invalid prolog
+    [InlineData(false, new byte[] { 1, 0, 0 })]                            // truncated marker form
+    [InlineData(false, new byte[] { 1, 0, 1, 0 })]                         // named argument present
+    [InlineData(true, new byte[] { 1, 0, 1, 0, 0, 0, 2, 0, 0 })]           // invalid bool
+    [InlineData(true, new byte[] { 1, 0, 1, 0, 0, 0, 1, 0, 0, 0 })]        // trailing byte
+    public void MalformedAttributeEncoding_ReturnsNoDynamicFlags(
+        bool transformFlagsConstructor,
+        byte[] blob)
     {
-        Assert.Null(ReadDynamicFlags(blob));
+        Assert.Null(ReadDynamicFlags(blob, transformFlagsConstructor));
     }
 
     [Theory]
-    [InlineData(new byte[] { 1, 0, 0, 0 }, new byte[] { 1 })]
+    [InlineData(false, new byte[] { 1, 0, 0, 0 }, new byte[] { 1 })]
     [InlineData(
+        true,
         new byte[] { 1, 0, 2, 0, 0, 0, 0, 1, 0, 0 },
         new byte[] { 0, 1 })]
-    public void ValidAttributeEncoding_ReturnsDynamicFlags(byte[] blob, byte[] expected)
+    public void ValidAttributeEncoding_ReturnsDynamicFlags(
+        bool transformFlagsConstructor,
+        byte[] blob,
+        byte[] expected)
     {
-        Assert.Equal(expected, ReadDynamicFlags(blob));
+        Assert.Equal(expected, ReadDynamicFlags(blob, transformFlagsConstructor));
     }
 
-    static byte[]? ReadDynamicFlags(byte[] attributeBlob)
+    [Fact]
+    public void ConstructorAndPayloadFormsMustAgree()
+    {
+        Assert.Null(ReadDynamicFlags(
+            new byte[] { 1, 0, 2, 0, 0, 0, 0, 1, 0, 0 },
+            transformFlagsConstructor: false));
+        Assert.Null(ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: true));
+    }
+
+    static byte[]? ReadDynamicFlags(byte[] attributeBlob, bool transformFlagsConstructor)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -436,8 +453,13 @@ public sealed class DynamicTypeViewTests
             metadata.GetOrAddString("DynamicAttribute"));
         var constructorSignature = new BlobBuilder();
         constructorSignature.WriteByte(0x20); // instance default calling convention
-        constructorSignature.WriteCompressedInteger(0);
+        constructorSignature.WriteCompressedInteger(transformFlagsConstructor ? 1 : 0);
         constructorSignature.WriteByte(0x01); // void
+        if (transformFlagsConstructor)
+        {
+            constructorSignature.WriteByte(0x1d); // SZArray
+            constructorSignature.WriteByte(0x02); // bool
+        }
         var constructor = metadata.AddMemberReference(
             dynamicAttribute,
             metadata.GetOrAddString(".ctor"),

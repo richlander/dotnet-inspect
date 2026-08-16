@@ -20,6 +20,12 @@ namespace ILInspector.Metadata;
 /// </remarks>
 public static class DynamicReader
 {
+    enum ConstructorKind
+    {
+        Marker,
+        TransformFlags,
+    }
+
     /// <summary>
     /// Gets the DynamicAttribute transform-flags array (0 = object, 1 = dynamic)
     /// from custom attributes. Returns null when the attribute is not present or
@@ -33,6 +39,8 @@ public static class DynamicReader
             var attr = reader.GetCustomAttribute(attrHandle);
             var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
             if (attrTypeName != KnownAttributeNames.DynamicAttribute) continue;
+            if (GetConstructorKind(reader, attr.Constructor) is not { } constructorKind)
+                return null;
 
             var blob = reader.GetBlobReader(attr.Value);
             if (blob.Length < 2) return null;
@@ -40,13 +48,13 @@ public static class DynamicReader
 
             // DynamicAttribute():        prolog(2) + namedArgs(2) = 4          -> marker form
             // DynamicAttribute(bool[]):  prolog(2) + count(4) + N bytes + namedArgs(2) = 8+N
-            if (blob.RemainingBytes == 2)
+            if (constructorKind == ConstructorKind.Marker && blob.RemainingBytes == 2)
             {
                 // Marker form: the whole (bare object) type is dynamic.
                 return blob.ReadUInt16() == 0 ? [1] : null;
             }
 
-            if (blob.RemainingBytes >= 6)
+            if (constructorKind == ConstructorKind.TransformFlags && blob.RemainingBytes >= 6)
             {
                 int count = blob.ReadInt32();
                 if (count < 0 || blob.RemainingBytes != count + 2) return null;
@@ -63,6 +71,63 @@ public static class DynamicReader
             return null;
         }
         return null;
+    }
+
+    static ConstructorKind? GetConstructorKind(MetadataReader reader, EntityHandle constructor)
+    {
+        try
+        {
+            MethodSignature<TypeNode> signature;
+            switch (constructor.Kind)
+            {
+                case HandleKind.MethodDefinition:
+                {
+                    var method = reader.GetMethodDefinition((MethodDefinitionHandle)constructor);
+                    if (reader.GetString(method.Name) != ".ctor")
+                        return null;
+                    if (!SignatureBlobGuard.IsSafeToDecode(
+                        reader,
+                        method.Signature,
+                        SignatureBlobGuard.Kind.Method))
+                        return null;
+                    signature = method.DecodeSignature(TypeNodeProvider.Instance, genericContext: null);
+                    break;
+                }
+                case HandleKind.MemberReference:
+                {
+                    var member = reader.GetMemberReference((MemberReferenceHandle)constructor);
+                    if (reader.GetString(member.Name) != ".ctor")
+                        return null;
+                    if (!SignatureBlobGuard.IsSafeToDecode(
+                        reader,
+                        member.Signature,
+                        SignatureBlobGuard.Kind.Method))
+                        return null;
+                    signature = member.DecodeMethodSignature(TypeNodeProvider.Instance, genericContext: null);
+                    break;
+                }
+                default:
+                    return null;
+            }
+
+            if (!signature.Header.IsInstance
+                || signature.GenericParameterCount != 0
+                || signature.ReturnType.Render() != "void")
+            {
+                return null;
+            }
+            return signature.ParameterTypes switch
+            {
+                [] => ConstructorKind.Marker,
+                [SZArrayTypeNode { ElementType: PrimitiveTypeNode element }]
+                    when element.Render() == "bool" => ConstructorKind.TransformFlags,
+                _ => null,
+            };
+        }
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

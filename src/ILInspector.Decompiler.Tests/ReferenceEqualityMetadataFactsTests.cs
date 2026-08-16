@@ -86,6 +86,39 @@ public class ReferenceEqualityMetadataFactsTests
         }
     }
 
+    [Fact]
+    public void FunctionPointerRefKinds_DoNotShareSignatureIdentity()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var outAttribute = TypeRef.CoreLib("System.Runtime.InteropServices", "OutAttribute");
+        var refParameter = TypeRef.ByRef(intType);
+        var outParameter = TypeRef.ByRef(intType).WithCustomModifier(outAttribute, isRequired: true);
+        var refPointer = TypeRef.FunctionPointer(voidType, ImmutableArray.Create(refParameter), "");
+        var outPointer = TypeRef.FunctionPointer(voidType, ImmutableArray.Create(outParameter), "");
+
+        Assert.NotEqual(refPointer, outPointer);
+        Assert.False(CrossAssemblyTypeResolver.SameSignatureType(
+            refPointer,
+            outPointer,
+            allowCoreLibraryAliases: false));
+    }
+
+    [Fact]
+    public void FunctionPointerRefKinds_SurviveTypeReferenceUpgrade()
+    {
+        using var source = MetadataSource.Open(typeof(ReferenceEqualityMetadataFactsTests).Assembly.Location);
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var outAttribute = TypeRef.CoreLib("System.Runtime.InteropServices", "OutAttribute");
+        var outParameter = TypeRef.ByRef(intType).WithCustomModifier(outAttribute, isRequired: true);
+        var pointer = TypeRef.FunctionPointer(voidType, ImmutableArray.Create(outParameter), "");
+
+        var upgraded = source.CrossAssembly.UpgradeTypeReference(pointer);
+
+        Assert.Equal([ArgumentRefKind.Out], upgraded.FunctionPointerParameterRefKinds);
+    }
+
     static void AssertOrder(
         string consumer,
         string v1,

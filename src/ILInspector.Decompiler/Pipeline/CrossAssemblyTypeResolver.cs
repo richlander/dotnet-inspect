@@ -203,7 +203,7 @@ internal sealed class CrossAssemblyTypeResolver
             TypeArguments = [.. method.TypeArguments.Select(UpgradeTypeReference)],
         };
 
-    TypeRef UpgradeTypeReference(TypeRef type) => type.Kind switch
+    internal TypeRef UpgradeTypeReference(TypeRef type) => type.Kind switch
     {
         TypeRefKind.Definition => Upgrade(type),
         TypeRefKind.GenericInstance => TypeRef.GenericInstance(
@@ -217,7 +217,8 @@ internal sealed class CrossAssemblyTypeResolver
         TypeRefKind.FunctionPointer => TypeRef.FunctionPointer(
             UpgradeTypeReference(type.ElementType!),
             [.. type.TypeArguments.Select(UpgradeTypeReference)],
-            type.CallingConvention),
+            type.CallingConvention,
+            type.FunctionPointerParameterRefKinds),
         _ => type,
     };
 
@@ -663,10 +664,14 @@ internal sealed class CrossAssemblyTypeResolver
             case TypeRefKind.FunctionPointer:
                 if (resolved.CallingConvention != expected.CallingConvention
                     || !SameSignatureType(resolved.ElementType!, expected.ElementType!, allowCoreLibraryAliases)
-                    || resolved.TypeArguments.Length != expected.TypeArguments.Length)
+                    || resolved.TypeArguments.Length != expected.TypeArguments.Length
+                    || resolved.FunctionPointerParameterRefKinds.Length != expected.FunctionPointerParameterRefKinds.Length)
                     return false;
                 for (int i = 0; i < resolved.TypeArguments.Length; i++)
                     if (!SameSignatureType(resolved.TypeArguments[i], expected.TypeArguments[i], allowCoreLibraryAliases))
+                        return false;
+                for (int i = 0; i < resolved.FunctionPointerParameterRefKinds.Length; i++)
+                    if (resolved.FunctionPointerParameterRefKinds[i] != expected.FunctionPointerParameterRefKinds[i])
                         return false;
                 return true;
             default:
