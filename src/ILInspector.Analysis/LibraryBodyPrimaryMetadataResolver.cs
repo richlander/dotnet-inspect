@@ -28,6 +28,12 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         _genericParameterCanBeValueType;
     readonly Func<DecodedInstruction, bool>
         _isStableReceiverGetter;
+    readonly Action? _asyncStateMachineTypesBuilt;
+    // Build owns the only async-state-machine classification cache and prewarms it before
+    // parallel method analysis. OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis
+    // gates that the consumed cache, rather than a duplicate, is initialized exactly once.
+    IReadOnlySet<TypeRef>? _asyncStateMachineTypes;
+    IReadOnlySet<TypeDefinitionHandle>? _asyncStateMachineTypeHandles;
 
     internal LibraryBodyPrimaryMetadataResolver(
         MetadataReader reader,
@@ -41,7 +47,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         Func<TypeRef, MethodIdentity, bool>
             genericParameterCanBeValueType,
         Func<DecodedInstruction, bool>
-            isStableReceiverGetter)
+            isStableReceiverGetter,
+        Action? asyncStateMachineTypesBuilt)
     {
         _reader = reader;
         _assemblyName = assemblyName;
@@ -51,6 +58,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             genericParameterCanBeValueType;
         _isStableReceiverGetter =
             isStableReceiverGetter;
+        _asyncStateMachineTypesBuilt =
+            asyncStateMachineTypesBuilt;
         _memorySafetyRulesEnabled = DetectMemorySafetyRules();
     }
 
@@ -527,22 +536,35 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         }
     }
 
-    IReadOnlySet<string>? _asyncStateMachineTypes;
-
     bool IsAsyncStateMachineType(TypeRef? type)
     {
         if (type is null)
             return false;
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-        return AsyncStateMachineTypes().Contains(definition.ToQualifiedDisplayString());
+        return AsyncStateMachineTypes().Contains(definition);
     }
 
-    internal IReadOnlySet<string> AsyncStateMachineTypes()
+    internal IReadOnlySet<TypeRef> AsyncStateMachineTypes()
+    {
+        EnsureAsyncStateMachineTypes();
+        return _asyncStateMachineTypes!;
+    }
+
+    internal IReadOnlySet<TypeDefinitionHandle>
+        AsyncStateMachineTypeHandles()
+    {
+        EnsureAsyncStateMachineTypes();
+        return _asyncStateMachineTypeHandles!;
+    }
+
+    void EnsureAsyncStateMachineTypes()
     {
         if (_asyncStateMachineTypes is not null)
-            return _asyncStateMachineTypes;
+            return;
 
-        var set = new HashSet<string>(StringComparer.Ordinal);
+        _asyncStateMachineTypesBuilt?.Invoke();
+        var types = new HashSet<TypeRef>();
+        var handles = new HashSet<TypeDefinitionHandle>();
         foreach (var typeHandle in _reader.TypeDefinitions)
         {
             var typeDef = _reader.GetTypeDefinition(typeHandle);
@@ -558,13 +580,14 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                     : interfaceType;
                 if (FrameworkIdentity.IsCoreLibraryType(definition, "System.Runtime.CompilerServices", "IAsyncStateMachine"))
                 {
-                    set.Add(type.ToQualifiedDisplayString());
+                    types.Add(type);
+                    handles.Add(typeHandle);
                     break;
                 }
             }
         }
-        _asyncStateMachineTypes = set;
-        return set;
+        _asyncStateMachineTypeHandles = handles;
+        _asyncStateMachineTypes = types;
     }
 
     TypeRef TypeFromEntity(EntityHandle handle)

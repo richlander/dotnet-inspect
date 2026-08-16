@@ -404,8 +404,8 @@ Common `--triage-shape` values include `capturing-delegate`,
 `allocation-hotspot`.
 
 `generic-parameter-object-box` starts at medium priority because allocation
-depends on a value-type instantiation; exact loop or caller-loop evidence
-promotes it to high.
+depends on a value-type instantiation; exact local-loop evidence promotes it
+to high. Caller-loop evidence remains queryable but does not change priority.
 
 ### Decompiler
 

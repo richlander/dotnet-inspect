@@ -37,6 +37,7 @@ internal sealed class LibraryBodyAnalysisBuilder :
     readonly Action<MethodDefinitionHandle, int>? _methodReferenceResolved;
     readonly Action<TypeDefinitionHandle>? _sourceGeneratedTypeClassified;
     readonly Action? _typeDefinitionIndexBuilt;
+    readonly Action? _parallelBuildStarting;
     readonly ConcurrentDictionary<
         TypeDefinitionHandle,
         Lazy<IReadOnlyDictionary<string, ImmutableArray<MethodDefinitionHandle>>>>
@@ -105,7 +106,9 @@ internal sealed class LibraryBodyAnalysisBuilder :
         Action<MethodDefinitionHandle>? stableReceiverGetterClassified = null,
         Action<MethodDefinitionHandle, int>? methodReferenceResolved = null,
         Action<TypeDefinitionHandle>? sourceGeneratedTypeClassified = null,
-        Action? typeDefinitionIndexBuilt = null)
+        Action? typeDefinitionIndexBuilt = null,
+        Action? asyncStateMachineTypesBuilt = null,
+        Action? parallelBuildStarting = null)
     {
         _path = path;
         _reader = reader;
@@ -120,6 +123,7 @@ internal sealed class LibraryBodyAnalysisBuilder :
         _sourceGeneratedTypeClassified =
             sourceGeneratedTypeClassified;
         _typeDefinitionIndexBuilt = typeDefinitionIndexBuilt;
+        _parallelBuildStarting = parallelBuildStarting;
         _typeDefinitionIndex = new(
             BuildTypeDefinitionIndex,
             LazyThreadSafetyMode.ExecutionAndPublication);
@@ -130,7 +134,8 @@ internal sealed class LibraryBodyAnalysisBuilder :
                 _mvid,
                 ResolveMethod,
                 GenericParameterCanBeValueType,
-                IsStableReceiverGetter);
+                IsStableReceiverGetter,
+                asyncStateMachineTypesBuilt);
         if (resolver is not null && reader.IsAssembly)
             _referenceMetadataResolver =
                 new LibraryBodyReferenceMetadataResolver(
@@ -334,7 +339,8 @@ internal sealed class LibraryBodyAnalysisBuilder :
             // Prewarm the async-state-machine set so it is fully computed before the parallel
             // pass reads it read-only.
             if (includeMethodEvidence || includeOpportunities)
-                _ = AsyncStateMachineTypes();
+                _ = _primaryMetadataResolver.AsyncStateMachineTypes();
+            _parallelBuildStarting?.Invoke();
             Parallel.For(0, workItems.Count, i =>
             {
                 var w = workItems[i];
@@ -1882,7 +1888,9 @@ internal sealed class LibraryBodyAnalysisBuilder :
             return null;
         }
 
-        return AsyncStateMachineTypeHandles().Contains(handle)
+        return _primaryMetadataResolver
+                .AsyncStateMachineTypeHandles()
+                .Contains(handle)
             ? handle
             : null;
     }
@@ -2079,79 +2087,6 @@ internal sealed class LibraryBodyAnalysisBuilder :
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
         {
             return null;
-        }
-    }
-
-    IReadOnlySet<TypeRef>? _asyncStateMachineTypes;
-    IReadOnlySet<TypeDefinitionHandle>? _asyncStateMachineTypeHandles;
-
-    bool IsAsyncStateMachineType(TypeRef? type)
-    {
-        if (type is null)
-            return false;
-        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-        return AsyncStateMachineTypes().Contains(definition);
-    }
-
-    IReadOnlySet<TypeRef> AsyncStateMachineTypes()
-    {
-        EnsureAsyncStateMachineTypes();
-        return _asyncStateMachineTypes!;
-    }
-
-    IReadOnlySet<TypeDefinitionHandle> AsyncStateMachineTypeHandles()
-    {
-        EnsureAsyncStateMachineTypes();
-        return _asyncStateMachineTypeHandles!;
-    }
-
-    void EnsureAsyncStateMachineTypes()
-    {
-        if (_asyncStateMachineTypes is not null)
-            return;
-
-        var types = new HashSet<TypeRef>();
-        var handles = new HashSet<TypeDefinitionHandle>();
-        foreach (var typeHandle in _reader.TypeDefinitions)
-        {
-            var typeDef = _reader.GetTypeDefinition(typeHandle);
-            var type = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0);
-            if (!type.Name.Contains(">d__", StringComparison.Ordinal))
-                continue;
-            foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
-            {
-                var implementation = _reader.GetInterfaceImplementation(implementationHandle);
-                var interfaceType = TypeFromEntity(implementation.Interface);
-                var definition = interfaceType.Kind == TypeRefKind.GenericInstance
-                    ? interfaceType.ElementType ?? interfaceType
-                    : interfaceType;
-                if (FrameworkIdentity.IsCoreLibraryType(definition, "System.Runtime.CompilerServices", "IAsyncStateMachine"))
-                {
-                    types.Add(type);
-                    handles.Add(typeHandle);
-                    break;
-                }
-            }
-        }
-        _asyncStateMachineTypeHandles = handles;
-        _asyncStateMachineTypes = types;
-    }
-
-    TypeRef TypeFromEntity(EntityHandle handle)
-    {
-        try
-        {
-            return handle.Kind switch
-            {
-                HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, (TypeDefinitionHandle)handle, 0),
-                HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(_reader, (TypeReferenceHandle)handle, 0),
-                HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(_reader, new GenericScope([], []), (TypeSpecificationHandle)handle, 0),
-                _ => TypeRef.Unsupported("interface implementation"),
-            };
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return TypeRef.Unsupported("interface implementation");
         }
     }
 

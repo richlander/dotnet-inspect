@@ -3540,6 +3540,39 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        Assert.True(reader.MethodDefinitions.Count >= 200);
+        int built = 0;
+        bool parallelStarted = false;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            asyncStateMachineTypesBuilt:
+                () => Interlocked.Increment(ref built),
+            parallelBuildStarting: () =>
+            {
+                parallelStarted = true;
+                Assert.Equal(1, Volatile.Read(ref built));
+            });
+
+        _ = builder.Build(LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            methodScope: null,
+            typeScope: null));
+
+        Assert.True(parallelStarted);
+        Assert.Equal(1, built);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_UserDisplayClassName_IsInstanceMethodGroupDelegate()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -4776,7 +4809,8 @@ public class LibraryBodyIndexTests
         byte[] image = EmitLiftedMemberReferenceReplayAssembly(
             referenceCount: 100,
             ownerCount: 1,
-            parameterCount: 2_000);
+            parameterCount: 2_000,
+            distinctSignatureBlobs: true);
 
         Assert.Equal(1, CountMethodReferenceResolutions(image));
     }
@@ -4795,7 +4829,8 @@ public class LibraryBodyIndexTests
     static byte[] EmitLiftedMemberReferenceReplayAssembly(
         int referenceCount,
         int ownerCount,
-        int parameterCount)
+        int parameterCount,
+        bool distinctSignatureBlobs = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -4826,23 +4861,41 @@ public class LibraryBodyIndexTests
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
 
-        var liftedSignature = new BlobBuilder();
-        liftedSignature.WriteByte(0);
-        liftedSignature.WriteCompressedInteger(parameterCount);
-        liftedSignature.WriteByte(1);
-        for (int i = 0; i < parameterCount; i++)
-            liftedSignature.WriteByte(8);
-        BlobHandle liftedSignatureHandle =
-            metadata.GetOrAddBlob(liftedSignature);
+        var liftedSignatureHandles =
+            new BlobHandle[referenceCount];
+        int liftedSignatureLength = 0;
         var referenceTokens = new int[referenceCount];
         for (int i = 0; i < referenceTokens.Length; i++)
         {
+            var liftedSignature = new BlobBuilder();
+            liftedSignature.WriteByte(0);
+            liftedSignature.WriteCompressedInteger(parameterCount);
+            liftedSignature.WriteByte(1);
+            for (int parameter = 0;
+                parameter < parameterCount;
+                parameter++)
+            {
+                liftedSignature.WriteByte(
+                    distinctSignatureBlobs
+                        && parameter == parameterCount - 1
+                            ? checked((byte)(i + 2))
+                            : (byte)8);
+            }
+            liftedSignatureLength = liftedSignature.Count;
+            liftedSignatureHandles[i] =
+                metadata.GetOrAddBlob(liftedSignature);
             referenceTokens[i] = MetadataTokens.GetToken(
                 metadata.AddMemberReference(
                     type,
                     metadata.GetOrAddString(
                         "<Owner>g__Core|0_0"),
-                    liftedSignatureHandle));
+                    liftedSignatureHandles[i]));
+        }
+        if (distinctSignatureBlobs)
+        {
+            Assert.Equal(
+                referenceCount,
+                liftedSignatureHandles.Distinct().Count());
         }
 
         var bodies = new BlobBuilder();
@@ -4882,7 +4935,7 @@ public class LibraryBodyIndexTests
             MethodAttributes.Private | MethodAttributes.Static,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("<Owner>g__Core|0_0"),
-            liftedSignatureHandle,
+            liftedSignatureHandles[0],
             liftedBody,
             MetadataTokens.ParameterHandle(1));
         var pe = new ManagedPEBuilder(
@@ -4894,7 +4947,32 @@ public class LibraryBodyIndexTests
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         pe.Serialize(image);
-        return image.ToArray();
+        byte[] bytes = image.ToArray();
+        if (distinctSignatureBlobs)
+        {
+            using var stream = new MemoryStream(bytes, writable: false);
+            using var reader = new PEReader(stream);
+            int blobStream = MetadataStreamOffset(
+                bytes,
+                reader.PEHeaders.MetadataStartOffset,
+                "#Blob");
+            int prefixLength = liftedSignatureLength switch
+            {
+                <= 0x7F => 1,
+                <= 0x3FFF => 2,
+                _ => 4,
+            };
+            foreach (BlobHandle handle in liftedSignatureHandles)
+            {
+                int lastByte = blobStream
+                    + MetadataTokens.GetHeapOffset(handle)
+                    + prefixLength
+                    + liftedSignatureLength
+                    - 1;
+                bytes[lastByte] = 8;
+            }
+        }
+        return bytes;
     }
 
     static int CountMethodReferenceResolutions(byte[] image)
