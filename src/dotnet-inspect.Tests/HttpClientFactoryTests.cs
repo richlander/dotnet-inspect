@@ -6,10 +6,15 @@ using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;
 
+// HttpClientFactory configuration and shared clients are process-wide. Isolate these
+// invariants from every external test that can initialize or reset that state (#4246).
+[CollectionDefinition("HttpClientFactoryGuard", DisableParallelization = true)]
+public sealed class HttpClientFactoryGuardCollection;
+
 /// <summary>
 /// Tests for HttpClientFactory shared instance behavior.
 /// </summary>
-[Collection("Console")]
+[Collection("HttpClientFactoryGuard")]
 public class HttpClientFactoryTests : IDisposable
 {
     private readonly string _cacheDir = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-http-client-tests-{Guid.NewGuid():N}");
