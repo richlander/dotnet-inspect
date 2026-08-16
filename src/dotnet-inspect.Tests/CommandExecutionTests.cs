@@ -6463,6 +6463,42 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SingleType_EmptySectionStillValidatesProjectedColumn()
+    {
+        var invalid = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-S", "Events", "--columns", "Bogus", "--json", "--compact");
+        var valid = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-S", "Events", "--columns", "Name", "--json", "--compact");
+
+        Assert.Equal(1, invalid.Exit);
+        Assert.Empty(invalid.Output);
+        Assert.Contains("column 'Bogus' not found", invalid.Error, StringComparison.Ordinal);
+        Assert.Contains("No columns matched projection: Bogus", invalid.Error, StringComparison.Ordinal);
+
+        Assert.Equal(0, valid.Exit);
+        Assert.Equal("{}", valid.Output.Trim());
+        Assert.Contains("1 column has no data: Name", valid.Error, StringComparison.Ordinal);
+        Assert.Contains("section 'Events' has no data", valid.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SingleType_FieldRowsOmittedByWindowAreNotReportedAsNoData()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-S", "Type Info", "--fields", "Type,Kind,Library",
+            "--rows", "1", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var row = Assert.Single(document.RootElement.GetProperty("type_info").EnumerateArray());
+        Assert.Equal("Type", row.GetProperty("field").GetString());
+    }
+
+    [Fact]
     public async Task SingleType_ProjectedJsonAcceptsSynthesizedValueColumn()
     {
         var (exit, output, error) = await RunAppAsync(

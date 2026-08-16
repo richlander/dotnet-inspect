@@ -745,6 +745,22 @@ public class ApiCommand
         return filtered;
     }
 
+    private static IReadOnlyCollection<string> GetProjectionValidationSections(
+        DocumentSchema schema,
+        IReadOnlyCollection<string>? renderedSections,
+        IReadOnlyCollection<string>? requestedSections)
+    {
+        if (renderedSections is null && requestedSections is null)
+            return schema.SectionNames.ToArray();
+
+        var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (renderedSections is not null)
+            sections.UnionWith(renderedSections);
+        if (requestedSections is not null)
+            sections.UnionWith(requestedSections);
+        return sections.Count > 0 ? sections : schema.SectionNames.ToArray();
+    }
+
     /// <summary>
     /// Acquires the portable PDB for an assembly (symbol server / symbol
     /// package) and returns its on-disk path, so the decompiler can render
@@ -843,10 +859,10 @@ public class ApiCommand
                 api, options, out var promotedApiInfo);
             var schema =
                 ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-            IReadOnlyCollection<string> projectionSections =
-                writerOptions.IncludeSections is { } includedSections
-                    ? includedSections
-                    : schema.SectionNames.ToArray();
+            var projectionSections = GetProjectionValidationSections(
+                schema,
+                writerOptions.IncludeSections,
+                options.IncludeSections);
             if (!ProjectionDiagnostics.ValidateProjection(
                 schema,
                 projectionSections,
@@ -1563,10 +1579,10 @@ public class ApiCommand
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             ConfigureTypeSectionOrder(type, options, writerOptions);
             var schema = ToQueryableSchema(GetTypeDocumentSchema(options), options);
-            IReadOnlyCollection<string> projectionSections =
-                writerOptions.IncludeSections is { } includedSections
-                    ? includedSections
-                    : schema.SectionNames.ToArray();
+            var projectionSections = GetProjectionValidationSections(
+                schema,
+                writerOptions.IncludeSections,
+                options.IncludeSections);
             if (!ProjectionDiagnostics.ValidateProjection(
                 schema,
                 projectionSections,
