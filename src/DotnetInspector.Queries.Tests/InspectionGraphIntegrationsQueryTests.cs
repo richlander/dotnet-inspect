@@ -185,9 +185,19 @@ public sealed class InspectionGraphIntegrationsQueryTests
             document.Failures,
             failure =>
                 Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
-                    failure.Evidence).Kind
-                == InspectionGraphIntegrationFailureKind
-                    .BindingAmbiguous);
+                    failure.Evidence).Details.Any(detail =>
+                        detail.Kind
+                            == InspectionGraphIntegrationFailureKind
+                                .BindingAmbiguous));
+        Assert.Contains(
+            document.Failures,
+            failure =>
+                Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
+                    failure.Evidence).Details.Any(detail =>
+                        detail.Producer == "references"
+                        && detail.Kind
+                            == InspectionGraphIntegrationFailureKind
+                                .BindingAmbiguous));
     }
 
     [Fact]
@@ -206,11 +216,66 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 var evidence =
                     Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
                         failure.Evidence);
-                return evidence.Producer == "integrations"
-                    && evidence.Kind
+                return evidence.Details.Any(detail =>
+                    detail.Producer == "integrations"
+                    && detail.Kind
                         == InspectionGraphIntegrationFailureKind
-                            .StructuredEvidenceUnavailable;
+                            .StructuredEvidenceUnavailable);
             });
+    }
+
+    [Fact]
+    public void Execute_DifferentAiTargetDoesNotFulfillChatOpportunity()
+    {
+        using var fixture = IntegrationFixture.Create(
+            openAiAdapterReturnsDifferentAiType: true);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+
+        Assert.Contains(
+            document.Edges,
+            edge =>
+                edge.Relationship
+                    == InspectionGraphIntegrationsCatalog
+                        .IntegrationOpportunity
+                && AssemblyName(document.Nodes[edge.FromNodeId].Subject)
+                    == "OpenAI"
+                && TypeName(document.Nodes[edge.ToNodeId].Subject)
+                    == "Microsoft.Extensions.AI.IChatClient");
+    }
+
+    [Fact]
+    public void Execute_AggregatesRejectedParticipantFailuresByTarget()
+    {
+        using var fixture = IntegrationFixture.Create(
+            includeRejectedParticipant: true);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+
+        InspectionGraphFailure rejected = Assert.Single(
+            document.Failures,
+            failure =>
+                failure.Target is
+                    {
+                        Kind: InspectionGraphTargetKind.Node,
+                    } target
+                && AssemblyName(document.Nodes[target.Id].Subject)
+                    == "Rejected.Integration");
+        var evidence =
+            Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
+                rejected.Evidence);
+        Assert.Equal(
+            ["extensions", "integrations", "opportunities", "references"],
+            evidence.Details
+                .Select(static detail => detail.Producer)
+                .Order(StringComparer.Ordinal));
+        Assert.All(
+            evidence.Details,
+            detail => Assert.Equal(
+                InspectionGraphIntegrationFailureKind.ParticipantRejected,
+                detail.Kind));
     }
 
     [Fact]
@@ -350,9 +415,14 @@ public sealed class InspectionGraphIntegrationsQueryTests
         internal static IntegrationFixture Create(
             bool duplicateHubAssembly = false,
             bool overBudgetAdapterTypeName = false,
-            bool duplicateOpenAiReference = false)
+            bool duplicateOpenAiReference = false,
+            bool openAiAdapterReturnsDifferentAiType = false,
+            bool includeRejectedParticipant = false)
         {
-            (PersistedAssemblyBuilder abstractions, Type iChatClient) =
+            (
+                PersistedAssemblyBuilder abstractions,
+                Type iChatClient,
+                Type iEmbeddingGenerator) =
                 Abstractions();
 
             var openAi = new PersistedAssemblyBuilder(
@@ -381,7 +451,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
                         + new string('x', 5000)
                     : "Microsoft.Extensions.AI.OpenAI.OpenAIClientExtensions",
                 chatClient,
-                iChatClient);
+                openAiAdapterReturnsDifferentAiType
+                    ? iEmbeddingGenerator
+                    : iChatClient);
             var bedrockAdapter = Adapter(
                 "AWSSDK.Extensions.Bedrock.MEAI",
                 "Microsoft.Extensions.AI.AmazonBedrockRuntimeExtensions",
@@ -444,11 +516,13 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 packageIds.Add(
                     "microsoft.extensions.ai.abstractions.copy");
             }
-            ResolvedAssemblyReference[] assemblies =
-            [
-                .. builders.Select((builder, index) =>
-                    Assembly(builder, packageIds[index])),
-            ];
+            var assemblies = builders.Select((builder, index) =>
+                Assembly(builder, packageIds[index])).ToList();
+            if (includeRejectedParticipant)
+            {
+                assemblies.Add(RejectedAssembly());
+                packageIds.Add("rejected.integration");
+            }
             var policy = new FixtureBindingPolicy(assemblies);
             WorkspaceContextMember[] members =
             [
@@ -471,21 +545,31 @@ public sealed class InspectionGraphIntegrationsQueryTests
             return new IntegrationFixture(workspace, loaded);
         }
 
-        static (PersistedAssemblyBuilder Builder, Type Type) Abstractions()
+        static (
+            PersistedAssemblyBuilder Builder,
+            Type Chat,
+            Type Embedding) Abstractions()
         {
             var builder = new PersistedAssemblyBuilder(
                 new AssemblyName("Microsoft.Extensions.AI.Abstractions"),
                 typeof(object).Assembly);
-            Type type = builder
-                .DefineDynamicModule(
-                    "Microsoft.Extensions.AI.Abstractions")
+            ModuleBuilder module = builder.DefineDynamicModule(
+                "Microsoft.Extensions.AI.Abstractions");
+            Type chat = module
                 .DefineType(
                     "Microsoft.Extensions.AI.IChatClient",
                     TypeAttributes.Public
                         | TypeAttributes.Interface
                         | TypeAttributes.Abstract)
                 .CreateType();
-            return (builder, type);
+            Type embedding = module
+                .DefineType(
+                    "Microsoft.Extensions.AI.IEmbeddingGenerator",
+                    TypeAttributes.Public
+                        | TypeAttributes.Interface
+                        | TypeAttributes.Abstract)
+                .CreateType();
+            return (builder, chat, embedding);
         }
 
         static PersistedAssemblyBuilder Adapter(
@@ -560,6 +644,23 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     null));
         }
 
+        static ResolvedAssemblyReference RejectedAssembly() =>
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "Rejected.Integration",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(
+                    [0x00, 0x01, 0x02],
+                    writable: false),
+                AssemblyResolutionProvenance.Package(
+                    "rejected.integration",
+                    "1.0.0",
+                    "net11.0",
+                    null));
+
         static WorkspaceContextMember Member(
             ResolvedAssemblyReference assembly,
             string packageId,
@@ -585,10 +686,10 @@ public sealed class InspectionGraphIntegrationsQueryTests
 
     sealed class FixtureBindingPolicy : IAssemblyBindingPolicy
     {
-        readonly ResolvedAssemblyReference[] _assemblies;
+        readonly IReadOnlyList<ResolvedAssemblyReference> _assemblies;
 
         internal FixtureBindingPolicy(
-            ResolvedAssemblyReference[] assemblies) =>
+            IReadOnlyList<ResolvedAssemblyReference> assemblies) =>
             _assemblies = assemblies;
 
         public AssemblyBindingPolicyVersion Version { get; } = new();

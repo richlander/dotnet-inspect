@@ -227,15 +227,32 @@ public enum InspectionGraphIntegrationFailureKind
     OpportunityTargetAmbiguous,
 }
 
-/// <summary>Typed detail for one incomplete Integration graph contribution.</summary>
-public sealed record InspectionGraphIntegrationFailureEvidence(
+/// <summary>One incomplete Integration graph contribution.</summary>
+public sealed record InspectionGraphIntegrationFailureDetail(
     string Producer,
     AssemblyAcquisitionRegistration Registration,
     InspectionGraphIntegrationFailureKind Kind,
     CandidateOpenFailure? AcquisitionFailure = null,
-    Exception? Error = null)
-    : IInspectionGraphDiagnosticEvidence
+    Exception? Error = null);
+
+/// <summary>Typed evidence for incomplete contributions to one graph target.</summary>
+public sealed record InspectionGraphIntegrationFailureEvidence :
+    IInspectionGraphDiagnosticEvidence
 {
+    public InspectionGraphIntegrationFailureEvidence(
+        IEnumerable<InspectionGraphIntegrationFailureDetail> details)
+    {
+        ArgumentNullException.ThrowIfNull(details);
+        Details = [.. details];
+        if (Details.IsEmpty)
+            throw new ArgumentException(
+                "Integration graph failure evidence requires at least one detail.",
+                nameof(details));
+    }
+
+    public ImmutableArray<InspectionGraphIntegrationFailureDetail> Details
+        { get; }
+
     public InspectionGraphEvidenceDescriptor Descriptor =>
         InspectionGraphIntegrationsCatalog.FailureEvidence;
 }
@@ -342,7 +359,8 @@ public static class InspectionGraphIntegrationsQuery
         readonly List<InspectionGraphOccurrence> _occurrences = [];
         readonly List<EdgeBuilder> _edges = [];
         readonly Dictionary<EdgeKey, EdgeBuilder> _edgeByKey = [];
-        readonly List<InspectionGraphFailure> _failures = [];
+        readonly List<FailureBuilder> _failures = [];
+        readonly Dictionary<int, FailureBuilder> _failureByTarget = [];
         readonly HashSet<FailureKey> _failureKeys = [];
         readonly Dictionary<
             TypeResolutionKey,
@@ -573,7 +591,8 @@ public static class InspectionGraphIntegrationsQuery
                                 _fulfilledOpportunities.Add(
                                     new OpportunityFulfillmentKey(
                                         receiver,
-                                        signal.Integration));
+                                        signal.Integration,
+                                        target));
                             }
                             AddOccurrence(
                                 source,
@@ -632,8 +651,18 @@ public static class InspectionGraphIntegrationsQuery
                                     available.Subject.Registration,
                                     AssemblyBindingTarget.Reference(reference),
                                     out AssemblyContextParticipant? target,
-                                    out _))
+                                    out InspectionGraphIntegrationFailureKind
+                                        bindingFailure))
                             {
+                                if (bindingFailure
+                                    != InspectionGraphIntegrationFailureKind
+                                        .BindingUnavailable)
+                                {
+                                    AddFailure(
+                                        "references",
+                                        available.Subject.Registration,
+                                        bindingFailure);
+                                }
                                 continue;
                             }
 
@@ -709,19 +738,20 @@ public static class InspectionGraphIntegrationsQuery
                             AddNode(
                                 occurrenceSource,
                                 available.Subject.Registration);
-                            if (_fulfilledOpportunities.Contains(
-                                    new OpportunityFulfillmentKey(
-                                        occurrenceSource,
-                                        opportunity.Integration)))
-                            {
-                                continue;
-                            }
                             if (!TryResolveOpportunityTarget(
                                     available.Subject.Registration,
                                     targetSpec,
                                     occurrenceSource,
                                     out InspectionGraphSubject.TypeSubject?
                                         target))
+                            {
+                                continue;
+                            }
+                            if (_fulfilledOpportunities.Contains(
+                                    new OpportunityFulfillmentKey(
+                                        occurrenceSource,
+                                        opportunity.Integration,
+                                        target)))
                             {
                                 continue;
                             }
@@ -777,6 +807,17 @@ public static class InspectionGraphIntegrationsQuery
                         edge.Relationship,
                         edge.OccurrenceIds)),
             ];
+            InspectionGraphFailure[] failures =
+            [
+                .. _failures.Select(failure =>
+                    new InspectionGraphFailure(
+                        InspectionGraphIntegrationsCatalog
+                            .ProjectionFailure,
+                        InspectionGraphTarget.Node(
+                            failure.TargetId),
+                        new InspectionGraphIntegrationFailureEvidence(
+                            failure.Details))),
+            ];
             return new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
                 _nodes,
@@ -786,7 +827,7 @@ public static class InspectionGraphIntegrationsQuery
                 [],
                 [],
                 [],
-                _failures);
+                failures);
         }
 
         void AddOccurrence(
@@ -1131,16 +1172,21 @@ public static class InspectionGraphIntegrationsQuery
             if (!_failureKeys.Add(key))
                 return;
 
-            _failures.Add(
-                new InspectionGraphFailure(
-                    InspectionGraphIntegrationsCatalog.ProjectionFailure,
-                    InspectionGraphTarget.Node(targetId),
-                    new InspectionGraphIntegrationFailureEvidence(
-                        producer,
-                        registration,
-                        kind,
-                        acquisitionFailure,
-                        error)));
+            if (!_failureByTarget.TryGetValue(
+                    targetId,
+                    out FailureBuilder? failure))
+            {
+                failure = new FailureBuilder(targetId);
+                _failureByTarget.Add(targetId, failure);
+                _failures.Add(failure);
+            }
+            failure.Details.Add(
+                new InspectionGraphIntegrationFailureDetail(
+                    producer,
+                    registration,
+                    kind,
+                    acquisitionFailure,
+                    error));
         }
 
         InspectionGraphSubject.AssemblySubject AssemblySubject(
@@ -1215,6 +1261,13 @@ public static class InspectionGraphIntegrationsQuery
             internal List<int> OccurrenceIds { get; } = [];
         }
 
+        sealed class FailureBuilder(int targetId)
+        {
+            internal int TargetId { get; } = targetId;
+            internal List<InspectionGraphIntegrationFailureDetail> Details
+                { get; } = [];
+        }
+
         readonly record struct FailureKey(
             string Producer,
             AssemblyAcquisitionRegistration Registration,
@@ -1227,6 +1280,7 @@ public static class InspectionGraphIntegrationsQuery
 
         readonly record struct OpportunityFulfillmentKey(
             InspectionGraphSubject.TypeSubject Source,
-            string Integration);
+            string Integration,
+            InspectionGraphSubject.TypeSubject Target);
     }
 }
