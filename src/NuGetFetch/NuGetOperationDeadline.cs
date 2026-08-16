@@ -265,8 +265,16 @@ internal sealed class NuGetOperationDeadline : IDisposable
             Memory<byte> buffer,
             CancellationToken cancellationToken = default)
         {
+            if (cancellationToken.IsCancellationRequested
+                && cancellationToken == operation._callerToken)
+            {
+                await ThrowTranslatedAsync(
+                    new OperationCanceledException(cancellationToken))
+                    .ConfigureAwait(false);
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
-            ThrowIfDeadlineExpired();
+            await ThrowIfDeadlineExpiredAsync().ConfigureAwait(false);
             if (buffer.IsEmpty)
                 return 0;
 
@@ -398,11 +406,12 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 {
                     try
                     {
-                        owner.Dispose();
+                        await DisposeDeadlineStateAsync()
+                            .ConfigureAwait(false);
                     }
                     finally
                     {
-                        DisposeDeadlineState();
+                        owner.Dispose();
                     }
                 }
             }
@@ -439,6 +448,18 @@ internal sealed class NuGetOperationDeadline : IDisposable
         private void DisposeDeadlineState()
         {
             CompleteDeadline();
+        }
+
+        private async ValueTask DisposeDeadlineStateAsync()
+        {
+            if (Interlocked.Exchange(ref _deadlineCompleted, 1) != 0)
+                return;
+
+            await _deadlineRegistration.DisposeAsync().ConfigureAwait(false);
+            _abortCompleted.TrySetResult();
+            requestCancellation.Dispose();
+            operation._disposed = true;
+            operation._operationCancellation.Dispose();
         }
 
         private void CompleteDeadline()

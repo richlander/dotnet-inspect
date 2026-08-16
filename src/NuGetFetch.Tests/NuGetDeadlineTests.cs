@@ -1395,6 +1395,146 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task PreCancelledCallerRead_RetainsDisposalFailure()
+    {
+        var stallingStream = new ThrowingDisposeStallingStream();
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(
+                    StreamResponse(message, stallingStream))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(5),
+                operation: TimeSpan.FromSeconds(10)));
+        using var cancellation = new CancellationTokenSource();
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: cancellation.Token);
+        cancellation.Cancel();
+
+        OperationCanceledException error =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
+                    _ = await package.ReadAsync(
+                        new byte[1].AsMemory(),
+                        cancellation.Token));
+
+        Assert.Equal(cancellation.Token, error.CancellationToken);
+        Assert.Contains(
+            ExceptionTree(error),
+            exception => exception is IOException
+                && exception.Message.Contains(
+                    "Simulated disposal failure",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PreCancelledCallerReadAsync_DoesNotBlockOnCleanup()
+    {
+        var body = new CoordinatedDisposeStream();
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(StreamResponse(message, body))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(5),
+                operation: TimeSpan.FromSeconds(10)));
+        using var cancellation = new CancellationTokenSource();
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: cancellation.Token);
+        Task cancel = Task.Run(
+            cancellation.Cancel,
+            TestContext.Current.CancellationToken);
+        await body.DisposeStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        Task<ValueTask<int>> invocation = Task.Run(
+            () => package.ReadAsync(
+                new byte[1].AsMemory(),
+                cancellation.Token),
+            TestContext.Current.CancellationToken);
+        try
+        {
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(100),
+                TestContext.Current.CancellationToken);
+            Assert.True(invocation.IsCompleted);
+            ValueTask<int> read = await invocation;
+            Assert.False(read.IsCompleted);
+
+            body.ReleaseDispose();
+            await cancel.WaitAsync(
+                TimeSpan.FromSeconds(2),
+                TestContext.Current.CancellationToken);
+            OperationCanceledException error =
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                    async () => _ = await read);
+            Assert.Equal(cancellation.Token, error.CancellationToken);
+        }
+        finally
+        {
+            body.ReleaseDispose();
+        }
+    }
+
+    [Fact]
+    public async Task DisposeAsync_DoesNotBlockOnAbortCleanup()
+    {
+        var body = new CoordinatedDisposeStream();
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(StreamResponse(message, body))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(5),
+                operation: TimeSpan.FromSeconds(10)));
+        using var cancellation = new CancellationTokenSource();
+
+        Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: cancellation.Token);
+        Task cancel = Task.Run(
+            cancellation.Cancel,
+            TestContext.Current.CancellationToken);
+        await body.DisposeStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        Task<ValueTask> invocation = Task.Run(
+            package.DisposeAsync,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(100),
+                TestContext.Current.CancellationToken);
+            Assert.True(invocation.IsCompleted);
+            ValueTask dispose = await invocation;
+            Assert.False(dispose.IsCompleted);
+
+            body.ReleaseDispose();
+            await cancel.WaitAsync(
+                TimeSpan.FromSeconds(2),
+                TestContext.Current.CancellationToken);
+            await dispose;
+        }
+        finally
+        {
+            body.ReleaseDispose();
+        }
+    }
+
+    [Fact]
     public async Task RequestDeadline_DisposalFailureIsRetained()
     {
         var stallingStream = new ThrowingDisposeStallingStream();
@@ -1907,5 +2047,52 @@ public sealed class NuGetDeadlineTests
                     "Simulated late cleanup failure.");
             }
         }
+    }
+
+    private sealed class CoordinatedDisposeStream : Stream
+    {
+        private readonly TaskCompletionSource _disposeStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ManualResetEventSlim _releaseDispose = new();
+        private int _disposeAttempted;
+
+        public Task DisposeStarted => _disposeStarted.Task;
+
+        public void ReleaseDispose() => _releaseDispose.Set();
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing
+                && Interlocked.Exchange(ref _disposeAttempted, 1) == 0)
+            {
+                _disposeStarted.TrySetResult();
+                _releaseDispose.Wait();
+            }
+
+            base.Dispose(disposing);
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
     }
 }
