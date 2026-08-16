@@ -535,12 +535,17 @@ public static class MetadataDeclarationQuery
 
     public static string SelfTypeSignature(MetadataReader reader, TypeDefinition typeDef)
     {
-        var metadataFullName = TypeResolver.GetFullName(reader, typeDef);
+        var (typeNamespace, metadataNameSegments) = TypeNameParts(reader, typeDef);
         var directTypeParameters = TypeParameterNames(reader, typeDef);
-        var typeParameters = directTypeParameters.Count >= GenericArity(metadataFullName)
+        var typeParameters = directTypeParameters.Count >= GenericArity(metadataNameSegments)
             ? directTypeParameters
             : TypeAndDeclaringTypeParameters(reader, typeDef);
-        return TypeResolver.ApplyGenericArguments(metadataFullName, typeParameters);
+        string typeName = TypeResolver.ApplyGenericArguments(
+            metadataNameSegments,
+            typeParameters);
+        return typeNamespace.Length == 0
+            ? typeName
+            : $"{typeNamespace}.{typeName}";
     }
 
     public static IReadOnlyList<string> RenderMemberAttributes(
@@ -1370,14 +1375,32 @@ public static class MetadataDeclarationQuery
     /// Only a canonical <c>`N</c> counts (<see cref="MetadataNameArity"/>), so a
     /// digit run that is name text does not inflate the count.
     /// </summary>
-    static int GenericArity(string metadataFullName)
+    static (string Namespace, IReadOnlyList<string> Segments) TypeNameParts(
+        MetadataReader reader,
+        TypeDefinition typeDef)
+    {
+        var declaringType = typeDef.GetDeclaringType();
+        if (declaringType.IsNil)
+        {
+            return (
+                reader.GetString(typeDef.Namespace),
+                [reader.GetString(typeDef.Name)]);
+        }
+
+        var (typeNamespace, declaringSegments) = TypeNameParts(
+            reader,
+            reader.GetTypeDefinition(declaringType));
+        var segments = new List<string>(declaringSegments.Count + 1);
+        segments.AddRange(declaringSegments);
+        segments.Add(reader.GetString(typeDef.Name));
+        return (typeNamespace, segments);
+    }
+
+    static int GenericArity(IReadOnlyList<string> metadataNameSegments)
     {
         int arity = 0;
-        foreach (MetadataNameComponent component in
-            MetadataNameArity.EnumerateComponents(metadataFullName))
-        {
-            arity += component.Arity;
-        }
+        foreach (string segment in metadataNameSegments)
+            arity += MetadataNameArity.OfSegment(segment);
 
         return arity;
     }

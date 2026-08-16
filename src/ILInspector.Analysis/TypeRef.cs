@@ -282,14 +282,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         if (Assembly == CoreLibrary && Namespace == "System" && PrimitiveTypeNames.TryToKeywordForSystemType(Name, out var keyword))
             return keyword;
-        // Preserve the full nested declaring-type path. Metadata joins a containing
-        // type and its nested type with '+' (see TypeRefDecoder), so a name like
-        // "Left+Dup" must render as "Left.Dup", not the innermost "Dup" alone —
-        // collapsing to the innermost segment merges distinct nested types that share
-        // a simple name (Left+Dup and Right+Dup). Per-segment arity is stripped.
-        if (Name.IndexOf('+') < 0)
-            return StripArity(Name);
-        return string.Join('.', Name.Split('+').Select(StripArity));
+        if (Resolution?.Type is { } exactName)
+            return string.Join('.', exactName.Segments.Select(StripArity));
+        if (Name.IndexOfAny(['.', '+']) >= 0)
+            return Name;
+        return StripArity(Name);
     }
 
     string QualifiedDisplayName()
@@ -302,16 +299,37 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     string RenderGenericInstance(bool qualified)
     {
-        int nested = ElementType!.Name.LastIndexOf('+');
-        string innermost = nested < 0 ? ElementType.Name : ElementType.Name[(nested + 1)..];
-        int ownArity = ArityOf(innermost);
-        string simpleName = qualified ? ElementType.QualifiedDisplayName() : ElementType.DisplayName();
-        if (ownArity == 0)
-            return simpleName;
-        var ownArguments = TypeArguments.Skip(Math.Max(0, TypeArguments.Length - ownArity));
-        string arguments = string.Join(", ", ownArguments.Select(a => qualified ? a.ToQualifiedDisplayString() : a.ToDisplayString()));
-        return $"{simpleName}<{arguments}>";
+        var arguments = TypeArguments
+            .Select(argument => qualified
+                ? argument.ToQualifiedDisplayString()
+                : argument.ToDisplayString())
+            .ToArray();
+
+        if (ElementType!.Resolution?.Type is { } exactName)
+        {
+            string display = TypeResolver.ApplyGenericArguments(
+                exactName.Segments,
+                arguments);
+            return qualified && exactName.Namespace.Length > 0
+                ? $"{exactName.Namespace}.{display}"
+                : display;
+        }
+
+        if (ElementType.Name.IndexOfAny(['.', '+']) >= 0)
+            return qualified
+                ? ElementType.QualifiedRawName()
+                : ElementType.Name;
+
+        int ownArity = ArityOf(ElementType.Name);
+        if (ownArity == 0 || ownArity != arguments.Length)
+            return qualified
+                ? ElementType.QualifiedRawName()
+                : ElementType.Name;
+        return $"{StripArity(ElementType.Name)}<{string.Join(", ", arguments)}>";
     }
+
+    string QualifiedRawName()
+        => Namespace.Length == 0 ? Name : $"{Namespace}.{Name}";
 
     // Metadata owns what a generic-arity suffix is: only a canonical trailing `N is
     // one, so a name whose backtick is literal (Widget`Literal) keeps its identity

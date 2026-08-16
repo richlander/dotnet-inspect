@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -30,13 +31,41 @@ public class TypeRefAritySpellingTests
     {
         Assert.Equal(
             "Outer.Inner",
-            TypeRef.Definition("Asm", "N", "Outer`1+Inner`2").ToDisplayString());
+            ResolvedDefinition("Outer`1+Inner`2", "Outer`1", "Inner`2").ToDisplayString());
         Assert.Equal(
             "Outer`Literal.Inner",
-            TypeRef.Definition("Asm", "N", "Outer`Literal+Inner`1").ToDisplayString());
+            ResolvedDefinition(
+                "Outer`Literal+Inner`1",
+                "Outer`Literal",
+                "Inner`1").ToDisplayString());
         Assert.Equal(
             "N.Outer`Literal.Inner",
-            TypeRef.Definition("Asm", "N", "Outer`Literal+Inner`1").ToQualifiedDisplayString());
+            ResolvedDefinition(
+                "Outer`Literal+Inner`1",
+                "Outer`Literal",
+                "Inner`1").ToQualifiedDisplayString());
+    }
+
+    [Fact]
+    public void DisplayName_DoesNotInventStructureForAmbiguousFlatNames()
+    {
+        Assert.Equal(
+            "A`1+B",
+            TypeRef.Definition("Asm", "N", "A`1+B").ToDisplayString());
+        Assert.NotEqual(
+            TypeRef.Definition("Asm", "N", "A`1+B").ToDisplayString(),
+            TypeRef.Definition("Asm", "N", "A+B").ToDisplayString());
+    }
+
+    [Fact]
+    public void DisplayName_UsesExactResolutionSegmentsWhenAvailable()
+    {
+        TypeRef nested = ResolvedDefinition("A`1+B", "A`1", "B");
+        TypeRef literal = ResolvedDefinition("A`1+B", "A`1+B");
+
+        Assert.Equal("A.B", nested.ToDisplayString());
+        Assert.Equal("A`1+B", literal.ToDisplayString());
+        Assert.NotEqual(nested.ToDisplayString(), literal.ToDisplayString());
     }
 
     [Fact]
@@ -48,7 +77,7 @@ public class TypeRefAritySpellingTests
         Assert.Equal(
             "Outer.Inner<int>",
             TypeRef.GenericInstance(
-                TypeRef.Definition("Asm", "N", "Outer+Inner`1"),
+                ResolvedDefinition("Outer+Inner`1", "Outer", "Inner`1"),
                 arguments).ToDisplayString());
 
         // A literal backtick declares none, so no argument list is attached and
@@ -56,7 +85,23 @@ public class TypeRefAritySpellingTests
         Assert.Equal(
             "Outer.Inner`Literal",
             TypeRef.GenericInstance(
-                TypeRef.Definition("Asm", "N", "Outer+Inner`Literal"),
+                ResolvedDefinition(
+                    "Outer+Inner`Literal",
+                    "Outer",
+                    "Inner`Literal"),
                 arguments).ToDisplayString());
+    }
+
+    static TypeRef ResolvedDefinition(string flattenedName, params string[] segments)
+    {
+        var result = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("N", [.. segments]));
+        return TypeRef.Definition(
+            "Asm",
+            "N",
+            flattenedName,
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                result.Name));
     }
 }

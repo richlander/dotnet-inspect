@@ -8,11 +8,10 @@ using ILInspector.Metadata;
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
-/// Extension methods are attached to the extended type by a name key, and #4217
-/// showed that key folding namespace text into the type name: a type in the
-/// namespace <c>Ns`1</c> keyed as <c>Ns</c>, which is a different, real type.
-/// The key is now built from the structured namespace and type-name parts, so
-/// namespace text is carried verbatim and only the type-name chain is parsed.
+/// Extension methods are attached through the receiver's exact local metadata
+/// definition name. The structured namespace, nested segments, and generic
+/// arity remain distinct, so neither a backticked namespace nor a generic and
+/// non-generic sibling can collide through display normalization.
 /// </summary>
 /// <remarks>
 /// A backtick is not a C# identifier character, so this image cannot come from
@@ -27,12 +26,15 @@ public sealed class ExtensionAttachmentNameBoundaryTests
         ApiSurface surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
 
         ApiType widget = Assert.Single(
-            surface.Types.Where(type => type.Namespace == "Ns`1" && type.Name == "Widget"));
+            surface.Types,
+            type => type.Namespace == "Ns`1" && type.Name == "Widget");
         ApiType lookalike = Assert.Single(
-            surface.Types.Where(type => string.IsNullOrEmpty(type.Namespace) && type.Name == "Ns"));
+            surface.Types,
+            type => string.IsNullOrEmpty(type.Namespace) && type.Name == "Ns");
 
         ApiMember attached = Assert.Single(
-            widget.Members.Where(member => member.Kind == "extension-method"));
+            widget.Members,
+            member => member.Kind == "extension-method");
         Assert.Equal("Extend", attached.Name);
         Assert.Equal("Ns`1.Widget", attached.ExtendedType);
 
@@ -52,13 +54,21 @@ public sealed class ExtensionAttachmentNameBoundaryTests
         using var peReader = new PEReader(ImmutableArray.Create(BuildImage()));
         ApiSurface surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
 
+        ApiType nonGenericBox = Assert.Single(
+            surface.Types,
+            type => type.Namespace == "Ns" && type.Name == "Box");
         ApiType box = Assert.Single(
-            surface.Types.Where(type => type.Namespace == "Ns" && type.Name == "Box`1"));
+            surface.Types,
+            type => type.Namespace == "Ns" && type.Name == "Box`1");
 
         ApiMember attached = Assert.Single(
-            box.Members.Where(member => member.Kind == "extension-method"));
+            box.Members,
+            member => member.Kind == "extension-method");
         Assert.Equal("Unwrap", attached.Name);
         Assert.Equal("Ns.Box<Ns`1.Widget>", attached.ExtendedType);
+        Assert.DoesNotContain(
+            nonGenericBox.Members,
+            member => member.Kind == "extension-method");
     }
 
     static byte[] BuildImage()
@@ -121,6 +131,14 @@ public sealed class ExtensionAttachmentNameBoundaryTests
             TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Interface,
             metadata.GetOrAddString("Ns`1"),
             metadata.GetOrAddString("Widget"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Interface,
+            metadata.GetOrAddString("Ns"),
+            metadata.GetOrAddString("Box"),
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));

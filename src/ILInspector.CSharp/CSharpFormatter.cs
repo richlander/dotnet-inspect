@@ -463,14 +463,31 @@ public sealed class CSharpFormatter
     public static string FormatTypeName(ApiType type, bool includeVariance = false)
     {
         ArgumentNullException.ThrowIfNull(type);
-        // ApiType.Name is a '.'-spelled type-name chain; only a canonical `N is
-        // arity (MetadataNameArity), so a nested chain keeps its components and a
-        // literal backtick keeps the name distinct.
+        bool hasExactSegments = type.DefinitionName is not null;
+        bool ambiguousLegacyName = !hasExactSegments && HasArityBeforeFlatBoundary(type.Name);
+        string typeName = hasExactSegments
+            ? string.Join(
+                ".",
+                type.DefinitionName!.Segments.Select(MetadataNameArity.StripFromSegment))
+            : ambiguousLegacyName
+                ? type.Name
+                : MetadataNameArity.StripFromDottedChain(type.Name);
         string name = CSharpIdentifier.ContainIdentifierForDeclaration(
-            MetadataNameArity.StripFromDottedChain(type.Name));
-        return type.TypeParameters.Count == 0
+            typeName);
+        return type.TypeParameters.Count == 0 || ambiguousLegacyName
             ? name
             : $"{name}<{string.Join(", ", type.TypeParameters.Select(parameter => FormatTypeParameter(parameter, includeVariance)))}>";
+    }
+
+    static bool HasArityBeforeFlatBoundary(string name)
+    {
+        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(name))
+        {
+            if (component.Arity > 0 && component.Delimiter is not null)
+                return true;
+        }
+
+        return false;
     }
 
     public static string NormalizeGeneratedMetadataTypeName(string metadataName)

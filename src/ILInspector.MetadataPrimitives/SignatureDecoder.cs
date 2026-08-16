@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Runtime.CompilerServices;
 
 namespace ILInspector.Metadata;
 
@@ -10,6 +11,10 @@ namespace ILInspector.Metadata;
 public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 {
     const string Unresolved = "object";
+    // SRM's string provider callback erases segment boundaries before
+    // GetGenericInstantiation runs. Retain exact parts only for the ambiguous
+    // heads that need them; NestedTypeReferenceTests gates the handoff.
+    readonly ConditionalWeakTable<string, MetadataTypeNameParts> structuredNames = new();
 
     [ThreadStatic]
     static SignatureDecodeRejection? s_rejection;
@@ -43,10 +48,20 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     };
 
     public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-        => TypeResolver.GetTypeNameFromDefinition(reader, handle);
+    {
+        string name = TypeResolver.GetTypeNameFromDefinition(reader, handle);
+        return MayNeedExactStructure(name)
+            ? Retain(TypeResolver.GetTypeNamePartsFromDefinition(reader, handle))
+            : name;
+    }
 
     public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-        => TypeResolver.GetTypeNameFromReference(reader, handle);
+    {
+        string name = TypeResolver.GetTypeNameFromReference(reader, handle);
+        return MayNeedExactStructure(name)
+            ? Retain(TypeResolver.GetTypeNamePartsFromReference(reader, handle))
+            : name;
+    }
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
@@ -125,7 +140,63 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     public string GetPointerType(string elementType) => $"{elementType}*";
 
     public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
-        => TypeResolver.ApplyGenericArguments(genericType, typeArguments);
+    {
+        if (!structuredNames.TryGetValue(genericType, out MetadataTypeNameParts? structured))
+            return TypeResolver.ApplyGenericArguments(genericType, typeArguments);
+
+        string typeName = TypeResolver.ApplyGenericArguments(
+            structured.Segments,
+            typeArguments);
+        return structured.Namespace.Length == 0
+            ? typeName
+            : $"{structured.Namespace}.{typeName}";
+    }
+
+    string Retain(MetadataTypeNameParts structured)
+    {
+        string value = structured.ToDottedName();
+        if (!RequiresExactStructure(structured))
+            return value;
+
+        string name = string.Create(
+            value.Length,
+            value,
+            static (destination, source) => source.AsSpan().CopyTo(destination));
+        structuredNames.Add(name, structured);
+        return name;
+    }
+
+    static bool RequiresExactStructure(MetadataTypeNameParts structured)
+    {
+        foreach (MetadataNameComponent component in
+            MetadataNameArity.EnumerateComponents(
+                structured.Namespace,
+                dotIsBoundary: true,
+                plusIsBoundary: false))
+        {
+            if (component.Arity > 0)
+                return true;
+        }
+
+        for (int i = 0; i < structured.Segments.Count - 1; i++)
+        {
+            if (MetadataNameArity.OfSegment(structured.Segments[i]) > 0)
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool MayNeedExactStructure(string name)
+    {
+        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(name))
+        {
+            if (component.Arity > 0 && component.Delimiter is not null)
+                return true;
+        }
+
+        return false;
+    }
 
     public string GetGenericMethodParameter(GenericContext? context, int index)
     {

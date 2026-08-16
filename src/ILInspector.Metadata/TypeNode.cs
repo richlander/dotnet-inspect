@@ -254,9 +254,13 @@ internal sealed class PrimitiveTypeNode(string name, bool isReferenceType) : Typ
 }
 
 /// <summary>Non-generic named types (JsonSerializer, Stream, etc.).</summary>
-internal sealed class NamedTypeNode(string name, bool isReferenceType) : TypeNode
+internal sealed class NamedTypeNode(
+    string name,
+    bool isReferenceType,
+    MetadataTypeNameParts? metadataName = null) : TypeNode
 {
     public string Name => name;
+    public MetadataTypeNameParts? MetadataName => metadataName;
     public override bool IsReferenceType => isReferenceType;
 
     public override string Render(bool canonicalTuples)
@@ -281,7 +285,8 @@ internal sealed class GenericTypeNode(
     bool isReferenceType,
     ImmutableArray<TypeNode> arguments,
     string nestedSuffix = "",
-    bool degradedGenericType = false) : TypeNode
+    bool degradedGenericType = false,
+    MetadataTypeNameParts? metadataName = null) : TypeNode
 {
     public string BaseName => baseName;
     public ImmutableArray<TypeNode> Arguments => arguments;
@@ -304,8 +309,22 @@ internal sealed class GenericTypeNode(
             return IsReferenceType && IsNullableAnnotated ? $"{tuple}?" : tuple;
         }
 
-        var argsStr = string.Join(", ", arguments.Select(a => a.Render(canonicalTuples)));
-        var result = $"{baseName}<{argsStr}>{nestedSuffix}";
+        var renderedArguments = arguments
+            .Select(argument => argument.Render(canonicalTuples))
+            .ToArray();
+        string result;
+        if (metadataName is not null)
+        {
+            result = TypeResolver.ApplyGenericArguments(
+                metadataName.Segments,
+                renderedArguments);
+            if (metadataName.Namespace.Length > 0)
+                result = $"{metadataName.Namespace}.{result}";
+        }
+        else
+        {
+            result = $"{baseName}<{string.Join(", ", renderedArguments)}>{nestedSuffix}";
+        }
         return IsReferenceType && IsNullableAnnotated ? $"{result}?" : result;
     }
 

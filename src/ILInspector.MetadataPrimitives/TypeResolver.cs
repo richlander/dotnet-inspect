@@ -124,6 +124,19 @@ public static class TypeResolver
             static current => current);
     }
 
+    internal static MetadataTypeNameParts GetTypeNamePartsFromReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
+        => FormatNameParts(
+            reader,
+            MetadataRelationshipTraversal.WalkTypeReferenceResolutionScope(reader, handle),
+            current =>
+            {
+                var typeRef = reader.GetTypeReference(current);
+                return (typeRef.Namespace, typeRef.Name);
+            },
+            static current => current).GetValueOrThrow();
+
     /// <summary>
     /// Gets the type name from a TypeDefinition handle.
     /// </summary>
@@ -183,6 +196,19 @@ public static class TypeResolver
             },
             static current => current);
     }
+
+    internal static MetadataTypeNameParts GetTypeNamePartsFromDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+        => FormatNameParts(
+            reader,
+            MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(reader, handle),
+            current =>
+            {
+                var typeDef = reader.GetTypeDefinition(current);
+                return (typeDef.Namespace, typeDef.Name);
+            },
+            static current => current).GetValueOrThrow();
 
     /// <summary>
     /// Resolves an ExportedType name through a bounded, cycle-aware
@@ -459,14 +485,12 @@ public static class TypeResolver
     }
 
     /// <summary>
-    /// Renders a generic instantiation by substituting the supplied type arguments
-    /// at each <c>`N</c> arity marker in the open type name, preserving the
-    /// surrounding text - crucially any trailing nested-type segment such as the
-    /// <c>.Enumerator</c> in <c>Dictionary`2.Enumerator</c>. Arguments are consumed
-    /// in order across arity markers (so <c>Outer`1.Inner`1</c> with two arguments
-    /// becomes <c>Outer&lt;A&gt;.Inner&lt;B&gt;</c>). When the name carries no arity
-    /// marker the arguments are appended once, matching the simple
-    /// <c>Name&lt;args&gt;</c> form.
+    /// Renders a generic instantiation from legacy flat text. Only an
+    /// unambiguous terminal <c>`N</c> is rewritten, and its declared arity must
+    /// equal the supplied argument count. A possible namespace or nesting
+    /// boundary preserves the raw spelling; callers with exact segments use the
+    /// structured overload. When the name carries no arity marker the arguments
+    /// are appended once, matching the legacy <c>Name&lt;args&gt;</c> form.
     /// </summary>
     public static string ApplyGenericArguments(string genericTypeName, IReadOnlyList<string> typeArguments)
     {
@@ -479,32 +503,92 @@ public static class TypeResolver
                 : $"{genericTypeName}<{string.Join(", ", typeArguments)}>";
         }
 
-        int argIndex = 0;
+        if (!TryReadUnambiguousFlattenedArity(genericTypeName, out int arity)
+            || arity != typeArguments.Count)
+        {
+            return genericTypeName;
+        }
+
         return RewriteAritySegments(
             genericTypeName,
-            (int arity, StringBuilder builder) =>
+            (int _, StringBuilder builder) =>
             {
-                int take = Math.Min(arity, typeArguments.Count - argIndex);
                 builder.Append('<');
-                for (int k = 0; k < take; k++)
+                for (int k = 0; k < typeArguments.Count; k++)
                 {
                     if (k > 0)
                         builder.Append(", ");
-                    builder.Append(typeArguments[argIndex + k]);
+                    builder.Append(typeArguments[k]);
                 }
                 builder.Append('>');
-                argIndex += take;
                 return true;
-            });
+            },
+            dotIsBoundary: false,
+            plusIsBoundary: false);
     }
 
     /// <summary>
-    /// Formats raw metadata type names for display by replacing CLR generic arity suffixes
-    /// with readable type parameter placeholders.
+    /// Renders a generic instantiation from exact root-to-leaf metadata-name
+    /// segments. Arguments are consumed by each segment's declared arity, and a
+    /// count mismatch preserves the raw segmented spelling rather than partially
+    /// rewriting it into a different type identity.
+    /// </summary>
+    public static string ApplyGenericArguments(
+        IReadOnlyList<string> metadataNameSegments,
+        IReadOnlyList<string> typeArguments)
+    {
+        ArgumentNullException.ThrowIfNull(metadataNameSegments);
+        ArgumentNullException.ThrowIfNull(typeArguments);
+
+        long declaredArity = 0;
+        foreach (string segment in metadataNameSegments)
+        {
+            ArgumentNullException.ThrowIfNull(segment);
+            declaredArity += ArityWithDecoration(segment);
+        }
+
+        string rawName = string.Join('.', metadataNameSegments);
+        if (declaredArity != typeArguments.Count)
+            return rawName;
+
+        int argIndex = 0;
+        var result = new StringBuilder(rawName.Length + 16);
+        for (int segmentIndex = 0; segmentIndex < metadataNameSegments.Count; segmentIndex++)
+        {
+            if (segmentIndex > 0)
+                result.Append('.');
+
+            result.Append(RewriteAritySegments(
+                metadataNameSegments[segmentIndex],
+                (int arity, StringBuilder builder) =>
+                {
+                    builder.Append('<');
+                    for (int k = 0; k < arity; k++)
+                    {
+                        if (k > 0)
+                            builder.Append(", ");
+                        builder.Append(typeArguments[argIndex++]);
+                    }
+                    builder.Append('>');
+                    return true;
+                },
+                dotIsBoundary: false,
+                plusIsBoundary: false));
+        }
+
+        return result.ToString();
+    }
+
+    /// <summary>
+    /// Formats legacy flat metadata text by replacing one unambiguous terminal
+    /// CLR generic arity suffix with readable type parameter placeholders.
     /// </summary>
     public static string FormatDisplayName(string typeName)
     {
         if (string.IsNullOrEmpty(typeName) || !typeName.Contains('`'))
+            return typeName;
+
+        if (!TryReadUnambiguousFlattenedArity(typeName, out _))
             return typeName;
 
         return RewriteAritySegments(
@@ -523,7 +607,49 @@ public static class TypeResolver
                 }
                 builder.Append('>');
                 return true;
-            });
+            },
+            dotIsBoundary: false,
+            plusIsBoundary: false);
+    }
+
+    /// <summary>
+    /// Formats exact root-to-leaf metadata-name segments with stable generic
+    /// placeholders. Literal dots and pluses remain inside their owning segment.
+    /// </summary>
+    public static string FormatDisplayName(IReadOnlyList<string> metadataNameSegments)
+    {
+        ArgumentNullException.ThrowIfNull(metadataNameSegments);
+        var result = new StringBuilder();
+        for (int segmentIndex = 0; segmentIndex < metadataNameSegments.Count; segmentIndex++)
+        {
+            string segment = metadataNameSegments[segmentIndex]
+                ?? throw new ArgumentException(
+                    "Metadata-name segments cannot contain null entries.",
+                    nameof(metadataNameSegments));
+            if (segmentIndex > 0)
+                result.Append('.');
+            result.Append(RewriteAritySegments(
+                segment,
+                static (int arity, StringBuilder builder) =>
+                {
+                    if (arity > MaxDisplayedPlaceholders)
+                        return false;
+
+                    builder.Append('<');
+                    for (int parameterIndex = 1; parameterIndex <= arity; parameterIndex++)
+                    {
+                        if (parameterIndex > 1)
+                            builder.Append(", ");
+                        builder.Append(arity == 1 ? "T" : $"T{parameterIndex}");
+                    }
+                    builder.Append('>');
+                    return true;
+                },
+                dotIsBoundary: false,
+                plusIsBoundary: false));
+        }
+
+        return result.ToString();
     }
 
     /// <summary>
@@ -537,19 +663,23 @@ public static class TypeResolver
     internal const int MaxDisplayedPlaceholders = 64;
 
     /// <summary>
-    /// Rewrites every canonical generic-arity suffix in a flattened type name,
-    /// leaving all other text — including a backtick that is not a canonical
-    /// suffix — exactly as it was. Suffix recognition is
-    /// <see cref="MetadataNameArity"/>'s, applied to each <c>.</c>/<c>+</c>
-    /// component, so an arbitrary digit run (<c>Bomb`2147483647</c>), a
+    /// Rewrites canonical generic-arity suffixes using the caller-supplied
+    /// boundary contract. An arbitrary digit run (<c>Bomb`2147483647</c>), a
     /// non-ASCII digit, a signed or padded count, or digits followed by more text
     /// is text, not arity. <paramref name="render"/> returns false to decline a
     /// marker, which restores its raw spelling.
     /// </summary>
-    static string RewriteAritySegments(string name, Func<int, StringBuilder, bool> render)
+    static string RewriteAritySegments(
+        string name,
+        Func<int, StringBuilder, bool> render,
+        bool dotIsBoundary = true,
+        bool plusIsBoundary = true)
     {
         var result = new StringBuilder(name.Length + 16);
-        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(name))
+        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(
+            name,
+            dotIsBoundary,
+            plusIsBoundary))
         {
             ReadOnlySpan<char> text = name.AsSpan(component.Start, component.Length);
             ReadOnlySpan<char> decoration = text[TypeDecorationStart(text)..];
@@ -579,6 +709,37 @@ public static class TypeResolver
         }
 
         return result.ToString();
+    }
+
+    static bool TryReadUnambiguousFlattenedArity(string name, out int arity)
+    {
+        arity = 0;
+        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(name))
+        {
+            ReadOnlySpan<char> text = name.AsSpan(component.Start, component.Length);
+            ReadOnlySpan<char> metadataName = text[..TypeDecorationStart(text)];
+            if (!MetadataNameArity.TryReadSuffix(metadataName, out int componentArity, out _))
+                continue;
+
+            if (component.Delimiter is not null || arity != 0)
+            {
+                arity = 0;
+                return false;
+            }
+
+            arity = componentArity;
+        }
+
+        return arity != 0;
+    }
+
+    static int ArityWithDecoration(string segment)
+    {
+        ReadOnlySpan<char> text = segment;
+        ReadOnlySpan<char> metadataName = text[..TypeDecorationStart(text)];
+        return MetadataNameArity.TryReadSuffix(metadataName, out int arity, out _)
+            ? arity
+            : 0;
     }
 
     /// <summary>
@@ -649,6 +810,50 @@ public static class TypeResolver
 
         return new RelationshipTraversalResult<string>.Completed(
             builder.ToString(),
+            chain.Handles.Length);
+    }
+
+    static RelationshipTraversalResult<MetadataTypeNameParts> FormatNameParts<THandle>(
+        MetadataReader reader,
+        RelationshipTraversalResult<RelationshipChain<THandle>> traversal,
+        Func<THandle, (StringHandle Namespace, StringHandle Name)> getName,
+        Func<THandle, EntityHandle> getSubject)
+        where THandle : struct
+    {
+        if (traversal is RelationshipTraversalResult<RelationshipChain<THandle>>.Rejected rejected)
+            return Reject<MetadataTypeNameParts>(rejected.Rejection);
+
+        var chain = ((RelationshipTraversalResult<RelationshipChain<THandle>>.Completed)traversal).Value;
+        string rootNamespace = "";
+        var segments = new string[chain.Handles.Length];
+        for (int i = 0; i < chain.Handles.Length; i++)
+        {
+            var handle = chain.Handles[i];
+            try
+            {
+                var (namespaceHandle, nameHandle) = getName(handle);
+                if (i == 0)
+                    rootNamespace = reader.GetString(namespaceHandle);
+                segments[i] = reader.GetString(nameHandle);
+            }
+            catch (BadImageFormatException ex)
+            {
+                return Malformed<MetadataTypeNameParts>(
+                    ex,
+                    getSubject(handle),
+                    consumedNodes: i + 1);
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                return Malformed<MetadataTypeNameParts>(
+                    ex,
+                    getSubject(handle),
+                    consumedNodes: i + 1);
+            }
+        }
+
+        return new RelationshipTraversalResult<MetadataTypeNameParts>.Completed(
+            new MetadataTypeNameParts(rootNamespace, segments),
             chain.Handles.Length);
     }
 
@@ -761,4 +966,18 @@ public static class TypeResolver
         EntityHandle subject,
         int consumedNodes = 1)
         => Malformed<string>(exception, subject, consumedNodes).GetValueOrThrow();
+}
+
+internal sealed class MetadataTypeNameParts(string @namespace, string[] segments)
+{
+    public string Namespace { get; } = @namespace;
+    public IReadOnlyList<string> Segments { get; } = segments;
+
+    public string ToDottedName()
+    {
+        string typeName = string.Join('.', Segments);
+        return Namespace.Length == 0
+            ? typeName
+            : $"{Namespace}.{typeName}";
+    }
 }

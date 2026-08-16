@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -555,6 +556,8 @@ public static class ApiSurfaceExtractor
                 {
                     member.IsExtension = true;
                     member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
+                    member.ExtendedTypeDefinitionName =
+                        GetFirstParameterDefinitionName(reader, typeDef, method);
                     member.DeclaringType = apiType.FullName;
                 }
 
@@ -946,6 +949,8 @@ public static class ApiSurfaceExtractor
                 int token = MetadataTokens.GetToken(methodHandle);
                 member.IsExtension = true;
                 member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
+                member.ExtendedTypeDefinitionName =
+                    GetFirstParameterDefinitionName(reader, typeDef, method);
                 member.DeclaringType = apiType.FullName;
                 member.MetadataToken = token;
                 member.Signature = token.ToString("X8", CultureInfo.InvariantCulture);
@@ -1635,18 +1640,32 @@ public static class ApiSurfaceExtractor
         ApiSurface surface,
         ExtractionBudget? budget = null)
     {
-        var targets = surface.Types
-            .SelectMany(type => GetTypeMatchKeys(type).Select(key => (key, type)))
-            .GroupBy(item => item.key, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First().type, StringComparer.OrdinalIgnoreCase);
+        var targets = new Dictionary<MetadataTypeDefinitionName, ApiType>();
+        var ambiguousTargets = new HashSet<MetadataTypeDefinitionName>();
+        foreach (ApiType type in surface.Types)
+        {
+            if (type.DefinitionName is not { } definitionName
+                || ambiguousTargets.Contains(definitionName))
+            {
+                continue;
+            }
+
+            if (!targets.TryAdd(definitionName, type))
+            {
+                targets.Remove(definitionName);
+                ambiguousTargets.Add(definitionName);
+            }
+        }
 
         foreach (var declaringType in surface.Types)
         {
             foreach (var extension in declaringType.Members.Where(member => member.IsExtension))
             {
-                var key = NormalizeTypeMatchKey(extension.ExtendedType);
-                if (key == null || !targets.TryGetValue(key, out var targetType))
+                if (extension.ExtendedTypeDefinitionName is not { } targetName
+                    || !targets.TryGetValue(targetName, out var targetType))
+                {
                     continue;
+                }
                 if (ReferenceEquals(targetType, declaringType))
                     continue;
                 if (targetType.Members.Any(member =>
@@ -1679,6 +1698,7 @@ public static class ApiSurfaceExtractor
                     IsUnsafe = extension.IsUnsafe,
                     IsExtension = true,
                     ExtendedType = extension.ExtendedType,
+                    ExtendedTypeDefinitionName = extension.ExtendedTypeDefinitionName,
                     DeclaringType = declaringType.FullName,
                     DeclaringOverloadIndex = declaringOverloadIndex,
                     IsObsolete = extension.IsObsolete,
@@ -1687,90 +1707,6 @@ public static class ApiSurfaceExtractor
                 });
             }
         }
-    }
-
-    private static IEnumerable<string> GetTypeMatchKeys(ApiType type)
-    {
-        // Built from the structured parts, not from FullName: the namespace is
-        // carried verbatim and only the type-name chain is parsed for arity. A
-        // namespace is not a type-name segment, so a namespace whose text
-        // contains a backtick (`Ns`1`) must not be folded away — doing so
-        // collided the type with a global type named `Ns` (#4217).
-        string typeName = MetadataNameArity.StripFromDottedChain(type.Name);
-        string? ns = type.Namespace;
-        yield return string.IsNullOrEmpty(ns) ? typeName : $"{ns}.{typeName}";
-    }
-
-    /// <summary>
-    /// The match key for a rendered type reference (an extension method's
-    /// extended-type text). Type arguments are removed group-wise rather than by
-    /// truncating at the first <c>&lt;</c>, so a nested reference keeps the
-    /// segments after the arguments (<c>Ns.Outer&lt;T&gt;.Inner</c> keys as
-    /// <c>Ns.Outer.Inner</c>) and matches the same type's structured key.
-    /// </summary>
-    /// <remarks>
-    /// Rendered text has already lost the namespace boundary, so this side parses
-    /// no arity at all: the type side removes the arity it can locate exactly,
-    /// and a rendered reference simply spells the instantiated name. Stripping
-    /// here would rewrite namespace text — <c>Ns`1.Widget</c> would key as
-    /// <c>Ns.Widget</c> and steal the extension from a real <c>Ns.Widget</c>.
-    /// </remarks>
-    private static string? NormalizeTypeMatchKey(string? typeName)
-    {
-        if (string.IsNullOrWhiteSpace(typeName))
-            return null;
-
-        var value = typeName.Trim();
-        foreach (var prefix in (ReadOnlySpan<string>)["ref ", "in ", "out "])
-        {
-            if (value.StartsWith(prefix, StringComparison.Ordinal))
-            {
-                value = value[prefix.Length..].TrimStart();
-                break;
-            }
-        }
-
-        if (value.EndsWith("?", StringComparison.Ordinal))
-            value = value[..^1];
-
-        value = PrimitiveTypeNames.ToClrFullName(value);
-        return RemoveTypeArgumentGroups(value);
-    }
-
-    /// <summary>
-    /// Removes balanced <c>&lt;…&gt;</c> type-argument groups from a rendered
-    /// type reference, keeping the text on both sides. Unbalanced text is
-    /// returned unchanged so a malformed render is not silently reshaped.
-    /// </summary>
-    private static string RemoveTypeArgumentGroups(string value)
-    {
-        int open = value.IndexOf('<');
-        if (open < 0)
-            return value;
-
-        var builder = new StringBuilder(value.Length);
-        int depth = 0;
-        foreach (char c in value)
-        {
-            if (c == '<')
-            {
-                depth++;
-                continue;
-            }
-
-            if (c == '>')
-            {
-                if (depth == 0)
-                    return value;
-                depth--;
-                continue;
-            }
-
-            if (depth == 0)
-                builder.Append(c);
-        }
-
-        return depth == 0 ? builder.ToString() : value;
     }
 
     /// <summary>
@@ -2991,6 +2927,107 @@ public static class ApiSurfaceExtractor
                 && signature.ParameterTypes.Length > 0
                     ? signature.ParameterTypes[0]
                     : null;
+    }
+
+    private static MetadataTypeDefinitionName? GetFirstParameterDefinitionName(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
+    {
+        var context = GenericContext.ForMethod(reader, typeDef, method);
+        MethodSignature<MetadataTypeDefinitionName?> signature =
+            GuardedProviderDecode.Method(
+                reader,
+                method,
+                ExtensionReceiverDefinitionProvider.Instance,
+                context,
+                fallbackReturn: null);
+        return signature.ParameterTypes.Length > 0
+            ? signature.ParameterTypes[0]
+            : null;
+    }
+
+    sealed class ExtensionReceiverDefinitionProvider :
+        ISignatureTypeProvider<MetadataTypeDefinitionName?, GenericContext?>
+    {
+        public static ExtensionReceiverDefinitionProvider Instance { get; } = new();
+
+        public MetadataTypeDefinitionName? GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind)
+            => MetadataTypeDefinitionNameReader.Read(reader, handle)
+                is MetadataTypeDefinitionNameReadResult.Read read
+                    ? read.Name
+                    : null;
+
+        public MetadataTypeDefinitionName? GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind)
+            => null;
+
+        public MetadataTypeDefinitionName? GetTypeFromSpecification(
+            MetadataReader reader,
+            GenericContext? context,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind)
+        {
+            if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                return null;
+            using (scope)
+                return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+        }
+
+        public MetadataTypeDefinitionName? GetGenericInstantiation(
+            MetadataTypeDefinitionName? genericType,
+            ImmutableArray<MetadataTypeDefinitionName?> typeArguments)
+            => genericType;
+
+        public MetadataTypeDefinitionName? GetByReferenceType(
+            MetadataTypeDefinitionName? elementType)
+            => elementType;
+
+        public MetadataTypeDefinitionName? GetModifiedType(
+            MetadataTypeDefinitionName? modifier,
+            MetadataTypeDefinitionName? unmodifiedType,
+            bool isRequired)
+            => unmodifiedType;
+
+        public MetadataTypeDefinitionName? GetPinnedType(
+            MetadataTypeDefinitionName? elementType)
+            => elementType;
+
+        public MetadataTypeDefinitionName? GetArrayType(
+            MetadataTypeDefinitionName? elementType,
+            ArrayShape shape)
+            => null;
+
+        public MetadataTypeDefinitionName? GetSZArrayType(
+            MetadataTypeDefinitionName? elementType)
+            => null;
+
+        public MetadataTypeDefinitionName? GetPointerType(
+            MetadataTypeDefinitionName? elementType)
+            => null;
+
+        public MetadataTypeDefinitionName? GetFunctionPointerType(
+            MethodSignature<MetadataTypeDefinitionName?> signature)
+            => null;
+
+        public MetadataTypeDefinitionName? GetGenericMethodParameter(
+            GenericContext? context,
+            int index)
+            => null;
+
+        public MetadataTypeDefinitionName? GetGenericTypeParameter(
+            GenericContext? context,
+            int index)
+            => null;
+
+        public MetadataTypeDefinitionName? GetPrimitiveType(
+            PrimitiveTypeCode typeCode)
+            => null;
     }
 
     /// <summary>

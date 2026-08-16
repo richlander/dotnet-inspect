@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp.Tests;
@@ -1366,6 +1367,27 @@ public sealed class CSharpFormatterTests
     public void StripArity_ParsesTheDottedTypeNameChainOnly(string name, string expected)
         => Assert.Equal(expected, CSharpFormatter.StripArity(name));
 
+    [Fact]
+    public void FormatTypeName_DoesNotInventStructureForLiteralDots()
+    {
+        var legacy = new ApiType { Name = "A`1.B" };
+        var exactName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "",
+                ImmutableArray.Create("A`1.B"))).Name;
+        var exact = new ApiType
+        {
+            Name = "A`1.B",
+            DefinitionName = exactName
+        };
+
+        Assert.Equal("A`1.B", CSharpFormatter.FormatTypeName(legacy));
+        Assert.Equal("A`1.B", CSharpFormatter.FormatTypeName(exact));
+        Assert.NotEqual(
+            CSharpFormatter.FormatTypeName(legacy),
+            CSharpFormatter.FormatTypeName(new ApiType { Name = "A.B" }));
+    }
+
     /// <summary>
     /// Delegate rendering used to truncate the name at the first backtick, which
     /// dropped every following nested component and spelled a distinct type
@@ -1384,6 +1406,10 @@ public sealed class CSharpFormatterTests
         var nested = new ApiType
         {
             Name = "Outer`1.Callback",
+            DefinitionName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "",
+                    ImmutableArray.Create("Outer`1", "Callback"))).Name,
             Kind = "delegate",
             Accessibility = "public"
         };

@@ -23,16 +23,26 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
     {
-        string name = NameDecoder.GetTypeFromDefinition(reader, handle, rawTypeKind);
+        string name = TypeResolver.GetTypeNameFromDefinition(reader, handle);
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
-        return new NamedTypeNode(name, isRef);
+        return MayNeedExactStructure(name)
+            ? new NamedTypeNode(
+                name,
+                isRef,
+                TypeResolver.GetTypeNamePartsFromDefinition(reader, handle))
+            : new NamedTypeNode(name, isRef);
     }
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
-        string name = NameDecoder.GetTypeFromReference(reader, handle, rawTypeKind);
+        string name = TypeResolver.GetTypeNameFromReference(reader, handle);
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
-        return new NamedTypeNode(name, isRef);
+        return MayNeedExactStructure(name)
+            ? new NamedTypeNode(
+                name,
+                isRef,
+                TypeResolver.GetTypeNamePartsFromReference(reader, handle))
+            : new NamedTypeNode(name, isRef);
     }
 
     public TypeNode GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
@@ -56,6 +66,20 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetGenericInstantiation(TypeNode genericType, ImmutableArray<TypeNode> typeArguments)
     {
         string rawName = genericType is NamedTypeNode n ? n.Name : genericType.Render();
+        if (genericType is NamedTypeNode { MetadataName: { } metadataName })
+        {
+            string exactBaseName = string.Join(
+                ".",
+                metadataName.Segments.Select(MetadataNameArity.StripFromSegment));
+            if (metadataName.Namespace.Length > 0)
+                exactBaseName = $"{metadataName.Namespace}.{exactBaseName}";
+            return new GenericTypeNode(
+                exactBaseName,
+                genericType.IsReferenceType,
+                typeArguments,
+                degradedGenericType: genericType.IsDegraded,
+                metadataName: metadataName);
+        }
 
         // Split at the first canonical `N marker, keeping any trailing nested-type
         // segment (Dictionary`2.Enumerator -> base "Dictionary", suffix
@@ -108,4 +132,15 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetModifiedType(TypeNode modifier, TypeNode unmodifiedType, bool isRequired) => new ModifiedTypeNode(modifier, unmodifiedType, isRequired);
 
     public TypeNode GetPinnedType(TypeNode elementType) => new PassthroughTypeNode(elementType);
+
+    static bool MayNeedExactStructure(string name)
+    {
+        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(name))
+        {
+            if (component.Arity > 0 && component.Delimiter is not null)
+                return true;
+        }
+
+        return false;
+    }
 }
