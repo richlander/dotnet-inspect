@@ -49,6 +49,8 @@ public static class PackageSectionDescriptors
             .Add<PackageInfo>()
             .Add<PackageReadme>()
             .Add<Signals>()
+            .Add<AuditArtifactText>()
+            .Add<AuditIdentifierConfusion>()
             .Add<Statistics>()
             .Add<TargetFrameworks>()
             .Add<NuspecFiles>()
@@ -96,6 +98,8 @@ public static class PackageSectionDescriptors
             .AddCategory(
                 SectionCategoryNames.Audit,
                 PackageSections.Signals,
+                PackageSections.AuditArtifactText,
+                PackageSections.AuditIdentifierConfusion,
                 PackageSections.Signature,
                 PackageSections.Vulnerabilities,
                 PackageSections.SourceLinkAvailability,
@@ -157,6 +161,36 @@ public static class PackageSectionDescriptors
         public static SectionCost Cost => SectionCost.Moderated;
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model) => true;
+    }
+
+    /// <summary>
+    /// One content-free row per artifact-derived package field that required visual
+    /// containment. Package file paths make the possible row count track package size,
+    /// so the section is available only through an exact or category selection.
+    /// </summary>
+    public sealed class AuditArtifactText : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.AuditArtifactText;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => new PackageInspectionText(model).ConcernCases.Count > 0;
+    }
+
+    public sealed class AuditIdentifierConfusion : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.AuditIdentifierConfusion;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        // Alternate-package IDs require bounded registry metadata acquisition.
+        public static SectionCost Cost => SectionCost.Moderated;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => IdentifierConfusionAudit.InspectPackage(model).Count > 0;
     }
 
     // ===== Network-bound sections =====
