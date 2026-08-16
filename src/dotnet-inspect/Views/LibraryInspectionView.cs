@@ -271,6 +271,16 @@ public class LibraryInspectionView
         _data.AuditSignals?.Select(s => new AuditSignalRow(s.Area, s.Signal, s.Value, s.Evidence)).ToList();
 
     [MarkoutIgnore]
+    public bool HasIdentifierConfusion =>
+        IdentifierConfusionAudit.InspectLibrary(_data).Count > 0;
+
+    [MarkoutSection(
+        Name = SectionNames.IdentifierConfusion,
+        ShowWhenProperty = nameof(HasIdentifierConfusion))]
+    public List<IdentifierConfusionRow> IdentifierConfusion =>
+        IdentifierConfusionRows.Create(IdentifierConfusionAudit.InspectLibrary(_data));
+
+    [MarkoutIgnore]
     public bool HasSwitches => _data.SwitchInspection.HasFindings();
 
     [MarkoutSection(Name = "Switches", ShowWhenProperty = nameof(HasSwitches))]
