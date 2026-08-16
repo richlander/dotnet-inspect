@@ -55,6 +55,8 @@ public static class Cfg
                 case Return or Throw:
                     exits = true;
                     break;
+                case Break or Continue:
+                    break;
                 case Leave or EndFinally or EndFilter:
                     leaves = true;
                     break;
