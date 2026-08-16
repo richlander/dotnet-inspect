@@ -6,7 +6,7 @@ using System.Text;
 
 using ILInspector.Metadata;
 
-namespace ILInspector.Instructions.Tests;
+namespace ILInspector.ILDiff.Tests;
 
 /// <summary>
 /// Controls for <see cref="IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals"/>.
