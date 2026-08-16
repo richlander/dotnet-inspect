@@ -13294,16 +13294,16 @@ public partial class CommandExecutionTests
             "library", TestAssemblyPath, "-D", "Performance", "--effective", "--tips", "q");
 
         Assert.Equal(0, exit);
-        AssertOnlyPerformanceAnalysisWarnings(error);
+        Assert.Empty(error);
         Assert.Contains("| Performance: Boxing | section", output);
         Assert.Contains("| Performance: Async | section", output);
 
         Assert.Equal(0, treeExit);
-        AssertOnlyPerformanceAnalysisWarnings(treeError);
+        Assert.Empty(treeError);
         Assert.Contains("└─ @Performance", treeOutput);
 
         Assert.Equal(0, countExit);
-        AssertOnlyPerformanceAnalysisWarnings(countError);
+        Assert.Empty(countError);
         Assert.Equal("10", countOutput.Trim());
 
         Assert.Equal(0, effectiveExit);
