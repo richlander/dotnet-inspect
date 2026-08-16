@@ -156,10 +156,17 @@ public static class MetadataDeclarationQuery
             if (!includeNonPublicMembers && declaration.Accessibility != "public")
                 continue;
 
+            string propertyName = declaration.MetadataName;
+            bool isExplicitInterfaceImplementation =
+                propertyName.Contains('.', StringComparison.Ordinal)
+                && (!declaration.Getter.IsNil
+                        && explicitImplementationBodies.Contains(declaration.Getter)
+                    || !declaration.Setter.IsNil
+                        && explicitImplementationBodies.Contains(declaration.Setter));
             var signatureText = PropertySignatureText(declaration);
             type.Members.Add(new ApiMember
             {
-                Name = declaration.MetadataName,
+                Name = propertyName,
                 Kind = "property",
                 ReturnType = declaration.Signature.ReturnType,
                 SignatureModel = declaration.Signature,
@@ -179,6 +186,7 @@ public static class MetadataDeclarationQuery
                 IsVirtual = declaration.IsVirtual,
                 IsOverride = declaration.IsOverride,
                 IsSealed = declaration.IsSealed,
+                IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
                 IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(reader, property)
                     || AttributeReader.HasRequiresUnsafeAttribute(reader, property.GetCustomAttributes()),
                 Accessibility = NonPublicAccessibility(declaration.Accessibility),
@@ -194,8 +202,9 @@ public static class MetadataDeclarationQuery
         {
             var evt = reader.GetEventDefinition(eventHandle);
             var accessors = evt.GetAccessors();
-            if (accessors.Adder.IsNil && accessors.Remover.IsNil)
-                continue;
+            if (accessors.Adder.IsNil || accessors.Remover.IsNil)
+                throw new BadImageFormatException(
+                    "The event does not have both add and remove accessors.");
 
             MethodAttributes bestAccess = 0;
             bool isStatic = false;
@@ -230,6 +239,10 @@ public static class MetadataDeclarationQuery
             bool degraded = eventType is null;
             eventType ??= "<unsupported: event type>";
             string eventName = reader.GetString(evt.Name);
+            bool isExplicitInterfaceImplementation =
+                eventName.Contains('.', StringComparison.Ordinal)
+                && (explicitImplementationBodies.Contains(accessors.Adder)
+                    || explicitImplementationBodies.Contains(accessors.Remover));
             type.Members.Add(new ApiMember
             {
                 Name = eventName,
@@ -267,6 +280,7 @@ public static class MetadataDeclarationQuery
                 IsAbstract = isAbstract,
                 IsOverride = isOverride,
                 IsSealed = isSealed,
+                IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
                 IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(reader, evt)
                     || AttributeReader.HasRequiresUnsafeAttribute(reader, evt.GetCustomAttributes()),
                 Accessibility = NonPublicAccessibility(accessibility),

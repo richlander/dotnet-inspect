@@ -1928,8 +1928,8 @@ internal static class CSharpDeclarationWriter
 
         string accessibility = member.Accessibility ?? "public";
         throw new NotSupportedException(
-            $"Explicit interface member '{member.Name}' has metadata accessibility "
-            + $"'{accessibility}', which C# cannot represent.");
+            $"An explicit interface member has metadata accessibility '{accessibility}', "
+            + "which C# cannot represent.");
     }
 
     static bool IsEvent(ApiMember member)

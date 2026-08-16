@@ -523,6 +523,12 @@ public class ApiInventoryQueryTests
             .GetEvents()
             .Single(handle => reader.GetString(reader.GetEventDefinition(handle).Name) == "Broken");
         Assert.Equal(MetadataTokens.GetToken(broken), failure.SubjectToken);
+        TypeDefinitionHandle typeHandle = reader.GetEventDefinition(broken).GetDeclaringType();
+        Assert.Throws<BadImageFormatException>(
+            () => MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                typeHandle,
+                includeNonPublicMembers: true));
     }
 
     [Fact]

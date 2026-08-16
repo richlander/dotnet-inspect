@@ -1270,6 +1270,7 @@ public sealed class CSharpDeclarationWriterTests
             exception.Message,
             StringComparison.Ordinal);
         Assert.Contains("C# cannot represent", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(member.Name, exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]

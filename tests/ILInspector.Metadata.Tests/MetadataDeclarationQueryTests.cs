@@ -416,6 +416,20 @@ public sealed class MetadataDeclarationQueryTests
             queried.Members,
             member => member.Name.EndsWith(".add_Changed", StringComparison.Ordinal));
         Assert.Contains(
+            queried.Members,
+            member => member is
+            {
+                Kind: "property",
+                IsExplicitInterfaceImplementation: true
+            } && member.Name.EndsWith(".Value", StringComparison.Ordinal));
+        Assert.Contains(
+            queried.Members,
+            member => member is
+            {
+                Kind: "event",
+                IsExplicitInterfaceImplementation: true
+            } && member.Name.EndsWith(".Changed", StringComparison.Ordinal));
+        Assert.Contains(
             extracted.Members,
             member => member.Kind == "explicit-interface-implementation"
                 && member.Name.EndsWith(".get_Value", StringComparison.Ordinal));
