@@ -4716,7 +4716,10 @@ public class LibraryBodyIndexTests
 
         _ = builder.Build(LibraryBodyAnalysisPlan.Create(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities,
-            methodScope: null,
+            methodScope: new HashSet<int>
+            {
+                MetadataTokens.GetToken(ownerHandle),
+            },
             typeScope: null));
 
         Assert.Equal(1, resolved);
@@ -4758,7 +4761,10 @@ public class LibraryBodyIndexTests
 
         _ = builder.Build(LibraryBodyAnalysisPlan.Create(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities,
-            methodScope: null,
+            methodScope: new HashSet<int>
+            {
+                MetadataTokens.GetToken(ownerHandle),
+            },
             typeScope: null));
 
         Assert.Equal(1, emptyResolutions);
