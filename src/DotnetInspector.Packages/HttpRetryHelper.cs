@@ -604,6 +604,7 @@ public static class HttpRetryHelper
                 if (auth != null)
                     request.Headers.Authorization = auth;
                 configureRequest?.Invoke(request);
+                request.Options.Set(BrowserStreamingResponse, true);
                 return request;
             },
             HttpCompletionOption.ResponseHeadersRead,

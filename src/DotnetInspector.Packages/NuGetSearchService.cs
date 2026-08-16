@@ -196,7 +196,7 @@ public static class NuGetSearchService
                     break;
                 }
                 catch (Exception ex) when (ex is HttpRequestException or JsonException
-                    or InvalidOperationException or TaskCanceledException
+                    or InvalidOperationException or OperationCanceledException
                     or IOException or TimeoutException)
                 {
                     lastFailure = ex;
@@ -279,9 +279,8 @@ public static class NuGetSearchService
 
     private static TimeSpan GetSearchSourceTimeout(HttpClient client) =>
         client.Timeout == Timeout.InfiniteTimeSpan
-            || client.Timeout > HttpClientFactoryOptions.BaselineTimeout
-                ? HttpClientFactoryOptions.BaselineTimeout
-                : client.Timeout;
+            ? HttpClientFactoryOptions.BaselineTimeout
+            : client.Timeout;
 
     private static TimeoutException CreateSourceTimeoutException(TimeSpan timeout) =>
         new(

@@ -266,9 +266,7 @@ public static class PackageMetadataService
                 resources,
                 "PackageBaseAddress");
         List<ServiceResource> searchQueryServices =
-            PackageExtractor.GetCompatibleServiceResources(
-                resources,
-                "SearchQueryService");
+            PackageExtractor.GetCompatibleSearchServiceResources(resources);
         List<ServiceResource> vulnerabilityInfos =
             PackageExtractor.GetCompatibleServiceResources(
                 resources,

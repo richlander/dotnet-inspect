@@ -428,6 +428,8 @@ defaults to 30 seconds and never exceeds a shorter configured `HttpClient.Timeou
 client timeout stops applying once a headers-first request returns. Metadata requests also require
 Browser/Wasm streaming-response mode so the browser transport cannot buffer an unbounded body
 before the counting stream sees it.
+`NuGetSearchSourcesTests.GetSearchQueryServiceAsync_ServiceIndexRequiresBrowserStreamingResponse`
+gates the mandatory discovery path.
 
 Oversize and body-timeout failures have dedicated exception types. They are not represented as
 `JsonException`, `HttpRequestException`, a null document, or an empty result, so existing malformed

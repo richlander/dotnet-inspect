@@ -1040,7 +1040,7 @@ public static class PackageExtractor
 
         return
         [
-            .. GetCompatibleServiceResources(resources, "SearchQueryService")
+            .. GetCompatibleSearchServiceResources(resources)
                 .Select(resource => resource.Id)
                 .Distinct(StringComparer.Ordinal),
         ];
@@ -1234,6 +1234,77 @@ public static class PackageExtractor
             .. matching.Where(resource =>
                 ServiceResourceVersion(resource.Type) == bestVersion),
         ];
+    }
+
+    /// <summary>
+    /// Selects every endpoint at the highest supported search capability version, preserving
+    /// service-index order. Unknown future versions are not assumed to preserve the current
+    /// search protocol.
+    /// </summary>
+    public static List<ServiceResource> GetCompatibleSearchServiceResources(
+        IReadOnlyList<ServiceResource> resources)
+    {
+        List<(ServiceResource Resource, int Rank)> matching = [];
+        foreach (ServiceResource resource in resources)
+        {
+            if (TryGetSearchServiceRank(resource.Type, out int rank))
+                matching.Add((resource, rank));
+        }
+
+        if (matching.Count == 0)
+            return [];
+
+        int bestRank = matching.Max(item => item.Rank);
+        return
+        [
+            .. matching
+                .Where(item => item.Rank == bestRank)
+                .Select(item => item.Resource),
+        ];
+    }
+
+    private static bool TryGetSearchServiceRank(string type, out int rank)
+    {
+        if (type.Equals(
+                "SearchQueryService/3.5.0",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            rank = 4;
+            return true;
+        }
+
+        if (type.Equals(
+                "SearchQueryService/3.0.0",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            rank = 3;
+            return true;
+        }
+
+        if (type.Equals(
+                "SearchQueryService/3.0.0-rc",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            rank = 2;
+            return true;
+        }
+
+        if (type.Equals(
+                "SearchQueryService/3.0.0-beta",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            rank = 1;
+            return true;
+        }
+
+        if (type.Equals("SearchQueryService", StringComparison.OrdinalIgnoreCase))
+        {
+            rank = 0;
+            return true;
+        }
+
+        rank = -1;
+        return false;
     }
 
     private static System.Version ServiceResourceVersion(string resourceType)

@@ -44,6 +44,18 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task GetSearchQueryServiceAsync_ServiceIndexRequiresBrowserStreamingResponse()
+    {
+        var handler = new RouteHandler { [IndexUrl] = ServiceIndex(SearchUrl) };
+        using var client = new HttpClient(handler);
+
+        await PackageExtractor.GetSearchQueryServiceAsync(
+            client, new NuGetSource("contoso", IndexUrl));
+
+        Assert.True(handler.BrowserStreamingRequested);
+    }
+
+    [Fact]
     public async Task SearchAsync_UsesHighestSearchCapabilityVersion()
     {
         const string olderSearch = "https://feed.example/v3/query-old";
@@ -73,6 +85,35 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchAsync_UnsupportedFutureCapability_UsesHighestSupportedVersion()
+    {
+        const string futureSearch = "https://feed.example/v4/query";
+        const string currentSearch = "https://feed.example/v3/query-current";
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = $$"""
+                {"resources":[
+                  {"@id":"{{futureSearch}}","@type":"SearchQueryService/4.0.0"},
+                  {"@id":"{{currentSearch}}","@type":"SearchQueryService/3.5.0"}
+                ]}
+                """,
+            [futureSearch] = "<html>unsupported protocol</html>",
+            [currentSearch] = """{"data":[{"id":"Contoso.Package","version":"1.0.0"}]}""",
+        };
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "Contoso",
+            sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] });
+
+        Assert.Equal("Contoso.Package", Assert.Single(outcome.Results).PackageId);
+        Assert.DoesNotContain(
+            handler.Requested,
+            request => request.StartsWith(futureSearch, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task SearchAsync_MalformedEquivalentEndpoint_TriesNextInIndexOrder()
     {
         const string firstSearch = "https://feed.example/v3/query-a";
@@ -96,6 +137,37 @@ public class NuGetSearchSourcesTests
             sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] });
 
         Assert.Empty(outcome.Failures);
+        Assert.Equal("Contoso.Package", Assert.Single(outcome.Results).PackageId);
+        Assert.Collection(
+            handler.Requested,
+            request => Assert.Equal(IndexUrl, request),
+            request => Assert.StartsWith(firstSearch + "?", request, StringComparison.Ordinal),
+            request => Assert.StartsWith(secondSearch + "?", request, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchAsync_OperationCanceledEndpoint_TriesNextEquivalentEndpoint()
+    {
+        const string firstSearch = "https://feed.example/v3/query-cancelled";
+        const string secondSearch = "https://feed.example/v3/query-success";
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = $$"""
+                {"resources":[
+                  {"@id":"{{firstSearch}}","@type":"SearchQueryService/3.5.0"},
+                  {"@id":"{{secondSearch}}","@type":"SearchQueryService/3.5.0"}
+                ]}
+                """,
+            [secondSearch] = """{"data":[{"id":"Contoso.Package","version":"1.0.0"}]}""",
+        };
+        handler.Throw(firstSearch, new OperationCanceledException());
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "Contoso",
+            sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] });
+
         Assert.Equal("Contoso.Package", Assert.Single(outcome.Results).PackageId);
         Assert.Collection(
             handler.Requested,
@@ -171,6 +243,23 @@ public class NuGetSearchSourcesTests
         Assert.Equal(
             [IndexUrl, firstSearch, secondSearch],
             handler.Requested.Select(RouteHandler.WithoutQuery));
+    }
+
+    [Fact]
+    public void SearchSourceTimeout_PreservesFiniteClientTimeoutAboveBaseline()
+    {
+        using var client = new HttpClient
+        {
+            Timeout = TimeSpan.FromMinutes(2),
+        };
+        var method = typeof(NuGetSearchService).GetMethod(
+            "GetSearchSourceTimeout",
+            System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Static);
+
+        TimeSpan timeout = Assert.IsType<TimeSpan>(method!.Invoke(null, [client]));
+
+        Assert.Equal(client.Timeout, timeout);
     }
 
     [Fact]
@@ -1654,6 +1743,8 @@ public class NuGetSearchSourcesTests
     /// </summary>
     private sealed class RouteHandler : HttpMessageHandler
     {
+        private static readonly HttpRequestOptionsKey<bool> BrowserStreamingResponse =
+            new("WebAssemblyEnableStreamingResponse");
         private readonly Dictionary<string, (HttpStatusCode Status, string Body)> _routes =
             new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, Func<HttpContent>> _contentRoutes =
@@ -1665,6 +1756,7 @@ public class NuGetSearchSourcesTests
         public string this[string url] { set => _routes[url] = (HttpStatusCode.OK, value); }
 
         public IReadOnlyList<string> Requested => _requests.Select(r => r.Url).ToList();
+        public bool BrowserStreamingRequested { get; private set; }
 
         public void RespondWith(string url, HttpStatusCode status, string body = "") =>
             _routes[url] = (status, body);
@@ -1683,6 +1775,10 @@ public class NuGetSearchSourcesTests
         {
             string url = request.RequestUri!.ToString();
             _requests.Add((url, request.Headers.Authorization));
+            BrowserStreamingRequested |= request.Options.TryGetValue(
+                BrowserStreamingResponse,
+                out bool enabled)
+                && enabled;
             string routeUrl = WithoutQuery(url);
 
             if (_exceptions.TryGetValue(routeUrl, out Exception? exception))

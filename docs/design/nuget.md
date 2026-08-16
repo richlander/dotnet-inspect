@@ -30,11 +30,17 @@ never receive feed credentials.
 
 Equivalent endpoints at the selected capability version are tried in service-index order,
 including after malformed successful responses. Search failover tries at most four equivalent
-endpoints within one source-level timeout;
+endpoints within one source-level timeout. A finite configured `HttpClient.Timeout` is the source
+budget, including values above the 30-second default; an infinite client timeout receives the
+30-second product baseline instead. Search discovery supports the unversioned,
+`3.0.0-beta`, `3.0.0-rc`, `3.0.0`, and `3.5.0` service types. Unknown future types do not eclipse
+the highest supported capability.
 `NuGetSearchSourcesTests.SearchAsync_EquivalentEndpointFailover_IsBounded` and
 `NuGetSearchSourcesTests.SearchAsync_EquivalentEndpointFailover_SharesSourceTimeout` gate those
-bounds. Failed vulnerability endpoints do not create a clean cache entry; the next request
-retries them.
+bounds; `SearchSourceTimeout_PreservesFiniteClientTimeoutAboveBaseline` and
+`SearchAsync_UnsupportedFutureCapability_UsesHighestSupportedVersion` gate the configured timeout
+and compatibility rules. Failed vulnerability endpoints do not create a clean cache entry; the
+next request retries them.
 
 ## APIs Used
 
