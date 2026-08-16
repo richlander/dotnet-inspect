@@ -105,7 +105,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                         metadata.GetTypeDefinition(item).Name),
                 new TypeReferenceOrigin.CurrentAssembly(),
                 FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
-                FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
+                FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader),
+                rawTypeKind);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
         {
@@ -154,7 +155,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                     segments,
                     new TypeReferenceOrigin.AssemblyReference(assembly),
                     FrameworkAssemblyKeys.IsFrameworkReference(reader, assemblyHandle),
-                    FrameworkAssemblyKeys.IsAuthenticProtobufReference(reader, assemblyHandle));
+                    FrameworkAssemblyKeys.IsAuthenticProtobufReference(reader, assemblyHandle),
+                    rawTypeKind);
             }
 
             TypeReferenceOrigin origin;
@@ -183,7 +185,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 segments,
                 origin,
                 FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
-                FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
+                FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader),
+                rawTypeKind);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
         {
@@ -205,7 +208,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         ImmutableArray<string> segments,
         TypeReferenceOrigin origin,
         bool trustedFrameworkAssembly = true,
-        bool trustedProtobufAssembly = true)
+        bool trustedProtobufAssembly = true,
+        byte rawTypeKind = 0)
     {
         MetadataTypeDefinitionNameResult result =
             MetadataTypeDefinitionName.Create(
@@ -225,7 +229,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             valid.Name.ToNestedMetadataName(),
             new ResolvableTypeReference(origin, valid.Name),
             trustedFrameworkAssembly,
-            trustedProtobufAssembly);
+            trustedProtobufAssembly,
+            rawTypeKind);
     }
 
     static ImmutableArray<string> TypeNameSegments<THandle>(
@@ -261,7 +266,10 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         s_recursionDepth++;
         try
         {
-            return spec.DecodeSignature(this, genericContext);
+            TypeRef decoded =
+                spec.DecodeSignature(this, genericContext);
+            decoded.RawTypeKind = rawTypeKind;
+            return decoded;
         }
         finally
         {
@@ -271,7 +279,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     }
 
     public TypeRef GetSZArrayType(TypeRef elementType) => TypeRef.SzArray(elementType);
-    public TypeRef GetArrayType(TypeRef elementType, ArrayShape shape) => TypeRef.MdArray(elementType, shape.Rank);
+    public TypeRef GetArrayType(TypeRef elementType, ArrayShape shape)
+        => TypeRef.MdArray(elementType, shape);
     public TypeRef GetByReferenceType(TypeRef elementType) => TypeRef.ByRef(elementType);
     public TypeRef GetPointerType(TypeRef elementType) => TypeRef.Pointer(elementType);
     public TypeRef GetPinnedType(TypeRef elementType) => TypeRef.Pinned(elementType);

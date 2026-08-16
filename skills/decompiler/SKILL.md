@@ -73,9 +73,18 @@ the same coordinates as one-based line/column fields.
 `--readable-names` replaces compiler-style local names such as `V_0` where the
 body provides a stable readable alternative. It is independent of C# taste
 options. A tool-owned `.dotnet-inspectconfig`, discovered by walking up from the
-working directory, selects configured spellings; `--taste` requests the full
-supported taste set for one invocation. `Applied Taste` reports which choices
-actually changed the rendered body.
+working directory, selects configured spellings; `--taste` requests the
+oracle-endorsed taste set for one invocation. `Applied Taste` reports which
+choices actually changed the rendered body.
+
+Explicit local types are the default. Enable any independent `var` category
+with `csharp_style_var_for_built_in_types = true`,
+`csharp_style_var_when_type_is_apparent = true`, or
+`csharp_style_var_elsewhere = true`. These byte-neutral opt-ins are not part of
+`--taste`. Object creation is target-typed by default; set
+`csharp_style_implicit_object_creation_when_type_is_apparent = false` to retain
+the explicit constructed type. A `var` declaration keeps `new T(...)` because
+`var x = new()` has no target type.
 
 ```bash
 dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \

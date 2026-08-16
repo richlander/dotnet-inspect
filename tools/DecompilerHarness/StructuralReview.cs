@@ -1,9 +1,6 @@
 using System.Net;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using ILInspector.Decompiler;
-using ILInspector.Decompiler.Annotations;
-using ILInspector.Instructions;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -23,11 +20,7 @@ internal static class StructuralReview
             }
 
             string json = File.ReadAllText(path);
-            ValidateRequiredValueTypeProperties(json);
-            var input = JsonSerializer.Deserialize(
-                json,
-                StructuralReviewJsonContext.Default.CSharpStructuralComparisonInput)
-                ?? throw new JsonException("Structural comparison input is null.");
+            var input = AnnotatedSourceJson.DeserializeStructuralComparison(json);
             var comparison = CSharpBodyDiff.CompareStructure(input);
             Console.Write(RenderMarkdown(comparison));
             return 0;
@@ -47,147 +40,7 @@ internal static class StructuralReview
     }
 
     static AnnotatedSourceDocument ReadDocument(string path)
-    {
-        string json = File.ReadAllText(path);
-        using var parsed = JsonDocument.Parse(json);
-        if (parsed.RootElement.ValueKind == JsonValueKind.Object)
-            ValidateDocument(parsed.RootElement);
-        return JsonSerializer.Deserialize(
-            json,
-            StructuralReviewJsonContext.Default.AnnotatedSourceDocument)
-            ?? throw new JsonException($"Annotated source document '{path}' is null.");
-    }
-
-    static void ValidateRequiredValueTypeProperties(string json)
-    {
-        using var document = JsonDocument.Parse(json);
-        if (document.RootElement.ValueKind != JsonValueKind.Object)
-            return;
-
-        ValidateDocument(document.RootElement, "before");
-        ValidateDocument(document.RootElement, "after");
-    }
-
-    static void ValidateDocument(JsonElement root, string propertyName)
-    {
-        if (!root.TryGetProperty(propertyName, out var document)
-            || document.ValueKind != JsonValueKind.Object)
-        {
-            return;
-        }
-
-        ValidateDocument(document);
-    }
-
-    static void ValidateDocument(JsonElement document)
-    {
-        ValidateObjectArray(document, "nodes", "id", "kind", "medium", "spans");
-        ValidateSpans(document, "nodes");
-        ValidateObjectArray(document, "regions", "role", "spans");
-        ValidateSpans(document, "regions");
-        ValidateOptionalObjectProperties(
-            document,
-            "nodes",
-            "provenance",
-            "il_offsets");
-        ValidateObjectArray(
-            document,
-            "facts",
-            "id",
-            "descriptor",
-            "category",
-            "conditionality",
-            "source_offset",
-            "origin");
-        ValidateObjectArray(document, "targets", "fact_id", "node_id");
-        if (document.TryGetProperty("source", out var source)
-            && source.ValueKind == JsonValueKind.Object)
-        {
-            RequireProperties(
-                source,
-                "assembly_name",
-                "module_version_id",
-                "method_token",
-                "body_fingerprint",
-                "subject");
-        }
-    }
-
-    static void ValidateSpans(JsonElement document, string propertyName)
-    {
-        if (!document.TryGetProperty(propertyName, out var owners)
-            || owners.ValueKind != JsonValueKind.Array)
-        {
-            return;
-        }
-
-        foreach (var owner in owners.EnumerateArray())
-        {
-            if (owner.ValueKind != JsonValueKind.Object
-                || !owner.TryGetProperty("spans", out var spans)
-                || spans.ValueKind != JsonValueKind.Array)
-            {
-                continue;
-            }
-
-            foreach (var span in spans.EnumerateArray())
-                RequireProperties(span, "start", "length");
-        }
-    }
-
-    static void ValidateObjectArray(
-        JsonElement document,
-        string propertyName,
-        params string[] requiredProperties)
-    {
-        if (!document.TryGetProperty(propertyName, out var values)
-            || values.ValueKind != JsonValueKind.Array)
-        {
-            return;
-        }
-
-        foreach (var value in values.EnumerateArray())
-            RequireProperties(value, requiredProperties);
-    }
-
-    static void ValidateOptionalObjectProperties(
-        JsonElement document,
-        string arrayPropertyName,
-        string objectPropertyName,
-        params string[] requiredProperties)
-    {
-        if (!document.TryGetProperty(arrayPropertyName, out var values)
-            || values.ValueKind != JsonValueKind.Array)
-        {
-            return;
-        }
-
-        foreach (var value in values.EnumerateArray())
-        {
-            if (value.ValueKind == JsonValueKind.Object
-                && value.TryGetProperty(objectPropertyName, out var nested)
-                && nested.ValueKind == JsonValueKind.Object)
-            {
-                RequireProperties(nested, requiredProperties);
-            }
-        }
-    }
-
-    static void RequireProperties(JsonElement value, params string[] requiredProperties)
-    {
-        if (value.ValueKind != JsonValueKind.Object)
-            return;
-
-        string[] missing =
-        [
-            .. requiredProperties.Where(propertyName => !value.TryGetProperty(propertyName, out _))
-        ];
-        if (missing.Length > 0)
-        {
-            throw new JsonException(
-                $"JSON object is missing required properties: {string.Join(", ", missing)}.");
-        }
-    }
+        => AnnotatedSourceJson.DeserializeDocument(File.ReadAllText(path));
 
     internal static string RenderMarkdown(CSharpStructuralComparison comparison)
     {
@@ -343,59 +196,3 @@ internal static class StructuralReview
         return longest;
     }
 }
-
-internal sealed class StrictStringEnumJsonConverter<TEnum> : JsonConverter<TEnum>
-    where TEnum : struct, Enum
-{
-    static readonly IReadOnlyDictionary<string, TEnum> s_values = Enum
-        .GetNames<TEnum>()
-        .ToDictionary(static name => name, static name => Enum.Parse<TEnum>(name), StringComparer.Ordinal);
-
-    public override TEnum Read(
-        ref Utf8JsonReader reader,
-        Type typeToConvert,
-        JsonSerializerOptions options)
-    {
-        if (reader.TokenType == JsonTokenType.String
-            && reader.GetString() is { } name
-            && s_values.TryGetValue(name, out var value))
-        {
-            return value;
-        }
-
-        throw new JsonException(ErrorMessage);
-    }
-
-    public override void Write(
-        Utf8JsonWriter writer,
-        TEnum value,
-        JsonSerializerOptions options)
-    {
-        string? name = Enum.GetName(value);
-        if (name is null)
-            throw new JsonException(ErrorMessage);
-
-        writer.WriteStringValue(name);
-    }
-
-    static string ErrorMessage => typeof(TEnum) == typeof(IlBodyDiffOutcome)
-        ? "Structural fidelity contains an unknown IL body-diff outcome."
-        : $"Structural review contains an unknown {typeof(TEnum).Name} value.";
-}
-
-[JsonSourceGenerationOptions(
-    AllowDuplicateProperties = false,
-    Converters =
-    [
-        typeof(StrictStringEnumJsonConverter<SourceLineKind>),
-        typeof(StrictStringEnumJsonConverter<PrintedRegionRole>),
-        typeof(StrictStringEnumJsonConverter<AnnotationConditionality>),
-        typeof(StrictStringEnumJsonConverter<AnnotatedSourceFactOrigin>),
-        typeof(StrictStringEnumJsonConverter<IlBodyDiffOutcome>),
-    ],
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    RespectRequiredConstructorParameters = true,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
-[JsonSerializable(typeof(CSharpStructuralComparisonInput))]
-[JsonSerializable(typeof(AnnotatedSourceDocument))]
-internal sealed partial class StructuralReviewJsonContext : JsonSerializerContext;

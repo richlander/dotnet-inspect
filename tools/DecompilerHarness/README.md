@@ -38,7 +38,8 @@ dotnet run --project tools/HarnessReportDiff -c Release -- \
 ## Modes
 
 **Structural review** (`--structural-review <before.json> <after.json>`): reads
-two product-emitted `AnnotatedSourceDocument` values, asks
+two product-emitted `AnnotatedSourceDocument` values through the
+Decompiler-owned strict JSON contract, asks
 `CSharpBodyDiff.IssueCorrespondence` for trusted node correspondence, and
 renders complete Before and After C# documents with generated structural caret
 comments plus a compact rich-diff table from the resulting
@@ -57,9 +58,19 @@ unsupported and ambiguous rows appear under **Correspondence gaps** rather than
 being guessed as additions or removals.
 
 The legacy one-file `CSharpStructuralComparisonInput` form remains accepted for
-existing artifacts. Its optional `fidelity` retains independently measured
-`OpcodeDiff -> Exact`-style evidence; correspondence does not infer fidelity.
-Structural review is an exclusive mode; combine no unrelated harness flag or
+existing artifacts. It carries two C#-only documents, explicit selected node
+ids, and owner-issued one-to-one correspondence. Node ids remain local to the
+document that minted them; the comparison never matches by coordinates,
+selected text, or display labels. Its optional `fidelity` retains independently
+measured `OpcodeDiff -> Exact`-style evidence; correspondence does not infer
+fidelity.
+
+Both forms reject missing required fields, duplicate and unknown properties,
+numeric, composite, case-variant, or otherwise undeclared enum tokens,
+malformed UTF-16, and invalid document topology. Required fields and
+object-array elements may not be null. Rejection messages identify the violated
+contract without relaying artifact-provided property names or values. Structural
+review is an exclusive mode; combine no unrelated harness flag or
 assembly/package input with it.
 
 ```bash

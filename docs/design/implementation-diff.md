@@ -93,16 +93,20 @@ uses that fallback; rendering a document whose own source is display-unsafe
 remains rejected by the existing safety gate. It performs no correspondence.
 `CSharpStructuralComparisonTests.RenderAnnotatedBody_WrappedExactTransitionReconstructsCounterpart`
 gates the lossless wrapped-text claim.
-The DecompilerHarness `--structural-review before.json after.json` mode owns
-Markdown orchestration, invokes the product issuer, and consumes the same result
-for both presentations. Unsupported and ambiguous nodes remain a separate
-correspondence-gap section; an incomplete result is never reported as "no
-structural changes." This model exists only for
-node/span structure that the line-oriented `CSharpDiffRow` cannot represent; it
-does not introduce another generic diff-row hierarchy. Ordinary indented spans
-reuse the annotation comment gutter and its stacking rules. A span too close to
-the left edge for that gutter uses an exact gutter-free caret row instead; it is
-never shifted, widened, clipped, or silently dropped.
+DecompilerHarness `--structural-review` mode owns Markdown orchestration and
+consumes the same result for both presentations. With two documents it invokes
+the product issuer; the legacy one-file form consumes already-issued explicit
+correspondence. It reads untrusted input through Decompiler-owned
+`AnnotatedSourceJson`, so the CLI document writer and harness reader share one
+model-owned contract while retaining separate writer and strict-reader
+policies. Unsupported and ambiguous nodes remain a separate correspondence-gap
+section; an incomplete result is never reported as "no structural changes."
+This model exists only for node/span structure that the line-oriented
+`CSharpDiffRow` cannot represent; it does not introduce another generic
+diff-row hierarchy. Ordinary indented spans reuse the annotation comment gutter
+and its stacking rules. A span too close to the left edge for that gutter uses
+an exact gutter-free caret row instead; it is never shifted, widened, clipped,
+or silently dropped.
 
 ## Research comparison model
 

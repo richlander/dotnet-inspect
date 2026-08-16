@@ -447,6 +447,30 @@ public class AuthoredCorpusHarnessProcessTests
         }
     }
 
+    [Fact]
+    public void Harness_RejectsMalformedStructuralPropertyNameWithoutCrashing()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        string json = StructuralReviewJson("break;", "BreakStatement", 6);
+        int rootEnd = json.LastIndexOf('}');
+        json = $"{json[..rootEnd]},\"\\uD800\":0{json[rootEnd..]}";
+        File.WriteAllText(path, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains("Structural comparison JSON", run.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("Unhandled exception", run.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("InvalidOperationException", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Theory]
     [InlineData("\"start\": 0, ", "", "start")]
     [InlineData("\"start\": 0, \"length\": 7", "\"start\": 0", "length")]
