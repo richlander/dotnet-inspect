@@ -185,14 +185,25 @@ participant belongs to the group, then stops before snapshot acquisition.
 gates the pre-entry member and type boundary. Participant membership includes
 the binding-policy snapshot rather than assembly-descriptor identity alone,
 and a policy that rotates its snapshot after group creation is rejected before
-snapshot acquisition or cancellation;
+snapshot acquisition or cancellation. The snapshot is revalidated after
+authored-source awaits and before publication, and around every binding-policy
+selection during fallback;
 `AssemblyContextSourceQueryTests.SameDescriptorForeignParticipant_IsRejectedBeforeCancellation`
 and
 `AssemblyContextSourceQueryTests.ChangedBindingPolicySnapshot_IsRejectedBeforeCancellation`
-gate those identity boundaries. Cancellation raised by the binding policy
-during decompiler fallback remains exceptional;
+gate the entry identity boundaries, while
+`AssemblyContextSourceQueryTests.BindingPolicyVersionChangeDuringPdbAcquisition_IsRejected`
+and
+`AssemblyContextSourceQueryTests.BindingPolicyVersionChangeDuringFallback_IsRejected`
+gate the in-flight boundaries. Cancellation raised by the binding policy or a
+selected dependency descriptor during decompiler fallback remains exceptional,
+as does cancellation requested through the query token while selection returns
+normally;
 `AssemblyContextSourceQueryTests.BindingPolicyCancellation_PropagatesFromDecompilerFallback`
-gates the member and type paths. Cancellation observed after a successful
+`AssemblyContextSourceQueryTests.SelectedDescriptorCancellation_PropagatesFromFallback`,
+and
+`AssemblyContextSourceQueryTests.BindingPolicyRequestedTokenCancellation_StopsFallback`
+gate the member and type paths. Cancellation observed after a successful
 source-store read or write remains exceptional rather than returning authored
 success or publishing the bytes to the process-local cache;
 `AssemblyContextSourceQueryTests.SourceStoreSuccessfulCancellation_PropagatesBeforeAuthoredSuccess`

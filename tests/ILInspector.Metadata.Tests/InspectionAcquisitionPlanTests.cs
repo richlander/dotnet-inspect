@@ -292,6 +292,34 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void ObserveOpenReadCancellation_PreservesRegistrationAndReportsCancellation()
+    {
+        var cancellation =
+            new OperationCanceledException("test");
+        OperationCanceledException? observed = null;
+        var descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(SelfBytes()),
+                path: null,
+                openRead: () => throw cancellation,
+                provenance:
+                    AssemblyResolutionProvenance.Local("test"));
+
+        ResolvedAssemblyReference decorated =
+            descriptor.ObserveOpenReadCancellation(
+                error => observed = error);
+
+        Assert.Same(
+            descriptor.Registration,
+            decorated.Registration);
+        Assert.Same(
+            cancellation,
+            Assert.Throws<OperationCanceledException>(
+                () => decorated.OpenRead()));
+        Assert.Same(cancellation, observed);
+    }
+
+    [Fact]
     public void Register_MalformedForwarderInventory_IsTypedInvalidImage()
     {
         byte[] image = BuildInvalidForwarderImage();

@@ -504,6 +504,236 @@ public sealed class AssemblyContextSourceQueryTests
         Assert.True(assembly.Policy.SelectionCount > 0);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BindingPolicyVersionChangeDuringPdbAcquisition_IsRejected(
+        bool typeQuery)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        var pdbStore =
+            new ThrowingPdbStore(
+                assembly.Policy.ChangeVersion);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            pdbStore: pdbStore);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        Exception error;
+        if (typeQuery)
+        {
+            var result =
+                Assert.IsType<AssemblyTypeSourceEntry.Unavailable>(
+                    await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest(
+                            typeof(SourceFixture).Name),
+                        host.Context,
+                        TestContext.Current.CancellationToken));
+            error = result.Failure.Error!;
+        }
+        else
+        {
+            var result =
+                Assert.IsType<AssemblyMemberSourceEntry.Unavailable>(
+                    await AssemblyContextSourceQuery.ExecuteMemberAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.MemberRequest(
+                            nameof(SourceFixture.Describe)),
+                        host.Context,
+                        TestContext.Current.CancellationToken));
+            error = result.Failure.Error!;
+        }
+
+        Assert.IsType<InvalidOperationException>(error);
+        Assert.Equal(1, pdbStore.ReadAttempts);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+        Assert.Empty(host.SourceRequests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BindingPolicyVersionChangeDuringFallback_IsRejected(
+        bool typeQuery)
+    {
+        byte[] bytes =
+            WithoutDebugDirectory(
+                File.ReadAllBytes(
+                    typeof(AssemblyContextSourceQueryTests)
+                        .Assembly.Location));
+        TestAssembly assembly =
+            TestAssembly.Create(bytes);
+        assembly.Policy.BeforeSelection =
+            assembly.Policy.ChangeVersion;
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        Exception error;
+        if (typeQuery)
+        {
+            var result =
+                Assert.IsType<AssemblyTypeSourceEntry.Unavailable>(
+                    await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest(
+                            typeof(SourceFixture).Name),
+                        host.Context,
+                        TestContext.Current.CancellationToken));
+            error = result.Failure.Error!;
+        }
+        else
+        {
+            var result =
+                Assert.IsType<AssemblyMemberSourceEntry.Unavailable>(
+                    await AssemblyContextSourceQuery.ExecuteMemberAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.MemberRequest(
+                            nameof(SourceFixture.Describe)),
+                        host.Context,
+                        TestContext.Current.CancellationToken));
+            error = result.Failure.Error!;
+        }
+
+        Assert.IsType<InvalidOperationException>(error);
+        Assert.True(assembly.Policy.SelectionCount > 0);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SelectedDescriptorCancellation_PropagatesFromFallback(
+        bool typeQuery)
+    {
+        byte[] bytes =
+            WithoutDebugDirectory(
+                File.ReadAllBytes(
+                    typeof(AssemblyContextSourceQueryTests)
+                        .Assembly.Location));
+        TestAssembly assembly =
+            TestAssembly.Create(bytes);
+        AssemblyReferenceIdentity coreLibraryIdentity =
+            ReadIdentity(
+                File.ReadAllBytes(
+                    typeof(object).Assembly.Location));
+        int opens = 0;
+        assembly.Policy.SelectOverride =
+            request =>
+                AssemblyBindingSelection.Found(
+                    ResolvedAssemblyReference.Create(
+                        request.Target
+                            is AssemblyBindingTarget.AssemblyReference reference
+                            ? reference.Identity
+                            : coreLibraryIdentity,
+                        path: null,
+                        () =>
+                        {
+                            Interlocked.Increment(ref opens);
+                            throw new OperationCanceledException(
+                                "Synthetic selected-descriptor cancellation.");
+                        },
+                        AssemblyResolutionProvenance.Local(
+                            "source query cancellation test")));
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        try
+        {
+            if (typeQuery)
+            {
+                await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.TypeRequest(
+                        typeof(SourceFixture).Name),
+                    host.Context,
+                    TestContext.Current.CancellationToken);
+            }
+            else
+            {
+                await AssemblyContextSourceQuery.ExecuteMemberAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.MemberRequest(
+                        nameof(SourceFixture.Describe)),
+                    host.Context,
+                    TestContext.Current.CancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Assert.True(opens > 0);
+            Assert.True(assembly.Policy.SelectionCount > 0);
+            return;
+        }
+
+        Assert.Fail(
+            $"Expected selected-descriptor cancellation; opens={opens}, selections={assembly.Policy.SelectionCount}.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BindingPolicyRequestedTokenCancellation_StopsFallback(
+        bool typeQuery)
+    {
+        byte[] bytes =
+            WithoutDebugDirectory(
+                File.ReadAllBytes(
+                    typeof(AssemblyContextSourceQueryTests)
+                        .Assembly.Location));
+        TestAssembly assembly =
+            TestAssembly.Create(bytes);
+        using var cancellation = new CancellationTokenSource();
+        assembly.Policy.BeforeSelection =
+            cancellation.Cancel;
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        if (typeQuery)
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => AssemblyContextSourceQuery.ExecuteTypeAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.TypeRequest(
+                        typeof(SourceFixture).Name),
+                    host.Context,
+                    cancellation.Token));
+        }
+        else
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => AssemblyContextSourceQuery.ExecuteMemberAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.MemberRequest(
+                        nameof(SourceFixture.Describe)),
+                    host.Context,
+                    cancellation.Token));
+        }
+
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.True(assembly.Policy.SelectionCount > 0);
+    }
+
     [Fact]
     public async Task SourceStoreFailure_FallsBackRepeatablyWithoutPublishingMemoryEntry()
     {
@@ -2060,7 +2290,8 @@ public sealed class AssemblyContextSourceQueryTests
         }
     }
 
-    sealed class ThrowingPdbStore
+    sealed class ThrowingPdbStore(
+        Action? beforeFailure = null)
         : IPdbStore
     {
         int _readAttempts;
@@ -2074,6 +2305,7 @@ public sealed class AssemblyContextSourceQueryTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             Interlocked.Increment(ref _readAttempts);
+            beforeFailure?.Invoke();
             throw new HttpRequestException(
                 "Synthetic PDB store failure.");
         }
@@ -2181,6 +2413,10 @@ public sealed class AssemblyContextSourceQueryTests
         internal int SelectionCount =>
             Volatile.Read(ref _selectionCount);
         internal bool CancelSelection { get; set; }
+        internal Action? BeforeSelection { get; set; }
+        internal Func<
+            AssemblyBindingRequest,
+            AssemblyBindingSelection?>? SelectOverride { get; set; }
 
         internal void ChangeVersion() =>
             Version = new AssemblyBindingPolicyVersion();
@@ -2189,10 +2425,16 @@ public sealed class AssemblyContextSourceQueryTests
             AssemblyBindingRequest request)
         {
             Interlocked.Increment(ref _selectionCount);
+            BeforeSelection?.Invoke();
             if (CancelSelection)
             {
                 throw new OperationCanceledException(
                     "Synthetic binding-policy cancellation.");
+            }
+            if (SelectOverride?.Invoke(request)
+                is { } overridden)
+            {
+                return overridden;
             }
 
             return request.Target

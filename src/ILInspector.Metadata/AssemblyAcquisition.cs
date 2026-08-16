@@ -367,6 +367,34 @@ public sealed class ResolvedAssemblyReference
     /// </summary>
     public DateTime? LastWriteTimeUtc { get; }
 
+    /// <summary>
+    /// Returns this descriptor with the same acquisition registration and an
+    /// observer for cancellation raised while opening its content.
+    /// </summary>
+    /// <remarks>
+    /// `InspectionAcquisitionPlanTests.ObserveOpenReadCancellation_PreservesRegistrationAndReportsCancellation`
+    /// gates both properties.
+    /// </remarks>
+    public ResolvedAssemblyReference ObserveOpenReadCancellation(
+        Action<OperationCanceledException> observer)
+    {
+        ArgumentNullException.ThrowIfNull(observer);
+        return WithOpenRead(
+            () =>
+            {
+                try
+                {
+                    return OpenRead();
+                }
+                catch (OperationCanceledException ex)
+                {
+                    observer(ex);
+                    throw;
+                }
+            },
+            LastWriteTimeUtc);
+    }
+
     internal ResolvedAssemblyReference WithOpenRead(
         Func<Stream> openRead,
         DateTime? lastWriteTimeUtc)

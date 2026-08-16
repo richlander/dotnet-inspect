@@ -291,6 +291,8 @@ public static class AssemblyContextSourceQuery
         ArgumentNullException.ThrowIfNull(context);
 
         var subject = new AssemblyContextSubject(participant.Assembly);
+        AssemblyBindingPolicyVersion bindingPolicyVersion =
+            group.BindingPolicyVersion;
         AssemblyImageAccessResult<MemberInspectionSeed> access;
         try
         {
@@ -343,6 +345,7 @@ public static class AssemblyContextSourceQuery
                     context,
                     target,
                     available.Value.Retained,
+                    bindingPolicyVersion,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -368,6 +371,8 @@ public static class AssemblyContextSourceQuery
         ArgumentNullException.ThrowIfNull(context);
 
         var subject = new AssemblyContextSubject(participant.Assembly);
+        AssemblyBindingPolicyVersion bindingPolicyVersion =
+            group.BindingPolicyVersion;
         AssemblyImageAccessResult<TypeInspectionSeed> access;
         try
         {
@@ -420,6 +425,7 @@ public static class AssemblyContextSourceQuery
                     context,
                     target,
                     available.Value.Retained,
+                    bindingPolicyVersion,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -439,6 +445,7 @@ public static class AssemblyContextSourceQuery
         AssemblyContextSourceQueryContext context,
         (ApiType Type, ApiMember Member) target,
         ResolvedAssemblyReference retained,
+        AssemblyBindingPolicyVersion bindingPolicyVersion,
         CancellationToken cancellationToken)
     {
         var findingSubject = new FindingSubject(
@@ -455,6 +462,9 @@ public static class AssemblyContextSourceQuery
         {
             using (source)
             {
+                EnsureBindingPolicyVersion(
+                    participant,
+                    bindingPolicyVersion);
                 authored =
                     await AuthoredSourceAcquisition.AcquireMemberAsync(
                             source,
@@ -468,6 +478,9 @@ public static class AssemblyContextSourceQuery
                                 context.AllowLocalSourceReads)
                         .ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
+                EnsureBindingPolicyVersion(
+                    participant,
+                    bindingPolicyVersion);
                 if (authored.IsComplete
                     && authored.Text is { } authoredText)
                 {
@@ -483,6 +496,9 @@ public static class AssemblyContextSourceQuery
         }
         else
         {
+            EnsureBindingPolicyVersion(
+                participant,
+                bindingPolicyVersion);
             authored =
                 AuthoredSourceAcquisition
                     .MemberPdbAcquisitionFailed(
@@ -491,9 +507,13 @@ public static class AssemblyContextSourceQuery
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        EnsureBindingPolicyVersion(
+            participant,
+            bindingPolicyVersion);
         var bindingPolicy =
             new CancellationObservingBindingPolicy(
-                participant.BindingPolicy);
+                participant.BindingPolicy,
+                bindingPolicyVersion);
         MemberRenderResult decompiled =
             MemberBodyProducer.ProduceMember(
                 target.Type,
@@ -501,6 +521,10 @@ public static class AssemblyContextSourceQuery
                 retained,
                 bindingPolicy);
         bindingPolicy.ThrowIfObserved();
+        cancellationToken.ThrowIfCancellationRequested();
+        EnsureBindingPolicyVersion(
+            participant,
+            bindingPolicyVersion);
         if (decompiled.IsComplete
             && decompiled.Text is { } decompiledText)
         {
@@ -528,6 +552,7 @@ public static class AssemblyContextSourceQuery
         AssemblyContextSourceQueryContext context,
         ApiType target,
         ResolvedAssemblyReference retained,
+        AssemblyBindingPolicyVersion bindingPolicyVersion,
         CancellationToken cancellationToken)
     {
         var findingSubject = new FindingSubject(
@@ -544,6 +569,9 @@ public static class AssemblyContextSourceQuery
         {
             using (source)
             {
+                EnsureBindingPolicyVersion(
+                    participant,
+                    bindingPolicyVersion);
                 authored =
                     await AuthoredSourceAcquisition.AcquireTypeAsync(
                             source,
@@ -556,6 +584,9 @@ public static class AssemblyContextSourceQuery
                                 context.AllowLocalSourceReads)
                         .ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
+                EnsureBindingPolicyVersion(
+                    participant,
+                    bindingPolicyVersion);
                 if (authored.IsComplete
                     && authored.Text is { } authoredText)
                 {
@@ -571,6 +602,9 @@ public static class AssemblyContextSourceQuery
         }
         else
         {
+            EnsureBindingPolicyVersion(
+                participant,
+                bindingPolicyVersion);
             authored =
                 AuthoredSourceAcquisition
                     .TypePdbAcquisitionFailed(
@@ -579,15 +613,23 @@ public static class AssemblyContextSourceQuery
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        EnsureBindingPolicyVersion(
+            participant,
+            bindingPolicyVersion);
         var bindingPolicy =
             new CancellationObservingBindingPolicy(
-                participant.BindingPolicy);
+                participant.BindingPolicy,
+                bindingPolicyVersion);
         DecompilerResult decompiled =
             MemberBodyProducer.Project(
                 target,
                 retained,
                 bindingPolicy);
         bindingPolicy.ThrowIfObserved();
+        cancellationToken.ThrowIfCancellationRequested();
+        EnsureBindingPolicyVersion(
+            participant,
+            bindingPolicyVersion);
         if (decompiled.Succeeded
             && decompiled.Output is { } decompiledText)
         {
@@ -739,34 +781,111 @@ public static class AssemblyContextSourceQuery
             or StackOverflowException
             or AccessViolationException);
 
+    static void EnsureBindingPolicyVersion(
+        AssemblyContextParticipant participant,
+        AssemblyBindingPolicyVersion expected)
+    {
+        if (!ReferenceEquals(
+                participant.BindingPolicy.Version,
+                expected))
+        {
+            throw new InvalidOperationException(
+                "The participant binding-policy snapshot changed during source inspection.");
+        }
+    }
+
     sealed class CancellationObservingBindingPolicy(
-        IAssemblyBindingPolicy inner)
+        IAssemblyBindingPolicy inner,
+        AssemblyBindingPolicyVersion expectedVersion)
         : IAssemblyBindingPolicy
     {
         ExceptionDispatchInfo? _cancellation;
+        readonly Dictionary<
+            AssemblyAcquisitionRegistration,
+            ResolvedAssemblyReference> _observedAssemblies =
+                new(ReferenceEqualityComparer.Instance);
 
-        public AssemblyBindingPolicyVersion Version =>
-            inner.Version;
+        public AssemblyBindingPolicyVersion Version
+        {
+            get
+            {
+                EnsureVersion();
+                return expectedVersion;
+            }
+        }
 
         public AssemblyBindingSelection Select(
             AssemblyBindingRequest request)
         {
+            EnsureVersion();
             try
             {
-                return inner.Select(request);
+                AssemblyBindingSelection selection =
+                    inner.Select(request);
+                EnsureVersion();
+                return ObserveSelectedAssemblies(selection);
             }
             catch (OperationCanceledException ex)
             {
-                Interlocked.CompareExchange(
-                    ref _cancellation,
-                    ExceptionDispatchInfo.Capture(ex),
-                    comparand: null);
+                ObserveCancellation(ex);
                 throw;
             }
         }
 
         internal void ThrowIfObserved() =>
             Volatile.Read(ref _cancellation)?.Throw();
+
+        void EnsureVersion()
+        {
+            if (!ReferenceEquals(
+                    inner.Version,
+                    expectedVersion))
+            {
+                throw new InvalidOperationException(
+                    "The participant binding-policy snapshot changed during source inspection.");
+            }
+        }
+
+        AssemblyBindingSelection ObserveSelectedAssemblies(
+            AssemblyBindingSelection selection)
+            => selection switch
+            {
+                AssemblyBindingSelection.Selected selected =>
+                    AssemblyBindingSelection.Found(
+                        Observe(selected.Assembly)),
+                AssemblyBindingSelection.Ambiguous ambiguous =>
+                    AssemblyBindingSelection.Multiple(
+                        [.. ambiguous.Assemblies.Select(Observe)]),
+                _ => selection,
+            };
+
+        ResolvedAssemblyReference Observe(
+            ResolvedAssemblyReference assembly)
+        {
+            lock (_observedAssemblies)
+            {
+                if (_observedAssemblies.TryGetValue(
+                        assembly.Registration,
+                        out ResolvedAssemblyReference? observed))
+                {
+                    return observed;
+                }
+
+                observed =
+                    assembly.ObserveOpenReadCancellation(
+                        ObserveCancellation);
+                _observedAssemblies.Add(
+                    assembly.Registration,
+                    observed);
+                return observed;
+            }
+        }
+
+        void ObserveCancellation(OperationCanceledException error) =>
+            Interlocked.CompareExchange(
+                ref _cancellation,
+                ExceptionDispatchInfo.Capture(error),
+                comparand: null);
     }
 
     sealed record MemberInspectionSeed(
