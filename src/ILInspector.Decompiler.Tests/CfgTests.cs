@@ -69,4 +69,24 @@ public class CfgTests
         Assert.Equal([1], edges[0].Successors);
         Assert.True(edges[1].ExitsMethod);
     }
+
+    [Fact]
+    public void Build_DirectStructuredTransfers_DoNotFallThrough()
+    {
+        var blocks = new List<Block>
+        {
+            Term(0x00, new Continue()),
+            Term(0x08, new Break()),
+            Term(0x10, new Return(null)),
+        };
+
+        var edges = Cfg.Build(blocks);
+
+        Assert.Empty(edges[0].Successors);
+        Assert.Empty(edges[1].Successors);
+        Assert.False(edges[0].ExitsMethod);
+        Assert.False(edges[0].LeavesRegion);
+        Assert.False(edges[1].ExitsMethod);
+        Assert.False(edges[1].LeavesRegion);
+    }
 }

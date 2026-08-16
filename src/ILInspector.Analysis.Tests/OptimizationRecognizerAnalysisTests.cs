@@ -233,6 +233,14 @@ public sealed class OptimizationRecognizerAnalysisTests
             TypeRef boxed)
             => throw new NotSupportedException();
 
+        public bool GenericParameterCanBeValueType(
+            TypeRef genericParameter)
+            => throw new NotSupportedException();
+
+        public bool IsStableReceiverGetter(
+            DecodedInstruction instruction)
+            => throw new NotSupportedException();
+
         public bool IsAsyncStateMachineType(TypeRef? type)
             => throw new NotSupportedException();
 

@@ -72,6 +72,32 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void SerializedName_UsesRuntimeGrammarAndPreservesExactSegments()
+    {
+        var nested = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.ParseSerialized(
+                "Program+<<Main>$>d__0"));
+        var consecutiveDot =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseSerialized("N..T+S"));
+
+        Assert.Equal(
+            Name("", "Program", "<<Main>$>d__0"),
+            nested.Name);
+        Assert.Equal(Name("N", ".T", "S"), consecutiveDot.Name);
+    }
+
+    [Theory]
+    [InlineData(@"System.Environment+\SpecialFolder")]
+    [InlineData("Program+StateMachine, OtherAssembly")]
+    [InlineData("Program+StateMachine[]")]
+    public void SerializedName_RejectsNonDefinitionIdentity(string value)
+    {
+        Assert.IsType<MetadataTypeDefinitionNameResult.Rejected>(
+            MetadataTypeDefinitionName.ParseSerialized(value));
+    }
+
+    [Fact]
     public void StructuredNameReader_PreservesNestedTypeReferenceSegments()
     {
         TypeReferenceHandle leaf = default;
@@ -335,6 +361,208 @@ public class MetadataTypeDeclarationProbeTests
                 Name("N", "Outer`1", "Inner`2")));
 
         Assert.Equal(MetadataTokens.GetToken(inner), defined.Definition.Value);
+    }
+
+    [Fact]
+    public void ProbeDefinition_RejectsRepeatedLongLeafWork()
+    {
+        string leaf = new(
+            'X',
+            MetadataSafetyPolicy.MaxTypeNameCharacters - 16);
+        int repetitions =
+            (MetadataSafetyPolicy.MaxStructuralSignatureWorkChars
+                / leaf.Length)
+            + 1;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            for (int i = 0; i < repetitions; i++)
+            {
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    $"N{i}",
+                    leaf);
+            }
+        });
+
+        Assert.IsType<TypeDeclarationResult.Rejected>(
+            MetadataTypeDeclarationProbe.ProbeDefinition(
+                image.Reader,
+                Name("N0", leaf)));
+    }
+
+    [Fact]
+    public void TypeDefinitionIndex_VisitsDefinitionsOnceAndQueriesExactNames()
+    {
+        TypeDefinitionHandle first = default;
+        TypeDefinitionHandle nested = default;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            first = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "First");
+            TypeDefinitionHandle outer = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Outer");
+            nested = AddTypeDefinition(
+                metadata,
+                TypeAttributes.NestedPublic,
+                "",
+                "Nested");
+            metadata.AddNestedType(nested, outer);
+        });
+        int visited = 0;
+
+        MetadataTypeDefinitionIndex index =
+            MetadataTypeDefinitionIndex.Create(
+                image.Reader,
+                _ => visited++);
+
+        Assert.Equal(
+            image.Reader.GetTableRowCount(TableIndex.TypeDef),
+            visited);
+        Assert.True(index.TryGetUniqueDefinition(
+            Name("N", "First"),
+            out TypeDefinitionHandle indexedFirst));
+        Assert.Equal(first, indexedFirst);
+        Assert.True(index.TryGetUniqueDefinition(
+            Name("N", "Outer", "Nested"),
+            out TypeDefinitionHandle indexedNested));
+        Assert.Equal(nested, indexedNested);
+        Assert.False(index.TryGetUniqueDefinition(
+            Name("N", "Missing"),
+            out _));
+    }
+
+    [Fact]
+    public void TypeDefinitionIndex_RejectsAmbiguousExactName()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Duplicate");
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Duplicate");
+        });
+
+        MetadataTypeDefinitionIndex index =
+            MetadataTypeDefinitionIndex.Create(image.Reader);
+
+        Assert.False(index.TryGetUniqueDefinition(
+            Name("N", "Duplicate"),
+            out _));
+    }
+
+    [Fact]
+    public void TypeDefinitionIndex_RejectsCumulativeNameWorkBeyondBudget()
+    {
+        string leaf = new(
+            'X',
+            MetadataSafetyPolicy.MaxTypeNameCharacters - 16);
+        int repetitions =
+            (MetadataSafetyPolicy.MaxStructuralSignatureWorkChars
+                / leaf.Length)
+            + 1;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            for (int i = 0; i < repetitions; i++)
+            {
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "N",
+                    leaf);
+            }
+        });
+
+        Assert.Throws<BadImageFormatException>(
+            () => MetadataTypeDefinitionIndex.Create(image.Reader));
+    }
+
+    [Fact]
+    public void TypeDefinitionIndex_DeepSharedAncestryAllocatesLinearly()
+    {
+        const int depth = 255;
+        const int leaves = 15_000;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle parent = default;
+            for (int i = 0; i < depth; i++)
+            {
+                TypeDefinitionHandle handle = AddTypeDefinition(
+                    metadata,
+                    i == 0
+                        ? TypeAttributes.Public
+                        : TypeAttributes.NestedPublic,
+                    i == 0 ? "N" : "",
+                    "A");
+                if (!parent.IsNil)
+                    metadata.AddNestedType(handle, parent);
+                parent = handle;
+            }
+            for (int i = 0; i < leaves; i++)
+            {
+                TypeDefinitionHandle handle = AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.NestedPublic,
+                    "",
+                    $"L{i:X4}");
+                metadata.AddNestedType(handle, parent);
+            }
+        });
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        MetadataTypeDefinitionIndex index =
+            MetadataTypeDefinitionIndex.Create(image.Reader);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.InRange(allocated, 0, 16 * 1024 * 1024);
+        Assert.False(index.TryGetUniqueDefinition(
+            Name("N", "Missing"),
+            out _));
+    }
+
+    [Fact]
+    public void TypeDefinitionIndex_AmbiguousAncestorRejectsNestedIdentity()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle first = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Duplicate");
+            TypeDefinitionHandle second = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Duplicate");
+            TypeDefinitionHandle nested = AddTypeDefinition(
+                metadata,
+                TypeAttributes.NestedPublic,
+                "",
+                "Nested");
+            metadata.AddNestedType(nested, first);
+            _ = second;
+        });
+
+        MetadataTypeDefinitionIndex index =
+            MetadataTypeDefinitionIndex.Create(image.Reader);
+
+        Assert.False(index.TryGetUniqueDefinition(
+            Name("N", "Duplicate", "Nested"),
+            out _));
     }
 
     [Fact]
