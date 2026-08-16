@@ -1577,7 +1577,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.StartsWith("member\t", output);
         Assert.Single(output.TrimEnd().Split('\n').Skip(1));
     }
