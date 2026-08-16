@@ -277,6 +277,237 @@ public class ApiCommand
         return listingOptions;
     }
 
+    /// <summary>
+    /// Resolves a dotted member request against the pipeline selected by metadata lookup, then
+    /// runs every selection-dependent validation that the preamble deferred.
+    /// </summary>
+    internal static MemberOptions? ReresolveSectionsForMemberLookup(MemberOptions options)
+    {
+        var pipeline = ApiMemberSectionPipelines.Create(options);
+        var usesFixedOverview = ApiMemberSectionPipelines.UsesDetailPipeline(options);
+        var bareSelectSections = usesFixedOverview
+            ? pipeline.FixedOverviewSectionNames
+            : pipeline.InfoSectionNames;
+
+        if (options.IncludeSections is null
+            && usesFixedOverview
+            && HasNoBareSelectOverview(options, bareSelectSections))
+        {
+            CommandError.Write(
+                "this view publishes no bare -S overview sections.",
+                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+            return null;
+        }
+
+        MemberOptions? resolved;
+        if (options.IncludeSections is not null)
+        {
+            resolved = RevalidateResolvedMemberSections(options, pipeline);
+        }
+        else
+        {
+            var selectResult = SelectResolver.ResolveSelectAsSections(
+                options.Select,
+                pipeline.SelectableSectionNames,
+                bareSelectSections,
+                pipeline.GetCategoryMap(),
+                selectDefault: options.SelectDefault);
+            if (SelectOutput.WriteUnresolved(selectResult))
+                return null;
+            if (ApplyBodyShapeSelectionRequirements(options, selectResult)
+                is { } bodyShapeError)
+            {
+                CommandError.Write(bodyShapeError);
+                return null;
+            }
+
+            resolved = selectResult.Sections != null
+                ? options with { IncludeSections = selectResult.Sections }
+                : options;
+        }
+
+        if (resolved is null)
+            return null;
+
+        resolved = resolved with
+        {
+            MemberPipelineDeferredToLookup = false,
+            MemberSelectionDeferredToLookup = false
+        };
+
+        return ValidateResolvedMemberSelection(resolved, pipeline);
+    }
+
+    private static MemberOptions? ValidateResolvedMemberSelection(
+        MemberOptions resolved,
+        SectionPipeline<ApiType> pipeline)
+    {
+        if (resolved.Discover == null && resolved.Count
+            && !CountOutput.ValidateSingleSection(resolved.IncludeSections))
+        {
+            return null;
+        }
+
+        var shapeCount = ShapeProjectionOutput.ActiveShapeCount(
+            resolved.Value, resolved.Urls, resolved.Paths);
+        if (shapeCount == 1 && resolved.Discover == null)
+        {
+            var optionName = resolved.Value ? "--value" : resolved.Urls ? "--urls" : "--paths";
+            if (!ShapeProjectionOutput.ValidateSingleSection(resolved.IncludeSections, optionName))
+                return null;
+        }
+
+        if (resolved.Print && resolved.Discover == null
+            && !ValidateApiPrintSelection(resolved.IncludeSections))
+        {
+            return null;
+        }
+
+        if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+                resolved.TabularExplicitlySet, resolved.IncludeSections))
+        {
+            return null;
+        }
+
+        if (resolved.Discover is null)
+        {
+            resolved = NormalizeMemberGraphFormat(resolved, resolved.IncludeSections);
+            if (!ValidateMemberGraphFormat(resolved, resolved.IncludeSections))
+                return null;
+        }
+
+        if (resolved.IncludeSections is { Count: > 0 })
+        {
+            var requiredVerbosity = pipeline.GetRequiredVerbosity(resolved.IncludeSections);
+            if (requiredVerbosity > resolved.Verbosity)
+                resolved = resolved with { Verbosity = requiredVerbosity };
+        }
+
+        if (!resolved.Count)
+        {
+            OutputFormatResolver.WarnIfTabularDetailMismatch(
+                resolved.Tabular, resolved.Verbosity, resolved.IncludeSections);
+        }
+
+        return resolved;
+    }
+
+    internal static MemberOptions? FinalizeResolvedMemberSelection(
+        MemberOptions options,
+        SectionPipeline<ApiType> pipeline)
+    {
+        var resolved = options with
+        {
+            MemberPipelineDeferredToLookup = false,
+            MemberSelectionDeferredToLookup = false
+        };
+        return ValidateResolvedMemberSelection(resolved, pipeline);
+    }
+
+    /// <summary>
+    /// Revalidates a programmatically supplied section set after member lookup has selected the
+    /// broad, overload-inventory, or detail pipeline.
+    /// </summary>
+    internal static MemberOptions? RevalidateResolvedMemberSections(
+        MemberOptions options,
+        SectionPipeline<ApiType> pipeline)
+    {
+        if (options.IncludeSections is not { } includeSections)
+            return options;
+
+        var result = includeSections.Count == 0
+            ? new SelectResult(
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                [])
+            : SelectResolver.ResolveSelectAsSections(
+                includeSections.ToArray(),
+                pipeline.SelectableSectionNames,
+                pipeline.InfoSectionNames,
+                pipeline.GetCategoryMap(),
+                selectDefault: false);
+        if (SelectOutput.WriteErrors(result.Unresolved))
+            return null;
+
+        result = result with
+        {
+            ExactSections = new HashSet<string>(
+                options.ExactIncludeSections ?? [],
+                StringComparer.OrdinalIgnoreCase)
+        };
+        if (ApplyBodyShapeSelectionRequirements(options, result)
+            is { } bodyShapeError)
+        {
+            CommandError.Write(bodyShapeError);
+            return null;
+        }
+
+        return result.Sections is not null
+            ? options with
+            {
+                IncludeSections = result.Sections,
+                ExactIncludeSectionsOverride = result.ExactSections,
+            }
+            : options;
+    }
+
+    private static HashSet<string>? ResolvePipelineIndependentMemberSections(
+        MemberOptions options)
+    {
+        SectionPipeline<ApiType>[] pipelines =
+        [
+            ApiMemberSectionDescriptors.CreatePipeline(),
+            ApiMemberOverloadSectionDescriptors.CreatePipeline(),
+            ApiMemberDetailSectionDescriptors.CreatePipeline()
+        ];
+
+        HashSet<string>? resolvedSections = null;
+        for (var i = 0; i < pipelines.Length; i++)
+        {
+            var pipeline = pipelines[i];
+            var bareSelectSections = i == pipelines.Length - 1
+                ? pipeline.FixedOverviewSectionNames
+                : pipeline.InfoSectionNames;
+            var result = SelectResolver.ResolveSelectAsSections(
+                options.Select,
+                pipeline.SelectableSectionNames,
+                bareSelectSections,
+                pipeline.GetCategoryMap(),
+                selectDefault: options.SelectDefault);
+            if (result.HasError || result.Sections is null)
+                return null;
+            if (resolvedSections is null)
+            {
+                resolvedSections = result.Sections;
+                continue;
+            }
+            if (!resolvedSections.SetEquals(result.Sections))
+                return null;
+        }
+
+        return resolvedSections;
+    }
+
+    internal static int ExecuteStructuralTypeDiscovery(
+        ApiOptions options,
+        SectionPipeline<ApiType> memberPipeline)
+    {
+        var schema = RestrictSchemaToSections(
+            GetTypeDocumentSchema(options),
+            memberPipeline.SelectableSectionNames);
+        schema = ToQueryableSchema(schema, options);
+        return DiscoverOutput.Execute(
+            options.Discover,
+            schema,
+            tree: options.Tree,
+            json: options.JsonOutput,
+            tsv: options.Tsv,
+            jsonl: options.Jsonl,
+            markdown: !options.Tabular && !options.JsonOutput,
+            sectionCostAnnotations: memberPipeline.GetCostAnnotations(),
+            sectionCategories: memberPipeline.GetCategoryMap(),
+            projection: options);
+    }
+
     // ===== Shared Preamble =====
 
     /// <summary>
@@ -357,7 +588,9 @@ public class ApiCommand
     internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
     {
         if (options is MemberOptions { IncludeSections: not null } preResolvedMemberOptions)
+        {
             options = preResolvedMemberOptions with { MemberSectionsPreResolved = true };
+        }
 
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var structuralDetailOptions = options.Discover is not null
@@ -382,28 +615,43 @@ public class ApiCommand
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
         }
+        var memberPipelineRequiresLookup = structuralDetailOptions is null
+            && options is MemberOptions
+        {
+            MemberFilter.Count: 0,
+            TypeName: { } memberTypeName
+        } && FqnParser.LastTopLevelDot(memberTypeName) > 0;
+        var deferMemberSelection = memberPipelineRequiresLookup
+            && options.IncludeSections is null
+            && (options.Select is not null
+                || options.SelectDefault);
+        if (options is MemberOptions memberOptions && memberPipelineRequiresLookup)
+        {
+            options = memberOptions with
+            {
+                MemberPipelineDeferredToLookup = true,
+                MemberSelectionDeferredToLookup = deferMemberSelection
+            };
+        }
 
-        // Discovery mode: -D/--discover lists effective sections (resolves source) by
-        // default; --schema opts out to the cheap, offline static schema listing.
-        if (options.Discover != null && !options.EffectiveDiscovery)
+        // Discovery mode: -D/--discover lists effective sections (resolves source) by default;
+        // --schema normally opts out to the cheap, offline static schema listing. A dotted member
+        // target is the exception: metadata lookup must first distinguish a namespace-qualified
+        // type from Type.Member so structural discovery reports the pipeline that actually applies.
+        if (options.Discover != null && !options.EffectiveDiscovery && !memberPipelineRequiresLookup)
         {
             var structuralOptions =
                 (ApiOptions?)structuralDetailOptions ?? options;
-            var schema = singleTypeMode
-                ? GetTypeDocumentSchema(structuralOptions)
-                : ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-
-            // Restrict plain discovery to columns/sections queryable under the active options.
             if (singleTypeMode)
-            {
-                schema = RestrictSchemaToSections(schema, knownSections);
-                schema = ToQueryableSchema(schema, structuralOptions);
-            }
+                return (null!, ExecuteStructuralTypeDiscovery(
+                    structuralOptions,
+                    memberPipeline));
 
+            var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
             return (null!, DiscoverOutput.Execute(options.Discover, schema,
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
-                sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null,
-                sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+                sectionCostAnnotations: null,
+                sectionCategories: typePipeline.GetCategoryMap(),
                 projection: options));
         }
 
@@ -439,7 +687,10 @@ public class ApiCommand
         // that as "no filter at all" and falls through to the verbosity ladder -- turning a request
         // for a bounded overview into the widest output the command has, with the scanner
         // backpressure -S exists to apply switched off.
-        if (usesFixedOverview && HasNoBareSelectOverview(options, bareSelectSections))
+        if (options.IncludeSections is null
+            && !deferMemberSelection
+            && usesFixedOverview
+            && HasNoBareSelectOverview(options, bareSelectSections))
         {
             CommandError.Write(
                 "this view publishes no bare -S overview sections.",
@@ -447,69 +698,57 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        // Resolve raw selectors unless member lookup already supplied the authoritative set.
-        // Both paths still enforce Body Shapes requirements before acquisition.
-        if (options is not MemberOptions { MemberSectionsPreResolved: true })
+        // Resolve selectors now unless member lookup must first choose the authoritative
+        // pipeline. Programmatically supplied member sections are revalidated without
+        // reinterpreting their retained raw selector provenance.
+        if (!deferMemberSelection)
         {
-            var selectResult = SelectResolver.ResolveSelectAsSections(
-                options.Select,
-                knownSections,
-                bareSelectSections,
-                singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
-                selectDefault: options.SelectDefault);
-            if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
+            if (options is MemberOptions { IncludeSections: not null } preResolved)
             {
-                // `-D` advertised these names and `-S` rejected them, on the same command line: the
-                // preamble was answering for the single-type pipeline while the render is a listing.
-                // Hold the rejection rather than resolving it here, because which pipeline is right is
-                // not known until the type lookup runs.
-                options = options with { SelectDeferredToListing = true };
+                if (!preResolved.MemberPipelineDeferredToLookup)
+                {
+                    if (RevalidateResolvedMemberSections(preResolved, memberPipeline) is not { } revalidated)
+                        return (null!, 1);
+                    options = revalidated;
+                }
             }
             else
             {
-                if (SelectOutput.WriteUnresolved(selectResult))
-                    return (null!, 1);
-                if (ApplyBodyShapeSelectionRequirements(
-                        options,
-                        selectResult) is { } bodyShapeError)
+                var selectResult = SelectResolver.ResolveSelectAsSections(
+                    options.Select,
+                    knownSections,
+                    bareSelectSections,
+                    singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+                    selectDefault: options.SelectDefault);
+                if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
                 {
-                    CommandError.Write(bodyShapeError);
-                    return (null!, 1);
+                    // `-D` advertised these names and `-S` rejected them, on the same command line: the
+                    // preamble was answering for the single-type pipeline while the render is a listing.
+                    // Hold the rejection rather than resolving it here, because which pipeline is right is
+                    // not known until the type lookup runs.
+                    options = options with { SelectDeferredToListing = true };
                 }
-                if (selectResult.Sections != null)
+                else
                 {
-                    options = options with
+                    if (SelectOutput.WriteUnresolved(selectResult))
+                        return (null!, 1);
+                    if (ApplyBodyShapeSelectionRequirements(
+                            options,
+                            selectResult) is { } bodyShapeError)
                     {
-                        IncludeSections = selectResult.Sections,
-                        ExactIncludeSectionsOverride = selectResult.ExactSections,
-                    };
+                        CommandError.Write(bodyShapeError);
+                        return (null!, 1);
+                    }
+                    if (selectResult.Sections != null)
+                    {
+                        options = options with
+                        {
+                            IncludeSections = selectResult.Sections,
+                            ExactIncludeSectionsOverride = selectResult.ExactSections,
+                        };
+                    }
                 }
             }
-        }
-        else if (options is MemberOptions { IncludeSections: { } preResolvedSections })
-        {
-            var selectResult = new SelectResult(
-                new HashSet<string>(
-                    preResolvedSections,
-                    StringComparer.OrdinalIgnoreCase),
-                [])
-            {
-                ExactSections = new HashSet<string>(
-                    options.ExactIncludeSections ?? [],
-                    StringComparer.OrdinalIgnoreCase)
-            };
-            if (ApplyBodyShapeSelectionRequirements(
-                    options,
-                    selectResult) is { } bodyShapeError)
-            {
-                CommandError.Write(bodyShapeError);
-                return (null!, 1);
-            }
-            options = options with
-            {
-                IncludeSections = selectResult.Sections,
-                ExactIncludeSectionsOverride = selectResult.ExactSections,
-            };
         }
         if (options is
             {
@@ -531,8 +770,15 @@ public class ApiCommand
         // down: judging the empty set reports a requirement to narrow -S that is neither true nor
         // actionable, and judging the listing's sections preempts the single-type view's own, more
         // accurate rejection. ReresolveSectionsForListing re-runs them once the pipeline is known.
-        var selectionSections = options.SelectDeferredToListing ? null : options.IncludeSections;
-        if (options.Discover == null && options.Count && !options.SelectDeferredToListing
+        var selectionDeferred = options.SelectDeferredToListing
+            || options is MemberOptions { MemberSelectionDeferredToLookup: true };
+        var selectionSections = selectionDeferred
+            ? options is MemberOptions { MemberSelectionDeferredToLookup: true } deferredMember
+                ? ResolvePipelineIndependentMemberSections(deferredMember)
+                : null
+            : options.IncludeSections;
+        var selectionValidationDeferred = selectionDeferred && selectionSections is null;
+        if (options.Discover == null && options.Count && !selectionValidationDeferred
             && !CountOutput.ValidateSingleSection(selectionSections))
             return (null!, 1);
 
@@ -545,7 +791,7 @@ public class ApiCommand
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
             // Discovery renders its own payload and refuses the shape projections itself with
             // an accurate reason; demanding -S first reports a requirement that is not the problem.
-            if (options.Discover == null && !options.SelectDeferredToListing
+            if (options.Discover == null && !selectionValidationDeferred
                 && !ShapeProjectionOutput.ValidateSingleSection(selectionSections, optionName))
                 return (null!, 1);
             if (!ValidateShapeProjectionModifiers(options, optionName))
@@ -555,25 +801,30 @@ public class ApiCommand
         if (!ValidateProjectionModifiers(options, shapeCount))
             return (null!, 1);
 
-        if (options.Print && options.Discover == null && !options.SelectDeferredToListing
+        if (options.Print && options.Discover == null && !selectionValidationDeferred
             && !ValidateApiPrintSelection(selectionSections))
             return (null!, 1);
 
-        if (!options.SelectDeferredToListing
+        if (!selectionValidationDeferred
             && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
             return (null!, 1);
 
-        if (options is MemberOptions memberFormat
-            && options.Discover is null)
+        if (options is MemberOptions memberFormat && options.Discover is null)
         {
-            memberFormat = NormalizeMemberGraphFormat(memberFormat, selectionSections);
-            options = memberFormat;
-            if (!ValidateMemberGraphFormat(memberFormat, selectionSections))
+            if (!ValidateMemberGraphFormatConflict(memberFormat))
                 return (null!, 1);
+
+            if (!selectionValidationDeferred)
+            {
+                memberFormat = NormalizeMemberGraphFormat(memberFormat, selectionSections);
+                options = memberFormat;
+                if (!ValidateMemberGraphFormat(memberFormat, selectionSections))
+                    return (null!, 1);
+            }
         }
 
         // Auto-promote verbosity when -S targets specific sections
-        if (options.IncludeSections is { Count: > 0 })
+        if (!selectionDeferred && options.IncludeSections is { Count: > 0 })
         {
             var typeVerbosity = typePipeline.GetRequiredVerbosity(options.IncludeSections);
             var memberVerbosity = memberPipeline.GetRequiredVerbosity(options.IncludeSections);
@@ -583,7 +834,7 @@ public class ApiCommand
         }
 
         // Warn if tabular output is combined with detailed verbosity without section selector
-        if (!options.Count)
+        if (!options.Count && !selectionDeferred)
             OutputFormatResolver.WarnIfTabularDetailMismatch(options.Tabular, options.Verbosity, options.IncludeSections);
 
         // Resolve the tool-owned .dotnet-inspectconfig once per invocation at the
@@ -1232,14 +1483,19 @@ public class ApiCommand
         // those schema entries because the type pipeline exposes whole-type code sections.
         var detailSchema = MergeSchemas(schema,
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
-        if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
+        var usesDetailPipeline = ApiMemberSectionPipelines.UsesDetailPipeline(options);
+        var usesOverloadInventoryPipeline = ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options);
+        if (!usesDetailPipeline && !usesOverloadInventoryPipeline)
             return detailSchema;
-        if (detailSchema.GetSection(SectionNames.Calls) == null)
-            detailSchema.Add(SectionNames.Calls, "column", "IL Offset", "Evidence Method", "Opcode", "Call Kind", "Callee", "Operand Token", "Return Address");
-        if (detailSchema.GetSection(SectionNames.Callers) == null)
-            detailSchema.Add(SectionNames.Callers, "column", "Caller", "Evidence Method", "IL Offset", "Opcode", "Call Kind", "Operand Token", "Return Address");
-        if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
-            detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
+        if (usesDetailPipeline)
+        {
+            if (detailSchema.GetSection(SectionNames.Calls) == null)
+                detailSchema.Add(SectionNames.Calls, "column", "IL Offset", "Evidence Method", "Opcode", "Call Kind", "Callee", "Operand Token", "Return Address");
+            if (detailSchema.GetSection(SectionNames.Callers) == null)
+                detailSchema.Add(SectionNames.Callers, "column", "Caller", "Evidence Method", "IL Offset", "Opcode", "Call Kind", "Operand Token", "Return Address");
+            if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
+                detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
+        }
         // One bidirectional section, so one field list: the union of what the outbound and inbound
         // halves each used to declare separately.
         detailSchema.Add(
@@ -1344,6 +1600,17 @@ public class ApiCommand
                 options.IncludeSections,
                 explicitInclude: explicitInclude),
             StringComparer.OrdinalIgnoreCase);
+        if (options is MemberOptions { AutoSelectedSingleOverload: true })
+        {
+            sections.UnionWith(
+                ApiMemberOverloadSectionDescriptors.CreatePipeline().GetEffectiveSections(
+                    type,
+                    options.Verbosity,
+                    options.IncludeSections,
+                    explicitInclude: explicitInclude));
+        }
+        if (ApiMemberSectionPipelines.ShouldAggregateImplicitCallers(type, options))
+            sections.Add(SectionNames.Callers);
         if (options.Discover is { Length: > 0 } discover)
         {
             var resolved = SelectResolver.ResolveSelectAsSections(
@@ -2196,49 +2463,57 @@ public class ApiCommand
 
         if (fullSerializer && view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
-            if (options is MemberOptions { OverloadIndex: not null })
+            var selectedOverload = options is MemberOptions { OverloadIndex: not null };
+            var autoSelectedOverload =
+                options is MemberOptions { AutoSelectedSingleOverload: true };
+            if (selectedOverload)
             {
                 ApiOutputFormatter.PopulateMemberSignature(view, type, options);
             }
-            else if (options is MemberOptions { CtorOnly: true } && options.Verbosity >= Verbosity.Normal
-                && type.Members.Any(m => m.Kind == "constructor"))
+            if (!selectedOverload || autoSelectedOverload)
             {
-                ApiOutputFormatter.PopulateConstructorOverloads(view, type, options);
-            }
-            else
-            {
-                var renderMemberGroups = ApiOutputFormatter.ShouldRenderMemberGroups(options);
-                var renderMemberRows = ApiOutputFormatter.ShouldRenderMemberRows(options);
-                var renderSupplementalRows = ApiOutputFormatter.ShouldRenderSupplementalMemberRows(options);
-                if (renderMemberGroups)
+                if (!selectedOverload
+                    && options is MemberOptions { CtorOnly: true }
+                    && options.Verbosity >= Verbosity.Normal
+                    && type.Members.Any(m => m.Kind == "constructor"))
                 {
-                    methodGroupsView ??= new MethodGroupsView();
-                    eventsView ??= new EventsView();
-                    ApiOutputFormatter.PopulateMemberSummarySections(
-                        view, methodGroupsView, eventsView, type, options, methodGroupsOnly: renderMemberRows);
+                    ApiOutputFormatter.PopulateConstructorOverloads(view, type, options);
                 }
-                if (renderMemberRows || renderSupplementalRows)
+                else
                 {
-                    methodsView ??= new MethodsView();
-                    operatorsView ??= new OperatorsView();
-                    explicitInterfaceImplementationsView ??= new ExplicitInterfaceImplementationsView();
-                    extensionMethodsView ??= new ExtensionMethodsView();
-                    eventsView ??= new EventsView();
-                    ApiOutputFormatter.PopulateMemberSections(
-                        view,
-                        methodsView,
-                        operatorsView,
-                        explicitInterfaceImplementationsView,
-                        extensionMethodsView,
-                        eventsView,
-                        type,
-                        options,
-                        renderSupplementalRows ? ApiOutputFormatter.SupplementalMemberKinds : null);
-                }
-                if (ShouldRenderMemberIndex(options))
-                {
-                    memberIndexView ??= new MemberIndexView();
-                    ApiOutputFormatter.PopulateMemberIndex(memberIndexView, type, options);
+                    var renderMemberGroups = ApiOutputFormatter.ShouldRenderMemberGroups(options);
+                    var renderMemberRows = ApiOutputFormatter.ShouldRenderMemberRows(options);
+                    var renderSupplementalRows = ApiOutputFormatter.ShouldRenderSupplementalMemberRows(options);
+                    if (renderMemberGroups)
+                    {
+                        methodGroupsView ??= new MethodGroupsView();
+                        eventsView ??= new EventsView();
+                        ApiOutputFormatter.PopulateMemberSummarySections(
+                            view, methodGroupsView, eventsView, type, options, methodGroupsOnly: renderMemberRows);
+                    }
+                    if (renderMemberRows || renderSupplementalRows)
+                    {
+                        methodsView ??= new MethodsView();
+                        operatorsView ??= new OperatorsView();
+                        explicitInterfaceImplementationsView ??= new ExplicitInterfaceImplementationsView();
+                        extensionMethodsView ??= new ExtensionMethodsView();
+                        eventsView ??= new EventsView();
+                        ApiOutputFormatter.PopulateMemberSections(
+                            view,
+                            methodsView,
+                            operatorsView,
+                            explicitInterfaceImplementationsView,
+                            extensionMethodsView,
+                            eventsView,
+                            type,
+                            options,
+                            renderSupplementalRows ? ApiOutputFormatter.SupplementalMemberKinds : null);
+                    }
+                    if (ShouldRenderMemberIndex(options))
+                    {
+                        memberIndexView ??= new MemberIndexView();
+                        ApiOutputFormatter.PopulateMemberIndex(memberIndexView, type, options);
+                    }
                 }
             }
 
@@ -2899,6 +3174,49 @@ public class ApiCommand
         return DiscoverOutput.WithoutColumn(schema, "Select");
     }
 
+    internal static bool ValidateTypeProjection(
+        DocumentSchema schema,
+        IReadOnlyCollection<string> sectionNames,
+        string[]? fields,
+        string[]? columns)
+    {
+        if (!ProjectionDiagnostics.ValidateProjection(
+                schema, sectionNames, fields, columns: null))
+        {
+            return false;
+        }
+
+        if (columns is not { Length: > 0 })
+            return true;
+
+        var columnSchema = new DocumentSchema();
+        foreach (var name in sectionNames)
+        {
+            var section = schema.GetSection(name);
+            if (section is null)
+                continue;
+
+            if (TypeFieldLayoutSections.Contains(name))
+            {
+                columnSchema.Add(name, "column", ["Field", "Value"]);
+            }
+            else if (section.Items.Length > 0)
+            {
+                columnSchema.Add(
+                    name,
+                    section.ItemKind,
+                    section.Items.Select(item => item.Name).ToArray());
+            }
+            else
+            {
+                columnSchema.AddSection(name);
+            }
+        }
+
+        return ProjectionDiagnostics.ValidateProjection(
+            columnSchema, sectionNames, fields: null, columns);
+    }
+
     /// <summary>
     /// Executes effective discovery (<c>-D</c>) for a single type. Shared by the
     /// type and member commands so both paths apply identical queryability filtering:
@@ -2941,7 +3259,12 @@ public class ApiCommand
         ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options,
         TypeAcquisitionContext? acquisition = null)
     {
-        var fullSchema = GetTypeDocumentSchema(options);
+        if (options is MemberOptions { AutoSelectedSingleOverload: true })
+            memberPipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
+
+        var fullSchema = RestrictSchemaToSections(
+            GetTypeDocumentSchema(options),
+            memberPipeline.SelectableSectionNames);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
         var effective = memberPipeline.GetDiscoverableSections(
             filteredType,
@@ -3098,9 +3421,13 @@ public class ApiCommand
 
         if (view.EnumValues == null && view.EnumValuesWithDocs == null)
         {
-            if (renderOptions is MemberOptions { OverloadIndex: not null })
+            var selectedOverload =
+                renderOptions is MemberOptions { OverloadIndex: not null };
+            var autoSelectedOverload =
+                renderOptions is MemberOptions { AutoSelectedSingleOverload: true };
+            if (selectedOverload)
                 ApiOutputFormatter.PopulateMemberSignature(view, type, renderOptions);
-            else
+            if (!selectedOverload || autoSelectedOverload)
             {
                 var renderMemberGroups = ApiOutputFormatter.ShouldRenderMemberGroups(renderOptions);
                 var renderMemberRows = ApiOutputFormatter.ShouldRenderMemberRows(renderOptions);

@@ -232,6 +232,21 @@ public static class ApiOutputFormatter
             options.IncludeSections,
             selectAll,
             explicitInclude: sectionsPreResolved);
+        if (options is MemberOptions { AutoSelectedSingleOverload: true })
+        {
+            includeSections ??= [];
+            includeSections.UnionWith(
+                ApiMemberOverloadSectionDescriptors.CreatePipeline().GetEffectiveSections(
+                    type,
+                    effectiveVerbosity,
+                    options.IncludeSections,
+                    explicitInclude: sectionsPreResolved));
+        }
+        if (ApiMemberSectionPipelines.ShouldAggregateImplicitCallers(type, options))
+        {
+            includeSections ??= [];
+            includeSections.Add(SectionNames.Callers);
+        }
         if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
             && !includeSections.Contains(SectionNames.Summary))
             includeSections = [SectionNames.Summary, .. includeSections];
@@ -495,7 +510,9 @@ public static class ApiOutputFormatter
 
         // Type parameters table (pipeline controls visibility via IncludeSections)
         List<TypeParameterRow>? typeParameterRows = null;
-        if (!memberFilterActive && type.TypeParameters.Count > 0)
+        if ((!memberFilterActive
+             || SectionRequested(options.IncludeSections, SectionNames.TypeParameters))
+            && type.TypeParameters.Count > 0)
         {
             typeParameterRows = type.TypeParameters
                 .Select(tp => new TypeParameterRow { Parameter = tp.DisplayName, Constraints = ConstraintSummary(type.TypeParameters, tp) })
@@ -504,7 +521,9 @@ public static class ApiOutputFormatter
 
         // Interfaces (pipeline controls visibility via IncludeSections)
         List<InterfaceRow>? interfaceRows = null;
-        if (!memberFilterActive && type.Interfaces.Count > 0)
+        if ((!memberFilterActive
+             || SectionRequested(options.IncludeSections, SectionNames.Interfaces))
+            && type.Interfaces.Count > 0)
         {
             interfaceRows = projection.Interfaces
                 .Select(i => new InterfaceRow { Interface = CSharpIdentifier.ContainRenderedText(i) })
@@ -513,7 +532,9 @@ public static class ApiOutputFormatter
 
         // Baseclass (pipeline controls visibility via IncludeSections; filtered for trivial bases)
         List<BaseclassRow>? baseclassRows = null;
-        if (!memberFilterActive && baseType != null)
+        if ((!memberFilterActive
+             || SectionRequested(options.IncludeSections, SectionNames.Baseclass))
+            && baseType != null)
         {
             baseclassRows = [new BaseclassRow { Type = baseType }];
         }
@@ -1437,7 +1458,9 @@ public static class ApiOutputFormatter
     /// overload-index selector (<c>Prop:1</c>/<c>Prop:2</c>) addresses. A field carries
     /// no accessor token and yields no body methods, so its body sections stay N/A.
     /// </summary>
-    internal static List<ApiMember> ResolveBodyMethods(ApiType type, IReadOnlySet<string> requestedSections)
+    internal static List<ApiMember> ResolveBodyMethods(
+        ApiType type,
+        IReadOnlySet<string> requestedSections)
     {
         bool includeAbstract = requestedSections.Contains(SectionNames.UnsafeOperations);
         var methods = type.Members
