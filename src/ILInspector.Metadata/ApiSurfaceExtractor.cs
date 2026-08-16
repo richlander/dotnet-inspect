@@ -45,15 +45,20 @@ public enum ApiSurfaceExtractionBound
 
     /// <summary>The image contains more metadata rows than the caller allows the walk to inspect.</summary>
     MetadataRows,
+
+    /// <summary>The extraction would have retained more text characters than allowed.</summary>
+    RetainedTextCharacters,
 }
 
 /// <summary>
-/// The hard retention bounds one bounded API-surface extraction runs under.
+/// The hard row, work, and retained-text bounds one bounded API-surface extraction runs under.
 /// </summary>
 /// <remarks>
 /// A bound is enforced <em>before</em> the row that would exceed it is retained, so a caller with
-/// a fixed output budget never materializes a surface larger than the budget it declared. Zero is
-/// a legal bound: it means "this extraction has no remaining budget", which is exactly what a
+/// a fixed output budget never returns a surface larger than the budget it declared. Retained
+/// text is charged from completed transfer models before they enter the surface; a type and its
+/// members remain pending together, so a rejected type spends no committed budget. Zero is a
+/// legal bound: it means "this extraction has no remaining budget", which is exactly what a
 /// caller spending one shared budget across several images has left when it is full.
 /// </remarks>
 public sealed record ApiSurfaceExtractionBounds
@@ -63,18 +68,21 @@ public sealed record ApiSurfaceExtractionBounds
         int maxMembers,
         int maxInspectionFailures,
         int maxTypeForwarders,
-        int maxMetadataRows)
+        int maxMetadataRows,
+        int maxRetainedTextCharacters)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxTypes);
         ArgumentOutOfRangeException.ThrowIfNegative(maxMembers);
         ArgumentOutOfRangeException.ThrowIfNegative(maxInspectionFailures);
         ArgumentOutOfRangeException.ThrowIfNegative(maxTypeForwarders);
         ArgumentOutOfRangeException.ThrowIfNegative(maxMetadataRows);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxRetainedTextCharacters);
         MaxTypes = maxTypes;
         MaxMembers = maxMembers;
         MaxInspectionFailures = maxInspectionFailures;
         MaxTypeForwarders = maxTypeForwarders;
         MaxMetadataRows = maxMetadataRows;
+        MaxRetainedTextCharacters = maxRetainedTextCharacters;
     }
 
     /// <summary>The most types the extraction may retain.</summary>
@@ -91,6 +99,9 @@ public sealed record ApiSurfaceExtractionBounds
 
     /// <summary>The most metadata rows the extraction may inspect.</summary>
     public int MaxMetadataRows { get; }
+
+    /// <summary>The most text characters the extraction may retain.</summary>
+    public int MaxRetainedTextCharacters { get; }
 }
 
 /// <summary>The outcome of one bounded API-surface extraction.</summary>
@@ -106,7 +117,10 @@ public abstract record ApiSurfaceExtractionResult
     }
 
     /// <summary>The image's whole surface fit the declared bounds.</summary>
-    public sealed record Extracted(ApiSurface Surface, int MetadataRows)
+    public sealed record Extracted(
+        ApiSurface Surface,
+        int MetadataRows,
+        int RetainedTextCharacters)
         : ApiSurfaceExtractionResult;
 
     /// <summary>
@@ -277,7 +291,8 @@ public static class ApiSurfaceExtractor
                 budget);
             return new ApiSurfaceExtractionResult.Extracted(
                 surface,
-                budget.MetadataRows);
+                budget.MetadataRows,
+                budget.RetainedTextCharacters);
         }
         catch (ExtractionBoundExceededException exceeded)
         {
@@ -434,6 +449,7 @@ public static class ApiSurfaceExtractor
                         iface.GetCustomAttributes(),
                         typeContext,
                         ifaceName);
+                    budget?.RetainInterface(ifaceName);
                     apiType.Interfaces.Add(ifaceName);
                 }
             }
@@ -558,7 +574,7 @@ public static class ApiSurfaceExtractor
                     member.DeclaringType = apiType.FullName;
                 }
 
-                budget?.RetainMember();
+                budget?.RetainMember(member);
                 apiType.Members.Add(member);
                 surface.PublicMethodCount++;
             }
@@ -637,7 +653,7 @@ public static class ApiSurfaceExtractor
                     SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
                 };
 
-                budget?.RetainMember();
+                budget?.RetainMember(member);
                 apiType.Members.Add(member);
                 surface.PublicPropertyCount++;
             }
@@ -756,7 +772,7 @@ public static class ApiSurfaceExtractor
                     }
                 }
 
-                budget?.RetainMember();
+                budget?.RetainMember(member);
                 apiType.Members.Add(member);
                 surface.PublicFieldCount++;
             }
@@ -869,13 +885,13 @@ public static class ApiSurfaceExtractor
                         : MetadataTokens.GetToken(accessors.Remover)
                 };
 
-                budget?.RetainMember();
+                budget?.RetainMember(member);
                 apiType.Members.Add(member);
                 surface.PublicEventCount++;
             }
             } // end if (!typesOnly)
 
-            budget?.RetainType();
+            budget?.RetainType(apiType);
             surface.Types.Add(apiType);
             surface.PublicTypeCount++;
             }
@@ -912,7 +928,16 @@ public static class ApiSurfaceExtractor
         // Extract type forwarders (ExportedTypes that are forwarded to other assemblies)
         ExtractTypeForwarders(reader, surface, budget);
 
-        ApiMemberIdentity.PopulateCanonicalIdentities(surface);
+        if (budget is null)
+        {
+            ApiMemberIdentity.PopulateCanonicalIdentities(surface);
+        }
+        else
+        {
+            ApiMemberIdentity.PopulateCanonicalIdentities(
+                surface,
+                budget.RetainCanonicalIdentity);
+        }
 
         return surface;
     }
@@ -1094,7 +1119,7 @@ public static class ApiSurfaceExtractor
                     TypeName = fullName,
                     TargetAssembly = targetAssembly
                 };
-                budget?.RetainTypeForwarder();
+                budget?.RetainTypeForwarder(typeForwarder);
                 surface.TypeForwarders.Add(typeForwarder);
             }
             catch (MetadataRowRejectedException ex)
@@ -1680,8 +1705,7 @@ public static class ApiSurfaceExtractor
                     .ToList()
                     .IndexOf(extension) + 1;
 
-                budget?.RetainAttachedMember();
-                targetType.Members.Add(new ApiMember
+                var attached = new ApiMember
                 {
                     Name = extension.Name,
                     Kind = "extension-method",
@@ -1703,7 +1727,9 @@ public static class ApiSurfaceExtractor
                     IsObsolete = extension.IsObsolete,
                     ObsoleteMessage = extension.ObsoleteMessage,
                     Documentation = extension.Documentation
-                });
+                };
+                budget?.RetainAttachedMember(attached);
+                targetType.Members.Add(attached);
             }
         }
     }
@@ -2626,13 +2652,14 @@ public static class ApiSurfaceExtractor
         EntityHandle subject,
         MetadataTypeNameFailure failure)
     {
-        budget?.RetainInspectionFailure();
-        surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+        var inspectionFailure = new ApiSurfaceInspectionFailure(
             operation,
             failure.SubjectToken ?? MetadataTokens.GetToken(subject),
             failure.Mechanism,
             failure.Kind,
-            failure.Detail));
+            failure.Detail);
+        budget?.RetainInspectionFailure(inspectionFailure);
+        surface.InspectionFailures.Add(inspectionFailure);
     }
 
     private static bool IsEnum(MetadataReader reader, TypeDefinition typeDef)
@@ -3023,10 +3050,13 @@ public static class ApiSurfaceExtractor
         int _types;
         int _members;
         int _pendingMembers;
+        int _retainedTextCharacters;
+        int _pendingTextCharacters;
         int _inspectionFailures;
         int _typeForwarders;
 
         public int MetadataRows { get; private set; }
+        public int RetainedTextCharacters => _retainedTextCharacters;
 
         /// <summary>Refuses an image whose metadata shape exceeds the remaining walk budget.</summary>
         public void AdmitMetadataRows(MetadataReader reader)
@@ -3049,42 +3079,49 @@ public static class ApiSurfaceExtractor
             if (_types >= bounds.MaxTypes)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
             _pendingMembers = 0;
+            _pendingTextCharacters = 0;
         }
 
         /// <summary>Counts one member of the type currently being built.</summary>
-        public void RetainMember()
+        public void RetainMember(ApiMember member)
         {
             if (_members + _pendingMembers >= bounds.MaxMembers)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Members);
+            RetainPendingText(ApiSurfaceRetainedText.Member(member));
             _pendingMembers++;
         }
 
         /// <summary>Commits the type currently being built and its members.</summary>
-        public void RetainType()
+        public void RetainType(ApiType type)
         {
             if (_types >= bounds.MaxTypes)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
+            RetainPendingText(ApiSurfaceRetainedText.TypeHeaderWithoutInterfaces(type));
             _types++;
             _members += _pendingMembers;
+            _retainedTextCharacters += _pendingTextCharacters;
             _pendingMembers = 0;
+            _pendingTextCharacters = 0;
         }
 
         /// <summary>Counts one member attached to a type that is already committed.</summary>
-        public void RetainAttachedMember()
+        public void RetainAttachedMember(ApiMember member)
         {
             if (_members >= bounds.MaxMembers)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Members);
+            RetainCommittedText(ApiSurfaceRetainedText.Member(member));
             _members++;
         }
 
         /// <summary>Counts one retained metadata-row rejection.</summary>
-        public void RetainInspectionFailure()
+        public void RetainInspectionFailure(ApiSurfaceInspectionFailure failure)
         {
             if (_inspectionFailures >= bounds.MaxInspectionFailures)
             {
                 throw new ExtractionBoundExceededException(
                     ApiSurfaceExtractionBound.InspectionFailures);
             }
+            RetainCommittedText(ApiSurfaceRetainedText.InspectionFailure(failure));
             _inspectionFailures++;
         }
 
@@ -3099,14 +3136,43 @@ public static class ApiSurfaceExtractor
         }
 
         /// <summary>Counts one retained type forwarder.</summary>
-        public void RetainTypeForwarder()
+        public void RetainTypeForwarder(TypeForwarder forwarder)
         {
             if (_typeForwarders >= bounds.MaxTypeForwarders)
             {
                 throw new ExtractionBoundExceededException(
                     ApiSurfaceExtractionBound.TypeForwarders);
             }
+            RetainCommittedText(ApiSurfaceRetainedText.TypeForwarder(forwarder));
             _typeForwarders++;
+        }
+
+        public void RetainCanonicalIdentity(string canonicalIdentity) =>
+            RetainCommittedText(canonicalIdentity.Length);
+
+        public void RetainInterface(string interfaceName) =>
+            RetainPendingText(interfaceName.Length);
+
+        void RetainPendingText(long characters)
+        {
+            if (characters > bounds.MaxRetainedTextCharacters
+                    - (long)_retainedTextCharacters
+                    - _pendingTextCharacters)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.RetainedTextCharacters);
+            }
+            _pendingTextCharacters += (int)characters;
+        }
+
+        void RetainCommittedText(long characters)
+        {
+            if (characters > bounds.MaxRetainedTextCharacters - (long)_retainedTextCharacters)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.RetainedTextCharacters);
+            }
+            _retainedTextCharacters += (int)characters;
         }
     }
 

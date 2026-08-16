@@ -35,14 +35,15 @@ internal static class BrowserApiSurfacePolicy
 {
     // The participant bound is the workspace's own assembly-per-role limit, so declaring it here
     // refuses nothing the workspace already accepted; the remaining ceilings bound every retained
-    // row kind. They sit far above real packages and far below what a hostile artifact can encode
-    // within the scope's 64 MB retained-image budget.
+    // row kind and the text those rows retain. They sit far above real packages and far below what
+    // a hostile artifact can encode within the scope's 64 MB retained-image budget.
     internal const int MaxParticipants = BrowserInspectionScope.MaxAssembliesPerRole;
     internal const int MaxTypes = 100_000;
     internal const int MaxMembers = 1_000_000;
     internal const int MaxInspectionFailures = 1_024;
     internal const int MaxTypeForwarders = 100_000;
     internal const int MaxMetadataRows = 250_000;
+    internal const int MaxRetainedTextCharacters = 8_000_000;
 
     /// <summary>The bounds every browser API-surface projection runs under.</summary>
     internal static ApiSurfaceProjectionLimits Limits { get; } =
@@ -52,20 +53,28 @@ internal static class BrowserApiSurfacePolicy
             MaxMembers,
             MaxInspectionFailures,
             MaxTypeForwarders,
-            MaxMetadataRows);
+            MaxMetadataRows,
+            MaxRetainedTextCharacters);
 
     /// <summary>
     /// The visible notice for a truncated projection, or null when the projection was complete.
     /// </summary>
-    internal static string? TruncationNotice(ApiSurfaceProjectionTruncation? truncation) =>
-        truncation is null
-            ? null
-            : $"API surface truncated at the browser {truncation.Limit} bound "
+    internal static string? TruncationNotice(ApiSurfaceProjectionTruncation? truncation)
+    {
+        if (truncation is null)
+            return null;
+
+        string limit = truncation.Limit == ApiSurfaceProjectionLimit.RetainedTextCharacters
+            ? "retained-text-character"
+            : truncation.Limit.ToString();
+        return $"API surface truncated at the browser {limit} bound "
                 + $"({truncation.Bound}): projected {truncation.ProjectedTypes} type(s) and "
                 + $"{truncation.ProjectedMembers} member(s), retained "
                 + $"{truncation.ProjectedInspectionFailures} inspection failure(s) and "
                 + $"{truncation.ProjectedTypeForwarders} type forwarder(s) after inspecting "
-                + $"{truncation.InspectedMetadataRows} metadata row(s) from "
+                + $"{truncation.InspectedMetadataRows} metadata row(s) and retaining "
+                + $"{truncation.ProjectedRetainedTextCharacters} text character(s) from "
                 + $"{truncation.ProjectedParticipants} assembly(ies); "
                 + $"{truncation.OmittedParticipants} assembly(ies) were not projected.";
+    }
 }

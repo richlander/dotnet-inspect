@@ -212,10 +212,17 @@ surface is never materialized to be discarded. If a projection reaches a bound i
 stops at a whole participant — no type is returned with a shortened member list —
 and the response's `inspectionError` names the bound, what was projected, and how
 many assemblies were not. Types, members, retained metadata-row failures, type
-forwarders, and total inspected metadata rows each have an explicit ceiling.
+forwarders, total inspected metadata rows, and retained API-model text each have
+an explicit ceiling. The 8,000,000-character text budget is spent across
+participants and includes type headers, member signatures and their structured
+models, failures, forwarders, and canonical identities. A rejected type's
+pending text is discarded with that type rather than charged to later
+participants.
 `BrowserEngineBoundaryTests.ApiSurfaceProjection_IsBoundedAndReportsTruncation`
 gates the bound and its non-vacuity; the truncation contract itself is gated by
-`AssemblyContextApiSurfaceQueryTests`. Every accessibility
+`AssemblyContextApiSurfaceQueryTests`, and
+`ApiSurfaceExtractorBoundsTests.RepeatedLongMethodName_IsStoppedByRetainedTextBeforeRowBounds`
+gates the repeated-long-name attack shape. Every accessibility
 bucket's id, label, order, default, and count comes from the query's own
 `ApiAccessibilityBucket` values; the browser classifies nothing and orders no
 label. Member identity is likewise product-owned: the stable selector, digest,

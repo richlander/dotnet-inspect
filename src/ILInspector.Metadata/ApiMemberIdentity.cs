@@ -840,6 +840,11 @@ public static class ApiMemberIdentity
     /// their serialized form and digests unchanged.
     /// </summary>
     public static void PopulateCanonicalIdentities(ApiSurface surface)
+        => PopulateCanonicalIdentities(surface, beforeRetain: null);
+
+    internal static void PopulateCanonicalIdentities(
+        ApiSurface surface,
+        Action<string>? beforeRetain)
     {
         foreach (var type in surface.Types)
         {
@@ -848,7 +853,9 @@ public static class ApiMemberIdentity
                 if (member.SignatureModel is not { } signature || !HasCanonicalDivergence(member, signature))
                     continue;
 
-                member.CanonicalSignature = GetCanonicalSignature(type, member);
+                string canonicalSignature = GetCanonicalSignature(type, member);
+                beforeRetain?.Invoke(canonicalSignature);
+                member.CanonicalSignature = canonicalSignature;
             }
         }
     }

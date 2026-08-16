@@ -145,10 +145,13 @@ public enum ApiSurfaceProjectionLimit
 
     /// <summary>The inspected metadata rows reached their bound.</summary>
     MetadataRows,
+
+    /// <summary>The retained API-surface text reached its character bound.</summary>
+    RetainedTextCharacters,
 }
 
 /// <summary>
-/// Hard bounds for one API-surface projection. A host with a fixed work and output budget —
+/// Hard bounds for one API-surface projection. A host with a fixed work, retained-text, and output budget —
 /// Browser/Wasm is the motivating one — declares them explicitly instead of invoking the
 /// unbounded projection and hoping the artifact is small.
 /// </summary>
@@ -158,7 +161,8 @@ public enum ApiSurfaceProjectionLimit
 /// bound is reported as <see cref="ApiSurfaceProjectionTruncation"/>, never as a smaller
 /// success-shaped result. The bounds are hard: they are enforced inside the extraction that
 /// retains the rows (<see cref="ApiSurfaceExtractionBounds"/>), so an over-budget participant is
-/// abandoned rather than materialized and then rejected.
+/// abandoned rather than returned and then rejected. Retained-text accounting is committed
+/// from the same completed models the surface carries and is spent across participants.
 /// </remarks>
 public sealed record ApiSurfaceProjectionLimits
 {
@@ -168,7 +172,8 @@ public sealed record ApiSurfaceProjectionLimits
         int maxMembers,
         int maxInspectionFailures,
         int maxTypeForwarders,
-        int maxMetadataRows)
+        int maxMetadataRows,
+        int maxRetainedTextCharacters)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxParticipants, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxTypes, 1);
@@ -176,12 +181,14 @@ public sealed record ApiSurfaceProjectionLimits
         ArgumentOutOfRangeException.ThrowIfNegative(maxInspectionFailures);
         ArgumentOutOfRangeException.ThrowIfNegative(maxTypeForwarders);
         ArgumentOutOfRangeException.ThrowIfNegative(maxMetadataRows);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxRetainedTextCharacters);
         MaxParticipants = maxParticipants;
         MaxTypes = maxTypes;
         MaxMembers = maxMembers;
         MaxInspectionFailures = maxInspectionFailures;
         MaxTypeForwarders = maxTypeForwarders;
         MaxMetadataRows = maxMetadataRows;
+        MaxRetainedTextCharacters = maxRetainedTextCharacters;
     }
 
     /// <summary>The most participants one projection may walk.</summary>
@@ -201,6 +208,9 @@ public sealed record ApiSurfaceProjectionLimits
 
     /// <summary>The most metadata rows one projection may inspect.</summary>
     public int MaxMetadataRows { get; }
+
+    /// <summary>The most API-surface text characters one projection may retain.</summary>
+    public int MaxRetainedTextCharacters { get; }
 }
 
 /// <summary>
@@ -216,7 +226,8 @@ public sealed record ApiSurfaceProjectionTruncation(
     int ProjectedMembers,
     int ProjectedInspectionFailures,
     int ProjectedTypeForwarders,
-    int InspectedMetadataRows);
+    int InspectedMetadataRows,
+    int ProjectedRetainedTextCharacters);
 
 /// <summary>
 /// Ordered API-surface outcomes for every participant in one assembly context group, plus the
@@ -252,7 +263,7 @@ public static class AssemblyContextApiSurfaceQuery
 
     /// <summary>
     /// The bounded projection: the same evidence under caller-declared participant, type, and
-    /// member bounds, with any early stop reported as
+    /// member and retained-text bounds, with any early stop reported as
     /// <see cref="ApiSurfaceProjectionTruncation"/>.
     /// </summary>
     public static InspectionQuery<AssemblyContextApiSurfaceResult> BoundedDefinition { get; } =
@@ -327,8 +338,9 @@ public static class AssemblyContextApiSurfaceQuery
     /// <see cref="ApiSurfaceProjectionLimits.MaxTypes"/> and
     /// <see cref="ApiSurfaceProjectionTruncation.ProjectedMembers"/> never exceeds
     /// <see cref="ApiSurfaceProjectionLimits.MaxMembers"/>; both count exactly the rows the result
-    /// carries. The same applies to retained inspection failures and type forwarders. A participant
-    /// that was walked and abandoned is counted as omitted, because none of its rows are returned.
+    /// carries. The same applies to retained inspection failures, type forwarders, and text
+    /// characters. A participant that was walked and abandoned is counted as omitted, because none
+    /// of its rows are returned and its pending text is not charged to the projection.
     /// </para>
     /// <para>
     /// Accessibility buckets are computed over the participants that were actually projected, so
@@ -358,6 +370,7 @@ public static class AssemblyContextApiSurfaceQuery
         int inspectionFailures = 0;
         int typeForwarders = 0;
         int metadataRows = 0;
+        int retainedTextCharacters = 0;
         if (selected.Count > limits.MaxParticipants)
         {
             truncation = new ApiSurfaceProjectionTruncation(
@@ -369,7 +382,8 @@ public static class AssemblyContextApiSurfaceQuery
                 ProjectedMembers: 0,
                 ProjectedInspectionFailures: 0,
                 ProjectedTypeForwarders: 0,
-                InspectedMetadataRows: 0);
+                InspectedMetadataRows: 0,
+                ProjectedRetainedTextCharacters: 0);
             selected = [.. selected.Take(limits.MaxParticipants)];
         }
 
@@ -386,7 +400,8 @@ public static class AssemblyContextApiSurfaceQuery
                 limits.MaxMembers - members,
                 limits.MaxInspectionFailures - inspectionFailures,
                 limits.MaxTypeForwarders - typeForwarders,
-                limits.MaxMetadataRows - metadataRows);
+                limits.MaxMetadataRows - metadataRows,
+                limits.MaxRetainedTextCharacters - retainedTextCharacters);
             AssemblyContextEntry<ApiSurfaceExtractionResult> entry =
                 AssemblyContextQueryExecutor.ExecuteParticipant(
                     group,
@@ -411,6 +426,8 @@ public static class AssemblyContextApiSurfaceQuery
                         ApiSurfaceProjectionLimit.TypeForwarders,
                     ApiSurfaceExtractionBound.MetadataRows =>
                         ApiSurfaceProjectionLimit.MetadataRows,
+                    ApiSurfaceExtractionBound.RetainedTextCharacters =>
+                        ApiSurfaceProjectionLimit.RetainedTextCharacters,
                     _ => throw new InvalidOperationException(
                         "Unknown API-surface extraction bound."),
                 };
@@ -424,6 +441,8 @@ public static class AssemblyContextApiSurfaceQuery
                         limits.MaxTypeForwarders,
                     ApiSurfaceExtractionBound.MetadataRows =>
                         limits.MaxMetadataRows,
+                    ApiSurfaceExtractionBound.RetainedTextCharacters =>
+                        limits.MaxRetainedTextCharacters,
                     _ => throw new InvalidOperationException(
                         "Unknown API-surface extraction bound."),
                 };
@@ -437,7 +456,8 @@ public static class AssemblyContextApiSurfaceQuery
                     ProjectedMembers: members,
                     ProjectedInspectionFailures: inspectionFailures,
                     ProjectedTypeForwarders: typeForwarders,
-                    InspectedMetadataRows: metadataRows);
+                    InspectedMetadataRows: metadataRows,
+                    ProjectedRetainedTextCharacters: retainedTextCharacters);
                 break;
             }
 
@@ -453,6 +473,7 @@ public static class AssemblyContextApiSurfaceQuery
             inspectionFailures += surface.InspectionFailures.Count;
             typeForwarders += surface.TypeForwarders.Count;
             metadataRows += extracted.MetadataRows;
+            retainedTextCharacters += extracted.RetainedTextCharacters;
         }
 
         if (truncation is not null)
@@ -464,6 +485,7 @@ public static class AssemblyContextApiSurfaceQuery
                 ProjectedInspectionFailures = inspectionFailures,
                 ProjectedTypeForwarders = typeForwarders,
                 InspectedMetadataRows = metadataRows,
+                ProjectedRetainedTextCharacters = retainedTextCharacters,
             };
         }
 

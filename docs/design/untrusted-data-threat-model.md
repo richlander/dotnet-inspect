@@ -381,6 +381,12 @@ reservations and retained cache entries share the same 12-package/128 MB limit.
 Before assembly identity decoding, each workspace role also rejects more than
 256 selected assemblies or a declared expanded total above that role's 32/64 MB
 retained-image budget.
+Browser API-surface projection separately limits retained model text to
+8,000,000 characters across selected assemblies. The extractor charges complete
+type headers, members and nested signature models, failures, forwarders, and
+canonical identities before retention. Type text remains pending until the
+whole type commits, so a malformed or over-budget type cannot consume the
+shared budget without appearing in the returned surface.
 `BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
 gates aggregate ownership and eviction; its oversized-role case gates
 pre-decoding rejection.
@@ -389,6 +395,11 @@ host-specific central-directory entry limit.
 `PackagePayloadAcquisitionTests.TransferPolicy_ReservesBeforeBodyReadAndCompletesAfterCommit`,
 `TransferPolicy_RejectedPayloadDisposesWithoutCompleting`, and
 `TransferPolicy_CanRequireContentLengthBeforeBodyRead` gate the capacity seam.
+`ApiSurfaceExtractorBoundsTests.RetainedTextBudget_IsExact` and
+`RepeatedLongMethodName_IsStoppedByRetainedTextBeforeRowBounds` gate exact
+retained-text accounting and the repeated shared-string amplification shape;
+`AssemblyContextApiSurfaceQueryTests.ExecuteBounded_SpendsRetainedTextAcrossParticipants`
+gates cross-assembly spending.
 
 Those controls are specific to the Browser-Wasm acquisition host. Archive
 containment in the broader product does not itself bound expanded bytes, entry
