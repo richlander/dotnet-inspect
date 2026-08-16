@@ -152,6 +152,8 @@ public static class ResourceLifecycleAnalysis
                 "method metadata validation",
             LeakTriageFailureKind.BodyAcquisition =>
                 "method body acquisition",
+            LeakTriageFailureKind.ControlFlowAnalysis =>
+                "control-flow analysis",
             _ => "analysis",
         };
 }

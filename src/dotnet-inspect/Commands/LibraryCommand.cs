@@ -630,6 +630,7 @@ public class LibraryCommand
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return SelectedInspectionFailureExitCode(
                         options,
+                        pipeline,
                         inspection);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
@@ -644,6 +645,7 @@ public class LibraryCommand
                     IntegrityExitCode(inspection),
                     SelectedInspectionFailureExitCode(
                         options,
+                        pipeline,
                         inspection));
             }
             else if (!string.IsNullOrEmpty(options.PackagePath))
@@ -780,6 +782,7 @@ public class LibraryCommand
                             inspections[0]),
                         SelectedInspectionFailureExitCode(
                             options,
+                            pipeline,
                             inspections[0]));
                 if (options.Print)
                     return IntegrityExitCode(
@@ -821,6 +824,7 @@ public class LibraryCommand
                         [.. inspections]),
                     SelectedInspectionFailureExitCode(
                         options,
+                        pipeline,
                         [.. inspections]));
             }
             else
@@ -909,6 +913,7 @@ public class LibraryCommand
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return SelectedInspectionFailureExitCode(
                         options,
+                        pipeline,
                         inspection);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
@@ -923,6 +928,7 @@ public class LibraryCommand
                     IntegrityExitCode(inspection),
                     SelectedInspectionFailureExitCode(
                         options,
+                        pipeline,
                         inspection));
             }
         }
@@ -998,17 +1004,24 @@ public class LibraryCommand
 
     internal static int SelectedInspectionFailureExitCode(
         LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline,
         params LibraryInspection[] inspections)
     {
-        if (options.IncludeSections is not { Count: > 0 } sections)
+        if (options.IncludeSections is not { Count: > 0 })
             return 0;
 
         return inspections.Any(inspection =>
-            (inspection.InspectionFailures ?? []).Any(failure =>
-                sections.Any(section =>
+        {
+            var empty = pipeline.GetEmptySections(
+                inspection,
+                options.Verbosity,
+                options.IncludeSections).Empty;
+            return (inspection.InspectionFailures ?? []).Any(failure =>
+                empty.Any(section =>
                     FailureAffectsSection(
                         failure.Section,
-                        section))))
+                        section)));
+        })
             ? 1
             : 0;
     }

@@ -16465,6 +16465,7 @@ public partial class CommandExecutionTests
             1,
             LibraryCommand.SelectedInspectionFailureExitCode(
                 options,
+                LibrarySections.CreatePipeline(),
                 FailedResourceTriageInspection()));
         Assert.Equal(
             0,
@@ -16473,6 +16474,23 @@ public partial class CommandExecutionTests
                 {
                     IncludeSections = [SectionNames.Signals],
                 },
+                LibrarySections.CreatePipeline(),
+                FailedResourceTriageInspection()));
+        Assert.Equal(
+            0,
+            LibraryCommand.SelectedInspectionFailureExitCode(
+                new LibraryOptions
+                {
+                    IncludeSections = [SectionNames.LibraryInfo],
+                },
+                LibrarySections.CreatePipeline(),
+                FailedResourceTriageInspection()));
+        Assert.Equal(
+            1,
+            PackageCommand.AllLibrariesCompletionExitCode(
+                incomplete: false,
+                options,
+                LibrarySections.CreatePipeline(),
                 FailedResourceTriageInspection()));
     }
 

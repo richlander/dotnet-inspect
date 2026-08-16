@@ -28,6 +28,7 @@ public enum LeakTriageFailureKind
     MethodResolution,
     MethodMetadata,
     BodyAcquisition,
+    ControlFlowAnalysis,
 }
 
 public readonly record struct LeakTriageFailure(
@@ -225,11 +226,17 @@ public static class LeakTriageAnalyzer
         {
             var graph = BlockGraph.Build(il.Length, instructions, exceptionRegions);
             if (!graph.IsComplete)
-                return Suppressed(method, "incomplete-cfg-or-rd-suppressed", graph.IncompleteReason ?? "Incomplete CFG/RD evidence.", null, null);
+                return Failed(
+                    method.MetadataToken,
+                    LeakTriageFailureKind.ControlFlowAnalysis,
+                    "IncompleteControlFlow");
 
             var reaching = ReachingDefinitions.Analyze(il, ArgumentSlotCount(method), exceptionRegions);
             if (!reaching.IsComplete)
-                return Suppressed(method, "incomplete-cfg-or-rd-suppressed", reaching.IncompleteReason ?? "Incomplete CFG/RD evidence.", null, null);
+                return Failed(
+                    method.MetadataToken,
+                    LeakTriageFailureKind.ControlFlowAnalysis,
+                    "IncompleteReachingDefinitions");
 
             var candidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
             var exceptionPathCandidates = ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
@@ -261,12 +268,10 @@ public static class LeakTriageAnalyzer
         }
         catch (Exception ex) when (IsRecoverable(ex))
         {
-            return Suppressed(
+            return Failed(
                 method,
-                "incomplete-cfg-or-rd-suppressed",
-                ex.Message,
-                null,
-                null);
+                LeakTriageFailureKind.ControlFlowAnalysis,
+                ex);
         }
     }
 
@@ -694,7 +699,12 @@ public static class LeakTriageAnalyzer
                 continue;
             var catchType = resolveCatchType(MetadataTokens.GetToken(region.CatchType));
             if (catchType is null
-                || !(FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Object")
+                || catchType.Kind == TypeRefKind.Unsupported)
+            {
+                throw new BadImageFormatException(
+                    "Catch type could not be resolved.");
+            }
+            if (!(FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Object")
                     || FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Exception")))
                 continue;
             (creditable ??= []).Add((region.TryOffset, region.TryLength, region.HandlerOffset));

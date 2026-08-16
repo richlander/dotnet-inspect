@@ -611,6 +611,37 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    public void ResourceLifecycleAnalysis_MalformedCatchTypeIsVisible()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ArrayPoolLeakFixtures).Assembly.Location);
+        int methodToken =
+            ReplaceCatchTypeWithMethodDefinition(image);
+
+        var inspection = ResourceLifecycleAnalysis.InspectAssembly(
+            () => LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedResourceTriageCatch.dll",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisFeatures.LeakTriage),
+            new FindingSubject(
+                "malformed-catch",
+                "malformed-catch"));
+
+        var failed =
+            Assert.IsType<FindingInspection<ResourceLifecycleOccurrence>.Failed>(
+                inspection.Value);
+        Assert.Contains(
+            $"method token 0x{methodToken:X8}",
+            failed.Error.Reason);
+        Assert.Contains(
+            "method resolution",
+            failed.Error.Reason);
+        Assert.Contains(
+            nameof(BadImageFormatException),
+            failed.Error.Reason);
+    }
+
+    [Fact]
     public void LibraryBodyIndex_RequiresLeakTriageFeature()
     {
         string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
@@ -1094,7 +1125,7 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
-    public void DetailedAnalysis_IncompleteDataflowWithRent_IsSuppressedBucket()
+    public void DetailedAnalysis_IncompleteDataflowWithRent_IsTypedFailure()
     {
         var result = AnalyzeSyntheticDetailed([
             .. Call(TokenShared),
@@ -1106,7 +1137,14 @@ public sealed class LeakTriageAnalyzerTests
         ], []);
 
         Assert.Empty(result.Findings);
-        AssertCandidate(result, nameof(Synthetic), "incomplete-cfg-or-rd-suppressed");
+        Assert.Empty(result.Candidates);
+        LeakTriageFailure failure = Assert.Single(result.Failures);
+        Assert.Equal(
+            LeakTriageFailureKind.ControlFlowAnalysis,
+            failure.Kind);
+        Assert.Equal(
+            "IncompleteControlFlow",
+            failure.Reason);
     }
 
     [Fact]
@@ -1201,6 +1239,49 @@ public sealed class LeakTriageAnalyzerTests
                     "artifact-controlled catch type"));
 
         var failure = Assert.Single(result.Failures);
+        Assert.Equal(
+            LeakTriageFailureKind.MethodResolution,
+            failure.Kind);
+        Assert.Equal(
+            nameof(BadImageFormatException),
+            failure.Reason);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DetailedAnalysis_UnresolvedCatchTypeIsTyped(
+        bool unsupported)
+    {
+        LeakTriageResult result =
+            LeakTriageAnalyzer.AnalyzeMethodDetailed(
+                SyntheticMethod(),
+                [
+                    .. Call(TokenShared),
+                    0x1F, 0x10,
+                    .. Callvirt(TokenRent),
+                    0x0A,
+                    0x2A,
+                    0x26,
+                    0x2A,
+                ],
+                [
+                    Region(
+                        ExceptionRegionKind.Catch,
+                        tryOffset: 0,
+                        tryLength: 14,
+                        handlerOffset: 14,
+                        handlerLength: 2,
+                        0x01000001),
+                ],
+                ResolveSyntheticMember,
+                _ => unsupported
+                    ? TypeRef.Unsupported(
+                        "artifact-controlled catch type")
+                    : null);
+
+        LeakTriageFailure failure =
+            Assert.Single(result.Failures);
         Assert.Equal(
             LeakTriageFailureKind.MethodResolution,
             failure.Kind);
@@ -1438,6 +1519,79 @@ public sealed class LeakTriageAnalyzerTests
             0x7F000000);
         return MetadataTokens.GetToken(methodHandle);
     }
+
+    static int ReplaceCatchTypeWithMethodDefinition(
+        byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single(handle =>
+                reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    nameof(ArrayPoolLeakFixtures
+                        .RentCrossCallCatchAllReturn)));
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+        int methodOffset = RvaToFileOffset(
+            peReader.PEHeaders,
+            method.RelativeVirtualAddress);
+        int headerSize =
+            (BinaryPrimitives.ReadUInt16LittleEndian(
+                image.AsSpan(methodOffset, 2)) >> 12) * 4;
+        int codeSize = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(methodOffset + 4, 4));
+        int sectionOffset =
+            Align4(methodOffset + headerSize + codeSize);
+        int replacementToken =
+            MetadataTokens.GetToken(methodHandle);
+
+        while (true)
+        {
+            byte kind = image[sectionOffset];
+            bool fat = (kind & 0x40) != 0;
+            int dataSize = fat
+                ? image[sectionOffset + 1]
+                    | image[sectionOffset + 2] << 8
+                    | image[sectionOffset + 3] << 16
+                : image[sectionOffset + 1];
+            if ((kind & 0x01) != 0)
+            {
+                int clauseSize = fat ? 24 : 12;
+                int count = (dataSize - 4) / clauseSize;
+                for (int index = 0; index < count; index++)
+                {
+                    int clause =
+                        sectionOffset + 4 + index * clauseSize;
+                    uint flags = fat
+                        ? BinaryPrimitives.ReadUInt32LittleEndian(
+                            image.AsSpan(clause, 4))
+                        : BinaryPrimitives.ReadUInt16LittleEndian(
+                            image.AsSpan(clause, 2));
+                    if ((flags & 7) != 0)
+                        continue;
+
+                    BinaryPrimitives.WriteInt32LittleEndian(
+                        image.AsSpan(
+                            clause + (fat ? 20 : 8),
+                            4),
+                        replacementToken);
+                    return replacementToken;
+                }
+            }
+
+            if ((kind & 0x80) == 0)
+                break;
+            sectionOffset = Align4(sectionOffset + dataSize);
+        }
+
+        throw new InvalidOperationException(
+            "Catch clause not found.");
+    }
+
+    static int Align4(int value) =>
+        (value + 3) & ~3;
 
     static int RvaToFileOffset(
         PEHeaders headers,
