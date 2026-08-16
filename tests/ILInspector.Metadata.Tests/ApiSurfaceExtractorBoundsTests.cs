@@ -426,6 +426,15 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void RepeatedEnumAttributeLookups_StopBeforeQuadraticAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildRepeatedEnumAttributeLookupImage(
+                typeCount: 2_000,
+                namedArgumentCount: 2_000));
+    }
+
+    [Fact]
     public void GenericAttributeTypeSpec_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
@@ -1846,6 +1855,72 @@ public sealed class ApiSurfaceExtractorBoundsTests
         value.WriteUInt16(0);
         metadata.AddCustomAttribute(
             host,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildRepeatedEnumAttributeLookupImage(
+        int typeCount,
+        int namedArgumentCount)
+    {
+        var metadata = Metadata("EnumAttributeLookupBomb");
+        AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("SampleAttribute"));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+
+        AddModuleAndPublicType(metadata, "Host");
+        for (int i = 0; i < typeCount; i++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Abstract,
+                metadata.GetOrAddString("Samples.Decoys.Namespace"),
+                metadata.GetOrAddString($"Decoy{i}"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Attributed"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteUInt16((ushort)namedArgumentCount);
+        for (int i = 0; i < namedArgumentCount; i++)
+        {
+            value.WriteByte(0x54);
+            value.WriteByte(0x55);
+            value.WriteSerializedString("NoSuchEnumType");
+            value.WriteSerializedString("P");
+            value.WriteInt32(1);
+        }
+        metadata.AddCustomAttribute(
+            attributed,
             constructor,
             metadata.GetOrAddBlob(value));
         return Serialize(metadata);

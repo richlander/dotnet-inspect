@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Runtime.ExceptionServices;
 
 namespace ILInspector.Metadata;
 
@@ -61,7 +62,18 @@ public static class AttributeDecoder
         => TryDecode(
             reader,
             attribute,
-            preserveSerializedTypeNames: false);
+            preserveSerializedTypeNames: false,
+            beforeMaterialize: null);
+
+    public static CustomAttributeValue<string>? TryDecode(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        Action<int>? beforeMaterialize)
+        => TryDecode(
+            reader,
+            attribute,
+            preserveSerializedTypeNames: false,
+            beforeMaterialize);
 
     /// <summary>
     /// Decodes an attribute while preserving the complete serialized names of
@@ -73,17 +85,27 @@ public static class AttributeDecoder
         => TryDecode(
             reader,
             attribute,
-            preserveSerializedTypeNames: true);
+            preserveSerializedTypeNames: true,
+            beforeMaterialize: null);
 
     static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,
         CustomAttribute attribute,
-        bool preserveSerializedTypeNames)
+        bool preserveSerializedTypeNames,
+        Action<int>? beforeMaterialize)
     {
         try
         {
             return attribute.DecodeValue(
-                new ArgTypeProvider(reader, preserveSerializedTypeNames));
+                new ArgTypeProvider(
+                    reader,
+                    preserveSerializedTypeNames,
+                    beforeMaterialize));
+        }
+        catch (MaterializationObserverException ex)
+        {
+            ex.Rethrow();
+            throw;
         }
         catch
         {
@@ -94,7 +116,8 @@ public static class AttributeDecoder
     /// <summary>Type provider for attribute-blob decoding: primitives as C# keywords, everything else as its full name (enums and typeof targets).</summary>
     sealed class ArgTypeProvider(
         MetadataReader reader,
-        bool preserveSerializedTypeNames) : ICustomAttributeTypeProvider<string>
+        bool preserveSerializedTypeNames,
+        Action<int>? beforeMaterialize) : ICustomAttributeTypeProvider<string>
     {
         public string GetPrimitiveType(PrimitiveTypeCode code) => code switch
         {
@@ -118,9 +141,13 @@ public static class AttributeDecoder
         public bool IsSystemType(string type) => type == "System.Type";
         public string GetSZArrayType(string elementType) => elementType + "[]";
         public string GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle handle, byte rawTypeKind)
-            => TypeResolver.GetTypeNameFromDefinition(r, handle);
+            => TypeResolver.GetTypeNameFromDefinition(r, handle, ObserveBeforeMaterialize);
         public string GetTypeFromReference(MetadataReader r, TypeReferenceHandle handle, byte rawTypeKind)
-            => TypeResolver.GetTypeName(r, handle) ?? "object";
+            => TypeResolver.GetTypeName(
+                r,
+                handle,
+                context: null,
+                beforeMaterialize: ObserveBeforeMaterialize) ?? "object";
         public string GetTypeFromSerializedName(string name)
         {
             if (preserveSerializedTypeNames)
@@ -134,7 +161,10 @@ public static class AttributeDecoder
             foreach (var handle in reader.TypeDefinitions)
             {
                 var def = reader.GetTypeDefinition(handle);
-                if (TypeResolver.GetTypeNameFromDefinition(reader, handle) != type)
+                if (TypeResolver.GetTypeNameFromDefinition(
+                        reader,
+                        handle,
+                        ObserveBeforeMaterialize) != type)
                     continue;
                 foreach (var fieldHandle in def.GetFields())
                 {
@@ -152,6 +182,24 @@ public static class AttributeDecoder
             }
             return PrimitiveTypeCode.Int32;
         }
+
+        void ObserveBeforeMaterialize(int characters)
+        {
+            try
+            {
+                beforeMaterialize?.Invoke(characters);
+            }
+            catch (Exception ex)
+            {
+                throw new MaterializationObserverException(ex);
+            }
+        }
+    }
+
+    sealed class MaterializationObserverException(Exception innerException) : Exception(null, innerException)
+    {
+        public void Rethrow() =>
+            ExceptionDispatchInfo.Capture(InnerException!).Throw();
     }
 
     /// <summary>Minimal signature provider that reports an enum's underlying primitive type code.</summary>

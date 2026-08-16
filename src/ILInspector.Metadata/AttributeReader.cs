@@ -518,7 +518,12 @@ public static class AttributeReader
                 continue;
             beforeMaterialize?.Invoke(
                 reader.GetBlobReader(attr.Value).Length);
-            if (TryRenderAttribute(reader, attr, typeName, qualifyNames) is not { } rendered)
+            if (TryRenderAttribute(
+                    reader,
+                    attr,
+                    typeName,
+                    qualifyNames,
+                    beforeMaterialize) is not { } rendered)
                 continue;
             int lastDot = typeName.LastIndexOf('.');
             if (lastDot > 0)
@@ -743,9 +748,10 @@ public static class AttributeReader
         MetadataReader reader,
         CustomAttribute attr,
         string typeName,
-        bool qualifyName)
+        bool qualifyName,
+        Action<int>? beforeMaterialize)
     {
-        if (AttributeDecoder.TryDecode(reader, attr) is not { } value)
+        if (AttributeDecoder.TryDecode(reader, attr, beforeMaterialize) is not { } value)
             return null;
         string name = qualifyName ? GetQualifiedAttributeName(typeName) : TypeMatcher.GetShortAttributeName(typeName);
         var args = new List<string>();
