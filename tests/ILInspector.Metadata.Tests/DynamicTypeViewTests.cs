@@ -424,7 +424,19 @@ public sealed class DynamicTypeViewTests
             transformFlagsConstructor: true));
     }
 
-    static byte[]? ReadDynamicFlags(byte[] attributeBlob, bool transformFlagsConstructor)
+    [Fact]
+    public void NamedVoidConstructorReturn_IsRejected()
+    {
+        Assert.Null(ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: false,
+            namedVoidReturn: true));
+    }
+
+    static byte[]? ReadDynamicFlags(
+        byte[] attributeBlob,
+        bool transformFlagsConstructor,
+        bool namedVoidReturn = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -451,10 +463,25 @@ public sealed class DynamicTypeViewTests
             expressions,
             metadata.GetOrAddString("System.Runtime.CompilerServices"),
             metadata.GetOrAddString("DynamicAttribute"));
+        var namedVoid = namedVoidReturn
+            ? metadata.AddTypeReference(
+                expressions,
+                default,
+                metadata.GetOrAddString("void"))
+            : default;
         var constructorSignature = new BlobBuilder();
         constructorSignature.WriteByte(0x20); // instance default calling convention
         constructorSignature.WriteCompressedInteger(transformFlagsConstructor ? 1 : 0);
-        constructorSignature.WriteByte(0x01); // void
+        if (namedVoidReturn)
+        {
+            constructorSignature.WriteByte(0x12); // class
+            constructorSignature.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(namedVoid) << 2) | 1);
+        }
+        else
+        {
+            constructorSignature.WriteByte(0x01); // void
+        }
         if (transformFlagsConstructor)
         {
             constructorSignature.WriteByte(0x1d); // SZArray

@@ -3724,6 +3724,7 @@ public sealed partial class CSharpPrinter
         // deref of the by-ref argument; the referenced element's static type is
         // still `dynamic`, so the `(dynamic)` cast is equally redundant (#3035).
         LoadIndirect { Address: LoadArgument { IsDynamic: true } } => true,
+        LoadIndirect { Address: LoadField { Field.IsDynamic: true } } => true,
         _ => false,
     };
 

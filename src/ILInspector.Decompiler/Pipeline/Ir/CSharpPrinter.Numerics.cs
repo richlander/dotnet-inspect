@@ -1786,9 +1786,21 @@ public sealed partial class CSharpPrinter
             LoadProperty property => MayRenderDynamicResult(property.Accessor),
             LoadIndirect { Address: Call call } => MayRenderByRefDynamicResult(call.Callee),
             LoadIndirect { Address: LoadProperty property } => MayRenderByRefDynamicResult(property.Accessor),
+            LoadIndirect
+            {
+                Address: LoadField
+                {
+                    Field:
+                    {
+                        Type: { Kind: TypeRefKind.ByRef, ElementType: { } element },
+                        DynamicFact: not MetadataFactState.No,
+                    },
+                },
+            } => IsSystemObjectType(element),
             LoadField field => IsSystemObjectType(field.Field.Type)
                 && field.Field.DynamicFact != MetadataFactState.No,
-            LoadElement { ResultType: { } type } => IsSystemObjectType(type),
+            LoadElement { ResultType: { } type } element => IsSystemObjectType(type)
+                && element.ResultIsDynamic != MetadataFactState.No,
             AwaitExpression { ResultType: { } resultType } awaitExpression
                 => IsSystemObjectType(resultType)
                     && awaitExpression.ResultIsDynamic != MetadataFactState.No,

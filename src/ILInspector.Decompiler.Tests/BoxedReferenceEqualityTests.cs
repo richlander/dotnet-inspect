@@ -70,6 +70,23 @@ public class BoxedReferenceEqualityTests
     }
 
     [Fact]
+    public void ByRefDynamicFieldReferenceEquality_PreservesObjectComparison()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.ByRefDynamicFieldReferenceEquals));
+
+        Assert.Contains("return (object)(carrier.Field) == (object)right;", output);
+    }
+
+    [Fact]
+    public void ByRefObjectFieldReferenceEquality_RemainsPlainObjectComparison()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.ByRefObjectFieldReferenceEquals));
+
+        Assert.Contains("(carrier.Field) == right", output);
+        Assert.DoesNotContain("(object)", output);
+    }
+
+    [Fact]
     public void DynamicConditionalReferenceEquality_PreservesObjectComparison()
     {
         string output = Print(nameof(BoxedReferenceEqualitySpecimens.DynamicConditionalReferenceEquals));
@@ -107,6 +124,15 @@ public class BoxedReferenceEqualityTests
         string output = Print(nameof(BoxedReferenceEqualitySpecimens.DynamicArrayElementReferenceEquals));
 
         Assert.Contains("return (object)values[index] == (object)right;", output);
+    }
+
+    [Fact]
+    public void ObjectArrayElementReferenceEquality_RemainsPlainObjectComparison()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.ObjectArrayElementReferenceEquals));
+
+        Assert.Contains("return values[index] == right;", output);
+        Assert.DoesNotContain("(object)", output);
     }
 
     [Fact]
@@ -378,6 +404,16 @@ public static class BoxedReferenceEqualitySpecimens
     public static bool DynamicFieldReferenceEquals(DynamicCarrier carrier, object right)
         => (object)carrier.Field == right;
 
+    public static bool ByRefDynamicFieldReferenceEquals(
+        ref RefDynamicFieldCarrier carrier,
+        object right)
+        => (object)carrier.Field == right;
+
+    public static bool ByRefObjectFieldReferenceEquals(
+        ref RefObjectFieldCarrier carrier,
+        object right)
+        => (object)carrier.Field == right;
+
     public static bool DynamicConditionalReferenceEquals(DynamicCarrier carrier, bool choose, object right)
         => (object)(choose ? carrier.Property : carrier.Method()) == right;
 
@@ -398,6 +434,12 @@ public static class BoxedReferenceEqualitySpecimens
 
     public static bool DynamicArrayElementReferenceEquals(
         dynamic[] values,
+        int index,
+        object right)
+        => (object)values[index] == right;
+
+    public static bool ObjectArrayElementReferenceEquals(
+        object[] values,
         int index,
         object right)
         => (object)values[index] == right;
@@ -472,6 +514,26 @@ public sealed class DynamicCarrier
     public dynamic Property => _value;
 
     public dynamic Method() => _value;
+}
+
+public ref struct RefDynamicFieldCarrier
+{
+    public ref dynamic Field;
+
+    public RefDynamicFieldCarrier(ref dynamic field)
+    {
+        Field = ref field;
+    }
+}
+
+public ref struct RefObjectFieldCarrier
+{
+    public ref object Field;
+
+    public RefObjectFieldCarrier(ref object field)
+    {
+        Field = ref field;
+    }
 }
 
 public sealed class GenericDynamicCarrier<T>

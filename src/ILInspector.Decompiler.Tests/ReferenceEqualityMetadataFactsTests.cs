@@ -119,6 +119,57 @@ public class ReferenceEqualityMetadataFactsTests
         Assert.Equal([ArgumentRefKind.Out], upgraded.FunctionPointerParameterRefKinds);
     }
 
+    [Fact]
+    public void LocalDefinitionSignature_RequiresTheResolvedAssemblyIdentity()
+    {
+        var definitionName = MetadataTypeDefinitionName.Create("N", ["C"]) switch
+        {
+            MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+            _ => throw new InvalidOperationException("C metadata name is invalid"),
+        };
+        var v1 = new AssemblyReferenceIdentity(
+            "Lib",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        var v2 = v1 with { Version = new Version(2, 0, 0, 0) };
+        var localDefinition = TypeRef.DefinitionWithResolution(
+            "Lib",
+            "N",
+            "C",
+            ValueTypeHint.ReferenceType,
+            MetadataFactState.Unknown,
+            null,
+            definitionName,
+            resolutionAssembly: null);
+        var externalV1 = TypeRef.DefinitionWithResolution(
+            "Lib",
+            "N",
+            "C",
+            ValueTypeHint.ReferenceType,
+            MetadataFactState.Unknown,
+            null,
+            definitionName,
+            v1);
+
+        Assert.False(CrossAssemblyTypeResolver.SameSignatureType(
+            localDefinition,
+            externalV1,
+            allowCoreLibraryAliases: false));
+        Assert.True(CrossAssemblyTypeResolver.SameSignatureType(
+            localDefinition,
+            externalV1,
+            allowCoreLibraryAliases: false,
+            resolvedLocalAssembly: "Lib",
+            resolvedLocalAssemblyIdentity: v1));
+        Assert.False(CrossAssemblyTypeResolver.SameSignatureType(
+            localDefinition,
+            externalV1,
+            allowCoreLibraryAliases: false,
+            resolvedLocalAssembly: "Lib",
+            resolvedLocalAssemblyIdentity: v2));
+    }
+
     static void AssertOrder(
         string consumer,
         string v1,

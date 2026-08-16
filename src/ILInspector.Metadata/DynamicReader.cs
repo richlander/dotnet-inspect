@@ -112,15 +112,15 @@ public static class DynamicReader
 
             if (!signature.Header.IsInstance
                 || signature.GenericParameterCount != 0
-                || signature.ReturnType.Render() != "void")
+                || signature.ReturnType is not PrimitiveTypeNode { Name: "void" })
             {
                 return null;
             }
             return signature.ParameterTypes switch
             {
                 [] => ConstructorKind.Marker,
-                [SZArrayTypeNode { ElementType: PrimitiveTypeNode element }]
-                    when element.Render() == "bool" => ConstructorKind.TransformFlags,
+                [SZArrayTypeNode { ElementType: PrimitiveTypeNode { Name: "bool" } }]
+                    => ConstructorKind.TransformFlags,
                 _ => null,
             };
         }
@@ -152,6 +152,13 @@ public static class DynamicReader
     /// is a plain object.
     /// </summary>
     public static bool IsByRefElementDynamic(byte[]? dynamicFlags)
+        => dynamicFlags is { Length: > 1 } flags && flags[1] == 1;
+
+    /// <summary>
+    /// True when a transform-flags array marks the element of an array type as
+    /// <c>dynamic</c>. The array occupies index 0 and its element index 1.
+    /// </summary>
+    public static bool IsArrayElementDynamic(byte[]? dynamicFlags)
         => dynamicFlags is { Length: > 1 } flags && flags[1] == 1;
 
     /// <summary>

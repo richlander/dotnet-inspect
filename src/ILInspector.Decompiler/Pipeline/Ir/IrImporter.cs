@@ -1347,13 +1347,21 @@ public static class IrImporter
                 {
                     var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
                     var index = Pop(stack);
-                    stack.Push(new LoadElement(elementType, Pop(stack), index));
+                    var array = Pop(stack);
+                    stack.Push(new LoadElement(elementType, array, index)
+                    {
+                        ResultIsDynamic = ArrayElementDynamicFact(array),
+                    });
                     break;
                 }
                 case >= ILOpCode.Ldelem_i1 and <= ILOpCode.Ldelem_ref or ILOpCode.Ldelem_i:
                 {
                     var index = Pop(stack);
-                    stack.Push(new LoadElement(ElementTypeOf(opcode), Pop(stack), index));
+                    var array = Pop(stack);
+                    stack.Push(new LoadElement(ElementTypeOf(opcode), array, index)
+                    {
+                        ResultIsDynamic = ArrayElementDynamicFact(array),
+                    });
                     break;
                 }
                 case ILOpCode.Stelem:
@@ -2023,11 +2031,30 @@ public static class IrImporter
             if (index == 0)
                 return new LoadArgument(0, "this", method.DeclaringType);
             var p = method.Signature.Parameters[index - 1];
-            return new LoadArgument(index, p.Name, p.Type) { IsDynamic = p.IsDynamic };
+            return new LoadArgument(index, p.Name, p.Type)
+            {
+                IsDynamic = p.IsDynamic,
+                ArrayElementIsDynamic = p.ArrayElementIsDynamic,
+            };
         }
         var parameter = method.Signature.Parameters[index];
-        return new LoadArgument(index, parameter.Name, parameter.Type) { IsDynamic = parameter.IsDynamic };
+        return new LoadArgument(index, parameter.Name, parameter.Type)
+        {
+            IsDynamic = parameter.IsDynamic,
+            ArrayElementIsDynamic = parameter.ArrayElementIsDynamic,
+        };
     }
+
+    static MetadataFactState ArrayElementDynamicFact(IrExpression array)
+        => array switch
+        {
+            LoadArgument argument => argument.ArrayElementIsDynamic,
+            LoadField field => field.Field.ArrayElementIsDynamic,
+            Call call => call.Callee.ReturnArrayElementIsDynamic,
+            LoadProperty property => property.Accessor.ReturnArrayElementIsDynamic,
+            NewArray => MetadataFactState.No,
+            _ => MetadataFactState.Unknown,
+        };
 
     static LoadArgumentAddress MakeLoadArgumentAddress(ImportedMethod method, int index)
     {
@@ -2156,6 +2183,11 @@ public static class IrImporter
                         method,
                         signature.ReturnType,
                         signature.ReturnType),
+                    ReturnArrayElementIsDynamic = MethodDefinitionFacts.ReturnArrayElementDynamicFact(
+                        reader,
+                        method,
+                        signature.ReturnType,
+                        signature.ReturnType),
                     IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
                     IsOperator = FactState(MethodDefinitionFacts.IsOperator(method, methodName, signature.Header.IsInstance)),
                     AccessorKind = MethodDefinitionFacts.ReadAccessorKind(reader, declaringType, (MethodDefinitionHandle)handle),
@@ -2229,6 +2261,7 @@ public static class IrImporter
                     ParameterRefKinds = memberFacts.ParameterRefKinds.Kinds,
                     ParameterRefKindsFacts = memberFacts.ParameterRefKinds.State,
                     ReturnIsDynamic = memberFacts.ReturnIsDynamic,
+                    ReturnArrayElementIsDynamic = memberFacts.ReturnArrayElementIsDynamic,
                     HasRefReadOnlyParameters = memberFacts.ParameterRefKinds.HasRefReadOnlyParameters,
                     IsOperator = memberFacts.IsOperator,
                     CompilerGenerated = memberFacts.CompilerGenerated,
@@ -2254,6 +2287,24 @@ public static class IrImporter
                         && returnType is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" }
                             ? MetadataFactState.Unknown
                             : generic.ReturnIsDynamic,
+                    ReturnArrayElementIsDynamic = generic.ReturnArrayElementIsDynamic == MetadataFactState.No
+                        && generic.ReturnType is
+                        {
+                            Kind: TypeRefKind.SzArray or TypeRefKind.Array,
+                            ElementType.Kind: TypeRefKind.MethodGenericParameter,
+                        }
+                        && returnType is
+                        {
+                            Kind: TypeRefKind.SzArray or TypeRefKind.Array,
+                            ElementType:
+                            {
+                                Kind: TypeRefKind.Definition,
+                                Namespace: "System",
+                                Name: "Object",
+                            },
+                        }
+                            ? MetadataFactState.Unknown
+                            : generic.ReturnArrayElementIsDynamic,
                     ParameterTypes = [.. generic.ParameterTypes.Select(p => p.Instantiate([], methodArguments))],
                 };
             }
@@ -2363,6 +2414,7 @@ public static class IrImporter
     static (
         ParameterRefKindResult ParameterRefKinds,
         MetadataFactState ReturnIsDynamic,
+        MetadataFactState ReturnArrayElementIsDynamic,
         MetadataFactState IsOperator,
         MetadataFactState CompilerGenerated,
         MetadataFactState DeclaringTypeCompilerGenerated) MemberReferenceDefinitionFacts(
@@ -2381,6 +2433,7 @@ public static class IrImporter
         if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
             return (
                 fallbackRefKinds,
+                MetadataFactState.Unknown,
                 MetadataFactState.Unknown,
                 MetadataFactState.Unknown,
                 MetadataFactState.Unknown,
@@ -2409,6 +2462,11 @@ public static class IrImporter
                         method,
                         declaredReturnType,
                         effectiveReturnType),
+                    MethodDefinitionFacts.ReturnArrayElementDynamicFact(
+                        reader,
+                        method,
+                        declaredReturnType,
+                        effectiveReturnType),
                     FactState(MethodDefinitionFacts.IsOperator(method, memberName, hasThis)),
                     FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
                     typeCompilerGenerated);
@@ -2416,6 +2474,7 @@ public static class IrImporter
         }
         return (
             fallbackRefKinds,
+            MetadataFactState.Unknown,
             MetadataFactState.Unknown,
             MetadataFactState.Unknown,
             MetadataFactState.Unknown,
@@ -2652,6 +2711,12 @@ public static class IrImporter
                 var name = reader.GetString(field.Name);
                 var fieldType = GuardedDecode.FieldType(reader, field, typeScope);
                 var dynamicFact = MethodDefinitionFacts.FieldDynamicFact(reader, field, fieldType, fieldType);
+                var arrayElementDynamicFact =
+                    MethodDefinitionFacts.FieldArrayElementDynamicFact(
+                        reader,
+                        field,
+                        fieldType,
+                        fieldType);
                 return new FieldRef(declaring, name, fieldType)
                 {
                     BackingPropertyName = BackingPropertyName(reader, declaringType, name),
@@ -2659,6 +2724,7 @@ public static class IrImporter
                     FixedBuffer = FixedBufferFieldInfo(reader, field.GetCustomAttributes()),
                     IsDynamic = dynamicFact == MetadataFactState.Yes,
                     DynamicFact = dynamicFact,
+                    ArrayElementIsDynamic = arrayElementDynamicFact,
                 };
             }
             case HandleKind.MemberReference:
@@ -2671,6 +2737,12 @@ public static class IrImporter
                     fieldType = fieldType.Instantiate(declaring.TypeArguments, []);
                 var name = reader.GetString(member.Name);
                 var dynamicFact = MemberReferenceFieldDynamicFact(
+                    reader,
+                    member,
+                    name,
+                    declaredFieldType,
+                    fieldType);
+                var arrayElementDynamicFact = MemberReferenceFieldArrayElementDynamicFact(
                     reader,
                     member,
                     name,
@@ -2689,6 +2761,7 @@ public static class IrImporter
                         parameterTypes: []).DeclaringTypeCompilerGenerated,
                     IsDynamic = dynamicFact == MetadataFactState.Yes,
                     DynamicFact = dynamicFact,
+                    ArrayElementIsDynamic = arrayElementDynamicFact,
                 };
             }
             default:
@@ -2763,7 +2836,7 @@ public static class IrImporter
         TypeRef declaredFieldType,
         TypeRef effectiveFieldType)
     {
-        if (!IsSystemObject(effectiveFieldType))
+        if (!IsSystemObject(MethodDefinitionFacts.DynamicValueType(effectiveFieldType)))
             return MetadataFactState.No;
         if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
             return MetadataFactState.Unknown;
@@ -2776,6 +2849,46 @@ public static class IrImporter
                 && reader.GetBlobBytes(field.Signature).AsSpan().SequenceEqual(memberSignature))
             {
                 return MethodDefinitionFacts.FieldDynamicFact(
+                    reader,
+                    field,
+                    declaredFieldType,
+                    effectiveFieldType);
+            }
+        }
+        return MetadataFactState.Unknown;
+    }
+
+    static MetadataFactState MemberReferenceFieldArrayElementDynamicFact(
+        MetadataReader reader,
+        MemberReference member,
+        string fieldName,
+        TypeRef declaredFieldType,
+        TypeRef effectiveFieldType)
+    {
+        if (effectiveFieldType is not
+            {
+                Kind: TypeRefKind.SzArray or TypeRefKind.Array,
+                ElementType:
+                {
+                    Kind: TypeRefKind.Definition,
+                    Namespace: "System",
+                    Name: "Object",
+                },
+            })
+        {
+            return MetadataFactState.No;
+        }
+        if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
+            return MetadataFactState.Unknown;
+        var declaringType = reader.GetTypeDefinition(typeHandle);
+        var memberSignature = reader.GetBlobBytes(member.Signature);
+        foreach (var fieldHandle in declaringType.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (string.Equals(reader.GetString(field.Name), fieldName, StringComparison.Ordinal)
+                && reader.GetBlobBytes(field.Signature).AsSpan().SequenceEqual(memberSignature))
+            {
+                return MethodDefinitionFacts.FieldArrayElementDynamicFact(
                     reader,
                     field,
                     declaredFieldType,
