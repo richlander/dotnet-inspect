@@ -58,6 +58,13 @@ public sealed record OptimizationOpportunity(
     public PerformanceTriageProvenance Provenance { get; init; }
 
     /// <summary>
+    /// Source-authored method that owns a lifted local-function or lambda body.
+    /// The opportunity's <see cref="Method"/> and IL offset remain the exact
+    /// synthesized-body coordinate.
+    /// </summary>
+    public MethodIdentity? SourceOwner { get; init; }
+
+    /// <summary>
     /// Objective invocation path showing that an upstream loop can repeat this method.
     /// Separate from the allocation's local multiplicity, loop membership, and confidence.
     /// </summary>
