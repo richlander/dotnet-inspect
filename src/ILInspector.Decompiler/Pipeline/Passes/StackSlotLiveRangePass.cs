@@ -125,7 +125,7 @@ public sealed class StackSlotLiveRangePass : IIrPass
                 var reaching = new HashSet<int>(flow.Blocks[blockIndex].In);
                 foreach (var statement in blocks[blockIndex].Children)
                 {
-                    foreach (var load in CoercionSinks.ScopeNodes(statement)
+                    foreach (var load in ScopeDescendants(statement)
                         .Prepend(statement)
                         .OfType<LoadStackSlot>()
                         .Where(load => load.Slot == slot))
@@ -225,10 +225,15 @@ public sealed class StackSlotLiveRangePass : IIrPass
     static bool HasUnmodeledControlTransfer(IReadOnlyList<Block> blocks)
         => blocks.Any(block =>
             block.Children.SkipLast(1).Any(IsControlTransfer)
-            || block.Children.SelectMany(CoercionSinks.ScopeNodes).Any(IsControlTransfer));
+            || block.Children.SelectMany(ScopeDescendants).Any(IsControlTransfer));
 
     static bool HasUniqueBlockOffsets(IReadOnlyList<Block> blocks)
         => blocks.Select(block => block.StartOffset).Distinct().Count() == blocks.Count;
+
+    static IEnumerable<IrNode> ScopeDescendants(IrNode root)
+        => root is LocalFunctionStatement or Lambda
+            ? []
+            : CoercionSinks.ScopeNodes(root);
 
     static bool IsControlTransfer(IrNode node)
         => node is Branch or ConditionalBranch or SwitchBranch
@@ -301,8 +306,8 @@ public sealed class StackSlotLiveRangePass : IIrPass
                 .Any(load => load.Slot == slot));
         if (!hasPriorLoad)
             return false;
-        if (!ReferenceEquals(block.Parent, function.Body))
-            return IsWithinStructuredLoop(block);
+        if (IsWithinStructuredLoop(block))
+            return true;
 
         var blocks = function.Body.Blocks;
         if (HasUnmodeledControlTransfer(blocks)
@@ -315,10 +320,14 @@ public sealed class StackSlotLiveRangePass : IIrPass
         if (edges.Any(edge => edge.LeavesRegion || edge.ExternalTargets.Count > 0))
             return true;
 
+        var functionBodyBlock = EnclosingFunctionBodyBlock(block, function.Body);
+        if (functionBodyBlock is null)
+            return false;
+
         int blockIndex = -1;
         for (int i = 0; i < blocks.Count; i++)
         {
-            if (ReferenceEquals(blocks[i], block))
+            if (ReferenceEquals(blocks[i], functionBodyBlock))
             {
                 blockIndex = i;
                 break;
@@ -341,6 +350,18 @@ public sealed class StackSlotLiveRangePass : IIrPass
                 pending.Push(successor);
         }
         return false;
+    }
+
+    static Block? EnclosingFunctionBodyBlock(Block block, BlockContainer functionBody)
+    {
+        for (IrNode? current = block; current is not null; current = current.Parent)
+        {
+            if (current is Lambda or LocalFunctionStatement)
+                return null;
+            if (current is Block candidate && ReferenceEquals(candidate.Parent, functionBody))
+                return candidate;
+        }
+        return null;
     }
 
     static bool IsWithinStructuredLoop(Block block)

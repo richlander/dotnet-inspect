@@ -418,6 +418,23 @@ public class StackSlotLiveRangeCrossBlockTests
     }
 
     [Fact]
+    public void NestedBlockInRawLoopCarriedRange_StaysUnsplit()
+    {
+        var nested = BlockOf(
+            10,
+            Load(Int32),
+            Store("loop"),
+            Load(String));
+        var entry = BlockOf(
+            0,
+            Store(1),
+            new IfStatement(new LoadArgument(0, "take", Boolean), nested, null),
+            new Branch(0));
+
+        Assert.False(Split(Run(entry)));
+    }
+
+    [Fact]
     public void CrossBlockSplit_DoesNotEnableLoopCarriedBlockLocalSplit()
     {
         var loopHeadLoad = Load(Int32);
@@ -525,6 +542,34 @@ public class StackSlotLiveRangeCrossBlockTests
         var use = BlockOf(20, Load(String), new Return(null));
 
         Assert.False(Split(Run(entry, redefine, use)));
+    }
+
+    [Fact]
+    public void LocalFunctionRoot_DoesNotExposeNestedLoadsToCrossBlockRewrite()
+    {
+        var localLoad = Load(Object);
+        var localBlock = BlockOf(100, Store(1), localLoad, Store("local"), new Return(null));
+        var localBody = new BlockContainer();
+        localBody.Add(localBlock);
+        var localFunction = new LocalFunctionStatement(
+            "Local",
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            isStatic: true,
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            localBody);
+        var hostLoad = Load(String);
+
+        var function = Run(
+            BlockOf(0, Store(1)),
+            BlockOf(10, Store("host")),
+            BlockOf(20, hostLoad, localFunction, new Return(null)));
+
+        Assert.NotEqual(Slot, Assert.IsType<LoadStackSlot>(hostLoad.Expression).Slot);
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(localLoad.Expression).Slot);
     }
 
     [Fact]
