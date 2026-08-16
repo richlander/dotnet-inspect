@@ -16463,6 +16463,19 @@ public partial class CommandExecutionTests
             "Array Pool Escapes inspection failed "
             + "(Resource lifecycle occurrence): fixture failure",
             error);
+        Assert.Equal(
+            1,
+            LibraryCommand.SelectedInspectionFailureExitCode(
+                options,
+                FailedResourceTriageInspection()));
+        Assert.Equal(
+            0,
+            LibraryCommand.SelectedInspectionFailureExitCode(
+                new LibraryOptions
+                {
+                    IncludeSections = [SectionNames.Signals],
+                },
+                FailedResourceTriageInspection()));
     }
 
     static LibraryInspection FailedResourceTriageInspection()

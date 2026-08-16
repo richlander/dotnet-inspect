@@ -630,7 +630,9 @@ public class LibraryCommand
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
-                    return 0;
+                    return SelectedInspectionFailureExitCode(
+                        options,
+                        inspection);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -640,7 +642,11 @@ public class LibraryCommand
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
-                return IntegrityExitCode(inspection);
+                return Math.Max(
+                    IntegrityExitCode(inspection),
+                    SelectedInspectionFailureExitCode(
+                        options,
+                        inspection));
             }
             else if (!string.IsNullOrEmpty(options.PackagePath))
             {
@@ -769,10 +775,14 @@ public class LibraryCommand
                             reportIdentifierFailures:
                                 !identifierAuditIncomplete));
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
-                    return IntegrityExitCode(
-                        identifierAuditExitCode,
-                        !identifierAuditIncomplete,
-                        inspections[0]);
+                    return Math.Max(
+                        IntegrityExitCode(
+                            identifierAuditExitCode,
+                            !identifierAuditIncomplete,
+                            inspections[0]),
+                        SelectedInspectionFailureExitCode(
+                            options,
+                            inspections[0]));
                 if (options.Print)
                     return IntegrityExitCode(
                         Math.Max(
@@ -806,10 +816,14 @@ public class LibraryCommand
                     OutputFormatter.WriteLibraryResults(inspections, options, pipeline);
                 }
 
-                return IntegrityExitCode(
-                    identifierAuditExitCode,
-                    !identifierAuditIncomplete,
-                    [.. inspections]);
+                return Math.Max(
+                    IntegrityExitCode(
+                        identifierAuditExitCode,
+                        !identifierAuditIncomplete,
+                        [.. inspections]),
+                    SelectedInspectionFailureExitCode(
+                        options,
+                        [.. inspections]));
             }
             else
             {
@@ -895,7 +909,9 @@ public class LibraryCommand
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
-                    return 0;
+                    return SelectedInspectionFailureExitCode(
+                        options,
+                        inspection);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -905,7 +921,11 @@ public class LibraryCommand
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
-                return IntegrityExitCode(inspection);
+                return Math.Max(
+                    IntegrityExitCode(inspection),
+                    SelectedInspectionFailureExitCode(
+                        options,
+                        inspection));
             }
         }
         catch (Exception ex)
@@ -972,9 +992,25 @@ public class LibraryCommand
 
         return inspections.Any(
                 inspection =>
-                    inspection.SourceIntegrityMismatches is { Count: > 0 }
-                    || inspection.InspectionFailures is { Count: > 0 })
+                    inspection.SourceIntegrityMismatches is { Count: > 0 })
             || identifierFailures.Count > 0
+            ? 1
+            : 0;
+    }
+
+    internal static int SelectedInspectionFailureExitCode(
+        LibraryOptions options,
+        params LibraryInspection[] inspections)
+    {
+        if (options.IncludeSections is not { Count: > 0 } sections)
+            return 0;
+
+        return inspections.Any(inspection =>
+            (inspection.InspectionFailures ?? []).Any(failure =>
+                sections.Any(section =>
+                    FailureAffectsSection(
+                        failure.Section,
+                        section))))
             ? 1
             : 0;
     }
