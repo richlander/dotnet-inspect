@@ -4203,6 +4203,13 @@ function bindEvents() {
     }
     const packageId = separator > 0 ? value.slice(0, separator) : value;
     const version = separator > 0 ? value.slice(separator + 1) : "latest";
+    if (!state.engineReady) {
+      const url = new URL("/", window.location.href);
+      url.searchParams.set("package", packageId);
+      url.searchParams.set("version", version);
+      window.location.assign(url);
+      return;
+    }
     loadPackage(packageId, version, "");
   });
   document.querySelector("#share").addEventListener("click", share);

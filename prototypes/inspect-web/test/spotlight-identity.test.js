@@ -186,15 +186,31 @@ test("bare home paints before wasm engine download", () => {
   assert.match(
     appSource,
     /state\.retryAction = \(\) => window\.location\.reload\(\)/);
+  assert.match(
+    appSource,
+    /if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*loadPackage\(packageId, version, ""\)/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {
+  const settingsPageRule =
+    stylesSource.match(/\.settings-page\s*\{([^}]*)\}/s)?.[1] ?? "";
+  const settingsMainRule =
+    stylesSource.match(/\.settings-main\s*\{([^}]*)\}/s)?.[1] ?? "";
   assert.match(
-    stylesSource,
-    /\.settings-page\s*\{[^}]*height: 100vh;[^}]*grid-template-rows: auto minmax\(0, 1fr\);/s);
+    settingsPageRule,
+    /(?:^|\n)\s*height: 100vh;/);
+  assert.doesNotMatch(
+    settingsPageRule,
+    /(?:^|\n)\s*min-height:/);
   assert.match(
-    stylesSource,
-    /\.settings-main\s*\{[^}]*min-height: 0;[^}]*overflow-y: auto;/s);
+    settingsPageRule,
+    /(?:^|\n)\s*grid-template-rows: auto minmax\(0, 1fr\);/);
+  assert.match(
+    settingsMainRule,
+    /(?:^|\n)\s*min-height: 0;/);
+  assert.match(
+    settingsMainRule,
+    /(?:^|\n)\s*overflow-y: auto;/);
 });
 
 test("all dependency navigation paths use one product-owned coordinate matcher", () => {
