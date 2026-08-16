@@ -269,7 +269,6 @@ internal static class PackageInspector
         result.ToolCommands = wrapperTool.ToolCommands;
         result.IsRidSpecificPointerPackage = wrapperTool.IsRidSpecificPointerPackage;
         result.RuntimeIdentifierPackages = wrapperTool.RuntimeIdentifierPackages;
-        result.SupportedRids = wrapperTool.SupportedRids;
 
         MarkAcquiredRidPackages(
             result,

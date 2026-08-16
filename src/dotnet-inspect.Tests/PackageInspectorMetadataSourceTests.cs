@@ -171,6 +171,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.True(result.IsRidSpecificPointerPackage);
         Assert.True(result.IsFrameworkDependent);
         Assert.False(result.HasRidSpecificAssets);
+        Assert.Equal(["any"], result.SupportedRids);
         RidPackageReference anyPackage = Assert.Single(
             result.RuntimeIdentifierPackages!,
             package => package.RuntimeIdentifier == "any"
