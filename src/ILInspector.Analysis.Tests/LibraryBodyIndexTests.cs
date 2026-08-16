@@ -208,6 +208,66 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_SharedCalleeScansCandidateTypeOnce()
+    {
+        string path = typeof(OptimizationOpportunityFixtures)
+            .Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle fixtureType = reader.TypeDefinitions.Single(
+            handle => reader.StringComparer.Equals(
+                reader.GetTypeDefinition(handle).Name,
+                nameof(OptimizationOpportunityFixtures)));
+        int methodCount = reader.GetTypeDefinition(fixtureType)
+            .GetMethods()
+            .Count;
+        var sourceTokens = reader.GetTypeDefinition(fixtureType)
+            .GetMethods()
+            .Where(handle =>
+            {
+                string name = reader.GetString(
+                    reader.GetMethodDefinition(handle).Name);
+                return name is nameof(
+                        OptimizationOpportunityFixtures
+                            .CallsSyncSiblingFromAsync)
+                    or nameof(
+                        OptimizationOpportunityFixtures
+                            .CallsSameSyncSiblingFromAsync);
+            })
+            .Select(handle => MetadataTokens.GetToken(handle))
+            .ToHashSet();
+        Assert.Equal(2, sourceTokens.Count);
+        int scanned = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            asyncSiblingMethodScanned: (definingReader, handle) =>
+            {
+                if (ReferenceEquals(definingReader, reader)
+                    && definingReader.GetMethodDefinition(handle)
+                        .GetDeclaringType() == fixtureType)
+                {
+                    scanned++;
+                }
+            });
+
+        LibraryBodyAnalysisResult result = builder.Build(
+            LibraryBodyAnalysisPlan.Create(
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                sourceTokens,
+                typeScope: null));
+
+        Assert.Equal(
+            2,
+            result.Optimizations.Opportunities.Count(opportunity =>
+                opportunity.Shape == "sync-call-in-async"));
+        Assert.Equal(methodCount * 2, scanned);
+    }
+
+    [Fact]
     public void AsyncSiblingTypeMatching_RejectsMixedNonCoreOrigins()
     {
         MetadataTypeDefinitionName typeName =
@@ -432,6 +492,25 @@ public class LibraryBodyIndexTests
                 .AsyncSiblingTypesMatch(
                     intrinsic,
                     untrustedSystemRuntime));
+    }
+
+    [Theory]
+    [InlineData("system.runtime")]
+    [InlineData("SYSTEM.THREADING.TASKS")]
+    public void AsyncSiblingFrameworkIdentity_IgnoresAssemblyNameCase(
+        string assemblyName)
+    {
+        TypeRef task = TypeRef.Definition(
+            assemblyName,
+            "System.Threading.Tasks",
+            "Task");
+
+        Assert.True(
+            FrameworkIdentity.IsKnownFrameworkType(
+                task,
+                "System.Threading.Tasks",
+                "System.Threading.Tasks",
+                "Task"));
     }
 
     [Fact]
@@ -4360,6 +4439,75 @@ public class LibraryBodyIndexTests
         finally
         {
             File.Delete(paddedPath);
+        }
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_RootImageIsRetainedOnce()
+    {
+        string sourcePath = typeof(OptimizationOpportunityFixtures)
+            .Assembly.Location;
+        string paddedPath = Path.Combine(
+            Path.GetTempPath(),
+            $"OptimizationPadded-{Guid.NewGuid():N}.dll");
+        const int OverlaySize = 32 * 1024 * 1024;
+
+        try
+        {
+            File.Copy(sourcePath, paddedPath);
+            using (var stream = new FileStream(
+                paddedPath,
+                FileMode.Open,
+                FileAccess.Write,
+                FileShare.Read))
+            {
+                stream.SetLength(stream.Length + OverlaySize);
+            }
+
+            long baseline = AllocatedFor(sourcePath);
+            long padded = AllocatedFor(paddedPath);
+            long overlayAllocation = padded - baseline;
+
+            Assert.InRange(
+                overlayAllocation,
+                OverlaySize / 2,
+                OverlaySize + OverlaySize / 2);
+        }
+        finally
+        {
+            File.Delete(paddedPath);
+        }
+
+        static long AllocatedFor(string path)
+        {
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(path)
+                {
+                    IncludeDepsJsonAssets = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    PreferImplementationAssemblies = true,
+                    SnapshotAssemblyImages = false,
+                });
+            int sourceToken = typeof(OptimizationOpportunityFixtures)
+                .GetMethod(
+                    nameof(OptimizationOpportunityFixtures
+                        .CallsFileReadLinesFromAsync))!
+                .MetadataToken;
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities,
+                resolver,
+                new HashSet<int> { sourceToken });
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.Contains(
+                index.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                    == "sync-call-in-async");
+            return allocated;
         }
     }
 
@@ -9849,6 +9997,12 @@ public class OptimizationOpportunityFixtures
     }
 
     public static async Task<int> CallsSyncSiblingFromAsync(int value)
+    {
+        await Task.Yield();
+        return ReadValues(value).Count();
+    }
+
+    public static async Task<int> CallsSameSyncSiblingFromAsync(int value)
     {
         await Task.Yield();
         return ReadValues(value).Count();

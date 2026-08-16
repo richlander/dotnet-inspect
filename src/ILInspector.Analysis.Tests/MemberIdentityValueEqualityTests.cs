@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 
+using ILInspector.Metadata;
+
 namespace ILInspector.Analysis.Tests;
 
 public class MemberIdentityValueEqualityTests
@@ -83,6 +85,72 @@ public class MemberIdentityValueEqualityTests
         Assert.Equal(
             0,
             MeasureHashAllocations(leftGeneric));
+    }
+
+    [Fact]
+    public void AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag()
+    {
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    ["Value"]))
+            .Name;
+        static TypeRef ReferencedType(
+            Version version,
+            MetadataTypeDefinitionName name)
+        {
+            var assembly = new AssemblyReferenceIdentity(
+                "Dependency",
+                version,
+                null,
+                null);
+            return TypeRef.Definition(
+                assembly.Name,
+                name.Namespace,
+                name.Segments[0],
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin
+                        .AssemblyReference(assembly),
+                    name));
+        }
+
+        TypeRef versionOne =
+            ReferencedType(new Version(1, 0), name);
+        TypeRef versionTwo =
+            ReferencedType(new Version(2, 0), name);
+        TypeRef pair =
+            TypeRef.Definition("Sample", "Sample", "Pair`2");
+        TypeRef shared = TypeRef.GenericInstance(
+            pair,
+            [versionOne, versionOne]);
+        TypeRef mixed = TypeRef.GenericInstance(
+            pair,
+            [versionOne, versionTwo]);
+
+        Assert.Equal(versionOne, versionTwo);
+        Assert.NotEqual(
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingTypeIdentity(shared),
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingTypeIdentity(mixed));
+    }
+
+    [Fact]
+    public void AsyncSiblingFindingDisplay_RejectsExponentialDagExpansion()
+    {
+        TypeRef value = TypeRef.CoreLib("System", "Int32");
+        TypeRef pair =
+            TypeRef.Definition("Sample", "Sample", "Pair`2");
+        for (int depth = 0; depth < 30; depth++)
+            value = TypeRef.GenericInstance(pair, [value, value]);
+
+        var exception = Assert.Throws<BadImageFormatException>(
+            () => LibraryBodyAnalysisBuilder
+                .EnsureAsyncSiblingDisplayIsBounded(value));
+        Assert.Contains(
+            "output limit",
+            exception.Message);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

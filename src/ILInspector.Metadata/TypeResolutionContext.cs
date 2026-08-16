@@ -118,6 +118,21 @@ public sealed class TypeResolutionCatalog : IDisposable
     public AssemblyCatalogId Id => _acquisition.CatalogId;
 
     /// <summary>
+    /// Registers an already retained immutable image for reuse by later
+    /// resolution contexts without reacquiring its bytes.
+    /// </summary>
+    public void RegisterRetainedSnapshot(
+        ResolvedAssemblyReference assembly,
+        AssemblyImageSnapshot snapshot)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _acquisition.RegisterRetainedSnapshot(assembly, snapshot);
+        }
+    }
+
+    /// <summary>
     /// Compares two opaque definition keys in the latest frozen generation.
     /// Duplicate copies remain explicitly indeterminate.
     /// </summary>

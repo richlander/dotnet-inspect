@@ -194,6 +194,60 @@ public sealed class AssemblyImageSnapshot
         }
     }
 
+    /// <summary>
+    /// Validates and retains caller-owned immutable assembly content without
+    /// copying it.
+    /// </summary>
+    public static AssemblyImageSnapshotResult FromRetainedContent(
+        ResolvedAssemblyReference assembly,
+        ImmutableArray<byte> content,
+        DateTime? lastWriteTimeUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        if (content.IsDefaultOrEmpty)
+            return Reject(
+                CandidateOpenFailureKind.InvalidImage,
+                "The selected image is empty.");
+
+        try
+        {
+            using var peReader = new PEReader(content);
+            if (!peReader.HasMetadata)
+            {
+                return Reject(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "The selected image has no managed metadata.");
+            }
+
+            MetadataReader reader = peReader.GetMetadataReader();
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+            if (!IdentityMatches(assembly.Identity, identity))
+            {
+                return Reject(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "The retained image identity does not match its descriptor.");
+            }
+
+            return new AssemblyImageSnapshotResult.Ready(
+                new AssemblyImageSnapshot(
+                    content,
+                    identity,
+                    reader.GetGuid(reader.GetModuleDefinition().Mvid),
+                    assembly.Registration,
+                    lastWriteTimeUtc ?? assembly.LastWriteTimeUtc));
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
+        {
+            return Reject(
+                CandidateOpenFailureKind.InvalidImage,
+                "The retained image contains invalid metadata.");
+        }
+    }
+
     internal static Stream OpenSource(
         ResolvedAssemblyReference assembly)
     {

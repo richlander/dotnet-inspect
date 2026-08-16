@@ -31,15 +31,14 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _primaryMetadataResolver;
     readonly LibraryBodyReferenceMetadataResolver? _referenceMetadataResolver;
     readonly AssemblyReferenceIdentity _assemblyIdentity;
-    readonly object _asyncSiblingCacheGate = new();
+    readonly object _asyncSiblingLookupCacheGate = new();
     readonly object _externalAsyncSiblingResolutionGate = new();
     readonly Dictionary<
         (
             MemberRef Callee,
             string ExactCalleeIdentity,
-            int CalleeDefinitionToken,
-            MethodIdentity AsyncSource),
-        MemberRef?> _asyncSiblingCache = [];
+            int CalleeDefinitionToken),
+        AsyncSiblingLookup?> _asyncSiblingLookupCache = [];
     IReadOnlyDictionary<
         MetadataTypeDefinitionName,
         TypeDefinitionHandle>? _localTypeDefinitions;
@@ -58,6 +57,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     readonly Action<TypeDefinitionHandle>? _sourceGeneratedTypeClassified;
     readonly Action? _typeDefinitionIndexBuilt;
     readonly Action? _parallelBuildStarting;
+    readonly Action<MetadataReader, MethodDefinitionHandle>?
+        _asyncSiblingMethodScanned;
     readonly ConcurrentDictionary<
         TypeDefinitionHandle,
         Lazy<IReadOnlyDictionary<string, ImmutableArray<MethodDefinitionHandle>>>>
@@ -122,14 +123,16 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         MetadataReader reader,
         PEReader peReader,
         IAssemblyReferenceResolver? resolver = null,
-        ImmutableArray<byte> rootImage = default,
+        LibraryBodyRootSnapshot? rootSnapshot = null,
         Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null,
         Action<MethodDefinitionHandle>? stableReceiverGetterClassified = null,
         Action<MethodDefinitionHandle, int>? methodReferenceResolved = null,
         Action<TypeDefinitionHandle>? sourceGeneratedTypeClassified = null,
         Action? typeDefinitionIndexBuilt = null,
         Action? asyncStateMachineTypesBuilt = null,
-        Action? parallelBuildStarting = null)
+        Action? parallelBuildStarting = null,
+        Action<MetadataReader, MethodDefinitionHandle>?
+            asyncSiblingMethodScanned = null)
     {
         _path = path;
         _reader = reader;
@@ -156,6 +159,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             sourceGeneratedTypeClassified;
         _typeDefinitionIndexBuilt = typeDefinitionIndexBuilt;
         _parallelBuildStarting = parallelBuildStarting;
+        _asyncSiblingMethodScanned =
+            asyncSiblingMethodScanned;
         _typeDefinitionIndex = new(
             BuildTypeDefinitionIndex,
             LazyThreadSafetyMode.ExecutionAndPublication);
@@ -174,7 +179,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     path,
                     reader,
                     resolver,
-                    rootImage);
+                    rootSnapshot);
     }
 
     public void Dispose() =>

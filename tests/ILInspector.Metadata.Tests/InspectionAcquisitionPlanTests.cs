@@ -542,6 +542,45 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void RetainedSnapshot_IsRegisteredWithoutReopeningOrCopyingSource()
+    {
+        byte[] image = SelfBytes();
+        ImmutableArray<byte> content = [.. image];
+        AssemblyReferenceIdentity identity = ReadIdentity(image);
+        int opens = 0;
+        var descriptor = ResolvedAssemblyReference.Create(
+            identity,
+            path: null,
+            openRead: () =>
+            {
+                opens++;
+                return new MemoryStream(image, writable: false);
+            },
+            provenance: AssemblyResolutionProvenance.Local("test"));
+        AssemblyImageSnapshot snapshot =
+            Assert.IsType<AssemblyImageSnapshotResult.Ready>(
+                AssemblyImageSnapshot.FromRetainedContent(
+                    descriptor,
+                    content))
+            .Snapshot;
+        using var plan = new InspectionAcquisitionPlan();
+
+        plan.RegisterRetainedSnapshot(descriptor, snapshot);
+        var registration =
+            Assert.IsType<CandidateRegistrationResult.Ready>(
+                plan.Register(descriptor));
+        var session = Assert.IsType<CandidateSessionResult.Ready>(
+            plan.OpenSession(registration.Candidate));
+
+        Assert.Equal(0, opens);
+        Assert.Equal(content.Length, plan.RetainedImageBytes);
+        Assert.Same(snapshot, session.Snapshot);
+        Assert.Equal(
+            "ILInspector.Metadata.Tests",
+            session.Session.AssemblyInfo().AssemblyName);
+    }
+
+    [Fact]
     public void Session_RetainedImageBudgetReturnsTypedFailure()
     {
         byte[] image = SelfBytes();

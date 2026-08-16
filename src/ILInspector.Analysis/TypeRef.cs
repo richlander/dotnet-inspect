@@ -546,7 +546,23 @@ public sealed class TypeRef : IEquatable<TypeRef>
     }
 
     internal static string CanonicalAssembly(string assemblyName)
-        => assemblyName is "System.Private.CoreLib" or "System.Runtime" or "mscorlib" or "netstandard" or "System.Runtime.Extensions"
-            ? CoreLibrary
-            : assemblyName;
+    {
+        return assemblyName.Equals(
+                "System.Private.CoreLib",
+                StringComparison.OrdinalIgnoreCase)
+            || assemblyName.Equals(
+                "System.Runtime",
+                StringComparison.OrdinalIgnoreCase)
+            || assemblyName.Equals(
+                "mscorlib",
+                StringComparison.OrdinalIgnoreCase)
+            || assemblyName.Equals(
+                "netstandard",
+                StringComparison.OrdinalIgnoreCase)
+            || assemblyName.Equals(
+                "System.Runtime.Extensions",
+                StringComparison.OrdinalIgnoreCase)
+                ? CoreLibrary
+                : assemblyName;
+    }
 }

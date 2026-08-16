@@ -90,36 +90,85 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             return null;
         }
 
-        var key = (
-            callee,
-            ExactAsyncSiblingMemberIdentity(callee),
-            call.CalleeDefinitionToken,
-            asyncSource);
-        lock (_asyncSiblingCacheGate)
-        {
-            if (_asyncSiblingCache.TryGetValue(
-                    key,
-                    out MemberRef? cached))
-            {
-                return cached;
-            }
-        }
-
-        MemberRef? sibling = FindAsyncSiblingCore(
+        return FindAsyncSiblingCore(
             callee,
             call.CalleeDefinitionToken,
-            asyncSource);
-        lock (_asyncSiblingCacheGate)
-        {
-            _asyncSiblingCache[key] = sibling;
-            return sibling;
-        }
+            asyncSource,
+            ExactAsyncSiblingMemberIdentity(callee));
     }
 
     MemberRef? FindAsyncSiblingCore(
         MemberRef callee,
         int calleeDefinitionToken,
-        MethodIdentity asyncSource)
+        MethodIdentity asyncSource,
+        string exactCalleeIdentity)
+    {
+        var lookupKey = (
+            callee,
+            exactCalleeIdentity,
+            calleeDefinitionToken);
+        AsyncSiblingLookup? lookup;
+        lock (_asyncSiblingLookupCacheGate)
+        {
+            if (!_asyncSiblingLookupCache.TryGetValue(
+                    lookupKey,
+                    out lookup))
+            {
+                lookup = PrepareAsyncSiblingLookup(
+                    callee,
+                    calleeDefinitionToken);
+                _asyncSiblingLookupCache.Add(
+                    lookupKey,
+                    lookup);
+            }
+        }
+        if (lookup is null)
+            return null;
+
+        MemberRef? best = null;
+        bool bestIsAmbiguous = false;
+        foreach (AsyncSiblingCandidate prepared
+            in lookup.Candidates)
+        {
+            if (lookup.SameAssembly
+                    && MetadataTokens.GetToken(
+                        prepared.Handle)
+                        == asyncSource.MetadataToken
+                || !IsCallableAsyncSibling(
+                    prepared.Definition,
+                    lookup.SameAssembly,
+                    lookup.Callee.DeclaringType,
+                    asyncSource,
+                    lookup.SynchronousAttributes,
+                    lookup.Reader,
+                    lookup.DeclaringType)
+                || IsPotentialVirtualSelfDispatch(
+                    lookup.Reader,
+                    lookup.DeclaringType,
+                    prepared.Handle,
+                    prepared.Definition,
+                    prepared.Reference,
+                    asyncSource,
+                    lookup.DeclaringTypeIsInterface)
+                || ImplementsCandidateSlot(
+                    prepared.Definition,
+                    prepared.Reference,
+                    asyncSource))
+            {
+                continue;
+            }
+
+            ConsiderAsyncSibling(
+                prepared.Reference,
+                ref best,
+                ref bestIsAmbiguous);
+        }
+        return bestIsAmbiguous ? null : best;
+    }
+
+    AsyncSiblingLookup? PrepareAsyncSiblingLookup(
+        MemberRef callee,
+        int calleeDefinitionToken)
     {
         if (TryResolveTypeDefinition(
                 callee.DeclaringType,
@@ -155,31 +204,24 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             return null;
         }
 
-        MemberRef? best = null;
-        bool bestIsAmbiguous = false;
+        var candidates =
+            ImmutableArray.CreateBuilder<
+                AsyncSiblingCandidate>();
         foreach (var methodHandle
             in declaringDefinition.GetMethods())
         {
+            _asyncSiblingMethodScanned?.Invoke(
+                resolved.DefiningReader,
+                methodHandle);
             var methodDefinition =
                 resolved.DefiningReader.GetMethodDefinition(
                     methodHandle);
             if (!resolved.DefiningReader.StringComparer.Equals(
                     methodDefinition.Name,
                     callee.Name + "Async")
-                || sameAssembly
-                    && MetadataTokens.GetToken(methodHandle)
-                        == asyncSource.MetadataToken
                 || HasGenericConstraints(
                     resolved.DefiningReader,
-                    methodDefinition)
-                || !IsCallableAsyncSibling(
-                    methodDefinition,
-                    sameAssembly,
-                    callee.DeclaringType,
-                    asyncSource,
-                    synchronous.Attributes,
-                    resolved.DefiningReader,
-                    resolved.Definition))
+                    methodDefinition))
             {
                 continue;
             }
@@ -198,30 +240,35 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 continue;
             }
 
-            if (IsPotentialVirtualSelfDispatch(
-                    resolved.DefiningReader,
-                    resolved.Definition,
-                    methodHandle,
-                    methodDefinition,
-                    candidate,
-                    asyncSource,
-                    (declaringDefinition.Attributes
-                        & TypeAttributes.Interface) != 0)
-                || ImplementsCandidateSlot(
-                    methodDefinition,
-                    candidate,
-                    asyncSource))
-            {
-                continue;
-            }
-
-            ConsiderAsyncSibling(
-                candidate,
-                ref best,
-                ref bestIsAmbiguous);
+            candidates.Add(new(
+                methodHandle,
+                methodDefinition,
+                candidate));
         }
-        return bestIsAmbiguous ? null : best;
+        return new(
+            resolved.DefiningReader,
+            resolved.Definition,
+            callee,
+            synchronous.Attributes,
+            sameAssembly,
+            (declaringDefinition.Attributes
+                & TypeAttributes.Interface) != 0,
+            candidates.ToImmutable());
     }
+
+    sealed record AsyncSiblingLookup(
+        MetadataReader Reader,
+        TypeDefinitionHandle DeclaringType,
+        MemberRef Callee,
+        MethodAttributes SynchronousAttributes,
+        bool SameAssembly,
+        bool DeclaringTypeIsInterface,
+        ImmutableArray<AsyncSiblingCandidate> Candidates);
+
+    readonly record struct AsyncSiblingCandidate(
+        MethodDefinitionHandle Handle,
+        MethodDefinition Definition,
+        MemberRef Reference);
 
     internal static void ConsiderAsyncSibling(
         MemberRef candidate,
@@ -296,6 +343,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 reader.GetTypeDefinition(declaringType);
             foreach (var handle in definition.GetMethods())
             {
+                _asyncSiblingMethodScanned?.Invoke(
+                    reader,
+                    handle);
                 var method = reader.GetMethodDefinition(handle);
                 if (!reader.StringComparer.Equals(
                         method.Name,
@@ -2034,7 +2084,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             && type.TypeArguments.All(
                 IsSupportedAsyncSiblingType);
 
-    static bool HasConstrainedMatchingMethod(
+    bool HasConstrainedMatchingMethod(
         MetadataReader reader,
         TypeDefinition declaringType,
         MemberRef callee)
@@ -2044,6 +2094,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder
 
         foreach (var handle in declaringType.GetMethods())
         {
+            _asyncSiblingMethodScanned?.Invoke(
+                reader,
+                handle);
             var method = reader.GetMethodDefinition(handle);
             if (!reader.StringComparer.Equals(
                     method.Name,
@@ -2465,7 +2518,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         System.Text.StringBuilder identity,
         TypeRef type)
     {
-        var visited = new Dictionary<TypeRef, int>();
+        var visited = new Dictionary<TypeRef, int>(
+            ReferenceEqualityComparer.Instance);
         AppendAsyncSiblingTypeIdentity(
             identity,
             type,
@@ -2886,7 +2940,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 "IEnumerable`1");
 
     static string FormatMember(MemberRef member)
-        => $"{member.DeclaringType.ToQualifiedDisplayString()}"
+    {
+        EnsureAsyncSiblingDisplayIsBounded(member);
+        return $"{member.DeclaringType.ToQualifiedDisplayString()}"
             + $"::{member.Name}("
             + string.Join(
                 ", ",
@@ -2894,4 +2950,63 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     parameter =>
                         parameter.ToQualifiedDisplayString()))
             + ")";
+    }
+
+    internal static void EnsureAsyncSiblingDisplayIsBounded(TypeRef type)
+    {
+        var pending = new Stack<TypeRef>();
+        pending.Push(type);
+        EnsureAsyncSiblingDisplayIsBounded(
+            pending,
+            initialCharacters: 0);
+    }
+
+    static void EnsureAsyncSiblingDisplayIsBounded(MemberRef member)
+    {
+        var pending = new Stack<TypeRef>(
+            member.ParameterTypes.Length + 1);
+        for (int index = member.ParameterTypes.Length - 1;
+            index >= 0;
+            index--)
+        {
+            pending.Push(member.ParameterTypes[index]);
+        }
+        pending.Push(member.DeclaringType);
+        EnsureAsyncSiblingDisplayIsBounded(
+            pending,
+            member.Name.Length
+                + (long)member.ParameterTypes.Length * 2
+                + 4);
+    }
+
+    static void EnsureAsyncSiblingDisplayIsBounded(
+        Stack<TypeRef> pending,
+        long initialCharacters)
+    {
+        const int MaxDisplayCharacters = 64 * 1024;
+        int nodes = 0;
+        long characters = initialCharacters;
+        while (pending.Count > 0)
+        {
+            TypeRef current = pending.Pop();
+            if (++nodes
+                    > MetadataSafetyPolicy.MaxRelationshipNodes
+                || characters
+                    > MaxDisplayCharacters
+                        - current.Namespace.Length
+                        - current.Name.Length
+                        - 16)
+            {
+                throw new BadImageFormatException(
+                    "The constructed type display exceeds the analysis output limit.");
+            }
+            characters += current.Namespace.Length
+                + current.Name.Length
+                + 16;
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            foreach (TypeRef argument in current.TypeArguments)
+                pending.Push(argument);
+        }
+    }
 }

@@ -908,21 +908,21 @@ public sealed class LibraryBodyIndex
                 bodyTypeScope);
 
         if (resolver is not null
-            && plan.Includes(
-                LibraryBodyAnalysisFeatures
-                    .OptimizationOpportunities))
+            && UsesReferenceResolution(plan))
         {
-            byte[] bytes = File.ReadAllBytes(path);
-            ImmutableArray<byte> image =
-                ImmutableCollectionsMarshal
-                    .AsImmutableArray(bytes);
-            using var imageReader = new PEReader(image);
-            return BuildFromReader(
-                path,
-                imageReader,
-                plan,
-                resolver,
-                image);
+            LibraryBodyRootSnapshot? rootSnapshot =
+                AcquireRootSnapshot(path);
+            if (rootSnapshot is not null)
+            {
+                using var imageReader =
+                    new PEReader(rootSnapshot.Snapshot.Content);
+                return BuildFromReader(
+                    path,
+                    imageReader,
+                    plan,
+                    resolver,
+                    rootSnapshot);
+            }
         }
 
         // Full (unscoped) builds decode every method body in parallel; prefetch the entire image
@@ -939,7 +939,7 @@ public sealed class LibraryBodyIndex
             peReader,
             plan,
             resolver,
-            rootImage: default);
+            rootSnapshot: null);
     }
 
     /// <summary>
@@ -970,12 +970,19 @@ public sealed class LibraryBodyIndex
                 bodyTypeScope);
 
         using var peReader = new PEReader(image);
+        MetadataReader reader = peReader.GetMetadataReader();
+        LibraryBodyRootSnapshot? rootSnapshot =
+            resolver is not null
+                && reader.IsAssembly
+                && UsesReferenceResolution(plan)
+                ? CreateRootSnapshot(path, reader, image)
+                : null;
         return BuildFromReader(
             path,
             peReader,
             plan,
             resolver,
-            image);
+            rootSnapshot);
     }
 
     static LibraryBodyIndex BuildFromReader(
@@ -983,7 +990,7 @@ public sealed class LibraryBodyIndex
         PEReader peReader,
         LibraryBodyAnalysisPlan plan,
         IAssemblyReferenceResolver? resolver,
-        ImmutableArray<byte> rootImage)
+        LibraryBodyRootSnapshot? rootSnapshot)
     {
         if (!peReader.HasMetadata)
             throw new BadImageFormatException($"No managed metadata: {path}");
@@ -1003,12 +1010,127 @@ public sealed class LibraryBodyIndex
             peReader,
             analysisResolver,
             analysisResolver is null
-                ? default
-                : rootImage);
+                ? null
+                : rootSnapshot);
         LibraryBodyAnalysisResult analysis =
             builder.Build(plan);
         return new LibraryBodyIndex(path, analysis, plan.Features);
     }
+
+    static bool UsesReferenceResolution(
+        LibraryBodyAnalysisPlan plan) =>
+        plan.Includes(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities)
+        || plan.Includes(
+            LibraryBodyAnalysisFeatures.OwnershipFlow);
+
+    static LibraryBodyRootSnapshot? AcquireRootSnapshot(string path)
+    {
+        string fullPath = System.IO.Path.GetFullPath(path);
+        AssemblyReferenceIdentity identity;
+        DateTime lastWriteTimeUtc;
+        using (FileStream stream = File.OpenRead(fullPath))
+        using (var peReader = new PEReader(
+            stream,
+            PEStreamOptions.LeaveOpen
+                | PEStreamOptions.PrefetchMetadata))
+        {
+            if (!peReader.HasMetadata)
+            {
+                throw new BadImageFormatException(
+                    $"No managed metadata: {path}");
+            }
+
+            MetadataReader reader = peReader.GetMetadataReader();
+            if (!reader.IsAssembly)
+                return null;
+            identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    reader);
+            lastWriteTimeUtc =
+                File.GetLastWriteTimeUtc(stream.SafeFileHandle);
+        }
+
+        var assembly = ResolvedAssemblyReference.Create(
+            identity,
+            fullPath,
+            () => File.OpenRead(fullPath),
+            AssemblyResolutionProvenance.Local(
+                "LibraryBodyIndex"),
+            lastWriteTimeUtc);
+        AssemblyImageSnapshotResult result =
+            AssemblyImageSnapshot.Open(
+                assembly,
+                length => length
+                    <= AssemblyImageSnapshot
+                        .DefaultMaxRetainedImageBytes,
+                _ => { });
+        return result switch
+        {
+            AssemblyImageSnapshotResult.Ready ready =>
+                new LibraryBodyRootSnapshot(
+                    assembly,
+                    ready.Snapshot),
+            AssemblyImageSnapshotResult.Rejected rejected =>
+                throw RootSnapshotFailure(path, rejected.Failure),
+            _ => throw new InvalidOperationException(
+                "Unknown root-image acquisition result."),
+        };
+    }
+
+    static LibraryBodyRootSnapshot CreateRootSnapshot(
+        string path,
+        MetadataReader reader,
+        ImmutableArray<byte> image)
+    {
+        if (image.Length
+            > AssemblyImageSnapshot.DefaultMaxRetainedImageBytes)
+        {
+            throw new InvalidOperationException(
+                "The root assembly exceeds the retained-image budget.");
+        }
+
+        byte[] bytes = ImmutableCollectionsMarshal.AsArray(image)!;
+        var assembly = ResolvedAssemblyReference.Create(
+            AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
+            System.IO.Path.GetFullPath(path),
+            () => new MemoryStream(bytes, writable: false),
+            AssemblyResolutionProvenance.Local(
+                "LibraryBodyIndex"));
+        AssemblyImageSnapshotResult result =
+            AssemblyImageSnapshot.FromRetainedContent(
+                assembly,
+                image);
+        return result switch
+        {
+            AssemblyImageSnapshotResult.Ready ready =>
+                new LibraryBodyRootSnapshot(
+                    assembly,
+                    ready.Snapshot),
+            AssemblyImageSnapshotResult.Rejected rejected =>
+                throw RootSnapshotFailure(path, rejected.Failure),
+            _ => throw new InvalidOperationException(
+                "Unknown root-image acquisition result."),
+        };
+    }
+
+    static Exception RootSnapshotFailure(
+        string path,
+        CandidateOpenFailure failure) =>
+        failure.Kind switch
+        {
+            CandidateOpenFailureKind.InvalidImage =>
+                new BadImageFormatException(
+                    $"{failure.Detail} Path: {path}"),
+            CandidateOpenFailureKind.Unreadable =>
+                new IOException(
+                    $"{failure.Detail} Path: {path}"),
+            CandidateOpenFailureKind.ResourceBudget =>
+                new InvalidOperationException(
+                    $"{failure.Detail} Path: {path}"),
+            _ => new InvalidOperationException(
+                $"Unknown root-image failure for {path}."),
+        };
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
         => [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];

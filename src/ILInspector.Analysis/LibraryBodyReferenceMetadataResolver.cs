@@ -1,11 +1,13 @@
-using System.Collections.Immutable;
-using System.Runtime.InteropServices;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
+
+internal sealed record LibraryBodyRootSnapshot(
+    ResolvedAssemblyReference Assembly,
+    AssemblyImageSnapshot Snapshot);
 
 /// <summary>
 /// Owns cross-assembly type-definition resolution and acquired metadata for one
@@ -26,28 +28,34 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
         string path,
         MetadataReader reader,
         IAssemblyReferenceResolver? resolver,
-        ImmutableArray<byte> rootImage)
+        LibraryBodyRootSnapshot? rootSnapshot)
     {
         _reader = reader;
         if (resolver is not null && reader.IsAssembly)
         {
-            string fullPath = Path.GetFullPath(path);
-            byte[]? bytes = rootImage.IsDefault
-                ? null
-                : ImmutableCollectionsMarshal.AsArray(rootImage);
-            _rootAssembly = ResolvedAssemblyReference.Create(
-                AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
-                fullPath,
-                bytes is null
-                    ? () => File.OpenRead(fullPath)
-                    : () => new MemoryStream(
-                        bytes,
-                        writable: false),
-                AssemblyResolutionProvenance.Local(
-                    "LibraryBodyIndex"));
+            if (rootSnapshot is not null)
+            {
+                _rootAssembly = rootSnapshot.Assembly;
+            }
+            else
+            {
+                string fullPath = Path.GetFullPath(path);
+                _rootAssembly = ResolvedAssemblyReference.Create(
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
+                    fullPath,
+                    () => File.OpenRead(fullPath),
+                    AssemblyResolutionProvenance.Local(
+                        "LibraryBodyIndex"));
+            }
             _bindingPolicy =
                 new AssemblyReferenceBindingPolicy(resolver);
             _resolutionCatalog = new TypeResolutionCatalog();
+            if (rootSnapshot is not null)
+            {
+                _resolutionCatalog.RegisterRetainedSnapshot(
+                    rootSnapshot.Assembly,
+                    rootSnapshot.Snapshot);
+            }
         }
     }
 

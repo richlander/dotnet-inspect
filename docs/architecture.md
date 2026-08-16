@@ -778,7 +778,13 @@ Research overlay bridge, and the application layer:
   Cross-assembly type-definition binding,
   referenced-image metadata lifetime, and the registration-keyed cache belong
   to `LibraryBodyReferenceMetadataResolver`, which composes
-  `AssemblyReferenceBindingPolicy` and `TypeResolutionCatalog`.
+  `AssemblyReferenceBindingPolicy` and `TypeResolutionCatalog`. When analysis
+  needs reference resolution, `LibraryBodyIndex` acquires one budgeted immutable
+  root snapshot and registers that same snapshot with the catalog; neither the
+  resolver nor the catalog may reacquire or copy the root image.
+  `RetainedSnapshot_IsRegisteredWithoutReopeningOrCopyingSource` and
+  `OptimizationOpportunities_RootImageIsRetainedOnce` gate the metadata and
+  end-to-end sides of that ownership contract.
   `CrossAssemblyMetadataResolver_FollowsForwardersToDefiningAssembly` and
   `ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope` gate its
   forwarder and binding-scope behavior.
@@ -789,10 +795,16 @@ Research overlay bridge, and the application layer:
   canonical direct-call rows after ordinary opportunity collection and appends
   only this metadata-bound shape; recoverable sibling-classification failures
   remain diagnostic without discarding independent ordinary opportunities or
-  body signals. Constructed generic type relationships preserve DAG sharing
-  and bound structural identity/comparison work;
-  `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear` gates that
-  untrusted-metadata boundary. Trusted framework-contract identities, exact
+  body signals. Source-independent synchronous-definition and sibling-candidate
+  discovery is cached by exact callee identity, while accessibility and
+  dispatch suppression remain source-dependent;
+  `OptimizationOpportunities_SharedCalleeScansCandidateTypeOnce` gates that
+  boundary. Constructed generic type relationships preserve DAG sharing and
+  bound structural identity, comparison, and finding-display work;
+  `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
+  `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`, and
+  `AsyncSiblingFindingDisplay_RejectsExponentialDagExpansion` gate those
+  untrusted-metadata boundaries. Trusted framework-contract identities, exact
   interface-slot correspondence, friend-aware protected access, and nested
   private-access domains are gated by
   `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,
