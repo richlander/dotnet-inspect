@@ -1096,7 +1096,7 @@ public static partial class BrowserInspectionEngine
         foreach (CallGraphEdge edge in projection.Edges)
         {
             builder.Append("  n").Append(edge.From)
-                .Append(edge.LoopLabel is null ? " --> " : " -- loop --> ")
+                .Append(edge.AnyCallInLoop ? " -- loop --> " : " --> ")
                 .Append('n').Append(edge.To).Append('\n');
         }
 
