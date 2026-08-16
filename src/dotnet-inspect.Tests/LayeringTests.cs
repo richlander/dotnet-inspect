@@ -65,7 +65,7 @@ public sealed class LayeringTests
         Assert.DoesNotContain("ILInspector.Findings", closure);
         Assert.DoesNotContain("ILInspector.Text", closure);
     }
-    [Fact]
+
     [Fact]
     public void CoreQueries_AcquireDecompilerButNotResearch()
     {
