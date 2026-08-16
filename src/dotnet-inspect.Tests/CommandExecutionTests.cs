@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
 using System.Reflection;
@@ -155,6 +156,139 @@ public partial class CommandExecutionTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         File.WriteAllBytes(path, image.ToArray());
+    }
+
+    private static void WriteReferenceFixtureAssembly(
+        string path,
+        string assemblyName,
+        params string[] references)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        foreach (string reference in references)
+        {
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(reference),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        }
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
+    private static void WriteMalformedAssemblyReferenceNameAssembly(
+        string path)
+    {
+        WriteReferenceFixtureAssembly(
+            path,
+            "Malformed.Reference.Root",
+            "System.Runtime");
+        byte[] bytes = File.ReadAllBytes(path);
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        Assert.True(
+            reader.GetHeapSize(HeapIndex.Blob) <= ushort.MaxValue
+            && reader.GetHeapSize(HeapIndex.String) <= ushort.MaxValue);
+        int assemblyReferenceNameOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.AssemblyRef)
+            + (4 * sizeof(ushort))
+            + sizeof(uint)
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(
+                assemblyReferenceNameOffset,
+                sizeof(ushort)),
+            ushort.MaxValue);
+        File.WriteAllBytes(path, bytes);
+    }
+
+    private static (string RootPath, string TempDir)
+        CreateIdentifierConfusionReferenceGraph()
+    {
+        const string directName = "\u0405ystem.Direct";
+        const string transitiveName = "Micr\u03BFsoft.Transitive";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        WriteReferenceFixtureAssembly(
+            Path.Combine(tempDir, $"{directName}.dll"),
+            directName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(tempDir, $"{transitiveName}.dll"),
+            transitiveName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(tempDir, "Bridge.dll"),
+            "Bridge",
+            transitiveName);
+        string rootPath = Path.Combine(tempDir, "Root.dll");
+        WriteReferenceFixtureAssembly(rootPath, "Root", directName, "Bridge");
+        return (rootPath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateIdentifierConfusionReferencePackage()
+    {
+        const string directName = "\u0405ystem.Direct";
+        const string transitiveName = "Micr\u03BFsoft.Transitive";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var libraryDirectory = Path.Combine(packageRoot, "lib", "net8.0");
+        Directory.CreateDirectory(libraryDirectory);
+
+        WriteReferenceFixtureAssembly(
+            Path.Combine(libraryDirectory, $"{directName}.dll"),
+            directName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(libraryDirectory, $"{transitiveName}.dll"),
+            transitiveName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(libraryDirectory, "Bridge.dll"),
+            "Bridge",
+            transitiveName);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(libraryDirectory, "Root.dll"),
+            "Root",
+            directName,
+            "Bridge");
+
+        var packagePath = Path.Combine(tempDir, "Identifier.Reference.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
     }
 
     private static void WriteMalformedTypeNameAssembly(string path)
@@ -865,6 +999,29 @@ public partial class CommandExecutionTests
                 "NUGET_PACKAGES",
                 original);
         }
+    }
+
+    private static async Task<(int Exit, string Output, string Error)>
+        RunAppInDirectoryAsync(
+            string workingDirectory,
+            params string[] args)
+    {
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add(typeof(CommandLineBuilder).Assembly.Location);
+        foreach (string arg in args)
+            startInfo.ArgumentList.Add(arg);
+
+        using Process process = Process.Start(startInfo)!;
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        return (process.ExitCode, await output, await error);
     }
 
     private static IEnumerable<string> JsonStrings(JsonElement element)
@@ -9241,6 +9398,39 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DisposedOnlyUsing_RendersVariableLessInMarkdownAndStructuredDocument()
+    {
+        string[] member =
+        [
+            "member",
+            typeof(CommandCaretGestureFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(CommandCaretGestureFixture.DisposedOnlyUsingResource),
+        ];
+        var markdown = await RunAppAsync(
+            [.. member, "-S", "Decompiled Source", "--tips", "q"]);
+        var structured = await RunAppAsync(
+            [.. member, "-S", "Annotated Source Document", "--json", "--tips", "q"]);
+
+        Assert.Equal(0, markdown.Exit);
+        Assert.Empty(markdown.Error);
+        Assert.Contains("using (new MemoryStream())", markdown.Output);
+        Assert.DoesNotContain("using (MemoryStream V_", markdown.Output);
+
+        Assert.Equal(0, structured.Exit);
+        Assert.Empty(structured.Error);
+        using var document = JsonDocument.Parse(structured.Output);
+        string text = document.RootElement.GetProperty("text").GetString()!;
+        Assert.Contains("using (new MemoryStream())", text);
+        Assert.DoesNotContain("using (MemoryStream V_", text);
+        Assert.Contains(
+            document.RootElement.GetProperty("nodes").EnumerateArray(),
+            node => node.GetProperty("medium").GetString() == "CSharp"
+                && node.GetProperty("kind").GetString() == "UsingStatement");
+    }
+
+    [Fact]
     public async Task Member_KeywordParameterNames_EscapesSignatureAndDecompiledSourceHeader()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -12080,6 +12270,627 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames()
+    {
+        var (rootPath, tempDir) = CreateIdentifierConfusionReferenceGraph();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.True(
+                exit == 0,
+                $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.Contains("AssemblyInfo.References[", output);
+            Assert.Contains("IdentifierConfusionReferenceClosure[", output);
+            Assert.Contains("U+0405→S", output);
+            Assert.Contains("U+03BF→O", output);
+            Assert.Equal(2, CountOutput.CountMarkdownTableRows(output));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_DeduplicatesDiamondClosure()
+    {
+        const string concerningName = "Micr\u03BFsoft.Shared";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-diamond-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, $"{concerningName}.dll"),
+                concerningName);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Alpha.dll"),
+                "Alpha",
+                concerningName);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "Bridge",
+                "Alpha",
+                concerningName);
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "Bridge");
+
+            var audit = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+            var tree = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--tree",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, audit.Exit);
+            Assert.Empty(audit.Error);
+            Assert.Equal(
+                1,
+                CountOutput.CountMarkdownTableRows(audit.Output));
+            Assert.Equal(0, tree.Exit);
+            Assert.Empty(tree.Error);
+            Assert.Equal(
+                1,
+                tree.Output.Split(
+                    concerningName,
+                    StringSplitOptions.None).Length - 1);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_PreservesCaseDistinctUnresolvedReferences()
+    {
+        const string upperName = "Micr\u039fsoft.Hidden";
+        const string lowerName = "micr\u03bfsoft.hidden";
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-case-distinct-unresolved-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "Bridge",
+                upperName,
+                lowerName);
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "Bridge");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(
+                2,
+                CountOutput.CountMarkdownTableRows(output));
+            Assert.Contains("U+039F→O", output);
+            Assert.Contains("U+03BF→O", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAllLibrariesIdentifierConfusionAudit_CollectsTransitiveReferences()
+    {
+        var (packagePath, tempDir) = CreateIdentifierConfusionReferencePackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Using TFM: net8.0", error);
+            Assert.Contains("IdentifierConfusionReferenceClosure[", output);
+            Assert.Contains("U+03BF→O", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_FullEffectiveDiscoveryIncludesTransitiveOnlyConcern()
+    {
+        const string transitiveName = "Micr\u03BFsoft.DiscoveryOnly";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-discovery-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, $"{transitiveName}.dll"),
+                transitiveName);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "Bridge",
+                transitiveName);
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(rootPath, "Root", "Bridge");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-D",
+                SectionNames.IdentifierConfusion,
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Location | column |", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_DoesNotRepeatDirectReferenceFromClosure()
+    {
+        const string concerningName = "\u0405ystem.Duplicate";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-duplicate-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, $"{concerningName}.dll"),
+                concerningName);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "Bridge",
+                concerningName);
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "Bridge",
+                concerningName);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("AssemblyInfo.References[", output);
+            Assert.DoesNotContain("IdentifierConfusionReferenceClosure[", output);
+            Assert.Equal(1, CountOutput.CountMarkdownTableRows(output));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_FailsWhenResolvedReferenceCannotBeRead()
+    {
+        var (rootPath, tempDir) = CreateIdentifierConfusionReferenceGraph();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Bridge.dll"), "not a managed assembly");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Equal(
+                "Error: Identifier audit could not inspect assembly "
+                + "references: invalid assembly metadata."
+                + Environment.NewLine,
+                error);
+
+            var category = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                "@Audit",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, category.Exit);
+            Assert.Contains("## Signals", category.Output);
+            Assert.Contains(
+                "## Audit: Identifier Confusion",
+                category.Output);
+            Assert.Contains("U+0405→S", category.Output);
+            Assert.Equal(
+                "Warning: Identifier audit failed: invalid assembly metadata"
+                + Environment.NewLine,
+                category.Error);
+
+            var relative = await RunAppInDirectoryAsync(
+                tempDir,
+                "library",
+                "Root.dll",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, relative.Exit);
+            Assert.Empty(relative.Output);
+            Assert.Equal(
+                "Error: Identifier audit could not inspect assembly "
+                + "references: invalid assembly metadata."
+                + Environment.NewLine,
+                relative.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryPackageIdentifierConfusionAudit_FailsWithoutPartialDocument()
+    {
+        var (packagePath, tempDir) =
+            CreateIdentifierConfusionReferencePackage();
+        try
+        {
+            string bridgePath = Path.Combine(
+                tempDir,
+                "content",
+                "lib",
+                "net8.0",
+                "Bridge.dll");
+            File.WriteAllText(
+                bridgePath,
+                "not a managed assembly");
+            File.Delete(packagePath);
+            ZipFile.CreateFromDirectory(
+                Path.Combine(tempDir, "content"),
+                packagePath);
+
+            var result = await RunAppAsync(
+                "library",
+                "Root.dll",
+                "--package",
+                packagePath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                "Error: Identifier audit could not inspect assembly "
+                + "references: invalid assembly metadata."
+                + Environment.NewLine,
+                result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure()
+    {
+        var (packagePath, tempDir) = CreateIdentifierConfusionReferencePackage();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "content");
+            string libraryDirectory = Path.Combine(packageRoot, "lib", "net8.0");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(libraryDirectory, "A.Valid.dll"),
+                "\u0405ystem.Valid");
+            File.WriteAllText(
+                Path.Combine(libraryDirectory, "Bridge.dll"),
+                "not a managed assembly");
+            File.Delete(packagePath);
+            ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("U+0405→S", output);
+            Assert.Equal(
+                [
+                    "Using TFM: net8.0",
+                    "Warning: Identifier audit failed for "
+                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
+                ],
+                error.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.DoesNotContain("Bridge", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-decode-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteMalformedAssemblyReferenceNameAssembly(rootPath);
+
+            var signals = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.Signals,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, signals.Exit);
+            Assert.Equal(
+                "Warning: Identifier audit failed: invalid assembly metadata"
+                + Environment.NewLine,
+                signals.Error);
+            Assert.Contains(
+                "| Identity | Identifier confusion | Unavailable "
+                + "| invalid assembly metadata |",
+                signals.Output);
+            Assert.DoesNotContain(
+                "| Identity | Identifier confusion | None |",
+                signals.Output);
+
+            var audit = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, audit.Exit);
+            Assert.Empty(audit.Output);
+            Assert.Equal(
+                "Error: Identifier audit could not inspect assembly "
+                + "references: invalid assembly metadata."
+                + Environment.NewLine,
+                audit.Error);
+            Assert.DoesNotContain(rootPath, audit.Error);
+
+            var discovery = await RunAppAsync(
+                "library",
+                rootPath,
+                "-D",
+                SectionNames.IdentifierConfusion,
+                "--effective");
+
+            Assert.Equal(1, discovery.Exit);
+            Assert.Empty(discovery.Output);
+            Assert.Equal(audit.Error, discovery.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibrarySignals_FullEffectiveDiscoveryPropagatesReferenceFailure()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-signals-discovery-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteMalformedAssemblyReferenceNameAssembly(rootPath);
+
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                var discovery = await RunAppAsync(
+                    "library",
+                    rootPath,
+                    "-D",
+                    SectionNames.Signals,
+                    "--effective",
+                    "--tips",
+                    "q");
+
+                Assert.Equal(1, discovery.Exit);
+                Assert.Contains("| Area | column |", discovery.Output);
+                Assert.Equal(
+                    "Warning: Identifier audit failed: invalid assembly metadata"
+                    + Environment.NewLine,
+                    discovery.Error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryPackageSignals_FullEffectiveDiscoveryWarnsOnce()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-package-signals-discovery-test-{Guid.NewGuid():N}");
+        string content = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net8.0");
+        Directory.CreateDirectory(libraryDirectory);
+        try
+        {
+            WriteMalformedAssemblyReferenceNameAssembly(
+                Path.Combine(libraryDirectory, "Root.dll"));
+            string packagePath = Path.Combine(
+                tempDir,
+                "Identifier.Package.Signals.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var discovery = await RunAppAsync(
+                "library",
+                "Root.dll",
+                "--package",
+                packagePath,
+                "-D",
+                SectionNames.Signals,
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, discovery.Exit);
+            Assert.Contains("| Area | column |", discovery.Output);
+            Assert.Equal(
+                "Warning: Identifier audit failed: invalid assembly metadata"
+                + Environment.NewLine,
+                discovery.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAllLibrariesIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-reference-decode-package-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(packageRoot, "lib", "net8.0");
+        Directory.CreateDirectory(libraryDirectory);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(libraryDirectory, "A.Valid.dll"),
+                "\u0405ystem.Valid");
+            WriteMalformedAssemblyReferenceNameAssembly(
+                Path.Combine(libraryDirectory, "Root.dll"));
+            string packagePath = Path.Combine(
+                tempDir,
+                "Identifier.Reference.Decode.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("U+0405→S", output);
+            Assert.Equal(
+                [
+                    "Using TFM: net8.0",
+                    "Warning: Identifier audit failed for "
+                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
+                ],
+                error.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.DoesNotContain("System.Runtime", error);
+
+            var signals = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                SectionNames.Signals,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, signals.Exit);
+            Assert.Contains(
+                "| Identity | Identifier confusion | Unavailable "
+                + "| invalid assembly metadata |",
+                signals.Output);
+            Assert.DoesNotContain(
+                "| Identity | Identifier confusion | None |",
+                signals.Output);
+            Assert.Equal(
+                [
+                    "Using TFM: net8.0",
+                    "Warning: Identifier audit failed for "
+                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
+                ],
+                signals.Error.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_EmptySelectedSection_CountsZero()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -12106,6 +12917,71 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_SelectedReferences_TreeResolvesBareRelativePath()
+    {
+        var (_, tempDir) = CreateIdentifierConfusionReferenceGraph();
+        try
+        {
+            var (exit, output, error) = await RunAppInDirectoryAsync(
+                tempDir,
+                "library",
+                "Root.dll",
+                "-S",
+                SectionNames.References,
+                "--tree",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Micr\u03bFsoft.Transitive", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryReferenceTree_ReadFailureDiagnosticIsContentFree()
+    {
+        var (rootPath, tempDir) = CreateIdentifierConfusionReferenceGraph();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(tempDir, "Bridge.dll"),
+                "not a managed assembly");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--tree",
+                "--verbose",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## References", output);
+            Assert.Equal(
+                [
+                    "Inspecting: Root.dll",
+                    "Warning: Could not inspect a resolved assembly "
+                    + "reference: invalid assembly metadata",
+                ],
+                error.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.DoesNotContain("Bridge", error);
+            Assert.DoesNotContain(tempDir, error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_SelectedReferences_TreeDepthOneStopsAtDirectReferences()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -12116,6 +12992,63 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("System.Collections", output);
         Assert.DoesNotContain("System.Private.CoreLib", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SelectedReferences_TreeDedupUsesShallowestPath()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"reference-shallowest-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Leaf.dll"),
+                "Leaf");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Target.dll"),
+                "Target",
+                "Leaf");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "B.dll"),
+                "B",
+                "Target");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "A.dll"),
+                "A",
+                "B");
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "A",
+                "Target");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--tree",
+                "--depth",
+                "3",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Leaf", output);
+            Assert.Equal(
+                1,
+                output.Split(
+                    "Target ",
+                    StringSplitOptions.None).Length - 1);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -15370,6 +16303,44 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_DiscoverSchema_ListsArtifactTextAuditColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "-D",
+            PackageSections.AuditArtifactText,
+            "--schema",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Location | column |", output);
+        Assert.Contains("| Concerns | column |", output);
+    }
+
+    [Fact]
+    public async Task Package_DiscoverSchema_ListsIdentifierConfusionAuditColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "-D",
+            PackageSections.AuditIdentifierConfusion,
+            "--schema",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Location | column |", output);
+        Assert.Contains("| Kind | column |", output);
+        Assert.Contains("| Concern | column |", output);
+        Assert.Contains("| Reserved Prefix | column |", output);
+        Assert.Contains("| Similarity | column |", output);
+        Assert.Contains("| Characters | column |", output);
+    }
+
+    [Fact]
     public async Task Package_DiscoverTree_UsesDiscoveryTreeNotFileTree()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
@@ -15898,6 +16869,63 @@ public partial class CommandExecutionTests
             Assert.Equal(1, multiTreeMapExit);
             Assert.Empty(multiTreeMapOutput);
             Assert.Contains("exactly one", multiTreeMapError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_PreservesHealthyIdentifierAuditResults()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"identifier-multitfm-test-{Guid.NewGuid():N}");
+        try
+        {
+            var content = Path.Combine(tempDir, "content");
+            var net8Dir = Path.Combine(content, "lib", "net8.0");
+            var net10Dir = Path.Combine(content, "lib", "net10.0");
+            Directory.CreateDirectory(net8Dir);
+            Directory.CreateDirectory(net10Dir);
+            WriteReferenceFixtureAssembly(
+                Path.Combine(net8Dir, "Lib.dll"),
+                "\u0405ystem.Healthy");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(net10Dir, "Lib.dll"),
+                "Lib",
+                "Bridge");
+            File.WriteAllText(
+                Path.Combine(net10Dir, "Bridge.dll"),
+                "not a managed assembly");
+            var packagePath = Path.Combine(
+                tempDir,
+                "Identifier.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Lib.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("### Lib.dll (net8.0)", output);
+            Assert.Contains("U+0405→S", output);
+            Assert.Contains(
+                "Warning: Identifier audit failed for "
+                + "'lib/net10.0/Lib.dll': invalid assembly metadata",
+                error);
+            Assert.DoesNotContain(
+                "IdentifierConfusionReferenceTraversalException",
+                error);
         }
         finally
         {
@@ -21212,6 +22240,41 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiplePackages_FixedOverviewCountPopulatesSections()
+    {
+        var (firstPackagePath, firstTempDir) =
+            CreateLocalReadmePackage(
+                "Test.FixedOverview.One",
+                "README.md",
+                "one");
+        var (secondPackagePath, secondTempDir) =
+            CreateLocalReadmePackage(
+                "Test.FixedOverview.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackagePath,
+                secondPackagePath,
+                "-S",
+                "--count",
+                "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Package nuspec file | 2 |", output);
+            Assert.Contains("| Signature | 6 |", output);
+        }
+        finally
+        {
+            Directory.Delete(firstTempDir, recursive: true);
+            Directory.Delete(secondTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_MultiplePackages_SignalsUseSelectedTfm()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
@@ -21237,6 +22300,77 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_SignalsIncludePackageFileConcerns()
+    {
+        var (cleanPackage, cleanTempDir) = CreateLocalReadmePackage(
+            "Test.Containment.Clean",
+            "README.md",
+            "readme");
+        var (hostilePackage, hostileTempDir) = CreateLocalReadmePackage(
+            "Test.Containment.Hostile",
+            "README.md",
+            "readme",
+            extraFiles: [("docs/\u202Esecret.txt", "payload")]);
+        try
+        {
+            var single = await RunAppAsync(
+                "package",
+                hostilePackage,
+                "-v:q",
+                "-S",
+                PackageSections.Signals,
+                "--json",
+                "--tips",
+                "q");
+            var multi = await RunAppAsync(
+                "package",
+                cleanPackage,
+                hostilePackage,
+                "-v:q",
+                "-S",
+                PackageSections.Signals,
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.True(
+                single.Exit == 0,
+                $"exit={single.Exit}\nstdout:\n{single.Output}\nstderr:\n{single.Error}");
+            Assert.True(
+                multi.Exit == 0,
+                $"exit={multi.Exit}\nstdout:\n{multi.Output}\nstderr:\n{multi.Error}");
+            Assert.Empty(single.Error);
+            Assert.Empty(multi.Error);
+
+            using var singleDocument = JsonDocument.Parse(single.Output);
+            using var multiDocument = JsonDocument.Parse(multi.Output);
+            JsonElement singleSignal = Assert.Single(
+                singleDocument.RootElement.GetProperty("audit_signals").EnumerateArray(),
+                IsArtifactTextContainmentSignal);
+            JsonElement hostileResult = Assert.Single(
+                multiDocument.RootElement.EnumerateArray(),
+                package => package.GetProperty("package_name").GetString()
+                    == "Test.Containment.Hostile");
+            JsonElement multiSignal = Assert.Single(
+                hostileResult.GetProperty("audit_signals").EnumerateArray(),
+                IsArtifactTextContainmentSignal);
+
+            Assert.Equal("Required", singleSignal.GetProperty("value").GetString());
+            Assert.Equal("format/bidi (Cf)", singleSignal.GetProperty("evidence").GetString());
+            Assert.Equal("Required", multiSignal.GetProperty("value").GetString());
+            Assert.Equal("format/bidi (Cf)", multiSignal.GetProperty("evidence").GetString());
+        }
+        finally
+        {
+            Directory.Delete(cleanTempDir, recursive: true);
+            Directory.Delete(hostileTempDir, recursive: true);
+        }
+
+        static bool IsArtifactTextContainmentSignal(JsonElement signal)
+            => signal.GetProperty("signal").GetString() == "Artifact text containment";
     }
 
     [Fact]
@@ -21298,6 +22432,16 @@ public sealed class ConstructorSourceCaseFixture
 /// </summary>
 public sealed class CommandCaretGestureFixture
 {
+    public static int DisposedOnlyUsingResource()
+    {
+        int value = 0;
+        using (new MemoryStream())
+        {
+            value = 1;
+        }
+        return value;
+    }
+
     public string Pump(int n)
     {
         var sink = new List<object>();

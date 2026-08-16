@@ -218,6 +218,80 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void DependencyCoordinateMatch_PreservesProductOwnedProvenanceAndCardinality()
+    {
+        var platform = new BrowserDependencyCoordinateCandidate(
+            "platform",
+            BrowserDependencyCoordinateProvenance.PlatformRuntime,
+            "Microsoft.NETCore.App",
+            "10.0.10",
+            "net10.0");
+        var package = new BrowserDependencyCoordinateCandidate(
+            "package",
+            BrowserDependencyCoordinateProvenance.NuGetPackage,
+            "Microsoft.NETCore.App",
+            "2.2.8",
+            "netcoreapp1.0");
+
+        BrowserDependencyCoordinateMatch noMatch = MatchDependencyCoordinate(
+            [platform],
+            "Microsoft.NETCore.App",
+            "1.0.5");
+        BrowserDependencyCoordinateMatch unique = MatchDependencyCoordinate(
+            [platform, package],
+            "Microsoft.NETCore.App",
+            "1.0.5");
+        BrowserDependencyCoordinateMatch ambiguous = MatchDependencyCoordinate(
+            [
+                platform,
+                package,
+                package with { Key = "package-other-framework", TargetFramework = "net8.0" },
+            ],
+            "Microsoft.NETCore.App",
+            "1.0.5");
+
+        Assert.Equal(BrowserDependencyCoordinateMatchOutcome.NoMatch, noMatch.Outcome);
+        Assert.Null(noMatch.CandidateKey);
+        Assert.Equal(BrowserDependencyCoordinateMatchOutcome.Unique, unique.Outcome);
+        Assert.Equal("package", unique.CandidateKey);
+        Assert.Equal(BrowserDependencyCoordinateMatchOutcome.Ambiguous, ambiguous.Outcome);
+        Assert.Null(ambiguous.CandidateKey);
+    }
+
+    [Fact]
+    public void BuildIdentity_UsesVersionedRepositoryProvenance()
+    {
+        const string commit = "0123456789abcdef0123456789abcdef01234567";
+
+        BrowserBuildIdentity identity = BrowserBuildIdentityReader.Create(
+            "0.18.0",
+            commit,
+            "https://github.com/richlander/dotnet-inspect",
+            "2026-08-14T23:30:22Z");
+
+        Assert.Equal("0.18.0", identity.Version);
+        Assert.Equal(commit, identity.Commit);
+        Assert.Equal("2026-08-14T23:30:22.0000000+00:00", identity.BuiltAtUtc);
+        Assert.Equal(
+            $"https://github.com/richlander/dotnet-inspect/commit/{commit}",
+            identity.CommitUrl);
+    }
+
+    [Fact]
+    public void BuildIdentity_DropsInvalidOptionalProvenance()
+    {
+        BrowserBuildIdentity identity = BrowserBuildIdentityReader.Create(
+            "0.18.0",
+            "not-a-commit",
+            "javascript:alert(1)",
+            "not-a-time");
+
+        Assert.Null(identity.Commit);
+        Assert.Null(identity.BuiltAtUtc);
+        Assert.Null(identity.CommitUrl);
+    }
+
+    [Fact]
     public void WorkspaceBinding_RejectsPackageParticipantsForPlatformScope()
     {
         byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
@@ -579,6 +653,24 @@ public sealed class BrowserEngineBoundaryTests
                 "[999999.0]");
 
         Assert.Equal("999999.0.0", resolved);
+    }
+
+    private static BrowserDependencyCoordinateMatch MatchDependencyCoordinate(
+        BrowserDependencyCoordinateCandidate[] candidates,
+        string packageId,
+        string declaredRange)
+    {
+        string candidatesJson = JsonSerializer.Serialize(
+            candidates,
+            BrowserJsonContext.Default.BrowserDependencyCoordinateCandidateArray);
+        string resultJson = BrowserInspectionEngine.MatchPackageDependencyCoordinate(
+            packageId,
+            declaredRange,
+            candidatesJson);
+        return JsonSerializer.Deserialize(
+            resultJson,
+            BrowserJsonContext.Default.BrowserDependencyCoordinateMatch)
+            ?? throw new InvalidOperationException("The dependency-coordinate result is absent.");
     }
 
     // The default package load runs under explicit bounds and says so when it stops early. Both

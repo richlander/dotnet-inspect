@@ -9,6 +9,7 @@ using ILInspector.Metadata;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using Markout;
@@ -2753,6 +2754,128 @@ public class OutputFormatterTests
         Assert.DoesNotContain("Source: NuGet", output);
         Assert.DoesNotContain(result.Description.Value.ToString(), output);
         Assert.Contains("## Signals", output);
+    }
+
+    [Fact]
+    public async Task PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl()
+    {
+        const string secret = "DO-NOT-REPORT";
+        var result = new InspectionResult
+        {
+            PackageName = "TestPackage",
+            Version = "1.0.0",
+            Owners = [$"owner\u202E{secret}"],
+            PackageFiles = [new PackageFile($"file\u001B{secret}", 42)],
+            AuditSignals =
+            [
+                new AuditSignal(
+                    "Text",
+                    "Artifact text containment",
+                    "Required",
+                    "control (Cc), format/bidi (Cf)"),
+            ],
+        };
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var options = new InspectionOptions
+        {
+            Verbosity = Verbosity.Minimal,
+            IncludeSections =
+            [
+                PackageSections.Signals,
+                PackageSections.AuditArtifactText,
+            ],
+        };
+
+        string markdown = OutputFormatter.FormatResult(result, options, pipeline);
+
+        Assert.Contains("## Signals", markdown, StringComparison.Ordinal);
+        Assert.Contains("## Audit: Artifact Text", markdown, StringComparison.Ordinal);
+        Assert.Contains("| Owners[0] | format/bidi (Cf) |", markdown, StringComparison.Ordinal);
+        Assert.Contains("| PackageFiles[0].Path | control (Cc) |", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, markdown, StringComparison.Ordinal);
+
+        var (jsonl, error) = await ConsoleCapture.RunAsync(() =>
+            OutputFormatter.WritePackageTable(
+                result,
+                options with
+                {
+                    IncludeSections = [PackageSections.AuditArtifactText],
+                    Jsonl = true,
+                    Tabular = true,
+                },
+                pipeline,
+                showHeader: true));
+
+        Assert.Equal(string.Empty, error);
+        string[] lines = jsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        using JsonDocument owner = JsonDocument.Parse(lines[0]);
+        using JsonDocument file = JsonDocument.Parse(lines[1]);
+        Assert.Equal("Owners[0]", owner.RootElement.GetProperty("location").GetString());
+        Assert.Equal("format/bidi (Cf)", owner.RootElement.GetProperty("concerns").GetString());
+        Assert.Equal("PackageFiles[0].Path", file.RootElement.GetProperty("location").GetString());
+        Assert.Equal("control (Cc)", file.RootElement.GetProperty("concerns").GetString());
+        Assert.DoesNotContain(secret, jsonl, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent()
+    {
+        const string secret = "DO-NOT-REPORT";
+        var result = new InspectionResult
+        {
+            PackageName = "TestPackage",
+            Version = "1.0.0",
+            DependencyGroups =
+            [
+                new DependencyGroup
+                {
+                    TargetFramework = "net11.0",
+                    Dependencies = [new PackageDependency { Id = $"Ѕystem.{secret}" }],
+                },
+            ],
+        };
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var options = new InspectionOptions
+        {
+            Verbosity = Verbosity.Minimal,
+            IncludeSections = [PackageSections.AuditIdentifierConfusion],
+        };
+
+        string markdown = OutputFormatter.FormatResult(result, options, pipeline);
+
+        Assert.Contains("## Audit: Identifier Confusion", markdown, StringComparison.Ordinal);
+        Assert.Contains("DependencyGroups[0].Dependencies[0].Id", markdown, StringComparison.Ordinal);
+        Assert.Contains("Package ID", markdown, StringComparison.Ordinal);
+        Assert.Contains(
+            "non-ASCII characters; reserved-prefix homoglyph",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains("System", markdown, StringComparison.Ordinal);
+        Assert.Contains("83%", markdown, StringComparison.Ordinal);
+        Assert.Contains("U+0405→S", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, markdown, StringComparison.Ordinal);
+
+        var (jsonl, error) = await ConsoleCapture.RunAsync(() =>
+            OutputFormatter.WritePackageTable(
+                result,
+                options with { Jsonl = true, Tabular = true },
+                pipeline,
+                showHeader: true));
+
+        Assert.Equal(string.Empty, error);
+        using JsonDocument row = JsonDocument.Parse(jsonl);
+        Assert.Equal(
+            "DependencyGroups[0].Dependencies[0].Id",
+            row.RootElement.GetProperty("location").GetString());
+        Assert.Equal("Package ID", row.RootElement.GetProperty("kind").GetString());
+        Assert.Equal(
+            "non-ASCII characters; reserved-prefix homoglyph",
+            row.RootElement.GetProperty("concern").GetString());
+        Assert.Equal("System", row.RootElement.GetProperty("reserved_prefix").GetString());
+        Assert.Equal("83%", row.RootElement.GetProperty("similarity").GetString());
+        Assert.Equal("U+0405→S", row.RootElement.GetProperty("characters").GetString());
+        Assert.DoesNotContain(secret, jsonl, StringComparison.Ordinal);
     }
 
     [Fact]

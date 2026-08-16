@@ -7,9 +7,14 @@
     <Nullable>enable</Nullable>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
     <WasmEnableExceptionHandling>false</WasmEnableExceptionHandling>
+    <RepositoryUrl>https://github.com/richlander/dotnet-inspect</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
+    <AssemblyMetadata Include="RepositoryCommit" Value="$(SourceRevisionId)" Condition="'$(SourceRevisionId)' != ''" />
+    <AssemblyMetadata Include="RepositoryUrl" Value="$(RepositoryUrl)" />
+    <AssemblyMetadata Include="BuildTimestampUtc" Value="$(BuildTimestampUtc)" Condition="'$(BuildTimestampUtc)' != ''" />
     <InternalsVisibleTo Include="InspectWeb.Engine.Tests" />
     <!--
       Every browser interaction that inspects an assembly runs inside a workspace, through a public

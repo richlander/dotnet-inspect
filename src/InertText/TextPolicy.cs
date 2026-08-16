@@ -140,12 +140,17 @@ internal static class ScalarPolicies
     /// decode step.
     /// </remarks>
     internal static bool IsNonGraphic(Rune scalar)
-        => Rune.GetUnicodeCategory(scalar) switch
+        => ConcernFor(Rune.GetUnicodeCategory(scalar)) != TextConcern.None;
+
+    /// <summary>Maps a refused Unicode category to its retained audit classification.</summary>
+    internal static TextConcern ConcernFor(UnicodeCategory category)
+        => category switch
         {
-            UnicodeCategory.Control => true,
-            UnicodeCategory.Format => true,
-            UnicodeCategory.Surrogate => true,
-            UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator => true,
-            _ => false,
+            UnicodeCategory.Control => TextConcern.Control,
+            UnicodeCategory.Format => TextConcern.Format,
+            UnicodeCategory.Surrogate => TextConcern.Surrogate,
+            UnicodeCategory.LineSeparator => TextConcern.LineSeparator,
+            UnicodeCategory.ParagraphSeparator => TextConcern.ParagraphSeparator,
+            _ => TextConcern.None,
         };
 }

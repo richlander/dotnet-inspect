@@ -35,6 +35,13 @@ public record LibraryOptions : IProjectionOptions
     internal bool CollectReferenceTree { get; init; }
 
     /// <summary>
+    /// Internal execution demand for the identifier audit's resolved transitive scope.
+    /// Kept separate from the References projection so selecting the audit cannot change
+    /// unrelated Signals rows.
+    /// </summary>
+    internal bool CollectIdentifierConfusionReferenceTree { get; init; }
+
+    /// <summary>
     /// Maximum reference-tree depth, where 1 includes direct references only.
     /// Null traverses the complete resolvable graph.
     /// </summary>
