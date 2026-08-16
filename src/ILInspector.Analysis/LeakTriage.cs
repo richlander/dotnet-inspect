@@ -22,6 +22,17 @@ public sealed record LeakTriageCandidate(
     int? RentOffset,
     int? ILOffset);
 
+public enum LeakTriageFailureKind
+{
+    InstructionDecoding,
+    MethodResolution,
+}
+
+public readonly record struct LeakTriageFailure(
+    int MethodToken,
+    LeakTriageFailureKind Kind,
+    string Reason);
+
 public readonly record struct ArrayPoolExceptionBoundary(
     int ILOffset,
     MemberRef Operation);
@@ -65,6 +76,13 @@ public sealed record LeakTriageResult(
     ImmutableArray<LeakTriageCandidate> Candidates)
 {
     public ImmutableArray<ArrayPoolExceptionPathCandidate> ExceptionPathCandidates { get; init; } = [];
+    /// <summary>
+    /// Method-local failures that make the assembly result incomplete.
+    /// <c>DetailedAnalysis_MethodResolutionBudgetFailureIsTyped</c> and
+    /// <c>ResourceLifecycleAnalysis_MalformedMethodTokenIsVisible</c> gate
+    /// production and presentation propagation.
+    /// </summary>
+    public ImmutableArray<LeakTriageFailure> Failures { get; init; } = [];
 }
 
 public static class LeakTriageAnalyzer
@@ -134,15 +152,37 @@ public static class LeakTriageAnalyzer
         if (il.Length == 0)
             return Empty;
 
-        bool hasArrayPoolRent = false;
+        ImmutableArray<DecodedInstruction> instructions;
         try
         {
-            var instructions = InstructionDecoder.Decode(il);
-            var calls = BuildCallMap(instructions, resolveMethod);
-            hasArrayPoolRent = calls.Values.Any(IsArrayPoolRent);
-            if (!hasArrayPoolRent)
-                return Empty;
+            instructions = InstructionDecoder.Decode(il);
+        }
+        catch (Exception ex) when (IsRecoverable(ex))
+        {
+            return Failed(
+                method,
+                LeakTriageFailureKind.InstructionDecoding,
+                ex);
+        }
 
+        IReadOnlyDictionary<int, MemberRef> calls;
+        try
+        {
+            calls = BuildCallMap(instructions, resolveMethod);
+        }
+        catch (Exception ex) when (IsRecoverable(ex))
+        {
+            return Failed(
+                method,
+                LeakTriageFailureKind.MethodResolution,
+                ex);
+        }
+
+        if (!calls.Values.Any(IsArrayPoolRent))
+            return Empty;
+
+        try
+        {
             var graph = BlockGraph.Build(il.Length, instructions, exceptionRegions);
             if (!graph.IsComplete)
                 return Suppressed(method, "incomplete-cfg-or-rd-suppressed", graph.IncompleteReason ?? "Incomplete CFG/RD evidence.", null, null);
@@ -182,9 +222,12 @@ public static class LeakTriageAnalyzer
         }
         catch (Exception ex) when (IsRecoverable(ex))
         {
-            return hasArrayPoolRent
-                ? Suppressed(method, "incomplete-cfg-or-rd-suppressed", ex.Message, null, null)
-                : Empty;
+            return Suppressed(
+                method,
+                "incomplete-cfg-or-rd-suppressed",
+                ex.Message,
+                null,
+                null);
         }
     }
 
@@ -192,6 +235,21 @@ public static class LeakTriageAnalyzer
 
     static LeakTriageResult Suppressed(MethodIdentity method, string shape, string evidence, int? rentOffset, int? ilOffset)
         => new([], [new LeakTriageCandidate(method, shape, evidence, rentOffset, ilOffset)]);
+
+    static LeakTriageResult Failed(
+        MethodIdentity method,
+        LeakTriageFailureKind kind,
+        Exception exception) =>
+        new([], [])
+        {
+            Failures =
+            [
+                new LeakTriageFailure(
+                    method.MetadataToken,
+                    kind,
+                    exception.GetType().Name),
+            ],
+        };
 
     static void AnalyzeRent(
         MethodIdentity method,

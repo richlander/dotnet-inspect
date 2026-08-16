@@ -1,7 +1,10 @@
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 
 using ILInspector.Analysis;
@@ -539,6 +542,40 @@ public sealed class LeakTriageAnalyzerTests
         Assert.Contains("FileNotFoundException", failed.Error.Reason);
     }
 
+    [Theory]
+    [InlineData(LibraryBodyAnalysisFeatures.LeakTriage)]
+    [InlineData(LibraryBodyAnalysisFeatures.All)]
+    public void ResourceLifecycleAnalysis_MalformedMethodTokenIsVisible(
+        LibraryBodyAnalysisFeatures features)
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ArrayPoolLeakFixtures).Assembly.Location);
+        int methodToken = ReplaceFinalReturnWithInvalidMemberRef(image);
+        var subject = new FindingSubject(
+            "malformed-fixture",
+            "malformed-fixture");
+
+        var inspection = ResourceLifecycleAnalysis.InspectAssembly(
+            () => LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedResourceTriage.dll",
+                ImmutableArray.Create(image),
+                features),
+            subject);
+
+        var failed =
+            Assert.IsType<FindingInspection<ResourceLifecycleOccurrence>.Failed>(
+                inspection.Value);
+        Assert.Equal(subject, failed.Error.Subject);
+        Assert.Contains(
+            $"method token 0x{methodToken:X8}",
+            failed.Error.Reason);
+        Assert.Contains("method resolution", failed.Error.Reason);
+        Assert.Contains("BadImageFormatException", failed.Error.Reason);
+        Assert.DoesNotContain(
+            nameof(ArrayPoolLeakFixtures.ExternalReadBeforeReturn),
+            failed.Error.Reason);
+    }
+
     [Fact]
     public void LibraryBodyIndex_RequiresLeakTriageFeature()
     {
@@ -1039,6 +1076,47 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    public void DetailedAnalysis_MethodResolutionBudgetFailureIsTyped()
+    {
+        var method = new MethodIdentity(
+            "Fixture",
+            Guid.Empty,
+            TypeRef.Definition("Fixture", "Fixtures", "Synthetic"),
+            nameof(Synthetic),
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            IsStatic: true);
+        var result = LeakTriageAnalyzer.AnalyzeMethodDetailed(
+            method,
+            [
+                .. Call(TokenShared),
+                0x1F, 0x10,
+                .. Callvirt(TokenRent),
+                0x0A,
+                .. Call(TokenUnknown),
+                0x2A,
+            ],
+            [],
+            token => token == TokenUnknown
+                ? throw new BadImageFormatException(
+                    "method-reference decode budget exceeded")
+                : ResolveSyntheticMember(token));
+
+        Assert.Empty(result.Findings);
+        Assert.Empty(result.Candidates);
+        var failure = Assert.Single(result.Failures);
+        Assert.Equal(method.MetadataToken, failure.MethodToken);
+        Assert.Equal(
+            LeakTriageFailureKind.MethodResolution,
+            failure.Kind);
+        Assert.Equal(
+            nameof(BadImageFormatException),
+            failure.Reason);
+        Assert.DoesNotContain("budget", failure.Reason);
+    }
+
+    [Fact]
     public void FaultHandlerReturn_DoesNotSatisfyNormalLeavePath()
     {
         var findings = AnalyzeSynthetic([
@@ -1118,6 +1196,75 @@ public sealed class LeakTriageAnalyzerTests
             0x06000001,
             IsStatic: true);
         return LeakTriageAnalyzer.AnalyzeMethodDetailed(method, il, exceptionRegions, ResolveSyntheticMember);
+    }
+
+    static int ReplaceFinalReturnWithInvalidMemberRef(byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single(handle =>
+                reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    nameof(ArrayPoolLeakFixtures
+                        .ExternalReadBeforeReturn)));
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+        MethodBodyBlock body =
+            peReader.GetMethodBody(
+                method.RelativeVirtualAddress);
+        DecodedInstruction returnCall =
+            InstructionDecoder.Decode(body.GetILBytes() ?? [])
+                .Last(instruction =>
+                {
+                    EntityHandle operand =
+                        MetadataTokens.EntityHandle(
+                            checked((int)instruction.OperandValue));
+                    return instruction.Operand == OperandKind.InlineMethod
+                        && operand.Kind == HandleKind.MemberReference
+                        && reader.StringComparer.Equals(
+                            reader.GetMemberReference(
+                                (MemberReferenceHandle)operand).Name,
+                            "Return");
+                });
+
+        int methodOffset = RvaToFileOffset(
+            peReader.PEHeaders,
+            method.RelativeVirtualAddress);
+        int headerSize = (image[methodOffset] & 3) switch
+        {
+            2 => 1,
+            3 => (BinaryPrimitives.ReadUInt16LittleEndian(
+                image.AsSpan(methodOffset, 2)) >> 12) * 4,
+            _ => throw new BadImageFormatException(
+                "Unexpected method body header."),
+        };
+        int operandOffset =
+            methodOffset + headerSize + returnCall.OperandOffset;
+        Assert.Equal(
+            checked((int)returnCall.OperandValue),
+            BinaryPrimitives.ReadInt32LittleEndian(
+                image.AsSpan(operandOffset, 4)));
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(operandOffset, 4),
+            0x0AFFFFFF);
+        return MetadataTokens.GetToken(methodHandle);
+    }
+
+    static int RvaToFileOffset(
+        PEHeaders headers,
+        int rva)
+    {
+        SectionHeader section = headers.SectionHeaders.Single(section =>
+            rva >= section.VirtualAddress
+            && rva < section.VirtualAddress
+                + Math.Max(
+                    section.VirtualSize,
+                    section.SizeOfRawData));
+        return section.PointerToRawData
+            + rva
+            - section.VirtualAddress;
     }
 
     static MemberRef ResolveSyntheticMember(int token)
