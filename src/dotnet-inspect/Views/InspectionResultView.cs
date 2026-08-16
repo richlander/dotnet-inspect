@@ -118,6 +118,28 @@ public class InspectionResultView
             signal.Evidence))
         .ToList();
 
+    [MarkoutIgnore]
+    public bool HasArtifactTextConcerns => Text.ConcernCases.Count > 0;
+
+    [MarkoutSection(
+        Name = PackageSections.AuditArtifactText,
+        ShowWhenProperty = nameof(HasArtifactTextConcerns))]
+    public List<PackageTextConcernRow> ArtifactTextConcerns => Text.ConcernCases
+        .Select(value => new PackageTextConcernRow(
+            new InertString(TextPolicy.Field, value.Location),
+            new InertString(TextPolicy.Field, TextConcernDisplay.Describe(value.Concerns))))
+        .ToList();
+
+    [MarkoutIgnore]
+    public bool HasIdentifierConfusion =>
+        IdentifierConfusionAudit.InspectPackage(_data).Count > 0;
+
+    [MarkoutSection(
+        Name = PackageSections.AuditIdentifierConfusion,
+        ShowWhenProperty = nameof(HasIdentifierConfusion))]
+    public List<IdentifierConfusionRow> IdentifierConfusion =>
+        IdentifierConfusionRows.Create(IdentifierConfusionAudit.InspectPackage(_data));
+
     [MarkoutSection(Name = PackageSections.Signature)]
     public SigningSection? SigningSectionData => Text.SignatureResult is { } signature
         ? new SigningSection(
@@ -828,6 +850,15 @@ public sealed record PackageAuditSignalRow(
 }
 
 [MarkoutSerializable]
+public sealed record PackageTextConcernRow(
+    [property: MarkoutIgnore] InertString LocationText,
+    [property: MarkoutIgnore] InertString ConcernsText)
+{
+    public string Location => LocationText.ToString();
+    public string Concerns => ConcernsText.ToString();
+}
+
+[MarkoutSerializable]
 public record PackageSourceLinkFileRow(
     [property: MarkoutIgnore] InertString LibraryText,
     [property: MarkoutIgnore] InertString FileText,
@@ -935,6 +966,8 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContext(typeof(TypeForwarderRow))]
 [MarkoutContext(typeof(AuditSignalRow))]
 [MarkoutContext(typeof(PackageAuditSignalRow))]
+[MarkoutContext(typeof(PackageTextConcernRow))]
+[MarkoutContext(typeof(IdentifierConfusionRow))]
 [MarkoutContext(typeof(InspectionFailureRow))]
 [MarkoutContext(typeof(SwitchRow))]
 [MarkoutContext(typeof(IntegrationOpportunityRow))]

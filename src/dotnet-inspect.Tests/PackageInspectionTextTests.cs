@@ -200,11 +200,67 @@ public class PackageInspectionTextTests
         {
             InspectionResult result = CompleteResult(Benign);
             makeHostile(result);
+            var text = new PackageInspectionText(result);
 
             Assert.True(
-                new PackageInspectionText(result).RequiredContainment,
+                text.RequiredContainment,
                 $"{path} did not contribute to RequiredContainment.");
+            Assert.Equal(TextConcern.Format, text.Concerns);
+            PackageTextConcernCase concernCase = Assert.Single(text.ConcernCases);
+            string expectedLocation = path.Replace("[]", "[0]", StringComparison.Ordinal);
+            Type? propertyType = typeof(InspectionResult)
+                .GetProperty(expectedLocation)?
+                .PropertyType;
+            if (!expectedLocation.Contains('[')
+                && ((propertyType?.IsGenericType == true
+                        && propertyType.GetGenericTypeDefinition() == typeof(List<>))
+                    || expectedLocation == $"{nameof(InspectionResult.Deprecation)}."
+                        + nameof(PackageDeprecation.Reasons)))
+            {
+                expectedLocation += "[0]";
+            }
+            Assert.Equal(expectedLocation, concernCase.Location);
+            Assert.Equal(TextConcern.Format, concernCase.Concerns);
         }
+    }
+
+    [Theory]
+    [InlineData("ordinary text")]
+    [InlineData("C:\\tmp\\package")]
+    [InlineData("literal \\u202E text")]
+    public void BackslashesDoNotContributeAPackageTextConcern(string value)
+    {
+        PackageInspectionText text = new(CompleteResult(value));
+
+        Assert.Equal(TextConcern.None, text.Concerns);
+        Assert.False(text.RequiredContainment);
+        Assert.Empty(text.ConcernCases);
+    }
+
+    [Fact]
+    public void ConcernCases_ListLocationsAndKindsWithoutArtifactContent()
+    {
+        const string secret = "DO-NOT-REPORT";
+        var result = new InspectionResult
+        {
+            PackageName = $"package\u001B{secret}",
+            Owners = [$"owner\u202E{secret}"],
+            PackageFiles = [new PackageFile($"file\u2028{secret}", 42)],
+        };
+
+        var text = new PackageInspectionText(result);
+
+        Assert.Equal(
+            new[]
+            {
+                new PackageTextConcernCase("PackageName", TextConcern.Control),
+                new PackageTextConcernCase("Owners[0]", TextConcern.Format),
+                new PackageTextConcernCase("PackageFiles[0].Path", TextConcern.LineSeparator),
+            },
+            text.ConcernCases);
+        Assert.All(
+            text.ConcernCases,
+            value => Assert.DoesNotContain(secret, value.Location, StringComparison.Ordinal));
     }
 
     [Fact]

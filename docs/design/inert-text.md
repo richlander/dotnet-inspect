@@ -163,6 +163,22 @@ that assumes the payload is dangerous and the wrapper is what holds it back. Her
 the payload is already inert. Losing the wrapper loses provenance, not
 protection.
 
+`TextConcern` retains why visual containment occurred: control, format/bidi,
+unpaired surrogate, line separator, or paragraph separator. The flags are
+captured while the untreated scalar is available and travel with the
+`InertString` through composition, policy tightening, bounding, and persistence
+restoration. An audit can therefore aggregate categories without importing the
+decoder or retaining a second raw copy. `RequiredContainment` is exactly
+`Concerns != None`; a literal backslash may affect `VisualForm` to preserve
+invertibility but contributes no concern.
+The package presentation boundary also records the model-field location when a
+source value first becomes an `InertString`. That provenance is kept separately
+from the payload, so `Audit: Artifact Text` can list locations and category
+kinds without retaining or redisplaying artifact content.
+`Concerns_SurviveCompositionRestorationAndBounding` and
+`Concerns_RespectThePolicyThatProducedTheValue` gate that propagation, and
+`Concerns_ClassifyWhyContainmentOccurred` gates the categories.
+
 ## Where text becomes inert
 
 The tempting answer is "as early as possible": have every API that returns
@@ -668,6 +684,17 @@ and asserts the boundary directly: *no* `TextPolicy` refuses it, swept over
 edit. Category rules cannot catch it and none should, since refusing every
 non-Latin letter would break most of the world's text. A corpus containing only
 what the policies catch would quietly imply they are sufficient.
+
+The identifier audit handles that boundary separately from `TextPolicy`.
+Package IDs and assembly names have an identity role in which non-ASCII
+characters are useful evidence even though they are safe graphic text. The
+audit therefore reports every non-ASCII identifier and gives exact folded
+`System`, `Microsoft`, and `Azure` candidates a bounded Greek/Cyrillic
+homoglyph classification. It does not change or contain the value, and it never
+echoes the identifier in the Signal or audit rows. Keeping this discriminator
+separate means `TextConcern` continues to answer whether rendering required
+containment while the identifier concern answers whether an identity deserves
+review.
 
 ## Placement
 
