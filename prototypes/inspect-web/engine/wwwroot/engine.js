@@ -3,7 +3,7 @@ import { dotnet } from "./_framework/dotnet.js";
 let queryPackage;
 let queryPackageVersions;
 let resolvePackageDependencyVersion;
-let packageVersionSatisfiesDependencyRange;
+let matchPackageDependencyCoordinateExport;
 let getPackageDocument;
 let queryMemberSource;
 let queryMemberAnnotatedSource;
@@ -33,6 +33,7 @@ let searchTypes;
 let listStyleTiers;
 let listStyleOptions;
 let packageCacheStats;
+let buildIdentity;
 
 export async function initializeEngine(onStatus = () => {}) {
   onStatus("Loading .NET 11 WebAssembly…");
@@ -42,7 +43,7 @@ export async function initializeEngine(onStatus = () => {}) {
   queryPackage = exports.BrowserInspectionEngine.QueryPackage;
   queryPackageVersions = exports.BrowserInspectionEngine.QueryPackageVersions;
   resolvePackageDependencyVersion = exports.BrowserInspectionEngine.ResolvePackageDependencyVersion;
-  packageVersionSatisfiesDependencyRange = exports.BrowserInspectionEngine.PackageVersionSatisfiesDependencyRange;
+  matchPackageDependencyCoordinateExport = exports.BrowserInspectionEngine.MatchPackageDependencyCoordinate;
   getPackageDocument = exports.BrowserInspectionEngine.GetPackageDocument;
   queryMemberSource = exports.BrowserInspectionEngine.QueryMemberSource;
   queryMemberAnnotatedSource = exports.BrowserInspectionEngine.QueryMemberAnnotatedSource;
@@ -72,6 +73,7 @@ export async function initializeEngine(onStatus = () => {}) {
   listStyleTiers = exports.BrowserInspectionEngine.ListStyleTiers;
   listStyleOptions = exports.BrowserInspectionEngine.ListStyleOptions;
   packageCacheStats = exports.BrowserInspectionEngine.PackageCacheStats;
+  buildIdentity = exports.BrowserInspectionEngine.BuildIdentity;
   await runtime.runMain();
   onStatus("Reading package assemblies…");
 }
@@ -166,9 +168,13 @@ export async function resolveDependencyVersion(packageId, declaredRange) {
   return resolvePackageDependencyVersion(packageId, declaredRange || "");
 }
 
-export function dependencyVersionSatisfies(packageVersion, declaredRange) {
-  if (!packageVersionSatisfiesDependencyRange) throw new Error("The browser inspection engine is not initialized.");
-  return packageVersionSatisfiesDependencyRange(packageVersion, declaredRange || "");
+export function matchPackageDependencyCoordinate(packageId, declaredRange, candidates) {
+  if (!matchPackageDependencyCoordinateExport) throw new Error("The browser inspection engine is not initialized.");
+  const json = matchPackageDependencyCoordinateExport(
+    packageId,
+    declaredRange || "",
+    JSON.stringify(candidates));
+  return JSON.parse(json);
 }
 
 export async function inspectPackageIntegrations(request) {
@@ -314,6 +320,11 @@ export async function inspectListStyleTiers() {
 export function inspectPackageCacheStats() {
   if (!packageCacheStats) return null;
   return JSON.parse(packageCacheStats());
+}
+
+export function inspectBuildIdentity() {
+  if (!buildIdentity) throw new Error("The browser inspection engine is not initialized.");
+  return JSON.parse(buildIdentity());
 }
 
 export async function inspectMemberCallGraph(request) {

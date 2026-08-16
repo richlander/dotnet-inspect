@@ -57,6 +57,30 @@ are not redundant:
 | `--validity-check` | *Does it even compile?* | **Validity**: the rendered C# parses, is statement-legal, and binds | Whether valid C# is *faithful* (fidelity's job) |
 | `--annotation-check` | *Do the IL annotations match the opcodes?* | **Annotation fidelity**: each allocation/unsafety/lifetime annotation agrees with the raw IL opcode at its offset (precision), and every unambiguous opcode produces its annotation (recall) | Whether the C# itself is right — only the annotations |
 
+### Fidelity and raising altitude are independent
+
+`Full` fidelity does not mean fully raised. Fidelity judges whether the emitted
+C# faithfully represents the method body; raising altitude judges whether that
+faithful C# has reached the preferred source idiom. Several C# spellings can
+recompile to the same contract body, so a lower-altitude spelling can be valid,
+correct, and opcode-exact.
+
+Issue #3346 is the concrete example. A disposed-only resource previously
+rendered as `using (IDisposable V_2 = resource)`. That form was already `Full`
+and opcode-faithful, but `using (resource)` is the fully raised endpoint when
+the resource slot has no body reads or positive PDB declaration evidence. The
+`UsingStatementPassTests` pin that discriminator, and
+`CommandExecutionTests.Member_DisposedOnlyUsing_RendersVariableLessInMarkdownAndStructuredDocument`
+pins the Markdown and structured-document surfaces. Meanwhile,
+`FidelityGateTests.PinnedFixesStayExact` independently pins the required
+resource conversion and boxing opcodes. Neither gate substitutes for the
+other.
+
+The corpus completeness floor is intentionally coarser: it detects surviving
+unstructured control flow and unsupported nodes. It does not prove that every
+method has reached every available idiom. Fixture scorecards and pass-specific
+shape tests carry those finer-grained altitude claims.
+
 The deepest is **fidelity**: a body that compiles and reads plausibly but
 recompiles to a different contract body changed the measured program shape —
 the worst failure class, invisible to every check that never runs the output
