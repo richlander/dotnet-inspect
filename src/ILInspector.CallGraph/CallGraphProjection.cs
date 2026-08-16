@@ -700,7 +700,8 @@ public sealed partial class CallGraphProjection
                         : null,
                     useAcquisitionReceiptIdentity
                         ? null
-                        : _nodes[from].Identity,
+                        : GraphNodeIdentity.FromMember(
+                            _nodes[from].Member),
                     call.ILOffset,
                     call.OperandToken);
                 if (_callSiteIds.TryGetValue(
