@@ -32,7 +32,10 @@ public static class AttributeDecoder
         {
             var memberRef = reader.GetMemberReference((MemberReferenceHandle)constructorHandle);
             if (!TryObserveTypeName(reader, memberRef.Parent, beforeMaterialize))
-                return null;
+            {
+                throw new BadImageFormatException(
+                    "The attribute constructor parent is not a bounded named type.");
+            }
             return TypeResolver.GetTypeName(reader, memberRef.Parent);
         }
         if (constructorHandle.Kind == HandleKind.MethodDefinition)
@@ -40,7 +43,10 @@ public static class AttributeDecoder
             var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)constructorHandle);
             TypeDefinitionHandle declaringType = methodDef.GetDeclaringType();
             if (!TryObserveTypeName(reader, declaringType, beforeMaterialize))
-                return null;
+            {
+                throw new BadImageFormatException(
+                    "The attribute constructor declaring type is not bounded.");
+            }
             return TypeResolver.GetTypeNameFromDefinition(reader, declaringType);
         }
         return null;
