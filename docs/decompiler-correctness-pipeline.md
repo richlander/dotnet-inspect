@@ -309,13 +309,15 @@ The `decompiler-gates` CI job closes that hole. Source, test, and tool projects
 run it by default, except for measured false positives in
 `eng/decompiler-gate-skip-projects.txt`. The initial exemptions are the CLI and
 its tests, which do not feed the gate. `DecompilerProjectGraphPolicy` in the
-`eng/CiChangeDetection` gate asserts that no exempted project appears in
-MSBuild's evaluated project-reference closure rooted at
-`ILInspector.Decompiler.Tests`. New projects therefore run the gate without a
-list update; an unreadable or invalid skip list exempts nothing. Global build
-inputs and the gate's own scripts and pins remain explicit triggers. The job
-runs separately so it never serializes with the hot `test` lane, and executes
-`--gate pre-merge`.
+`eng/CiChangeDetection` gate asserts that every exemption names a project root
+and that no exempted project tree overlaps a project in MSBuild's evaluated
+Release project-reference closure rooted at `ILInspector.Decompiler.Tests`.
+New project trees therefore run the gate without a list update; neither a
+nested project nor a nested exemption can silently hide sources compiled by a
+graph project. An unreadable, invalid, or vacuous graph or skip list exempts
+nothing. Global build inputs and the gate's own scripts and pins remain
+explicit triggers. The job runs separately so it never serializes with the hot
+`test` lane, and executes `--gate pre-merge`.
 
 ```bash
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \

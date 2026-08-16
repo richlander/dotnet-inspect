@@ -72,6 +72,42 @@ public class NuGetApiTests
         Assert.Equal("https://example.com/flatcontainer/", packageBase.Id);
     }
 
+    [Fact]
+    public async Task GetServiceIndexAsync_MalformedJson_Throws()
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes("{broken"));
+
+        await Assert.ThrowsAsync<JsonException>(async () =>
+            await NuGetApi.GetServiceIndexAsync(
+                stream,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"resources":[]}""")]
+    [InlineData("""{"version":null,"resources":[]}""")]
+    [InlineData("""{"version":"3.0.0","resources":null}""")]
+    [InlineData("""{"version":"3.0.0","resources":[null]}""")]
+    [InlineData("""{"version":"3.0.0","resources":[{"@type":"PackageBaseAddress/3.0.0"}]}""")]
+    [InlineData("""{"version":"3.0.0","resources":[{"@id":"https://example.com/flat/"}]}""")]
+    [InlineData(
+        """
+        {"version":"3.0.0","resources":[
+          {"@id":"https://example.com/flat/","@type":"PackageBaseAddress/3.0.0"},
+          null
+        ]}
+        """)]
+    public async Task GetServiceIndexAsync_InvalidRequiredData_Throws(string json)
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+
+        await Assert.ThrowsAsync<JsonException>(async () =>
+            await NuGetApi.GetServiceIndexAsync(
+                stream,
+                TestContext.Current.CancellationToken));
+    }
+
     // --- Search response deserialization (ported from dotnet-inspect NuGetSearchServiceTests) ---
 
     [Fact]
@@ -171,6 +207,24 @@ public class NuGetApiTests
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes("not json"));
         await Assert.ThrowsAsync<JsonException>(async () =>
             await NuGetApi.GetSearchResponseAsync(stream, TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"data":null}""")]
+    [InlineData("""{"data":[null]}""")]
+    [InlineData("""{"data":[{"version":"1.0.0"}]}""")]
+    [InlineData("""{"data":[{"id":"Package"}]}""")]
+    [InlineData("""{"data":[{"id":"Package","version":"1.0.0","versions":[null]}]}""")]
+    [InlineData("""{"data":[{"id":"Package","version":"1.0.0","versions":[{}]}]}""")]
+    public async Task GetSearchResponseAsync_InvalidRequiredData_Throws(string json)
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+
+        await Assert.ThrowsAsync<JsonException>(async () =>
+            await NuGetApi.GetSearchResponseAsync(
+                stream,
+                TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -301,10 +355,50 @@ public class NuGetApiTests
     }
 
     [Fact]
-    public async Task GetVersionIndexAsync_MalformedJson_ReturnsNull()
+    public async Task GetVersionIndexAsync_MalformedJson_Throws()
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes("{broken"));
-        var result = await NuGetApi.GetVersionIndexAsync(stream, TestContext.Current.CancellationToken);
-        Assert.Null(result);
+
+        await Assert.ThrowsAsync<JsonException>(async () =>
+            await NuGetApi.GetVersionIndexAsync(
+                stream,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"versions":null}""")]
+    [InlineData("""{"versions":[null]}""")]
+    public async Task GetVersionIndexAsync_InvalidRequiredData_Throws(string json)
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+
+        await Assert.ThrowsAsync<JsonException>(async () =>
+            await NuGetApi.GetVersionIndexAsync(
+                stream,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task MetadataReaders_TopLevelNull_RemainsNull()
+    {
+        Func<Stream, ValueTask<object?>>[] readers =
+        [
+            async stream => await NuGetApi.GetServiceIndexAsync(
+                stream,
+                TestContext.Current.CancellationToken),
+            async stream => await NuGetApi.GetVersionIndexAsync(
+                stream,
+                TestContext.Current.CancellationToken),
+            async stream => await NuGetApi.GetSearchResponseAsync(
+                stream,
+                TestContext.Current.CancellationToken),
+        ];
+
+        foreach (Func<Stream, ValueTask<object?>> read in readers)
+        {
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes("null"));
+            Assert.Null(await read(stream));
+        }
     }
 }
