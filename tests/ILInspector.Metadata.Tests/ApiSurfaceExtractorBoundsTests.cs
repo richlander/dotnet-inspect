@@ -430,7 +430,23 @@ public sealed class ApiSurfaceExtractorBoundsTests
     {
         byte[] image = BuildRepeatedEnumAttributeLookupImage(
             typeCount: 2_000,
-            namedArgumentCount: 2_000);
+            namedArgumentCount: 2_000,
+            attributeCount: 1);
+        AssertEnumAttributeLookupsDoNotAllocateQuadratically(image);
+    }
+
+    [Fact]
+    public void SeparateEnumAttributes_ReuseTheChargedTypeNameIndex()
+    {
+        byte[] image = BuildRepeatedEnumAttributeLookupImage(
+            typeCount: 2_000,
+            namedArgumentCount: 1,
+            attributeCount: 2_000);
+        AssertEnumAttributeLookupsDoNotAllocateQuadratically(image);
+    }
+
+    static void AssertEnumAttributeLookupsDoNotAllocateQuadratically(byte[] image)
+    {
         using var stream = new MemoryStream(image, writable: false);
         using var peReader = new PEReader(stream);
         long before = GC.GetAllocatedBytesForCurrentThread();
@@ -1881,7 +1897,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
 
     static byte[] BuildRepeatedEnumAttributeLookupImage(
         int typeCount,
-        int namedArgumentCount)
+        int namedArgumentCount,
+        int attributeCount)
     {
         var metadata = Metadata("EnumAttributeLookupBomb");
         AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
@@ -1938,10 +1955,14 @@ public sealed class ApiSurfaceExtractorBoundsTests
             value.WriteSerializedString("P");
             value.WriteInt32(1);
         }
-        metadata.AddCustomAttribute(
-            attributed,
-            constructor,
-            metadata.GetOrAddBlob(value));
+        BlobHandle valueHandle = metadata.GetOrAddBlob(value);
+        for (int i = 0; i < attributeCount; i++)
+        {
+            metadata.AddCustomAttribute(
+                attributed,
+                constructor,
+                valueHandle);
+        }
         return Serialize(metadata);
     }
 

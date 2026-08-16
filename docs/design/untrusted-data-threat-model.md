@@ -410,18 +410,18 @@ TypeDef or TypeRef segment reached from a signature, skipped enum names scanned
 while formatting defaults, and forwarded type and target-assembly names.
 TypeSpec-owned generic attribute constructors use the same guarded signature
 decoder and preserve bounded/unbounded parity. Enum-valued arguments build one
-charged type-name index per attribute decode instead of rescanning every type
-for every argument; decode failures may skip malformed attributes, but a
-budget-observer failure must escape the decoder and produce typed truncation.
-The Browser separately
-applies the same bound while deriving type/member transport records, including
-canonical signatures, documentation IDs, and graph selectors that repeat
-declaring-type identity. It preflights each source model against the budget
-remaining after committed and pending participants before creating those
-derived strings, and collision-qualified IDs are created and charged before
-their participant commits. An assembly that would exceed either remaining
-retained-text budget is abandoned whole, and the Browser reports truncation
-rather than presenting a shortened surface as complete.
+charged type-name index per bounded extraction instead of rescanning every type
+for every argument or attribute; decode failures may skip malformed attributes,
+but a budget-observer failure must escape the decoder and produce typed
+truncation. The Browser separately applies the same bound while deriving
+type/member transport records, including canonical signatures, documentation
+IDs, and graph selectors that repeat declaring-type identity. It preflights
+each source model against the budget remaining after committed and pending
+participants before creating those derived strings, and collision-qualified
+IDs are created and charged before their participant commits. An assembly that
+would exceed either remaining retained-text budget is abandoned whole, and the
+Browser reports truncation rather than presenting a shortened surface as
+complete.
 `BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
 gates aggregate ownership and eviction; its oversized-role case gates
 pre-decoding rejection.
@@ -436,6 +436,7 @@ pre-decoding rejection.
 `OneWideTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneLargeCustomAttribute_StopsBeforeLargeAllocationAmplification`,
 `RepeatedEnumAttributeLookups_DoNotAllocateQuadratically`,
+`SeparateEnumAttributes_ReuseTheChargedTypeNameIndex`,
 `GenericAttributeTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneDeeplyNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneArgumentNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
