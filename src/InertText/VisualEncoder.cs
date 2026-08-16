@@ -72,6 +72,7 @@ public static class VisualEncoder
         ScalarPolicy permits = ScalarPolicies.For(policy);
 
         VisualForm formsUsed = VisualForm.None;
+        TextConcern concerns = TextConcern.None;
         StringBuilder? builder = null;
 
         int i = 0;
@@ -95,10 +96,15 @@ public static class VisualEncoder
             {
                 AppendBmpHex(builder, value[i]);
                 formsUsed |= VisualForm.BmpHex;
+                concerns |= TextConcern.Surrogate;
             }
             else
             {
                 formsUsed |= AppendSpelling(builder, scalar);
+                if (value[i] != '\\')
+                {
+                    concerns |= ScalarPolicies.ConcernFor(Rune.GetUnicodeCategory(scalar));
+                }
             }
 
             i += width;
@@ -108,10 +114,14 @@ public static class VisualEncoder
         {
             return new InertString(
                 original ?? value.ToString(),
-                VisualForm.None);
+                VisualForm.None,
+                TextConcern.None);
         }
 
-        return new InertString(builder?.ToString() ?? original ?? value.ToString(), formsUsed);
+        return new InertString(
+            builder?.ToString() ?? original ?? value.ToString(),
+            formsUsed,
+            concerns);
     }
 
     private static bool CanRetainLiteralBackslashes(ReadOnlySpan<char> value)
@@ -131,7 +141,8 @@ public static class VisualEncoder
     internal static void AppendForComposition(
         StringBuilder builder,
         InertString value,
-        ref VisualForm forms)
+        ref VisualForm forms,
+        ref TextConcern concerns)
     {
         string text = value.ToString();
 
@@ -139,6 +150,7 @@ public static class VisualEncoder
         {
             builder.Append(text);
             forms |= value.Forms;
+            concerns |= value.Concerns;
             return;
         }
 
@@ -159,16 +171,17 @@ public static class VisualEncoder
     internal static InertString CompleteComposition(
         string encoded,
         VisualForm forms,
+        TextConcern concerns,
         bool truncated)
     {
         if (forms == VisualForm.Backslash
             && TryDecode(encoded, out string? original)
             && CanRetainLiteralBackslashes(original))
         {
-            return new InertString(original, VisualForm.None, truncated);
+            return new InertString(original, VisualForm.None, TextConcern.None, truncated);
         }
 
-        return new InertString(encoded, forms, truncated);
+        return new InertString(encoded, forms, concerns, truncated);
     }
 
     /// <summary>
@@ -609,12 +622,13 @@ public static class VisualEncoder
             && char.IsHighSurrogate((char)high)
             && char.IsLowSurrogate((char)low);
 
-    internal static VisualForm ValidateEncoded(
+    internal static (VisualForm Forms, TextConcern Concerns) ValidateEncoded(
         TextPolicy policy,
         ReadOnlySpan<char> encoded)
     {
         ScalarPolicy permits = ScalarPolicies.For(policy);
         VisualForm forms = VisualForm.None;
+        TextConcern concerns = TextConcern.None;
         int rawBackslashIndex = -1;
 
         for (int index = 0; index < encoded.Length;)
@@ -642,6 +656,7 @@ public static class VisualEncoder
             }
 
             forms |= form;
+            concerns |= ConcernForSpelling(encoded, index, form);
             index += width;
         }
 
@@ -652,7 +667,32 @@ public static class VisualEncoder
         if (forms != VisualForm.None && rawBackslashIndex >= 0)
             throw InvalidEncodedText(rawBackslashIndex);
 
-        return forms;
+        return (forms, concerns);
+    }
+
+    private static TextConcern ConcernForSpelling(
+        ReadOnlySpan<char> encoded,
+        int index,
+        VisualForm form)
+    {
+        switch (form)
+        {
+            case VisualForm.Caret:
+            case VisualForm.CaretDelete:
+                return TextConcern.Control;
+            case VisualForm.BmpHex:
+                _ = TryReadHex(encoded, index + 2, 4, out uint bmp);
+                return char.IsSurrogate((char)bmp)
+                    ? TextConcern.Surrogate
+                    : ScalarPolicies.ConcernFor(
+                        Rune.GetUnicodeCategory(new Rune((int)bmp)));
+            case VisualForm.AstralHex:
+                _ = TryReadHex(encoded, index + 2, 8, out uint astral);
+                return ScalarPolicies.ConcernFor(
+                    Rune.GetUnicodeCategory(new Rune((int)astral)));
+            default:
+                return TextConcern.None;
+        }
     }
 
     private static FormatException InvalidEncodedText(int index)
@@ -672,7 +712,7 @@ public static class VisualEncoder
     /// text, and an end below the start gives an empty window, because the end walks from the
     /// start and only ever advances.
     /// </remarks>
-    internal static (int Start, int End, VisualForm Forms) WindowWithin(
+    internal static (int Start, int End, VisualForm Forms, TextConcern Concerns) WindowWithin(
         ReadOnlySpan<char> encoded,
         int start,
         int end)
@@ -685,6 +725,7 @@ public static class VisualEncoder
         }
 
         VisualForm forms = VisualForm.None;
+        TextConcern concerns = TextConcern.None;
         int to = from;
 
         while (to < end && to < encoded.Length)
@@ -697,9 +738,10 @@ public static class VisualEncoder
             }
 
             forms |= form;
+            concerns |= ConcernForSpelling(encoded, to, form);
             to += width;
         }
 
-        return (from, to, forms);
+        return (from, to, forms, concerns);
     }
 }

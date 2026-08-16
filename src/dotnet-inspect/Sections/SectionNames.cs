@@ -278,6 +278,9 @@ public static class SectionNames
     /// <summary>Section summarizing high-value audit answers across the assembly.</summary>
     public const string Signals = "Signals";
 
+    /// <summary>Section listing non-ASCII identifiers and reserved-prefix homoglyphs.</summary>
+    public const string IdentifierConfusion = "Audit: Identifier Confusion";
+
     /// <summary>Section for AppContext feature switches.</summary>
     public const string Switches = "Switches";
 

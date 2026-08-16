@@ -1,4 +1,5 @@
 using ILInspector.CSharp;
+using InertText;
 
 namespace DotnetInspector.Output;
 
@@ -23,6 +24,13 @@ internal static class MarkoutInline
     /// </remarks>
     public static string Code(string value)
         => $"<code>{EscapeXmlText(CSharpIdentifier.ContainRenderedText(value))}</code>";
+
+    /// <summary>
+    /// Wraps already-contained display text in an inline code span without
+    /// visually encoding it a second time.
+    /// </summary>
+    public static string Code(InertString value)
+        => $"<code>{EscapeXmlText(value.ToString())}</code>";
 
     private static string EscapeXmlText(string value)
         => value
