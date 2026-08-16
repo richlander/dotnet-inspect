@@ -115,6 +115,12 @@ async function loadEngineModule() {
   } = await import("/engine.js"));
 }
 
+function waitForHomePaint() {
+  if (document.visibilityState === "hidden") return Promise.resolve();
+  return new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
 function loadStoredTaste() {
   try {
     const value = JSON.parse(localStorage.getItem("inspect-taste") || "[]");
@@ -8261,6 +8267,7 @@ async function bootstrap() {
   render();
   const tStart = performance.now();
   try {
+    if (state.home) await waitForHomePaint();
     await loadEngineModule();
     await initializeEngine(message => {
       state.loadingMessage = message;
@@ -8299,7 +8306,7 @@ async function bootstrap() {
     state.error = "Couldn’t start the inspection engine. Retry, or open a different package.";
     state.errorTitle = "Startup failed";
     state.errorDetail = String(error?.stack || error);
-    state.retryAction = bootstrap;
+    state.retryAction = () => window.location.reload();
     render();
   }
 }

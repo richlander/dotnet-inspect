@@ -166,20 +166,26 @@ test("ready status shows versioned linked build provenance", () => {
     /-getProperty:VersionPrefix[\s\S]*-p:VersionPrefix="\$version"[\s\S]*-p:SourceRevisionId="\$GITHUB_SHA"[\s\S]*-p:BuildTimestampUtc="\$built_at"/);
 });
 
-test("bare home renders before wasm engine download", () => {
+test("bare home paints before wasm engine download", () => {
   assert.doesNotMatch(appSource, /from "\/engine\.js"/);
   assert.match(
     appSource,
     /async function loadEngineModule\(\)[\s\S]*await import\("\/engine\.js"\)/);
   assert.match(
     appSource,
-    /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*await loadEngineModule\(\)/);
+    /function waitForHomePaint\(\)[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)/);
+  assert.match(
+    appSource,
+    /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*if \(state\.home\) await waitForHomePaint\(\);[\s\S]*await loadEngineModule\(\)/);
   assert.match(
     appSource,
     /class="home-search \$\{enginePending[\s\S]*class="home-engine-status"/);
   assert.match(
     appSource,
     /state\.engineReady[\s\S]*browser wasm ready[\s\S]*browser wasm loading/);
+  assert.match(
+    appSource,
+    /state\.retryAction = \(\) => window\.location\.reload\(\)/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {

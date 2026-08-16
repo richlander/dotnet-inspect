@@ -372,7 +372,7 @@ On a bare visit, `app.js` renders the home page before dynamically importing
 `engine.js`. Search and demo controls remain inert behind a loading indicator
 until the Wasm engine is ready; package and shared-workspace deep links retain
 the full loading interstitial. The
-`bare home renders before wasm engine download` JavaScript test gates this
+`bare home paints before wasm engine download` JavaScript test gates this
 startup boundary.
 
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
