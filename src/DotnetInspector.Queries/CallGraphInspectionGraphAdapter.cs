@@ -273,6 +273,8 @@ public static class CallGraphInspectionGraphAdapter
                     callSite.DispatchKind);
             }
 
+            bool hasCompletePhysicalOccurrences =
+                HasCompletePhysicalOccurrences(row.Edge);
             if (occurrenceIds.Count == 0)
             {
                 int occurrenceId = occurrences.Count;
@@ -285,13 +287,8 @@ public static class CallGraphInspectionGraphAdapter
                         target,
                         new CallGraphLogicalEdgeEvidence(row.Number),
                         []));
-                limits.Add(
-                    new InspectionGraphLimit(
-                        CallGraphInspectionGraphCatalog
-                            .PhysicalOccurrencesUnavailable,
-                        InspectionGraphTarget.Edge(index)));
             }
-            else
+            else if (hasCompletePhysicalOccurrences)
             {
                 AddEdgeCharacteristics(
                     characteristics,
@@ -299,6 +296,14 @@ public static class CallGraphInspectionGraphAdapter
                     occurrenceIds,
                     row.Edge.CallSiteIds
                         .Select(id => projection.CallSites[id]));
+            }
+            if (!hasCompletePhysicalOccurrences)
+            {
+                limits.Add(
+                    new InspectionGraphLimit(
+                        CallGraphInspectionGraphCatalog
+                            .PhysicalOccurrencesUnavailable,
+                        InspectionGraphTarget.Edge(index)));
             }
 
             edges[index] = new InspectionGraphEdge(
@@ -338,6 +343,10 @@ public static class CallGraphInspectionGraphAdapter
             limits,
             failures);
     }
+
+    internal static bool HasCompletePhysicalOccurrences(
+        CallGraphEdge edge) =>
+        !edge.HasUnavailablePhysicalOccurrences;
 
     private static void AddOccurrenceCharacteristics(
         List<InspectionGraphCharacteristic> characteristics,

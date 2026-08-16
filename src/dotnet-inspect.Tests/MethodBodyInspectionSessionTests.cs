@@ -227,6 +227,18 @@ public class MethodBodyInspectionSessionTests
         Assert.Contains(
             projection.Edges,
             edge => edge.CallSiteIds.IsEmpty);
+        Assert.Equal(
+            projection.CallSites.Length,
+            projection.CallSites
+                .Select(site =>
+                    (
+                        site.Call.Caller.AssemblyName,
+                        site.Call.Caller.ModuleVersionId,
+                        site.Call.Caller.MetadataToken,
+                        site.Call.ILOffset,
+                        site.Call.OperandToken))
+                .Distinct()
+                .Count());
     }
 
     [Fact]

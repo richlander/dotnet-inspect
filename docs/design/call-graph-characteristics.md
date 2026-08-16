@@ -35,9 +35,9 @@ Related:
 | Current piece | Current contract | Migration role |
 | --- | --- | --- |
 | `CallGraphProjection.Nodes` | Member identity, boundary kind, `CallTreePerf`, and graph evidence | Inspection-graph member nodes |
-| `CallGraphProjection.Edges` | One logical caller-to-callee row collapsed by `(From, To)`, with retained physical call-site ids and typed any-in-loop state | Edge with primary `call` relationship |
+| `CallGraphProjection.Edges` | One logical caller-to-callee row collapsed by `(From, To)`, with retained physical call-site ids, typed any-in-loop state, and explicit physical-occurrence incompleteness | Edge with primary `call` relationship |
 | `CallGraphProjection.CallSites` | Every physical `DirectCall` supporting a projected product edge, deduplicated across caller and callee walks | Document-wide occurrence plane |
-| `CallGraphInspectionGraphAdapter` | Physical `call.site` receipts, direct occurrence values, and edge aggregates; evidence-free trees retain an explicit transitional limit | Current L1 call adapter |
+| `CallGraphInspectionGraphAdapter` | Physical `call.site` receipts, direct occurrence values, and complete-evidence edge aggregates; fully or partially evidence-free edges retain an explicit transitional limit | Current L1 call adapter |
 | `AnnotatedCallGraphOccurrence` | Retained focus call site joined to an edge row and source fact | Partial occurrence adapter, not document-wide retention |
 | `CallGraphSectionAdapter --fields` | Node signal selection and label projection | L2 bindings over semantic node descriptors |
 | Markout `GraphEdge.Label` | Renderer slot | Projection target, never semantic storage |
@@ -47,7 +47,10 @@ supporting one tree edge. `CallGraphProjection` retains those sites behind
 logical edges and deduplicates a site observed by both traversal directions.
 The L1 adapter publishes call kind, IL offset, operand token, loop state, and
 derived dispatch kind on occurrences, plus multiplicity, any-in-loop, distinct
-call kinds, and distinct dispatch kinds on edges.
+call kinds, and distinct dispatch kinds on edges whose physical occurrence set
+is complete. A detached-scope identity conflict retains each physical site
+once, marks every later affected edge incomplete, and suppresses aggregates
+over the resulting strict subset.
 
 `AnnotatedCallGraphOccurrence` continues to carry the focus-member source join.
 Evidence-free trees remain accepted for browser and synthetic callers; the
@@ -115,7 +118,9 @@ occurrences.
 The former `LoopLabel` storage has migrated to `AnyCallInLoop` plus physical
 occurrence evidence. The CLI continues to render the same `loop`/`loop call`
 label from that typed state; no consumer parses the label to recover the value.
-An evidence-free compatibility edge may retain its legacy analysis hint.
+An evidence-free compatibility edge may retain its legacy analysis hint. A
+partially degraded edge preserves typed fallback loop state but not the legacy
+text hint.
 
 A call edge never crosses assembly context groups. An explicit cross-group
 comparison produces a separately typed comparison relationship with

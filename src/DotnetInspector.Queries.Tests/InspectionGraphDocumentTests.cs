@@ -302,6 +302,30 @@ public sealed class InspectionGraphDocumentTests
                 ["virtual", "direct"]));
     }
 
+    [Fact]
+    public void CallAdapter_TreatsPartialPhysicalEvidenceAsIncomplete()
+    {
+        var partial = new CallGraphEdge(
+            0,
+            1,
+            AnyCallInLoop: true,
+            CallGraphEdgeOrigin.Callees,
+            [0],
+            HasUnavailablePhysicalOccurrences: true,
+            LegacyLoopHint: null);
+        var complete = partial with
+        {
+            HasUnavailablePhysicalOccurrences = false,
+        };
+
+        Assert.False(
+            CallGraphInspectionGraphAdapter
+                .HasCompletePhysicalOccurrences(partial));
+        Assert.True(
+            CallGraphInspectionGraphAdapter
+                .HasCompletePhysicalOccurrences(complete));
+    }
+
     static void AssertCharacteristic(
         InspectionGraphDocument document,
         InspectionGraphCharacteristicDescriptor descriptor,

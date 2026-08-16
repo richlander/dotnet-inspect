@@ -293,8 +293,11 @@ physical call site supporting each projected edge, so
 typed occurrence and edge characteristics. Evidence-free trees constructed by
 external or synthetic callers retain the earlier `call.logical-edge` receipt
 and edge-scoped `call.physical-occurrences-unavailable` limit rather than
-fabricating a call site. `CallAdapter_RetainsPhysicalSitesAndTypedAggregates`
-and
+fabricating a call site. A product edge with only a subset of its physical
+receipts retains those receipts and the same limit, but omits aggregates that
+would imply the subset was complete.
+`CallAdapter_RetainsPhysicalSitesAndTypedAggregates`,
+`CallAdapter_TreatsPartialPhysicalEvidenceAsIncomplete`, and
 `AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite`
 gate the physical and compiler-produced paths.
 
@@ -587,7 +590,8 @@ and focus overlay expose the required distinction:
 - physical occurrence: one retained call site with call kind, IL offset,
   operand token, loop state, and derived dispatch kind;
 - edge aggregates: call-site multiplicity, any-in-loop, distinct call kinds,
-  and distinct dispatch kinds; and
+  and distinct dispatch kinds when physical occurrence evidence is complete;
+  and
 - focus source occurrence: the existing source-fact overlay over those physical
   coordinates.
 

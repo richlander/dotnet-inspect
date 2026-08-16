@@ -101,6 +101,11 @@ public enum CallGraphDispatchKind
 /// Dense ids into <see cref="CallGraphProjection.CallSites"/> for every retained
 /// physical call supporting this edge.
 /// </param>
+/// <param name="HasUnavailablePhysicalOccurrences">
+/// Whether one or more physical occurrences supporting this edge could not be
+/// retained because independently detached scopes disagreed on their logical
+/// endpoint identity.
+/// </param>
 /// <param name="LegacyLoopHint">
 /// The analysis hint retained only for an evidence-free tree edge. Physical
 /// call edges derive loop presentation from typed occurrence evidence.
@@ -111,6 +116,7 @@ public readonly record struct CallGraphEdge(
     bool AnyCallInLoop,
     CallGraphEdgeOrigin Origin,
     ImmutableArray<int> CallSiteIds,
+    bool HasUnavailablePhysicalOccurrences,
     string? LegacyLoopHint);
 
 /// <summary>One physical call site retained behind a logical edge.</summary>
@@ -302,7 +308,9 @@ public sealed partial class CallGraphProjection
     static bool SamePhysicalCallSite(
         DirectCall first,
         DirectCall second) =>
-        first.Caller.ModuleVersionId
+        first.Caller.AssemblyName
+            == second.Caller.AssemblyName
+        && first.Caller.ModuleVersionId
             == second.Caller.ModuleVersionId
         && first.Caller.MetadataToken
             == second.Caller.MetadataToken
@@ -421,16 +429,17 @@ public sealed partial class CallGraphProjection
             public CallGraphEdgeOrigin Origin { get; } = origin;
             public bool PhysicalAnyCallInLoop { get; set; }
             public bool FallbackAnyCallInLoop { get; set; }
+            public bool HasUnavailablePhysicalOccurrences { get; set; }
             public bool AnyCallInLoop =>
-                CallSiteIds.Count > 0
-                    ? PhysicalAnyCallInLoop
-                    : FallbackAnyCallInLoop;
+                PhysicalAnyCallInLoop
+                || (HasUnavailablePhysicalOccurrences
+                    && FallbackAnyCallInLoop);
             public string? LegacyLoopHint { get; set; }
             public List<int> CallSiteIds { get; } = [];
         }
 
         private readonly record struct CallSiteIdentity(
-            GraphNodeIdentity Caller,
+            string CallerAssemblyName,
             Guid ModuleVersionId,
             int MethodToken,
             int ILOffset,
@@ -534,6 +543,7 @@ public sealed partial class CallGraphProjection
                         edge.AnyCallInLoop,
                         edge.Origin,
                         [.. edge.CallSiteIds],
+                        edge.HasUnavailablePhysicalOccurrences,
                         edge.LegacyLoopHint));
             }
             return new CallGraphProjection(
@@ -623,7 +633,7 @@ public sealed partial class CallGraphProjection
             {
                 ArgumentNullException.ThrowIfNull(call);
                 var identity = new CallSiteIdentity(
-                    _nodes[from].Identity,
+                    call.Caller.AssemblyName,
                     call.Caller.ModuleVersionId,
                     call.Caller.MetadataToken,
                     call.ILOffset,
@@ -673,6 +683,7 @@ public sealed partial class CallGraphProjection
             bool inLoop,
             string? loopHint)
         {
+            edge.HasUnavailablePhysicalOccurrences = true;
             edge.FallbackAnyCallInLoop |= inLoop;
             if (edge.CallSiteIds.Count == 0
                 && inLoop

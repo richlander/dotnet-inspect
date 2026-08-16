@@ -392,12 +392,179 @@ public class CallGraphProjectionTests
         Assert.Single(
             outbound,
             edge => edge.CallSiteIds.IsEmpty);
+        Assert.Single(
+            outbound,
+            edge =>
+                edge.HasUnavailablePhysicalOccurrences);
         Assert.Equal(2, projection.CallSites.Length);
         Assert.Equal(
             CallGraphRowMatch.Found,
             projection.FindFocusCalleeRow(
                 focusCallsPeer,
                 out _));
+    }
+
+    [Fact]
+    public void PartiallyConflictingEdgeDisclosesMissingLoopedReceipt()
+    {
+        MemberRef focus = Member("Focus", "Run");
+        MemberRef peer = Member("Peer", "Invoke");
+        DirectCall looped =
+            Call(focus, peer, 4) with { InLoop = true };
+        DirectCall plain = Call(focus, peer, 12);
+        DirectCall peerCallsFocus = Call(peer, focus, 20);
+        GraphNodeEvidence focusEvidence = Evidence(1);
+        GraphNodeEvidence calleeEvidence = Evidence(3);
+        CallTreeNode callerRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Node(
+                    peer,
+                    CallTreeStatus.Expanded,
+                    [
+                        Leaf(
+                            focus,
+                            CallTreeStatus.AlreadyShown) with
+                        {
+                            GraphEvidence = focusEvidence,
+                            ParentEdgeCallSites = [looped],
+                        },
+                    ]) with
+                {
+                    GraphEvidence = Evidence(2),
+                    ParentEdgeCallSites = [peerCallsFocus],
+                },
+            ]) with
+        {
+            GraphEvidence = focusEvidence,
+        };
+        CallTreeNode calleeRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Leaf(
+                    peer,
+                    inLoop: true,
+                    loopHint: "loop") with
+                {
+                    GraphEvidence = calleeEvidence,
+                    ParentEdgeCallSites = [looped, plain],
+                },
+            ]) with
+        {
+            GraphEvidence = focusEvidence,
+        };
+
+        CallGraphProjection projection =
+            CallGraphProjection.Create(callerRoot, calleeRoot);
+        int calleeId = Assert.Single(
+            projection.Nodes,
+            node => node.Identity == calleeEvidence.Identity).Id;
+        CallGraphEdge partial = Assert.Single(
+            projection.Edges,
+            edge => edge.From == projection.Focus.Id
+                && edge.To == calleeId);
+
+        int callSiteId = Assert.Single(partial.CallSiteIds);
+        Assert.Same(
+            plain,
+            projection.CallSites[callSiteId].Call);
+        Assert.True(partial.HasUnavailablePhysicalOccurrences);
+        Assert.True(partial.AnyCallInLoop);
+        Assert.Null(partial.LegacyLoopHint);
+    }
+
+    [Fact]
+    public void ConflictingDetachedCallersKeepOnePhysicalReceipt()
+    {
+        MemberRef focus = Member("Focus", "Run");
+        MemberRef peer = Member("Peer", "Invoke");
+        DirectCall focusCallsPeer = Call(focus, peer, 4);
+        DirectCall peerCallsFocus = Call(peer, focus, 8);
+        GraphNodeEvidence focusEvidence = Evidence(1);
+        CallTreeNode callerRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Leaf(peer) with
+                {
+                    GraphEvidence = Evidence(2),
+                    ParentEdgeCallSites = [peerCallsFocus],
+                },
+            ]) with
+        {
+            GraphEvidence = focusEvidence,
+        };
+        CallTreeNode calleeRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Node(
+                    peer,
+                    CallTreeStatus.Expanded,
+                    [
+                        Leaf(
+                            focus,
+                            CallTreeStatus.AlreadyShown) with
+                        {
+                            GraphEvidence = focusEvidence,
+                            ParentEdgeCallSites =
+                                [peerCallsFocus],
+                        },
+                    ]) with
+                {
+                    GraphEvidence = Evidence(3),
+                    ParentEdgeCallSites = [focusCallsPeer],
+                },
+            ]) with
+        {
+            GraphEvidence = focusEvidence,
+        };
+
+        CallGraphProjection projection =
+            CallGraphProjection.Create(callerRoot, calleeRoot);
+
+        CallGraphEdge[] inbound =
+        [
+            .. projection.Edges.Where(
+                edge => edge.To == projection.Focus.Id),
+        ];
+        Assert.Equal(2, inbound.Length);
+        Assert.Single(
+            inbound,
+            edge => edge.CallSiteIds.Length == 1);
+        Assert.Single(
+            inbound,
+            edge =>
+                edge.HasUnavailablePhysicalOccurrences);
+        Assert.Equal(2, projection.CallSites.Length);
+    }
+
+    [Fact]
+    public void ContradictoryPhysicalReceiptEvidenceIsRejected()
+    {
+        MemberRef focus = Member("Focus", "Run");
+        MemberRef peer = Member("Peer", "Invoke");
+        DirectCall plain = Call(focus, peer, 4);
+        DirectCall looped = plain with { InLoop = true };
+        CallTreeNode root = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Leaf(peer) with
+                {
+                    ParentEdgeCallSites = [plain, looped],
+                },
+            ]);
+
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(() =>
+                CallGraphProjection.FromCallees(root));
+
+        Assert.Contains(
+            "contradictory evidence",
+            exception.Message);
     }
 
     [Fact]
