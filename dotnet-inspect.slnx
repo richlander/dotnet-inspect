@@ -48,6 +48,8 @@
     <Project Path="src/ILInspector.CSharp/ILInspector.CSharp.csproj" />
     <Project Path="src/ILInspector.ControlFlow/ILInspector.ControlFlow.csproj" />
     <Project Path="src/ILInspector.Findings/ILInspector.Findings.csproj" />
+    <Project Path="src/ILInspector.ILDiff.Tests/ILInspector.ILDiff.Tests.csproj" />
+    <Project Path="src/ILInspector.ILDiff/ILInspector.ILDiff.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.CheckedArithmetic/ILInspector.Decompiler.Fixtures.CheckedArithmetic.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.ClassicAsync/ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.CrossAssemblyEnums/ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.csproj" />
