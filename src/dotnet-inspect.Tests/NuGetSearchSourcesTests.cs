@@ -418,9 +418,15 @@ public class NuGetSearchSourcesTests
     }
 
     [Theory]
-    [InlineData("""{"data":[{"id":null,"version":"1.0.0"}]}""")]
-    [InlineData("""{"data":[{"id":"Contoso.Package","version":"not-a-version"}]}""")]
-    public async Task SearchAsync_InvalidResultIdentity_ReportsSourceFailure(string body)
+    [InlineData(
+        """{"data":[{"id":null,"version":"1.0.0"}]}""",
+        nameof(System.Text.Json.JsonException))]
+    [InlineData(
+        """{"data":[{"id":"Contoso.Package","version":"not-a-version"}]}""",
+        nameof(InvalidOperationException))]
+    public async Task SearchAsync_InvalidResultIdentity_ReportsSourceFailure(
+        string body,
+        string failureType)
     {
         var handler = new RouteHandler
         {
@@ -437,7 +443,7 @@ public class NuGetSearchSourcesTests
                 sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path }));
 
         Assert.Contains("contoso: search failed", exception.Message);
-        Assert.Contains(nameof(InvalidOperationException), exception.Message);
+        Assert.Contains(failureType, exception.Message);
         Assert.DoesNotContain("Value cannot be null", exception.Message);
     }
 
