@@ -18,6 +18,9 @@
   retain full extraction (#4175).
 - Static and instance call-graph members now have distinct opaque selectors, so
   close signatures no longer collide during remapping (#4219).
+- Call-graph projection now retains physical call-site receipts behind each
+  logical edge, preserving exact loop evidence and disclosing incomplete
+  occurrence sets instead of fabricating complete aggregates (#4193).
 
 ### Safety and acquisition
 
