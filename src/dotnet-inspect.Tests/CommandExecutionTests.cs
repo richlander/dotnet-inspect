@@ -8769,6 +8769,39 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DisposedOnlyUsing_RendersVariableLessInMarkdownAndStructuredDocument()
+    {
+        string[] member =
+        [
+            "member",
+            typeof(CommandCaretGestureFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(CommandCaretGestureFixture.DisposedOnlyUsingResource),
+        ];
+        var markdown = await RunAppAsync(
+            [.. member, "-S", "Decompiled Source", "--tips", "q"]);
+        var structured = await RunAppAsync(
+            [.. member, "-S", "Annotated Source Document", "--json", "--tips", "q"]);
+
+        Assert.Equal(0, markdown.Exit);
+        Assert.Empty(markdown.Error);
+        Assert.Contains("using (new MemoryStream())", markdown.Output);
+        Assert.DoesNotContain("using (MemoryStream V_", markdown.Output);
+
+        Assert.Equal(0, structured.Exit);
+        Assert.Empty(structured.Error);
+        using var document = JsonDocument.Parse(structured.Output);
+        string text = document.RootElement.GetProperty("text").GetString()!;
+        Assert.Contains("using (new MemoryStream())", text);
+        Assert.DoesNotContain("using (MemoryStream V_", text);
+        Assert.Contains(
+            document.RootElement.GetProperty("nodes").EnumerateArray(),
+            node => node.GetProperty("medium").GetString() == "CSharp"
+                && node.GetProperty("kind").GetString() == "UsingStatement");
+    }
+
+    [Fact]
     public async Task Member_KeywordParameterNames_EscapesSignatureAndDecompiledSourceHeader()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -21413,6 +21446,16 @@ public sealed class ConstructorSourceCaseFixture
 /// </summary>
 public sealed class CommandCaretGestureFixture
 {
+    public static int DisposedOnlyUsingResource()
+    {
+        int value = 0;
+        using (new MemoryStream())
+        {
+            value = 1;
+        }
+        return value;
+    }
+
     public string Pump(int n)
     {
         var sink = new List<object>();

@@ -17,6 +17,27 @@ Decompilation is a many-to-one transform twice over: the compiler collapses many
 
 That framing turns style questions into a single question: *which member of the equivalence class do we print?*
 
+Disposed-only `using` resources illustrate the distinction between a faithful
+member of an equivalence class and its canonical endpoint. For synchronous
+compiler lowering whose resource slot is read only by the generated disposal
+machinery, and for which the PDB supplies no source local name, render
+`using (resource)` rather than inventing `using (T V_n = resource)`. Positive
+PDB declaration evidence or a body read retains the declaration. Required
+resource conversions remain explicit, so choosing the higher-altitude spelling
+does not erase boxing or disposal semantics; `UsingStatementPassTests` and
+`FidelityGateTests.PinnedFixesStayExact` enforce those boundaries.
+
+The declared runtime oracle is silent on this choice:
+`csharp_prefer_simple_using_statement = false:none` governs using statements
+versus using declarations, not expression-form resources versus unused named
+resources ([`.editorconfig` lines 86–95](https://github.com/dotnet/runtime/blob/0cfd4076fba54a30ee789fa8d8ad6ed13b9f9f5c/.editorconfig#L86-L95)).
+The revealed oracle uses the expression form in production, including
+[`ComposablePartCatalogCollection`](https://github.com/dotnet/runtime/blob/0cfd4076fba54a30ee789fa8d8ad6ed13b9f9f5c/src/libraries/System.ComponentModel.Composition/src/System/ComponentModel/Composition/Hosting/ComposablePartCatalogCollection.cs#L56-L75)
+and
+[`ChainPal.OpenSsl`](https://github.com/dotnet/runtime/blob/0cfd4076fba54a30ee789fa8d8ad6ed13b9f9f5c/src/libraries/System.Security.Cryptography/src/System/Security/Cryptography/X509Certificates/ChainPal.OpenSsl.cs#L105-L108).
+That revealed convention selects the canonical form; it is not an analyzer
+prescription.
+
 ## The style oracle: dotnet/runtime's `.editorconfig`
 
 Where one IL shape admits several C# spellings, render the form that **dotnet/runtime's `.editorconfig` and enabled IDE analyzers (code fixers) encourage**.
@@ -123,8 +144,8 @@ syntax, while `p[i]` is pointer arithmetic, not an indexer call on the pointee.
 
 `T x = new T(args)` and `T x = new(args)` compile to the identical
 `newobj T::.ctor(args)` — the constructed type is fixed by the IL token, so the
-spelling has no IL consequence. This is a class-3 no-anchor choice, and the
-oracle decides it: `dotnet/runtime`'s `.editorconfig` sets
+spelling has no IL consequence. This is a class-3 no-anchor choice, and the declared oracle decides the shipped
+default: `dotnet/runtime`'s `.editorconfig` sets
 `csharp_style_implicit_object_creation_when_type_is_apparent = true`, so when the
 type is apparent from the left-hand side we drop the redundant type name.
 
@@ -134,6 +155,26 @@ type is apparent from the left-hand side we drop the redundant type name.
 StringBuilder sb = new StringBuilder(n);   // type named twice
 StringBuilder sb = new(n);                 // target-typed: type apparent on the left
 ```
+
+The `object-creation-style` catalog axis exposes the other faithful spelling as
+the `explicit-object-creation` opt-out. Its default `target-typed` value keeps
+the shipped rendering; selecting `explicit` or copying
+`csharp_style_implicit_object_creation_when_type_is_apparent = false` into
+`.dotnet-inspectconfig` retains `new T(...)` at every site where the shortener
+would otherwise fire. The option does not broaden the firing set or alter any
+decline boundary below.
+
+Together with the independent apparent-`var` category, that makes exactly three
+reachable declaration spellings:
+
+| Local type | Object creation | Selection |
+| --- | --- | --- |
+| `List<int>` | `new()` | shipped `target-typed` default |
+| `List<int>` | `new List<int>()` | `explicit` object creation |
+| `var` | `new List<int>()` | apparent `var` |
+
+`var x = new()` remains unreachable and invalid (CS8754). If both apparent
+`var` and explicit object creation are selected, the third row still wins.
 
 Unlike `var` or brace style, this spelling carries a **binding hazard**, so it is
 adopted as a sound conservative over-approximation rather than everywhere the
@@ -159,6 +200,81 @@ adopting it could change binding, and each decline is proven by recompile/corpus
 fidelity. Optional-argument elision (below) is the other spelling that ships
 under this binding-hazard discipline; any future one that shares the hazard —
 apparent-type or argument-omission — is scoped the same way.
+
+At dotnet/runtime commit `c2de915bb1560b5008499d61b1d1afaa2acc659b`, the
+revealed facet is mixed: target-typed forms appear in
+`src/mono/wasm/host/Program.cs:22,32` and
+`src/mono/wasi/testassets/Http.cs:35,52`, while same-type explicit construction
+remains in `src/coreclr/tools/dotnet-pgo/MethodMemoryMap.cs:58,195,258` and
+`src/libraries/System.Memory/src/System/Text/EncodingExtensions.cs:166,353`.
+The explicit opt-out is therefore not corpus-endorsed and does not join a taste
+aggregate. The declared facet, rather than a corpus claim, is what selects the
+target-typed shipped default.
+
+`ByteNeutralityGateTests.CompileBackValue_On_RecompilesToTheSameIlAsOff`
+enforces compile-back identity for the emitting `explicit` value, and
+`ValueTokenState_MatchesEmits` prevents it from becoming an inert catalog row.
+`TargetTypedNewPassTests` pins default/explicit behavior at declaration and
+assignment sites, while `VarWhenApparentTests` pins the three reachable
+declaration spellings.
+
+### `var` spelling
+
+An explicit local type and `var` compile identically only when C# infers exactly
+the declared type from the initializer. The opt-in policy mirrors the three
+editorconfig categories and partitions each declaration in this order:
+
+1. C# built-in keyword types use `PreferVarForBuiltInTypes`.
+2. Remaining sites where `TypeIsApparent` proves the type is named by the
+   initializer use `PreferVarWhenTypeApparent`.
+3. Every other site uses `PreferVarElsewhere`.
+
+All three buckets share one exact-inference gate. An IR expression's
+`ResultType` is not sufficient evidence: a sink can retag a literal, an implicit
+coercion can leave the initializer's narrower type visible, and a raised
+target-typed expression can carry its target despite having no natural type.
+The gate is a fail-closed allow list of printer-owned forms whose rendering
+proves a natural type. It declines sink coercions, boxing, best-common-type
+joins, retagged literals, lambdas/method groups, tuple literals, stackalloc/span
+projections, collection expressions, `null`, and other context-dependent
+forms. A tuple node records its contextual sink type, while emitted `(e1, e2)`
+derives its type from the elements, so it is not proof of exact inference.
+Unknown and future IR nodes keep the explicit type.
+
+`dynamic` erases to `System.Object` in metadata at every nesting depth:
+`List<dynamic>` and `dynamic[]` become `List<object>` and `object[]`. Until
+every call and member-return path carries the complete `DynamicAttribute`
+transform, equality between erased types is not enough to prove that `var`
+preserves the authored static type. Any declaration type containing `object`
+therefore keeps its explicit type unless the initializer syntax itself proves
+the erased static type (for example `new List<object>()`, an explicit cast,
+`default(List<object>)`, a typed delegate construction, or an already explicit
+local). A non-dynamic parameter is also proof for a top-level `object`, where
+the IR carries that exact provenance; it is not proof for nested positions.
+
+`var` and target-typed `new()` are mutually exclusive at a declaration:
+`var x = new()` has no target type and is CS8754. When a bucket selects `var`,
+the initializer retains `new T(...)`; otherwise the existing target-typed
+shortener remains available.
+
+The shipped default keeps all three options off. The declared oracle at
+dotnet/runtime commit `feede76a68710c11dafa54f8f14bfcdd49fbf54d` sets
+`csharp_style_var_for_built_in_types = false:suggestion`,
+`csharp_style_var_when_type_is_apparent = false:none`, and
+`csharp_style_var_elsewhere = false:suggestion` (`.editorconfig:52-54`).
+The revealed facet is mixed rather than a stable endorsement of a `var`
+category: `System/CharEnumerator.cs:21-22` uses explicit built-in locals,
+`System/Text/DecoderExceptionFallback.cs:50` spells the apparent
+`StringBuilder strBytes = new StringBuilder(...)`, while
+`System/Environment.Variables.Unix.cs:63,97` and
+`System/Globalization/InvariantModeCasing.cs:57,103` use `var` for apparent
+object creation. The opt-in values are therefore not corpus-endorsed.
+
+`ByteNeutralityGateTests.CompileBackValue_On_RecompilesToTheSameIlAsOff`
+enforces compile-back identity for each emitting category, and
+`ValueTokenState_MatchesEmits` prevents a catalog value from silently returning
+to a no-op. `VarWhenApparentTests` pins the three-way partition, exact positives,
+target-typed-`new` interaction, and close conversion/contextual negatives.
 
 ### Optional-argument elision
 
@@ -787,9 +903,9 @@ The recognized knobs are described once, in the library, by
 `StyleOptionDescriptor` carries a knob's stable id, human-facing title and
 summary, its tier (`Formatting`, `Spelling`, `Lens`, or `Synthesis`), whether it
 is `ByteDivergent`, and the **value domain** it ranges over — its ordered list of
-`StyleOptionValue`s. Most knobs are two-state (a `false`/`true` domain); the
-guarded-boolean-return knob is a single multi-value axis
-(`flat` / `conditional-expression` / `branchless`). Each `StyleOptionValue`
+`StyleOptionValue`s. Plain booleans use a `false`/`true` domain; semantic axes
+use named tokens such as `explicit` / `target-typed` or the guarded-return
+`flat` / `conditional-expression` / `branchless` family. Each `StyleOptionValue`
 carries its stable token, optional title, whether that value is `OracleEndorsed`
 (declared) and `CorpusEndorsed` (revealed),
 its `.dotnet-inspectconfig` key (`null` for values without a persistent CLI
@@ -870,12 +986,12 @@ single-select by construction — `GetValue` reports the first selected value in
 `branchless` when both are set, exactly as the printer resolves it — the aggregate
 selects the ternary and the axis never resolves ambiguously.
 
-Every opt-in knob's value domain is carried by the descriptor directly: the
-two-state knobs (including the expression-body arrow wrap, `WrapExpressionBodyArrow`)
-have a `false`/`true` domain, and the guarded-boolean-return family is one
-three-token axis rather than two coupled booleans. The catalog is exhaustive: a
-test-only drift guard asserts every backing `PrinterOptions` property is reachable
-through some descriptor value, so a new knob cannot land without a catalog entry.
+Every opt-in knob's value domain is carried by the descriptor directly: plain
+two-state toggles (including the expression-body arrow wrap,
+`WrapExpressionBodyArrow`) have a `false`/`true` domain, while semantic axes use
+named tokens. The catalog is exhaustive: a test-only drift guard asserts every
+backing `PrinterOptions` property is reachable through some descriptor value, so
+a new knob cannot land without a catalog entry.
 
 The enum-label ordering family is a two-token `Spelling` axis:
 `alphabetical` (the tool-owned default) and `value`. It is endorsed by neither
@@ -893,11 +1009,21 @@ single-select for display: `GetValue` reports the coarse first-enabled category
 and `WithValue` selects one exclusively. `var` is byte-neutral — it erases the
 declared type spelling but never changes the IL — so the family sits in the
 `Spelling` tier with `ByteDivergent = false`. Every category value is
-`OracleEndorsed = false` and `CorpusEndorsed = false`: dotnet/runtime's
-`.editorconfig` sets all three `csharp_style_var_*` keys to `false` (prefer
-explicit types), so no `var` value is endorsed by either facet. The family is
-therefore **opt-in only** and never part of the "full taste" aggregate — the
-shipped default spells explicit types everywhere, matching the runtime.
+`OracleEndorsed = false` because dotnet/runtime's `.editorconfig` sets all three
+`csharp_style_var_*` keys to `false` (prefer explicit types), and
+`CorpusEndorsed = false` because the source consultation recorded in
+[`var` spelling](#var-spelling) found mixed practice rather than a stable
+category endorsement. The family is therefore **opt-in only** and never part of
+the "full taste" aggregate — the shipped default spells explicit types
+everywhere, matching the declared runtime policy.
+
+The object-creation family is a third value-domain axis:
+`object-creation-style` has `target-typed` as its shipped default and `explicit`
+as its sole selectable opt-out (`explicit-object-creation`). The default value's
+`csharp_style_implicit_object_creation_when_type_is_apparent` config key
+preserves editorconfig polarity directly: `true` selects `target-typed`, while
+`false` selects `explicit`. The axis is byte-neutral `Spelling`; neither the
+explicit choice nor the mixed revealed corpus joins an endorsement aggregate.
 
 ## Verification and soundness
 
