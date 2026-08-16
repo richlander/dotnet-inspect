@@ -151,6 +151,23 @@ That run is also an invocation-edge near miss: the current Caller Graph path to
 correctly reports no witness. Proving that callback is repeatedly consumed
 requires a separate deferred-callback discriminator.
 
+## Historical performance recall
+
+The historical reference complements the local paydirt list with performance
+fixes from `dotnet/runtime`. It records all reviewed fixes, including current
+misses and explicit out-of-scope classes, while executable cells acquire exact
+before/after NuGet artifacts and gate the expected member+shape count:
+
+```bash
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --historical-performance-recall
+```
+
+This mode is explicitly network-capable; cached packages are reused. The
+committed reference contains coordinates and expectations, not copied runtime
+binaries. The generated Analysis fixtures separately keep each implemented
+discriminator executable in offline CI.
+
 A deferred-callback census measures that separate construction boundary:
 
 ```bash

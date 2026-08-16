@@ -296,7 +296,8 @@ value-type boxing) plus `allocation-hotspot` rows for methods that allocate
 heavily without matching a specific shape. The `type` and `member` commands keep
 the single `Performance Triage` lens.
 
-The tight markdown columns carry the ranked, human-facing fields; the full
+The tight markdown columns carry the ranked, human-facing fields, including a
+static `Priority` that is separate from evidence/rewrite `Confidence`; the full
 per-row diagnostics (shape, provenance, candidate id, native `Finding`, metadata
 `Token`, IL offset, allocation `Weight`, path/loop evidence, and the fix
 sentence) are preserved in the nested `performance` object of `--json`.
@@ -310,7 +311,15 @@ occurrence. Those fields let trace and version-diff tooling join a triage row to
 `analysis.allocation` or `analysis.call-site` evidence without parsing
 `Evidence` prose. Use `--top`, `--loop`, `--min-confidence`, and
 `--triage-shape` to ask the tool for the curated pay-dirt rows directly instead
-of post-processing. `--top` limits the ranked data before rendering; `-n N`
+of post-processing. The default ranking puts directly evidenced algorithmic amplification,
+avoidable cache-lookup factory allocations, and actionable high allocation
+weight first, then generic repeated costs. Recursive scan helpers remain medium
+priority unless source identity can establish shared-sequence amplification.
+Escape-unknown `small-array` rows
+remain medium priority even at high weight because no safe stack rewrite is
+proven. Static priority is not proof of runtime heat. `--top` limits the ranked data before
+rendering; flattened `Performance:*` output preserves that global order across
+kinds. `-n N`
 remains a renderer cap and is applied afterward if both are supplied. Drill
 candidates with `Call Graph` (a bounded bidirectional graph: inbound callers up
 to entry points and outbound calls in one view), and project per-node cost with
@@ -351,8 +360,8 @@ dotnet-inspect library MyLib.dll -S @Performance
 dotnet-inspect library MyLib.dll -S @Performance --count
 dotnet-inspect library MyLib.dll -S "Performance: Boxing" --json
 dotnet-inspect library MyLib.dll -S "Resource Triage" --jsonl
-dotnet-inspect library MyLib.dll --loop --min-confidence high --top 20 --tsv
-dotnet-inspect library MyLib.dll --triage-shape scan-method-in-loop-call,linq-scan-in-loop,string-build-in-loop --top 20 --tsv
+dotnet-inspect library MyLib.dll --where "Priority>=high" --top 20 --tsv
+dotnet-inspect library MyLib.dll --triage-shape scan-method-in-loop-call,scan-method-in-recursive-traversal,linq-scan-in-loop,string-build-in-loop --top 20 --tsv
 dotnet-inspect library MyLib.dll --triage-shape capturing-delegate --top 10 --jsonl
 dotnet-inspect library MyLib.dll --triage-shape allocation-fanout \
   --order-by "OncePaths desc" --top 20 --tsv
@@ -387,9 +396,16 @@ normal-return paths, not runtime bytes or workload frequency; virtual, external,
 delegate, recursive, and runtime-library effects remain opaque.
 
 Common `--triage-shape` values include `capturing-delegate`,
-`async-state-machine`, `box-value-type`, `small-array`, `linq-scan-in-loop`,
+`async-state-machine`, `box-value-type`, `generic-parameter-object-box`,
+`small-array`,
+`cache-lookup-factory-delegate`, `linq-scan-in-loop`,
+`scan-method-in-loop-call`, `scan-method-in-recursive-traversal`,
 `materialize-in-loop`, `string-build-in-loop`, `enumerator-allocation`, and
 `allocation-hotspot`.
+
+`generic-parameter-object-box` starts at medium priority because allocation
+depends on a value-type instantiation; exact local-loop evidence promotes it
+to high. Caller-loop evidence remains queryable but does not change priority.
 
 ### Decompiler
 

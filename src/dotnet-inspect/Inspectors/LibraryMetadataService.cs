@@ -1463,6 +1463,41 @@ internal static class LibraryMetadataService
         => IsGeneratedMethod(method)
            || generatedFrameworkTypes.Contains(method.DeclaringType.ToQualifiedDisplayString());
 
+    internal static bool IncludePerformanceOpportunity(
+        Analysis.OptimizationOpportunity opportunity,
+        IReadOnlySet<string> generatedFrameworkTypes)
+        => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)
+            || opportunity.Shape == "generic-parameter-object-box"
+                && !IsInGeneratedFrameworkType(
+                    opportunity,
+                    generatedFrameworkTypes)
+                && IsSourceFunctionName(opportunity.Method.Name);
+
+    static bool IsInGeneratedFrameworkType(
+        Analysis.OptimizationOpportunity opportunity,
+        IReadOnlySet<string> generatedFrameworkTypes)
+    {
+        if (opportunity.SourceOwner is { } sourceOwner
+            && generatedFrameworkTypes.Contains(
+                sourceOwner.DeclaringType.ToQualifiedDisplayString()))
+        {
+            return true;
+        }
+
+        string name =
+            opportunity.Method.DeclaringType.ToQualifiedDisplayString();
+        if (generatedFrameworkTypes.Contains(name))
+            return true;
+
+        int generatedNested = name.IndexOf(".<>", StringComparison.Ordinal);
+        return generatedNested >= 0
+            && generatedFrameworkTypes.Contains(name[..generatedNested]);
+    }
+
+    static bool IsSourceFunctionName(string methodName)
+        => methodName.Contains(">g__", StringComparison.Ordinal)
+            || methodName.Contains(">b__", StringComparison.Ordinal);
+
     private static bool IsSystemTextJsonContextGeneratedMethod(Analysis.MethodIdentity method)
         => method.Name is "TryGetTypeInfoForRuntimeCustomConverter"
            && method.IsStatic
@@ -1588,7 +1623,9 @@ internal static class LibraryMetadataService
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             var rows = FilterAndOrderTriageOpportunities(
                     TriageOpportunities(index, options)
-                        .Where(opportunity => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)),
+                        .Where(opportunity => IncludePerformanceOpportunity(
+                            opportunity,
+                            generatedFrameworkTypes)),
                     options)
                 .Select(opportunity => new OptimizationOpportunitySummary
                 {
@@ -1602,6 +1639,7 @@ internal static class LibraryMetadataService
                     Token = FormatToken(opportunity.OperandToken),
                     Evidence = opportunity.Evidence,
                     Fix = opportunity.SafeFixDirection,
+                    Priority = TriagePriority(opportunity),
                     Confidence = opportunity.Confidence,
                     Loop = IteratesInLoop(opportunity) ? "loop" : "",
                     CallerLoop = FormatCallerLoop(opportunity.CallerLoop),
@@ -1756,20 +1794,58 @@ internal static class LibraryMetadataService
             _ => throw new ArgumentOutOfRangeException(nameof(confidence)),
         };
 
-    // Performance Triage ordering: surface pay-dirt first. In-loop (repeated, hot)
-    // allocations lead, then by confidence, then by call-graph leverage (root reach),
-    // then a stable structural tie-break. This is distinct from Top Leverage, which ranks
-    // purely by reach. Extracted so the ranking model is guarded by a labeled, non-vacuous
-    // test (analysis quality ladder #1623 rung 5), not only by self-consistent monotonicity.
+    // Performance Triage ordering separates static actionability from evidence confidence.
+    // Algorithmic amplification, avoidable cache-lookup factory allocations, and actionable
+    // high allocation weight lead. Escape-unknown small arrays and other generic repeated costs
+    // are medium priority; ordinary one-shot candidates are low. Confidence then ranks the
+    // certainty of the evidence/rewrite within that tier, followed by weight and call-graph reach.
     internal static IEnumerable<Analysis.OptimizationOpportunity> OrderByTriagePriority(IEnumerable<Analysis.OptimizationOpportunity> opportunities)
         => opportunities
-            .OrderByDescending(IteratesInLoop)
+            .OrderByDescending(TriagePriorityRank)
             .ThenByDescending(opportunity => ConfidenceRank(opportunity.Confidence))
+            .ThenByDescending(opportunity => WeightSortRank(opportunity.Weight))
             .ThenByDescending(opportunity => opportunity.RootReach)
             .ThenBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
             .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
             .ThenBy(opportunity => opportunity.ILOffset ?? -1)
             .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal);
+
+    internal static string TriagePriority(Analysis.OptimizationOpportunity opportunity)
+        => TriagePriorityRank(opportunity) switch
+        {
+            2 => "high",
+            1 => "medium",
+            _ => "low",
+        };
+
+    static int TriagePriorityRank(Analysis.OptimizationOpportunity opportunity)
+    {
+        if (opportunity.ColdPath)
+            return 0;
+
+        if (opportunity.Shape is
+                "allocation-hotspot"
+                or "cache-lookup-factory-delegate"
+                or "linq-scan-in-loop"
+                or "materialize-in-loop"
+                or "scan-method-in-loop-call"
+                or "string-build-in-loop"
+            || (opportunity.Weight == "high"
+                && opportunity.Shape != "small-array"))
+        {
+            return 2;
+        }
+
+        if (opportunity.Shape == "generic-parameter-object-box")
+            return IteratesInLoop(opportunity)
+                    ? 2
+                    : 1;
+
+        return IteratesInLoop(opportunity)
+            || opportunity.Weight == "medium"
+                ? 1
+                : 0;
+    }
 
     // Whether an allocation opportunity actually iterates as a hot loop, per the
     // semantic per-invocation multiplicity (#2127). A structural in-loop offset that
@@ -1887,6 +1963,15 @@ internal static class LibraryMetadataService
         if (PerformanceTriageOptions.IsNumericField(predicate.Field))
             return false;
 
+        if (predicate.Field == "Priority")
+        {
+            int expected = ConfidenceRank(predicate.Value);
+            if (expected == 0 && !predicate.Value.Equals("low", StringComparison.OrdinalIgnoreCase))
+                return false;
+            int compare = TriagePriorityRank(opportunity).CompareTo(expected);
+            return MatchCompare(compare, predicate.Operator);
+        }
+
         if (predicate.Field == "Confidence")
         {
             int expected = ConfidenceRank(predicate.Value);
@@ -1964,6 +2049,8 @@ internal static class LibraryMetadataService
         {
             return leftNumber.CompareTo(rightNumber);
         }
+        if (field == "Priority")
+            return TriagePriorityRank(left).CompareTo(TriagePriorityRank(right));
         if (field == "Confidence")
             return ConfidenceRank(left.Confidence).CompareTo(ConfidenceRank(right.Confidence));
         if (field == "Weight")
@@ -1990,6 +2077,7 @@ internal static class LibraryMetadataService
             "Token" => FormatToken(opportunity.OperandToken),
             "Evidence" => opportunity.Evidence,
             "Fix" => opportunity.SafeFixDirection,
+            "Priority" => TriagePriority(opportunity),
             "Confidence" => opportunity.Confidence,
             "Loop" => IteratesInLoop(opportunity) ? "loop" : "",
             "CallerLoop" => FormatCallerLoop(opportunity.CallerLoop),
