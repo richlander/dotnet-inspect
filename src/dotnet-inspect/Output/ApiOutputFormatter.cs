@@ -1386,7 +1386,10 @@ public static class ApiOutputFormatter
     /// overload-index selector (<c>Prop:1</c>/<c>Prop:2</c>) addresses. A field carries
     /// no accessor token and yields no body methods, so its body sections stay N/A.
     /// </summary>
-    internal static List<ApiMember> ResolveBodyMethods(ApiType type, IReadOnlySet<string> requestedSections)
+    internal static List<ApiMember> ResolveBodyMethods(
+        ApiType type,
+        IReadOnlySet<string> requestedSections,
+        int? selectedOrdinal = null)
     {
         bool includeAbstract = requestedSections.Contains(SectionNames.UnsafeOperations);
         var methods = type.Members
@@ -1397,13 +1400,35 @@ public static class ApiOutputFormatter
             && type.Members is [{ } single]
             && ApiMemberSectionDescriptors.HasAccessorTokens(single))
         {
-            // Keep every accessor in ordinal order. Applicability excludes abstract accessors
-            // from body-dependent views; removing one here would shift the ordinal of its sibling.
             methods = AccessorMethods(single, type).ToList();
+            if (selectedOrdinal is { } ordinal
+                && ordinal > 0
+                && ordinal <= methods.Count)
+            {
+                var selected = methods[ordinal - 1];
+                if (!CanAnalyzeSelectedAccessor(selected, requestedSections))
+                    return [];
+            }
+            else
+            {
+                methods = methods
+                    .Where(m => !m.IsAbstract || includeAbstract)
+                    .ToList();
+            }
         }
 
         return methods;
     }
+
+    private static bool CanAnalyzeSelectedAccessor(
+        ApiMember accessor,
+        IReadOnlySet<string> requestedSections)
+        => accessor.HasMethodBody
+            || requestedSections.Contains(SectionNames.CustomAttributes)
+            || requestedSections.Contains(SectionNames.UnsafeOperations)
+            || !accessor.IsAbstract
+                && requestedSections.Overlaps(
+                    [SectionNames.Callers, SectionNames.CallGraph]);
 
     /// <summary>
     /// Synthesizes method members for a property's or event's accessors, keyed by the

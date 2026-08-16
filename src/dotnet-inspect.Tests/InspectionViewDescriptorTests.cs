@@ -1,5 +1,6 @@
 using DotnetInspector.Models;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Views;
@@ -200,6 +201,60 @@ public class InspectionViewDescriptorTests
         Assert.Equal(hasCallerViews, ids.Contains(SectionNames.Callers));
         Assert.Equal(hasCallerViews, ids.Contains(SectionNames.CallGraph));
         Assert.Contains(SectionNames.UnsafeOperations, ids);
+    }
+
+    [Fact]
+    public void BodyExecution_SkipsSelectedAbstractAccessorWithoutShiftingOrdinal()
+    {
+        var type = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001,
+                    SetterToken = 0x06000002,
+                    HasMethodBody = true,
+                    IsAbstract = true,
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "int",
+                        Accessors =
+                        [
+                            new ApiAccessor
+                            {
+                                Kind = "get",
+                                HasMethodBody = false,
+                                IsAbstract = true
+                            },
+                            new ApiAccessor
+                            {
+                                Kind = "set",
+                                HasMethodBody = true,
+                                IsAbstract = false
+                            }
+                        ]
+                    }
+                }
+            ]
+        };
+
+        Assert.Empty(ApiOutputFormatter.ResolveBodyMethods(
+            type,
+            new HashSet<string> { SectionNames.Facts },
+            selectedOrdinal: 1));
+        Assert.Equal(2, ApiOutputFormatter.ResolveBodyMethods(
+            type,
+            new HashSet<string> { SectionNames.Facts },
+            selectedOrdinal: 2).Count);
+        Assert.Equal(2, ApiOutputFormatter.ResolveBodyMethods(
+            type,
+            new HashSet<string> { SectionNames.UnsafeOperations },
+            selectedOrdinal: 1).Count);
     }
 
     [Fact]

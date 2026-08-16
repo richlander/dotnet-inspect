@@ -267,6 +267,29 @@ public class UnsafeMembersSectionTests
         Assert.DoesNotContain("--jsonl", result.Error);
     }
 
+    [Theory]
+    [InlineData("*")]
+    [InlineData("@All")]
+    public async Task TypeUnsafeMembers_AllSelectorJsonKeepsDocumentProjection(string selector)
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(SampleClassForTesting).FullName,
+            AssemblyPath = typeof(SampleClassForTesting).Assembly.Location,
+            Select = [selector],
+            IncludeSections =
+            [
+                SectionNames.TypeInfo,
+                SectionNames.UnsafeMembers
+            ],
+            JsonOutput = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("\"name\"", result.Output);
+        Assert.DoesNotContain("cannot represent the analysis rows", result.Error);
+    }
+
     [Fact]
     public void TypeUnsafeMembers_RendersDeclarationWhenAnalysisHasNoEvidence()
     {

@@ -320,6 +320,33 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void TypeSurface_FoldsCanonicalVisualBasicMethodImplAccessors()
+    {
+        string runtimeDirectory = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        using var peReader = new PEReader(
+            File.OpenRead(Path.Combine(runtimeDirectory, "Microsoft.VisualBasic.Core.dll")));
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = GetTypeDefinitionHandle(reader, "Microsoft.VisualBasic.Collection");
+
+        var queried = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        var extracted = Assert.Single(
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true).Types,
+            type => type.FullName == "Microsoft.VisualBasic.Collection");
+
+        foreach (var surface in new[] { queried, extracted })
+        {
+            Assert.Contains(surface.Members, member => member.Name == "ICollectionCount");
+            Assert.Contains(surface.Members, member => member.Name == "IListItem");
+            Assert.DoesNotContain(surface.Members, member => member.Name == "get_ICollectionCount");
+            Assert.DoesNotContain(surface.Members, member => member.Name == "get_IListItem");
+            Assert.DoesNotContain(surface.Members, member => member.Name == "set_IListItem");
+        }
+    }
+
+    [Fact]
     public void PrivateScopeAccessors_AreNotClassifiedAsPublic()
     {
         var methodAccessibility = typeof(MetadataDeclarationQuery).GetMethod(

@@ -807,6 +807,25 @@ public class ApiCommand
         return pipeline.GetCandidateSections(options.Verbosity, options.IncludeSections);
     }
 
+    private static bool IsExplicitUnsafeMembersSelection(
+        ApiOptions options,
+        IReadOnlySet<string> candidateSections)
+    {
+        if (!candidateSections.Contains(SectionNames.UnsafeMembers))
+            return false;
+
+        if (options.Select is { Length: > 0 } selectors)
+        {
+            return selectors.Any(selector =>
+                string.Equals(
+                    selector,
+                    SectionNames.UnsafeMembers,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+
+        return options.IncludeSections?.Contains(SectionNames.UnsafeMembers) == true;
+    }
+
     // ===== Full API Surface Rendering =====
 
     internal static int WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
@@ -1289,7 +1308,7 @@ public class ApiCommand
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
             var candidateSections = GetCandidateMemberSections(options);
-            if (candidateSections.Contains(SectionNames.UnsafeMembers))
+            if (IsExplicitUnsafeMembersSelection(options, candidateSections))
             {
                 string guidance = candidateSections.Count == 1
                     ? "Use --jsonl for its table rows."
@@ -1382,7 +1401,10 @@ public class ApiCommand
                 && (mo4.OverloadIndex.HasValue || mo4.HasCallerScope))
             {
                 var requestedSections = GetRequestedMemberSections(type, mo4);
-                var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
+                var methods = ApiOutputFormatter.ResolveBodyMethods(
+                    type,
+                    requestedSections,
+                    mo4.OverloadIndex);
                 if (methods.Count > 0)
                 {
                     var analysisInspection = new ApiMemberAnalysisInspection(
@@ -2236,7 +2258,10 @@ public class ApiCommand
                 && (memberOptions.OverloadIndex.HasValue || memberOptions.HasCallerScope))
             {
                 var requestedSections = GetRequestedMemberSections(type, memberOptions);
-                var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
+                var methods = ApiOutputFormatter.ResolveBodyMethods(
+                    type,
+                    requestedSections,
+                    memberOptions.OverloadIndex);
                 if (methods.Count > 0)
                 {
                     var analysisInspection = new ApiMemberAnalysisInspection(

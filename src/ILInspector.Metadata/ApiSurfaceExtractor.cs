@@ -447,6 +447,7 @@ public static class ApiSurfaceExtractor
             var explicitInterfaceImplementationBodies =
                 GetExplicitInterfaceImplementationBodies(reader, typeDef);
             var accessorMethods = GetAccessorMethods(reader, typeDef);
+            var canonicalAccessorMethods = GetCanonicalAccessorMethods(reader, typeDef);
 
             // Methods whose explicit `.override` MethodImpl targets
             // `System.Object::Finalize` — i.e. genuine class finalizers, the
@@ -463,7 +464,8 @@ public static class ApiSurfaceExtractor
                 var isRetainedImplementationAccessor = isExplicitInterfaceImplementation
                     && (methodName.Contains('.', StringComparison.Ordinal)
                         || (methodAccess != MethodAttributes.Public
-                            && explicitInterfaceImplementationBodies.Contains(methodHandle)));
+                            && explicitInterfaceImplementationBodies.Contains(methodHandle)
+                            && !canonicalAccessorMethods.Contains(methodHandle)));
                 if (accessorMethods.Contains(methodHandle) && !isRetainedImplementationAccessor)
                     continue;
                 if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
@@ -1815,6 +1817,46 @@ public static class ApiSurfaceExtractor
         }
 
         return methods;
+    }
+
+    internal static HashSet<MethodDefinitionHandle> GetCanonicalAccessorMethods(
+        MetadataReader reader,
+        TypeDefinition type)
+    {
+        HashSet<MethodDefinitionHandle> methods = [];
+
+        foreach (var propertyHandle in type.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            string name = reader.GetString(property.Name);
+            var accessors = property.GetAccessors();
+            AddIfCanonical(accessors.Getter, $"get_{name}");
+            AddIfCanonical(accessors.Setter, $"set_{name}");
+        }
+
+        foreach (var eventHandle in type.GetEvents())
+        {
+            var @event = reader.GetEventDefinition(eventHandle);
+            string name = reader.GetString(@event.Name);
+            var accessors = @event.GetAccessors();
+            AddIfCanonical(accessors.Adder, $"add_{name}");
+            AddIfCanonical(accessors.Remover, $"remove_{name}");
+            AddIfCanonical(accessors.Raiser, $"raise_{name}");
+        }
+
+        return methods;
+
+        void AddIfCanonical(MethodDefinitionHandle handle, string expectedName)
+        {
+            if (!handle.IsNil
+                && string.Equals(
+                    reader.GetString(reader.GetMethodDefinition(handle).Name),
+                    expectedName,
+                    StringComparison.Ordinal))
+            {
+                methods.Add(handle);
+            }
+        }
     }
 
     private static IEnumerable<string> GetTypeMatchKeys(ApiType type)
