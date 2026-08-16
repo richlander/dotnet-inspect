@@ -15,7 +15,7 @@ internal static class StructuredTransferOwnership
     {
         var descendants = includeNestedFunctions
             ? root.Descendants
-            : GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(root);
+            : root.DescendantsOutsideNestedFunctions;
         foreach (var transfer in descendants
             .Where(node => node is Break || includeContinue && node is Continue))
         {
