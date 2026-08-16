@@ -295,6 +295,7 @@ public static class AssemblyContextSourceQuery
         {
             access = group.UseAssemblySession(
                 participant.Assembly,
+                cancellationToken,
                 (session, retained) => new MemberInspectionSeed(
                     retained,
                     ResolveMember(session, request)));
@@ -371,6 +372,7 @@ public static class AssemblyContextSourceQuery
         {
             access = group.UseAssemblySession(
                 participant.Assembly,
+                cancellationToken,
                 (session, retained) => new TypeInspectionSeed(
                     retained,
                     ResolveType(session, request.Type)));
@@ -486,6 +488,7 @@ public static class AssemblyContextSourceQuery
                         sourceResult.Failure!);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         MemberRenderResult decompiled =
             MemberBodyProducer.ProduceMember(
                 target.Type,
@@ -568,6 +571,7 @@ public static class AssemblyContextSourceQuery
                         sourceResult.Failure!);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         DecompilerResult decompiled =
             MemberBodyProducer.Project(
                 target,

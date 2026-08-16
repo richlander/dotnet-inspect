@@ -176,6 +176,10 @@ name is malformed. Cancellation remains exceptional but disposes an already
 opened SourceLink service before it propagates;
 `AssemblyContextSourceQueryTests.PdbAcquisitionCancellation_DisposesOpenedSourceLinkService`
 gates that ownership boundary.
+A query with cancellation already requested still validates that the selected
+participant belongs to the group, then stops before snapshot acquisition.
+`AssemblyContextSourceQueryTests.PreCanceledQueries_StopBeforeSnapshotAndDecompilerFallback`
+gates the pre-entry member and type boundary.
 
 Conditional branch liveness is composed only at the member slicing boundary:
 Metadata reports point lines, CSharpText reports lexical branch ranges, and the

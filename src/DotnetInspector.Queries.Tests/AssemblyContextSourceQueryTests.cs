@@ -302,6 +302,46 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
+    public async Task PreCanceledQueries_StopBeforeSnapshotAndDecompilerFallback()
+    {
+        byte[] bytes =
+            WithoutDebugDirectory(
+                File.ReadAllBytes(
+                    typeof(AssemblyContextSourceQueryTests)
+                        .Assembly.Location));
+        TestAssembly assembly =
+            TestAssembly.Create(bytes);
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => AssemblyContextSourceQuery.ExecuteMemberAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Describe)),
+                host.Context,
+                cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(
+                    typeof(SourceFixture).Name),
+                host.Context,
+                cancellation.Token));
+
+        Assert.Empty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+    }
+
+    [Fact]
     public async Task SourceStoreFailure_FallsBackRepeatablyWithoutPublishingMemoryEntry()
     {
         TestAssembly assembly = TestAssembly.Create();
@@ -802,6 +842,39 @@ public sealed class AssemblyContextSourceQueryTests
                     == DebugDirectoryEntryType
                         .EmbeddedPortablePdb);
         bytes[embedded.DataPointer] ^= 0xff;
+        return bytes;
+    }
+
+    static byte[] WithoutDebugDirectory(
+        byte[] original)
+    {
+        byte[] bytes = (byte[])original.Clone();
+        using (var reader =
+               new PEReader(
+                   new MemoryStream(
+                       bytes,
+                       writable: false)))
+        {
+            PEHeader header =
+                Assert.IsType<PEHeader>(
+                    reader.PEHeaders.PEHeader);
+            int directoryBase =
+                reader.PEHeaders.PEHeaderStartOffset
+                + (header.Magic == PEMagic.PE32Plus
+                    ? 112
+                    : 96);
+            Array.Clear(
+                bytes,
+                directoryBase + (6 * 8),
+                8);
+        }
+
+        using var mutated =
+            new PEReader(
+                new MemoryStream(
+                    bytes,
+                    writable: false));
+        Assert.Empty(mutated.ReadDebugDirectory());
         return bytes;
     }
 

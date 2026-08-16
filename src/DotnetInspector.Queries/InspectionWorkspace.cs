@@ -291,12 +291,25 @@ public sealed class AssemblyContextGroup : IDisposable
             AssemblyInspectionSession,
             ResolvedAssemblyReference,
             TResult> callback)
+        => UseAssemblySession(
+            assembly,
+            CancellationToken.None,
+            callback);
+
+    internal AssemblyImageAccessResult<TResult> UseAssemblySession<TResult>(
+        ResolvedAssemblyReference assembly,
+        CancellationToken cancellationToken,
+        Func<
+            AssemblyInspectionSession,
+            ResolvedAssemblyReference,
+            TResult> callback)
     {
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(callback);
 
         return UseSnapshot(
             assembly,
+            cancellationToken,
             snapshot =>
             {
                 using AssemblyInspectionSession session =
@@ -360,12 +373,22 @@ public sealed class AssemblyContextGroup : IDisposable
     internal AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
         ResolvedAssemblyReference assembly,
         Func<AssemblyImageSnapshot, TResult> callback)
+        => UseSnapshot(
+            assembly,
+            CancellationToken.None,
+            callback);
+
+    internal AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
+        ResolvedAssemblyReference assembly,
+        CancellationToken cancellationToken,
+        Func<AssemblyImageSnapshot, TResult> callback)
     {
         BeginCallback();
         Exception? operationFailure = null;
         try
         {
             ParticipantState participant = FindParticipant(assembly);
+            cancellationToken.ThrowIfCancellationRequested();
             SnapshotAccess access = GetSnapshot(participant);
             if (access.Failure is { } failure)
             {
