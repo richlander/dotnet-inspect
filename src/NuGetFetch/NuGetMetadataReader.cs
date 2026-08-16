@@ -94,7 +94,25 @@ internal static class NuGetMetadataReader
                 options.MetadataBodyTimeout,
                 ex);
         }
+        catch (Exception ex)
+            when (!cancellationToken.IsCancellationRequested
+                && timeout.IsCancellationRequested
+                && IsDeadlineAbort(ex))
+        {
+            var cancellation = new OperationCanceledException(
+                "NuGet metadata body was aborted after its deadline expired.",
+                ex,
+                timeout.Token);
+            throw new NuGetMetadataBodyTimeoutException(
+                options.MetadataBodyTimeout,
+                cancellation);
+        }
     }
+
+    private static bool IsDeadlineAbort(Exception exception) =>
+        exception is IOException
+            or HttpRequestException
+            or ObjectDisposedException;
 
     private sealed class MaximumReadStream(
         Stream inner,

@@ -39,6 +39,13 @@ internal sealed class NuGetOperationDeadline : IDisposable
             ThrowTranslated(ex, requestCancellation);
             throw;
         }
+        catch (Exception ex)
+            when (requestCancellation.IsCancellationRequested
+                && IsDeadlineAbort(ex))
+        {
+            ThrowTranslatedAbort(ex, requestCancellation);
+            throw;
+        }
     }
 
     public async Task<Stream> RunStreamingRequestAsync(
@@ -62,6 +69,21 @@ internal sealed class NuGetOperationDeadline : IDisposable
             try
             {
                 ThrowTranslated(ex, requestCancellation);
+            }
+            finally
+            {
+                requestCancellation.Dispose();
+            }
+
+            throw;
+        }
+        catch (Exception ex)
+            when (requestCancellation.IsCancellationRequested
+                && IsDeadlineAbort(ex))
+        {
+            try
+            {
+                ThrowTranslatedAbort(ex, requestCancellation);
             }
             finally
             {
@@ -117,6 +139,22 @@ internal sealed class NuGetOperationDeadline : IDisposable
             _requestTimeout,
             exception);
     }
+
+    private void ThrowTranslatedAbort(
+        Exception exception,
+        CancellationTokenSource requestCancellation)
+    {
+        var cancellation = new OperationCanceledException(
+            "NuGet request was aborted after its deadline expired.",
+            exception,
+            requestCancellation.Token);
+        ThrowTranslated(cancellation, requestCancellation);
+    }
+
+    private static bool IsDeadlineAbort(Exception exception) =>
+        exception is IOException
+            or HttpRequestException
+            or ObjectDisposedException;
 
     private sealed class DeadlineStream(
         Stream inner,
@@ -355,9 +393,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         private bool IsDeadlineAbort(Exception exception) =>
             _requestToken.IsCancellationRequested
-            && exception is IOException
-                or HttpRequestException
-                or ObjectDisposedException;
+            && NuGetOperationDeadline.IsDeadlineAbort(exception);
 
         private void ThrowTranslated(Exception exception)
         {

@@ -101,6 +101,102 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task RequestDeadline_TranslatesMetadataTransportAbort()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    MetadataResponse(
+                        message,
+                        new DelayedTransportFailureStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(40),
+                operation: TimeSpan.FromSeconds(1)));
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                () => nuget.GetVersionsAsync(
+                    "package",
+                    cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+    }
+
+    [Fact]
+    public async Task OperationCeiling_TranslatesMetadataTransportAbort()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    MetadataResponse(
+                        message,
+                        new DelayedTransportFailureStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(5),
+                operation: TimeSpan.FromMilliseconds(40)));
+
+        NuGetOperationTimeoutException error =
+            await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
+                () => nuget.GetVersionsAsync(
+                    "package",
+                    cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+    }
+
+    [Fact]
+    public async Task MetadataBodyDeadline_TranslatesTransportAbort()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    MetadataResponse(
+                        message,
+                        new DelayedTransportFailureStream()))));
+        var nuget = new NuGetClient(
+            client,
+            new NuGetFetchOptions
+            {
+                RequestTimeout = TimeSpan.FromSeconds(5),
+                OperationTimeout = TimeSpan.FromSeconds(10),
+                MetadataBodyTimeout = TimeSpan.FromMilliseconds(40),
+            });
+
+        NuGetMetadataBodyTimeoutException error =
+            await Assert.ThrowsAsync<NuGetMetadataBodyTimeoutException>(
+                () => nuget.GetVersionsAsync(
+                    "package",
+                    cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+    }
+
+    [Fact]
+    public async Task MetadataTransportFailureBeforeDeadline_RemainsUnchanged()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    MetadataResponse(
+                        message,
+                        new ImmediateTransportFailureStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(5),
+                operation: TimeSpan.FromSeconds(10)));
+
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => nuget.GetVersionsAsync(
+                "package",
+                cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task OperationCeiling_SpansServiceDiscoveryAndVersionLookup()
     {
         var versionLookupStarted = new TaskCompletionSource(
@@ -698,6 +794,163 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task ShortAsyncRead_DoesNotDisarmTheRequestDeadline()
+    {
+        var partialStream = new PartialThenStallingStream();
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(
+                    StreamResponse(message, partialStream))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(500),
+                operation: TimeSpan.FromSeconds(5)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        byte[] buffer = new byte[8192];
+        Assert.Equal(
+            1,
+            await package.ReadAsync(
+                buffer,
+                TestContext.Current.CancellationToken));
+        Task<int> stalled = package.ReadAsync(
+                buffer,
+                TestContext.Current.CancellationToken)
+            .AsTask();
+        await partialStream.StalledReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                async () =>
+                    _ = await stalled.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(500), error.Timeout);
+    }
+
+    [Fact]
+    public async Task ShortAsyncRead_DoesNotDisarmTheOperationCeiling()
+    {
+        var partialStream = new PartialThenStallingStream();
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(
+                    StreamResponse(message, partialStream))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(5),
+                operation: TimeSpan.FromMilliseconds(500)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        byte[] buffer = new byte[8192];
+        Assert.Equal(
+            1,
+            await package.ReadAsync(
+                buffer,
+                TestContext.Current.CancellationToken));
+        Task<int> stalled = package.ReadAsync(
+                buffer,
+                TestContext.Current.CancellationToken)
+            .AsTask();
+        await partialStream.StalledReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        NuGetOperationTimeoutException error =
+            await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
+                async () =>
+                    _ = await stalled.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(500), error.Timeout);
+    }
+
+    [Fact]
+    public async Task ShortSpanRead_DoesNotDisarmTheRequestDeadline()
+    {
+        var partialStream = new PartialThenStallingStream();
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(
+                    StreamResponse(message, partialStream))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(500),
+                operation: TimeSpan.FromSeconds(5)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        byte[] buffer = new byte[8192];
+        Assert.Equal(1, package.Read(buffer.AsSpan()));
+        Task<int> stalled = Task.Run(
+            () => package.Read(buffer.AsSpan()),
+            TestContext.Current.CancellationToken);
+        await partialStream.StalledReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                async () =>
+                    _ = await stalled.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(500), error.Timeout);
+    }
+
+    [Fact]
+    public async Task ZeroByteValue_DoesNotDisarmTheRequestDeadline()
+    {
+        var partialStream = new PartialThenStallingStream();
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(
+                    StreamResponse(message, partialStream))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(500),
+                operation: TimeSpan.FromSeconds(5)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(0, package.ReadByte());
+        Task<int> stalled = Task.Run(
+            package.ReadByte,
+            TestContext.Current.CancellationToken);
+        await partialStream.StalledReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                async () =>
+                    _ = await stalled.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(500), error.Timeout);
+    }
+
+    [Fact]
     public async Task PackageCallerCancellation_IsNotReportedAsADeadline()
     {
         using var client = new HttpClient(new DelayedHandler(
@@ -792,6 +1045,15 @@ public sealed class NuGetDeadlineTests
         };
 
     private static HttpResponseMessage StreamResponse(
+        HttpRequestMessage request,
+        Stream stream) =>
+        new(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(stream),
+            RequestMessage = request,
+        };
+
+    private static HttpResponseMessage MetadataResponse(
         HttpRequestMessage request,
         Stream stream) =>
         new(HttpStatusCode.OK)
@@ -965,7 +1227,7 @@ public sealed class NuGetDeadlineTests
             throw new NotSupportedException();
     }
 
-    private sealed class ImmediateTransportFailureStream : Stream
+    private class ImmediateTransportFailureStream : Stream
     {
         public override bool CanRead => true;
         public override bool CanSeek => false;
@@ -985,6 +1247,89 @@ public sealed class NuGetDeadlineTests
             CancellationToken cancellationToken = default) =>
             ValueTask.FromException<int>(
                 new HttpRequestException("Simulated transport failure."));
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class DelayedTransportFailureStream :
+        ImmediateTransportFailureStream
+    {
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            throw new HttpRequestException(
+                "Simulated post-deadline transport failure.");
+        }
+    }
+
+    private sealed class PartialThenStallingStream : Stream
+    {
+        private readonly ManualResetEventSlim _disposed = new();
+        private readonly TaskCompletionSource _disposedAsync =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _stalledReadStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _readCount;
+
+        public Task StalledReadStarted => _stalledReadStarted.Task;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (Interlocked.Increment(ref _readCount) == 1)
+            {
+                buffer[offset] = 0;
+                return 1;
+            }
+
+            _stalledReadStarted.TrySetResult();
+            _disposed.Wait();
+            throw new ObjectDisposedException(
+                nameof(PartialThenStallingStream));
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _readCount) == 1)
+            {
+                buffer.Span[0] = 0;
+                return 1;
+            }
+
+            _stalledReadStarted.TrySetResult();
+            await _disposedAsync.Task;
+            throw new ObjectDisposedException(
+                nameof(PartialThenStallingStream));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _disposed.Set();
+                _disposedAsync.TrySetResult();
+            }
+            base.Dispose(disposing);
+        }
 
         public override void Flush() => throw new NotSupportedException();
         public override long Seek(long offset, SeekOrigin origin) =>
