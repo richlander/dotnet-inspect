@@ -188,4 +188,122 @@ public class StructuringGotoScopeTests
         Assert.DoesNotContain("goto IL_0018;", output);
         Assert.DoesNotContain("IL_0018:", output);
     }
+
+    [Fact]
+    public void ClonedSharedTail_DoesNotStealCanonicalGotoLabel()
+    {
+        var b0 = new Block(0x00);
+        b0.Add(new ConditionalBranch(Cond(), 0x18));
+        var b1 = new Block(0x08);
+        b1.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+        b1.Add(new Branch(0x40));
+        var b2 = new Block(0x18);
+        b2.Add(new ConditionalBranch(Cond(), 0x30));
+        var b3 = new Block(0x20);
+        b3.Add(new StoreLocal(0, Int32, new Constant(2, Int32)));
+        b3.Add(new Branch(0x40));
+        var b4 = new Block(0x30);
+        var survivingGoto = new Block();
+        survivingGoto.Add(new Branch(0x40));
+        b4.Add(new IfStatement(Cond(), survivingGoto, elseArm: null));
+        b4.Add(new StoreLocal(0, Int32, new Constant(3, Int32)));
+        var b5 = new Block(0x40);
+        b5.Add(new Return(new LoadLocal(0, Int32)));
+
+        var function = Structured([b0, b1, b2, b3, b4, b5]);
+        string output = CSharpPrinter.Print(function).Output ?? "";
+
+        int label = output.IndexOf("IL_0040:", StringComparison.Ordinal);
+        int finalGoto = output.LastIndexOf("goto IL_0040;", StringComparison.Ordinal);
+        Assert.True(finalGoto >= 0, output);
+        Assert.True(label > finalGoto, output);
+    }
+
+    [Fact]
+    public void RetainedRegion_DoesNotAppendAlternateArmAfterTerminalBranch()
+    {
+        var b0 = new Block(0x00);
+        b0.Add(new ConditionalBranch(Cond(), 0x54));
+        var b1 = new Block(0x27);
+        b1.Add(new ConditionalBranch(Cond(), 0x51));
+        var b2 = new Block(0x42);
+        b2.Add(new StoreLocal(0, Int32, new Constant(2, Int32)));
+        b2.Add(new Branch(0x55));
+        var b3 = new Block(0x51);
+        b3.Add(new StoreLocal(0, Int32, new Constant(0, Int32)));
+        b3.Add(new Branch(0x55));
+        var b4 = new Block(0x54);
+        b4.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+        var b5 = new Block(0x55);
+        b5.Add(new Return(new LoadLocal(0, Int32)));
+
+        var function = Structured([b0, b1, b2, b3, b4, b5]);
+
+        Assert.All(
+            function.Descendants.OfType<Block>(),
+            block => Assert.DoesNotContain(
+                block.Children.Take(Math.Max(0, block.Children.Count - 1)),
+                child => child is Branch or Leave or Return or Throw
+                    or Break or Continue or EndFinally or EndFilter));
+    }
+
+    [Fact]
+    public void CompilerSharedTailWithNestedLeave_RemainsFullyStructured()
+    {
+        using var source = MetadataSource.Open(typeof(StructuringGotoScopeFixtures).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(StructuringGotoScopeFixtures).FullName!,
+            nameof(StructuringGotoScopeFixtures.SharedTailWithNestedLeave))!;
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.Empty(function.Descendants.OfType<Leave>());
+
+        string output = CSharpPrinter.Print(function).Output ?? "";
+        Assert.DoesNotContain("goto IL_", output);
+        Assert.DoesNotContain("IL_00", output);
+    }
+}
+
+static class StructuringGotoScopeFixtures
+{
+    static int _lastValue;
+
+    public static int SharedTailWithNestedLeave(
+        bool first,
+        bool second,
+        bool leaveTry)
+    {
+        int value = 0;
+        if (first)
+        {
+            value = 1;
+            goto Join;
+        }
+        if (second)
+        {
+            value = 2;
+            goto Join;
+        }
+        try
+        {
+            if (leaveTry)
+                goto Join;
+            value = 3;
+        }
+        finally
+        {
+            _lastValue = value;
+        }
+
+    Join:
+        _lastValue = value;
+        value += 4;
+        _lastValue = value;
+        value -= 4;
+        return value;
+    }
 }

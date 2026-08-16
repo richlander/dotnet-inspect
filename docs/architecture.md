@@ -602,6 +602,7 @@ Research overlay bridge, and the application layer:
 │                                                             │
 │  Workspace and binding-consistent assembly context groups   │
 │  Typed per-assembly and group-query coordination             │
+│  ApiInventoryQuery          type/member inventory facets    │
 ├─────────────────────────────────────────────────────────────┤
 │  ILInspector.Research (Fact overlay bridge)                 │
 │                                                             │
@@ -822,6 +823,7 @@ src/dotnet-inspect/
 
 src/DotnetInspector.Services/   # Shared, app-agnostic services
 src/DotnetInspector.Packages/   # NuGet domain provider
+src/DotnetInspector.Queries/    # Typed inspection requests and results
 src/ILInspector.Metadata/       # PE/assembly domain provider
 src/ILInspector.CSharp/         # C# spelling and namespace/type views
 src/ILInspector.ControlFlow/    # Shared control-flow/dataflow kernels

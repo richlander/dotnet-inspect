@@ -26,6 +26,7 @@ public sealed class VarWhenApparentTests
     static readonly PrinterOptions VarForBuiltInTypes = new() { PreferVarForBuiltInTypes = true };
     static readonly PrinterOptions VarWhenApparent = new() { PreferVarWhenTypeApparent = true };
     static readonly PrinterOptions VarElsewhere = new() { PreferVarElsewhere = true };
+    static readonly PrinterOptions ExplicitObjectCreation = new() { PreferImplicitObjectCreation = false };
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef String = TypeRef.CoreLib("System", "String");
 
@@ -96,6 +97,33 @@ public sealed class VarWhenApparentTests
         Assert.Contains("var ", text);
         // Either/or: spelling `var` suppresses the shortener, so the RHS keeps its
         // explicit `new List<int>()`. A bare `var x = new()` would be CS8754.
+        Assert.Contains("= new List<int>();", text);
+        Assert.DoesNotContain("new();", text);
+    }
+
+    [Fact]
+    public void ObjectCreation_ExplicitOption_KeepsExplicitTypeOnBothSides()
+    {
+        var text = Render(nameof(VarWhenApparentSpecimen.ObjectCreation), ExplicitObjectCreation);
+
+        Assert.Contains("List<int>", text);
+        Assert.Contains("= new List<int>();", text);
+        Assert.DoesNotContain("var ", text);
+        Assert.DoesNotContain("= new();", text);
+    }
+
+    [Fact]
+    public void ObjectCreation_VarAndExplicitOptions_StillUseVarWithExplicitNew()
+    {
+        var text = Render(
+            nameof(VarWhenApparentSpecimen.ObjectCreation),
+            new PrinterOptions
+            {
+                PreferVarWhenTypeApparent = true,
+                PreferImplicitObjectCreation = false,
+            });
+
+        Assert.Contains("var ", text);
         Assert.Contains("= new List<int>();", text);
         Assert.DoesNotContain("new();", text);
     }
