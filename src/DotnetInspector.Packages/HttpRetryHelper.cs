@@ -345,6 +345,8 @@ public static class HttpRetryHelper
                 if (auth != null)
                     request.Headers.Authorization = auth;
                 request.Headers.Range = range;
+                if (range is not null)
+                    request.Options.Set(BrowserStreamingResponse, true);
                 return request;
             },
             range is null
@@ -746,6 +748,7 @@ public static class HttpRetryHelper
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 if (auth != null)
                     request.Headers.Authorization = auth;
+                request.Options.Set(BrowserStreamingResponse, true);
                 return request;
             },
             HttpCompletionOption.ResponseHeadersRead,

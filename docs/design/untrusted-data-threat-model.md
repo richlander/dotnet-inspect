@@ -428,9 +428,9 @@ response-body consumption, has a 30-second default request deadline that a short
 `HttpClient.Timeout` tightens. A logical operation spanning service discovery, version or search
 metadata, pagination, and package-stream consumption has a separate 120-second default ceiling.
 Direct `NuGetApi` stream readers use the request deadline as their body-parse timeout, and callers
-may configure a stricter metadata-body timeout. NuGet requests also require Browser/Wasm
-streaming-response mode so the browser transport cannot buffer an unbounded body before the
-counting or deadline streams see it.
+may configure a stricter metadata-body timeout. Header-first NuGet and package-layer requests also
+require Browser/Wasm streaming-response mode so the browser transport cannot buffer an unbounded
+body before the counting or deadline streams see it.
 
 Oversize, request-timeout, operation-timeout, and optional body-timeout failures have dedicated
 exception types. They are not represented as `JsonException`, `HttpRequestException`, a null
@@ -452,7 +452,11 @@ This is gated by
 `NuGetDeadlineTests.RequestDeadline_BoundsPackageStreamConsumption`,
 `NuGetDeadlineTests.OperationCeiling_SpansServiceDiscoveryAndVersionLookup`,
 `NuGetDeadlineTests.OperationCeiling_IncludesPackageStreamConsumption`, and
-`NuGetDeadlineTests.CallerCancellation_IsNotReportedAsADeadline`.
+`NuGetDeadlineTests.CallerCancellation_IsNotReportedAsADeadline`, plus
+`HttpRetryHelperTests.HeaderFirstBodyRead_RequiresBrowserStreamingResponse`,
+`HttpRetryHelperTests.StringBodyRead_RequiresBrowserStreamingResponse`,
+`HttpRetryHelperTests.StreamedResponse_RequiresBrowserStreamingResponse`, and
+`HttpRetryHelperTests.RangeResponse_RequiresBrowserStreamingResponse`.
 
 ### Malformed NuGet metadata fails visibly
 
