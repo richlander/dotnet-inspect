@@ -13,20 +13,21 @@ Resume consolidation in `ILInspector.MetadataPrimitives`, but consolidate
 **mechanics, not semantic models**:
 
 - MetadataPrimitives owns bounded SRM traversal, signature-decode admission,
-  exact metadata names and addresses, neutral structural keys, work budgets,
-  and typed mechanical rejection.
+  neutral name segments and method coordinates, neutral structural keys, work
+  budgets, and typed mechanical rejection.
 - Metadata, Analysis, Decompiler, Instructions, and ILDiff retain their own
   semantic models, signature providers, projections, and failure policy.
 - Analysis and Decompiler keep separate `TypeRef` types. They answer different
   questions and have continued to diverge in useful, owner-specific ways.
 - Analysis and Decompiler should replace their local TypeSpec recursion and
-  byte accounting with the shared `TypeSpecGuard`.
+  byte accounting with the shared `TypeSpecGuard` while preserving their
+  current 1,024-byte admission limit and rejection projection.
 - Provider-facing wrappers remain local when they turn the same mechanical
   rejection into different owner-specific outcomes.
 - Existing forwarded public identities in the `ILInspector.Metadata` namespace
-  remain compatibility-pinned. A source census should make that legacy family
-  explicit and require new neutral currencies to use
-  `ILInspector.MetadataPrimitives`.
+  remain unchanged in the first slice. A source-and-test census should expose
+  which names are pinned by repository behavior and require new neutral
+  currencies to use `ILInspector.MetadataPrimitives`.
 
 This document records the decision only. It does not authorize combining the
 implementation slices or changing failure behavior without the focused
@@ -94,12 +95,16 @@ references MetadataPrimitives directly.
 | --- | --- |
 | Metadata relationships | Bounded TypeDef, TypeRef, ExportedType, and related handle walks; typed rejection |
 | Signature admission | Structural blob prescan and cross-TypeSpec depth/byte budgets |
-| Exact metadata names | Validated namespace plus root-to-leaf metadata-name segments |
-| Physical addresses | MVID plus validated metadata table/token coordinates |
+| Neutral metadata names | Validated namespace plus root-to-leaf metadata-name segments used by bounded mechanics |
+| Method coordinates | `MetadataMethodAddress` and other neutral coordinates declared by this owner |
 | Neutral structural identity | Bounded keys used for matching without display policy |
 | Work budgets | Limits and typed exhaustion/rejection shared across consumers |
 | Generic metadata context | Bounded generic parameter names and constraint flags |
 | Neutral matching | Dependency-free name distance and similarity |
+
+Metadata retains product-facing definition identities, including
+`MetadataTypeDefinitionName` and `MetadataTypeDefinitionAddress`. Moving those
+currencies is not part of this decision.
 
 These mechanisms may expose handles, neutral values, typed results, or
 disposable admission scopes. They must not select a consumer's display,
@@ -171,38 +176,43 @@ decoders match those limits but add a 1,024-byte per-TypeSpec cap. They can
 therefore only reject more input than the shared policy; they do not accept
 anything the shared guard rejects.
 
-The repository's existing shared contract intentionally allows one shallow
-TypeSpec to consume the full 4,096-byte closure budget. Converging the semantic
-decoders on that contract is therefore an explicit acceptance change:
-well-formed, structurally bounded TypeSpecs from 1,025 through 4,096 bytes may
-change from `Unsupported` to a decoded Analysis or Decompiler shape.
+The shared guard currently merges depth and cumulative-byte exhaustion into
+one rejection kind, while the local decoders preserve separate reasons for
+active recursion, per-TypeSpec bytes, cumulative bytes, and unsafe structural
+nesting. Those reasons participate in rendered output, equality, hashing, and
+Decompiler fidelity diagnostics. Consolidation must not collapse them.
 
 The first implementation slice should:
 
-1. expose the existing typed rejection from `TypeSpecGuard.TryEnter` without
-   adding a parallel guard;
+1. extend `TypeSpecGuard` with a configured per-TypeSpec byte limit and typed
+   rejection discriminators sufficient to preserve all four existing local
+   outcomes, without moving owner-specific reason text into the primitive;
 2. route Analysis and Decompiler `GetTypeFromSpecification` through that
    disposable scope;
-3. map rejection into each owner's existing unsupported/incomplete result;
-4. remove the local counters and the separate 1,024-byte policy;
-5. preserve each decoder's successful structural projection byte-for-byte
-   outside the named 1,025–4,096-byte acceptance band.
+3. configure both semantic decoders with their existing 1,024-byte limit and
+   map each typed rejection back to its exact current owner result;
+4. remove the local counters and direct structural prescan only after the
+   shared scope preserves cleanup and nested-entry behavior;
+5. preserve successful and rejected projections byte-for-byte, including
+   reason text, equality, hashing, and fidelity-diagnostic grouping.
 
 `ProviderSignatureDecodeBoundaryTests` is the existing anti-ratchet gate for
 top-level provider decodes and nested TypeSpec entry. The implementation slice
 must update that gate so its accepted Analysis/Decompiler pattern is the shared
 `TypeSpecGuard`, then mutation-prove that bypassing the guard in either decoder
 fails. `TypeRefDecoderRecursionTests` in both owner suites must cover matching
-close negative cases and the shared cumulative budget.
+close-negative cases at 1,025 and 4,097 bytes, active-depth exhaustion, and
+unsafe structural nesting. Outcome tests must pin each owner's reason text and
+`TypeRef` equality before and after convergence.
 
-The evidence must include a shallow legal fixture inside the 1,025–4,096-byte
-band, close negatives immediately above 4,096 bytes and above the structural
-limits, and an allocation/output-budget canary for the newly admitted shape.
-The PR must report the before/after result for both owners rather than describe
-the change as behavior-neutral.
-
-Until that slice lands, identical legal-input acceptance across the semantic
-decoders is **not verified**.
+Removing the 1,024-byte cap is explicitly deferred. A legal 4,095-byte generic
+shape can amplify into thousands of resolved names and millions of rendered
+characters. Before widening acceptance, each artifact operation must have
+separately enforced item and text budgets with typed rejection, as required by
+`bounded-metadata-traversal.md`. Evidence must include the worst-case wide
+generic shape with long resolved names, not only a representative accepted
+fixture. A later decision must own any acceptance, output, equality, or
+diagnostic-bucketing change.
 
 ### 2. Keep decode mechanics separate from failure policy
 
@@ -222,8 +232,10 @@ the consuming owner decides what rejection means.
 MetadataPrimitives only. Decompiler's requirement that string-producing
 decodes pass through its `GuardedSignatureText` and `GetValueOrThrow` policy is
 therefore **not verified**. The first implementation slice must extend the gate
-to Decompiler and mutation-prove that a new prescanned direct use still fails
-when it bypasses the owner gateway.
+to enumerate every Decompiler string gateway, assert that each gateway body
+terminates through `GetValueOrThrow`, and mutation-prove that removing or
+replacing that call fails. It must also prove that a new prescanned direct use
+still fails when it bypasses the owner gateway.
 
 A generic decode helper belongs in MetadataPrimitives only if at least three
 consumers need the same typed outcome contract. Line-count reduction alone is
@@ -248,27 +260,36 @@ preserve their distinct failure and normalization contracts.
 
 Most files in `ILInspector.MetadataPrimitives` still declare
 `namespace ILInspector.Metadata`, while newer neutral currencies use
-`ILInspector.MetadataPrimitives`. The mismatch began as transitional, but some
-old full type names are now explicit compatibility contracts:
+`ILInspector.MetadataPrimitives`. The mismatch began as transitional. These
+internal libraries have no external API-stability commitment, but some old
+full type names are observable repository behavior:
 
 - `ILInspector.Metadata` forwards
   `ILInspector.Metadata.SignatureBlobGuard` and
   `ILInspector.Metadata.MethodStructuralSignature` to the primitives assembly;
-- `SignatureDecoderSafetyTests.SignatureBlobGuard_OldAssemblyIdentity_IsForwarded`
-  gates the former identity;
+- `SignatureDecoderSafetyTests.SignatureBlobGuard_OldAssemblyIdentity_IsForwarded`,
+  two `SectionPipelineTests` cases, and
+  `LibraryFindingConsumerTests.TypeForwardersQueryProjection_RetainsFindingSemanticsAndDisplayProjection`
+  pin the former name across runtime resolution, query output, and Finding
+  projection;
+- no test independently pins the forwarded
+  `ILInspector.Metadata.MethodStructuralSignature` name;
 - a CLR type forwarder cannot preserve an old full type name while changing its
   namespace.
 
-A blanket namespace move would therefore be a breaking identity change, not a
-mechanical cleanup. The dedicated namespace slice should instead:
+A blanket namespace move would therefore change self-inspection output and
+repo-local expectations; it is not a mechanical cleanup. This is repository
+coupling, not an external compatibility promise. The dedicated namespace slice
+should instead:
 
-1. inventory every public primitive as compatibility-pinned legacy namespace
-   or owner-native `ILInspector.MetadataPrimitives`;
-2. retain the old namespace for forwarded identities unless a separate
-   decision explicitly retires the compatibility gate;
+1. inventory every public primitive as a repo-pinned legacy name, an ungated
+   forwarded name, or owner-native `ILInspector.MetadataPrimitives`;
+2. retain, migrate, or retire each old name deliberately, updating all exact
+   string expectations and adding or removing forwarding tests to match;
 3. require new neutral currencies to use the owner-native namespace;
-4. add a source/forwarder census that fails on an unclassified public type or a
-   stale forwarding contract.
+4. add a source/forwarder/test census that fails on an unclassified public
+   type, stale forwarding contract, or exact test-side name expectation absent
+   from the classification.
 
 This makes the mixed namespace deliberate without adding duplicate wrapper
 types. The classification property is currently **not gated**.
@@ -298,16 +319,16 @@ Keep the work in independently reviewable slices:
 
 1. **TypeSpec admission and boundary gates** — add the leaf and Decompiler
    string-gateway gates, converge Analysis and Decompiler on the shared guard,
-   and evidence the explicit 1,025–4,096-byte acceptance change.
+   and preserve the current 1,024-byte admission and rejection projections.
 2. **Namespace ownership classification** — inventory legacy forwarded
-   identities and owner-native types, then add the source/forwarder census.
+   identities and owner-native types, then add the
+   source/forwarder/test-expectation census.
 3. **Optional local clarity** — rename ILDiff's two providers if the names
    continue to obscure their distinct projections.
 
 Do not combine these slices with a `TypeRef` redesign, provider-policy rewrite,
-or rendering change. Each slice must preserve product output and failure
-visibility except for the TypeSpec acceptance change explicitly owned by slice
-1.
+rendering change, or TypeSpec acceptance widening. Each slice must preserve
+product output and failure visibility.
 
 ## Non-goals
 
@@ -320,7 +341,7 @@ visibility except for the TypeSpec acceptance change explicitly owned by slice
   Analysis.
 - Deduplicating provider classes solely because they implement the same SRM
   interface.
-- A blanket namespace rename that breaks existing forwarded full type names.
+- A blanket namespace rename that silently changes forwarded full type names.
 
 ## Superseded decision
 

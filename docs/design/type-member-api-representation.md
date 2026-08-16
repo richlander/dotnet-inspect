@@ -344,20 +344,13 @@ A third, unrelated `sealed record TypeRef(string FullName, string Namespace,
 string SimpleName)` is private to
 `src/ILInspector.CSharp/CSharpDeclarationWriter.cs:1783`.
 
-**The duplication is a committed decision, not drift.** `docs/architecture.md:691`
-records it as principle 9, and `docs/metadata-primitives.md` ("Decision (2026-06):
-stop after step 3") records the evidence:
-
-> **TypeRef unification is decisively wrong.** The detector's pointer-signature
-> check needs `TypeRefKind.Pointer` — *semantic* structure. `Metadata.TypeResolver`
-> produces display **strings** and cannot answer "is there a pointer in this
-> signature." […] A shared model would have forced `Analysis` to keep its own
-> anyway.
-
-Counting `Metadata`'s string-producing `SignatureDecoder` as the third, there are
-**three** signature-decoding models answering three different questions — display
-string, evidence matching, and codegen IR (`docs/metadata-primitives.md:14-15`) — and
-`Non-goals` lists "A unified `TypeRef`" outright.
+**The model duplication is a committed decision, not drift.**
+`docs/architecture.md` records it as principle 9, and
+`docs/metadata-primitives.md` preserves the evidence while reopening only the
+bounded mechanics below the models. Analysis needs semantic structure for
+evidence matching; Metadata produces API/display projections; Decompiler
+retains code-generation and fidelity facts. A repository-wide `TypeRef` would
+erase required distinctions or become a union of unrelated owner policy.
 
 The boundary is capability-based, not dependency-count-based. Analysis already
 references Metadata for acquisition, structured binding, and definition
@@ -366,16 +359,11 @@ represent the shapes a shared model would have to carry
 (`src/ILInspector.Analysis/TypeRefDecoder.cs:232-234`), so a shared model "would
 have forced `Analysis` to keep its own anyway."
 
-There is exactly one documented condition that reopens it, and it is narrow:
-
-> **Trip-wire (the only condition to revisit):** if the Decompiler `Pipeline`
-> also needs attribute-name reads, that is rule-of-three across projects — at
-> that point share `GetAttributeTypeName` *only* (the name walk, never
-> `TryDecode`, never a `TypeRef`).
-
-So: **use your own layer's `TypeRef`, never assume the other layer's has the same
-shape, and do not open a consolidation PR.** The residual cost is a search
-collision, not a design defect.
+The earlier rule-of-three trip-wire applied to one small attribute-name walk.
+It has been superseded by concrete shared-guard adoption in Analysis and
+Decompiler, not by evidence for model unification. So: **use your own layer's
+`TypeRef`, never assume the other layer's has the same shape, and consolidate
+only neutral mechanics with one bounded answer.**
 
 ### Member identity — two vocabularies, on purpose
 
@@ -558,7 +546,7 @@ This document is the map. Each document below keeps its own mechanics.
 | Document | Owns |
 | --- | --- |
 | `type-spelling-identity-display.md` | Identity-vs-display conflation; `RenderCanonical()`; the multi-projection model and its two review rounds |
-| `metadata-primitives.md` | The three signature-decoding models; the 2026-06 decision not to unify `TypeRef`, and its trip-wire |
+| `metadata-primitives.md` | Shared bounded SRM mechanics; why semantic `TypeRef` models remain local; convergence sequencing |
 | `architecture.md` (principle 9) | Analysis's local structural type model and its Metadata-owned correspondence boundary |
 | `finding-coordinates.md` | Finding coordinate axes; why there is no generic anchor |
 | `member-target-resolution.md` | Selector → resolver → anchor; API vs body identity ownership |
