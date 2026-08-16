@@ -22,6 +22,11 @@ const string Usage =
           surfaces as a loop+high triage candidate. Exit nonzero on a missing site (recall
           regression). Defaults to corpus/paydirt-reference.json.
 
+      --historical-performance-recall [<file>]
+          Acquire the exact NuGet before/after cells in the committed historical performance
+          reference and verify their member+shape counts. This explicit mode uses the network
+          when packages are not cached. Defaults to corpus/historical-performance-reference.json.
+
       --precision-sample <assembly> [--top N] [--json]
           Layer 3 precision: emit the top-N triage candidates as a labeling worksheet for sampled
           true/false-positive judgement. No automatic oracle.
@@ -97,6 +102,7 @@ bool json = false;
 bool keep = false;
 bool list = false;
 string? recallAssembly = null;
+string? historicalPerformanceReference = null;
 string? referenceFile = null;
 string? precisionAssembly = null;
 string? allocationReadoutList = null;
@@ -136,6 +142,14 @@ for (int i = 0; i < args.Length; i++)
             break;
         case "--paydirt-recall":
             recallAssembly = NextValue(args, ref i);
+            break;
+        case "--historical-performance-recall":
+            historicalPerformanceReference =
+                NextPathValue(args, ref i)
+                ?? Path.Combine(
+                    AppContext.BaseDirectory,
+                    "corpus",
+                    "historical-performance-reference.json");
             break;
         case "--precision-sample":
             precisionAssembly = NextValue(args, ref i);
@@ -220,6 +234,10 @@ if ((tsv || jsonl) && leakTriageList is null && leakActionabilityList is null &&
 
 if (recallAssembly is not null)
     return RunRecall(recallAssembly, referenceFile);
+
+if (historicalPerformanceReference is not null)
+    return await HistoricalPerformanceRecall.RunAsync(
+        historicalPerformanceReference);
 
 if (precisionAssembly is not null)
     return RunPrecision(precisionAssembly, top);

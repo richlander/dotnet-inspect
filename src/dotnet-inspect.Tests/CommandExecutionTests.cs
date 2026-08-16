@@ -27,6 +27,10 @@ using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using Markout;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
+using Microsoft.CodeAnalysis.Text;
 
 namespace DotnetInspector.Tests;
 
@@ -627,6 +631,69 @@ public partial class CommandExecutionTests
         var packagePath = Path.Combine(tempDir, "Test.MultiLib.1.0.0.nupkg");
         ZipFile.CreateFromDirectory(packageRoot, packagePath);
         return (packagePath, tempDir);
+    }
+
+    private static (string AssemblyPath, string FixtureDir) CreateNoSourceLinkDiscoveryAssembly()
+    {
+        const string source =
+            """
+            namespace DiscoveryFixtures;
+
+            public static class NoSourceLink
+            {
+                public static int Overloaded(int value) => value;
+                public static string Overloaded(string value) => value;
+            }
+            """;
+
+        var fixtureDir = Path.Combine(
+            AppContext.BaseDirectory,
+            $"no-sourcelink-discovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(fixtureDir);
+
+        try
+        {
+            var assemblyPath = Path.Combine(fixtureDir, "NoSourceLinkDiscovery.dll");
+            var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+            var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path => MetadataReference.CreateFromFile(path));
+            var compilation = CSharpCompilation.Create(
+                "NoSourceLinkDiscovery",
+                [
+                    CSharpSyntaxTree.ParseText(
+                        SourceText.From(source, Encoding.UTF8),
+                        new CSharpParseOptions(LanguageVersion.Preview),
+                        path: "/_/NoSourceLinkDiscovery.cs")
+                ],
+                references,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    optimizationLevel: OptimizationLevel.Release,
+                    deterministic: true));
+
+            using (var assembly = File.Create(assemblyPath))
+            using (var pdb = File.Create(pdbPath))
+            {
+                var result = compilation.Emit(
+                    assembly,
+                    pdbStream: pdb,
+                    options: new EmitOptions(
+                        debugInformationFormat: DebugInformationFormat.PortablePdb,
+                        pdbFilePath: Path.GetFileName(pdbPath)));
+                Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
+            }
+
+            using var sourceLink = SourceLinkService.Open(assemblyPath);
+            Assert.True(sourceLink.HasPdb);
+            Assert.False(sourceLink.HasSourceLink);
+            return (assemblyPath, fixtureDir);
+        }
+        catch
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+            throw;
+        }
     }
 
     private static (string PackagePath, string TempDir)
@@ -1398,6 +1465,22 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         var rows = output.TrimEnd().Split('\n');
         Assert.Single(rows.Skip(1));
+    }
+
+    [Fact]
+    public async Task PerformanceTriageFilters_AutoSelectHomogeneousPerformanceRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--where", "Priority>=low",
+            "--top", "1",
+            "--tsv",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("member\t", output);
+        Assert.Single(output.TrimEnd().Split('\n').Skip(1));
     }
 
     [Fact]
@@ -12705,6 +12788,8 @@ public partial class CommandExecutionTests
     public async Task CliDiscoverySections_AreSelectable()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        var (noSourceLinkAssemblyPath, noSourceLinkFixtureDir) =
+            CreateNoSourceLinkDiscoveryAssembly();
         try
         {
             var diffV1 = FixtureCatalog.DiffPair.OldAssemblyPath();
@@ -12716,7 +12801,7 @@ public partial class CommandExecutionTests
                 ["type", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath],
                 ["type", typeof(EmptyDiscoveryFixture).FullName!, "--library", TestAssemblyPath],
                 ["member", typeof(MemberCallsFixture).FullName!, nameof(MemberCallsFixture.CallsInterfaceItem), "--library", TestAssemblyPath],
-                ["member", typeof(MemberCallsFixture).FullName!, nameof(MemberCallsFixture.Overloaded), "--library", TestAssemblyPath],
+                ["member", "DiscoveryFixtures.NoSourceLink", "Overloaded", "--library", noSourceLinkAssemblyPath],
                 ["package", packagePath],
                 ["diff", "--library", $"{diffV1}..{diffV2}", "-t", "DiffFixtureSample.DiffSample"]
             ];
@@ -12733,6 +12818,8 @@ public partial class CommandExecutionTests
                     .ToArray();
                 if (!IsNoMemberTypeDiscoveryCommand(command))
                     Assert.NotEmpty(sections);
+                if (command.Contains(noSourceLinkAssemblyPath, StringComparer.Ordinal))
+                    Assert.Contains(SectionNames.SourceLocations, sections);
 
                 foreach (var section in sections)
                 {
@@ -12742,6 +12829,11 @@ public partial class CommandExecutionTests
                         || IsSourceIntegrityStatusResult(command, section, selectExit, selectOutput);
                     Assert.True(selectionSucceeded,
                         $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}");
+                    if (command.Contains(noSourceLinkAssemblyPath, StringComparer.Ordinal)
+                        && section == SectionNames.SourceLocations)
+                    {
+                        Assert.True(string.IsNullOrWhiteSpace(selectOutput));
+                    }
                     if (RequiresNonEmptyDiscoveryResult(command, section))
                     {
                         Assert.False(string.IsNullOrWhiteSpace(selectOutput),
@@ -12755,6 +12847,7 @@ public partial class CommandExecutionTests
         finally
         {
             Directory.Delete(tempDir, recursive: true);
+            Directory.Delete(noSourceLinkFixtureDir, recursive: true);
         }
     }
 
@@ -12787,7 +12880,9 @@ public partial class CommandExecutionTests
     {
         // ProbeEffectiveness=false deliberately allows -D to list a structurally applicable
         // section whose -S result is empty. Derive that exemption from the same pipeline
-        // declaration while preserving the non-empty guard for probed sections.
+        // declaration while preserving the non-empty guard for probed sections. The generated
+        // no-SourceLink overload fixture gates this distinction without depending on checkout
+        // source acquisition (#3464).
         if (IsNoMemberTypeDiscoveryCommand(command))
             return !TypeUnprobedDiscoverySections.Contains(section);
 
@@ -13003,7 +13098,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Confidence | column |", output);
         // Row-query fields remain discoverable (shared triage filter/sort engine).
         Assert.Contains("| Triage desc | default-order |", output);
-        Assert.Contains("| Loop desc | order-step |", output);
+        Assert.Contains("| Priority desc (high &gt; medium &gt; low) | order-step |", output);
         Assert.Contains("| Shape | filterable |", output);
         Assert.Contains("| RootReach | sortable |", output);
         Assert.Contains("| OncePaths | sortable |", output);

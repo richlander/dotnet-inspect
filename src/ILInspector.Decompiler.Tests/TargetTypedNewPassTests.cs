@@ -7,14 +7,14 @@ public class TargetTypedNewPassTests
     static readonly ILInspector.Metadata.IAssemblyReferenceResolver RuntimeResolver =
         TestAssemblyReferenceResolvers.RuntimeAssemblies();
 
-    static string PrintRaised(string methodName)
+    static string PrintRaised(string methodName, PrinterOptions? options = null)
     {
         using var context = new MetadataContext(RuntimeResolver);
         using var source = MetadataSource.Open(typeof(TargetTypedNewFixtures).Assembly.Location, null, RuntimeResolver, context);
         var function = IrImporter.Import(source, typeof(TargetTypedNewFixtures).FullName!, methodName);
         Assert.NotNull(function);
 
-        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method), options);
         Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
         Assert.NotNull(result.Output);
         return result.Output!.ReplaceLineEndings("\n").Trim();
@@ -27,6 +27,28 @@ public class TargetTypedNewPassTests
 
         Assert.Contains("= new(", output);
         Assert.DoesNotContain("new StringBuilder(", output);
+    }
+
+    [Fact]
+    public void LocalDeclaration_ExplicitOption_KeepsConstructedType()
+    {
+        string output = PrintRaised(
+            nameof(TargetTypedNewFixtures.LocalDeclaration),
+            new PrinterOptions { PreferImplicitObjectCreation = false });
+
+        Assert.Contains("= new StringBuilder(", output);
+        Assert.DoesNotContain("= new(", output);
+    }
+
+    [Fact]
+    public void FieldStore_ExplicitOption_KeepsConstructedType()
+    {
+        string output = PrintRaised(
+            nameof(TargetTypedNewFixtures.FieldStore),
+            new PrinterOptions { PreferImplicitObjectCreation = false });
+
+        Assert.Contains("= new StringBuilder(", output);
+        Assert.DoesNotContain("= new(", output);
     }
 
     [Fact]

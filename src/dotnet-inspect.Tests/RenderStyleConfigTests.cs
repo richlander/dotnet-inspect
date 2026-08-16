@@ -151,6 +151,22 @@ public class RenderStyleConfigTests
     }
 
     [Fact]
+    public void Parse_ImplicitObjectCreationKey_UsesEditorconfigPolarity()
+    {
+        var targetTyped = RenderStyleConfig.Parse(
+            "csharp_style_implicit_object_creation_when_type_is_apparent = true",
+            origin: null);
+        Assert.True(targetTyped.Options.PreferImplicitObjectCreation);
+        Assert.Empty(targetTyped.Warnings);
+
+        var explicitCreation = RenderStyleConfig.Parse(
+            "csharp_style_implicit_object_creation_when_type_is_apparent = false:suggestion",
+            origin: null);
+        Assert.False(explicitCreation.Options.PreferImplicitObjectCreation);
+        Assert.Empty(explicitCreation.Warnings);
+    }
+
+    [Fact]
     public void Parse_EnumCaseLabelOrder_SelectsAValueToken()
     {
         var value = RenderStyleConfig.Parse(
@@ -989,9 +1005,12 @@ public class RenderStyleConfigTests
         foreach (var knob in StyleOptionCatalog.Options.Where(o => o.ConfigKey is not null))
         {
             var result = RenderStyleConfig.Parse($"{knob.ConfigKey} = true", origin: "cfg");
+            var keyedValue = knob.Values.Single(value => value.ConfigKey == knob.ConfigKey);
 
             Assert.Empty(result.Warnings);
-            Assert.True(knob.Get(result.Options), $"'{knob.ConfigKey}' should set {knob.Id}");
+            Assert.True(
+                keyedValue.IsSelected(result.Options),
+                $"'{knob.ConfigKey}' should select {knob.Id}:{keyedValue.Token}");
         }
     }
 
@@ -1002,7 +1021,9 @@ public class RenderStyleConfigTests
         // reachable through the file vocabulary; a made-up key still warns. The
         // whitespace-only wrappers are the standing API-only examples (the
         // synthesis tier's slot-local-names is file-reachable under a tool-owned key).
-        var apiOnly = StyleOptionCatalog.Options.Where(o => o.ConfigKey is null).ToArray();
+        var apiOnly = StyleOptionCatalog.Options
+            .Where(o => o.ValueConfigKey is null && o.Values.All(v => v.ConfigKey is null))
+            .ToArray();
         Assert.Contains(apiOnly, o => o.Id == "wrap-splittable-expressions");
         Assert.Contains(apiOnly, o => o.Id == "disable-one-liner-wrapping");
 

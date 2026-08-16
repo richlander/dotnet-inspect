@@ -394,8 +394,8 @@ the L2 project split still need migration.
 
 The structural fix is completing L1. Outside the metadata, direct-reference,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
-union-type, switch, and SourceLink canaries, collection is still neither typed
-nor demand-driven:
+union-type, switch, SourceLink, and type/member inventory canaries, collection
+is still neither typed nor demand-driven:
 
 - Data collection **mutates a shared aggregate** rather than returning typed
   results for most scanner families, so a consumer cannot yet take those
@@ -410,10 +410,10 @@ nor demand-driven:
   cannot call the residual `LibraryMetadataService` orchestration. The
   implemented queries themselves take a borrowed content owner, not a path.
 
-Converting collection into typed, demand-driven, content-shaped queries is
-therefore the migration path for the split, not a follow-up to it. L2 is close
-to a project move as query coverage expands; the descriptor contract is already
-Markout-free apart from its name binding.
+Converting the remaining collection into typed, demand-driven, content-shaped
+queries is therefore the migration path for the split, not a follow-up to it.
+L2 is close to a project move as query coverage expands; the descriptor contract is
+already Markout-free apart from its name binding.
 
 ## Non-goals
 
