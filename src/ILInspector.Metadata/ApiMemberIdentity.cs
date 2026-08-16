@@ -1238,16 +1238,26 @@ public static class ApiMemberIdentity
                 MetadataSafetyPolicy.ReadStructuralString(
                     reader,
                     type.Name);
+            var genericParameters = type.GetGenericParameters();
             // Only a canonical trailing `N is an arity suffix. Truncating at any
             // backtick would give a name whose backtick is literal (Widget`Literal)
-            // the same anchor as the plain name (Widget). See MetadataNameArity.
-            MetadataNameArity.TryReadSuffix(name, out _, out int simpleNameLength);
+            // the same anchor as the plain name (Widget). A suffix that disagrees
+            // with the row's GenericParam count is also identity text: stripping
+            // it would collapse malformed Widget`2<T> onto Widget`1<T>.
+            bool hasDeclaredArity = MetadataNameArity.TryReadSuffix(
+                name,
+                out int declaredArity,
+                out int simpleNameLength);
+            if (hasDeclaredArity
+                && declaredArity != genericParameters.Count)
+            {
+                simpleNameLength = name.Length;
+            }
             AppendAnchorName(
                 builder,
                 name,
                 simpleNameLength);
 
-            var genericParameters = type.GetGenericParameters();
             if (genericParameters.Count == 0)
                 continue;
 

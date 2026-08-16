@@ -397,6 +397,12 @@ internal static class CSharpSpellability
                 return null;
 
             case TypeRefKind.GenericInstance:
+                if (type.HasUnrenderableGenericArity)
+                {
+                    return Issue(
+                        "generic-arity-mismatch",
+                        $"generic type '{type.ElementType}' has an argument-count mismatch");
+                }
                 if (type.ElementType is { } definition && TypeIssue(definition) is { } definitionIssue)
                     return definitionIssue;
                 foreach (var argument in type.TypeArguments)

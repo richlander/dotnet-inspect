@@ -127,6 +127,21 @@ public class ForeignNestedTypeSpellingTests
             new LoadArgument(0, "x", literal)));
         Assert.False(CSharpSpellability.HasUnrepresentableMetadataName(
             new LoadArgument(0, "x", nested)));
+        Assert.Equal(@"N.A\+B", CSharpBodyDiff.CanonicalTypeName(literal));
+        Assert.Equal("N.A+B", CSharpBodyDiff.CanonicalTypeName(nested));
+
+        TypeRef literalArrayText = ExactDefinition("A[]", "A[]");
+        TypeRef arrayShape = TypeRef.SzArray(
+            ExactDefinition("A", "A"));
+        Assert.Equal(
+            @"N.A\[\]",
+            CSharpBodyDiff.CanonicalTypeName(literalArrayText));
+        Assert.Equal(
+            "N.A[]",
+            CSharpBodyDiff.CanonicalTypeName(arrayShape));
+        Assert.NotEqual(
+            CSharpBodyDiff.CanonicalTypeName(literalArrayText),
+            CSharpBodyDiff.CanonicalTypeName(arrayShape));
     }
 
     static TypeRef ExactDefinition(

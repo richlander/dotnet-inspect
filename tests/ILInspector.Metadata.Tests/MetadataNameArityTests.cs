@@ -216,6 +216,94 @@ public class MetadataNameArityTests
                 .Count());
     }
 
+    [Fact]
+    public void MemberAnchor_PreservesDeclaredArityWhenGenericParamCountDisagrees()
+    {
+        byte[] image = BuildImageWithMismatchedArityNames();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+
+        var anchors = new List<MemberAnchor>();
+        foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
+        {
+            TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+            if (reader.GetString(type.Name) is not ("Widget`1" or "Widget`2"))
+                continue;
+            MethodDefinitionHandle methodHandle = Assert.Single(type.GetMethods());
+            anchors.Add(
+                ApiMemberIdentity.CreateMethodAnchor(
+                    reader,
+                    typeHandle,
+                    reader.GetMethodDefinition(methodHandle)));
+        }
+
+        Assert.Equal(2, anchors.Count);
+        Assert.Contains(
+            anchors,
+            anchor => anchor.TypeFullName == "Ns.Widget<T>");
+        Assert.Contains(
+            anchors,
+            anchor => anchor.TypeFullName == "Ns.Widget`2<T>");
+        Assert.Equal(
+            2,
+            anchors.Select(anchor => anchor.CanonicalSignature)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+    }
+
+    [Fact]
+    public void ExactDecorationLikeSegment_RemainsRawThroughGenericDecoders()
+    {
+        byte[] image = BuildImageWithDecorationLikeTypeName();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle definition =
+            reader.TypeDefinitions.Single(
+                handle => reader.GetString(
+                    reader.GetTypeDefinition(handle).Name) == "Inner`2[]");
+        TypeReferenceHandle reference = Assert.Single(reader.TypeReferences);
+        ImmutableArray<string> arguments = ["int", "string"];
+
+        var stringDecoder = new SignatureDecoder();
+        string definitionName = stringDecoder.GetTypeFromDefinition(
+            reader,
+            definition,
+            0);
+        string referenceName = stringDecoder.GetTypeFromReference(
+            reader,
+            reference,
+            0);
+        Assert.Equal(
+            "Ns.Inner`2[]",
+            stringDecoder.GetGenericInstantiation(
+                definitionName,
+                arguments));
+        Assert.Equal(
+            "Ns.Inner`2[]",
+            stringDecoder.GetGenericInstantiation(
+                referenceName,
+                arguments));
+
+        TypeNodeProvider nodeProvider = TypeNodeProvider.Instance;
+        ImmutableArray<TypeNode> nodeArguments =
+        [
+            nodeProvider.GetPrimitiveType(PrimitiveTypeCode.Int32),
+            nodeProvider.GetPrimitiveType(PrimitiveTypeCode.String),
+        ];
+        Assert.Equal(
+            "Ns.Inner`2[]",
+            nodeProvider.GetGenericInstantiation(
+                nodeProvider.GetTypeFromDefinition(reader, definition, 0),
+                nodeArguments)
+                .Render());
+        Assert.Equal(
+            "Ns.Inner`2[]",
+            nodeProvider.GetGenericInstantiation(
+                nodeProvider.GetTypeFromReference(reader, reference, 0),
+                nodeArguments)
+                .Render());
+    }
+
     /// <summary>
     /// A minimal image declaring <c>Ns.Widget</c> and <c>Ns.Widget`Literal</c>,
     /// each with one <c>void M()</c>. Only the metadata is read, so the methods
@@ -269,6 +357,117 @@ public class MetadataNameArityTests
                 methodList: first);
         }
 
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var builder = new BlobBuilder();
+        pe.Serialize(builder);
+        return builder.ToArray();
+    }
+
+    static byte[] BuildImageWithMismatchedArityNames()
+    {
+        var metadata = CreateMetadata("MismatchedArityNames");
+        BlobHandle signatureHandle = AddVoidMethodSignature(metadata);
+        var types = new List<TypeDefinitionHandle>();
+        foreach (string typeName in (string[])["Widget`1", "Widget`2"])
+        {
+            MethodDefinitionHandle first = metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                signatureHandle,
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+            types.Add(metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Interface,
+                metadata.GetOrAddString("Ns"),
+                metadata.GetOrAddString(typeName),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: first));
+        }
+        foreach (TypeDefinitionHandle type in types)
+        {
+            metadata.AddGenericParameter(
+                type,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildImageWithDecorationLikeTypeName()
+    {
+        var metadata = CreateMetadata("DecorationLikeTypeName");
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Ns"),
+            metadata.GetOrAddString("Inner`2[]"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle scope = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("DecorationLikeTypeName"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        metadata.AddTypeReference(
+            scope,
+            metadata.GetOrAddString("Ns"),
+            metadata.GetOrAddString("Inner`2[]"));
+        return Serialize(metadata);
+    }
+
+    static MetadataBuilder CreateMetadata(string assemblyName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        return metadata;
+    }
+
+    static BlobHandle AddVoidMethodSignature(MetadataBuilder metadata)
+    {
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature()
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static byte[] Serialize(MetadataBuilder metadata)
+    {
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata, suppressValidation: true),

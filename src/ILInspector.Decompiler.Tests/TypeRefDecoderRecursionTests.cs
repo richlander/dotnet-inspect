@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -156,6 +157,78 @@ public class TypeRefDecoderRecursionTests
         Assert.Equal(["A", "B"], nested.DefinitionName!.Segments);
         Assert.NotEqual(literal, nested);
         Assert.Equal(2, new HashSet<TypeRef> { literal, nested }.Count);
+    }
+
+    [Fact]
+    public void ExactMethodLookup_DistinguishesLiteralPlusFromNesting()
+    {
+        MethodDefinitionHandle literalMethod = default;
+        MethodDefinitionHandle nestedMethod = default;
+        var reader = BuildMetadata(metadata =>
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature()
+                .Parameters(
+                    0,
+                    returnType => returnType.Void(),
+                    parameters => { });
+            BlobHandle signatureHandle = metadata.GetOrAddBlob(signature);
+            literalMethod = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                signatureHandle,
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+            nestedMethod = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                signatureHandle,
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("A+B"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: literalMethod);
+            TypeDefinitionHandle outer = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("A"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: nestedMethod);
+            TypeDefinitionHandle nested = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("B"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: nestedMethod);
+            metadata.AddNestedType(nested, outer);
+            return default(EntityHandle);
+        });
+
+        MetadataTypeDefinitionName literalName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("N", ["A+B"]))
+                .Name;
+        MetadataTypeDefinitionName nestedName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("N", ["A", "B"]))
+                .Name;
+
+        Assert.Equal(
+            literalMethod,
+            IrImporter.ResolveMethodHandle(reader, literalName, "M"));
+        Assert.Equal(
+            nestedMethod,
+            IrImporter.ResolveMethodHandle(reader, nestedName, "M"));
     }
 
     [Fact]

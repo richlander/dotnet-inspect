@@ -209,6 +209,32 @@ public class TypeRefTests
     }
 
     [Fact]
+    public void GenericArityMismatch_StaysRawInsteadOfNamingAnotherType()
+    {
+        var pair = TypeRef.Definition("asm", "NS", "Pair`2");
+        var mismatched = TypeRef.GenericInstance(
+            pair,
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        Assert.Equal("Pair`2", mismatched.ToDisplayString());
+        Assert.True(mismatched.HasUnrenderableGenericArity);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(
+            new LoadArgument(0, "value", mismatched)));
+    }
+
+    [Fact]
+    public void CompilerGeneratedPartialArity_ShowsBoundedPlaceholders()
+    {
+        var generated = TypeRef.Definition("asm", "NS", "<M>d__3`2");
+        var partial = TypeRef.GenericInstance(
+            generated,
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        Assert.Equal("__M_d__3<int, T2>", partial.ToDisplayString());
+        Assert.False(partial.HasUnrenderableGenericArity);
+    }
+
+    [Fact]
     public void NestedGenericInstance_QualifiesThroughDeclaringTypeWhenReferencedFromOutside()
     {
         // A nested type of a generic is innermost-only in scope, but a reference

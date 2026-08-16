@@ -442,8 +442,17 @@ public sealed class TypeRef : IEquatable<TypeRef>
         string inner = name[(boundary + 1)..];
         long nestedArity = (long)ArityOf(outer) + ArityOf(inner);
         int literalArity = ArityOf(name);
-        if (nestedArity != argumentCount || literalArity == argumentCount)
+        bool completeCompilerGeneratedName =
+            argumentCount > literalArity
+            && argumentCount < nestedArity
+            && nestedArity <= TypeResolver.MaxDisplayedPlaceholders
+            && IsCompilerGeneratedName(inner);
+        if ((nestedArity != argumentCount
+                && !completeCompilerGeneratedName)
+            || literalArity == argumentCount)
+        {
             return false;
+        }
 
         segments = [outer, inner];
         return true;

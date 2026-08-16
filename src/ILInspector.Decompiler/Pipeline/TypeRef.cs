@@ -259,7 +259,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
             : this;
 
     public static TypeRef CoreLib(string ns, string name)
-        => MetadataTypeDefinitionName.Create(ns, [name])
+        => MetadataTypeDefinitionName.Create(
+            ns,
+            [.. name.Split('+')])
             is MetadataTypeDefinitionNameResult.Valid valid
                 ? DefinitionWithResolution(
                     CoreLibrary,
@@ -694,21 +696,38 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// </summary>
     string RenderGenericInstance(TypeRef? scope = null)
     {
+        long declaredArity = ElementType!.DeclaredGenericArity();
+        bool completeCompilerGenerated =
+            TypeArguments.Length > 0
+            && TypeArguments.Length < declaredArity
+            && declaredArity <= TypeResolver.MaxDisplayedPlaceholders
+            && LooksCompilerGenerated(
+                ElementType.MetadataNameSegments()[^1]);
+        if (declaredArity != TypeArguments.Length
+            && !completeCompilerGenerated)
+        {
+            return string.Join(".", ElementType.MetadataNameSegments());
+        }
+
         if (scope is not null
-            && ElementType!.MetadataNameSegments().Count > 1
-            && !EnclosingInScope(scope)
-            && RenderNestedGenericInstance(scope) is { } qualified)
+            && ElementType.MetadataNameSegments().Count > 1
+            && !EnclosingInScope(scope, declaredArity)
+            && RenderNestedGenericInstance(
+                scope,
+                completeCompilerGenerated) is { } qualified)
         {
             return qualified;
         }
-        IReadOnlyList<string> segments = ElementType!.MetadataNameSegments();
+        IReadOnlyList<string> segments = ElementType.MetadataNameSegments();
         string innermost = segments[^1];
         int ownArity = ArityOf(innermost);
         string simpleName = ElementType.DisplayName();
         if (ownArity == 0)
             return simpleName;
-        var ownArguments = TypeArguments.Skip(Math.Max(0, TypeArguments.Length - ownArity));
-        return $"{simpleName}<{string.Join(", ", ownArguments.Select(a => a.ToDisplayString(scope)))}>";
+        int firstOwnArgument = checked((int)declaredArity) - ownArity;
+        var ownArguments = Enumerable.Range(firstOwnArgument, ownArity)
+            .Select(index => GenericArgumentDisplay(index, scope));
+        return $"{simpleName}<{string.Join(", ", ownArguments)}>";
     }
 
     /// <summary>
@@ -721,8 +740,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// the enclosing-segment arguments must be the enclosing type's own generic
     /// parameters in order (<c>T0, T1, …</c>) to stay innermost.
     /// </summary>
-    bool EnclosingInScope(TypeRef scope)
+    bool EnclosingInScope(TypeRef scope, long declaredArity)
     {
+        if (TypeArguments.Length != declaredArity)
+            return false;
         var scopeDefinition = scope.Kind == TypeRefKind.GenericInstance ? scope.ElementType! : scope;
         IReadOnlyList<string> segments = ElementType!.MetadataNameSegments();
         if (ElementType.Assembly != scopeDefinition.Assembly
@@ -753,14 +774,17 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// (an unexpected metadata encoding) so the caller falls back to the safe
     /// innermost spelling rather than emitting wrong C#.
     /// </summary>
-    string? RenderNestedGenericInstance(TypeRef? scope)
+    string? RenderNestedGenericInstance(
+        TypeRef? scope,
+        bool completeCompilerGenerated)
     {
         IReadOnlyList<string> segments = ElementType!.MetadataNameSegments();
         var arities = segments.Select(ArityOf).ToArray();
         int total = 0;
         foreach (int arity in arities)
             total += arity;
-        if (total != TypeArguments.Length)
+        if (total != TypeArguments.Length
+            && !completeCompilerGenerated)
             return null;
 
         var parts = new List<string>(segments.Count);
@@ -771,14 +795,54 @@ public sealed class TypeRef : IEquatable<TypeRef>
             int arity = arities[i];
             if (arity > 0)
             {
-                var segmentArguments = TypeArguments.Skip(argIndex).Take(arity);
-                name = $"{name}<{string.Join(", ", segmentArguments.Select(a => a.ToDisplayString(scope)))}>";
+                var segmentArguments = Enumerable.Range(argIndex, arity)
+                    .Select(index => GenericArgumentDisplay(index, scope));
+                name = $"{name}<{string.Join(", ", segmentArguments)}>";
                 argIndex += arity;
             }
             parts.Add(name);
         }
         return string.Join(".", parts);
     }
+
+    string GenericArgumentDisplay(int index, TypeRef? scope)
+        => index < TypeArguments.Length
+            ? TypeArguments[index].ToDisplayString(scope)
+            : $"T{index + 1}";
+
+    long DeclaredGenericArity()
+    {
+        long total = 0;
+        foreach (string segment in MetadataNameSegments())
+            total += ArityOf(segment);
+        return total;
+    }
+
+    internal bool HasUnrenderableGenericArity
+    {
+        get
+        {
+            if (Kind != TypeRefKind.GenericInstance
+                || ElementType is null)
+            {
+                return false;
+            }
+
+            long declaredArity = ElementType.DeclaredGenericArity();
+            return declaredArity != TypeArguments.Length
+                && !(TypeArguments.Length > 0
+                    && TypeArguments.Length < declaredArity
+                    && declaredArity
+                        <= TypeResolver.MaxDisplayedPlaceholders
+                    && LooksCompilerGenerated(
+                        ElementType.MetadataNameSegments()[^1]));
+        }
+    }
+
+    static bool LooksCompilerGenerated(string segment)
+        => segment.Length > 1
+            && segment[0] == '<'
+            && segment.IndexOf('>') > 0;
 
     internal IReadOnlyList<string> MetadataNameSegments()
     {

@@ -23,26 +23,24 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
     {
-        string name = TypeResolver.GetTypeNameFromDefinition(reader, handle);
+        MetadataTypeNameParts metadataName =
+            TypeResolver.GetTypeNamePartsFromDefinition(reader, handle);
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
-        return MayNeedExactStructure(name)
-            ? new NamedTypeNode(
-                name,
-                isRef,
-                TypeResolver.GetTypeNamePartsFromDefinition(reader, handle))
-            : new NamedTypeNode(name, isRef);
+        return new NamedTypeNode(
+            metadataName.ToDottedName(),
+            isRef,
+            metadataName);
     }
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
-        string name = TypeResolver.GetTypeNameFromReference(reader, handle);
+        MetadataTypeNameParts metadataName =
+            TypeResolver.GetTypeNamePartsFromReference(reader, handle);
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
-        return MayNeedExactStructure(name)
-            ? new NamedTypeNode(
-                name,
-                isRef,
-                TypeResolver.GetTypeNamePartsFromReference(reader, handle))
-            : new NamedTypeNode(name, isRef);
+        return new NamedTypeNode(
+            metadataName.ToDottedName(),
+            isRef,
+            metadataName);
     }
 
     public TypeNode GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
@@ -133,14 +131,4 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetPinnedType(TypeNode elementType) => new PassthroughTypeNode(elementType);
 
-    static bool MayNeedExactStructure(string name)
-    {
-        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(name))
-        {
-            if (component.Arity > 0 && component.Delimiter is not null)
-                return true;
-        }
-
-        return false;
-    }
 }

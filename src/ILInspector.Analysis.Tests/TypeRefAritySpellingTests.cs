@@ -174,6 +174,34 @@ public class TypeRefAritySpellingTests
     }
 
     [Fact]
+    public void GenericInstance_CompletesOnlyDisambiguatedFlatCompilerGeneratedArity()
+    {
+        Assert.Equal(
+            "N.Outer.<M>d__3<int, T4>",
+            TypeRef.GenericInstance(
+                TypeRef.Definition(
+                    "Asm",
+                    "N",
+                    "Outer`2+<M>d__3`2"),
+                [
+                    TypeRef.CoreLib("System", "String"),
+                    TypeRef.CoreLib("System", "Object"),
+                    TypeRef.CoreLib("System", "Int32"),
+                ])
+            .ToQualifiedDisplayString());
+
+        Assert.Equal(
+            "N.Outer`1+<M>d__3`2",
+            TypeRef.GenericInstance(
+                TypeRef.Definition(
+                    "Asm",
+                    "N",
+                    "Outer`1+<M>d__3`2"),
+                [TypeRef.CoreLib("System", "Int32")])
+            .ToQualifiedDisplayString());
+    }
+
+    [Fact]
     public void GenericInstance_QualifiedDisplayKeepsTheDefinitionNamespace()
     {
         var dictionary = TypeRef.GenericInstance(
