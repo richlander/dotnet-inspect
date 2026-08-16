@@ -92,6 +92,21 @@ public class TypeRefAritySpellingTests
                 arguments).ToDisplayString());
     }
 
+    [Fact]
+    public void GenericInstance_QualifiedDisplayKeepsTheDefinitionNamespace()
+    {
+        var dictionary = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "Dictionary`2"),
+            [
+                TypeRef.CoreLib("System", "String"),
+                TypeRef.CoreLib("System", "Int32")
+            ]);
+
+        Assert.Equal(
+            "System.Collections.Generic.Dictionary<string, int>",
+            dictionary.ToQualifiedDisplayString());
+    }
+
     static TypeRef ResolvedDefinition(string flattenedName, params string[] segments)
     {
         var result = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(

@@ -659,13 +659,6 @@ public class ApiMember
     public string? ExtendedType { get; set; }
 
     /// <summary>
-    /// Exact local metadata definition targeted by the extension receiver.
-    /// Retained only in-process for attachment; display text is not identity.
-    /// </summary>
-    [JsonIgnore]
-    public MetadataTypeDefinitionName? ExtendedTypeDefinitionName { get; set; }
-
-    /// <summary>
     /// The type that declares this member when it is shown on another type, such as a local
     /// extension method projected onto its extended type.
     /// </summary>

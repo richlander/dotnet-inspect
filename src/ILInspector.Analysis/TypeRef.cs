@@ -325,7 +325,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
             return qualified
                 ? ElementType.QualifiedRawName()
                 : ElementType.Name;
-        return $"{StripArity(ElementType.Name)}<{string.Join(", ", arguments)}>";
+        string displayName = qualified
+            ? ElementType.QualifiedDisplayName()
+            : ElementType.DisplayName();
+        return $"{displayName}<{string.Join(", ", arguments)}>";
     }
 
     string QualifiedRawName()

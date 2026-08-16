@@ -156,8 +156,11 @@ public sealed class MetadataTypeNameFormatterTests
             "<>c__DisplayClass22_0<T>",
             MetadataTypeNameFormatter.FormatGenericTypeName("<>c__DisplayClass22_0`1"));
         Assert.Equal(
-            "<M>d__3`2",
+            "<M>d__3<int, T2>",
             MetadataTypeNameFormatter.FormatGenericTypeName("<M>d__3`2", one));
+        Assert.Equal(
+            "Pair`2",
+            MetadataTypeNameFormatter.FormatGenericTypeName("Pair`2", one));
         Assert.Equal(
             "<M>d__3<TStateMachine, TMethod>",
             MetadataTypeNameFormatter.FormatGenericTypeName(

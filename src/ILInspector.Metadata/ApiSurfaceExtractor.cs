@@ -133,6 +133,8 @@ public static class ApiSurfaceExtractor
     {
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
+        var extensionReceiverDefinitions =
+            new Dictionary<ApiMember, MetadataTypeDefinitionName>();
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -180,7 +182,8 @@ public static class ApiSurfaceExtractor
                     typeDef,
                     apiType,
                     surface,
-                    isExtensionClass);
+                    isExtensionClass,
+                    extensionReceiverDefinitions);
                 surface.Types.Add(apiType);
                 surface.PublicTypeCount++;
             }
@@ -212,7 +215,7 @@ public static class ApiSurfaceExtractor
             }
         }
 
-        AttachLocalExtensionMethods(surface);
+        AttachLocalExtensionMethods(surface, extensionReceiverDefinitions);
         ExtractTypeForwarders(reader, surface);
         return surface;
     }
@@ -298,6 +301,8 @@ public static class ApiSurfaceExtractor
 
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
+        var extensionReceiverDefinitions =
+            new Dictionary<ApiMember, MetadataTypeDefinitionName>();
         budget?.AdmitMetadataRows(reader);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
@@ -556,8 +561,11 @@ public static class ApiSurfaceExtractor
                 {
                     member.IsExtension = true;
                     member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
-                    member.ExtendedTypeDefinitionName =
-                        GetFirstParameterDefinitionName(reader, typeDef, method);
+                    if (GetFirstParameterDefinitionName(reader, typeDef, method)
+                        is { } receiverDefinition)
+                    {
+                        extensionReceiverDefinitions.Add(member, receiverDefinition);
+                    }
                     member.DeclaringType = apiType.FullName;
                 }
 
@@ -910,7 +918,10 @@ public static class ApiSurfaceExtractor
             }
         }
 
-        AttachLocalExtensionMethods(surface, budget);
+        AttachLocalExtensionMethods(
+            surface,
+            extensionReceiverDefinitions,
+            budget);
 
         // Extract type forwarders (ExportedTypes that are forwarded to other assemblies)
         ExtractTypeForwarders(reader, surface, budget);
@@ -925,7 +936,8 @@ public static class ApiSurfaceExtractor
         TypeDefinition typeDef,
         ApiType apiType,
         ApiSurface surface,
-        bool isExtensionClass)
+        bool isExtensionClass,
+        Dictionary<ApiMember, MetadataTypeDefinitionName> extensionReceiverDefinitions)
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
 
@@ -968,8 +980,11 @@ public static class ApiSurfaceExtractor
                 int token = MetadataTokens.GetToken(methodHandle);
                 member.IsExtension = true;
                 member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
-                member.ExtendedTypeDefinitionName =
-                    GetFirstParameterDefinitionName(reader, typeDef, method);
+                if (GetFirstParameterDefinitionName(reader, typeDef, method)
+                    is { } receiverDefinition)
+                {
+                    extensionReceiverDefinitions.Add(member, receiverDefinition);
+                }
                 member.DeclaringType = apiType.FullName;
                 member.MetadataToken = token;
                 member.Signature = token.ToString("X8", CultureInfo.InvariantCulture);
@@ -1657,6 +1672,7 @@ public static class ApiSurfaceExtractor
 
     private static void AttachLocalExtensionMethods(
         ApiSurface surface,
+        IReadOnlyDictionary<ApiMember, MetadataTypeDefinitionName> extensionReceiverDefinitions,
         ExtractionBudget? budget = null)
     {
         var targets = new Dictionary<MetadataTypeDefinitionName, ApiType>();
@@ -1680,7 +1696,7 @@ public static class ApiSurfaceExtractor
         {
             foreach (var extension in declaringType.Members.Where(member => member.IsExtension))
             {
-                if (extension.ExtendedTypeDefinitionName is not { } targetName
+                if (!extensionReceiverDefinitions.TryGetValue(extension, out var targetName)
                     || !targets.TryGetValue(targetName, out var targetType))
                 {
                     continue;
@@ -1717,7 +1733,6 @@ public static class ApiSurfaceExtractor
                     IsUnsafe = extension.IsUnsafe,
                     IsExtension = true,
                     ExtendedType = extension.ExtendedType,
-                    ExtendedTypeDefinitionName = extension.ExtendedTypeDefinitionName,
                     DeclaringType = declaringType.FullName,
                     DeclaringOverloadIndex = declaringOverloadIndex,
                     IsObsolete = extension.IsObsolete,
@@ -2958,7 +2973,9 @@ public static class ApiSurfaceExtractor
             GuardedProviderDecode.Method(
                 reader,
                 method,
-                ExtensionReceiverDefinitionProvider.Instance,
+                DefinesPrimitiveTypes(reader)
+                    ? ExtensionReceiverDefinitionProvider.WithLocalPrimitives
+                    : ExtensionReceiverDefinitionProvider.WithoutLocalPrimitives,
                 context,
                 fallbackReturn: null);
         return signature.ParameterTypes.Length > 0
@@ -2966,10 +2983,43 @@ public static class ApiSurfaceExtractor
             : null;
     }
 
+    static bool DefinesPrimitiveTypes(MetadataReader reader)
+    {
+        if (!reader.IsAssembly)
+            return false;
+
+        try
+        {
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+            return identity.Name is "System.Private.CoreLib" or "mscorlib"
+                && identity.PublicKeyToken is { } token
+                && PlatformKeys.IsPlatform(token);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
     sealed class ExtensionReceiverDefinitionProvider :
         ISignatureTypeProvider<MetadataTypeDefinitionName?, GenericContext?>
     {
-        public static ExtensionReceiverDefinitionProvider Instance { get; } = new();
+        static readonly MetadataTypeDefinitionName SystemString =
+            ((MetadataTypeDefinitionNameResult.Valid)
+                MetadataTypeDefinitionName.Create("System", ["String"])).Name;
+
+        readonly bool primitivesAreLocal;
+
+        ExtensionReceiverDefinitionProvider(bool primitivesAreLocal) =>
+            this.primitivesAreLocal = primitivesAreLocal;
+
+        public static ExtensionReceiverDefinitionProvider WithLocalPrimitives { get; } =
+            new(primitivesAreLocal: true);
+
+        public static ExtensionReceiverDefinitionProvider WithoutLocalPrimitives { get; } =
+            new(primitivesAreLocal: false);
 
         public MetadataTypeDefinitionName? GetTypeFromDefinition(
             MetadataReader reader,
@@ -2984,7 +3034,27 @@ public static class ApiSurfaceExtractor
             MetadataReader reader,
             TypeReferenceHandle handle,
             byte rawTypeKind)
-            => null;
+        {
+            Span<TypeReferenceHandle> rootToLeaf =
+                stackalloc TypeReferenceHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    rootToLeaf,
+                    out _,
+                    out EntityHandle terminal,
+                    out _)
+                || terminal.Kind != HandleKind.ModuleDefinition)
+            {
+                return null;
+            }
+
+            return MetadataTypeDefinitionNameReader.Read(reader, handle)
+                is MetadataTypeDefinitionNameReadResult.Read read
+                    ? read.Name
+                    : null;
+        }
 
         public MetadataTypeDefinitionName? GetTypeFromSpecification(
             MetadataReader reader,
@@ -3046,7 +3116,9 @@ public static class ApiSurfaceExtractor
 
         public MetadataTypeDefinitionName? GetPrimitiveType(
             PrimitiveTypeCode typeCode)
-            => null;
+            => primitivesAreLocal && typeCode == PrimitiveTypeCode.String
+                ? SystemString
+                : null;
     }
 
     /// <summary>

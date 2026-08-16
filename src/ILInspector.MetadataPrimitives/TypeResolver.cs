@@ -486,11 +486,13 @@ public static class TypeResolver
 
     /// <summary>
     /// Renders a generic instantiation from legacy flat text. Only an
-    /// unambiguous terminal <c>`N</c> is rewritten, and its declared arity must
-    /// equal the supplied argument count. A possible namespace or nesting
-    /// boundary preserves the raw spelling; callers with exact segments use the
-    /// structured overload. When the name carries no arity marker the arguments
-    /// are appended once, matching the legacy <c>Name&lt;args&gt;</c> form.
+    /// unambiguous terminal <c>`N</c> is rewritten. Its declared arity must equal
+    /// the supplied argument count except for compiler-generated names, where a
+    /// partial argument list is completed with explicit placeholders so the
+    /// declared arity remains visible. A possible namespace or nesting boundary
+    /// preserves the raw spelling; callers with exact segments use the structured
+    /// overload. When the name carries no arity marker the arguments are appended
+    /// once, matching the legacy <c>Name&lt;args&gt;</c> form.
     /// </summary>
     public static string ApplyGenericArguments(string genericTypeName, IReadOnlyList<string> typeArguments)
     {
@@ -503,10 +505,39 @@ public static class TypeResolver
                 : $"{genericTypeName}<{string.Join(", ", typeArguments)}>";
         }
 
-        if (!TryReadUnambiguousFlattenedArity(genericTypeName, out int arity)
-            || arity != typeArguments.Count)
+        if (!TryReadUnambiguousFlattenedArity(genericTypeName, out int arity))
         {
             return genericTypeName;
+        }
+
+        if (arity != typeArguments.Count)
+        {
+            if (typeArguments.Count == 0
+                || typeArguments.Count > arity
+                || arity > MaxDisplayedPlaceholders
+                || !LooksCompilerGenerated(genericTypeName))
+            {
+                return genericTypeName;
+            }
+
+            return RewriteAritySegments(
+                genericTypeName,
+                (int declaredArity, StringBuilder builder) =>
+                {
+                    builder.Append('<');
+                    for (int k = 0; k < declaredArity; k++)
+                    {
+                        if (k > 0)
+                            builder.Append(", ");
+                        builder.Append(k < typeArguments.Count
+                            ? typeArguments[k]
+                            : $"T{k + 1}");
+                    }
+                    builder.Append('>');
+                    return true;
+                },
+                dotIsBoundary: false,
+                plusIsBoundary: false);
         }
 
         return RewriteAritySegments(
@@ -526,6 +557,11 @@ public static class TypeResolver
             dotIsBoundary: false,
             plusIsBoundary: false);
     }
+
+    static bool LooksCompilerGenerated(string metadataName)
+        => metadataName.Length > 1
+            && metadataName[0] == '<'
+            && metadataName.IndexOf('>') > 0;
 
     /// <summary>
     /// Renders a generic instantiation from exact root-to-leaf metadata-name

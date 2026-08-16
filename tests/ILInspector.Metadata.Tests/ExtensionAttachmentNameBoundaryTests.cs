@@ -32,11 +32,19 @@ public sealed class ExtensionAttachmentNameBoundaryTests
             surface.Types,
             type => string.IsNullOrEmpty(type.Namespace) && type.Name == "Ns");
 
-        ApiMember attached = Assert.Single(
+        ApiMember[] attached = widget.Members
+            .Where(member => member.Kind == "extension-method")
+            .OrderBy(member => member.Name, StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(
+            ["Extend", "ExtendByReference"],
+            attached.Select(member => member.Name));
+        Assert.All(
+            attached,
+            member => Assert.Equal("Ns`1.Widget", member.ExtendedType));
+        Assert.DoesNotContain(
             widget.Members,
-            member => member.Kind == "extension-method");
-        Assert.Equal("Extend", attached.Name);
-        Assert.Equal("Ns`1.Widget", attached.ExtendedType);
+            member => member.Name == "ExternalExtend");
 
         // The fold attached the extension here instead, because `Ns`1.Widget`
         // keyed as `Ns`.
@@ -71,10 +79,27 @@ public sealed class ExtensionAttachmentNameBoundaryTests
             member => member.Kind == "extension-method");
     }
 
+    [Fact]
+    public void ExtensionMethod_OnPrimitiveString_AttachesInsideTheCoreLibrary()
+    {
+        using var stream = File.OpenRead(typeof(string).Assembly.Location);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.ExtractSummary(peReader);
+
+        ApiType stringType = Assert.Single(
+            surface.Types,
+            type => type.Namespace == "System" && type.Name == "String");
+        Assert.Contains(
+            stringType.Members,
+            member => member.Kind == "extension-method"
+                && member.Name == "AsMemory");
+    }
+
     static byte[] BuildImage()
     {
         var metadata = new MetadataBuilder();
-        metadata.AddModule(
+        ModuleDefinitionHandle module = metadata.AddModule(
             generation: 0,
             moduleName: metadata.GetOrAddString("BacktickNamespace.dll"),
             mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
@@ -99,6 +124,14 @@ public sealed class ExtensionAttachmentNameBoundaryTests
             runtime,
             metadata.GetOrAddString("System.Runtime.CompilerServices"),
             metadata.GetOrAddString("ExtensionAttribute"));
+        TypeReferenceHandle localWidgetReference = metadata.AddTypeReference(
+            module,
+            metadata.GetOrAddString("Ns`1"),
+            metadata.GetOrAddString("Widget"));
+        TypeReferenceHandle externalWidgetReference = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("Ns`1"),
+            metadata.GetOrAddString("Widget"));
 
         var attributeCtorSignature = new BlobBuilder();
         new BlobEncoder(attributeCtorSignature)
@@ -160,6 +193,18 @@ public sealed class ExtensionAttachmentNameBoundaryTests
             metadata,
             "Extend",
             parameters => parameters.AddParameter().Type().Type(widget, isValueType: false));
+        MethodDefinitionHandle extendByReference = AddExtensionMethod(
+            metadata,
+            "ExtendByReference",
+            parameters => parameters.AddParameter().Type().Type(
+                localWidgetReference,
+                isValueType: false));
+        MethodDefinitionHandle externalExtend = AddExtensionMethod(
+            metadata,
+            "ExternalExtend",
+            parameters => parameters.AddParameter().Type().Type(
+                externalWidgetReference,
+                isValueType: false));
         MethodDefinitionHandle unwrap = AddExtensionMethod(
             metadata,
             "Unwrap",
@@ -178,6 +223,8 @@ public sealed class ExtensionAttachmentNameBoundaryTests
         // added in HasCustomAttribute coded-index order: MethodDef rows first.
         var attributeValue = metadata.GetOrAddBlob(new byte[] { 0x01, 0x00, 0x00, 0x00 });
         metadata.AddCustomAttribute(extend, extensionAttributeCtor, attributeValue);
+        metadata.AddCustomAttribute(extendByReference, extensionAttributeCtor, attributeValue);
+        metadata.AddCustomAttribute(externalExtend, extensionAttributeCtor, attributeValue);
         metadata.AddCustomAttribute(unwrap, extensionAttributeCtor, attributeValue);
         metadata.AddCustomAttribute(extensions, extensionAttributeCtor, attributeValue);
 
