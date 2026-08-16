@@ -223,6 +223,28 @@ test("settings keep a viewport-bounded scroll region", () => {
     /(?:^|\n)\s*overflow-y: auto;/);
 });
 
+test("home keeps a viewport-bounded scroll region and reachable footer", () => {
+  const homeRule =
+    stylesSource.match(/\.home\s*\{([^}]*)\}/s)?.[1] ?? "";
+  const homeHeroRule =
+    stylesSource.match(/\.home-hero\s*\{([^}]*)\}/s)?.[1] ?? "";
+  assert.match(
+    homeRule,
+    /(?:^|\n)\s*height: 100vh;/);
+  assert.doesNotMatch(
+    homeRule,
+    /(?:^|\n)\s*min-height:/);
+  assert.match(
+    homeRule,
+    /(?:^|\n)\s*grid-template-rows: auto minmax\(0, 1fr\) auto;/);
+  assert.match(
+    homeHeroRule,
+    /(?:^|\n)\s*min-height: 0;/);
+  assert.match(
+    homeHeroRule,
+    /(?:^|\n)\s*overflow-y: auto;/);
+});
+
 test("all dependency navigation paths use one product-owned coordinate matcher", () => {
   assert.equal(
     [...appSource.matchAll(/uniqueCompatiblePackage\(/g)].length,

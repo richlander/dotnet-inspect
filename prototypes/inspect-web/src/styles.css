@@ -1507,9 +1507,9 @@ kbd {
 
 /* ── Home / intro page ─────────────────────────────────────────────── */
 .home {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   background:
     radial-gradient(1100px 620px at 82% -8%, var(--accent-soft), transparent 60%),
     var(--bg);
@@ -1634,12 +1634,14 @@ kbd {
 .home-hero {
   width: 100%;
   max-width: 1120px;
+  min-height: 0;
   margin: 0 auto;
   padding: clamp(28px, 6vh, 72px) 28px;
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
   align-items: center;
   gap: 48px;
+  overflow-y: auto;
 }
 .home-copy { min-width: 0; }
 .home-kicker {
