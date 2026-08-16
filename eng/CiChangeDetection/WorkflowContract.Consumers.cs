@@ -167,7 +167,7 @@ internal static partial class WorkflowContract
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Run query tests"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
-            ["test-windows/Run Research path cache test"] =
+            ["test-windows/Run Research tests"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Check ilasm/ildasm result"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' && " +
@@ -240,18 +240,13 @@ internal static partial class WorkflowContract
                 }
 
                 string key = $"{jobName}/{identity}";
-                if (key ==
-                    "test-windows/Run Research path cache test")
+                if (key == "test-windows/Run Research tests")
                 {
                     RequireScalarValue(
                         step,
                         "run",
                         "dotnet run --project " +
-                        "src/ILInspector.Research.Tests -c Release -- " +
-                        "-method ILInspector.Research.Tests." +
-                        "ResearchFactRegistryTests." +
-                        "AnalysisIndexCache_CaseDistinctPathsRetainDistinctEvidence " +
-                        "-failSkips",
+                        "src/ILInspector.Research.Tests -c Release -- -failSkips",
                         key);
                 }
                 ValidateOptionalStepValue(

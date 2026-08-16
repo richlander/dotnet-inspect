@@ -128,27 +128,9 @@ public class ResearchFactRegistryTests
         }
     }
 
-    /// <summary>
-    /// This test also owns its focused Windows invocation so a rename cannot
-    /// turn the platform gate into a successful zero-test run.
-    /// </summary>
     [Fact]
     public void AnalysisIndexCache_CaseDistinctPathsRetainDistinctEvidence()
     {
-        string workflow = File.ReadAllText(
-            Path.Combine(
-                FindRepositoryRoot(),
-                ".github",
-                "workflows",
-                "ci.yml"));
-        string invocation =
-            "dotnet run --project src/ILInspector.Research.Tests " +
-            "-c Release -- -method " +
-            $"{typeof(ResearchFactRegistryTests).FullName}." +
-            $"{nameof(AnalysisIndexCache_CaseDistinctPathsRetainDistinctEvidence)} " +
-            "-failSkips";
-        Assert.Contains(invocation, workflow);
-
         string directory = Directory.CreateTempSubdirectory(
             "dotnet-inspect-research-case-").FullName;
         try
@@ -214,23 +196,6 @@ public class ResearchFactRegistryTests
         {
             Directory.Delete(directory, recursive: true);
         }
-    }
-
-    static string FindRepositoryRoot()
-    {
-        DirectoryInfo? directory = new(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            if (File.Exists(
-                Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
-            {
-                return directory.FullName;
-            }
-            directory = directory.Parent;
-        }
-
-        throw new InvalidOperationException(
-            "Could not find the repository root.");
     }
 
     [Fact]

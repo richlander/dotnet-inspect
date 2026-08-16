@@ -501,9 +501,9 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
 
-      - name: Run Research path cache test
+      - name: Run Research tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/ILInspector.Research.Tests -c Release -- -method ILInspector.Research.Tests.ResearchFactRegistryTests.AnalysisIndexCache_CaseDistinctPathsRetainDistinctEvidence -failSkips
+        run: dotnet run --project src/ILInspector.Research.Tests -c Release -- -failSkips
 
       - name: Check ilasm/ildasm result
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.iltools.outcome != 'success' }}
