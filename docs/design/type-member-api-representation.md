@@ -75,6 +75,8 @@ a JSON round-trip by inferring declaring-type participation from display text.
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | `ApiFacetDescriptor`, `ApiTypeInventoryResult`, `ApiMemberInventoryResult` | One materialized API inventory query | Stable filter identity, labels, ordering, defaults, counts, and the selected projection | Raw metadata kind or member identity |
+| `InspectionGraphAssemblyIdentity.Acquired` | One loaded workspace context | Which acquisition registration, assembly identity, and provenance own an assembly subject in a session-bound graph | Portable artifact identity or correspondence outside that acquisition |
+| `InspectionGraphPackageIdentity.Realized` | One portable inspection-graph subject | Which exact package version, producer, framework, and RID own the package subject | Assembly membership without the workspace package-boundary projection |
 
 `ApiType.Kind` and `ApiMember.Kind` remain raw product facts. Consumers do not
 parse them or own a parallel grouping vocabulary: `ApiInventoryQuery` maps each

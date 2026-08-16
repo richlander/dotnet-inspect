@@ -178,7 +178,9 @@ public class EvilPoolPinTests
                 [.. Encoding.UTF8.GetBytes(valid[..^1]), .. ",\"opaque\":\""u8, 0xFF, .. "\"}"u8]);
             written.Add(("a file that is not valid UTF-8", "encoding", notUtf8));
 
-            var verdicts = ValidateWithSweep(root, [committed, .. written.Select(w => w.Path)]);
+            var verdicts = ValidateWithSweep(root, [committed, .. written.Select(w => w.Path)])
+                .Select(verdict => verdict.Problem)
+                .ToArray();
 
             Assert.True(
                 verdicts[0] is null,
@@ -295,17 +297,37 @@ public class EvilPoolPinTests
                 writer.Write("\"}");
             }
 
-            string? validatorSaid = ValidateWithSweep(root, [oversized])[0];
-            Assert.NotNull(validatorSaid);
+            PinVerdict validator;
+            string sweepRoot = fakeRoot;
+            if (OperatingSystem.IsWindows())
+            {
+                validator = ValidateWithSweep(root, [oversized])[0];
+            }
+            else
+            {
+                string aliasRoot = Path.Combine(scratch, "root-alias");
+                Directory.CreateSymbolicLink(aliasRoot, fakeRoot);
+                string aliased = Path.Combine(
+                    aliasRoot,
+                    Path.GetRelativePath(fakeRoot, oversized));
+                var verdicts = ValidateWithSweep(root, [oversized, aliased]);
 
-            var sweep = RunSweep(root, fakeRoot, Path.Combine(scratch, "pool"));
+                Assert.Equal(verdicts[0].Path, verdicts[1].Path);
+                Assert.Equal(verdicts[0].Problem, verdicts[1].Problem);
+                validator = verdicts[1];
+                sweepRoot = aliasRoot;
+            }
+
+            Assert.NotNull(validator.Problem);
+
+            var sweep = RunSweep(root, sweepRoot, Path.Combine(scratch, "pool"));
 
             Assert.True(
                 sweep.ExitCode == 2,
                 $"the sweep exited {sweep.ExitCode} over a pin file its own validator "
-                + $"refused ({validatorSaid}); stderr was:\n{sweep.Errors}");
+                + $"refused ({validator.Problem}); stderr was:\n{sweep.Errors}");
 
-            string expected = $"Pin file '{oversized}' {validatorSaid}.";
+            string expected = $"Pin file '{validator.Path}' {validator.Problem}.";
             Assert.True(
                 sweep.Errors.Contains(expected, StringComparison.Ordinal),
                 $"the sweep and its validator do not read a pin file the same way.\n"
@@ -481,21 +503,21 @@ public class EvilPoolPinTests
 
     /// <summary>
     /// Runs the sweep's own pin validator over <paramref name="paths"/> and returns, per
-    /// path and in the same order, null when the sweep considers it well formed or the
-    /// reason it gave.
+    /// path and in the same order, the path identity and whether the sweep considers it
+    /// well formed or the reason it gave.
     ///
     /// <para>One process for every case: the sweep is a file-based app, so each launch
     /// costs a couple of seconds, and this gate runs in PR CI where <c>Speed=Slow</c> is
     /// filtered out.</para>
     ///
-    /// <para>Verdicts are matched to inputs by position, and each line must open with the
-    /// path that was asked about. A refusal quotes the file's own bytes -- a parser error
-    /// echoes the text it choked on -- so a pin file can name itself in the reason it
-    /// causes. The sweep emits exactly one line per path; reading them in order means this
-    /// harness believes the loop that made the decisions rather than prose a pin file had
-    /// a hand in writing.</para>
+    /// <para>Verdicts are matched to inputs by position. The reported path may be the
+    /// resolved identity rather than the spelling supplied by the caller. A refusal quotes
+    /// the file's own bytes -- a parser error echoes the text it choked on -- so a pin file
+    /// can name itself in the reason it causes. The sweep emits exactly one line per path;
+    /// reading them in order means this harness believes the loop that made the decisions
+    /// rather than prose a pin file had a hand in writing.</para>
     /// </summary>
-    static string?[] ValidateWithSweep(string root, string[] paths)
+    static PinVerdict[] ValidateWithSweep(string root, string[] paths)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -532,17 +554,23 @@ public class EvilPoolPinTests
             $"the sweep printed {lines.Length} verdicts for {paths.Length} pin files; "
             + $"stdout was:\n{output}\nstderr was:\n{errors}");
 
-        var verdicts = new string?[paths.Length];
+        var verdicts = new PinVerdict[paths.Length];
         for (int index = 0; index < paths.Length; index++)
         {
             string line = lines[index];
-            string prefix = $"Pin file '{paths[index]}' ";
+            const string prefix = "Pin file '";
+            int pathEnd = line.IndexOf("' ", prefix.Length, StringComparison.Ordinal);
             Assert.True(
-                line.StartsWith(prefix, StringComparison.Ordinal) && line.EndsWith('.'),
+                line.StartsWith(prefix, StringComparison.Ordinal)
+                    && pathEnd >= prefix.Length
+                    && line.EndsWith('.'),
                 $"verdict {index} does not report on '{paths[index]}': {line}");
 
-            string verdict = line[prefix.Length..^1];
-            verdicts[index] = verdict == "is well formed" ? null : verdict;
+            string reportedPath = line[prefix.Length..pathEnd];
+            string verdict = line[(pathEnd + 2)..^1];
+            verdicts[index] = new(
+                reportedPath,
+                verdict == "is well formed" ? null : verdict);
         }
 
         return verdicts;
@@ -846,4 +874,6 @@ public class EvilPoolPinTests
 
     sealed record PinnedPackage(
         string Package, string? Version, string? Tfm, string Status, string? Sha256);
+
+    sealed record PinVerdict(string Path, string? Problem);
 }
