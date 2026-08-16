@@ -182,11 +182,8 @@ public static class MemberCommand
             MemberOptions effectiveOptions = options;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
-            var callersImplicitlySelected = effectiveOptions.IncludeSections is { Count: > 0 }
-                && ShouldImplicitlySelectCallers(effectiveOptions);
+            var callersImplicitlySelected = ShouldImplicitlySelectCallers(effectiveOptions);
             if (callersImplicitlySelected)
-                effectiveOptions = IncludeCallersSection(effectiveOptions);
-            else if (effectiveOptions.HasCallerScope)
                 effectiveOptions = IncludeCallersSection(effectiveOptions);
             var authoredSelection = callersImplicitlySelected
                 ? ExcludeCallersSection(effectiveOptions)
