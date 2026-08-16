@@ -85,6 +85,7 @@ The new harness should:
 | API and IL/body diffs | Product diff primitives used as artifact-fidelity oracles. |
 | Research unified diff | Future API/IL/C# evidence join for product UX and RTS proof. |
 | current `CB_CLUSTER` loop | Keep generic compiler-driven closure membership. |
+| `ILInspector.ILDiff` | Canonical IL/body comparison, typed outcomes, and diff presentation. |
 | `ILInspector.Instructions` | Shared IL decode, block identity, typed stack (`StackType`) substrate. |
 | `ILInspector.Analysis` | Whole-assembly IL facts, direct calls, body indexes, type/member references. |
 | `ILInspector.Research` | Typed fact registry, joins, and projections only. |
@@ -348,16 +349,19 @@ questions:
 | Product diff | Owner | Example question |
 | --- | --- | --- |
 | API diff | Metadata | Did the public/selected callable surface change? |
-| IL/body diff substrate | Instructions | Which canonical IL operations or body coordinates changed? |
+| IL/body diff | ILDiff | Which canonical IL operations or body coordinates changed? |
 | Body-signal diff | Analysis | Was unsafe code added? Did calls, allocations, or throws change? |
 | C# artifact/source diff | Decompiler/product artifact layer | Did source shape change, such as a new switch case? |
 | Unified diff projection | Research | How do API, IL, and C# evidence line up for one member? |
 
 The first implementation assignment is the low-level/high-level product split:
-Instructions owns canonical IL/body diff plumbing, and Analysis owns the nice
-body-signal UX API. Research can later join API, IL, and C# evidence into unified
-rows such as `switch-case-added`. RTS consumes those product diffs after it
-compiles a product artifact.
+ILDiff owns canonical IL/body comparison, while Instructions owns the shared
+decode and block substrate beneath it; Analysis owns the body-signal UX API.
+Research can later join API, IL, and C# evidence into unified rows such as
+`switch-case-added`. RTS consumes those product diffs after it compiles a
+product artifact.
+`LayeringTests.InstructionDiff_DoesNotExpandInstructionSubstrate` gates the
+ILDiff owner and dependency direction.
 
 ### Module context
 
@@ -451,6 +455,7 @@ tools/ReturnToSender
   -> ILInspector.Research
   -> ILInspector.Analysis
   -> ILInspector.Decompiler
+  -> ILInspector.ILDiff
   -> Roslyn
 ```
 
@@ -708,7 +713,7 @@ rather than carrying forward the old skeleton shape.
 3. Define the product artifact API that accepts an `ArtifactRequest` and returns
    C# source plus provenance.
 4. Define the first product diff primitive needed by RTS:
-   - `Instructions`: canonical IL/body diff substrate;
+   - `ILDiff`: canonical IL/body comparison over the Instructions substrate;
    - `Analysis`: body-signal diff UX, starting with unsafe added/removed.
 5. Keep current `CB_CLUSTER` membership growth only as request-policy feedback,
    not as a source generator.

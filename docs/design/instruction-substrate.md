@@ -27,12 +27,10 @@ key for the [`ILInspector.Research`](../../src/ILInspector.Research) overlay.
 ```text
 Research            (joins Analysis facts + Decompiler representations by IL offset)
   |
-  +-- Analysis      (reaching-defs, allocation/loop facts, call graph)
-  +-- Decompiler    (IR import, structuring, C#)
-        |
-      Instructions  (decode -> typed instructions -> EH-aware blocks -> [gated] typed stack)
-        |
-      ControlFlow   (BlockEdges vocabulary + dominance/dataflow kernels; depends on nothing)
+  +-- Analysis      (reaching-defs, allocation/loop facts, call graph) --------+
+  +-- Decompiler    (IR import, structuring, C#) ------------------------------+--> Instructions
+  +-- ILDiff        (canonicalization, alignment, Findings, diff display) -----+      |
+                                                                                   ControlFlow
 ```
 
 `Instructions` **depends on** `ControlFlow` (it emits `ControlFlow.BlockEdges` and
@@ -41,6 +39,15 @@ dependency terms it sits *on top of* `ControlFlow`, which stays representation-
 agnostic at the bottom. Analysis and the decompiler depend on `Instructions`;
 neither owns it. The product path stays SRM-only, NativeAOT-friendly, Roslyn-free,
 and never loads inspected assemblies.
+
+`ILInspector.ILDiff` is a separate consumer above Instructions. It owns
+operation canonicalization, body and member alignment, Finding projection,
+typed diff failures, and producer-owned display. Its public types retain the
+`ILInspector.Instructions` namespace for source compatibility, but the assembly
+and project-reference boundary is authoritative: Instructions does not depend
+on ILDiff, Findings, or Text.
+`LayeringTests.InstructionDiff_DoesNotExpandInstructionSubstrate` gates that
+dependency direction and the assembly owner.
 
 ## Layer 0 / Layer 1
 
