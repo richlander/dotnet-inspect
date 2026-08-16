@@ -117,6 +117,7 @@ public sealed class NuGetDeadlineTests
                     message,
                     $$"""
                     {
+                      "version": "3.0.0",
                       "resources": [
                         {
                           "@id": "{{FlatContainerUrl}}",
@@ -566,6 +567,7 @@ public sealed class NuGetDeadlineTests
                         message,
                         $$"""
                         {
+                          "version": "3.0.0",
                           "resources": [
                             {
                               "@id": "{{FlatContainerUrl}}",
