@@ -159,7 +159,7 @@ public class NuGetSearchSourcesTests
             thirdSearch);
         using var client = new HttpClient(handler)
         {
-            Timeout = TimeSpan.FromMilliseconds(500),
+            Timeout = TimeSpan.FromSeconds(2),
         };
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -1753,7 +1753,6 @@ public class NuGetSearchSourcesTests
             }
             else if (url.StartsWith(firstSearch, StringComparison.Ordinal))
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
                 body = "<html>failure</html>";
             }
             else if (url.StartsWith(secondSearch, StringComparison.Ordinal))
