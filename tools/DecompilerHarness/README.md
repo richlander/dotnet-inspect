@@ -693,10 +693,12 @@ it also records each slot's printable identity from stable source provenance,
 transfer kind, and targets. A provenance-less synthesized transfer falls back
 to its owning IL block. After the pipeline, an imported slot is raised only
 when no equivalent residual transfer survives. A synthesized residual that
-does not correspond to an imported slot gets its own output-site identity, so
-rebuilding, reparenting, or reusing a goto is neutral while adding a printable
-transfer is a loss. Site rows use one compact, validated string per method so the full
-baseline stays below repository file-size limits.
+does not correspond to an imported slot gets its own output-site identity.
+Rebuilding or reusing an equivalent goto is neutral. Reparenting is neutral
+when the transfer retains source provenance; a provenance-less transfer uses
+its owning IL block as its identity, so cross-block movement remains visible.
+Adding a printable transfer is a loss. Site rows use one compact, validated
+string per method so the full baseline stays below repository file-size limits.
 
 Only fixed `nuget:` rows carry the ledger. The configured `NUGET_PACKAGES` root
 is normalized to the same portable `nuget:` identity as the default cache, and
@@ -715,15 +717,19 @@ compile-back fidelity, and focused output fixtures in the evidence set. A
 boundary absent from the corpus also remains absent from this gate, so the fast
 compiler-produced decline-boundary fixture is load-bearing. IL site identities
 are stable only within the exact pinned artifact; package upgrades require a
-reviewed baseline regeneration. Cards produced from an older baseline say that
-the pinned control-flow raise gate is unavailable rather than implying it ran.
-The enforcing tests are
+reviewed baseline regeneration. Older snapshots remain readable, but comparison
+against a pre-v6 baseline fails closed because that baseline cannot prove the
+site-level contract. The enforcing tests are
 `ControlFlowSiteLedger_ObservesCompilerProducedSwitchRaise`,
 `ControlFlowSiteLedger_TreatsRebuiltEquivalentTransferAsResidual`,
 `ControlFlowSiteLedger_TreatsReparentedEquivalentTransferAsResidual`,
 `Compare_ControlFlowLossCannotBeOffsetByUnrelatedGain`,
 `Compare_NewOutputResidualIsLossAndRemovedOutputResidualIsGain`, and the
 `Compare_ControlFlowGateFailsClosed*` / `ControlFlowSites_Reject*` families.
+`Compare_PreV6BaselineFailsClosedControlFlowGate` prevents compatibility reads
+from becoming success-shaped comparisons, and
+`ControlFlowSites_EmptySwitchOutputIdentityRoundTrips` gates the shared
+writer/reader grammar.
 
 Policy v1 rolls multiple causes up per method in this order:
 
@@ -958,18 +964,23 @@ from the per-method snapshots both baseline and current carry, so no baseline
 regen is required; it falls back to aggregate counts/rates when a snapshot lacks
 per-method detail.
 
-Pinned method outcomes are also non-offsettable regardless of snapshot schema:
-a previously `valid` method becoming invalid or a previously fully raised
-method acquiring residue is a hard regression even when another method improves
-and aggregate counts stay flat. The enforcing gates are
+Pinned method outcomes are also non-offsettable regardless of snapshot schema
+when both snapshots carry method ledgers: a previously `valid` method becoming
+invalid or a previously fully raised method acquiring residue is a hard
+regression even when another method improves and aggregate counts stay flat.
+Missing ledgers fail closed. A method that leaves the semantic sample is
+reported through coverage/sample disclosure rather than falsely classified as
+invalid. The enforcing gates are
 `Compare_PinnedValidityLossCannotBeOffsetByGain` and
-`Compare_PinnedFullyRaisedLossCannotBeOffsetByGain`.
+`Compare_PinnedFullyRaisedLossCannotBeOffsetByGain`, plus
+`Compare_PinnedMethodGateFailsClosedWithoutBaselineLedger` and
+`Compare_PinnedMethodGateFailsClosedWithoutCurrentLedger`.
 
 The schema-v6 control-flow-site gate is stricter than that aggregate fallback:
-it activates only when both snapshots carry the v6 ledger. Its card line reports
-lost and gained raises over stable sites, or explicitly says that the gate is
-unavailable for an older baseline. The non-card Deep Inspect path prints the
-same transition disclosure before its baseline verdict.
+it runs only when both snapshots carry the v6 ledger and fails comparison
+otherwise. Its card line reports lost and gained raises over stable sites or
+the exact input mismatch. The non-card Deep Inspect path prints the same
+transition disclosure before its baseline verdict.
 
 Expand the fixed corpus only after that targeting step shows a shape gap. Prefer
 deterministic, pinned assemblies that add many examples of the missing lowering

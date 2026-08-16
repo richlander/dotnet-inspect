@@ -63,6 +63,142 @@ internal sealed record CorpusControlFlowSiteSnapshot(
             or "end-filter";
 }
 
+internal static class CorpusControlFlowOutputIdentity
+{
+    const string OutputPrefix = "output@";
+    const string SourceMarker = "@source_IL_";
+    const string BlockMarker = "@block_IL_";
+
+    public static string FormatKey(
+        string kind,
+        bool source,
+        int ilOffset,
+        string targets)
+    {
+        if (!CorpusControlFlowSiteSnapshot.IsSupportedKind(kind)
+            || ilOffset < 0
+            || !IsValidTargets(kind, targets))
+        {
+            throw new InvalidOperationException(
+                $"Invalid control-flow output identity components "
+                + $"'{kind}', '{ilOffset}', '{targets}'.");
+        }
+
+        string marker = source ? SourceMarker : BlockMarker;
+        return $"{kind}{marker}{ilOffset:X4}->{targets}";
+    }
+
+    public static string Format(string key, int ordinal)
+    {
+        if (ordinal < 0 || !TryParseKey(key, out _, out _, out _))
+            throw new InvalidOperationException($"Invalid control-flow output key '{key}'.");
+        return $"{OutputPrefix}{key}#{ordinal}";
+    }
+
+    public static bool TryParse(
+        string identity,
+        out string kind,
+        out int ilOffset,
+        out int ordinal)
+    {
+        kind = "";
+        ilOffset = -1;
+        ordinal = -1;
+        if (!identity.StartsWith(OutputPrefix, StringComparison.Ordinal))
+            return false;
+
+        int ordinalMarker = identity.LastIndexOf('#');
+        if (ordinalMarker < OutputPrefix.Length
+            || !TryParseKey(
+                identity[OutputPrefix.Length..ordinalMarker],
+                out kind,
+                out ilOffset,
+                out _)
+            || !int.TryParse(
+                identity.AsSpan(ordinalMarker + 1),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out ordinal)
+            || ordinal < 0)
+        {
+            kind = "";
+            ilOffset = -1;
+            ordinal = -1;
+            return false;
+        }
+
+        return true;
+    }
+
+    public static bool TryParseKey(
+        string key,
+        out string kind,
+        out int ilOffset,
+        out bool source)
+    {
+        kind = "";
+        ilOffset = -1;
+        source = false;
+
+        int markerStart = key.IndexOf('@');
+        if (markerStart <= 0)
+            return false;
+        kind = key[..markerStart];
+        if (!CorpusControlFlowSiteSnapshot.IsSupportedKind(kind))
+            return false;
+
+        string marker;
+        if (key.AsSpan(markerStart).StartsWith(SourceMarker, StringComparison.Ordinal))
+        {
+            marker = SourceMarker;
+            source = true;
+        }
+        else if (key.AsSpan(markerStart).StartsWith(BlockMarker, StringComparison.Ordinal))
+        {
+            marker = BlockMarker;
+        }
+        else
+        {
+            return false;
+        }
+
+        int offsetStart = markerStart + marker.Length;
+        int arrow = key.IndexOf("->", offsetStart, StringComparison.Ordinal);
+        return arrow > offsetStart
+            && int.TryParse(
+                key.AsSpan(offsetStart, arrow - offsetStart),
+                NumberStyles.HexNumber,
+                CultureInfo.InvariantCulture,
+                out ilOffset)
+            && ilOffset >= 0
+            && IsValidTargets(kind, key.AsSpan(arrow + 2));
+    }
+
+    static bool IsValidTargets(string kind, ReadOnlySpan<char> targets)
+    {
+        if (kind is "end-finally" or "end-filter")
+            return targets.SequenceEqual("-");
+        if (targets.IsEmpty)
+            return kind == "switch-branch";
+
+        foreach (Range range in targets.Split(','))
+        {
+            ReadOnlySpan<char> target = targets[range];
+            if (!target.StartsWith("IL_", StringComparison.Ordinal)
+                || !int.TryParse(
+                    target[3..],
+                    NumberStyles.HexNumber,
+                    CultureInfo.InvariantCulture,
+                    out int offset)
+                || offset < 0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
 internal sealed class CorpusControlFlowSiteSnapshotsJsonConverter
     : JsonConverter<IReadOnlyList<CorpusControlFlowSiteSnapshot>>
 {
@@ -113,54 +249,14 @@ internal sealed class CorpusControlFlowSiteSnapshotsJsonConverter
         int ilOffset,
         int ordinal,
         string identity)
-    {
-        string sourcePrefix = $"output@{kind}@source_IL_";
-        string blockPrefix = $"output@{kind}@block_IL_";
-        string prefix = identity.StartsWith(sourcePrefix, StringComparison.Ordinal)
-            ? sourcePrefix
-            : blockPrefix;
-        int arrow = identity.IndexOf("->", StringComparison.Ordinal);
-        int ordinalMarker = identity.LastIndexOf('#');
-        return identity.StartsWith(prefix, StringComparison.Ordinal)
-            && arrow > prefix.Length
-            && int.TryParse(
-                identity.AsSpan(prefix.Length, arrow - prefix.Length),
-                NumberStyles.HexNumber,
-                CultureInfo.InvariantCulture,
-                out int identityOffset)
-            && identityOffset == ilOffset
-            && ordinalMarker > arrow + 2
-            && IsValidTargets(kind, identity.AsSpan(arrow + 2, ordinalMarker - arrow - 2))
-            && int.TryParse(
-                identity.AsSpan(ordinalMarker + 1),
-                NumberStyles.None,
-                CultureInfo.InvariantCulture,
+        => CorpusControlFlowOutputIdentity.TryParse(
+                identity,
+                out string identityKind,
+                out int identityOffset,
                 out int identityOrdinal)
+            && identityKind == kind
+            && identityOffset == ilOffset
             && identityOrdinal == ordinal;
-    }
-
-    static bool IsValidTargets(string kind, ReadOnlySpan<char> targets)
-    {
-        if (kind is "end-finally" or "end-filter")
-            return targets.SequenceEqual("-");
-        if (targets.IsEmpty)
-            return kind == "switch-branch";
-
-        foreach (Range range in targets.Split(','))
-        {
-            ReadOnlySpan<char> target = targets[range];
-            if (!target.StartsWith("IL_", StringComparison.Ordinal)
-                || !int.TryParse(
-                    target[3..],
-                    NumberStyles.HexNumber,
-                    CultureInfo.InvariantCulture,
-                    out _))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
 
     public override void Write(
         Utf8JsonWriter writer,

@@ -421,7 +421,7 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void Compare_PreV6BaselineDisclosesUnavailableControlFlowGate()
+    public void Compare_PreV6BaselineFailsClosedControlFlowGate()
     {
         var baseline = Snapshot(
             1,
@@ -437,6 +437,42 @@ public class CorpusSensorComparisonTests
             schemaVersion: 6);
 
         var transitions = CorpusSensor.PinnedControlFlowTransitions(baseline, current);
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+        string card = CorpusSensor.QualityDiffCardForTesting(
+            baseline,
+            current,
+            regressions);
+
+        Assert.True(transitions.Available);
+        Assert.Contains(
+            "control-flow site baseline schema is v5; expected v6 or later",
+            regressions);
+        Assert.Contains(
+            "Pinned control-flow raise gate: 1 comparison input mismatch(es); review required.",
+            card);
+    }
+
+    [Fact]
+    public void Compare_ProfileMismatchExplainsUnavailableControlFlowGate()
+    {
+        var baseline = Snapshot(
+            1,
+            0,
+            0,
+            pinnedMethods: null,
+            profile: CorpusProfile.OptInNet11);
+        var current = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: true)],
+            schemaVersion: 6);
+
+        var transitions = CorpusSensor.PinnedControlFlowTransitions(baseline, current);
         string card = CorpusSensor.QualityDiffCardForTesting(
             baseline,
             current,
@@ -444,7 +480,8 @@ public class CorpusSensorComparisonTests
 
         Assert.False(transitions.Available);
         Assert.Contains(
-            "Pinned control-flow raise gate: unavailable in this baseline schema.",
+            "Pinned control-flow raise gate: unavailable "
+                + "(requires matching real-world corpus profiles).",
             card);
     }
 
@@ -573,6 +610,29 @@ public class CorpusSensorComparisonTests
                 + "conditional-branch|48|0|0|output@conditional-branch@block_IL_0030-"
                 + "\\u003EIL_0040#0\"",
             json);
+        Assert.NotNull(restored);
+        Assert.Equal(method.ControlFlowSites, restored.ControlFlowSites);
+    }
+
+    [Fact]
+    public void ControlFlowSites_EmptySwitchOutputIdentityRoundTrips()
+    {
+        var method = SnapshotMethod("EmptySwitch") with
+        {
+            ControlFlowSites =
+            [
+                new(
+                    "switch-branch",
+                    0x10,
+                    0,
+                    Raised: false,
+                    OutputIdentity: "output@switch-branch@block_IL_0010->#0"),
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(method);
+        var restored = JsonSerializer.Deserialize<CorpusMethodSnapshot>(json);
+
         Assert.NotNull(restored);
         Assert.Equal(method.ControlFlowSites, restored.ControlFlowSites);
     }
@@ -793,12 +853,14 @@ public class CorpusSensorComparisonTests
             totalMethods: 100,
             fullyRaisedMethods: 90,
             fullyRaisedBasisPoints: 9000,
-            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0));
+            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0),
+            schemaVersion: 6);
         var current = Snapshot(
             totalMethods: 110,
             fullyRaisedMethods: 88,
             fullyRaisedBasisPoints: 8000,
-            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0));
+            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0),
+            schemaVersion: 6);
 
         var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
 
@@ -1071,6 +1133,55 @@ public class CorpusSensorComparisonTests
             regressions);
     }
 
+    [Theory]
+    [InlineData("not-sampled")]
+    [InlineData("syntax-valid")]
+    public void Compare_PinnedValidityCoverageChangeIsNotARegression(string currentValidity)
+    {
+        var baseline = Snapshot(
+            1,
+            1,
+            10_000,
+            [SnapshotMethod("Stable", validity: "valid")],
+            semanticCheckedMethods: 1);
+        var current = Snapshot(
+            1,
+            1,
+            10_000,
+            [SnapshotMethod("Stable", validity: currentValidity)],
+            semanticCheckedMethods: currentValidity == "syntax-valid" ? 0 : 1);
+
+        var regressions = CorpusSensor.PinnedMethodRegressions(baseline, current);
+
+        Assert.DoesNotContain(
+            regressions,
+            regression => regression.StartsWith(
+                "valid method regressed (pinned)",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_PinnedMethodGateFailsClosedWithoutBaselineLedger()
+    {
+        var baseline = Snapshot(1, 1, 10_000, pinnedMethods: null);
+        var current = Snapshot(1, 1, 10_000, [SnapshotMethod("Stable")]);
+
+        Assert.Contains(
+            "pinned method baseline has no method ledger",
+            CorpusSensor.PinnedMethodRegressions(baseline, current));
+    }
+
+    [Fact]
+    public void Compare_PinnedMethodGateFailsClosedWithoutCurrentLedger()
+    {
+        var baseline = Snapshot(1, 1, 10_000, [SnapshotMethod("Stable")]);
+        var current = Snapshot(1, 1, 10_000, pinnedMethods: null);
+
+        Assert.Contains(
+            "pinned method current snapshot has no method ledger",
+            CorpusSensor.PinnedMethodRegressions(baseline, current));
+    }
+
     [Fact]
     public void Compare_ControlFlowLossWithinSameMethodCannotBeOffset()
     {
@@ -1239,6 +1350,44 @@ public class CorpusSensorComparisonTests
         Assert.Equal(
             "nuget:newtonsoft.json/13.0.4/lib/net6.0/Newtonsoft.Json.dll",
             CorpusSensor.PortablePath(assembly, root));
+    }
+
+    [Fact]
+    public void PortablePath_DoesNotTreatConfiguredRootAncestorAsNuGetPackage()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "workspace-root");
+        string assembly = Path.Combine(
+            root,
+            "src",
+            "Product",
+            "release",
+            "Product.dll");
+
+        Assert.False(
+            CorpusSensor.PortablePath(assembly, root)
+                .StartsWith("nuget:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PortablePath_DefaultNuGetCacheIgnoresUnrelatedConfiguredRoot()
+    {
+        string assembly = Path.Combine(
+            Path.DirectorySeparatorChar.ToString(),
+            "home",
+            "runner",
+            ".nuget",
+            "packages",
+            "newtonsoft.json",
+            "13.0.4",
+            "lib",
+            "net6.0",
+            "Newtonsoft.Json.dll");
+
+        Assert.Equal(
+            "nuget:newtonsoft.json/13.0.4/lib/net6.0/Newtonsoft.Json.dll",
+            CorpusSensor.PortablePath(
+                assembly,
+                Path.Combine(Path.GetTempPath(), "custom-nuget-root")));
     }
 
     [Fact]
@@ -2165,7 +2314,8 @@ public class CorpusSensorComparisonTests
                 Residual: isConditional ? "structuring: conditional-branch" : isFullyRaised ? null : "fidelity: unsupported-node",
                 PassBug: null,
                 Validity: "not-sampled",
-                FidelityCheck: "not-sampled"));
+                FidelityCheck: "not-sampled",
+                ControlFlowSites: [new("branch", 0x10 + i, 0, Raised: true)]));
         }
         return methods.ToImmutable();
     }
@@ -2380,7 +2530,7 @@ public class CorpusSensorComparisonTests
             + "- Sample: hash-stable 100 methods per assembly\n\n"
             + "**Analysis**\n\n"
             + "- Correctness coverage: validity compiled 2 methods (compile-cap 2; per-sample, not corpus-wide); fidelity not run\n"
-            + "- Pinned control-flow raise gate: unavailable in this baseline schema.\n"
+            + "- Pinned control-flow raise gate: 1 comparison input mismatch(es); review required.\n"
             + "- Current measured debt: 900 methods with detected lowering residue; 42 malformed Full methods; 1 semantic defect among 2 checked.\n"
             + "- Regression verdict: FAIL — corpus sensor reported regressions; review before merging.\n",
             card);

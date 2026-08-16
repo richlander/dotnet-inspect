@@ -410,9 +410,12 @@ internal static class CorpusSensor
                 string? passBug = null;
                 FidelityCauseBuckets.Census? fidelityCensus = null;
                 ImmutableArray<CorpusControlFlowSiteSnapshot>? controlFlowSites = null;
-                var controlFlowCandidates = CaptureControlFlowCandidates(function);
+                bool captureControlFlow = IsPinnedAssembly(portablePath);
                 try
                 {
+                    var controlFlowCandidates = captureControlFlow
+                        ? CaptureControlFlowCandidates(function)
+                        : [];
                     if (profile == CorpusProfile.OptInNet11)
                     {
                         var stages = IrPasses.RunWithStages(function);
@@ -443,21 +446,13 @@ internal static class CorpusSensor
                         IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(method => IrImporter.Import(source, method)));
                     }
 
-                    var controlFlowLedger = FinalizeControlFlowSites(function, controlFlowCandidates);
-                    if (controlFlowLedger.Error is not null)
-                    {
-                        Interlocked.Increment(ref passBugs);
-                        passBug = controlFlowLedger.Error;
-                    }
-                    else
-                    {
-                        controlFlowSites = controlFlowLedger.Sites;
-                    }
+                    if (captureControlFlow)
+                        controlFlowSites = FinalizeControlFlowSites(function, controlFlowCandidates);
                 }
                 catch (Exception ex)
                 {
                     Interlocked.Increment(ref passBugs);
-                    passBug = ex.GetType().Name;
+                    passBug = $"{ex.GetType().Name}: {ex.Message}";
                 }
 
                 if (passBug is null)
@@ -515,7 +510,7 @@ internal static class CorpusSensor
                             .ThenBy(static cause => cause.Discriminator, StringComparer.Ordinal)
                             .ToImmutableArray()
                         : null,
-                    ControlFlowSites: passBug is null && IsPinnedAssembly(portablePath)
+                    ControlFlowSites: passBug is null && captureControlFlow
                         ? controlFlowSites
                         : null));
             });
@@ -541,10 +536,6 @@ internal static class CorpusSensor
         int Ordinal,
         string OutputKey);
 
-    readonly record struct ControlFlowLedgerResult(
-        ImmutableArray<CorpusControlFlowSiteSnapshot>? Sites,
-        string? Error);
-
     static ImmutableArray<ControlFlowCandidate> CaptureControlFlowCandidates(IrFunction function)
     {
         var ordinals = new Dictionary<(string Kind, int IlOffset), int>();
@@ -568,7 +559,7 @@ internal static class CorpusSensor
         return candidates.ToImmutable();
     }
 
-    static ControlFlowLedgerResult FinalizeControlFlowSites(
+    static ImmutableArray<CorpusControlFlowSiteSnapshot>? FinalizeControlFlowSites(
         IrFunction function,
         ImmutableArray<ControlFlowCandidate> candidates)
     {
@@ -602,7 +593,7 @@ internal static class CorpusSensor
                     ControlFlowOutputSiteOffset(outputKey),
                     i,
                     Raised: false,
-                    OutputIdentity: $"output@{outputKey}#{i}"));
+                    OutputIdentity: CorpusControlFlowOutputIdentity.Format(outputKey, i)));
             }
         }
 
@@ -626,38 +617,26 @@ internal static class CorpusSensor
             .ThenBy(static site => site.Ordinal)
             .ThenBy(static site => site.StableKey, StringComparer.Ordinal)
             .ToImmutableArray();
-        return new(finalized.IsEmpty ? null : finalized, null);
+        return finalized.IsEmpty ? null : finalized;
     }
 
     static string ControlFlowOutputKind(string outputKey)
-    {
-        int separator = outputKey.IndexOf('@');
-        return separator > 0
-            ? outputKey[..separator]
+        => CorpusControlFlowOutputIdentity.TryParseKey(
+            outputKey,
+            out string kind,
+            out _,
+            out _)
+            ? kind
             : throw new InvalidOperationException($"Invalid control-flow output key '{outputKey}'.");
-    }
 
     static int ControlFlowOutputSiteOffset(string outputKey)
-    {
-        const string sourceMarker = "@source_IL_";
-        const string blockMarker = "@block_IL_";
-        string marker = outputKey.Contains(sourceMarker, StringComparison.Ordinal)
-            ? sourceMarker
-            : blockMarker;
-        int start = outputKey.IndexOf(marker, StringComparison.Ordinal);
-        int end = outputKey.IndexOf("->", StringComparison.Ordinal);
-        if (start < 0
-            || end <= start + marker.Length
-            || !int.TryParse(
-                outputKey.AsSpan(start + marker.Length, end - start - marker.Length),
-                NumberStyles.HexNumber,
-                CultureInfo.InvariantCulture,
-                out int offset))
-        {
-            throw new InvalidOperationException($"Invalid control-flow output key '{outputKey}'.");
-        }
-        return offset;
-    }
+        => CorpusControlFlowOutputIdentity.TryParseKey(
+            outputKey,
+            out _,
+            out int offset,
+            out _)
+            ? offset
+            : throw new InvalidOperationException($"Invalid control-flow output key '{outputKey}'.");
 
     static string? ControlFlowKind(IrNode node) => node switch
     {
@@ -687,12 +666,20 @@ internal static class CorpusSensor
             _ => throw new InvalidOperationException($"Unsupported control-flow node '{node.GetType().Name}'."),
         };
         if (node.SourceOffset >= 0)
-            return $"{kind}@source_IL_{node.SourceOffset:X4}->{targets}";
+            return CorpusControlFlowOutputIdentity.FormatKey(
+                kind,
+                source: true,
+                node.SourceOffset,
+                targets);
 
         var block = ContainingBlock(node);
         if (block is null)
             return null;
-        return $"{kind}@block_IL_{block.StartOffset:X4}->{targets}";
+        return CorpusControlFlowOutputIdentity.FormatKey(
+            kind,
+            source: false,
+            block.StartOffset,
+            targets);
     }
 
     static Block? ContainingBlock(IrNode node)
@@ -712,10 +699,7 @@ internal static class CorpusSensor
     {
         var candidates = CaptureControlFlowCandidates(function);
         IrPasses.Run(function, passes, context);
-        var result = FinalizeControlFlowSites(function, candidates);
-        if (result.Error is not null)
-            throw new InvalidOperationException(result.Error);
-        return result.Sites ?? [];
+        return FinalizeControlFlowSites(function, candidates) ?? [];
     }
 
     internal static ImmutableSortedDictionary<string, ClassicStateMachineFeatureMetrics>
@@ -1531,24 +1515,38 @@ internal static class CorpusSensor
     internal static string PortablePath(string path, string? nugetPackagesRoot)
     {
         var full = Path.GetFullPath(path).Replace('\\', '/');
+        const string nugetMarker = "/.nuget/packages/";
+        int nuget = full.IndexOf(nugetMarker, StringComparison.OrdinalIgnoreCase);
+        if (nuget >= 0)
+            return $"nuget:{full[(nuget + nugetMarker.Length)..]}";
+
         if (!string.IsNullOrWhiteSpace(nugetPackagesRoot))
         {
             string configuredRoot = Path.GetFullPath(nugetPackagesRoot)
                 .Replace('\\', '/')
                 .TrimEnd('/');
             if (full.StartsWith(configuredRoot + "/", StringComparison.OrdinalIgnoreCase))
-                return $"nuget:{full[(configuredRoot.Length + 1)..]}";
+            {
+                string relative = full[(configuredRoot.Length + 1)..];
+                if (LooksLikeNuGetPackagePath(relative))
+                    return $"nuget:{relative}";
+            }
         }
-
-        const string nugetMarker = "/.nuget/packages/";
-        int nuget = full.IndexOf(nugetMarker, StringComparison.OrdinalIgnoreCase);
-        if (nuget >= 0)
-            return $"nuget:{full[(nuget + nugetMarker.Length)..]}";
 
         var cwd = Path.GetFullPath(Environment.CurrentDirectory).Replace('\\', '/').TrimEnd('/');
         if (full.StartsWith(cwd + "/", StringComparison.Ordinal))
             return full[(cwd.Length + 1)..];
         return Path.GetFileName(path);
+    }
+
+    static bool LooksLikeNuGetPackagePath(string relativePath)
+    {
+        string[] segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length >= 3
+            && segments[0].Length > 0
+            && segments[1].Length > 0
+            && char.IsAsciiDigit(segments[1][0])
+            && segments[1].Contains('.', StringComparison.Ordinal);
     }
 
     internal static ImmutableArray<string> Compare(
@@ -1746,12 +1744,15 @@ internal static class CorpusSensor
         CorpusSensorSnapshot current)
     {
         if (baseline.Profile != CorpusProfile.RealWorld
-            || current.Profile != CorpusProfile.RealWorld
-            || baseline.Methods is null
-            || current.Methods is null)
+            || current.Profile != CorpusProfile.RealWorld)
         {
             return [];
         }
+
+        if (baseline.Methods is null)
+            return ["pinned method baseline has no method ledger"];
+        if (current.Methods is null)
+            return ["pinned method current snapshot has no method ledger"];
 
         var baselineMethods = baseline.Methods
             .Where(static method => IsPinnedAssembly(method.AssemblyPath))
@@ -1779,8 +1780,11 @@ internal static class CorpusSensor
                 string outcome = after.PassBug ?? after.Residual ?? after.Fidelity;
                 failures.Add($"fully raised method lost (pinned): {methodKey} -> {outcome}");
             }
-            if (before.Validity == "valid" && after.Validity != "valid")
+            if (before.Validity == "valid"
+                && after.Validity is not ("valid" or "not-sampled" or "syntax-valid"))
+            {
                 failures.Add($"valid method regressed (pinned): {methodKey} -> {after.Validity}");
+            }
         }
         return failures.ToImmutable();
     }
@@ -1792,10 +1796,15 @@ internal static class CorpusSensor
         if (baseline.Profile != CorpusProfile.RealWorld
             || current.Profile != CorpusProfile.RealWorld)
         {
-            return ControlFlowTransitionSummary.Unavailable;
+            return ControlFlowTransitionSummary.Unavailable(
+                "requires matching real-world corpus profiles");
         }
         if (baseline.SchemaVersion < 6)
-            return ControlFlowTransitionSummary.Unavailable;
+        {
+            return ControlFlowTransitionSummary.Invalid(
+                $"control-flow site baseline schema is v{baseline.SchemaVersion}; "
+                + "expected v6 or later");
+        }
         if (current.SchemaVersion < 6)
         {
             return ControlFlowTransitionSummary.Invalid(
@@ -2423,7 +2432,7 @@ internal static class CorpusSensor
                     + $"{Number(transitions.MatchedSites)} stable sites."
                 : $"Pinned control-flow raise gate: {transitions.SampleMismatches.Length} "
                     + "comparison input mismatch(es); review required."
-            : "Pinned control-flow raise gate: unavailable in this baseline schema.";
+            : $"Pinned control-flow raise gate: unavailable ({transitions.UnavailableReason}).";
 
     static string RenderQualityDiffCard(
         CorpusSensorSnapshot baseline,
@@ -3337,14 +3346,16 @@ internal sealed record ControlFlowTransitionSummary(
     int MatchedSites,
     ImmutableArray<string> SampleMismatches,
     ImmutableArray<string> Losses,
-    ImmutableArray<string> Gains)
+    ImmutableArray<string> Gains,
+    string? UnavailableReason = null)
 {
-    public static ControlFlowTransitionSummary Unavailable { get; } = new(
+    public static ControlFlowTransitionSummary Unavailable(string reason) => new(
         Available: false,
         MatchedSites: 0,
         SampleMismatches: [],
         Losses: [],
-        Gains: []);
+        Gains: [],
+        UnavailableReason: reason);
 
     public static ControlFlowTransitionSummary Invalid(string message) => new(
         Available: true,

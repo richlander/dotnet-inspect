@@ -1057,10 +1057,13 @@ add to the step-4 plan:
    is output-visible: matching uses source provenance, transfer kind, and
    targets, with the owning IL block as the fallback for provenance-less
    synthesized transfers. Unmatched residuals receive stable output-site
-   identities. Reusing, reparenting, or rebuilding an equivalent retained goto
-   is therefore neutral; adding a printable residual is a loss. On fixed NuGet artifacts,
-   every loss fails independently of unrelated gains, and pinned method,
-   imported-site, or empty-domain drift fails closed. The named gates are
+   identities. Reusing or rebuilding an equivalent retained goto is neutral;
+   reparenting is neutral when source provenance remains available. A
+   provenance-less transfer is intentionally keyed to its owning IL block, so
+   cross-block movement remains visible. Adding a printable residual is a loss.
+   On fixed NuGet artifacts, every loss fails independently of unrelated gains,
+   and pinned method, imported-site, or empty-domain drift fails closed. The
+   named gates are
    `ControlFlowSiteLedger_ObservesCompilerProducedSwitchRaise`,
    `ControlFlowSiteLedger_TreatsRebuiltEquivalentTransferAsResidual`,
    `ControlFlowSiteLedger_TreatsReparentedEquivalentTransferAsResidual`,
