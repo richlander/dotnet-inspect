@@ -3596,6 +3596,25 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void NestedDoWhileWithBranchingBody_RaisesBothLoops()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.NestedDoWhileWithBranchingBody));
+        Assert.NotNull(function);
+
+        IrPasses.Run(function);
+
+        Assert.Equal(2, function.Descendants.OfType<DoWhileLoop>().Count());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void ExternalEntryToMultiBlockDoWhileHeader_Raises()
     {
         var function = ExternalEntryIntoMultiBlockLoop(entryTarget: 10);

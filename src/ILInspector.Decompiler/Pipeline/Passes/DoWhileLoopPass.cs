@@ -23,7 +23,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <c>NestedExternalEntryIntoMultiBlockDoWhileBody_StaysFlat</c>, and
 /// <c>SwitchOwnedBreakExitingLateDoWhileCandidate_StaysOwnedBySwitch</c>;
 /// <c>NestedSwitchBreakInsideDoWhileCandidate_KeepsOwnerAndRaises</c> pins the
-/// accepted locally owned boundary.
+/// accepted locally owned boundary, while
+/// <c>NestedDoWhileWithBranchingBody_RaisesBothLoops</c> pins local transfers
+/// inside an already-raised nested container.
 /// </summary>
 public sealed class DoWhileLoopPass : IIrPass
 {
@@ -61,7 +63,7 @@ public sealed class DoWhileLoopPass : IIrPass
             }
 
             if (best is { } loop
-                && Validate(blocks, offsetToIndex, loop.Header, loop.Bottom, loop.Edge))
+                && Validate(container, blocks, offsetToIndex, loop.Header, loop.Bottom, loop.Edge))
             {
                 Wrap(container, loop.Header, loop.Bottom, loop.Edge, stepper);
                 return true;
@@ -79,7 +81,9 @@ public sealed class DoWhileLoopPass : IIrPass
     /// an owner inside the region after it moves.
     /// </summary>
     static bool Validate(
-        IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex,
+        BlockContainer container,
+        IReadOnlyList<Block> blocks,
+        Dictionary<int, int> offsetToIndex,
         int header, int bottom, ConditionalBranch backEdge)
     {
         // The loop exits, normally, by falling through past the bottom test to
@@ -102,6 +106,8 @@ public sealed class DoWhileLoopPass : IIrPass
 
                 foreach (int targetOffset in Targets(node))
                 {
+                    if (InterveningContainerOwnsTarget(node, container, targetOffset))
+                        continue;
                     if (!offsetToIndex.TryGetValue(targetOffset, out int target))
                         return false;   // a branch leaving the container — out of slice
                     bool targetInside = target >= header && target <= bottom;
@@ -124,6 +130,24 @@ public sealed class DoWhileLoopPass : IIrPass
             }
         }
         return true;
+    }
+
+    static bool InterveningContainerOwnsTarget(
+        IrNode transfer,
+        BlockContainer candidateContainer,
+        int targetOffset)
+    {
+        for (var ancestor = transfer.Parent;
+            ancestor is not null && !ReferenceEquals(ancestor, candidateContainer);
+            ancestor = ancestor.Parent)
+        {
+            if (ancestor is BlockContainer nested
+                && nested.Blocks.Any(block => block.StartOffset == targetOffset))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     static IEnumerable<int> Targets(IrNode node) => node switch
