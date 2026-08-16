@@ -51,6 +51,50 @@ public class CallerLoopFixture
         return result;
     }
 
+    public int TraverseWithSequenceScan(int[] values, int depth)
+    {
+        int result = 0;
+        foreach (int child in GetTraversalChildren(values, depth))
+        {
+            result += child;
+            if (depth > 0)
+                result += TraverseWithSequenceScan(values, depth - 1);
+        }
+        return result;
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> GetTraversalChildren(
+        System.Collections.Generic.IEnumerable<int> values,
+        int depth)
+        => System.Linq.Enumerable.Where(values, value => value < depth);
+
+    public static System.Collections.Generic.IEnumerable<int> GetChildrenOutsideTraversal(
+        System.Collections.Generic.IEnumerable<int> values,
+        int depth)
+        => System.Linq.Enumerable.Where(values, value => value < depth);
+
+    public Delegate LoadScanFunctionDuringTraversal(int[] values, int depth)
+    {
+        foreach (int value in values)
+        {
+            if (depth > 0)
+                _ = LoadScanFunctionDuringTraversal(values, depth - 1);
+        }
+        return new Func<
+            System.Collections.Generic.IEnumerable<int>,
+            int,
+            System.Collections.Generic.IEnumerable<int>>(
+                GetChildrenOutsideTraversal);
+    }
+
+    public static int EnumerateChildrenOnce(int[] values, int depth)
+    {
+        int result = 0;
+        foreach (int child in GetChildrenOutsideTraversal(values, depth))
+            result += child;
+        return result;
+    }
+
     public object? TraverseConditionally(int[] values, int depth, bool enabled)
     {
         object? result = BuildConditionalTraversalNode(enabled, depth);

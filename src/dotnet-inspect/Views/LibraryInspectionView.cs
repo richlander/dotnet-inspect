@@ -818,8 +818,8 @@ public class LibraryInspectionView
 
     // Kind-scoped performance sections. The optimization-opportunity scan is holistic; each
     // section renders the subset whose shape maps to it (see PerformanceKinds) with a tight,
-    // human column set. Rows arrive pre-ordered by triage priority (in-loop first, then
-    // confidence, then root reach). Deep per-row diagnostics remain in the JSON projection.
+    // human column set. Rows arrive pre-ordered by triage priority. Deep per-row diagnostics
+    // remain in the JSON projection.
     // Each section is absent when its kind has no findings (il-offset context-section model).
     private List<PerformanceRow>? PerformanceRowsFor(string section)
     {
@@ -832,29 +832,32 @@ public class LibraryInspectionView
                 string.IsNullOrEmpty(o.Loop) ? null : o.Loop,
                 o.RootReach.ToString(),
                 o.Weight,
+                o.Priority,
                 o.Confidence))
             .ToList();
         return rows is { Count: > 0 } ? rows : null;
     }
 
-    // Flattens the selected performance kind sections into one kind-labeled list for tabular group
-    // output. Iterates PerformanceKinds.Sections (curated order) so rows stay grouped by kind, and
-    // reuses PerformanceRowsFor so the per-kind rows, ordering, and inline-code spelling are identical
-    // to the markdown sections — only a leading Kind label is added.
+    // Flattens selected performance kinds without regrouping them. The source list is globally
+    // ranked, so preserving that order ensures --top and the first rendered rows agree.
     internal List<PerformanceGroupRow> PerformanceGroupRows(IReadOnlyCollection<string> selectedSections)
     {
         var rows = new List<PerformanceGroupRow>();
-        foreach (var section in PerformanceKinds.Sections)
+        foreach (var opportunity in _data.OptimizationOpportunities ?? [])
         {
+            var section = PerformanceKinds.SectionForShape(opportunity.Shape);
             if (!selectedSections.Contains(section))
                 continue;
-            var kindRows = PerformanceRowsFor(section);
-            if (kindRows is null)
-                continue;
-            var label = PerformanceKinds.KindLabel(section);
-            foreach (var row in kindRows)
-                rows.Add(new PerformanceGroupRow(
-                    label, row.Member, row.Evidence, row.Allocation, row.Loop, row.Reach, row.Weight, row.Confidence));
+            rows.Add(new PerformanceGroupRow(
+                PerformanceKinds.KindLabel(section),
+                MarkoutInline.Code(opportunity.Member),
+                MarkoutInline.Code(opportunity.Evidence),
+                opportunity.Allocation is null ? null : MarkoutInline.Code(opportunity.Allocation),
+                string.IsNullOrEmpty(opportunity.Loop) ? null : opportunity.Loop,
+                opportunity.RootReach.ToString(),
+                opportunity.Weight,
+                opportunity.Priority,
+                opportunity.Confidence));
         }
         return rows;
     }
@@ -1586,6 +1589,7 @@ public record PerformanceRow(
     string? Loop,
     string Reach,
     string? Weight,
+    string Priority,
     string Confidence)
 {
     // All or none, in constructor order — see UnsafeMemberRow.
@@ -1607,6 +1611,9 @@ public record PerformanceRow(
     public string? Weight { get; init; } = LibraryViewText.Contain(Weight);
 
     /// <inheritdoc cref="LibraryViewText"/>
+    public string Priority { get; init; } = LibraryViewText.Contain(Priority);
+
+    /// <inheritdoc cref="LibraryViewText"/>
     public string Confidence { get; init; } = LibraryViewText.Contain(Confidence);
 }
 
@@ -1624,6 +1631,7 @@ public record PerformanceGroupRow(
     [property: MarkoutSkipNull] string? Loop,
     string Reach,
     [property: MarkoutSkipNull] string? Weight,
+    string Priority,
     string Confidence);
 
 /// <summary>

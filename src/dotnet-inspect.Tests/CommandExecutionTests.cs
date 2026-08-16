@@ -1401,6 +1401,22 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceTriageFilters_AutoSelectHomogeneousPerformanceRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--where", "Priority>=low",
+            "--top", "1",
+            "--tsv",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("member\t", output);
+        Assert.Single(output.TrimEnd().Split('\n').Skip(1));
+    }
+
+    [Fact]
     public async Task PerformanceTriageWhere_FiltersByPostDominance()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -13006,7 +13022,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Confidence | column |", output);
         // Row-query fields remain discoverable (shared triage filter/sort engine).
         Assert.Contains("| Triage desc | default-order |", output);
-        Assert.Contains("| Loop desc | order-step |", output);
+        Assert.Contains("| Priority desc (high &gt; medium &gt; low) | order-step |", output);
         Assert.Contains("| Shape | filterable |", output);
         Assert.Contains("| RootReach | sortable |", output);
         Assert.Contains("| OncePaths | sortable |", output);

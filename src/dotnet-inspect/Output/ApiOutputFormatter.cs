@@ -2309,9 +2309,17 @@ public static class ApiOutputFormatter
             : null;
         var rows = LibraryMetadataService.FilterAndOrderTriageOpportunities(
                 LibraryMetadataService.TriageOpportunities(index, options)
-                    .Where(opportunity => ApiAnalysisInspection.SameType(opportunity.Method.DeclaringType, type))
-                    .Where(opportunity => !LibraryMetadataService.IsGeneratedMethod(opportunity.Method, index.GeneratedFrameworkTypeNames))
-                    .Where(opportunity => memberTokens is null || memberTokens.Contains(opportunity.Method.MetadataToken)),
+                    .Where(opportunity => ApiAnalysisInspection.SameType(
+                        (opportunity.SourceOwner ?? opportunity.Method)
+                            .DeclaringType,
+                        type))
+                    .Where(opportunity => LibraryMetadataService.IncludePerformanceOpportunity(
+                        opportunity,
+                        index.GeneratedFrameworkTypeNames))
+                    .Where(opportunity => memberTokens is null
+                        || memberTokens.Contains(
+                            (opportunity.SourceOwner ?? opportunity.Method)
+                                .MetadataToken)),
                 options)
             .Select(opportunity => new OptimizationOpportunityRow(
                 MarkoutInline.Code(FormatMember(null, opportunity.Method.Name, opportunity.Method.ParameterTypes, [])),
@@ -2324,6 +2332,7 @@ public static class ApiOutputFormatter
                 opportunity.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null,
                 MarkoutInline.Code(opportunity.Evidence),
                 opportunity.SafeFixDirection,
+                LibraryMetadataService.TriagePriority(opportunity),
                 opportunity.Confidence,
                 LibraryMetadataService.IteratesInLoop(opportunity) ? "loop" : "",
                 LibraryMetadataService.FormatCallerLoop(opportunity.CallerLoop),
