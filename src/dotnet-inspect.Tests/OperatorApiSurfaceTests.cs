@@ -133,6 +133,11 @@ public sealed class OperatorApiSurfaceTests
             Define("op_BitwiseOr", Operator, [builder], builder);
             // C# operators cannot return by reference.
             Define("op_LeftShift", Operator, [builder, typeof(int)], builder.MakeByRefType());
+            // A conversion cannot convert the declaring type to itself (CS0555).
+            Define("op_CheckedExplicit", Operator, [builder], builder);
+            // Increment/decrement must return the operand type or a derived type.
+            Define("op_Increment", Operator, [builder], typeof(int));
+            Define("op_Decrement", Operator, [builder], builder);
             // C# permits comparison operators to return any type; only
             // true/false operators require bool.
             Define("op_Equality", Operator, [builder, builder], builder);
@@ -152,6 +157,9 @@ public sealed class OperatorApiSurfaceTests
         Assert.False(image.IsCSharpOperatorDeclaration("op_BitwiseAnd"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_BitwiseOr"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_LeftShift"));
+        Assert.False(image.IsCSharpOperatorDeclaration("op_CheckedExplicit"));
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Increment"));
+        Assert.True(image.IsCSharpOperatorDeclaration("op_Decrement"));
         Assert.True(image.IsCSharpOperatorDeclaration("op_Equality"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_True"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_Explicit"));
@@ -161,7 +169,8 @@ public sealed class OperatorApiSurfaceTests
         foreach (string name in new[]
         {
             "op_Addition", "op_Subtraction", "op_Multiply", "op_Division",
-            "op_Modulus", "op_BitwiseAnd", "op_BitwiseOr", "op_LeftShift", "op_Equality",
+            "op_Modulus", "op_BitwiseAnd", "op_BitwiseOr", "op_LeftShift",
+            "op_CheckedExplicit", "op_Increment", "op_Decrement", "op_Equality",
             "op_True", "op_Implicit", "op_Explicit",
         })
         {
@@ -185,6 +194,93 @@ public sealed class OperatorApiSurfaceTests
                 il.Emit(OpCodes.Ret);
             },
             "System.Int32");
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Addition"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RequiresExactDeclaringTypeInstantiation()
+    {
+        using var image = OperatorImage.Build(
+            builder =>
+            {
+                var parameter = Assert.Single(builder.DefineGenericParameters("T"));
+                var self = builder.MakeGenericType(parameter);
+                var closed = builder.MakeGenericType(typeof(int));
+                var method = builder.DefineMethod(
+                    "op_Addition",
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    self,
+                    [closed, closed]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+            },
+            "Container`1");
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Addition"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RequiresExactSelfConstraint()
+    {
+        using var image = OperatorImage.BuildModule(
+            module =>
+            {
+                var other = module.DefineType(
+                    "Other",
+                    TypeAttributes.Public
+                        | TypeAttributes.Sealed
+                        | TypeAttributes.SequentialLayout,
+                    typeof(ValueType));
+                var contract = module.DefineType(
+                    "IContract`1",
+                    TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+                var parameter = Assert.Single(contract.DefineGenericParameters("T"));
+                parameter.SetInterfaceConstraints(contract.MakeGenericType(other));
+                contract.DefineMethod(
+                    "op_Addition",
+                    MethodAttributes.Public
+                        | MethodAttributes.Static
+                        | MethodAttributes.Abstract
+                        | MethodAttributes.Virtual
+                        | MethodAttributes.SpecialName,
+                    parameter,
+                    [parameter, parameter]);
+                other.CreateType();
+                contract.CreateType();
+            },
+            "IContract`1");
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Addition"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsNullableLookalike()
+    {
+        using var image = OperatorImage.BuildModule(
+            module =>
+            {
+                var nullable = module.DefineType(
+                    "System.Nullable`1",
+                    TypeAttributes.Public | TypeAttributes.Class);
+                nullable.DefineGenericParameters("T");
+                var declaring = module.DefineType(
+                    "NullableConsumer",
+                    TypeAttributes.Public | TypeAttributes.Class);
+                var wrapped = nullable.MakeGenericType(declaring);
+                var method = declaring.DefineMethod(
+                    "op_Addition",
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    declaring,
+                    [wrapped, wrapped]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+                nullable.CreateType();
+                declaring.CreateType();
+            },
+            "NullableConsumer");
 
         Assert.False(image.IsCSharpOperatorDeclaration("op_Addition"));
     }
@@ -285,6 +381,24 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
+    public void CSharpOperatorDeclaration_AcceptsDerivedIncrementReturn()
+    {
+        using var stream = File.OpenRead(typeof(DerivedIncrementBase).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = Assert.Single(
+            reader.TypeDefinitions,
+            handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == nameof(DerivedIncrementBase));
+        var method = Assert.Single(
+            reader.GetTypeDefinition(typeHandle).GetMethods()
+                .Select(reader.GetMethodDefinition),
+            candidate => reader.GetString(candidate.Name) == "op_Increment");
+
+        Assert.True(OperatorMetadata.IsCSharpOperatorDeclaration(reader, method));
+    }
+
+    [Fact]
     public void CSharpOperatorDeclaration_AcceptsNullableSelfConstrainedOperands()
     {
         using var stream = File.OpenRead(typeof(NullableSelfConstrainedOperator<>).Assembly.Location);
@@ -314,6 +428,13 @@ public sealed class OperatorApiSurfaceTests
     {
         static abstract T? operator +(T? left, T? right);
     }
+
+    public class DerivedIncrementBase
+    {
+        public static DerivedIncrementResult operator ++(DerivedIncrementBase value) => new();
+    }
+
+    public sealed class DerivedIncrementResult : DerivedIncrementBase;
 
     sealed class OperatorImage : IDisposable
     {
@@ -357,6 +478,22 @@ public sealed class OperatorApiSurfaceTests
             type.CreateType();
             assembly.Save(path);
             return new OperatorImage(path, typeName);
+        }
+
+        public static OperatorImage BuildModule(
+            Action<ModuleBuilder> define,
+            string targetTypeName)
+        {
+            string path = Path.Combine(
+                Path.GetTempPath(),
+                $"operator-surface-{Guid.NewGuid():N}.dll");
+            var assembly = new PersistedAssemblyBuilder(
+                new AssemblyName("OperatorSurface"),
+                typeof(object).Assembly);
+            var module = assembly.DefineDynamicModule("OperatorSurface");
+            define(module);
+            assembly.Save(path);
+            return new OperatorImage(path, targetTypeName);
         }
 
         public MemberAnchor Anchor(string methodName)

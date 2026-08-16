@@ -63,21 +63,39 @@ public static class OperatorMetadata
         if (declaringHandle.IsNil)
             return false;
         var declaringType = reader.GetTypeDefinition(declaringHandle);
-        var declaringIdentity = OperatorSignatureType.ForDefinition(reader, declaringHandle);
+        var declaringIdentity = OperatorSignatureType.ForDeclaringType(reader, declaringHandle);
         var selfConstrainedTypeParameters = SelfConstrainedTypeParameters(
             reader,
             declaringType,
             declaringIdentity);
 
         bool anyParameterIsDeclaringType = false;
-        bool hasRefOrOutParameter = false;
+        bool hasByRefParameter = false;
         for (int i = 0; i < signature.ParameterTypes.Length; i++)
         {
             var parameterType = signature.ParameterTypes[i];
-            if (parameterType.IsByRef && !IsInParameter(reader, method, i))
-                hasRefOrOutParameter = true;
+            if (parameterType.IsByRef)
+                hasByRefParameter = true;
             if (parameterType.Matches(declaringIdentity, selfConstrainedTypeParameters))
                 anyParameterIsDeclaringType = true;
+        }
+
+        if (OperatorNames.IsConversionOperatorMethodName(name)
+            && signature.ParameterTypes is [var conversionSource]
+            && conversionSource.MatchesExactly(signature.ReturnType))
+        {
+            return false;
+        }
+
+        if (name is
+                "op_Increment"
+                or "op_Decrement"
+                or "op_CheckedIncrement"
+                or "op_CheckedDecrement"
+            && signature.ParameterTypes is [var operand]
+            && !IsSameOrDerivedFrom(reader, signature.ReturnType, operand))
+        {
+            return false;
         }
 
         return OperatorNames.IsCSharpOperatorDeclaration(
@@ -90,7 +108,7 @@ public static class OperatorMetadata
                     ? "bool"
                     : "",
             signature.ParameterTypes.Length,
-            hasRefOrOutParameter,
+            hasByRefParameter,
             OperatorNames.DeclaringTypeParticipates(
                 name,
                 anyParameterIsDeclaringType,
@@ -116,7 +134,7 @@ public static class OperatorMetadata
             foreach (var constraintHandle in parameter.GetConstraints())
             {
                 var constraint = reader.GetGenericParameterConstraint(constraintHandle);
-                if (ReadType(reader, constraint.Type).MatchesDefinition(declaringIdentity))
+                if (ReadType(reader, constraint.Type).MatchesExactly(declaringIdentity))
                 {
                     result.Add(parameter.Index);
                     break;
@@ -145,16 +163,35 @@ public static class OperatorMetadata
             _ => OperatorSignatureTypeProvider.Opaque,
         };
 
-    static bool IsInParameter(MetadataReader reader, MethodDefinition method, int index)
+    static bool IsSameOrDerivedFrom(
+        MetadataReader reader,
+        OperatorSignatureType candidate,
+        OperatorSignatureType requiredBase)
     {
-        foreach (var handle in method.GetParameters())
+        if (candidate.MatchesExactly(requiredBase))
+            return true;
+
+        var visited = new HashSet<TypeDefinitionHandle>();
+        for (int depth = 0; depth < 64; depth++)
         {
-            var parameter = reader.GetParameter(handle);
-            if (parameter.SequenceNumber - 1 != index)
-                continue;
-            var parameterAttributes = parameter.Attributes;
-            return (parameterAttributes & ParameterAttributes.In) != 0
-                && (parameterAttributes & ParameterAttributes.Out) == 0;
+            if (candidate.Identity.Kind != HandleKind.TypeDefinition)
+                return false;
+            var definitionHandle = (TypeDefinitionHandle)candidate.Identity;
+            if (!visited.Add(definitionHandle))
+                return false;
+
+            var definition = reader.GetTypeDefinition(definitionHandle);
+            if (definition.BaseType.IsNil)
+                return false;
+            var baseType = ReadType(reader, definition.BaseType);
+            if (candidate.IsGenericInstantiation)
+                baseType = baseType.Instantiate(candidate.TypeArguments);
+            else if (definition.GetGenericParameters().Count != 0)
+                return false;
+
+            if (baseType.MatchesExactly(requiredBase))
+                return true;
+            candidate = baseType;
         }
         return false;
     }
@@ -171,10 +208,11 @@ public static class OperatorMetadata
         bool IsTypeParameter,
         int TypeParameterIndex,
         EntityHandle Identity,
-        bool IsTrustedCoreLibraryDefinition,
+        bool IsTrustedCoreLibraryType,
         string? Namespace,
         string? Name,
         bool IsNullable,
+        bool IsGenericInstantiation,
         ImmutableArray<OperatorSignatureType> TypeArguments)
     {
         public bool IsBoolean =>
@@ -197,7 +235,40 @@ public static class OperatorMetadata
                 reader.GetString(definition.Namespace),
                 reader.GetString(definition.Name),
                 IsNullable: false,
+                IsGenericInstantiation: false,
                 []);
+        }
+
+        public static OperatorSignatureType ForDeclaringType(
+            MetadataReader reader,
+            TypeDefinitionHandle handle)
+        {
+            var identity = ForDefinition(reader, handle);
+            var arguments = reader.GetTypeDefinition(handle).GetGenericParameters()
+                .Select(parameterHandle =>
+                {
+                    var parameter = reader.GetGenericParameter(parameterHandle);
+                    return new OperatorSignatureType(
+                        false,
+                        false,
+                        true,
+                        parameter.Index,
+                        default,
+                        false,
+                        null,
+                        null,
+                        false,
+                        false,
+                        []);
+                })
+                .ToImmutableArray();
+            return arguments.IsEmpty
+                ? identity
+                : identity with
+                {
+                    IsGenericInstantiation = true,
+                    TypeArguments = arguments,
+                };
         }
 
         public bool Matches(
@@ -207,13 +278,13 @@ public static class OperatorMetadata
             var candidate = this;
             if (candidate.IsByRef && candidate.TypeArguments is [var byRefElement])
                 candidate = byRefElement;
-            if (candidate.MatchesDefinition(declaringType))
+            if (candidate.MatchesExactly(declaringType))
                 return true;
             if (candidate.IsTypeParameter)
                 return selfConstrainedTypeParameters.Contains(candidate.TypeParameterIndex);
             if (candidate.IsNullable && candidate.TypeArguments is [var underlying])
             {
-                if (underlying.MatchesDefinition(declaringType))
+                if (underlying.MatchesExactly(declaringType))
                     return true;
                 if (underlying.IsTypeParameter)
                     return selfConstrainedTypeParameters.Contains(underlying.TypeParameterIndex);
@@ -221,15 +292,59 @@ public static class OperatorMetadata
             return false;
         }
 
-        public bool MatchesDefinition(OperatorSignatureType declaringType)
+        public bool MatchesExactly(OperatorSignatureType other)
         {
-            var candidate = this;
-            return candidate.Identity.Kind == HandleKind.TypeDefinition
-                && candidate.Identity == declaringType.Identity
-                || candidate.Identity.IsNil
-                    && declaringType.IsTrustedCoreLibraryDefinition
-                    && candidate.Namespace == declaringType.Namespace
-                    && candidate.Name == declaringType.Name;
+            if (IsVoid != other.IsVoid
+                || IsByRef != other.IsByRef
+                || IsTypeParameter != other.IsTypeParameter
+                || IsGenericInstantiation != other.IsGenericInstantiation)
+            {
+                return false;
+            }
+            if (IsTypeParameter)
+                return TypeParameterIndex == other.TypeParameterIndex;
+            if (Identity.IsNil || other.Identity.IsNil)
+            {
+                if (!Identity.IsNil
+                    || !other.Identity.IsNil
+                    || Namespace is null
+                    || Name is null
+                    || Namespace != other.Namespace
+                    || Name != other.Name)
+                {
+                    return false;
+                }
+            }
+            else if (Identity != other.Identity)
+            {
+                return false;
+            }
+            if (TypeArguments.Length != other.TypeArguments.Length)
+                return false;
+            for (int index = 0; index < TypeArguments.Length; index++)
+            {
+                if (!TypeArguments[index].MatchesExactly(other.TypeArguments[index]))
+                    return false;
+            }
+            return true;
+        }
+
+        public OperatorSignatureType Instantiate(
+            ImmutableArray<OperatorSignatureType> typeArguments)
+        {
+            if (IsTypeParameter)
+                return TypeParameterIndex >= 0 && TypeParameterIndex < typeArguments.Length
+                    ? typeArguments[TypeParameterIndex]
+                    : OperatorSignatureTypeProvider.Opaque;
+            if (TypeArguments.IsEmpty)
+                return this;
+            return this with
+            {
+                TypeArguments =
+                [
+                    .. TypeArguments.Select(argument => argument.Instantiate(typeArguments)),
+                ],
+            };
         }
 
         static bool IsTrustedCoreLibrary(MetadataReader reader)
@@ -246,11 +361,11 @@ public static class OperatorMetadata
     {
         public static readonly OperatorSignatureTypeProvider Instance = new();
 
-        internal static OperatorSignatureType Opaque => new(false, false, false, -1, default, false, null, null, false, []);
+        internal static OperatorSignatureType Opaque => new(false, false, false, -1, default, false, null, null, false, false, []);
         public OperatorSignatureType GetPrimitiveType(PrimitiveTypeCode typeCode)
             => typeCode == PrimitiveTypeCode.Void
-                ? new OperatorSignatureType(true, false, false, -1, default, false, "System", "Void", false, [])
-                : new OperatorSignatureType(false, false, false, -1, default, false, "System", typeCode.ToString(), false, []);
+                ? new OperatorSignatureType(true, false, false, -1, default, false, "System", "Void", false, false, [])
+                : new OperatorSignatureType(false, false, false, -1, default, false, "System", typeCode.ToString(), false, false, []);
 
         public OperatorSignatureType GetTypeFromDefinition(
             MetadataReader reader,
@@ -270,9 +385,12 @@ public static class OperatorMetadata
                 false,
                 -1,
                 handle,
-                false,
+                ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
+                    reader,
+                    reference.ResolutionScope),
                 reader.GetString(reference.Namespace),
                 reader.GetString(reference.Name),
+                false,
                 false,
                 []);
         }
@@ -290,7 +408,7 @@ public static class OperatorMetadata
             => Opaque;
 
         public OperatorSignatureType GetByReferenceType(OperatorSignatureType elementType)
-            => new(false, true, false, -1, default, false, null, null, false, [elementType]);
+            => new(false, true, false, -1, default, false, null, null, false, false, [elementType]);
 
         public OperatorSignatureType GetPointerType(OperatorSignatureType elementType) => Opaque;
 
@@ -299,15 +417,21 @@ public static class OperatorMetadata
             ImmutableArray<OperatorSignatureType> typeArguments)
             => genericType with
             {
-                IsNullable = genericType is { Namespace: "System", Name: "Nullable`1" },
+                IsNullable = genericType is
+                {
+                    IsTrustedCoreLibraryType: true,
+                    Namespace: "System",
+                    Name: "Nullable`1",
+                },
+                IsGenericInstantiation = true,
                 TypeArguments = typeArguments,
             };
 
         public OperatorSignatureType GetGenericMethodParameter(object? genericContext, int index)
-            => new(false, false, true, index, default, false, null, null, false, []);
+            => new(false, false, true, index, default, false, null, null, false, false, []);
 
         public OperatorSignatureType GetGenericTypeParameter(object? genericContext, int index)
-            => new(false, false, true, index, default, false, null, null, false, []);
+            => new(false, false, true, index, default, false, null, null, false, false, []);
 
         public OperatorSignatureType GetModifiedType(
             OperatorSignatureType modifier,
