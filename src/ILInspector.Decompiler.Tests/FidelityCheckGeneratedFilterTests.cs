@@ -367,6 +367,199 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public void Evaluate_UsesProductWholeMemberForSingleMethodExplicitInterface()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IExplicitMethod
+            {
+                int Compute(int value);
+            }
+
+            public sealed class ExplicitMethodFixture : IExplicitMethod
+            {
+                int IExplicitMethod.Compute(int value) => value + 1;
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "ExplicitMethodFixture"));
+            var method = Assert.Single(
+                type.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "IExplicitMethod.Compute");
+
+            using var source = MetadataSource.Open(assemblyPath);
+            var wholeMember = FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                method,
+                targeted: true,
+                isPrimaryConstructor: false);
+
+            Assert.NotNull(wholeMember);
+            var declaration = Assert.IsType<Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax>(
+                Microsoft.CodeAnalysis.CSharp.SyntaxFactory.ParseMemberDeclaration(
+                    wholeMember.Value.Text));
+            Assert.NotNull(declaration.ExplicitInterfaceSpecifier);
+
+            var targetedResult = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "ExplicitMethodFixture",
+                    candidate => candidate.Method == "IExplicitMethod.Compute"));
+            Assert.True(targetedResult.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, targetedResult.Status);
+
+            var batchResult = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "ExplicitMethodFixture"),
+                candidate => candidate.Method == "IExplicitMethod.Compute");
+            Assert.True(batchResult.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, batchResult.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Evaluate_DeclinesProductWholeMemberForMultiMethodExplicitInterface()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IMultiMethod
+            {
+                int Compute(int value);
+                void Reset();
+            }
+
+            public sealed class MultiMethodFixture : IMultiMethod
+            {
+                int IMultiMethod.Compute(int value) => value + 1;
+                void IMultiMethod.Reset() { }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "MultiMethodFixture"));
+            var method = Assert.Single(
+                type.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "IMultiMethod.Compute");
+
+            using var source = MetadataSource.Open(assemblyPath);
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                method,
+                targeted: true,
+                isPrimaryConstructor: false));
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "MultiMethodFixture",
+                    candidate => candidate.Method == "IMultiMethod.Compute"));
+            Assert.False(result.UsedProductWholeMember);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesAdjacentExplicitInterfaceShapes()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IGeneric<T>
+            {
+                T Echo(T value);
+            }
+
+            public sealed class GenericExplicit : IGeneric<int>
+            {
+                int IGeneric<int>.Echo(int value) => value;
+            }
+
+            public interface IStatic
+            {
+                static abstract int Parse(string value);
+            }
+
+            public sealed class StaticExplicit : IStatic
+            {
+                static int IStatic.Parse(string value) => value.Length;
+            }
+
+            public static class Outer
+            {
+                public interface INested
+                {
+                    void Ping();
+                }
+            }
+
+            public sealed class NestedExplicit : Outer.INested
+            {
+                void Outer.INested.Ping() { }
+            }
+
+            public sealed class ExternalExplicit : System.IDisposable
+            {
+                void System.IDisposable.Dispose() { }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            using var source = MetadataSource.Open(assemblyPath);
+
+            foreach (string typeName in new[]
+                {
+                    "GenericExplicit",
+                    "StaticExplicit",
+                    "NestedExplicit",
+                    "ExternalExplicit",
+                })
+            {
+                var type = reader.GetTypeDefinition(Assert.Single(
+                    reader.TypeDefinitions,
+                    handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == typeName));
+                var method = Assert.Single(
+                    type.GetMethods(),
+                    handle => reader.GetString(reader.GetMethodDefinition(handle).Name) != ".ctor");
+
+                Assert.Null(FidelityCheck.TryRenderTargetMember(
+                    pe,
+                    source,
+                    method,
+                    targeted: true,
+                    isPrimaryConstructor: false));
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void Evaluate_UsesProductWholePropertyForAccessors()
     {
         var assemblyPath = CompileFixture("""

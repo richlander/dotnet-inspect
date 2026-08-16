@@ -2985,12 +2985,35 @@ static class FidelityCheck
            || (type.ElementType is { } element && ContainsUnsupportedType(element))
            || type.TypeArguments.Any(ContainsUnsupportedType);
 
-    static string InterfaceClause(MetadataReader reader, TypeDefinition typeDef, TypeKind kind, SignatureSpellability accessibility)
+    static string InterfaceClause(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        TypeKind kind,
+        IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        SignatureSpellability accessibility)
     {
         if (kind != TypeKind.Class)
             return "";
 
         var interfaces = new List<string>();
+        foreach (var target in SingleMethodExplicitInterfaceTargets(
+            reader,
+            typeDef,
+            body => targets.TryGetValue(body, out var targetBody)
+                && targetBody.WholeMember is not null))
+        {
+            var interfaceMethod = reader.GetMethodDefinition(target.Declaration);
+            if (accessibility.CanSpellMethod(
+                reader,
+                interfaceMethod,
+                GenericContext.ForMethod(
+                    reader,
+                    reader.GetTypeDefinition(target.Interface),
+                    interfaceMethod)))
+            {
+                interfaces.Add(Clean(target.InterfaceName));
+            }
+        }
         foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
         {
             var implementation = reader.GetInterfaceImplementation(implementationHandle);
@@ -3007,6 +3030,71 @@ static class FidelityCheck
         }
 
         return interfaces.Count == 0 ? "" : string.Join(", ", interfaces.Distinct(StringComparer.Ordinal));
+    }
+
+    readonly record struct ExplicitInterfaceTarget(
+        MethodDefinitionHandle Body,
+        TypeDefinitionHandle Interface,
+        MethodDefinitionHandle Declaration,
+        string InterfaceName);
+
+    static IReadOnlyList<ExplicitInterfaceTarget> SingleMethodExplicitInterfaceTargets(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        Func<MethodDefinitionHandle, bool> bodyFilter)
+    {
+        if (ShapeOf(reader, typeDef) != TypeKind.Class)
+            return [];
+
+        var directInterfaces = typeDef.GetInterfaceImplementations()
+            .Select(handle => reader.GetInterfaceImplementation(handle).Interface)
+            .ToHashSet();
+        var targets = new List<ExplicitInterfaceTarget>();
+        foreach (var implementationHandle in typeDef.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody.Kind != HandleKind.MethodDefinition
+                || implementation.MethodDeclaration.Kind != HandleKind.MethodDefinition)
+            {
+                continue;
+            }
+
+            var bodyHandle = (MethodDefinitionHandle)implementation.MethodBody;
+            if (!bodyFilter(bodyHandle))
+                continue;
+            var body = reader.GetMethodDefinition(bodyHandle);
+            var declarationHandle = (MethodDefinitionHandle)implementation.MethodDeclaration;
+            var declaration = reader.GetMethodDefinition(declarationHandle);
+            var interfaceHandle = declaration.GetDeclaringType();
+            if (!directInterfaces.Contains(interfaceHandle)
+                || SameAssemblyNonGenericInterfaceName(reader, interfaceHandle) is not { } interfaceName)
+            {
+                continue;
+            }
+
+            var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
+            if (interfaceDef.GetInterfaceImplementations().Count != 0
+                || interfaceDef.GetProperties().Count != 0
+                || interfaceDef.GetEvents().Count != 0
+                || interfaceDef.GetMethods().Count != 1
+                || interfaceDef.GetMethods().Single() != declarationHandle
+                || body.Attributes.HasFlag(MethodAttributes.Static)
+                || declaration.Attributes.HasFlag(MethodAttributes.Static)
+                || declaration.Attributes.HasFlag(MethodAttributes.SpecialName)
+                || !declaration.Attributes.HasFlag(MethodAttributes.Abstract)
+                || declaration.RelativeVirtualAddress != 0)
+            {
+                continue;
+            }
+
+            targets.Add(new ExplicitInterfaceTarget(
+                bodyHandle,
+                interfaceHandle,
+                declarationHandle,
+                interfaceName));
+        }
+
+        return targets;
     }
 
     static string CombineInheritance(string baseClause, string interfaceClause)
@@ -3237,7 +3325,7 @@ static class FidelityCheck
             ? (IsByRefLike(reader, typeDef) ? "ref struct" : "struct")
             : IsStaticClass(typeDef) ? "static class" : "class";
         string baseClause = BaseClause(reader, typeDef, kind);
-        string interfaceClause = InterfaceClause(reader, typeDef, kind, accessibility);
+        string interfaceClause = InterfaceClause(reader, typeDef, kind, targets, accessibility);
         string inheritanceClause = CombineInheritance(baseClause, interfaceClause);
         bool implementsProtobufMessage = interfaceClause.Contains("Google.Protobuf.IMessage<", StringComparison.Ordinal);
         bool implementsKubernetesStaticMetadata = interfaceClause.Contains("Aspire.Hosting.Dcp.Model.IKubernetesStaticMetadata", StringComparison.Ordinal);
@@ -3990,12 +4078,14 @@ static class FidelityCheck
     /// The product's whole-member render for a target method — the CSharp-owned
     /// signature (from Metadata's model) composed with the decompiler body —
     /// replacing the harness's self-spelled signature. Ordinary constructors,
-    /// recovered destructors, properties, and custom events are safe to migrate
+    /// recovered destructors, narrowly bounded explicit-interface methods,
+    /// properties, and custom events are safe to migrate
     /// because the scaffold already applies the
     /// decompiler's separately captured lifted field initializers to reconstructed
     /// fields, while property and event renders own both accessor declarations and bodies.
-    /// Field-like and explicit-interface events, and finalizers that cannot be
-    /// recovered as destructors, remain on their existing fallback paths.
+    /// Multi-member, generic, nested, external, or static explicit-interface
+    /// shapes, field-like and explicit-interface events, and finalizers that
+    /// cannot be recovered as destructors remain on their existing fallback paths.
     /// Non-essential custom attributes are omitted because the skeleton does not
     /// reproduce arbitrary attribute inheritance; compilation-required attributes
     /// such as <c>SkipLocalsInit</c> remain.
@@ -4015,8 +4105,18 @@ static class FidelityCheck
         if (!TargetApiIndex(pe).TryGetValue(token, out var entry))
             return null;
         if (isPrimaryConstructor
-            || entry.Member.Kind is not ("method" or "operator" or "constructor" or "finalizer" or "property" or "event"))
+            || entry.Member.Kind is not ("method" or "operator" or "constructor" or "finalizer" or "explicit-interface-implementation" or "property" or "event"))
             return null;
+        if (entry.Member.Kind == "explicit-interface-implementation")
+        {
+            var reader = pe.GetMetadataReader();
+            var typeDef = reader.GetTypeDefinition(reader.GetMethodDefinition(mh).GetDeclaringType());
+            if (!SingleMethodExplicitInterfaceTargets(reader, typeDef, body => body == mh)
+                    .Any(target => target.Body == mh))
+            {
+                return null;
+            }
+        }
         if (entry.Member.Kind == "property"
             && entry.Type.Kind == "struct"
             && !MemberBodyProducer.IsCompilerGeneratedAutoPropertyAccessor(
@@ -4047,6 +4147,12 @@ static class FidelityCheck
         if (entry.Member.Kind == "finalizer"
             && SyntaxFactory.ParseMemberDeclaration(result.Text)
                 is not DestructorDeclarationSyntax)
+        {
+            return null;
+        }
+        if (entry.Member.Kind == "explicit-interface-implementation"
+            && SyntaxFactory.ParseMemberDeclaration(result.Text)
+                is not MethodDeclarationSyntax { ExplicitInterfaceSpecifier: not null })
         {
             return null;
         }
