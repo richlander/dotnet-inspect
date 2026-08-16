@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" />
+    <ProjectReference Include="..\ILInspector.Analysis.AsyncSiblingFriendFixtures\ILInspector.Analysis.AsyncSiblingFriendFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.CrossAsmCollisionFixtures\ILInspector.Analysis.CrossAsmCollisionFixtures.csproj">
       <Aliases>collisionfix</Aliases>
     </ProjectReference>

@@ -862,6 +862,61 @@ public class LibraryBodyIndexTests
                     == nameof(
                         IClassicContravariantDefaultSiblingFixture<
                             object>.ConsumeAsync));
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        ClassicUnrelatedExplicitDefaultSiblingFixture)
+                && opportunity.Method.Name.EndsWith(
+                    ".ReadAsync",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    .EndsWith(
+                        "+"
+                        + nameof(
+                            ClassicNestedPrivateSiblingFixture.Consumer),
+                        StringComparison.Ordinal)
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicNestedPrivateSiblingFixture.Consumer
+                            .AnalyzeAsync));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_FriendAccessDoesNotProveProtectedReceiver()
+    {
+        string path =
+            FixtureCatalog.AnalysisAsyncSiblingFriend
+                .AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                IncludeDepsJsonAssets = true,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+            });
+
+        var index = LibraryBodyIndex.Open(path, resolver);
+
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == "AnalyzeAsync");
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == "PublicAnalyzeAsync");
+        Assert.Empty(index.Diagnostics);
     }
 
     [Fact]
@@ -1418,6 +1473,22 @@ public class LibraryBodyIndexTests
                 path,
                 BuildMethodImplAsyncSourceAssembly(
                     includeMethodImpl: false,
+                    stateMachineUsesTasksContract:
+                        true));
+            var tasksContract =
+                LibraryBodyIndex.Open(path);
+            Assert.Single(
+                tasksContract.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Empty(tasksContract.Diagnostics);
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: false,
                     finalInterfaceSibling: true,
                     sourceMethodName: "ReadAsync"));
             var finalInterfaceSibling =
@@ -1788,7 +1859,8 @@ public class LibraryBodyIndexTests
         bool incompatibleSourceMethodImpl = false,
         bool moveNextHasBody = true,
         MethodImplAttributes moveNextImplementation =
-            MethodImplAttributes.IL)
+            MethodImplAttributes.IL,
+        bool stateMachineUsesTasksContract = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1824,6 +1896,26 @@ public class LibraryBodyIndexTests
                     }),
                 default,
                 default);
+        AssemblyReferenceHandle systemThreadingTasks =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(
+                    "System.Threading.Tasks"),
+                new Version(4, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0xB0,
+                        0x3F,
+                        0x5F,
+                        0x7F,
+                        0x11,
+                        0xD5,
+                        0x0A,
+                        0x3A,
+                    }),
+                default,
+                default);
         TypeReferenceHandle asyncStateMachineAttribute =
             metadata.AddTypeReference(
                 systemRuntime,
@@ -1833,7 +1925,9 @@ public class LibraryBodyIndexTests
                     "AsyncStateMachineAttribute"));
         TypeReferenceHandle asyncStateMachine =
             metadata.AddTypeReference(
-                systemRuntime,
+                stateMachineUsesTasksContract
+                    ? systemThreadingTasks
+                    : systemRuntime,
                 metadata.GetOrAddString(
                     "System.Runtime.CompilerServices"),
                 metadata.GetOrAddString("IAsyncStateMachine"));
@@ -1844,7 +1938,9 @@ public class LibraryBodyIndexTests
                 metadata.GetOrAddString("Type"));
         TypeReferenceHandle task =
             metadata.AddTypeReference(
-                systemRuntime,
+                stateMachineUsesTasksContract
+                    ? systemThreadingTasks
+                    : systemRuntime,
                 metadata.GetOrAddString(
                     "System.Threading.Tasks"),
                 metadata.GetOrAddString("Task"));

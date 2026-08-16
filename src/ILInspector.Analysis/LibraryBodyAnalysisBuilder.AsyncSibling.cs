@@ -484,6 +484,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         MethodAttributes synchronousAccess =
             synchronousAttributes
                 & MethodAttributes.MemberAccessMask;
+        bool friendAccessMayApply =
+            !sameAssembly
+            && synchronousAccess
+                == MethodAttributes.FamORAssem
+            && MayGrantInternalAccessToSource(
+                candidateReader);
         bool protectedReceiverProven = sameType
             || (method.Attributes
                     & MethodAttributes.Static) != 0
@@ -492,7 +498,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     or MethodAttributes.FamANDAssem
             || !sameAssembly
                 && synchronousAccess
-                    == MethodAttributes.FamORAssem;
+                    == MethodAttributes.FamORAssem
+                && !friendAccessMayApply;
         TypeRelation derived = TypeRelation.No;
         if (access is MethodAttributes.Family
             or MethodAttributes.FamANDAssem
@@ -515,13 +522,129 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 || derived == TypeRelation.Yes
                     && protectedReceiverProven,
             MethodAttributes.Private => sameAssembly
-                && sameType,
+                && SharesPrivateAccessDomain(
+                    candidateReader,
+                    candidateType,
+                    asyncSource.MetadataToken),
             MethodAttributes.FamANDAssem =>
                 sameAssembly
                 && derived == TypeRelation.Yes
                 && protectedReceiverProven,
             _ => false,
         };
+    }
+
+    bool MayGrantInternalAccessToSource(
+        MetadataReader candidateReader)
+    {
+        if (!candidateReader.IsAssembly)
+            return true;
+
+        foreach (CustomAttributeHandle handle
+            in candidateReader.GetAssemblyDefinition()
+                .GetCustomAttributes())
+        {
+            try
+            {
+                CustomAttribute attribute =
+                    candidateReader.GetCustomAttribute(handle);
+                MemberRef constructor =
+                    MemberResolver.ResolveMethod(
+                        candidateReader,
+                        attribute.Constructor,
+                        GenericScope.Empty);
+                if (!FrameworkIdentity.IsCoreLibraryType(
+                        DefinitionType(
+                            constructor.DeclaringType),
+                        "System.Runtime.CompilerServices",
+                        "InternalsVisibleToAttribute"))
+                {
+                    continue;
+                }
+                if (constructor.Name != ".ctor"
+                    || constructor.Kind
+                        != MemberKind.Constructor
+                    || !constructor.HasThis
+                    || constructor.ParameterTypes.Length != 1
+                    || !FrameworkIdentity.IsCoreLibraryType(
+                        constructor.ParameterTypes[0],
+                        "System",
+                        "String"))
+                {
+                    return true;
+                }
+
+                BlobReader value =
+                    candidateReader.GetBlobReader(
+                        attribute.Value);
+                if (value.ReadUInt16() != 0x0001)
+                    return true;
+                string? friend = value.ReadSerializedString();
+                if (friend is null)
+                    return true;
+                int separator = friend.IndexOf(',');
+                string name = (
+                    separator < 0
+                        ? friend
+                        : friend[..separator]).Trim();
+                if (string.Equals(
+                        name,
+                        _assemblyIdentity.Name,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool SharesPrivateAccessDomain(
+        MetadataReader candidateReader,
+        TypeDefinitionHandle candidateType,
+        int sourceMethodToken)
+    {
+        if (!ReferenceEquals(candidateReader, _reader))
+            return false;
+        try
+        {
+            EntityHandle sourceHandle =
+                MetadataTokens.EntityHandle(sourceMethodToken);
+            if (sourceHandle.Kind
+                != HandleKind.MethodDefinition)
+            {
+                return false;
+            }
+            TypeDefinitionHandle sourceType =
+                _reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)sourceHandle)
+                    .GetDeclaringType();
+            return TopLevelType(candidateReader, candidateType)
+                == TopLevelType(_reader, sourceType);
+        }
+        catch (Exception ex)
+            when (IsRecoverableMethodFailure(ex))
+        {
+            return false;
+        }
+    }
+
+    static TypeDefinitionHandle TopLevelType(
+        MetadataReader reader,
+        TypeDefinitionHandle type)
+    {
+        while (reader.GetTypeDefinition(type)
+                .GetDeclaringType()
+            is { IsNil: false } declaring)
+        {
+            type = declaring;
+        }
+        return type;
     }
 
     TypeRelation SourceDerivesFrom(
@@ -647,6 +770,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder
 
         if (candidateDeclaringTypeIsInterface)
         {
+            if (!_reader.StringComparer.Equals(
+                    sourceMethod.Name,
+                    candidate.Name)
+                || (sourceMethod.Attributes
+                        & MethodAttributes.MemberAccessMask)
+                    != MethodAttributes.Public)
+            {
+                return false;
+            }
             TypeRelation relation = SourceTypeRelation(
                 sourceMethod.GetDeclaringType(),
                 asyncSource.DeclaringType,
@@ -2513,8 +2645,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             == TypeRefKind.GenericInstance
                 ? type.ElementType ?? type
                 : type;
-        return FrameworkIdentity.IsCoreLibraryType(
+        return FrameworkIdentity.IsKnownFrameworkType(
             definition,
+            "System.Threading",
             "System.Threading",
             "CancellationToken");
     }
@@ -2525,25 +2658,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             == TypeRefKind.GenericInstance
                 ? type.ElementType ?? type
                 : type;
-        return FrameworkIdentity.IsCoreLibraryType(
+        return IsTaskContractType(definition, "Task")
+            || IsTaskContractType(definition, "Task`1")
+            || IsTaskContractType(definition, "ValueTask")
+            || IsTaskContractType(definition, "ValueTask`1")
+            || IsAsyncEnumerableContractType(
                 definition,
-                "System.Threading.Tasks",
-                "Task")
-            || FrameworkIdentity.IsCoreLibraryType(
-                definition,
-                "System.Threading.Tasks",
-                "Task`1")
-            || FrameworkIdentity.IsCoreLibraryType(
-                definition,
-                "System.Threading.Tasks",
-                "ValueTask")
-            || FrameworkIdentity.IsCoreLibraryType(
-                definition,
-                "System.Threading.Tasks",
-                "ValueTask`1")
-            || FrameworkIdentity.IsCoreLibraryType(
-                definition,
-                "System.Collections.Generic",
                 "IAsyncEnumerable`1");
     }
 
@@ -2555,13 +2675,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             == TypeRefKind.GenericInstance
                 ? asynchronous.ElementType ?? asynchronous
                 : asynchronous;
-        if (FrameworkIdentity.IsCoreLibraryType(
+        if (IsTaskContractType(definition, "Task")
+            || IsTaskContractType(
                 definition,
-                "System.Threading.Tasks",
-                "Task")
-            || FrameworkIdentity.IsCoreLibraryType(
-                definition,
-                "System.Threading.Tasks",
                 "ValueTask"))
         {
             return FrameworkIdentity.IsCoreLibraryType(
@@ -2576,13 +2692,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             return false;
         }
 
-        if (FrameworkIdentity.IsCoreLibraryType(
+        if (IsTaskContractType(definition, "Task`1")
+            || IsTaskContractType(
                 definition,
-                "System.Threading.Tasks",
-                "Task`1")
-            || FrameworkIdentity.IsCoreLibraryType(
-                definition,
-                "System.Threading.Tasks",
                 "ValueTask`1"))
         {
             return AsyncSiblingTypesMatch(
@@ -2590,9 +2702,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 asynchronous.TypeArguments[0]);
         }
 
-        if (!FrameworkIdentity.IsCoreLibraryType(
+        if (!IsAsyncEnumerableContractType(
                 definition,
-                "System.Collections.Generic",
                 "IAsyncEnumerable`1")
             || synchronous.Kind
                 != TypeRefKind.GenericInstance
@@ -2602,14 +2713,53 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         }
         TypeRef synchronousDefinition =
             synchronous.ElementType ?? synchronous;
-        return FrameworkIdentity.IsCoreLibraryType(
-                synchronousDefinition,
-                "System.Collections.Generic",
-                "IEnumerable`1")
+        return IsEnumerableContractType(
+                synchronousDefinition)
             && AsyncSiblingTypesMatch(
                 synchronous.TypeArguments[0],
                 asynchronous.TypeArguments[0]);
     }
+
+    static bool IsTaskContractType(
+        TypeRef type,
+        string name)
+        => FrameworkIdentity.IsKnownFrameworkType(
+                type,
+                "System.Threading.Tasks",
+                "System.Threading.Tasks",
+                name)
+            || name.StartsWith(
+                    "ValueTask",
+                    StringComparison.Ordinal)
+                && FrameworkIdentity.IsKnownFrameworkType(
+                    type,
+                    "System.Threading.Tasks.Extensions",
+                    "System.Threading.Tasks",
+                    name);
+
+    static bool IsAsyncEnumerableContractType(
+        TypeRef type,
+        string name)
+        => FrameworkIdentity.IsCoreLibraryType(
+                type,
+                "System.Collections.Generic",
+                name)
+            || FrameworkIdentity.IsKnownFrameworkType(
+                type,
+                "Microsoft.Bcl.AsyncInterfaces",
+                "System.Collections.Generic",
+                name);
+
+    static bool IsEnumerableContractType(TypeRef type)
+        => FrameworkIdentity.IsCoreLibraryType(
+                type,
+                "System.Collections.Generic",
+                "IEnumerable`1")
+            || FrameworkIdentity.IsKnownFrameworkType(
+                type,
+                "System.Collections",
+                "System.Collections.Generic",
+                "IEnumerable`1");
 
     static string FormatMember(MemberRef member)
         => $"{member.DeclaringType.ToQualifiedDisplayString()}"

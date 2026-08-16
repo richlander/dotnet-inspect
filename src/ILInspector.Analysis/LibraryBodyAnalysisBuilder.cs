@@ -1005,8 +1005,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             TypeRef interfaceType = TypeFromEntity(
                 _reader.GetInterfaceImplementation(
                     handle).Interface);
-            if (FrameworkIdentity.IsCoreLibraryType(
+            if (FrameworkIdentity.IsKnownFrameworkType(
                     DefinitionType(interfaceType),
+                    "System.Threading.Tasks",
                     "System.Runtime.CompilerServices",
                     "IAsyncStateMachine"))
             {
@@ -1042,9 +1043,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             && declaration.ParameterTypes.Length == 0
             && declaration.SignatureHeader == 0x20
             && declaration.RequiredParameterCount == 0
-            && FrameworkIdentity.IsCoreLibraryType(
+            && FrameworkIdentity.IsKnownFrameworkType(
                 DefinitionType(
                     declaration.DeclaringType),
+                "System.Threading.Tasks",
                 "System.Runtime.CompilerServices",
                 "IAsyncStateMachine")
             && FrameworkIdentity.IsCoreLibraryType(

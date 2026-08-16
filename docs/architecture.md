@@ -788,7 +788,12 @@ Research overlay bridge, and the application layer:
   canonical direct-call rows after ordinary opportunity collection and appends
   only this metadata-bound shape; recoverable sibling-classification failures
   remain diagnostic without discarding independent ordinary opportunities or
-  body signals.
+  body signals. Trusted framework-contract identities, exact interface-slot
+  correspondence, friend-aware protected access, and nested private-access
+  domains are gated by
+  `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
+  `OptimizationOpportunities_FriendAccessDoesNotProveProtectedReceiver`, and
+  `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`.
   `MethodInstructionFacts` owns the
   metadata-free local/argument-slot, operand, and single-branch-target grammar
   shared by safety and allocation

@@ -318,3 +318,52 @@ public sealed class ClassicContravariantDefaultSiblingFixture
     {
     }
 }
+
+public interface IClassicDefaultSiblingFirstFixture
+{
+    int Read();
+
+    async Task<int> ReadAsync()
+    {
+        await Task.Yield();
+        return Read();
+    }
+}
+
+public interface IClassicDefaultSiblingSecondFixture
+{
+    Task<int> ReadAsync();
+}
+
+public sealed class ClassicUnrelatedExplicitDefaultSiblingFixture
+    : IClassicDefaultSiblingFirstFixture,
+        IClassicDefaultSiblingSecondFixture
+{
+    public int Read() => 0;
+
+    async Task<int>
+        IClassicDefaultSiblingSecondFixture.ReadAsync()
+    {
+        await Task.Yield();
+        return ((IClassicDefaultSiblingFirstFixture)this)
+            .Read();
+    }
+}
+
+public sealed class ClassicNestedPrivateSiblingFixture
+{
+    private int Read() => 0;
+
+    private Task<int> ReadAsync()
+        => Task.FromResult(0);
+
+    public sealed class Consumer
+    {
+        public async Task<int> AnalyzeAsync(
+            ClassicNestedPrivateSiblingFixture other)
+        {
+            await Task.Yield();
+            return other.Read();
+        }
+    }
+}

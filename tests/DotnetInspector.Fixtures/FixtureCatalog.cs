@@ -63,6 +63,7 @@ public static class FixtureIds
     public const string AnalysisCallerGraphLookalikeCaller = "analysis.caller-graph.lookalike-caller";
     public const string AnalysisCallerGraphTarget = "analysis.caller-graph.target";
     public const string AnalysisCallerGraphTargetV2 = "analysis.caller-graph.target-v2";
+    public const string AnalysisAsyncSiblingFriend = "analysis.async-sibling.friend";
     public const string AnalysisCallerLoop = "analysis.caller-loop";
     public const string AnalysisCrossAsmCollision = "analysis.cross-asm-collision";
     public const string AnalysisCrossAsmShape = "analysis.cross-asm-shape";
@@ -236,6 +237,15 @@ public static class FixtureCatalog
         "ILInspector.Analysis.Fixtures",
         "ILInspector.Analysis.Fixtures.dll",
         "analysis", "caller-loop", "allocation");
+
+    public static readonly FixtureDefinition AnalysisAsyncSiblingFriend = Fixture(
+        FixtureIds.AnalysisAsyncSiblingFriend,
+        "ILInspector.Analysis.AsyncSiblingFriendFixtures",
+        "ILInspector.Analysis.AsyncSiblingFriendFixtures.dll",
+        Boundaries(
+            FixtureBoundary.AssemblyIdentity,
+            FixtureBoundary.CrossAssemblyBoundary),
+        "analysis", "async-sibling", "friend-assembly");
 
     public static readonly FixtureDefinition AnalysisCrossAsmCollision = Fixture(
         FixtureIds.AnalysisCrossAsmCollision,
@@ -443,6 +453,7 @@ public static class FixtureCatalog
         AnalysisCallerGraphLookalikeCaller,
         AnalysisCallerGraphTarget,
         AnalysisCallerGraphTargetV2,
+        AnalysisAsyncSiblingFriend,
         AnalysisCallerLoop,
         AnalysisCrossAsmCollision,
         AnalysisCrossAsmShape,
