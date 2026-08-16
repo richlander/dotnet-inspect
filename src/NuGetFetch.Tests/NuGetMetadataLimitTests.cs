@@ -97,7 +97,7 @@ public sealed class NuGetMetadataLimitTests
     {
         byte[] body = Encoding.UTF8.GetBytes(
             """
-            {"resources":[{"@id":"https://feed.example/flat/",
+            {"version":"3.0.0","resources":[{"@id":"https://feed.example/flat/",
             "@type":"PackageBaseAddress/3.0.0"}]}
             """);
         using var client = new HttpClient(new SingleResponseHandler(
@@ -136,7 +136,7 @@ public sealed class NuGetMetadataLimitTests
             """{"data":[]}""",
             """{"versions":["1.0.0"]}""",
             """
-            {"resources":[{"@id":"https://feed.example/flat/",
+            {"version":"3.0.0","resources":[{"@id":"https://feed.example/flat/",
             "@type":"PackageBaseAddress/3.0.0"}]}
             """,
             """{"data":[]}""",
@@ -181,7 +181,7 @@ public sealed class NuGetMetadataLimitTests
     {
         byte[] body = Encoding.UTF8.GetBytes(
             """
-            {"resources":[{"@id":"https://feed.example/flat/",
+            {"version":"3.0.0","resources":[{"@id":"https://feed.example/flat/",
             "@type":"PackageBaseAddress/3.0.0"}]}
             """);
         var handler = new SingleResponseHandler(
@@ -290,7 +290,7 @@ public sealed class NuGetMetadataLimitTests
         (byte[] Prefix, Func<Stream, Task> Read)[] cases =
         [
             (
-                Encoding.UTF8.GetBytes("""{"resources":[]}"""),
+                Encoding.UTF8.GetBytes("""{"version":"3.0.0","resources":[]}"""),
                 async stream => _ = await NuGetApi.GetServiceIndexAsync(
                     stream,
                     TestContext.Current.CancellationToken)),

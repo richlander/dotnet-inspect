@@ -279,6 +279,14 @@ selection for the active package; other open packages use their product-selected
 groups. The selected compile participant's direct references come from the
 assembly-context query; the browser neither parses the nuspec nor opens an
 assembly session.
+For open-package navigation, JavaScript supplies the loaded coordinates and
+their typed package-versus-platform provenance to
+`PackageDependencyCoordinateMatchQuery`. The product returns `NoMatch`,
+`Unique`, or `Ambiguous` using NuGet identity and range semantics; JavaScript
+only activates the opaque key from a unique result. Product-query tests gate
+the semantic outcomes, and
+`dependency candidates carry typed package provenance to the product engine`
+gates the Browser transport.
 
 `QueryMemberCallGraph` projects `MemberCallGraphView` through
 `ILInspector.CallGraph.CallGraphProjection` and renders Mermaid in the engine.
@@ -433,6 +441,12 @@ build disabled. It runs on every push to `main`; `workflow_dispatch` remains
 available, but the deploy job itself requires `refs/heads/main`, so a manual run
 cannot publish another ref. Its deployment credential is the
 `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB` GitHub Actions secret.
+The publish step embeds the CLI's authoritative `VersionPrefix`, the exact
+`GITHUB_SHA`, and a UTC build timestamp in the engine. The home and workspace
+status bars show that version, link the short commit to GitHub, and disclose the
+binary build time. `BuildIdentity_UsesVersionedRepositoryProvenance` and
+`ready status shows versioned linked build provenance` gate the engine and UI
+halves.
 
 Two prerequisites live outside this repository and are **not** verified by
 anything in it: the secret must be present, and the Static Web App resource's

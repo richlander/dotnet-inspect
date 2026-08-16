@@ -280,7 +280,7 @@ consumer's convenience.
 ## Current migration state
 
 Metadata-image, direct-reference, assembly-context reference,
-package dependency-group, extension-method, custom-attribute,
+package dependency-group, loaded dependency-coordinate match, extension-method, custom-attribute,
 manifest-resource, type-forwarder, union-type, switch, SourceLink,
 API-comparison, Analysis body-signal comparison, Implementation comparison, and
 assembly-context Integrations inspection are the first vertical L1 canaries:
