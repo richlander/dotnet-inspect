@@ -198,6 +198,83 @@ public sealed class ServiceIndexAuthenticationTests
         Assert.Null(handler.AuthFor(CrossOriginPackage));
     }
 
+    [Theory]
+    [InlineData(
+        "https://feed.example/v3/index.json",
+        "https://feed.example:8443/v3/flat/")]
+    [InlineData(
+        "https://feed.example:8443/v3/index.json",
+        "http://feed.example:8443/v3/flat/")]
+    public async Task DifferentOriginComponents_DoNotCarryTheCredential(
+        string source,
+        string flatContainer)
+    {
+        string versions =
+            $"{flatContainer}contoso/index.json";
+        RecordingHandler handler = new()
+        {
+            [source] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{flatContainer}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [versions] = """{"versions":["1.0.0"]}""",
+        };
+        NuGetClient client = new(new HttpClient(handler));
+
+        _ = await client.GetVersionsAsync(
+            "contoso",
+            source,
+            Credential,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("pat:s3cret", handler.DecodedAuthFor(source));
+        Assert.Null(handler.AuthFor(versions));
+    }
+
+    [Fact]
+    public async Task IdnEquivalentOriginCarriesTheCredential()
+    {
+        const string UnicodeIndex =
+            "https://bücher.example/v3/index.json";
+        const string PunycodeFlat =
+            "https://xn--bcher-kva.example/v3/flat/";
+        const string PunycodeVersions =
+            "https://xn--bcher-kva.example/v3/flat/contoso/index.json";
+        RecordingHandler handler = new()
+        {
+            [UnicodeIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{PunycodeFlat}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [PunycodeVersions] = """{"versions":["1.0.0"]}""",
+        };
+        NuGetClient client = new(new HttpClient(handler));
+
+        _ = await client.GetVersionsAsync(
+            "contoso",
+            UnicodeIndex,
+            Credential,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            "pat:s3cret",
+            handler.DecodedAuthFor(PunycodeVersions));
+    }
+
     private const string ServiceIndex = $$"""
         {
           "version": "3.0.0",

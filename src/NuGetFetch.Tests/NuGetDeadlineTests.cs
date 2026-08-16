@@ -341,6 +341,59 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task HttpRequestFailureBeforeDeadline_RemainsAHttpRequestFailure()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    StreamResponse(
+                        message,
+                        new ImmediateTransportFailureStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(5),
+                operation: TimeSpan.FromSeconds(10)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        byte[] buffer = new byte[1];
+
+        await Assert.ThrowsAsync<HttpRequestException>(
+            async () =>
+                _ = await package.ReadAsync(
+                    buffer,
+                    TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task IoFailureBeforeDeadline_RemainsAnIoFailure()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    StreamResponse(
+                        message,
+                        new ImmediateTransportFailureStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(5),
+                operation: TimeSpan.FromSeconds(10)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        byte[] buffer = new byte[1];
+
+        Assert.Throws<IOException>(
+            () => package.Read(buffer, 0, buffer.Length));
+    }
+
+    [Fact]
     public async Task PerReadCancellation_IsNotReportedAsARequestTimeout()
     {
         using var client = new HttpClient(new DelayedHandler(
@@ -902,6 +955,36 @@ public sealed class NuGetDeadlineTests
                 _disposed.TrySetResult();
             base.Dispose(disposing);
         }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class ImmediateTransportFailureStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new IOException("Simulated transport failure.");
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<int>(
+                new HttpRequestException("Simulated transport failure."));
 
         public override void Flush() => throw new NotSupportedException();
         public override long Seek(long offset, SeekOrigin origin) =>
