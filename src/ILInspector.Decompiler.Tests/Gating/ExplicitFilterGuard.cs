@@ -74,56 +74,70 @@ internal static class ExplicitFilterGuard
         var testCases = new List<(ITestCase TestCase, bool PassedFilter)>();
         try
         {
-            await runner.Discover(projectAssembly, pipelineStartup: null, testCases: testCases);
-        }
-        catch (Exception)
-        {
-            // As with parsing, the real runner owns discovery failures and will
-            // surface them through its normal reporter and exit code.
-            return null;
-        }
+            try
+            {
+                await runner.Discover(projectAssembly, pipelineStartup: null, testCases: testCases);
+            }
+            catch (Exception)
+            {
+                // As with parsing, the real runner owns discovery failures and will
+                // surface them through its normal reporter and exit code.
+                return null;
+            }
 
-        string assemblyName = Path.GetFileNameWithoutExtension(projectAssembly.AssemblyFileName);
-        ExplicitFilter[] unmatched = filters
-            .Where(filter => !testCases.Any(testCase => Matches(assemblyName, testCase.TestCase, filter)))
-            .ToArray();
+            string assemblyName = Path.GetFileNameWithoutExtension(projectAssembly.AssemblyFileName);
+            ExplicitFilter[] unmatched = filters
+                .Where(filter => !testCases.Any(testCase => Matches(assemblyName, testCase.TestCase, filter)))
+                .ToArray();
 
-        if (unmatched.Length > 0)
-        {
-            return "error: explicit xUnit filter matched no discovered tests:\n"
-                + string.Join('\n', unmatched.Select(filter => $"  {filter.Option} \"{filter.Query}\""));
-        }
+            if (unmatched.Length > 0)
+            {
+                return "error: explicit xUnit filter matched no discovered tests:\n"
+                    + string.Join('\n', unmatched.Select(filter => $"  {filter.Option} \"{filter.Query}\""));
+            }
 
-        try
-        {
+            var serializationHelper = new PreflightSerializationHelper();
             if (projectAssembly.TestCasesToRun.Count > 0)
             {
-                SerializationHelper.Instance.AddRegisteredSerializers(testAssembly);
-            }
-        }
-        catch (Exception)
-        {
-            // The console runner performs the same registration and owns any
-            // registration diagnostic and exit code.
-            return null;
-        }
+                var warnings = new List<string>();
+                try
+                {
+                    serializationHelper.AddRegisteredSerializers(testAssembly, warnings);
+                }
+                catch (Exception)
+                {
+                    return null;
+                }
 
-        DeserializedRunTests runSelection = DeserializeRunTestCases(projectAssembly);
-        try
-        {
-            if (runSelection.InvalidCount > 0)
-            {
-                return "error: one or more -run test-case serializations could not be deserialized.";
+                if (warnings.Count > 0)
+                {
+                    return null;
+                }
             }
 
-            if (!HasRunnableSelection(projectAssembly, testCases, runSelection.TestCases))
+            DeserializedRunTests runSelection = DeserializeRunTestCases(
+                projectAssembly,
+                serializationHelper);
+            try
             {
-                return "error: the combined xUnit selectors matched no runnable tests.";
+                if (runSelection.InvalidCount > 0)
+                {
+                    return "error: one or more -run test-case serializations could not be deserialized.";
+                }
+
+                if (!HasRunnableSelection(projectAssembly, testCases, runSelection.TestCases))
+                {
+                    return "error: the combined xUnit selectors matched no runnable tests.";
+                }
+            }
+            finally
+            {
+                await DisposeTestCasesAsync(runSelection.TestCases);
             }
         }
         finally
         {
-            await DisposeTestCasesAsync(runSelection.TestCases);
+            await DisposeTestCasesAsync(testCases.Select(testCase => testCase.TestCase));
         }
 
         return null;
@@ -171,7 +185,9 @@ internal static class ExplicitFilterGuard
         return selected.Any(testCase => IsRunnable(testCase, explicitOption));
     }
 
-    private static DeserializedRunTests DeserializeRunTestCases(XunitProjectAssembly projectAssembly)
+    private static DeserializedRunTests DeserializeRunTestCases(
+        XunitProjectAssembly projectAssembly,
+        SerializationHelper serializationHelper)
     {
         var result = new List<ITestCase>();
         int invalidCount = 0;
@@ -179,7 +195,7 @@ internal static class ExplicitFilterGuard
         {
             try
             {
-                if (SerializationHelper.Instance.Deserialize(serialization) is ITestCase testCase)
+                if (serializationHelper.Deserialize(serialization) is ITestCase testCase)
                 {
                     result.Add(testCase);
                 }
@@ -252,4 +268,8 @@ internal static class ExplicitFilterGuard
     }
 
     private sealed record DeserializedRunTests(List<ITestCase> TestCases, int InvalidCount);
+
+    private sealed class PreflightSerializationHelper : SerializationHelper
+    {
+    }
 }

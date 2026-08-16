@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using ILInspector.Decompiler.Tests.Gating;
+using Xunit.Sdk;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -65,6 +66,26 @@ public class ExplicitFilterGuardTests
             "-explicit", "only");
         ProcessResult malformedQuery = await RunHostAsync(
             "-filter", "/((*)|(Foo))/*/*/*");
+        string disposalMarker = Path.Combine(
+            Path.GetTempPath(),
+            $"filter-guard-disposal-{Guid.NewGuid():N}");
+        ProcessResult disposableTheory;
+        try
+        {
+            disposableTheory = await RunHostAsync(
+                new Dictionary<string, string?>
+                {
+                    [FilterGuardDisposableArgument.MarkerEnvironmentVariable] = disposalMarker,
+                },
+                "-preEnumerateTheories",
+                "-method",
+                "ILInspector.Decompiler.Tests.ExplicitFilterGuardTests."
+                    + "PreflightDisposesDiscoveredTheoryArguments");
+        }
+        finally
+        {
+            File.Delete(disposalMarker);
+        }
 
         Assert.True(
             valid.ExitCode == 0,
@@ -104,9 +125,39 @@ public class ExplicitFilterGuardTests
         string malformedQueryDiagnostic = malformedQuery.Output + malformedQuery.Error;
         Assert.Contains("Unexpected null filter", malformedQueryDiagnostic);
         Assert.DoesNotContain("Unhandled exception", malformedQueryDiagnostic);
+
+        Assert.Equal(0, disposableTheory.ExitCode);
+        Assert.Contains("Total: 1,", disposableTheory.Output);
+        Assert.DoesNotContain("preflight discovery did not dispose", disposableTheory.Error);
     }
 
-    private static async Task<ProcessResult> RunHostAsync(params string[] arguments)
+    [Theory]
+    [MemberData(nameof(DisposableArguments), DisableDiscoveryEnumeration = false)]
+    public void PreflightDisposesDiscoveredTheoryArguments(
+        FilterGuardDisposableArgument argument)
+    {
+        if (argument.MarkerPath is not null)
+        {
+            Assert.True(
+                File.Exists(argument.MarkerPath),
+                "preflight discovery did not dispose its test case before execution");
+        }
+    }
+
+    public static TheoryData<FilterGuardDisposableArgument> DisposableArguments =>
+        new()
+        {
+            new FilterGuardDisposableArgument(
+                Environment.GetEnvironmentVariable(
+                    FilterGuardDisposableArgument.MarkerEnvironmentVariable)),
+        };
+
+    private static Task<ProcessResult> RunHostAsync(params string[] arguments) =>
+        RunHostAsync(null, arguments);
+
+    private static async Task<ProcessResult> RunHostAsync(
+        IReadOnlyDictionary<string, string?>? environment,
+        params string[] arguments)
     {
         var startInfo = new ProcessStartInfo("dotnet")
         {
@@ -118,6 +169,14 @@ public class ExplicitFilterGuardTests
         foreach (string argument in arguments)
         {
             startInfo.ArgumentList.Add(argument);
+        }
+
+        if (environment is not null)
+        {
+            foreach ((string name, string? value) in environment)
+            {
+                startInfo.Environment[name] = value;
+            }
         }
 
         using Process process = Process.Start(startInfo)
@@ -144,4 +203,43 @@ public class ExplicitFilterGuardTests
     }
 
     private sealed record ProcessResult(int ExitCode, string Output, string Error);
+}
+
+public sealed class FilterGuardDisposableArgument : IXunitSerializable, IDisposable
+{
+    internal const string MarkerEnvironmentVariable =
+        "DOTNET_INSPECT_FILTER_GUARD_DISPOSAL_MARKER";
+
+    [Obsolete("Called by the xUnit deserializer.")]
+    public FilterGuardDisposableArgument()
+    {
+    }
+
+    public FilterGuardDisposableArgument(string? markerPath)
+    {
+        MarkerPath = markerPath;
+    }
+
+    public string? MarkerPath { get; private set; }
+
+    public void Deserialize(IXunitSerializationInfo info)
+    {
+        MarkerPath = info.GetValue<string>(nameof(MarkerPath));
+    }
+
+    public void Dispose()
+    {
+        if (MarkerPath is not null)
+        {
+            File.WriteAllText(MarkerPath, "disposed");
+        }
+    }
+
+    public void Serialize(IXunitSerializationInfo info)
+    {
+        if (MarkerPath is not null)
+        {
+            info.AddValue(nameof(MarkerPath), MarkerPath);
+        }
+    }
 }
