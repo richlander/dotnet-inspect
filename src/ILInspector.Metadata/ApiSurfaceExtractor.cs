@@ -656,7 +656,8 @@ public static class ApiSurfaceExtractor
                 {
                     member.IsExtension = true;
                     member.ExtendedType =
-                        signature.Model?.Parameters.FirstOrDefault()?.Type;
+                        signature.Model?.Parameters.FirstOrDefault()
+                            ?.EffectiveCanonicalType;
                     member.DeclaringType = apiType.FullName;
                 }
 
