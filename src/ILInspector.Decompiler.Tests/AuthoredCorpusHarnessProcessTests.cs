@@ -65,8 +65,14 @@ public class AuthoredCorpusHarnessProcessTests
             var run = RunHarness("--structural-review", path);
 
             Assert.Equal(0, run.ExitCode);
-            Assert.Contains("raise: Return case body", run.Output, StringComparison.Ordinal);
-            Assert.Contains("raise: Break case body", run.Output, StringComparison.Ordinal);
+            Assert.Contains(
+                "raise: Return case body; changed to break;",
+                run.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "raise: Break case body; changed from return;",
+                run.Output,
+                StringComparison.Ordinal);
             Assert.Contains("Return -&gt; Break", run.Output, StringComparison.Ordinal);
             Assert.Contains("OpcodeDiff -&gt; Exact", run.Output, StringComparison.Ordinal);
         }

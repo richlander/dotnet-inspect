@@ -82,7 +82,13 @@ role on both sides. Optional compile-back fidelity is separately supplied typed
 evidence, not a conclusion inferred from C# text.
 
 `CSharpStructuralDiffPrinter` projects that one result into complete-body caret
-overlays and compact rich-diff rows. It performs no correspondence. The
+overlays and compact rich-diff rows. For a changed single-span node, each caret
+annotation reads the exact counterpart text from the already-corresponded
+document and names it as `changed to` or `changed from`. Text remains
+presentation evidence and never participates in identity. Multiline,
+multi-span, and long transitions use the bounded `text changed` label rather
+than injecting unbounded text into an annotation. It performs no correspondence.
+The
 DecompilerHarness `--structural-review before.json after.json` mode owns
 Markdown orchestration, invokes the product issuer, and consumes the same result
 for both presentations. Unsupported and ambiguous nodes remain a separate

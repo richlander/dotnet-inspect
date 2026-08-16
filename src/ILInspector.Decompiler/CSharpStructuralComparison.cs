@@ -644,14 +644,25 @@ public static partial class CSharpBodyDiff
         AnnotatedSourceNode beforeNode,
         AnnotatedSourceDocument afterDocument,
         AnnotatedSourceNode afterNode)
+        => SelectedTextEqual(
+            beforeDocument,
+            beforeNode.Spans,
+            afterDocument,
+            afterNode.Spans);
+
+    internal static bool SelectedTextEqual(
+        AnnotatedSourceDocument beforeDocument,
+        IReadOnlyList<AnnotatedSourceSpan> beforeSpans,
+        AnnotatedSourceDocument afterDocument,
+        IReadOnlyList<AnnotatedSourceSpan> afterSpans)
     {
-        if (beforeNode.Spans.Count != afterNode.Spans.Count)
+        if (beforeSpans.Count != afterSpans.Count)
             return false;
 
-        for (int index = 0; index < beforeNode.Spans.Count; index++)
+        for (int index = 0; index < beforeSpans.Count; index++)
         {
-            var beforeSpan = beforeNode.Spans[index];
-            var afterSpan = afterNode.Spans[index];
+            var beforeSpan = beforeSpans[index];
+            var afterSpan = afterSpans[index];
             if (!beforeDocument.Text.AsSpan(beforeSpan.Start, beforeSpan.Length)
                 .SequenceEqual(afterDocument.Text.AsSpan(afterSpan.Start, afterSpan.Length)))
             {

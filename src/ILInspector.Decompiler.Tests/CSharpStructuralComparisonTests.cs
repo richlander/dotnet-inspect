@@ -78,8 +78,8 @@ public class CSharpStructuralComparisonTests
             comparison,
             CSharpStructuralSide.After);
 
-        AssertCaret(beforeBody, "return;", "raise: Return case body");
-        AssertCaret(afterBody, "break;", "raise: Break case body");
+        AssertCaret(beforeBody, "return;", "raise: Return case body; changed to break;");
+        AssertCaret(afterBody, "break;", "raise: Break case body; changed from return;");
         Assert.Contains("case NLoptAlgorithm.G_MLSL_LDS:", beforeBody, StringComparison.Ordinal);
         Assert.Contains("throw new ArgumentException", beforeBody, StringComparison.Ordinal);
         Assert.DoesNotContain("raise: Throw", beforeBody, StringComparison.Ordinal);
@@ -89,6 +89,65 @@ public class CSharpStructuralComparisonTests
         Assert.Equal("Return -> Break", display.Structure);
         Assert.Equal("Case", display.Region);
         Assert.Equal("OpcodeDiff -> Exact; terminal IL_0072: ret", display.Fidelity);
+    }
+
+    [Fact]
+    public void RenderAnnotatedBody_ExplainsRefArgumentTransition()
+    {
+        const string beforeText = """
+            int M(int value)
+            {
+                return Read(value);
+            }
+            """;
+        const string afterText = """
+            int M(int value)
+            {
+                return Read(ref value);
+            }
+            """;
+        var before = Document(
+            beforeText,
+            ("ReturnStatement", "return Read(value);"),
+            ("InvocationExpression", "Read(value)"));
+        var after = Document(
+            afterText,
+            ("ReturnStatement", "return Read(ref value);"),
+            ("InvocationExpression", "Read(ref value)"));
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "LocalFunctionArgumentSamples.RefArgument",
+            before,
+            after,
+            [0, 1],
+            [0, 1],
+            [
+                new CSharpNodeCorrespondence(0, 0),
+                new CSharpNodeCorrespondence(1, 1),
+            ]));
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+        string afterBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.After);
+
+        Assert.Contains(
+            "raise: Return; changed to return Read(ref value);",
+            beforeBody,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "raise: InvocationExpression; changed to Read(ref value)",
+            beforeBody,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "raise: Return; changed from return Read(value);",
+            afterBody,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "raise: InvocationExpression; changed from Read(value)",
+            afterBody,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -222,6 +281,7 @@ public class CSharpStructuralComparisonTests
         int firstCaretColumn = lines[sourceLine + 1].IndexOf('^');
         Assert.Equal(sourceEmojiColumn, firstCaretColumn);
         Assert.Contains("^^^^", lines[sourceLine + 1], StringComparison.Ordinal);
+        Assert.Contains("text changed", rendered, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -313,6 +373,7 @@ public class CSharpStructuralComparisonTests
         int lastCaret = caretLine.LastIndexOf('^');
         Assert.True(firstCaret >= 0);
         Assert.True(lastCaret < sourceLine.Length);
+        Assert.Contains("text changed", string.Join('\n', rendered), StringComparison.Ordinal);
     }
 
     [Fact]
