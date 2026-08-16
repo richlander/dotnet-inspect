@@ -324,6 +324,14 @@ public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
     public bool IsDynamic { get; init; }
 
     /// <summary>
+    /// Whether this field's top-level type was authored as <c>dynamic</c>.
+    /// MemberRefs do not carry the defining field's custom attributes, so an
+    /// unresolved <c>object</c>-typed field remains
+    /// <see cref="MetadataFactState.Unknown"/>.
+    /// </summary>
+    public MetadataFactState DynamicFact { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// Positive metadata evidence that this field is a C# fixed buffer source
     /// field. Null means no proof, not proof of absence.
     /// </summary>
@@ -1851,14 +1859,19 @@ public sealed class Unary : IrExpression
     witness: "async fixtures (classic-async MoveNext reconstruction); corpus compile-back")]
 public sealed class AwaitExpression : IrExpression
 {
-    public AwaitExpression(IrExpression operand, TypeRef? resultType)
+    public AwaitExpression(
+        IrExpression operand,
+        TypeRef? resultType,
+        MetadataFactState resultIsDynamic = MetadataFactState.Unknown)
     {
         AddChild(operand);
         ResultType = resultType;
+        ResultIsDynamic = resultIsDynamic;
     }
 
     public IrExpression Operand => (IrExpression)Children[0];
     public override TypeRef? ResultType { get; }
+    public MetadataFactState ResultIsDynamic { get; }
 
     public override string Describe() => "AwaitExpression";
 }

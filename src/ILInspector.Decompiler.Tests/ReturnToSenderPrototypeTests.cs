@@ -7921,6 +7921,7 @@ public class ReturnToSenderPrototypeTests
             public sealed class DynamicCarrier
             {
                 readonly Row _value = new();
+                public dynamic Field = new Row();
                 public dynamic Property => _value;
                 public dynamic Method() => _value;
             }
@@ -7928,6 +7929,7 @@ public class ReturnToSenderPrototypeTests
             public sealed class GenericDynamicCarrier<T>
             {
                 public T Value { get; init; }
+                public T Slot;
             }
 
             public static class Cases
@@ -7937,12 +7939,22 @@ public class ReturnToSenderPrototypeTests
                 public static bool DynamicMember(dynamic value, object right) => (object)value.Member == right;
                 public static bool DynamicProperty(DynamicCarrier carrier, object right) => (object)carrier.Property == right;
                 public static bool DynamicMethod(DynamicCarrier carrier, object right) => (object)carrier.Method() == right;
+                public static bool DynamicField(DynamicCarrier carrier, object right) => (object)carrier.Field == right;
                 public static bool DynamicConditional(DynamicCarrier carrier, bool choose, object right)
                     => (object)(choose ? carrier.Property : carrier.Method()) == right;
                 public static bool GenericDynamicProperty(GenericDynamicCarrier<dynamic> carrier, object right)
                     => (object)carrier.Value == right;
+                public static bool GenericDynamicField(GenericDynamicCarrier<dynamic> carrier, object right)
+                    => (object)carrier.Slot == right;
                 public static bool DynamicArrayElement(dynamic[] values, int index, object right)
                     => (object)values[index] == right;
+                public static bool DynamicSwitch(DynamicCarrier carrier, int selector, object right)
+                    => (object)(selector switch
+                    {
+                        0 => carrier.Field,
+                        1 => carrier.Property,
+                        _ => carrier.Method(),
+                    }) == right;
             }
             """);
         try
@@ -7955,9 +7967,12 @@ public class ReturnToSenderPrototypeTests
                     new ReturnToSender.RequestedTarget("Cases", "DynamicMember", 0),
                     new ReturnToSender.RequestedTarget("Cases", "DynamicProperty", 0),
                     new ReturnToSender.RequestedTarget("Cases", "DynamicMethod", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicField", 0),
                     new ReturnToSender.RequestedTarget("Cases", "DynamicConditional", 0),
                     new ReturnToSender.RequestedTarget("Cases", "GenericDynamicProperty", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "GenericDynamicField", 0),
                     new ReturnToSender.RequestedTarget("Cases", "DynamicArrayElement", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicSwitch", 0),
                 ]);
 
             Assert.All(results, result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
@@ -7974,13 +7989,22 @@ public class ReturnToSenderPrototypeTests
                 "return (object)carrier.Method() == (object)right;",
                 StringComparison.Ordinal));
             Assert.Contains(results, result => result.Source.Contains(
+                "return (object)carrier.Slot == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
                 "(object)(choose ? carrier.Property : carrier.Method()) == (object)right",
                 StringComparison.Ordinal));
             Assert.Contains(results, result => result.Source.Contains(
                 "return (object)carrier.Value == (object)right;",
                 StringComparison.Ordinal));
             Assert.Contains(results, result => result.Source.Contains(
+                "return (object)carrier.Field == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
                 "return (object)values[index] == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "(object)(selector switch { 0 => carrier.Field, 1 => carrier.Property, _ => carrier.Method() }) == (object)right",
                 StringComparison.Ordinal));
         }
         finally

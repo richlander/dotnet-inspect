@@ -150,6 +150,24 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void CrossAssemblyDynamicFields_PreserveReferenceIdentity()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        var direct = SingleField(source, nameof(CrossAssemblyFixtureMethods.UseDynamicField), "DynamicField");
+        var generic = SingleField(source, nameof(CrossAssemblyFixtureMethods.UseGenericDynamicField), "Value");
+        var plainObject = SingleField(source, nameof(CrossAssemblyFixtureMethods.UseObjectField), "ObjectField");
+
+        Assert.Equal(MetadataFactState.Yes, direct.Field.DynamicFact);
+        Assert.Equal(MetadataFactState.Unknown, generic.Field.DynamicFact);
+        Assert.Equal(MetadataFactState.No, plainObject.Field.DynamicFact);
+        Assert.Contains("(object)library.DynamicField == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseDynamicField));
+        Assert.Contains("(object)library.Value == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseGenericDynamicField));
+        Assert.Contains("return library.ObjectField == right;", PrintRaised(source, CrossAssemblyFixtureMethods.UseObjectField));
+    }
+
+    [Fact]
     public void MissingCrossAssemblyDynamicFacts_DeclineConservatively()
     {
         using var fixture = CrossAssemblyFixture.Create();
@@ -161,6 +179,21 @@ public class CrossAssemblyMethodFactsTests
         var call = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseDynamicMethod), "GetDynamicValue");
         Assert.Equal(MetadataFactState.Unknown, call.Callee.ReturnIsDynamic);
         Assert.Contains("(object)library.GetDynamicValue() == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseDynamicMethod));
+    }
+
+    [Fact]
+    public void MissingCrossAssemblyFieldFacts_DeclineConservatively()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            null,
+            TestAssemblyReferenceResolvers.None);
+
+        var field = SingleField(source, nameof(CrossAssemblyFixtureMethods.UseDynamicField), "DynamicField");
+        Assert.Equal(MetadataFactState.Unknown, field.Field.DynamicFact);
+        Assert.Contains("(object)library.DynamicField == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseDynamicField));
+        Assert.Contains("(object)new ExternalReference() == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseExternalNewObject));
     }
 
     [Fact]
@@ -274,6 +307,12 @@ public class CrossAssemblyMethodFactsTests
         return Assert.Single(function.Descendants.OfType<NewObject>());
     }
 
+    static LoadField SingleField(MetadataSource source, string methodName, string fieldName)
+    {
+        var function = ImportFunction(source, methodName);
+        return Assert.Single(function.Descendants.OfType<LoadField>(), field => field.Field.Name == fieldName);
+    }
+
     static IrFunction ImportFunction(MetadataSource source, string methodName)
     {
         var function = IrImporter.Import(source, "ExternalFacts.Consumer", methodName);
@@ -336,8 +375,23 @@ public class CrossAssemblyMethodFactsTests
                     public sealed class DynamicLibrary
                     {
                         readonly ExternalNumber _value = new(1);
+                        public dynamic DynamicField = new ExternalNumber(2);
+                        public object ObjectField = new ExternalNumber(3);
                         public dynamic DynamicValue => _value;
                         public dynamic GetDynamicValue() => _value;
+                    }
+
+                    public sealed class GenericDynamicLibrary<T>
+                    {
+                        public T Value = default!;
+                    }
+
+                    public sealed class ExternalReference
+                    {
+                        public static bool operator ==(ExternalReference left, object right) => true;
+                        public static bool operator !=(ExternalReference left, object right) => false;
+                        public override bool Equals(object? obj) => false;
+                        public override int GetHashCode() => 0;
                     }
 
                     public readonly struct ExternalNumber
@@ -430,6 +484,18 @@ public class CrossAssemblyMethodFactsTests
                         public static bool UseDynamicMethod(DynamicLibrary library, object right)
                             => (object)library.GetDynamicValue() == right;
 
+                        public static bool UseDynamicField(DynamicLibrary library, object right)
+                            => (object)library.DynamicField == right;
+
+                        public static bool UseObjectField(DynamicLibrary library, object right)
+                            => library.ObjectField == right;
+
+                        public static bool UseGenericDynamicField(GenericDynamicLibrary<dynamic> library, object right)
+                            => (object)library.Value == right;
+
+                        public static bool UseExternalNewObject(object right)
+                            => (object)new ExternalReference() == right;
+
                         public static bool UseUri(string value)
                             => System.Uri.TryCreate(value, System.UriKind.Absolute, out var uri) && uri is not null;
 
@@ -493,6 +559,10 @@ public class CrossAssemblyMethodFactsTests
         public const string UseProperty = nameof(UseProperty);
         public const string UseDynamicProperty = nameof(UseDynamicProperty);
         public const string UseDynamicMethod = nameof(UseDynamicMethod);
+        public const string UseDynamicField = nameof(UseDynamicField);
+        public const string UseObjectField = nameof(UseObjectField);
+        public const string UseGenericDynamicField = nameof(UseGenericDynamicField);
+        public const string UseExternalNewObject = nameof(UseExternalNewObject);
         public const string UseUri = nameof(UseUri);
         public const string UseExternalInlineArray = nameof(UseExternalInlineArray);
     }

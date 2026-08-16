@@ -1700,6 +1700,7 @@ public sealed partial class CSharpPrinter
         => expression switch
         {
             IsInstance instance => !IsValueTypeTarget(instance.Type),
+            NewObject creation => !IsValueTypeTarget(creation.Constructor.DeclaringType),
             CastClass or Box => true,
             _ => IsKnownReferenceType(expression.ResultType),
         };
@@ -1783,12 +1784,24 @@ public sealed partial class CSharpPrinter
             DynamicGetMember => true,
             Call call => MayRenderDynamicResult(call.Callee),
             LoadProperty property => MayRenderDynamicResult(property.Accessor),
+            LoadField field => IsSystemObjectType(field.Field.Type)
+                && field.Field.DynamicFact != MetadataFactState.No,
             LoadElement { ResultType: { } type } => IsSystemObjectType(type),
+            AwaitExpression { ResultType: { } resultType } awaitExpression
+                => IsSystemObjectType(resultType)
+                    && awaitExpression.ResultIsDynamic != MetadataFactState.No,
             Conditional conditional => RendersAsDynamic(conditional.WhenTrue)
                 || RendersAsDynamic(conditional.WhenFalse),
             Coalesce coalesce => RendersAsDynamic(coalesce.Left)
                 || RendersAsDynamic(coalesce.Right),
             NullConditional conditional => RendersAsDynamic(conditional.Member),
+            SwitchExpression switchExpression => switchExpression.Arms.Any(arm => RendersAsDynamic(arm.Value)),
+            UnionSwitchExpression switchExpression => switchExpression.Arms.Any(arm => RendersAsDynamic(arm.Value))
+                || switchExpression.NullValue is { } nullValue && RendersAsDynamic(nullValue)
+                || switchExpression.DefaultValue is { } defaultValue && RendersAsDynamic(defaultValue),
+            PatternSwitchExpression switchExpression => switchExpression.Arms.Any(arm => RendersAsDynamic(arm.Value))
+                || switchExpression.DefaultValue is { } defaultValue && RendersAsDynamic(defaultValue),
+            TupleSwitchExpression switchExpression => switchExpression.Arms.Any(arm => RendersAsDynamic(arm.Value)),
             _ => IsDynamicTypedReceiver(operand),
         };
 

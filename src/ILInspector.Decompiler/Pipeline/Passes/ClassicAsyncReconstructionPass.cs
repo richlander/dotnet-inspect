@@ -469,7 +469,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
         statements.Add(new StoreLocal(sumIndex, sumType, new Constant(0, sumType)));
         var body = new Block(0);
-        var awaited = new AwaitExpression(new LoadLocal(taskIndex, taskType), getResult.Callee.ReturnType);
+        var awaited = new AwaitExpression(
+            new LoadLocal(taskIndex, taskType),
+            getResult.Callee.ReturnType,
+            getResult.Callee.ReturnIsDynamic);
         body.Add(new StoreLocal(
             sumIndex,
             sumType,
@@ -558,7 +561,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return null;
 
         var operand = CloneAndRemap(awaitedOperand, kickoff);
-        return operand is null ? null : new AwaitExpression(operand, getResult.Callee.ReturnType);
+        return operand is null
+            ? null
+            : new AwaitExpression(
+                operand,
+                getResult.Callee.ReturnType,
+                getResult.Callee.ReturnIsDynamic);
     }
 
     static bool HasUnexpectedExpressionStatement(IrFunction moveNext, params ExpressionStatement[] allowed)

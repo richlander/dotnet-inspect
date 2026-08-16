@@ -72,24 +72,52 @@ internal static class MethodDefinitionFacts
             var parameter = reader.GetParameter(parameterHandle);
             if (parameter.SequenceNumber != 0)
                 continue;
-            var attributes = parameter.GetCustomAttributes();
-            bool hasDynamicAttribute = HasAttribute(
+            return DynamicFact(
                 reader,
-                attributes,
-                "System.Runtime.CompilerServices",
-                "DynamicAttribute");
-            if (DynamicReader.IsTopLevelDynamic(DynamicReader.GetDynamicFlags(reader, attributes)))
-                return MetadataFactState.Yes;
-            if (hasDynamicAttribute)
-                return MetadataFactState.Unknown;
-            break;
+                parameter.GetCustomAttributes(),
+                declaredReturnType,
+                effectiveReturnType);
         }
 
-        // A generic return substituted with object may have been authored through
-        // a dynamic type argument (for example Box<dynamic>.Value). The MethodDef
+        return GenericObjectDynamicFact(declaredReturnType, effectiveReturnType);
+    }
+
+    internal static MetadataFactState FieldDynamicFact(
+        MetadataReader reader,
+        FieldDefinition field,
+        TypeRef declaredFieldType,
+        TypeRef effectiveFieldType)
+        => DynamicFact(
+            reader,
+            field.GetCustomAttributes(),
+            declaredFieldType,
+            effectiveFieldType);
+
+    static MetadataFactState DynamicFact(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        TypeRef declaredType,
+        TypeRef effectiveType)
+    {
+        bool hasDynamicAttribute = HasAttribute(
+            reader,
+            attributes,
+            "System.Runtime.CompilerServices",
+            "DynamicAttribute");
+        if (DynamicReader.IsTopLevelDynamic(DynamicReader.GetDynamicFlags(reader, attributes)))
+            return MetadataFactState.Yes;
+        if (hasDynamicAttribute)
+            return MetadataFactState.Unknown;
+        return GenericObjectDynamicFact(declaredType, effectiveType);
+    }
+
+    static MetadataFactState GenericObjectDynamicFact(TypeRef declaredType, TypeRef effectiveType)
+    {
+        // A generic result substituted with object may have been authored through
+        // a dynamic type argument (for example Box<dynamic>.Value). The definition
         // itself cannot prove the source view, so absence of [Dynamic] is not No.
-        return declaredReturnType.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
-            && effectiveReturnType is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" }
+        return declaredType.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
+            && effectiveType is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" }
                 ? MetadataFactState.Unknown
                 : MetadataFactState.No;
     }

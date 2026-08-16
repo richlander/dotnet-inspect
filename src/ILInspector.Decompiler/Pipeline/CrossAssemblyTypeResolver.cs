@@ -37,6 +37,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly ConcurrentDictionary<TypeResolutionCoordinates, ValueTypeHint> _valueTypeCache = new();
     readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _inlineArrayCache = new();
     readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _byRefLikeCache = new();
+    readonly ConcurrentDictionary<(FieldRef Field, TypeResolutionCoordinates Type), ResolvedFieldFacts?> _fieldFactCache = new();
     readonly ConcurrentDictionary<(MethodRef Method, TypeResolutionCoordinates Type), ResolvedMethodFacts?> _methodFactCache = new();
     readonly ConcurrentDictionary<(TypeRef Instance, TypeResolutionCoordinates Type, TypeRef Interface), MetadataFactState> _interfaceCache = new();
     readonly ConcurrentDictionary<(TypeResolutionCoordinates Type, string MethodName), MetadataFactState> _operatorHierarchyCache = new();
@@ -103,11 +104,13 @@ internal sealed class CrossAssemblyTypeResolver
                 field = field with { DeclaringTypeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(assembly.Reader, typeDef.GetCustomAttributes()) ? MetadataFactState.Yes : MetadataFactState.No };
             }
         }
-        if (field.BackingPropertyName is not null
-            || CSharpNaming.BackingFieldProperty(field.Name) is null)
-        {
+
+        bool needsDynamic = field.DynamicFact == MetadataFactState.Unknown
+            && IsSystemObject(field.Type);
+        bool needsBackingProperty = field.BackingPropertyName is null
+            && CSharpNaming.BackingFieldProperty(field.Name) is not null;
+        if (!needsDynamic && !needsBackingProperty)
             return field;
-        }
 
         var type = NamedDefinition(field.DeclaringType);
         if (type is null || string.IsNullOrEmpty(type.Assembly))
@@ -115,9 +118,23 @@ internal sealed class CrossAssemblyTypeResolver
         if (type.Assembly == _selfCanonical)
             return field;
 
-        return ResolveFieldBackingProperty(field, type) is { } property
-            ? field with { BackingPropertyName = property }
-            : field;
+        if (!TryCoordinates(type, out TypeResolutionCoordinates coordinates))
+            return field;
+        var facts = _fieldFactCache.GetOrAdd(
+            (field, coordinates),
+            entry => ResolveFieldFacts(entry.Field, type));
+        if (facts is not { } resolved)
+            return field;
+
+        return field with
+        {
+            BackingPropertyName = needsBackingProperty && resolved.BackingPropertyName is { } property
+                ? property
+                : field.BackingPropertyName,
+            IsDynamic = needsDynamic && resolved.DynamicFact == MetadataFactState.Yes
+                || field.IsDynamic,
+            DynamicFact = needsDynamic ? resolved.DynamicFact : field.DynamicFact,
+        };
     }
 
     /// <summary>
@@ -495,7 +512,7 @@ internal sealed class CrossAssemblyTypeResolver
         }
     }
 
-    string? ResolveFieldBackingProperty(FieldRef field, TypeRef type)
+    ResolvedFieldFacts? ResolveFieldFacts(FieldRef field, TypeRef type)
     {
         try
         {
@@ -518,11 +535,18 @@ internal sealed class CrossAssemblyTypeResolver
                 if (!string.Equals(reader.GetString(candidate.Name), field.Name, StringComparison.Ordinal))
                     continue;
 
-                var fieldType = GuardedDecode.FieldType(reader, candidate, typeScope).Instantiate(typeArguments, []);
+                var declaredFieldType = GuardedDecode.FieldType(reader, candidate, typeScope);
+                var fieldType = declaredFieldType.Instantiate(typeArguments, []);
                 if (!SameSignatureType(fieldType, field.Type, allowCoreLibraryAliases))
                     continue;
 
-                return BackingPropertyName(reader, typeDef, field.Name);
+                return new ResolvedFieldFacts(
+                    MethodDefinitionFacts.FieldDynamicFact(
+                        reader,
+                        candidate,
+                        declaredFieldType,
+                        fieldType),
+                    BackingPropertyName(reader, typeDef, field.Name));
             }
 
             return null;
@@ -547,6 +571,9 @@ internal sealed class CrossAssemblyTypeResolver
 
         return null;
     }
+
+    static bool IsSystemObject(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" };
 
     static bool TryMatchMethod(
         MetadataReader reader,
@@ -989,4 +1016,8 @@ internal sealed class CrossAssemblyTypeResolver
         MetadataFactState IsExtension,
         MetadataFactState IsOperator,
         AccessorKind AccessorKind);
+
+    readonly record struct ResolvedFieldFacts(
+        MetadataFactState DynamicFact,
+        string? BackingPropertyName);
 }

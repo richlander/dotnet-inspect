@@ -2648,22 +2648,32 @@ public static class IrImporter
                 var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
                 var typeScope = new GenericScope(GenericParameterNames(reader, declaringType.GetGenericParameters()), []);
                 var name = reader.GetString(field.Name);
-                return new FieldRef(declaring, name, GuardedDecode.FieldType(reader, field, typeScope))
+                var fieldType = GuardedDecode.FieldType(reader, field, typeScope);
+                var dynamicFact = MethodDefinitionFacts.FieldDynamicFact(reader, field, fieldType, fieldType);
+                return new FieldRef(declaring, name, fieldType)
                 {
                     BackingPropertyName = BackingPropertyName(reader, declaringType, name),
                     DeclaringTypeCompilerGenerated = FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes())),
                     FixedBuffer = FixedBufferFieldInfo(reader, field.GetCustomAttributes()),
-                    IsDynamic = DynamicReader.IsTopLevelDynamic(DynamicReader.GetDynamicFlags(reader, field.GetCustomAttributes())),
+                    IsDynamic = dynamicFact == MetadataFactState.Yes,
+                    DynamicFact = dynamicFact,
                 };
             }
             case HandleKind.MemberReference:
             {
                 var member = reader.GetMemberReference((MemberReferenceHandle)handle);
                 var declaring = ResolveParentType(reader, member.Parent, callerScope);
-                var fieldType = GuardedDecode.FieldType(reader, member, GenericScope.Empty);
+                var declaredFieldType = GuardedDecode.FieldType(reader, member, GenericScope.Empty);
+                var fieldType = declaredFieldType;
                 if (declaring.Kind == TypeRefKind.GenericInstance)
                     fieldType = fieldType.Instantiate(declaring.TypeArguments, []);
                 var name = reader.GetString(member.Name);
+                var dynamicFact = MemberReferenceFieldDynamicFact(
+                    reader,
+                    member,
+                    name,
+                    declaredFieldType,
+                    fieldType);
                 return new FieldRef(declaring, name, fieldType)
                 {
                     BackingPropertyName = MemberReferenceBackingPropertyName(reader, member, name),
@@ -2675,7 +2685,8 @@ public static class IrImporter
                         declaredReturnType: fieldType,
                         effectiveReturnType: fieldType,
                         parameterTypes: []).DeclaringTypeCompilerGenerated,
-                    IsDynamic = MemberReferenceFieldIsDynamic(reader, member, name),
+                    IsDynamic = dynamicFact == MetadataFactState.Yes,
+                    DynamicFact = dynamicFact,
                 };
             }
             default:
@@ -2743,25 +2754,37 @@ public static class IrImporter
         return BackingPropertyName(reader, reader.GetTypeDefinition(typeHandle), fieldName);
     }
 
-    // A field referenced through a MemberReference (e.g. a captured `dynamic`
-    // hoisted into a generic display-class field, accessed via a generic-instance
-    // TypeSpec parent) carries its [DynamicAttribute] on the underlying same-
-    // assembly FieldDefinition, not on the reference. Resolve to the definition
-    // and decode the top-level dynamic flag so the printer can drop the redundant
-    // ((dynamic)x) cast for the generic-enclosing case too (issue #2984).
-    static bool MemberReferenceFieldIsDynamic(MetadataReader reader, MemberReference member, string fieldName)
+    static MetadataFactState MemberReferenceFieldDynamicFact(
+        MetadataReader reader,
+        MemberReference member,
+        string fieldName,
+        TypeRef declaredFieldType,
+        TypeRef effectiveFieldType)
     {
+        if (!IsSystemObject(effectiveFieldType))
+            return MetadataFactState.No;
         if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
-            return false;
+            return MetadataFactState.Unknown;
         var declaringType = reader.GetTypeDefinition(typeHandle);
+        var memberSignature = reader.GetBlobBytes(member.Signature);
         foreach (var fieldHandle in declaringType.GetFields())
         {
             var field = reader.GetFieldDefinition(fieldHandle);
-            if (string.Equals(reader.GetString(field.Name), fieldName, StringComparison.Ordinal))
-                return DynamicReader.IsTopLevelDynamic(DynamicReader.GetDynamicFlags(reader, field.GetCustomAttributes()));
+            if (string.Equals(reader.GetString(field.Name), fieldName, StringComparison.Ordinal)
+                && reader.GetBlobBytes(field.Signature).AsSpan().SequenceEqual(memberSignature))
+            {
+                return MethodDefinitionFacts.FieldDynamicFact(
+                    reader,
+                    field,
+                    declaredFieldType,
+                    effectiveFieldType);
+            }
         }
-        return false;
+        return MetadataFactState.Unknown;
     }
+
+    static bool IsSystemObject(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" };
 
     /// <summary>
     /// The mapped initial-value bytes of a field with an RVA — a
