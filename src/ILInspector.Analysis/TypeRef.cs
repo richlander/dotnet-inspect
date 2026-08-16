@@ -58,6 +58,12 @@ public sealed class TypeRef : IEquatable<TypeRef>
     internal MethodSignature<TypeRef>? FunctionPointerSignature
         { get; private init; }
 
+    // Retained exact signature shape for identity-sensitive consumers. Legacy
+    // TypeRef equality and display remain rank-based.
+    internal ImmutableArray<int> ArraySizes { get; private init; } = [];
+    internal ImmutableArray<int> ArrayLowerBounds { get; private init; } = [];
+    internal byte RawTypeKind { get; set; }
+
     /// <summary>
     /// Decoder-retained origin and exact metadata name. It is excluded from
     /// structural equality, hashing, and display.
@@ -96,7 +102,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
         string name,
         ResolvableTypeReference? resolution,
         bool trustedFrameworkAssembly = true,
-        bool trustedProtobufAssembly = true)
+        bool trustedProtobufAssembly = true,
+        byte rawTypeKind = 0)
         => new(TypeRefKind.Definition)
         {
             Assembly = CanonicalAssembly(assembly),
@@ -105,6 +112,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
             Resolution = resolution,
             TrustedFrameworkAssembly = trustedFrameworkAssembly,
             TrustedProtobufAssembly = trustedProtobufAssembly,
+            RawTypeKind = rawTypeKind,
         };
 
     public static TypeRef CoreLib(string ns, string name) => Definition(CoreLibrary, ns, name);
@@ -114,6 +122,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     public static TypeRef SzArray(TypeRef element) => new(TypeRefKind.SzArray) { ElementType = element };
     public static TypeRef MdArray(TypeRef element, int rank) => new(TypeRefKind.Array) { ElementType = element, Rank = rank };
+    internal static TypeRef MdArray(TypeRef element, ArrayShape shape) =>
+        new(TypeRefKind.Array)
+        {
+            ElementType = element,
+            Rank = shape.Rank,
+            ArraySizes = shape.Sizes,
+            ArrayLowerBounds = shape.LowerBounds,
+        };
     public static TypeRef ByRef(TypeRef element) => new(TypeRefKind.ByRef) { ElementType = element };
     public static TypeRef Pointer(TypeRef element) => new(TypeRefKind.Pointer) { ElementType = element };
     public static TypeRef Pinned(TypeRef element) => new(TypeRefKind.Pinned) { ElementType = element };
@@ -167,7 +183,15 @@ public sealed class TypeRef : IEquatable<TypeRef>
             case TypeRefKind.SzArray or TypeRefKind.Array or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
             {
                 var element = ElementType!.Instantiate(typeArguments, methodArguments);
-                return ReferenceEquals(element, ElementType) ? this : new TypeRef(Kind) { ElementType = element, Rank = Rank };
+                return ReferenceEquals(element, ElementType)
+                    ? this
+                    : new TypeRef(Kind)
+                    {
+                        ElementType = element,
+                        Rank = Rank,
+                        ArraySizes = ArraySizes,
+                        ArrayLowerBounds = ArrayLowerBounds,
+                    };
             }
             case TypeRefKind.GenericInstance:
             {
