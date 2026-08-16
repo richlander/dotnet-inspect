@@ -1278,7 +1278,8 @@ internal static class CSharpDeclarationWriter
 
     static IEnumerable<string> CollectExplicitInterfaceTypeReferences(ApiMember member)
     {
-        if (member.Kind != "explicit-interface-implementation")
+        if (member.Kind != "explicit-interface-implementation"
+            && !member.IsExplicitInterfaceImplementation)
             yield break;
 
         int memberSeparator = member.Name.LastIndexOf('.');

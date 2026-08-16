@@ -393,8 +393,10 @@ public sealed class CSharpTypePrinter
             var original = memberArray[i];
             var snapshot = type.Members[i];
             var policy = overrides.TryGetValue(original, out var memberPolicy)
-                ? memberPolicy
-                : new CSharpMemberPolicy(original, request.BodyPolicy);
+                ? ResolveMemberPolicy(memberPolicy, snapshot)
+                : ResolveMemberPolicy(
+                    new CSharpMemberPolicy(original, request.BodyPolicy),
+                    snapshot);
             ValidateResolvedBodyPolicy(
                 type,
                 snapshot,
@@ -424,6 +426,16 @@ public sealed class CSharpTypePrinter
             primaryConstructorParameters,
             nestedTypes);
     }
+
+    static CSharpMemberPolicy ResolveMemberPolicy(
+        CSharpMemberPolicy policy,
+        ApiMember snapshot)
+        => policy.BodyPolicy == CSharpBodyPolicy.Skeleton && IsExplicitInterfaceEvent(snapshot)
+            ? new CSharpMemberPolicy(
+                policy.Member,
+                CSharpBodyPolicy.Stub,
+                new CSharpEventBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw))
+            : policy;
 
     static Dictionary<ApiMember, CSharpMemberPolicy> ValidateAndIndexPolicies(
         CSharpTypePrintRequest request,
@@ -1030,11 +1042,6 @@ public sealed class CSharpTypePrinter
             throw new ArgumentException(
                 $"Abstract member '{member.Name}' must use skeleton body policy.",
                 parameterName);
-        }
-        if (IsExplicitInterfaceEvent(member) && policy.BodyPolicy == CSharpBodyPolicy.Skeleton)
-        {
-            throw new NotSupportedException(
-                $"Explicit interface event '{member.Name}' requires add/remove bodies.");
         }
         if (member.Kind == "event"
             && policy.BodyPolicy != CSharpBodyPolicy.Skeleton

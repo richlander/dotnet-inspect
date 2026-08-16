@@ -448,6 +448,32 @@ public sealed class MetadataDeclarationQueryTests
         Assert.EndsWith(".get_Value", factAccessor.MethodName, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ExplicitAggregateIdentity_RequiresEveryAccessorToTargetAnInterface()
+    {
+        var typeDef = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures.ExplicitSurface));
+        var eventHandle = Assert.Single(typeDef.GetEvents());
+        var accessors = Reader.GetEventDefinition(eventHandle).GetAccessors();
+        var interfaceBodies =
+            ApiSurfaceExtractor.GetExplicitInterfaceImplementationBodies(Reader, typeDef);
+
+        Assert.True(ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
+            "IExplicitSurface.Changed",
+            interfaceBodies,
+            accessors.Adder,
+            accessors.Remover));
+        Assert.False(ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
+            "IExplicitSurface.Changed",
+            new HashSet<MethodDefinitionHandle> { accessors.Adder },
+            accessors.Adder,
+            accessors.Remover));
+        Assert.False(ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
+            "Base.Changed",
+            new HashSet<MethodDefinitionHandle>(),
+            accessors.Adder,
+            accessors.Remover));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

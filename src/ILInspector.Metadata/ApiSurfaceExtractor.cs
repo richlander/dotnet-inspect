@@ -1036,10 +1036,11 @@ public static class ApiSurfaceExtractor
                     typeContext,
                     observeText,
                     observeDecodeWork);
-                bool isExplicitInterfaceImplementation =
-                    propertyName.Contains('.', StringComparison.Ordinal)
-                    && (!accessors.Getter.IsNil && explicitImplementationBodies.Contains(accessors.Getter)
-                        || !accessors.Setter.IsNil && explicitImplementationBodies.Contains(accessors.Setter));
+                bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
+                    propertyName,
+                    explicitInterfaceImplementationBodies,
+                    accessors.Getter,
+                    accessors.Setter);
                 var member = new ApiMember
                 {
                     Name = propertyName,
@@ -1439,10 +1440,11 @@ public static class ApiSurfaceExtractor
                     observeAttributeMaterialize,
                     (accessors.Adder, "add"),
                     (accessors.Remover, "remove"));
-                bool isExplicitInterfaceImplementation =
-                    eventName.Contains('.', StringComparison.Ordinal)
-                    && (explicitImplementationBodies.Contains(accessors.Adder)
-                        || explicitImplementationBodies.Contains(accessors.Remover));
+                bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
+                    eventName,
+                    explicitInterfaceImplementationBodies,
+                    accessors.Adder,
+                    accessors.Remover);
 
                 var eventTypeNodeProvider = observeText is null
                     ? TypeNodeProvider.Instance
@@ -2130,6 +2132,27 @@ public static class ApiSurfaceExtractor
         }
 
         return handles;
+    }
+
+    internal static bool IsExplicitInterfaceAggregate(
+        string name,
+        IReadOnlySet<MethodDefinitionHandle> explicitInterfaceImplementationBodies,
+        params MethodDefinitionHandle[] accessors)
+    {
+        if (!name.Contains('.', StringComparison.Ordinal))
+            return false;
+
+        bool hasAccessor = false;
+        foreach (var accessor in accessors)
+        {
+            if (accessor.IsNil)
+                continue;
+            hasAccessor = true;
+            if (!explicitInterfaceImplementationBodies.Contains(accessor))
+                return false;
+        }
+
+        return hasAccessor;
     }
 
     private static bool IsInterfaceMethodDeclaration(

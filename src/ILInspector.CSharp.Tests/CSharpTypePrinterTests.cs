@@ -1,4 +1,7 @@
 using System.Collections.Immutable;
+using System.Collections.ObjectModel;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp.Tests;
@@ -295,14 +298,15 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
-    public void ExplicitInterfaceEventSkeletonFailsClosed()
+    public void ExplicitInterfaceEventSkeletonUsesThrowAccessors()
     {
         var type = CreateEmptyType("Samples", "Widget");
-        type.Members.Add(new ApiMember
+        var explicitEvent = new ApiMember
         {
             Name = "Samples.IEvents.Changed",
-            Kind = "explicit-interface-implementation",
+            Kind = "event",
             Accessibility = "private",
+            IsExplicitInterfaceImplementation = true,
             SignatureModel = new ApiSignature
             {
                 ReturnType = "System.EventHandler",
@@ -313,12 +317,62 @@ public sealed class CSharpTypePrinterTests
                     new ApiAccessor { Kind = "remove" }
                 ]
             }
+        };
+        type.Members.Add(explicitEvent);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(explicitEvent, CSharpBodyPolicy.Skeleton)
+            ]));
+
+        Assert.Contains(
+            """
+                event EventHandler Samples.IEvents.Changed
+                {
+                    add
+                    {
+                        throw null;
+                    }
+                    remove
+                    {
+                        throw null;
+                    }
+                }
+            """,
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FrameworkExplicitInterfaceEventSkeletonUsesThrowAccessors()
+    {
+        using var peReader = new PEReader(File.OpenRead(typeof(ObservableCollection<>).Assembly.Location));
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            return reader.GetString(definition.Namespace) == "System.Collections.ObjectModel"
+                && reader.GetString(definition.Name) == "ObservableCollection`1";
         });
+        var type = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        var explicitEvent = Assert.Single(
+            type.Members,
+            member => member is
+            {
+                Kind: "event",
+                IsExplicitInterfaceImplementation: true
+            } && member.Name.EndsWith(".PropertyChanged", StringComparison.Ordinal));
+        type.Members = [explicitEvent];
 
-        var exception = Assert.Throws<NotSupportedException>(
-            () => _printer.Print(new CSharpTypePrintRequest(type)));
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
 
-        Assert.Contains("requires add/remove bodies", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("INotifyPropertyChanged.PropertyChanged", result.Source, StringComparison.Ordinal);
+        Assert.Contains("throw null;", result.Source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3297,8 +3351,9 @@ public sealed class CSharpTypePrinterTests
         var property = new ApiMember
         {
             Name = "Samples.IValue.Value",
-            Kind = "explicit-interface-implementation",
+            Kind = "property",
             Accessibility = "private",
+            IsExplicitInterfaceImplementation = true,
             SignatureModel = new ApiSignature
             {
                 ReturnType = "int",

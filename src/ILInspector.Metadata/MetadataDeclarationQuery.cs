@@ -158,11 +158,11 @@ public static class MetadataDeclarationQuery
 
             string propertyName = declaration.MetadataName;
             bool isExplicitInterfaceImplementation =
-                propertyName.Contains('.', StringComparison.Ordinal)
-                && (!declaration.Getter.IsNil
-                        && explicitImplementationBodies.Contains(declaration.Getter)
-                    || !declaration.Setter.IsNil
-                        && explicitImplementationBodies.Contains(declaration.Setter));
+                ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
+                    propertyName,
+                    explicitInterfaceImplementationBodies,
+                    declaration.Getter,
+                    declaration.Setter);
             var signatureText = PropertySignatureText(declaration);
             type.Members.Add(new ApiMember
             {
@@ -240,9 +240,11 @@ public static class MetadataDeclarationQuery
             eventType ??= "<unsupported: event type>";
             string eventName = reader.GetString(evt.Name);
             bool isExplicitInterfaceImplementation =
-                eventName.Contains('.', StringComparison.Ordinal)
-                && (explicitImplementationBodies.Contains(accessors.Adder)
-                    || explicitImplementationBodies.Contains(accessors.Remover));
+                ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
+                    eventName,
+                    explicitInterfaceImplementationBodies,
+                    accessors.Adder,
+                    accessors.Remover);
             type.Members.Add(new ApiMember
             {
                 Name = eventName,
