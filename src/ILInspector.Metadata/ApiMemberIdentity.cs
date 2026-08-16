@@ -844,7 +844,7 @@ public static class ApiMemberIdentity
 
     internal static void PopulateCanonicalIdentities(
         ApiSurface surface,
-        Action<string>? beforeRetain)
+        Action<ApiMember, string>? beforeRetain)
     {
         foreach (var type in surface.Types)
         {
@@ -854,7 +854,7 @@ public static class ApiMemberIdentity
                     continue;
 
                 string canonicalSignature = GetCanonicalSignature(type, member);
-                beforeRetain?.Invoke(canonicalSignature);
+                beforeRetain?.Invoke(member, canonicalSignature);
                 member.CanonicalSignature = canonicalSignature;
             }
         }

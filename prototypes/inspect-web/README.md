@@ -213,16 +213,24 @@ stops at a whole participant — no type is returned with a shortened member lis
 and the response's `inspectionError` names the bound, what was projected, and how
 many assemblies were not. Types, members, retained metadata-row failures, type
 forwarders, total inspected metadata rows, and retained API-model text each have
-an explicit ceiling. The 8,000,000-character text budget is spent across
-participants and includes type headers, member signatures and their structured
-models, failures, forwarders, and canonical identities. A rejected type's
+an explicit ceiling. The 32,000,000-character aggregate text budget is spent
+across participants and includes type headers, member signatures and their
+structured models, failures, forwarders, and canonical identities. A separate
+1,000,000-character per-model ceiling checks type rendering and signature
+components before composite strings are built, so one hostile type or member
+cannot consume the aggregate allowance during construction. A rejected type's
 pending text is discarded with that type rather than charged to later
-participants.
+participants. Assembly metadata identity is serialized once per assembly
+descriptor; type rows carry only the `assemblyId` join.
 `BrowserEngineBoundaryTests.ApiSurfaceProjection_IsBoundedAndReportsTruncation`
-gates the bound and its non-vacuity; the truncation contract itself is gated by
-`AssemblyContextApiSurfaceQueryTests`, and
+and `ApiSurfacePolicy_AcceptsCompactMultiMemberSurfaceAboveOldTextLimit` gate
+the bounds, their non-vacuity, and the aggregate policy regression;
+`PackageSurface_SerializesAssemblyIdentityOncePerDescriptor` gates identity
+transport. The truncation contract itself is gated by
+`AssemblyContextApiSurfaceQueryTests`, while
 `ApiSurfaceExtractorBoundsTests.RepeatedLongMethodName_IsStoppedByRetainedTextBeforeRowBounds`
-gates the repeated-long-name attack shape. Every accessibility
+and `ParameterFanOut_IsStoppedBeforeLargeSignatureMaterialization` gate the
+repeated-name attack shapes. Every accessibility
 bucket's id, label, order, default, and count comes from the query's own
 `ApiAccessibilityBucket` values; the browser classifies nothing and orders no
 label. Member identity is likewise product-owned: the stable selector, digest,

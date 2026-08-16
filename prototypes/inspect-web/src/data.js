@@ -321,15 +321,22 @@ export function resolveLoadedGraphTargetCandidate(packages, target) {
   for (const pkg of packages) {
     if (!pkg || pkg.isRuntimePack) continue;
     for (const type of pkg.types ?? []) {
-      const assembly = String(
-        type.assemblyName ?? type.assembly ?? pkg.assembly ?? "")
-        .replace(/\.dll$/i, "");
       const descriptors = pkg.assemblies ?? [];
       const descriptor = type.assemblyId
         ? descriptors.find(candidate => candidate.id === type.assemblyId)
         : descriptors.find(candidate =>
             String(candidate.name ?? "").replace(/\.dll$/i, "").toLowerCase()
-              === assembly.toLowerCase());
+              === String(
+                type.assemblyName ?? type.assembly ?? pkg.assembly ?? "")
+                .replace(/\.dll$/i, "")
+                .toLowerCase());
+      const assembly = String(
+        descriptor?.name
+          ?? type.assemblyName
+          ?? type.assembly
+          ?? pkg.assembly
+          ?? "")
+        .replace(/\.dll$/i, "");
       if (assembly.toLowerCase() === target.assembly.toLowerCase()
           && callGraphAssemblyIdentityMatches(target, descriptor)
           && (type.metadataId ?? type.queryId ?? type.id) === typeId) {

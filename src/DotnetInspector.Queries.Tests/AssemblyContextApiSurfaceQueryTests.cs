@@ -698,6 +698,47 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
+    public void ExecuteBounded_ReportsPerModelTextLimit()
+    {
+        byte[] image = BuildBoundedSurfaceImage(
+            typeCount: 1,
+            assemblyName: "PerModel",
+            typeName: new string('T', 4_000));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.Create(
+                        IdentityOf(image),
+                        path: null,
+                        () => new MemoryStream(image, writable: false),
+                        AssemblyResolutionProvenance.Local("per-model")),
+                    policy),
+            ]);
+
+        AssemblyContextApiSurfaceResult bounded =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                new ApiSurfaceProjectionLimits(
+                    64,
+                    1,
+                    1,
+                    0,
+                    0,
+                    int.MaxValue,
+                    int.MaxValue,
+                    1_000));
+
+        Assert.Equal(
+            ApiSurfaceProjectionLimit.RetainedTextCharactersPerModel,
+            bounded.Truncation?.Limit);
+        Assert.Equal(1_000, bounded.Truncation?.Bound);
+        Assert.Empty(bounded.Assemblies.Assemblies);
+    }
+
+    [Fact]
     public void ExecuteBounded_SpendsMetadataRowsAcrossParticipants()
     {
         byte[] firstImage = BuildBoundedSurfaceImage(

@@ -10,9 +10,21 @@ namespace ILInspector.Metadata;
 internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, GenericContext?>
 {
     public static TypeNodeProvider Instance { get; } = new();
+    public static TypeNodeProvider CreateCaching() => new(cacheNames: true);
 
     // Delegate to existing SignatureDecoder for name resolution to avoid duplication.
     private static readonly SignatureDecoder NameDecoder = SignatureDecoder.Instance;
+    readonly Dictionary<TypeDefinitionHandle, string>? _definitionNames;
+    readonly Dictionary<TypeReferenceHandle, string>? _referenceNames;
+
+    TypeNodeProvider(bool cacheNames = false)
+    {
+        if (cacheNames)
+        {
+            _definitionNames = [];
+            _referenceNames = [];
+        }
+    }
 
     public TypeNode GetPrimitiveType(PrimitiveTypeCode typeCode)
     {
@@ -23,14 +35,26 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
     {
-        string name = NameDecoder.GetTypeFromDefinition(reader, handle, rawTypeKind);
+        string name;
+        if (_definitionNames is null
+            || !_definitionNames.TryGetValue(handle, out name!))
+        {
+            name = NameDecoder.GetTypeFromDefinition(reader, handle, rawTypeKind);
+            _definitionNames?.Add(handle, name);
+        }
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
         return new NamedTypeNode(name, isRef);
     }
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
-        string name = NameDecoder.GetTypeFromReference(reader, handle, rawTypeKind);
+        string name;
+        if (_referenceNames is null
+            || !_referenceNames.TryGetValue(handle, out name!))
+        {
+            name = NameDecoder.GetTypeFromReference(reader, handle, rawTypeKind);
+            _referenceNames?.Add(handle, name);
+        }
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
         return new NamedTypeNode(name, isRef);
     }

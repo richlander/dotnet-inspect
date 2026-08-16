@@ -48,6 +48,9 @@ public enum ApiSurfaceExtractionBound
 
     /// <summary>The extraction would have retained more text characters than allowed.</summary>
     RetainedTextCharacters,
+
+    /// <summary>One transfer model would have retained more text than allowed.</summary>
+    RetainedTextCharactersPerModel,
 }
 
 /// <summary>
@@ -69,7 +72,8 @@ public sealed record ApiSurfaceExtractionBounds
         int maxInspectionFailures,
         int maxTypeForwarders,
         int maxMetadataRows,
-        int maxRetainedTextCharacters)
+        int maxRetainedTextCharacters,
+        int maxRetainedTextCharactersPerModel = int.MaxValue)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxTypes);
         ArgumentOutOfRangeException.ThrowIfNegative(maxMembers);
@@ -77,12 +81,14 @@ public sealed record ApiSurfaceExtractionBounds
         ArgumentOutOfRangeException.ThrowIfNegative(maxTypeForwarders);
         ArgumentOutOfRangeException.ThrowIfNegative(maxMetadataRows);
         ArgumentOutOfRangeException.ThrowIfNegative(maxRetainedTextCharacters);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxRetainedTextCharactersPerModel);
         MaxTypes = maxTypes;
         MaxMembers = maxMembers;
         MaxInspectionFailures = maxInspectionFailures;
         MaxTypeForwarders = maxTypeForwarders;
         MaxMetadataRows = maxMetadataRows;
         MaxRetainedTextCharacters = maxRetainedTextCharacters;
+        MaxRetainedTextCharactersPerModel = maxRetainedTextCharactersPerModel;
     }
 
     /// <summary>The most types the extraction may retain.</summary>
@@ -102,6 +108,9 @@ public sealed record ApiSurfaceExtractionBounds
 
     /// <summary>The most text characters the extraction may retain.</summary>
     public int MaxRetainedTextCharacters { get; }
+
+    /// <summary>The most text characters one type header or member may retain.</summary>
+    public int MaxRetainedTextCharactersPerModel { get; }
 }
 
 /// <summary>The outcome of one bounded API-surface extraction.</summary>
@@ -356,25 +365,45 @@ public static class ApiSurfaceExtractor
                 continue;
             }
 
-            var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
+            TextMaterializationBudget? typeMaterialization =
+                budget?.BeginTypeMaterialization();
+            var (typeNamespace, typeName) = GetApiTypeNameParts(
+                reader,
+                typeDefHandle,
+                typeMaterialization);
             budget?.BeginType();
+            MetadataTypeDefinitionName? definitionName =
+                MetadataTypeDefinitionNameReader.Read(
+                    reader,
+                    typeDefHandle)
+                is MetadataTypeDefinitionNameReadResult.Read read
+                    ? read.Name
+                    : null;
+            if (definitionName is not null)
+            {
+                typeMaterialization?.Retain(definitionName.Namespace);
+                typeMaterialization?.Retain(definitionName.Segments);
+            }
 
             var apiType = new ApiType
             {
                 Namespace = typeNamespace,
                 Name = typeName,
-                MetadataName = GetMetadataName(reader, typeDefHandle),
-                DefinitionName =
-                    MetadataTypeDefinitionNameReader.Read(
-                        reader,
-                        typeDefHandle)
-                    is MetadataTypeDefinitionNameReadResult.Read read
-                        ? read.Name
-                        : null,
+                MetadataName = GetMetadataName(
+                    reader,
+                    typeDefHandle,
+                    typeMaterialization),
+                DefinitionName = definitionName,
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
-                Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
+                Attributes = AttributeReader.RenderAttributes(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    qualifyNames: true,
+                    beforeRetain: typeMaterialization is null
+                        ? null
+                        : typeMaterialization.Retain),
             };
 
             // Determine kind
@@ -386,13 +415,16 @@ public static class ApiSurfaceExtractor
             {
                 string baseTypeName = ResolveRequiredTypeName(
                     reader,
-                    typeDef.BaseType);
+                    typeDef.BaseType,
+                    materialization: typeMaterialization);
                 apiType.BaseType = ApplyDynamicView(
                     reader,
                     typeDef.BaseType,
                     typeDef.GetCustomAttributes(),
                     GenericContext.ForType(reader, typeDef),
-                    baseTypeName);
+                    baseTypeName,
+                    typeMaterialization);
+                typeMaterialization?.Retain(apiType.BaseType);
 
                 apiType.Kind = baseTypeName switch
                 {
@@ -429,7 +461,13 @@ public static class ApiSurfaceExtractor
             // Get type's generic context for resolving interface type parameters
             var typeContext = GenericContext.ForType(reader, typeDef);
 
-            apiType.TypeParameters = GenericParameters(reader, typeDef.GetGenericParameters(), typeContext, typeNullableContext, includeVariance: true);
+            apiType.TypeParameters = GenericParameters(
+                reader,
+                typeDef.GetGenericParameters(),
+                typeContext,
+                typeNullableContext,
+                includeVariance: true,
+                typeMaterialization);
 
             // Get interfaces
             var interfaces = typeDef.GetInterfaceImplementations();
@@ -442,13 +480,16 @@ public static class ApiSurfaceExtractor
                     string ifaceName = ResolveRequiredTypeName(
                         reader,
                         iface.Interface,
-                        typeContext);
+                        typeContext,
+                        typeMaterialization);
                     ifaceName = ApplyDynamicView(
                         reader,
                         iface.Interface,
                         iface.GetCustomAttributes(),
                         typeContext,
-                        ifaceName);
+                        ifaceName,
+                        typeMaterialization);
+                    typeMaterialization?.Retain(ifaceName);
                     budget?.RetainInterface(ifaceName);
                     apiType.Interfaces.Add(ifaceName);
                 }
@@ -494,7 +535,15 @@ public static class ApiSurfaceExtractor
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, method.GetCustomAttributes(), out var obsoleteMessage);
 
-                var signature = GetMethodSignature(reader, typeDef, method, typeNullableContext);
+                TextMaterializationBudget? materialization =
+                    budget?.BeginModelMaterialization();
+                materialization?.Retain(methodName);
+                var signature = GetMethodSignature(
+                    reader,
+                    typeDef,
+                    method,
+                    typeNullableContext,
+                    materialization);
                 var isOperator = IsOperatorMethodName(methodName);
                 var methodAttributes = method.Attributes;
                 var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
@@ -563,7 +612,10 @@ public static class ApiSurfaceExtractor
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
-                    Attributes = RenderMemberAttributes(reader, method.GetCustomAttributes())
+                    Attributes = RenderMemberAttributes(
+                        reader,
+                        method.GetCustomAttributes(),
+                        materialization)
                 };
 
                 // Check for extension method
@@ -629,7 +681,16 @@ public static class ApiSurfaceExtractor
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, prop.GetCustomAttributes(), out var obsoleteMessage);
 
-                var propertySignature = GetPropertySignature(reader, typeDef, prop, accessors, typeNullableContext, includeAll);
+                TextMaterializationBudget? materialization =
+                    budget?.BeginModelMaterialization();
+                var propertySignature = GetPropertySignature(
+                    reader,
+                    typeDef,
+                    prop,
+                    accessors,
+                    typeNullableContext,
+                    includeAll,
+                    materialization);
                 var member = new ApiMember
                 {
                     Name = reader.GetString(prop.Name),
@@ -648,7 +709,10 @@ public static class ApiSurfaceExtractor
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
-                    Attributes = RenderMemberAttributes(reader, prop.GetCustomAttributes()),
+                    Attributes = RenderMemberAttributes(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        materialization),
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
                     SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
                 };
@@ -690,6 +754,9 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, field.GetCustomAttributes(), out var obsoleteMessage);
+                TextMaterializationBudget? materialization =
+                    budget?.BeginModelMaterialization();
+                materialization?.Retain(fieldName);
 
                 // Decode field type. For enums the special value__ field carries
                 // the underlying type; literal fields are constants, not fields in
@@ -703,7 +770,8 @@ public static class ApiSurfaceExtractor
                             reader,
                             typeDef,
                             field,
-                            typeNullableContext).Text;
+                            typeNullableContext,
+                            materialization).Text;
                 }
                 else
                 {
@@ -711,7 +779,8 @@ public static class ApiSurfaceExtractor
                         reader,
                         typeDef,
                         field,
-                        typeNullableContext);
+                        typeNullableContext,
+                        materialization);
                 }
 
                 var member = new ApiMember
@@ -733,7 +802,10 @@ public static class ApiSurfaceExtractor
                     Accessibility = GetFieldAccessibility(fieldAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
-                    Attributes = RenderMemberAttributes(reader, field.GetCustomAttributes())
+                    Attributes = RenderMemberAttributes(
+                        reader,
+                        field.GetCustomAttributes(),
+                        materialization)
                 };
 
                 // Read enum constant value
@@ -797,10 +869,13 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, evt.GetCustomAttributes(), out var obsoleteMessage);
+                TextMaterializationBudget? materialization =
+                    budget?.BeginModelMaterialization();
                 var eventType = ResolveRequiredTypeName(
                     reader,
                     evt.Type,
-                    GenericContext.ForType(reader, typeDef));
+                    GenericContext.ForType(reader, typeDef),
+                    materialization);
                 var eventNullableBytes = NullabilityReader.GetNullableBytes(reader, evt.GetCustomAttributes());
                 eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(reader, adder.GetParameters(), 1);
                 if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
@@ -820,7 +895,7 @@ public static class ApiSurfaceExtractor
                     var eventNode = GuardedProviderDecode.TypeSpec(
                         reader,
                         (TypeSpecificationHandle)evt.Type,
-                        TypeNodeProvider.Instance,
+                        TypeNodeProvider.CreateCaching(),
                         GenericContext.ForType(reader, typeDef),
                         (TypeNode)new DegradedTypeNode());
                     // Skip a rejected/degraded decode: its bare "object"/"dynamic" render
@@ -832,7 +907,11 @@ public static class ApiSurfaceExtractor
                         eventPos = 0;
                         eventNode.ApplyDynamic(eventDynamicFlags, ref eventPos);
                         eventNode.ApplyTupleNames(eventTupleNames);
-                        eventType = eventNode.Render();
+                        eventType = materialization is null
+                            ? eventNode.Render()
+                            : materialization.RenderTemporary(
+                                eventNode,
+                                canonicalTuples: false);
                     }
                 }
                 var adderAttributes = adder.Attributes;
@@ -884,7 +963,6 @@ public static class ApiSurfaceExtractor
                         ? null
                         : MetadataTokens.GetToken(accessors.Remover)
                 };
-
                 budget?.RetainMember(member);
                 apiType.Members.Add(member);
                 surface.PublicEventCount++;
@@ -1157,7 +1235,8 @@ public static class ApiSurfaceExtractor
         GenericParameterHandleCollection handles,
         GenericContext context,
         byte nullableContext,
-        bool includeVariance)
+        bool includeVariance,
+        TextMaterializationBudget? materialization = null)
     {
         var parameters = new List<TypeParameter>();
 
@@ -1194,7 +1273,8 @@ public static class ApiSurfaceExtractor
                 string constraintTypeName = ResolveRequiredTypeName(
                     reader,
                     constraint.Type,
-                    context);
+                    context,
+                    materialization);
                 if (constraintTypeName is "System.ValueType" or "System.Object")
                     continue;
                 var formatted = FormatConstraintType(reader, constraint, constraintTypeName, nullableContext);
@@ -1220,6 +1300,7 @@ public static class ApiSurfaceExtractor
                 hasValueTypeConstraint: (attrs & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0,
                 hasReferenceTypeConstraint: (attrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
                 chain);
+            materialization?.Retain(ApiSurfaceRetainedText.TypeParameter(typeParam));
             parameters.Add(typeParam);
         }
 
@@ -1237,7 +1318,8 @@ public static class ApiSurfaceExtractor
 
     private static (string? Namespace, string Name) GetApiTypeNameParts(
         MetadataReader reader,
-        TypeDefinitionHandle handle)
+        TypeDefinitionHandle handle,
+        TextMaterializationBudget? materialization = null)
     {
         var result = MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(
             reader,
@@ -1252,25 +1334,27 @@ public static class ApiSurfaceExtractor
         var chain = ((RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Completed)result).Value;
         var rootNamespace = reader.GetString(
             reader.GetTypeDefinition(chain.Handles[0]).Namespace);
-        string name = string.Join(
-            ".",
-            chain.Handles.Select(current =>
-                reader.GetString(reader.GetTypeDefinition(current).Name)));
-        string fullName = rootNamespace.Length == 0
-            ? name
-            : $"{rootNamespace}.{name}";
-        if (rootNamespace.Length == 0)
-            return (null, fullName);
-
-        var prefix = rootNamespace + ".";
-        return fullName.StartsWith(prefix, StringComparison.Ordinal)
-            ? (rootNamespace, fullName[prefix.Length..])
-            : (rootNamespace, fullName);
+        materialization?.Retain(rootNamespace);
+        var names = new List<string>(chain.Handles.Count());
+        foreach (TypeDefinitionHandle current in chain.Handles)
+        {
+            if (names.Count > 0)
+                materialization?.Retain(1);
+            string currentName = reader.GetString(
+                reader.GetTypeDefinition(current).Name);
+            materialization?.Retain(currentName);
+            names.Add(currentName);
+        }
+        string name = string.Join(".", names);
+        return rootNamespace.Length == 0
+            ? (null, name)
+            : (rootNamespace, name);
     }
 
     private static string GetMetadataName(
         MetadataReader reader,
-        TypeDefinitionHandle handle)
+        TypeDefinitionHandle handle,
+        TextMaterializationBudget? materialization = null)
     {
         var result = MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(
             reader,
@@ -1283,23 +1367,31 @@ public static class ApiSurfaceExtractor
         }
 
         var chain = ((RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Completed)result).Value;
-        return string.Join(
-            "+",
-            chain.Handles.Select(current =>
-                reader.GetString(reader.GetTypeDefinition(current).Name)));
+        var names = new List<string>(chain.Handles.Count());
+        foreach (TypeDefinitionHandle current in chain.Handles)
+        {
+            if (names.Count > 0)
+                materialization?.Retain(1);
+            string currentName = reader.GetString(
+                reader.GetTypeDefinition(current).Name);
+            materialization?.Retain(currentName);
+            names.Add(currentName);
+        }
+        return string.Join("+", names);
     }
 
     private static (string Text, bool IsDegraded) DecodeFieldType(
         MetadataReader reader,
         TypeDefinition typeDef,
         FieldDefinition field,
-        byte typeNullableContext)
+        byte typeNullableContext,
+        TextMaterializationBudget? materialization = null)
     {
         var context = GenericContext.ForType(reader, typeDef);
         var fieldNode = GuardedProviderDecode.Field(
             reader,
             field,
-            TypeNodeProvider.Instance,
+            TypeNodeProvider.CreateCaching(),
             context,
             (TypeNode)new DegradedTypeNode());
         var fieldBytes = NullabilityReader.GetNullableBytes(reader, field.GetCustomAttributes());
@@ -1310,7 +1402,11 @@ public static class ApiSurfaceExtractor
         fieldNode.ApplyDynamic(fieldDynamicFlags, ref pos);
         fieldNode.ApplyTupleNames(
             TupleElementNamesReader.GetTupleElementNames(reader, field.GetCustomAttributes()));
-        return (fieldNode.Render(), fieldNode.IsDegraded);
+        return (
+            materialization is null
+                ? fieldNode.Render()
+                : materialization.Render(fieldNode, canonicalTuples: false),
+            fieldNode.IsDegraded);
     }
 
     private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
@@ -2044,14 +2140,15 @@ public static class ApiSurfaceExtractor
         MetadataReader reader,
         TypeDefinition typeDef,
         MethodDefinition method,
-        byte typeNullableContext)
+        byte typeNullableContext,
+        TextMaterializationBudget? materialization)
     {
         string name = reader.GetString(method.Name);
         var context = GenericContext.ForMethod(reader, typeDef, method);
         var treeSignature = GuardedProviderDecode.Method(
             reader,
             method,
-            TypeNodeProvider.Instance,
+            TypeNodeProvider.CreateCaching(),
             context,
             (TypeNode)new DegradedTypeNode());
 
@@ -2087,12 +2184,21 @@ public static class ApiSurfaceExtractor
             paramTypes[i].ApplyDynamic(paramDynamicFlags, ref pos);
             paramTypes[i].ApplyTupleNames(
                 TupleElementNamesReader.GetParameterTupleElementNames(reader, paramHandles, i + 1));
-            string type = paramTypes[i].Render();
-            string canonicalType = paramTypes[i].RenderCanonical();
+            string type = materialization is null
+                ? paramTypes[i].Render()
+                : materialization.Render(paramTypes[i], canonicalTuples: false);
+            string canonicalType = materialization is null
+                ? paramTypes[i].RenderCanonical()
+                : materialization.Render(paramTypes[i], canonicalTuples: true);
 
             // Parameter handles may include return parameter at SequenceNumber 0
             // Actual parameters have SequenceNumber 1, 2, 3...
-            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) = GetParameterInfo(reader, paramHandles, i + 1);
+            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) =
+                GetParameterInfo(
+                    reader,
+                    paramHandles,
+                    i + 1,
+                    materialization);
             paramName ??= $"arg{i}";
 
             var isByRef = type.StartsWith("ref ", StringComparison.Ordinal);
@@ -2100,6 +2206,7 @@ public static class ApiSurfaceExtractor
             {
                 type = type["ref ".Length..];
                 canonicalType = canonicalType["ref ".Length..];
+                materialization?.Release("ref ".Length * 2L);
                 refKind ??= "ref";
             }
             else
@@ -2117,8 +2224,17 @@ public static class ApiSurfaceExtractor
                 defaultValue,
                 AcceptsNullDefault(paramTypes[i]));
 
+            if (i > 0)
+                materialization?.Retain(2);
+            materialization?.Retain(paramStr.Length);
             parameters.Add(paramStr);
-            parameterModels.Add(new ApiParameter
+            string? defaultValueText = DefaultValueText(
+                reader,
+                defaultValue,
+                type,
+                hasDefault,
+                AcceptsNullDefault(paramTypes[i]));
+            var parameterModel = new ApiParameter
             {
                 Attributes = attributes,
                 Name = paramName,
@@ -2126,15 +2242,37 @@ public static class ApiSurfaceExtractor
                 CanonicalType = canonicalType,
                 Modifier = modifier,
                 HasDefault = hasDefault,
-                DefaultValueText = DefaultValueText(reader, defaultValue, type, hasDefault, AcceptsNullDefault(paramTypes[i]))
-            });
+                DefaultValueText = defaultValueText
+            };
+            materialization?.Retain(
+                ApiSurfaceRetainedText.Parameter(parameterModel)
+                    - type.Length
+                    - canonicalType.Length
+                    - attributes.Sum(attribute => attribute.Length));
+            parameterModels.Add(parameterModel);
         }
 
-        string paramStr2 = string.Join(", ", parameters);
-        var returnType = FormatMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
-        var canonicalReturnType = FormatCanonicalMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
-        var returnAttributes = ReturnParameterAttributes(reader, paramHandles);
-        var methodTypeParameters = GenericParameters(reader, method.GetGenericParameters(), context, nullableDefault, includeVariance: false);
+        var returnType = FormatMethodReturnType(
+            reader,
+            treeSignature.ReturnType,
+            paramHandles,
+            materialization);
+        var canonicalReturnType = FormatCanonicalMethodReturnType(
+            reader,
+            treeSignature.ReturnType,
+            paramHandles,
+            materialization);
+        var returnAttributes = ReturnParameterAttributes(
+            reader,
+            paramHandles,
+            materialization);
+        var methodTypeParameters = GenericParameters(
+            reader,
+            method.GetGenericParameters(),
+            context,
+            nullableDefault,
+            includeVariance: false,
+            materialization);
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
@@ -2144,6 +2282,9 @@ public static class ApiSurfaceExtractor
         var displayName = context.MethodParameters.Count > 0
             ? $"{SanitizeMemberDisplayName(name)}<{string.Join(", ", methodTypeParameters.Select(parameter => SanitizeIdentifier(parameter.Name)))}>"
             : SanitizeMemberDisplayName(name);
+        materialization?.Retain(methodName);
+        materialization?.Retain(returnType.Length + 1L + displayName.Length + 2);
+        string paramStr2 = string.Join(", ", parameters);
         return ($"{returnType} {displayName}({paramStr2})", new ApiSignature
         {
             ReturnType = returnType,
@@ -2156,34 +2297,56 @@ public static class ApiSurfaceExtractor
             || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
     }
 
-    private static List<string> ReturnParameterAttributes(MetadataReader reader, ParameterHandleCollection handles)
+    private static List<string> ReturnParameterAttributes(
+        MetadataReader reader,
+        ParameterHandleCollection handles,
+        TextMaterializationBudget? materialization = null)
     {
         foreach (var handle in handles)
         {
             if (reader.GetParameter(handle).SequenceNumber == 0)
-                return AttributeReader.RenderParameterAttributes(reader, handle);
+                return AttributeReader.RenderParameterAttributes(
+                    reader,
+                    handle,
+                    beforeRetain: materialization is null
+                        ? null
+                        : materialization.Retain);
         }
 
         return [];
     }
 
-    private static List<string> RenderMemberAttributes(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    private static List<string> RenderMemberAttributes(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        TextMaterializationBudget? materialization = null)
         => AttributeReader.RenderAttributes(
             reader,
             attributes,
             skipAttribute: static name => name == "System.ObsoleteAttribute",
-            qualifyNames: true);
+            qualifyNames: true,
+            beforeRetain: materialization is null
+                ? null
+                : materialization.Retain);
 
-    private static string FormatMethodReturnType(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
+    private static string FormatMethodReturnType(
+        MetadataReader reader,
+        TypeNode returnType,
+        ParameterHandleCollection paramHandles,
+        TextMaterializationBudget? materialization = null)
     {
-        var rendered = returnType.Render();
+        var rendered = materialization is null
+            ? returnType.Render()
+            : materialization.Render(returnType, canonicalTuples: false);
         if (!rendered.StartsWith("ref ", StringComparison.Ordinal)
             || !IsReadOnlyByRefReturn(reader, returnType, paramHandles))
         {
             return rendered;
         }
 
-        return $"ref readonly {rendered["ref ".Length..]}";
+        string result = $"ref readonly {rendered["ref ".Length..]}";
+        materialization?.Retain(result.Length - rendered.Length);
+        return result;
     }
 
     /// <summary>
@@ -2192,16 +2355,24 @@ public static class ApiSurfaceExtractor
     /// return modifiers used by member identity, differing from the display spelling only in
     /// tuple rendering.
     /// </summary>
-    private static string FormatCanonicalMethodReturnType(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
+    private static string FormatCanonicalMethodReturnType(
+        MetadataReader reader,
+        TypeNode returnType,
+        ParameterHandleCollection paramHandles,
+        TextMaterializationBudget? materialization = null)
     {
-        var rendered = returnType.RenderCanonical();
+        var rendered = materialization is null
+            ? returnType.RenderCanonical()
+            : materialization.Render(returnType, canonicalTuples: true);
         if (!rendered.StartsWith("ref ", StringComparison.Ordinal)
             || !IsReadOnlyByRefReturn(reader, returnType, paramHandles))
         {
             return rendered;
         }
 
-        return $"ref readonly {rendered["ref ".Length..]}";
+        string result = $"ref readonly {rendered["ref ".Length..]}";
+        materialization?.Retain(result.Length - rendered.Length);
+        return result;
     }
 
     private static bool IsReadOnlyByRefReturn(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
@@ -2223,7 +2394,10 @@ public static class ApiSurfaceExtractor
             || AttributeReader.HasAttribute(reader, attributes, "System.Runtime.CompilerServices.RequiresLocationAttribute");
 
     private static (string? name, bool isParams, string? refKind, bool hasDefault, object? defaultValue, List<string> attributes) GetParameterInfo(
-        MetadataReader reader, ParameterHandleCollection handles, int sequenceNumber)
+        MetadataReader reader,
+        ParameterHandleCollection handles,
+        int sequenceNumber,
+        TextMaterializationBudget? materialization = null)
     {
         foreach (var handle in handles)
         {
@@ -2234,7 +2408,12 @@ public static class ApiSurfaceExtractor
                 var attributes = param.GetCustomAttributes();
                 bool isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
                     || AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.ParamCollectionAttribute);
-                var renderedAttributes = AttributeReader.RenderParameterAttributes(reader, handle);
+                var renderedAttributes = AttributeReader.RenderParameterAttributes(
+                    reader,
+                    handle,
+                    beforeRetain: materialization is null
+                        ? null
+                        : materialization.Retain);
                 // An interop-marshalled `ref` parameter sets both In and Out, so
                 // neither flag alone identifies a C# `out`/`in`. Spelling such a
                 // parameter `out` breaks definite assignment in the body.
@@ -2601,7 +2780,8 @@ public static class ApiSurfaceExtractor
         EntityHandle typeHandle,
         CustomAttributeHandleCollection attributes,
         GenericContext context,
-        string fallback)
+        string fallback,
+        TextMaterializationBudget? materialization = null)
     {
         if (typeHandle.Kind != HandleKind.TypeSpecification)
             return fallback;
@@ -2610,7 +2790,7 @@ public static class ApiSurfaceExtractor
         var node = GuardedProviderDecode.TypeSpec(
             reader,
             (TypeSpecificationHandle)typeHandle,
-            TypeNodeProvider.Instance,
+            TypeNodeProvider.CreateCaching(),
             context,
             (TypeNode)new DegradedTypeNode());
         // A rejected/degraded TypeSpec renders as a bare "object"/"dynamic", which would
@@ -2620,14 +2800,31 @@ public static class ApiSurfaceExtractor
             return fallback;
         int position = 0;
         node.ApplyDynamic(flags, ref position);
-        return node.Render();
+        return materialization is null
+            ? node.Render()
+            : materialization.RenderTemporary(node, canonicalTuples: false);
     }
 
     private static string ResolveRequiredTypeName(
         MetadataReader reader,
         EntityHandle handle,
-        GenericContext? context = null)
-        => TypeResolver.ResolveTypeName(reader, handle, context) switch
+        GenericContext? context = null,
+        TextMaterializationBudget? materialization = null)
+    {
+        if (materialization is not null
+            && handle.Kind == HandleKind.TypeSpecification)
+        {
+            TypeNode node = GuardedProviderDecode.TypeSpec(
+                reader,
+                (TypeSpecificationHandle)handle,
+                TypeNodeProvider.CreateCaching(),
+                context,
+                (TypeNode)new DegradedTypeNode());
+            materialization.EnsureCanMaterialize(
+                node.RenderLength(canonicalTuples: false));
+        }
+
+        return TypeResolver.ResolveTypeName(reader, handle, context) switch
         {
             MetadataTypeNameResult.Resolved resolved => resolved.Value,
             MetadataTypeNameResult.Rejected rejected =>
@@ -2644,6 +2841,7 @@ public static class ApiSurfaceExtractor
             _ => throw new InvalidOperationException(
                 "Unknown metadata type-name result."),
         };
+    }
 
     private static void AddInspectionFailure(
         ApiSurface surface,
@@ -2752,14 +2950,16 @@ public static class ApiSurfaceExtractor
         PropertyDefinition prop,
         PropertyAccessors accessors,
         byte typeNullableContext,
-        bool includeAll = false)
+        bool includeAll = false,
+        TextMaterializationBudget? materialization = null)
     {
         string name = reader.GetString(prop.Name);
+        materialization?.Retain(name);
         var context = GenericContext.ForType(reader, typeDef);
         var treeSignature = GuardedProviderDecode.Property(
             reader,
             prop,
-            TypeNodeProvider.Instance,
+            TypeNodeProvider.CreateCaching(),
             context,
             (TypeNode)new DegradedTypeNode());
 
@@ -2807,14 +3007,20 @@ public static class ApiSurfaceExtractor
                 {
                     Kind = "get",
                     Accessibility = AccessorAccessibility(getterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        materialization)
                 });
             if (hasSetter)
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
                     Accessibility = AccessorAccessibility(setterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
+                        materialization)
                 });
             accessorStr = (getStr, setStr) switch
             {
@@ -2829,28 +3035,55 @@ public static class ApiSurfaceExtractor
             if (hasPublicGetter && hasPublicSetter)
             {
                 accessorStr = "{ get; set; }";
-                accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "get",
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        materialization)
+                });
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
+                        materialization)
                 });
             }
             else if (hasPublicGetter && hasSetter)
             {
                 accessorStr = "{ get; private set; }";
-                accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "get",
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        materialization)
+                });
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
                     Accessibility = "private",
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
+                        materialization)
                 });
             }
             else if (hasPublicGetter)
             {
                 accessorStr = "{ get; }";
-                accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "get",
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        materialization)
+                });
             }
             else if (hasPublicSetter)
             {
@@ -2858,7 +3091,10 @@ public static class ApiSurfaceExtractor
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
-                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
+                        materialization)
                 });
             }
             else
@@ -2866,6 +3102,12 @@ public static class ApiSurfaceExtractor
                 accessorStr = "{ get; }"; // Fallback
                 accessorModels.Add(new ApiAccessor { Kind = "get" });
             }
+        }
+        foreach (ApiAccessor accessor in accessorModels)
+        {
+            materialization?.Retain(
+                ApiSurfaceRetainedText.Accessor(accessor)
+                    - accessor.ReturnAttributes.Sum(attribute => attribute.Length));
         }
 
         var requiredPrefix = AttributeReader.HasRequiredMemberAttribute(reader, prop.GetCustomAttributes())
@@ -2901,9 +3143,18 @@ public static class ApiSurfaceExtractor
             paramTypes[i].ApplyDynamic(paramDynamicFlags, ref pos);
             paramTypes[i].ApplyTupleNames(
                 TupleElementNamesReader.GetParameterTupleElementNames(reader, paramHandles, i + 1));
-            var paramType = paramTypes[i].Render();
-            var canonicalParamType = paramTypes[i].RenderCanonical();
-            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) = GetParameterInfo(reader, paramHandles, i + 1);
+            var paramType = materialization is null
+                ? paramTypes[i].Render()
+                : materialization.Render(paramTypes[i], canonicalTuples: false);
+            var canonicalParamType = materialization is null
+                ? paramTypes[i].RenderCanonical()
+                : materialization.Render(paramTypes[i], canonicalTuples: true);
+            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) =
+                GetParameterInfo(
+                    reader,
+                    paramHandles,
+                    i + 1,
+                    materialization);
             paramName ??= $"arg{i}";
 
             var isByRef = paramType.StartsWith("ref ", StringComparison.Ordinal);
@@ -2911,6 +3162,7 @@ public static class ApiSurfaceExtractor
             {
                 paramType = paramType["ref ".Length..];
                 canonicalParamType = canonicalParamType["ref ".Length..];
+                materialization?.Release("ref ".Length * 2L);
                 refKind ??= "ref";
             }
             else
@@ -2927,8 +3179,17 @@ public static class ApiSurfaceExtractor
                 hasDefault,
                 defaultValue,
                 AcceptsNullDefault(paramTypes[i]));
+            if (i > 0)
+                materialization?.Retain(2);
+            materialization?.Retain(parameter.Length);
             indexerParameters.Add(parameter);
-            parameterModels.Add(new ApiParameter
+            string? defaultValueText = DefaultValueText(
+                reader,
+                defaultValue,
+                paramType,
+                hasDefault,
+                AcceptsNullDefault(paramTypes[i]));
+            var parameterModel = new ApiParameter
             {
                 Attributes = attributes,
                 Name = paramName,
@@ -2936,31 +3197,63 @@ public static class ApiSurfaceExtractor
                 CanonicalType = canonicalParamType,
                 Modifier = modifier,
                 HasDefault = hasDefault,
-                DefaultValueText = DefaultValueText(reader, defaultValue, paramType, hasDefault, AcceptsNullDefault(paramTypes[i]))
-            });
+                DefaultValueText = defaultValueText
+            };
+            materialization?.Retain(
+                ApiSurfaceRetainedText.Parameter(parameterModel)
+                    - paramType.Length
+                    - canonicalParamType.Length
+                    - attributes.Sum(attribute => attribute.Length));
+            parameterModels.Add(parameterModel);
         }
 
-        var returnType = FormatMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
-        var canonicalReturnType = FormatCanonicalMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
+        var returnType = FormatMethodReturnType(
+            reader,
+            treeSignature.ReturnType,
+            paramHandles,
+            materialization);
+        var canonicalReturnType = FormatCanonicalMethodReturnType(
+            reader,
+            treeSignature.ReturnType,
+            paramHandles,
+            materialization);
+        string modelMemberName = indexerParameters.Count > 0 ? "this[]" : name;
+        materialization?.Retain(modelMemberName);
         var model = new ApiSignature
         {
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
-            MemberName = indexerParameters.Count > 0 ? "this[]" : name,
+            MemberName = modelMemberName,
             IsRequired = isRequired,
             Parameters = parameterModels,
             Accessors = accessorModels
         };
 
         if (indexerParameters.Count > 0)
+        {
+            materialization?.Retain(
+                requiredPrefix.Length
+                    + returnType.Length
+                    + " this[".Length
+                    + "] ".Length
+                    + accessorStr.Length);
             return (
                 $"{requiredPrefix}{returnType} this[{string.Join(", ", indexerParameters)}] {accessorStr}",
                 model,
                 treeSignature.ReturnType.IsDegraded
                     || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
+        }
 
+        string displayName = SanitizeIdentifier(name);
+        materialization?.Retain(
+            requiredPrefix.Length
+                + returnType.Length
+                + 1
+                + displayName.Length
+                + 1
+                + accessorStr.Length);
         return (
-            $"{requiredPrefix}{returnType} {SanitizeIdentifier(name)} {accessorStr}",
+            $"{requiredPrefix}{returnType} {displayName} {accessorStr}",
             model,
             treeSignature.ReturnType.IsDegraded
                 || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
@@ -3087,7 +3380,9 @@ public static class ApiSurfaceExtractor
         {
             if (_members + _pendingMembers >= bounds.MaxMembers)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Members);
-            RetainPendingText(ApiSurfaceRetainedText.Member(member));
+            long characters = ApiSurfaceRetainedText.Member(member);
+            RetainModel(characters);
+            RetainPendingText(characters);
             _pendingMembers++;
         }
 
@@ -3096,6 +3391,7 @@ public static class ApiSurfaceExtractor
         {
             if (_types >= bounds.MaxTypes)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Types);
+            RetainModel(ApiSurfaceRetainedText.TypeHeader(type));
             RetainPendingText(ApiSurfaceRetainedText.TypeHeaderWithoutInterfaces(type));
             _types++;
             _members += _pendingMembers;
@@ -3109,7 +3405,9 @@ public static class ApiSurfaceExtractor
         {
             if (_members >= bounds.MaxMembers)
                 throw new ExtractionBoundExceededException(ApiSurfaceExtractionBound.Members);
-            RetainCommittedText(ApiSurfaceRetainedText.Member(member));
+            long characters = ApiSurfaceRetainedText.Member(member);
+            RetainModel(characters);
+            RetainCommittedText(characters);
             _members++;
         }
 
@@ -3121,7 +3419,9 @@ public static class ApiSurfaceExtractor
                 throw new ExtractionBoundExceededException(
                     ApiSurfaceExtractionBound.InspectionFailures);
             }
-            RetainCommittedText(ApiSurfaceRetainedText.InspectionFailure(failure));
+            long characters = ApiSurfaceRetainedText.InspectionFailure(failure);
+            RetainModel(characters);
+            RetainCommittedText(characters);
             _inspectionFailures++;
         }
 
@@ -3143,15 +3443,43 @@ public static class ApiSurfaceExtractor
                 throw new ExtractionBoundExceededException(
                     ApiSurfaceExtractionBound.TypeForwarders);
             }
-            RetainCommittedText(ApiSurfaceRetainedText.TypeForwarder(forwarder));
+            long characters = ApiSurfaceRetainedText.TypeForwarder(forwarder);
+            RetainModel(characters);
+            RetainCommittedText(characters);
             _typeForwarders++;
         }
 
-        public void RetainCanonicalIdentity(string canonicalIdentity) =>
+        public void RetainCanonicalIdentity(ApiMember member, string canonicalIdentity)
+        {
+            RetainModel(ApiSurfaceRetainedText.Member(member) + canonicalIdentity.Length);
             RetainCommittedText(canonicalIdentity.Length);
+        }
 
         public void RetainInterface(string interfaceName) =>
             RetainPendingText(interfaceName.Length);
+
+        public TextMaterializationBudget BeginModelMaterialization() =>
+            new(
+                bounds.MaxRetainedTextCharactersPerModel,
+                bounds.MaxRetainedTextCharacters
+                    - (long)_retainedTextCharacters
+                    - _pendingTextCharacters);
+
+        public TextMaterializationBudget BeginTypeMaterialization()
+        {
+            _pendingMembers = 0;
+            _pendingTextCharacters = 0;
+            return BeginModelMaterialization();
+        }
+
+        void RetainModel(long characters)
+        {
+            if (characters > bounds.MaxRetainedTextCharactersPerModel)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.RetainedTextCharactersPerModel);
+            }
+        }
 
         void RetainPendingText(long characters)
         {
@@ -3173,6 +3501,74 @@ public static class ApiSurfaceExtractor
                     ApiSurfaceExtractionBound.RetainedTextCharacters);
             }
             _retainedTextCharacters += (int)characters;
+        }
+    }
+
+    private sealed class TextMaterializationBudget(long maxModelCharacters, long maxTotalCharacters)
+    {
+        long _characters;
+
+        public void Retain(string? value)
+        {
+            if (value is not null)
+                Retain(value.Length);
+        }
+
+        public void Retain(IEnumerable<string> values)
+        {
+            foreach (string value in values)
+                Retain(value.Length);
+        }
+
+        public void Retain(long characters)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(characters);
+            long modelRemaining = maxModelCharacters - _characters;
+            long totalRemaining = maxTotalCharacters - _characters;
+            if (characters > Math.Min(modelRemaining, totalRemaining))
+            {
+                throw new ExtractionBoundExceededException(
+                    totalRemaining <= modelRemaining
+                        ? ApiSurfaceExtractionBound.RetainedTextCharacters
+                        : ApiSurfaceExtractionBound.RetainedTextCharactersPerModel);
+            }
+            _characters += characters;
+        }
+
+        public void EnsureCanMaterialize(long characters)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(characters);
+            long modelRemaining = maxModelCharacters - _characters;
+            long totalRemaining = maxTotalCharacters - _characters;
+            if (characters > Math.Min(modelRemaining, totalRemaining))
+            {
+                throw new ExtractionBoundExceededException(
+                    totalRemaining <= modelRemaining
+                        ? ApiSurfaceExtractionBound.RetainedTextCharacters
+                        : ApiSurfaceExtractionBound.RetainedTextCharactersPerModel);
+            }
+        }
+
+        public void Release(long characters)
+        {
+            if (characters < 0 || characters > _characters)
+                throw new ArgumentOutOfRangeException(nameof(characters));
+            _characters -= characters;
+        }
+
+        public string Render(TypeNode node, bool canonicalTuples)
+        {
+            Retain(node.RenderLength(canonicalTuples));
+            return node.Render(canonicalTuples);
+        }
+
+        public string RenderTemporary(TypeNode node, bool canonicalTuples)
+        {
+            long characters = node.RenderLength(canonicalTuples);
+            Retain(characters);
+            string rendered = node.Render(canonicalTuples);
+            Release(characters);
+            return rendered;
         }
     }
 

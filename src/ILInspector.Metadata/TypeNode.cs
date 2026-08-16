@@ -54,6 +54,9 @@ internal abstract class TypeNode
     /// names; otherwise it renders as C# tuple syntax.</summary>
     public abstract string Render(bool canonicalTuples);
 
+    /// <summary>The exact length of <see cref="Render(bool)"/> without materializing it.</summary>
+    public abstract long RenderLength(bool canonicalTuples);
+
     public virtual bool HasRequiredModifier(string ns, string name) => false;
 
     /// <summary>
@@ -210,6 +213,20 @@ internal abstract class TypeNode
         PassthroughTypeNode passthrough => [passthrough.Inner],
         _ => [],
     };
+
+    protected static long JoinedLength(IEnumerable<long> lengths)
+    {
+        long total = 0;
+        bool first = true;
+        foreach (long length in lengths)
+        {
+            if (!first)
+                total += 2;
+            total += length;
+            first = false;
+        }
+        return total;
+    }
 }
 
 /// <summary>A visible fail-closed substitute for a rejected signature type.</summary>
@@ -221,6 +238,10 @@ internal sealed class DegradedTypeNode : TypeNode
     public override string Render(bool canonicalTuples) => IsDynamic
         ? (IsNullableAnnotated ? "dynamic?" : "dynamic")
         : (IsNullableAnnotated ? "object?" : "object");
+
+    public override long RenderLength(bool canonicalTuples) =>
+        (IsDynamic ? "dynamic".Length : "object".Length)
+        + (IsNullableAnnotated ? 1 : 0);
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
@@ -243,6 +264,10 @@ internal sealed class PrimitiveTypeNode(string name, bool isReferenceType) : Typ
         return IsReferenceType && IsNullableAnnotated ? $"{effective}?" : effective;
     }
 
+    public override long RenderLength(bool canonicalTuples) =>
+        (IsDynamic ? "dynamic".Length : name.Length)
+        + (IsReferenceType && IsNullableAnnotated ? 1 : 0);
+
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
         byte b = ConsumeByte(bytes, ref position, defaultByte);
@@ -264,6 +289,10 @@ internal sealed class NamedTypeNode(string name, bool isReferenceType) : TypeNod
         string effective = IsDynamic ? "dynamic" : name;
         return IsReferenceType && IsNullableAnnotated ? $"{effective}?" : effective;
     }
+
+    public override long RenderLength(bool canonicalTuples) =>
+        (IsDynamic ? "dynamic".Length : name.Length)
+        + (IsReferenceType && IsNullableAnnotated ? 1 : 0);
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
@@ -309,6 +338,26 @@ internal sealed class GenericTypeNode(
         return IsReferenceType && IsNullableAnnotated ? $"{result}?" : result;
     }
 
+    public override long RenderLength(bool canonicalTuples)
+    {
+        if (!canonicalTuples && TryGetTupleElements(this) is { } elements)
+        {
+            long elementsLength = JoinedLength(
+                elements.Select(
+                    element => element.RenderLength(canonicalTuples: false)
+                        + (element.TupleElementName is { Length: > 0 } name
+                            ? 1L + name.Length
+                            : 0)));
+            return 2 + elementsLength + (IsReferenceType && IsNullableAnnotated ? 1 : 0);
+        }
+
+        return baseName.Length
+            + 2
+            + JoinedLength(arguments.Select(argument => argument.RenderLength(canonicalTuples)))
+            + nestedSuffix.Length
+            + (IsReferenceType && IsNullableAnnotated ? 1 : 0);
+    }
+
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
         byte b = ConsumeByte(bytes, ref position, defaultByte);
@@ -339,6 +388,9 @@ internal sealed class SZArrayTypeNode(TypeNode elementType) : TypeNode
         return IsNullableAnnotated ? $"{result}?" : result;
     }
 
+    public override long RenderLength(bool canonicalTuples) =>
+        elementType.RenderLength(canonicalTuples) + 2 + (IsNullableAnnotated ? 1 : 0);
+
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
         byte b = ConsumeByte(bytes, ref position, defaultByte);
@@ -366,6 +418,12 @@ internal sealed class MDArrayTypeNode(TypeNode elementType, int rank) : TypeNode
         return IsNullableAnnotated ? $"{result}?" : result;
     }
 
+    public override long RenderLength(bool canonicalTuples) =>
+        elementType.RenderLength(canonicalTuples)
+        + rank
+        + 1
+        + (IsNullableAnnotated ? 1 : 0);
+
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
         byte b = ConsumeByte(bytes, ref position, defaultByte);
@@ -389,6 +447,9 @@ internal sealed class PointerTypeNode(TypeNode elementType) : TypeNode
 
     public override string Render(bool canonicalTuples) => $"{elementType.Render(canonicalTuples)}*";
 
+    public override long RenderLength(bool canonicalTuples) =>
+        elementType.RenderLength(canonicalTuples) + 1;
+
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
         ConsumeByte(bytes, ref position, defaultByte);
@@ -410,6 +471,9 @@ internal sealed class ByRefTypeNode(TypeNode elementType) : TypeNode
     public override bool IsDegraded => elementType.IsDegraded;
 
     public override string Render(bool canonicalTuples) => $"ref {elementType.Render(canonicalTuples)}";
+
+    public override long RenderLength(bool canonicalTuples) =>
+        4 + elementType.RenderLength(canonicalTuples);
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
@@ -435,6 +499,9 @@ internal sealed class GenericParameterNode(string name, bool hasValueTypeConstra
     public override bool IsReferenceType => false;
 
     public override string Render(bool canonicalTuples) => IsNullableAnnotated ? $"{name}?" : name;
+
+    public override long RenderLength(bool canonicalTuples) =>
+        name.Length + (IsNullableAnnotated ? 1 : 0);
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
@@ -462,6 +529,18 @@ internal sealed class FunctionPointerTypeNode(MethodSignature<TypeNode> signatur
         return convention.Length == 0
             ? $"delegate*<{arguments}>"
             : $"delegate* {convention}<{arguments}>";
+    }
+
+    public override long RenderLength(bool canonicalTuples)
+    {
+        long argumentsLength = JoinedLength(
+            signature.ParameterTypes
+                .Select(parameter => parameter.RenderLength(canonicalTuples))
+                .Append(signature.ReturnType.RenderLength(canonicalTuples)));
+        string convention = ConventionText(signature.Header.CallingConvention);
+        return convention.Length == 0
+            ? 11 + argumentsLength
+            : 12 + convention.Length + argumentsLength;
     }
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
@@ -499,6 +578,8 @@ internal class PassthroughTypeNode(TypeNode inner) : TypeNode
     public override bool IsDegraded => inner.IsDegraded;
 
     public override string Render(bool canonicalTuples) => inner.Render(canonicalTuples);
+
+    public override long RenderLength(bool canonicalTuples) => inner.RenderLength(canonicalTuples);
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {

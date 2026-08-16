@@ -52,9 +52,8 @@ public sealed record BrowserAssemblySurface(
 /// structured metadata identity, <see cref="QueryId"/> is the identity a Research projection is asked for, and
 /// <see cref="MetadataId"/> is the exact metadata lookup name (nested types delimited by
 /// <c>+</c>). <see cref="Assembly"/> is the selected package asset used for engine requests,
-/// <see cref="AssemblyId"/> joins that asset to its descriptor, and <see cref="AssemblyName"/> is
-/// its metadata identity. They are separate because none is interchangeable with another or with
-/// display text.
+/// and <see cref="AssemblyId"/> joins that asset to the descriptor carrying its metadata identity.
+/// They are separate because neither is interchangeable with display text.
 /// </summary>
 public sealed record BrowserTypeSurface(
     string Id,
@@ -69,7 +68,6 @@ public sealed record BrowserTypeSurface(
     string AccessibilityId,
     string Assembly,
     string AssemblyId,
-    string AssemblyName,
     int Members,
     string Signature,
     BrowserMemberSurface[] Api);

@@ -148,6 +148,9 @@ public enum ApiSurfaceProjectionLimit
 
     /// <summary>The retained API-surface text reached its character bound.</summary>
     RetainedTextCharacters,
+
+    /// <summary>One API-surface model reached its retained-text character bound.</summary>
+    RetainedTextCharactersPerModel,
 }
 
 /// <summary>
@@ -173,7 +176,8 @@ public sealed record ApiSurfaceProjectionLimits
         int maxInspectionFailures,
         int maxTypeForwarders,
         int maxMetadataRows,
-        int maxRetainedTextCharacters)
+        int maxRetainedTextCharacters,
+        int maxRetainedTextCharactersPerModel = int.MaxValue)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxParticipants, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxTypes, 1);
@@ -182,6 +186,7 @@ public sealed record ApiSurfaceProjectionLimits
         ArgumentOutOfRangeException.ThrowIfNegative(maxTypeForwarders);
         ArgumentOutOfRangeException.ThrowIfNegative(maxMetadataRows);
         ArgumentOutOfRangeException.ThrowIfNegative(maxRetainedTextCharacters);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxRetainedTextCharactersPerModel);
         MaxParticipants = maxParticipants;
         MaxTypes = maxTypes;
         MaxMembers = maxMembers;
@@ -189,6 +194,7 @@ public sealed record ApiSurfaceProjectionLimits
         MaxTypeForwarders = maxTypeForwarders;
         MaxMetadataRows = maxMetadataRows;
         MaxRetainedTextCharacters = maxRetainedTextCharacters;
+        MaxRetainedTextCharactersPerModel = maxRetainedTextCharactersPerModel;
     }
 
     /// <summary>The most participants one projection may walk.</summary>
@@ -211,6 +217,9 @@ public sealed record ApiSurfaceProjectionLimits
 
     /// <summary>The most API-surface text characters one projection may retain.</summary>
     public int MaxRetainedTextCharacters { get; }
+
+    /// <summary>The most text characters one projected type header or member may retain.</summary>
+    public int MaxRetainedTextCharactersPerModel { get; }
 }
 
 /// <summary>
@@ -401,7 +410,8 @@ public static class AssemblyContextApiSurfaceQuery
                 limits.MaxInspectionFailures - inspectionFailures,
                 limits.MaxTypeForwarders - typeForwarders,
                 limits.MaxMetadataRows - metadataRows,
-                limits.MaxRetainedTextCharacters - retainedTextCharacters);
+                limits.MaxRetainedTextCharacters - retainedTextCharacters,
+                limits.MaxRetainedTextCharactersPerModel);
             AssemblyContextEntry<ApiSurfaceExtractionResult> entry =
                 AssemblyContextQueryExecutor.ExecuteParticipant(
                     group,
@@ -428,6 +438,8 @@ public static class AssemblyContextApiSurfaceQuery
                         ApiSurfaceProjectionLimit.MetadataRows,
                     ApiSurfaceExtractionBound.RetainedTextCharacters =>
                         ApiSurfaceProjectionLimit.RetainedTextCharacters,
+                    ApiSurfaceExtractionBound.RetainedTextCharactersPerModel =>
+                        ApiSurfaceProjectionLimit.RetainedTextCharactersPerModel,
                     _ => throw new InvalidOperationException(
                         "Unknown API-surface extraction bound."),
                 };
@@ -443,6 +455,8 @@ public static class AssemblyContextApiSurfaceQuery
                         limits.MaxMetadataRows,
                     ApiSurfaceExtractionBound.RetainedTextCharacters =>
                         limits.MaxRetainedTextCharacters,
+                    ApiSurfaceExtractionBound.RetainedTextCharactersPerModel =>
+                        limits.MaxRetainedTextCharactersPerModel,
                     _ => throw new InvalidOperationException(
                         "Unknown API-surface extraction bound."),
                 };

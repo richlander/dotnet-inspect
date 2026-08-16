@@ -23,8 +23,7 @@ internal static class BrowserSurfaceProjection
     internal static BrowserTypeSurface Type(
         ApiType type,
         string assembly,
-        string assemblyId,
-        string assemblyName)
+        string assemblyId)
     {
         // C#-spelled name for display (List<T>, Dictionary<TKey, TValue>) using the real generic
         // parameter names the surface carries. Identity stays the metadata form so deep links,
@@ -58,7 +57,6 @@ internal static class BrowserSurfaceProjection
             bucket.Id,
             assembly,
             assemblyId,
-            assemblyName,
             members.Length,
             string.Join(' ', modifiers),
             members);

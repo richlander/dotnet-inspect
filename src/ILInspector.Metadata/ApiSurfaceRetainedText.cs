@@ -85,14 +85,14 @@ internal static class ApiSurfaceRetainedText
                 + signature.Parameters.Sum(Parameter)
                 + signature.Accessors.Sum(Accessor);
 
-    static long TypeParameter(TypeParameter parameter) =>
+    public static long TypeParameter(TypeParameter parameter) =>
         Length(parameter.Name)
         + Length(parameter.Variance)
         + Strings(parameter.Constraints)
         + (parameter.StructuredConstraints?.Sum(
             constraint => Length(constraint.Value)) ?? 0);
 
-    static long Parameter(ApiParameter parameter) =>
+    public static long Parameter(ApiParameter parameter) =>
         Strings(parameter.Attributes)
         + Length(parameter.Name)
         + Length(parameter.Type)
@@ -100,7 +100,7 @@ internal static class ApiSurfaceRetainedText
         + Length(parameter.Modifier)
         + Length(parameter.DefaultValueText);
 
-    static long Accessor(ApiAccessor accessor) =>
+    public static long Accessor(ApiAccessor accessor) =>
         Length(accessor.Kind)
         + Length(accessor.Accessibility)
         + Strings(accessor.ReturnAttributes);

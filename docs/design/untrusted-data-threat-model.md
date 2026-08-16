@@ -382,11 +382,17 @@ Before assembly identity decoding, each workspace role also rejects more than
 256 selected assemblies or a declared expanded total above that role's 32/64 MB
 retained-image budget.
 Browser API-surface projection separately limits retained model text to
-8,000,000 characters across selected assemblies. The extractor charges complete
-type headers, members and nested signature models, failures, forwarders, and
-canonical identities before retention. Type text remains pending until the
-whole type commits, so a malformed or over-budget type cannot consume the
-shared budget without appearing in the returned surface.
+32,000,000 characters across selected assemblies and 1,000,000 characters for
+one type header or member. The extractor checks rendered type lengths and
+charges signature components as it constructs them, before composite signature
+strings exist. Repeated signature references share decoded metadata names.
+Complete type headers, members and nested signature models, failures,
+forwarders, and canonical identities are charged before retention. Type text
+remains pending until the whole type commits, so a malformed or over-budget
+type cannot consume the shared budget without appearing in the returned
+surface. Browser transport serializes assembly identity once in the assembly
+descriptor; type rows join it by `assemblyId` instead of repeating an
+attacker-controlled assembly name.
 `BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
 gates aggregate ownership and eviction; its oversized-role case gates
 pre-decoding rejection.
@@ -395,11 +401,18 @@ host-specific central-directory entry limit.
 `PackagePayloadAcquisitionTests.TransferPolicy_ReservesBeforeBodyReadAndCompletesAfterCommit`,
 `TransferPolicy_RejectedPayloadDisposesWithoutCompleting`, and
 `TransferPolicy_CanRequireContentLengthBeforeBodyRead` gate the capacity seam.
-`ApiSurfaceExtractorBoundsTests.RetainedTextBudget_IsExact` and
-`RepeatedLongMethodName_IsStoppedByRetainedTextBeforeRowBounds` gate exact
-retained-text accounting and the repeated shared-string amplification shape;
+`ApiSurfaceExtractorBoundsTests.RetainedTextBudget_IsExact`,
+`RetainedTextPerModelBudget_IsExact`,
+`TypeNodeRenderLengths_AgreeWithEveryRenderedView`,
+`RepeatedLongMethodName_IsStoppedByRetainedTextBeforeRowBounds`, and
+`ParameterFanOut_IsStoppedBeforeLargeSignatureMaterialization` gate exact
+aggregate/per-model accounting, render-length preflight, and the repeated
+shared-string and single-signature amplification shapes.
 `AssemblyContextApiSurfaceQueryTests.ExecuteBounded_SpendsRetainedTextAcrossParticipants`
-gates cross-assembly spending.
+and `ExecuteBounded_ReportsPerModelTextLimit` gate cross-assembly spending and
+typed per-model truncation. Browser
+`PackageSurface_SerializesAssemblyIdentityOncePerDescriptor` gates transport
+deduplication.
 
 Those controls are specific to the Browser-Wasm acquisition host. Archive
 containment in the broader product does not itself bound expanded bytes, entry

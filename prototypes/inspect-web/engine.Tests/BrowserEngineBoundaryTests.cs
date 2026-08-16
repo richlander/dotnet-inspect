@@ -1,5 +1,9 @@
 using System.IO.Compression;
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using System.Xml;
 using System.Text.Json;
@@ -398,13 +402,11 @@ public sealed class BrowserEngineBoundaryTests
         BrowserTypeSurface projected = BrowserSurfaceProjection.Type(
             type,
             "Physical.dll",
-            "asset:physical",
-            "Sample");
+            "asset:physical");
 
         Assert.Equal("Sample.Outer+Inner", projected.Id);
         Assert.Equal("Physical.dll", projected.Assembly);
         Assert.Equal("asset:physical", projected.AssemblyId);
-        Assert.Equal("Sample", projected.AssemblyName);
         Assert.Equal(projected.Id, projected.DefinitionId);
         Assert.Equal("Sample.Outer.Inner", projected.QueryId);
         Assert.Equal(projected.Id, projected.MetadataId);
@@ -425,8 +427,7 @@ public sealed class BrowserEngineBoundaryTests
             BrowserSurfaceProjection.Type(
                 literalPlus,
                 "Physical.dll",
-                "asset:physical",
-                "Sample");
+                "asset:physical");
 
         Assert.Equal(@"Sample.Outer\+Inner", projectedLiteral.Id);
         Assert.Equal(projectedLiteral.Id, projectedLiteral.DefinitionId);
@@ -437,6 +438,58 @@ public sealed class BrowserEngineBoundaryTests
         BrowserTypeSurface qualified = projected with { Id = $"Sample.dll:{projected.Id}" };
         Assert.NotEqual(qualified.Id, qualified.DefinitionId);
         Assert.Equal(projected.DefinitionId, qualified.DefinitionId);
+    }
+
+    [Fact]
+    public void PackageSurface_SerializesAssemblyIdentityOncePerDescriptor()
+    {
+        const int typeCount = 100;
+        string longName = new('A', 10_000);
+        BrowserTypeSurface[] types =
+        [
+            .. Enumerable.Range(0, typeCount).Select(index =>
+                BrowserSurfaceProjection.Type(
+                    new ApiType
+                    {
+                        Namespace = "Example",
+                        Name = $"Type{index}",
+                        MetadataName = $"Type{index}",
+                        Kind = "class",
+                    },
+                    "Physical.dll",
+                    "asset:physical")),
+        ];
+
+        string Serialize(string assemblyName) => JsonSerializer.Serialize(
+            new BrowserPackageSurface(
+                "Example",
+                "1.0.0",
+                ["net11.0"],
+                "net11.0",
+                "asset:physical",
+                [
+                    new BrowserAssemblySurface(
+                        "asset:physical",
+                        assemblyName,
+                        "1.0.0.0",
+                        null,
+                        null,
+                        "Physical.dll",
+                        typeCount,
+                        0)
+                ],
+                types,
+                [],
+                0,
+                [],
+                null),
+            BrowserJsonContext.Default.BrowserPackageSurface);
+
+        string shortJson = Serialize("A");
+        string longJson = Serialize(longName);
+
+        Assert.Equal(longName.Length - 1, longJson.Length - shortJson.Length);
+        Assert.Equal(1, longJson.Split(longName, StringSplitOptions.None).Length - 1);
     }
 
     static string NestedDocumentation(int depth)
@@ -782,6 +835,42 @@ public sealed class BrowserEngineBoundaryTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ApiSurfacePolicy_AcceptsCompactMultiMemberSurfaceAboveOldTextLimit()
+    {
+        byte[] image = BuildRepeatedLongMethodNameImage(
+            methodCount: 200,
+            nameCharacters: 20_000);
+        Assert.True(image.Length < 100_000);
+        BrowserInspectionScope scope = BrowserPackageWorkspace.OpenScope(
+            [Coordinate("Ordinary.Surface", Package(image, "lib/net11.0/Ordinary.Surface.dll"))]);
+
+        AssemblyContextApiSurfaceResult result = scope.UseSurface(group =>
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                BrowserApiSurfacePolicy.Limits));
+        AssemblyContextApiSurfaceResult oldPolicyResult = scope.UseSurface(group =>
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                new ApiSurfaceProjectionLimits(
+                    BrowserApiSurfacePolicy.MaxParticipants,
+                    BrowserApiSurfacePolicy.MaxTypes,
+                    BrowserApiSurfacePolicy.MaxMembers,
+                    BrowserApiSurfacePolicy.MaxInspectionFailures,
+                    BrowserApiSurfacePolicy.MaxTypeForwarders,
+                    BrowserApiSurfacePolicy.MaxMetadataRows,
+                    8_000_000,
+                    BrowserApiSurfacePolicy.MaxRetainedTextCharactersPerModel)));
+
+        Assert.True(result.IsComplete);
+        Assert.Single(result.Assemblies.Assemblies);
+        Assert.Equal(
+            ApiSurfaceProjectionLimit.RetainedTextCharacters,
+            oldPolicyResult.Truncation?.Limit);
+    }
+
     // A nested Outer+Inner and a type whose own metadata name is literally "Outer+Inner" share a
     // flattened spelling. The browser must carry an identity that tells them apart, and must not
     // publish the flattened one where it names both.
@@ -846,8 +935,7 @@ public sealed class BrowserEngineBoundaryTests
                     Kind = "class",
                 },
                 "Example.dll",
-                "asset:example",
-                "Example").DefinitionId);
+                "asset:example").DefinitionId);
         Assert.Equal(
             targets[1].TypeDefinitionId,
             BrowserSurfaceProjection.Type(
@@ -860,8 +948,7 @@ public sealed class BrowserEngineBoundaryTests
                     Kind = "class",
                 },
                 "Example.dll",
-                "asset:example",
-                "Example").DefinitionId);
+                "asset:example").DefinitionId);
     }
 
     [Fact]
@@ -1033,9 +1120,70 @@ public sealed class BrowserEngineBoundaryTests
                     .Open();
                 entry.Write(expanded);
             }
+
         }
 
         return content.ToArray();
+    }
+
+    static byte[] BuildRepeatedLongMethodNameImage(
+        int methodCount,
+        int nameCharacters)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Ordinary.Surface.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Ordinary.Surface"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Ordinary"),
+            metadata.GetOrAddString("Surface"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        StringHandle repeatedName = metadata.GetOrAddString(new string('M', nameCharacters));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x01);
+        BlobHandle signatureHandle = metadata.GetOrAddBlob(signature);
+        for (int index = 0; index < methodCount; index++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                repeatedName,
+                signatureHandle,
+                bodyOffset: 0,
+                parameterList: MetadataTokens.ParameterHandle(1));
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     static byte[] PackageEntries(int entryCount)

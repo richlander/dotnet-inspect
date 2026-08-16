@@ -140,6 +140,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
             () => new ApiSurfaceExtractionBounds(0, 0, 0, 0, -1, int.MaxValue));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new ApiSurfaceExtractionBounds(0, 0, 0, 0, 0, -1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ApiSurfaceExtractionBounds(0, 0, 0, 0, 0, 0, -1));
     }
 
     [Fact]
@@ -254,6 +256,55 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void RetainedTextPerModelBudget_IsExact()
+    {
+        var generous = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            Extract(
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue)));
+        int largestModel = checked(
+            (int)generous.Surface.Types.Select(ApiSurfaceRetainedText.TypeHeader)
+                .Concat(
+                    generous.Surface.Types.SelectMany(
+                        type => type.Members.Select(ApiSurfaceRetainedText.Member)))
+                .Concat(generous.Surface.InspectionFailures.Select(
+                    ApiSurfaceRetainedText.InspectionFailure))
+                .Concat(generous.Surface.TypeForwarders.Select(
+                    ApiSurfaceRetainedText.TypeForwarder))
+                .Max());
+
+        Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            Extract(
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    largestModel)));
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    largestModel - 1)));
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+    }
+
+    [Fact]
     public void RepeatedLongMethodName_IsStoppedByRetainedTextBeforeRowBounds()
     {
         byte[] image = BuildRepeatedLongMethodNameImage(
@@ -273,6 +324,104 @@ public sealed class ApiSurfaceExtractorBoundsTests
                     100_000)));
 
         Assert.Equal(ApiSurfaceExtractionBound.RetainedTextCharacters, exceeded.Bound);
+    }
+
+    [Fact]
+    public void ParameterFanOut_IsStoppedBeforeLargeSignatureMaterialization()
+    {
+        byte[] image = BuildParameterFanOutImage(
+            parameterCount: 2_000,
+            nameCharacters: 4_000);
+        Assert.True(image.Length < 100_000);
+        var bounds = new ApiSurfaceExtractionBounds(
+            10,
+            10,
+            0,
+            0,
+            10_000,
+            32_000_000,
+            1_000_000);
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 24_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void InterfaceTypeFanOut_IsStoppedBeforeLargeHeaderMaterialization()
+    {
+        byte[] image = BuildInterfaceFanOutImage(
+            argumentCount: 2_000,
+            nameCharacters: 4_000);
+        Assert.True(image.Length < 100_000);
+        var bounds = new ApiSurfaceExtractionBounds(
+            10,
+            0,
+            0,
+            0,
+            10_000,
+            32_000_000,
+            1_000_000);
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 24_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void TypeNodeRenderLengths_AgreeWithEveryRenderedView()
+    {
+        var tuple = new GenericTypeNode(
+            "System.ValueTuple",
+            isReferenceType: false,
+            [
+                new NamedTypeNode("System.String", isReferenceType: true)
+                {
+                    IsNullableAnnotated = true,
+                    TupleElementName = "text"
+                },
+                new SZArrayTypeNode(
+                    new GenericTypeNode(
+                        "Example.Result",
+                        isReferenceType: true,
+                        [new PrimitiveTypeNode("int", isReferenceType: false)]))
+                {
+                    TupleElementName = "values"
+                }
+            ]);
+        TypeNode[] nodes =
+        [
+            tuple,
+            new ByRefTypeNode(tuple),
+            new MDArrayTypeNode(tuple, rank: 3) { IsNullableAnnotated = true },
+            new PointerTypeNode(new PrimitiveTypeNode("int", isReferenceType: false)),
+        ];
+
+        foreach (TypeNode node in nodes)
+        {
+            Assert.Equal(node.Render().Length, node.RenderLength(canonicalTuples: false));
+            Assert.Equal(
+                node.RenderCanonical().Length,
+                node.RenderLength(canonicalTuples: true));
+        }
     }
 
     [Fact]
@@ -499,6 +648,152 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 bodyOffset: 0,
                 parameterList: MetadataTokens.ParameterHandle(1));
         }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildParameterFanOutImage(
+        int parameterCount,
+        int nameCharacters)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Fanout.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Fanout"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        TypeReferenceHandle repeatedType = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(new string('T', nameCharacters)));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fanout"),
+            metadata.GetOrAddString("Surface"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        int codedType = CodedIndex.TypeDefOrRefOrSpec(repeatedType);
+        for (int index = 0; index < parameterCount; index++)
+        {
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(codedType);
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildInterfaceFanOutImage(
+        int argumentCount,
+        int nameCharacters)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("InterfaceFanout.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("InterfaceFanout"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        TypeReferenceHandle genericInterface = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString($"IGeneric`{argumentCount}"));
+        TypeReferenceHandle repeatedType = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(new string('T', nameCharacters)));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle surface = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fanout"),
+            metadata.GetOrAddString("Surface"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(genericInterface));
+        signature.WriteCompressedInteger(argumentCount);
+        int codedArgument = CodedIndex.TypeDefOrRefOrSpec(repeatedType);
+        for (int index = 0; index < argumentCount; index++)
+        {
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(codedArgument);
+        }
+        TypeSpecificationHandle interfaceType =
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
+        metadata.AddInterfaceImplementation(surface, interfaceType);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

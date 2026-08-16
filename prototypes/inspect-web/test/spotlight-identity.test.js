@@ -431,7 +431,6 @@ test("call graph navigation joins asset names through metadata identity", () => 
   const type = {
     assembly: "Physical.dll",
     assemblyId: "asset:physical",
-    assemblyName: "Logical",
     metadataId: "Example.Widget"
   };
   const pkg = {
@@ -484,13 +483,11 @@ test("call graph navigation joins duplicate metadata names by asset identity", (
   const firstType = {
     assembly: "A.dll",
     assemblyId: "asset:a",
-    assemblyName: "Logical",
     metadataId: "Example.Widget"
   };
   const secondType = {
     assembly: "B.dll",
     assemblyId: "asset:b",
-    assemblyName: "Logical",
     metadataId: "Example.Widget"
   };
   const pkg = {
