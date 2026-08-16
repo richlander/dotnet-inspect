@@ -202,6 +202,46 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
+    public void CallGraph_IndependentScopeIdentityConflictRemainsUsable()
+    {
+        string analysisPath =
+            typeof(Analysis.CatalogMemberCorrespondencePlan)
+                .Assembly.Location;
+        MethodBodyInspectionSession target =
+            MethodBodyInspectionSession.Open(analysisPath);
+        MethodBodyInspectionSession caller =
+            MethodBodyInspectionSession.Open(TestPath);
+        Analysis.MethodIdentity typeIdentity =
+            target.BodyIndex.DeclaredMethods.Single(method =>
+                method.DeclaringType.Name
+                    == nameof(Analysis.CallGraphMemberResolver)
+                && method.Name == "TypeIdentity");
+
+        CallGraphProjection projection = target.CallGraph(
+            typeIdentity.MetadataToken,
+            callerScopes: [caller],
+            calleeScopes: [],
+            out _);
+
+        Assert.NotEmpty(projection.CallSites);
+        Assert.Contains(
+            projection.Edges,
+            edge => edge.CallSiteIds.IsEmpty);
+        Assert.Equal(
+            projection.CallSites.Length,
+            projection.CallSites
+                .Select(site =>
+                    (
+                        site.Call.Caller.AssemblyName,
+                        site.Call.Caller.ModuleVersionId,
+                        site.Call.Caller.MetadataToken,
+                        site.Call.ILOffset,
+                        site.Call.OperandToken))
+                .Distinct()
+                .Count());
+    }
+
+    [Fact]
     public void CallGraph_KeepsReachableVersionSkewedDefinitionDistinct()
     {
         string directory = Directory.CreateTempSubdirectory(
