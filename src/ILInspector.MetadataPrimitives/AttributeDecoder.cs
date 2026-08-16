@@ -96,11 +96,35 @@ public static class AttributeDecoder
     /// keywords for primitives, <c>System.Type</c> for typeof targets, and the
     /// full type name otherwise (enums, etc.).
     /// </summary>
-    public static CustomAttributeValue<string>? TryDecode(MetadataReader reader, CustomAttribute attribute)
+    public static CustomAttributeValue<string>? TryDecode(
+        MetadataReader reader,
+        CustomAttribute attribute)
+        => TryDecode(
+            reader,
+            attribute,
+            preserveSerializedTypeNames: false);
+
+    /// <summary>
+    /// Decodes an attribute while preserving the complete serialized names of
+    /// <see cref="Type"/> fixed arguments, including nesting and assembly syntax.
+    /// </summary>
+    public static CustomAttributeValue<string>? TryDecodePreservingSerializedTypeNames(
+        MetadataReader reader,
+        CustomAttribute attribute)
+        => TryDecode(
+            reader,
+            attribute,
+            preserveSerializedTypeNames: true);
+
+    static CustomAttributeValue<string>? TryDecode(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        bool preserveSerializedTypeNames)
     {
         try
         {
-            return attribute.DecodeValue(new ArgTypeProvider(reader));
+            return attribute.DecodeValue(
+                new ArgTypeProvider(reader, preserveSerializedTypeNames));
         }
         catch
         {
@@ -109,7 +133,9 @@ public static class AttributeDecoder
     }
 
     /// <summary>Type provider for attribute-blob decoding: primitives as C# keywords, everything else as its full name (enums and typeof targets).</summary>
-    sealed class ArgTypeProvider(MetadataReader reader) : ICustomAttributeTypeProvider<string>
+    sealed class ArgTypeProvider(
+        MetadataReader reader,
+        bool preserveSerializedTypeNames) : ICustomAttributeTypeProvider<string>
     {
         public string GetPrimitiveType(PrimitiveTypeCode code) => code switch
         {
@@ -138,6 +164,8 @@ public static class AttributeDecoder
             => TypeResolver.GetTypeName(r, handle) ?? "object";
         public string GetTypeFromSerializedName(string name)
         {
+            if (preserveSerializedTypeNames)
+                return name;
             int comma = name.IndexOf(',');
             return comma >= 0 ? name[..comma] : name;
         }

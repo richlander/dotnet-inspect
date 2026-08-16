@@ -97,10 +97,12 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// Renders a recovered lambda: parameter names (the delegate type supplies
-    /// their types, so they stay unannotated), then <c>=&gt; expr</c> for an
-    /// expression body or <c>=&gt; { ... }</c> otherwise. A single parameter
-    /// drops the parentheses. Zero-local bodies reuse the current printer so
+    /// Renders a recovered lambda: ordinary parameters stay unannotated because
+    /// the delegate supplies their types; a by-ref parameter makes the whole
+    /// list explicit so its <c>ref</c>/<c>out</c>/<c>in</c> modifier is legal.
+    /// The parameter list is followed by <c>=&gt; expr</c> for an expression body
+    /// or <c>=&gt; { ... }</c> otherwise. A single ordinary parameter drops the
+    /// parentheses. Zero-local bodies reuse the current printer so
     /// capture substitutions still bind to the outer scope; local-bearing bodies
     /// are non-capturing and print through an isolated lambda scope. A block body
     /// with more than one statement expands across lines like any other
@@ -109,9 +111,14 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string LambdaText(Lambda lambda)
     {
-        string parameters = lambda.Parameters is [var single]
-            ? CSharpNaming.ContainedIdentifier(single.Name)
-            : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.ContainedIdentifier(p.Name)))})";
+        bool hasByRefParameter =
+            lambda.Parameters.Any(parameter => parameter.Type.Kind == TypeRefKind.ByRef);
+        string parameters = hasByRefParameter
+            ? $"({string.Join(", ", lambda.Parameters.Select((parameter, index) =>
+                $"{ParameterTypeText(parameter, lambda.ParameterRefKinds[index])} {CSharpNaming.ContainedIdentifier(parameter.Name)}"))})"
+            : lambda.Parameters is [var single]
+                ? CSharpNaming.ContainedIdentifier(single.Name)
+                : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.ContainedIdentifier(p.Name)))})";
 
         if (lambda.ExpressionBody is { } expr)
             return LambdaConversionText(lambda, $"{parameters} => {ExpressionTreeBodyText(lambda, expr)}");

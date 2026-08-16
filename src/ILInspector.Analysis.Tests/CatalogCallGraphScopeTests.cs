@@ -233,6 +233,10 @@ public class CatalogCallGraphScopeTests
         CallTreeNode root = scope.BuildCallTree(
             caller,
             rootMethod.MetadataToken);
+        Assert.Equal(
+            2,
+            Assert.Single(root.Children)
+                .ParentEdgeCallSites.Length);
         CallTreeNode[] occurrences =
         [
             .. calls.Select(call =>
@@ -249,6 +253,7 @@ public class CatalogCallGraphScopeTests
                             call),
                         externalIdentity,
                         correspondence: null),
+                    ParentEdgeCallSites = [call],
                 }),
         ];
 
@@ -261,6 +266,10 @@ public class CatalogCallGraphScopeTests
             projection.Nodes,
             node => node.Member.Name == "Echo");
         Assert.Equal(2, external.GraphEvidence.Length);
+        Assert.Equal(2, projection.CallSites.Length);
+        Assert.Equal(
+            [0, 1],
+            Assert.Single(projection.Edges).CallSiteIds);
     }
 
     [Fact]
