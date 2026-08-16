@@ -410,7 +410,9 @@ distinct from the selected physical asset target, retains acquisition-bound
 assembly subjects, and projects one package subject as a structured group, a
 package node, or both.
 `WorkspaceContextLoaderTests.PackageBoundary_ProjectsLoadedPackageAsGroupAndNode`
-gates the compiled package-acquisition path.
+gates the compiled package-acquisition path, and
+`PackageBoundary_KeepsEffectiveTargetAcrossAssetFallback` gates the
+effective/physical target distinction.
 `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic
 composition and the shared nonzero completion status used after Markdown,
 count, tabular, or JSON output.

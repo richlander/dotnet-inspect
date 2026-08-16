@@ -383,6 +383,8 @@ identities from two acquired artifacts do not collapse. A package-only lens
 retains only portable realized package coordinates.
 `WorkspaceContextLoaderTests.PackageBoundary_ProjectsLoadedPackageAsGroupAndNode`
 gates the compiled package-acquisition path;
+`WorkspaceContextLoaderTests.PackageBoundary_KeepsEffectiveTargetAcrossAssetFallback`
+gates the effective/physical target distinction; and
 `InspectionGraphPackageBoundaryTests.PackageGroupsLens_DoesNotCollapseMatchingAssemblyMetadata`
 gates the close acquisition-identity case.
 

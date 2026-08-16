@@ -145,6 +145,51 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task PackageBoundary_KeepsEffectiveTargetAcrossAssetFallback()
+    {
+        const string RequestedFramework = "net11.0";
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ($"lib/{Framework}/{Path.GetFileName(TargetPath)}",
+                    File.ReadAllBytes(TargetPath))));
+        using var client = new HttpClient(new FailingHandler());
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = RequestedFramework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        WorkspaceContextMember member = Assert.Single(loaded.Members);
+        var package =
+            Assert.IsType<RealizedMemberCoordinate.Package>(
+                member.Realized);
+        var provenance =
+            Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
+                member.Participant.Assembly.Provenance);
+        Assert.Equal(RequestedFramework, package.Framework);
+        Assert.Equal(Framework, provenance.Tfm);
+
+        InspectionGraphDocument document =
+            InspectionGraphPackageBoundary.Create(loaded)
+                .Project(InspectionGraphPackageBoundaryLens.PackageNodes);
+        var subject =
+            Assert.IsType<InspectionGraphSubject.PackageSubject>(
+                Assert.Single(document.Nodes).Subject);
+        Assert.Equal(
+            package,
+            Assert.IsType<InspectionGraphPackageIdentity.Realized>(
+                subject.Identity).Package);
+    }
+
+    [Fact]
     public async Task Group_BindsAnInContextReferenceToItsOwnDescriptor()
     {
         using var workspace = new InspectionWorkspace();
