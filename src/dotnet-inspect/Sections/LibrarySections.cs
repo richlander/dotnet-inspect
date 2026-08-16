@@ -20,8 +20,6 @@ public static class LibrarySections
     // Scanner keys identify data collection steps in LibraryMetadataService.
     // Every key here must be registered in CreateScannerRegistry and declared by at least one
     // section. Gate: SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration.
-    public const string ScannerClassifiedMethods = "ClassifiedMethods";
-    public const string ScannerInfoCounts = "InfoCounts";
     public const string ScannerAuditSignals = "AuditSignals";
     public const string ScannerUnsafeMembers = "UnsafeMembers";
     public const string ScannerTopLeverage = "TopLeverage";
@@ -72,6 +70,7 @@ public static class LibrarySections
             .WithoutComputedPoles()
             .Add<LibraryInfo>(
                 [
+                    ClassifiedMethodsQuery.Definition,
                     CustomAttributesQuery.Definition,
                     ExtensionMethodsQuery.Definition,
                     ResourcesQuery.Definition,
@@ -99,7 +98,12 @@ public static class LibrarySections
                 SourceIntegrityQuery.Definition,
                 SourceLinkDiscoverable)
             .Add<Symbols>()
-            .Add<Signals>(HasAssemblyInfo)
+            .Add<Signals>(
+                [
+                    AssemblyReferencesQuery.Definition,
+                    ClassifiedMethodsQuery.Definition,
+                ],
+                HasAssemblyInfo)
             .Add<IdentifierConfusion>(AssemblyReferencesQuery.Definition)
             .Add<Switches>(SwitchesQuery.Definition)
             .Add<IntegrationOpportunities>(
@@ -131,8 +135,8 @@ public static class LibrarySections
             .Add<PerformanceAsync>(HasMethodBodies)
             .Add<PerformanceOther>(HasMethodBodies)
             .Add<ArrayPoolEscapes>(HasMethodBodies)
-            .Add<PInvokeMethods>()
-            .Add<AsyncMethods>()
+            .Add<PInvokeMethods>(ClassifiedMethodsQuery.Definition)
+            .Add<AsyncMethods>(ClassifiedMethodsQuery.Definition)
             .Add<Resources>(ResourcesQuery.Definition)
             .Add<CustomAttributes>(CustomAttributesQuery.Definition)
             .Add<UnionTypes>(UnionTypesQuery.Definition)
@@ -187,18 +191,10 @@ public static class LibrarySections
     public static ScannerRegistry CreateScannerRegistry()
     {
         return new ScannerRegistry()
-            .Add(ScannerClassifiedMethods, SectionCost.NetworkFree, ctx =>
-                ctx.Model.Apply(ctx.Scan(
-                    session => LibraryMetadataService.ScanClassifiedMethods(session, ctx.AssemblyPath, ctx.Logger),
-                    () => LibraryMetadataService.ScanClassifiedMethods(ctx.AssemblyPath, ctx.Logger))))
-            .AddBundle(
-                ScannerInfoCounts,
-                ScannerClassifiedMethods)
             .Add(ScannerAuditSignals, SectionCost.NetworkFree, ctx =>
                 ctx.Scan(
                     session => AuditSignalBuilder.PopulateLibraryAudit(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
-                    () => AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
-                ScannerClassifiedMethods)
+                    () => AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger)))
             .Add(ScannerUnsafeMembers, SectionCost.Unbounded, ctx =>
                 ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTopLeverage, SectionCost.Unbounded, ctx =>
@@ -257,6 +253,10 @@ public static class LibrarySections
                             return new AssemblyReferencesResult.Failed(ex);
                         }
                     }))
+            .Add(ClassifiedMethodsQuery.Definition, ctx =>
+                ctx.Query(
+                    ClassifiedMethodsQuery.Execute,
+                    ex => new ClassifiedMethodsResult.Failed(ex)))
             .Add(CustomAttributesQuery.Definition, ctx =>
                 ctx.Scan(
                     CustomAttributesQuery.Execute,
@@ -333,7 +333,7 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static string? ScannerKey => ScannerInfoCounts;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model) => model.AssemblyInfo != null;
     }
 
@@ -823,7 +823,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PInvokeMethods;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerClassifiedMethods;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.ClassifiedMethodInspection.Failure() is null
                && (model.PInvokeMethodCount > 0 || model.HasPInvokeImports);
@@ -834,7 +834,7 @@ public static class LibrarySections
         public static string Name => SectionNames.AsyncMethods;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static string? ScannerKey => ScannerClassifiedMethods;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.ClassifiedMethodInspection.Failure() is null
                && (model.AsyncMethodCount > 0
