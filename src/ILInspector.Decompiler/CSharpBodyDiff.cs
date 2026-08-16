@@ -968,18 +968,16 @@ public static partial class CSharpBodyDiff
             return System.Convert.ToHexString(hash.GetHashAndReset());
         }
 
-        var bodyBytes = source.Pe
-            .GetSectionData(definition.RelativeVirtualAddress)
-            .GetContent();
-        int bodySize = PhysicalMethodBodySize(bodyBytes.AsSpan());
-        bodyBytes = bodyBytes[..bodySize];
+        var bodyBlock = source.Pe.GetSectionData(definition.RelativeVirtualAddress);
+        int bodySize = PhysicalMethodBodySize(bodyBlock.GetReader());
+        var bodyBytes = bodyBlock.GetContent(0, bodySize);
         AppendFingerprintBytes(hash, bodyBytes.AsSpan());
         return System.Convert.ToHexString(hash.GetHashAndReset());
     }
 
-    static int PhysicalMethodBodySize(ReadOnlySpan<byte> body)
+    static int PhysicalMethodBodySize(BlobReader body)
     {
-        if (body.IsEmpty)
+        if (body.Length == 0)
             throw new BadImageFormatException("Method body is empty.");
 
         const int formatMask = 0x3;
@@ -989,18 +987,21 @@ public static partial class CSharpBodyDiff
         const int fatSection = 0x40;
         const int moreSectionData = 0x80;
 
-        int format = body[0] & formatMask;
+        byte first = body.ReadByte();
+        int format = first & formatMask;
         if (format == tinyFormat)
-            return CheckedBodyEnd(1, body[0] >> 2, body.Length);
+            return CheckedBodyEnd(1, first >> 2, body.Length);
         if (format != fatFormat || body.Length < 12)
             throw new BadImageFormatException("Method body has an invalid header.");
 
-        ushort flagsAndSize = BinaryPrimitives.ReadUInt16LittleEndian(body);
+        body.Offset = 0;
+        ushort flagsAndSize = body.ReadUInt16();
         int headerSize = (flagsAndSize >> 12) * sizeof(int);
         if (headerSize < 12 || headerSize > body.Length)
             throw new BadImageFormatException("Method body has an invalid fat header size.");
 
-        int codeSize = BinaryPrimitives.ReadInt32LittleEndian(body[4..]);
+        body.Offset = 4;
+        int codeSize = body.ReadInt32();
         if (codeSize < 0)
             throw new BadImageFormatException("Method body has a negative code size.");
 
@@ -1014,12 +1015,12 @@ public static partial class CSharpBodyDiff
             if (sectionOffset > body.Length - sizeof(int))
                 throw new BadImageFormatException("Method body data section header is truncated.");
 
-            byte sectionKind = body[sectionOffset];
+            body.Offset = sectionOffset;
+            byte sectionKind = body.ReadByte();
+            byte sizeLow = body.ReadByte();
             int sectionSize = (sectionKind & fatSection) != 0
-                ? body[sectionOffset + 1]
-                    | body[sectionOffset + 2] << 8
-                    | body[sectionOffset + 3] << 16
-                : body[sectionOffset + 1];
+                ? sizeLow | body.ReadByte() << 8 | body.ReadByte() << 16
+                : sizeLow;
             if (sectionSize < sizeof(int))
                 throw new BadImageFormatException("Method body data section has an invalid size.");
 

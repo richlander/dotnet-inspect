@@ -313,15 +313,61 @@ public static partial class CSharpBodyDiff
             after,
             beforeRevision,
             afterRevision,
-            matches
-                .OrderBy(static match => match.Before.NodeId)
-                .ToImmutableArray(),
+            ClassifyMovement(matches),
             unmatchedBefore
                 .OrderBy(static unmatched => unmatched.Node.NodeId)
                 .ToImmutableArray(),
             unmatchedAfter
                 .OrderBy(static unmatched => unmatched.Node.NodeId)
                 .ToImmutableArray());
+    }
+
+    static ImmutableArray<CSharpNodeMatch> ClassifyMovement(
+        IEnumerable<CSharpNodeMatch> matches)
+    {
+        var ordered = matches
+            .OrderBy(static match => match.Before.NodeId)
+            .ToArray();
+        if (ordered.Length < 2)
+            return [.. ordered];
+
+        var lengths = new int[ordered.Length];
+        var previous = new int[ordered.Length];
+        Array.Fill(previous, -1);
+        int longestEnd = 0;
+        for (int current = 0; current < ordered.Length; current++)
+        {
+            lengths[current] = 1;
+            for (int candidate = 0; candidate < current; candidate++)
+            {
+                if (ordered[candidate].After.NodeId >= ordered[current].After.NodeId
+                    || lengths[candidate] + 1 <= lengths[current])
+                {
+                    continue;
+                }
+
+                lengths[current] = lengths[candidate] + 1;
+                previous[current] = candidate;
+            }
+            if (lengths[current] > lengths[longestEnd])
+                longestEnd = current;
+        }
+
+        var retained = new bool[ordered.Length];
+        for (int current = longestEnd; current >= 0; current = previous[current])
+        {
+            retained[current] = true;
+            if (previous[current] < 0)
+                break;
+        }
+
+        return
+        [
+            .. ordered.Select(
+                (match, index) => retained[index]
+                    ? match
+                    : match with { Moved = true })
+        ];
     }
 
     /// <summary>

@@ -72,7 +72,10 @@ artifacts.
 
 The result is one `CSharpStructuralComparison` with explicit `Added`, `Removed`,
 `Changed`, and `Moved` outcomes. Movement is orthogonal, so a node may be both
-changed and moved. Stable kind ids and display labels come from
+changed and moved. After provenance establishes identity, the issuer classifies
+the smallest deterministic set outside the longest order-preserving match
+sequence as moved; local order participates only in that classification, never
+in identity. Stable kind ids and display labels come from
 `AnnotatedSourceNodeKinds`; the comparison does not expose raw IR type names.
 Each row retains exact absolute UTF-16 spans and the smallest enclosing region
 role on both sides. Optional compile-back fidelity is separately supplied typed

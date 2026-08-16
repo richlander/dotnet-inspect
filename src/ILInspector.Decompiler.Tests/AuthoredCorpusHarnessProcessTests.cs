@@ -152,6 +152,66 @@ public class AuthoredCorpusHarnessProcessTests
     }
 
     [Fact]
+    public void Harness_ReportsPureProductDocumentReorderAsMovement()
+    {
+        string beforePath = Path.Combine(Path.GetTempPath(), $"structural-before-{Guid.NewGuid():N}.json");
+        string afterPath = Path.Combine(Path.GetTempPath(), $"structural-after-{Guid.NewGuid():N}.json");
+        var source = new AnnotatedSourceDocumentSource(
+            "Fixture",
+            new Guid("11111111-2222-3333-4444-555555555555"),
+            0x06000001,
+            new string('A', 64),
+            "Fixture.M");
+        static AnnotatedSourceNode Node(
+            int id,
+            int start,
+            int ilOffset) => new(
+                id,
+                "ExpressionStatement",
+                SourceLineKind.CSharp,
+                [new(start, 6)],
+                Provenance: new AnnotatedSourceNodeProvenance([ilOffset]));
+        var before = new AnnotatedSourceDocument(
+            "one();\ntwo();\n",
+            [Node(0, 0, 0x10), Node(1, 7, 0x20)],
+            [],
+            [],
+            [],
+            source);
+        var after = new AnnotatedSourceDocument(
+            "two();\none();\n",
+            [Node(0, 0, 0x20), Node(1, 7, 0x10)],
+            [],
+            [],
+            [],
+            source);
+        File.WriteAllText(
+            beforePath,
+            JsonSerializer.Serialize(
+                before,
+                AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument));
+        File.WriteAllText(
+            afterPath,
+            JsonSerializer.Serialize(
+                after,
+                AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument));
+
+        try
+        {
+            var run = RunHarness("--structural-review", beforePath, afterPath);
+
+            Assert.Equal(0, run.ExitCode);
+            Assert.Contains("| Moved |", run.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("No structural changes.", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(beforePath);
+            File.Delete(afterPath);
+        }
+    }
+
+    [Fact]
     public void Harness_AcceptsProductDocumentFactWithoutDetail()
     {
         string beforePath = Path.Combine(Path.GetTempPath(), $"structural-before-{Guid.NewGuid():N}.json");

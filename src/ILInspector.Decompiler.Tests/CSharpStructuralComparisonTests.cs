@@ -514,6 +514,50 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void IssueCorrespondence_ClassifiesPureReorderAsMovement()
+    {
+        var before = TrustedDocument(
+            "one();\ntwo();\n",
+            new NodeSpec("ExpressionStatement", "one();", [0x10]),
+            new NodeSpec("ExpressionStatement", "two();", [0x20]));
+        var after = TrustedDocument(
+            "two();\none();\n",
+            new NodeSpec("ExpressionStatement", "two();", [0x20]),
+            new NodeSpec("ExpressionStatement", "one();", [0x10]));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Equal(2, issued.Matches.Length);
+        Assert.Single(issued.Matches, static match => match.Moved);
+        var row = Assert.Single(CSharpBodyDiff.CompareStructure(issued).Rows);
+        Assert.Equal(CSharpStructuralChangeKind.Moved, row.Change);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotClassifyInsertionAsMovement()
+    {
+        var before = TrustedDocument(
+            "one();\ntwo();\n",
+            new NodeSpec("ExpressionStatement", "one();", [0x10]),
+            new NodeSpec("ExpressionStatement", "two();", [0x20]));
+        var after = TrustedDocument(
+            "zero();\none();\ntwo();\n",
+            new NodeSpec("ExpressionStatement", "zero();", [0x00]),
+            new NodeSpec("ExpressionStatement", "one();", [0x10]),
+            new NodeSpec("ExpressionStatement", "two();", [0x20]));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.All(issued.Matches, static match => Assert.False(match.Moved));
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.NoCounterpart,
+            Assert.Single(issued.UnmatchedAfter).Reason);
+        Assert.Equal(
+            CSharpStructuralChangeKind.Added,
+            Assert.Single(CSharpBodyDiff.CompareStructure(issued).Rows).Change);
+    }
+
+    [Fact]
     public void IssueCorrespondence_PreservesAmbiguousDuplicateEvidence()
     {
         var before = TrustedDocument(
@@ -758,6 +802,45 @@ public class CSharpStructuralComparisonTests
             Assert.NotEqual(
                 CSharpBodyDiff.ComputePhysicalMethodFingerprint(finallySource, method),
                 CSharpBodyDiff.ComputePhysicalMethodFingerprint(faultSource, method));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProductBodyFingerprint_DoesNotMaterializeTheRemainingPeSection()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-physical-body-allocation-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "fixture.dll");
+        var bodyStream = new byte[4 * 1024 * 1024];
+        bodyStream[0] = 0x06;
+        bodyStream[1] = 0x2A;
+
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildSyntheticMethodImage(
+                    new Guid("11111111-2222-3333-4444-555555555555"),
+                    bodyStream));
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            var method = MetadataTokens.MethodDefinitionHandle(1);
+            _ = CSharpBodyDiff.ComputePhysicalMethodFingerprint(source, method);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int iteration = 0; iteration < 5; iteration++)
+                _ = CSharpBodyDiff.ComputePhysicalMethodFingerprint(source, method);
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.InRange(allocated, 0, 1024 * 1024);
         }
         finally
         {
