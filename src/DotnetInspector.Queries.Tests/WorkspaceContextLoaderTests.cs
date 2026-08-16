@@ -101,6 +101,50 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task PackageBoundary_ProjectsLoadedPackageAsGroupAndNode()
+    {
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            LibraryPackage());
+        using var client = new HttpClient(new FailingHandler());
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        InspectionGraphPackageBoundary boundary =
+            InspectionGraphPackageBoundary.Create(loaded);
+        InspectionGraphDocument document = boundary.Project(
+            InspectionGraphPackageBoundaryLens.Mixed);
+
+        Assert.Equal(3, document.Nodes.Length);
+        InspectionGraphGroup packageGroup =
+            Assert.Single(document.Groups);
+        Assert.Same(document.Nodes[0].Subject, packageGroup.Subject);
+        Assert.All(
+            document.Nodes.Skip(1),
+            node => Assert.Equal([packageGroup.Id], node.GroupIds));
+        Assert.All(
+            loaded.Members,
+            member =>
+            {
+                Assert.True(
+                    boundary.TryGetPackageSubject(
+                        member.Participant.Assembly.Registration,
+                        out InspectionGraphSubject.PackageSubject? owner));
+                Assert.Same(packageGroup.Subject, owner);
+            });
+    }
+
+    [Fact]
     public async Task Group_BindsAnInContextReferenceToItsOwnDescriptor()
     {
         using var workspace = new InspectionWorkspace();

@@ -371,6 +371,19 @@ they reference the same domain subject. Renderers may lower a group as a
 Mermaid subgraph, a table column, a badge, or nothing. Group membership is
 structured data and must not be recovered from a node label.
 
+`InspectionGraphPackageBoundary` implements this boundary over realized
+workspace members. It joins an acquired assembly to its package through the
+participant's opaque acquisition registration, validates the package asset
+provenance against the exact `RealizedMemberCoordinate.Package`, and projects
+the resulting package subject as an assembly group, a package node, or both.
+Assembly nodes retain acquisition-bound identity, so matching metadata
+identities from two acquired artifacts do not collapse. A package-only lens
+retains only portable realized package coordinates.
+`WorkspaceContextLoaderTests.PackageBoundary_ProjectsLoadedPackageAsGroupAndNode`
+gates the compiled package-acquisition path;
+`InspectionGraphPackageBoundaryTests.PackageGroupsLens_DoesNotCollapseMatchingAssemblyMetadata`
+gates the close acquisition-identity case.
+
 ## Relationships and occurrences
 
 ### Relationship descriptors
@@ -960,7 +973,9 @@ subject lenses it advances.
    they must not encode these values back into edge labels.
 3. **Typed groups and package boundary.** Project assembly/package ownership
    from workspace provenance and realized coordinates; render the same package
-   as a group or node without string-derived identity.
+   as a group or node without string-derived identity. Implemented by
+   `InspectionGraphPackageBoundary`; presentation lowering and integration
+   composition remain later slices.
 4. **Type/package integration projection.** Compose extension and Integrations
    evidence into the locked `IChatClient` type-outward and package-inward views
    demonstrated by #4127.
