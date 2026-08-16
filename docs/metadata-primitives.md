@@ -47,7 +47,7 @@ and each now contains both the shared TypeSpec guard and an older local
 TypeSpec policy. The new evidence is a concrete policy split below the semantic
 models, not a reason to revisit the models themselves.
 
-At `607bc830f`:
+At `fe9bff974`:
 
 - Analysis has six project references, including direct references to both
   Metadata and MetadataPrimitives.
