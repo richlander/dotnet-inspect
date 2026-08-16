@@ -238,7 +238,10 @@ public sealed class NuGetDeadlineTests
 
         NuGetRequestTimeoutException error =
             await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
-                async () => _ = await read);
+                async () =>
+                    _ = await read.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
 
         Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
     }
@@ -562,7 +565,10 @@ public sealed class NuGetDeadlineTests
 
         NuGetRequestTimeoutException error =
             await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
-                async () => _ = await read);
+                async () =>
+                    _ = await read.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
 
         Assert.Equal(TimeSpan.FromMilliseconds(500), error.Timeout);
     }
@@ -578,7 +584,7 @@ public sealed class NuGetDeadlineTests
         var nuget = new NuGetClient(
             client,
             Options(
-                request: TimeSpan.FromSeconds(2),
+                request: TimeSpan.FromSeconds(5),
                 operation: TimeSpan.FromMilliseconds(500)));
 
         await using Stream package = await nuget.DownloadAsync(
@@ -586,16 +592,20 @@ public sealed class NuGetDeadlineTests
             "1.0.0",
             cancellationToken: TestContext.Current.CancellationToken);
         byte[] buffer = new byte[1];
-        ValueTask<int> read = package.ReadAsync(
-            buffer,
-            TestContext.Current.CancellationToken);
+        Task<int> read = package.ReadAsync(
+                buffer,
+                TestContext.Current.CancellationToken)
+            .AsTask();
         await stallingStream.ReadStarted.WaitAsync(
             TimeSpan.FromSeconds(2),
             TestContext.Current.CancellationToken);
 
         NuGetOperationTimeoutException error =
             await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
-                async () => _ = await read);
+                async () =>
+                    _ = await read.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
 
         Assert.Equal(TimeSpan.FromMilliseconds(500), error.Timeout);
     }
