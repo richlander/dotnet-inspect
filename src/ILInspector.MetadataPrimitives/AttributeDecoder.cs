@@ -31,69 +31,22 @@ public static class AttributeDecoder
         if (constructorHandle.Kind == HandleKind.MemberReference)
         {
             var memberRef = reader.GetMemberReference((MemberReferenceHandle)constructorHandle);
-            if (!TryObserveTypeName(reader, memberRef.Parent, beforeMaterialize))
-            {
-                throw new BadImageFormatException(
-                    "The attribute constructor parent is not a bounded named type.");
-            }
-            return TypeResolver.GetTypeName(reader, memberRef.Parent);
+            return TypeResolver.GetTypeName(
+                reader,
+                memberRef.Parent,
+                context: null,
+                beforeMaterialize);
         }
         if (constructorHandle.Kind == HandleKind.MethodDefinition)
         {
             var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)constructorHandle);
             TypeDefinitionHandle declaringType = methodDef.GetDeclaringType();
-            if (!TryObserveTypeName(reader, declaringType, beforeMaterialize))
-            {
-                throw new BadImageFormatException(
-                    "The attribute constructor declaring type is not bounded.");
-            }
-            return TypeResolver.GetTypeNameFromDefinition(reader, declaringType);
+            return TypeResolver.GetTypeNameFromDefinition(
+                reader,
+                declaringType,
+                beforeMaterialize);
         }
         return null;
-    }
-
-    static bool TryObserveTypeName(
-        MetadataReader reader,
-        EntityHandle handle,
-        Action<int>? beforeMaterialize)
-    {
-        if (beforeMaterialize is null)
-            return true;
-
-        for (int count = 0;
-             count < MetadataSafetyPolicy.MaxRelationshipNodes;
-             count++)
-        {
-            switch (handle.Kind)
-            {
-                case HandleKind.TypeReference:
-                    TypeReference typeReference =
-                        reader.GetTypeReference((TypeReferenceHandle)handle);
-                    beforeMaterialize(
-                        reader.GetBlobReader(typeReference.Name).Length
-                            + reader.GetBlobReader(typeReference.Namespace).Length);
-                    if (typeReference.ResolutionScope.Kind != HandleKind.TypeReference)
-                        return true;
-                    handle = typeReference.ResolutionScope;
-                    break;
-                case HandleKind.TypeDefinition:
-                    TypeDefinition typeDefinition =
-                        reader.GetTypeDefinition((TypeDefinitionHandle)handle);
-                    beforeMaterialize(
-                        reader.GetBlobReader(typeDefinition.Name).Length
-                            + reader.GetBlobReader(typeDefinition.Namespace).Length);
-                    TypeDefinitionHandle declaringType =
-                        typeDefinition.GetDeclaringType();
-                    if (declaringType.IsNil)
-                        return true;
-                    handle = declaringType;
-                    break;
-                default:
-                    return false;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>

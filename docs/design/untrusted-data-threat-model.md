@@ -405,12 +405,17 @@ Visibility probes use bounded blob readers rather than copying skipped
 attribute values. Every bounded member-name decode and every namespace/name
 segment used to resolve an attribute type is also charged before SRM
 materializes it, including names inspected only to skip an accessor,
-compiler-generated field, or hidden member. The Browser separately applies the
-same bound while deriving type/member transport records, including canonical
-signatures, documentation IDs, and graph selectors that repeat declaring-type
-identity. It preflights each source model before creating those derived
-strings, and collision-qualified IDs are created and charged before their
-participant commits. An assembly that would exceed either remaining
+compiler-generated field, or hidden member. This includes every enclosing
+TypeDef or TypeRef segment reached from a signature, skipped enum names scanned
+while formatting defaults, and forwarded type and target-assembly names.
+TypeSpec-owned generic attribute constructors use the same guarded signature
+decoder and preserve bounded/unbounded parity. The Browser separately applies
+the same bound while deriving type/member transport records, including
+canonical signatures, documentation IDs, and graph selectors that repeat
+declaring-type identity. It preflights each source model against the budget
+remaining after committed and pending participants before creating those
+derived strings, and collision-qualified IDs are created and charged before
+their participant commits. An assembly that would exceed either remaining
 retained-text budget is abandoned whole, and the Browser reports truncation
 rather than presenting a shortened surface as complete.
 `BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
@@ -426,20 +431,27 @@ pre-decoding rejection.
 `OneWideFieldSignature_StopsBeforeLargeAllocationAmplification`,
 `OneWideTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneLargeCustomAttribute_StopsBeforeLargeAllocationAmplification`,
+`GenericAttributeTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneDeeplyNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneArgumentNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneNestedArrayType_StopsBeforeLargeAllocationAmplification`,
 `EnclosingTypeNameChain_StopsBeforeLargeAllocationAmplification`,
+`EnclosingTypeReferenceChain_StopsBeforeLargeAllocationAmplification`,
 `RejectedTypes_SpendDecodeWorkAcrossTheExtraction`,
 `LargeTransformArray_StopsBeforeLargeAllocationAmplification`,
 `RepeatedMethodGenericContext_ReusesTypeParameterNames`,
 `OneHugeArrayRank_StopsBeforeLargeAllocationAmplification`,
 `HiddenAutoPropertySignature_StopsBeforeLargeAllocationAmplification`,
 `HugeParameterDefault_StopsBeforeLargeAllocationAmplification`,
+`EnumDefaultScan_ChargesSkippedEnclosingTypeNames`,
 `PropertyAccessorReturnAttribute_StopsBeforeLargeAllocationAmplification`,
 `EventAccessorReturnAttribute_StopsBeforeLargeAllocationAmplification`,
 `LargeVisibilityAttribute_StopsBeforeDecodingItsMessage`,
 `RepeatedHiddenAttributeProbe_DoesNotCopyTheValueBlob`,
+`ExhaustedForwarderBudgetStopsBeforeDecodingItsName`,
+`ForwarderTargetAssemblyIsChargedBeforeDecoding`,
+`ExtensionReceiverIdentityContributesItsOwnRetainedText`,
+`GenericAttributeConstructorHasBoundedUnboundedParity`,
 `AssemblyContextApiSurfaceQueryTests.ExecuteBounded_SpendsRetainedTextAcrossParticipants`,
 and
 `BrowserEngineBoundaryTests.ApiSurfaceProjection_IsBoundedAndReportsTruncation`
@@ -459,6 +471,8 @@ gates the derived-identity transport budget.
 `SurfaceProjection_OneHugeTypeStopsBeforeDerivedIdentities` and
 `SurfaceProjection_OneHugeMemberStopsBeforeDerivedIdentities` gate
 pre-materialization rejection for one amplified transport record.
+`SurfaceProjection_PreflightUsesTheRemainingSharedBudget` gates preflight after
+earlier participants have committed most of that shared budget.
 `QueryPackage_FirstTransportTruncationReturnsTypedNotice` gates typed
 zero-participant truncation, and
 `SurfaceProjection_QualifiedCollisionIdIsAccountedBeforeCommit` gates final-ID

@@ -10,6 +10,7 @@ namespace ILInspector.Metadata;
 public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 {
     const string Unresolved = "object";
+    readonly Action<int>? _beforeMaterialize;
 
     [ThreadStatic]
     static SignatureDecodeRejection? s_rejection;
@@ -18,6 +19,16 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     /// Shared instance for common use cases.
     /// </summary>
     public static SignatureDecoder Instance { get; } = new();
+
+    public SignatureDecoder()
+    {
+    }
+
+    internal SignatureDecoder(Action<int> beforeMaterialize)
+    {
+        _beforeMaterialize = beforeMaterialize
+            ?? throw new ArgumentNullException(nameof(beforeMaterialize));
+    }
 
     public string GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode switch
     {
@@ -43,13 +54,17 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     };
 
     public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-        => TypeResolver.GetTypeNameFromDefinition(reader, handle);
+        => TypeResolver.GetTypeNameFromDefinition(reader, handle, _beforeMaterialize);
 
     public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-        => TypeResolver.GetTypeNameFromReference(reader, handle);
+        => TypeResolver.GetTypeNameFromReference(reader, handle, _beforeMaterialize);
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
+        TypeSpecification typeSpecification =
+            reader.GetTypeSpecification(handle);
+        _beforeMaterialize?.Invoke(
+            reader.GetBlobReader(typeSpecification.Signature).Length);
         if (!TypeSpecGuard.TryEnter(
             reader,
             handle,
@@ -66,7 +81,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         }
         using (scope)
         {
-            return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+            return typeSpecification.DecodeSignature(this, context);
         }
     }
 

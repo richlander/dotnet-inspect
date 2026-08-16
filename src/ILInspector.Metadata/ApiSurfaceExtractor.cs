@@ -1284,6 +1284,9 @@ public static class ApiSurfaceExtractor
         ApiSurface surface,
         ExtractionBudget? budget = null)
     {
+        Action<int>? observeDecodeWork = budget is null
+            ? null
+            : budget.ObservePendingDecodeWork;
         foreach (var exportedTypeHandle in reader.ExportedTypes)
         {
             try
@@ -1294,36 +1297,65 @@ public static class ApiSurfaceExtractor
                 if (!exportedType.IsForwarder)
                     continue;
 
-                var fullName = reader.ResolveFullTypeName(exportedTypeHandle) switch
-                {
-                    RelationshipTraversalResult<string>.Completed completed =>
-                        completed.Value,
-                    RelationshipTraversalResult<string>.Rejected rejected =>
-                        throw new MetadataRowRejectedException(
-                            "type forwarder identity",
-                            MetadataTypeNameFailure.From(rejected.Rejection)),
-                    _ => throw new InvalidOperationException(
-                        "Unknown exported-type relationship result."),
-                };
                 budget?.BeginTypeForwarder();
+                MetadataTypeDefinitionName? definitionName;
+                string fullName;
+                if (budget is null)
+                {
+                    fullName = reader.ResolveFullTypeName(exportedTypeHandle) switch
+                    {
+                        RelationshipTraversalResult<string>.Completed completed =>
+                            completed.Value,
+                        RelationshipTraversalResult<string>.Rejected rejected =>
+                            throw new MetadataRowRejectedException(
+                                "type forwarder identity",
+                                MetadataTypeNameFailure.From(rejected.Rejection)),
+                        _ => throw new InvalidOperationException(
+                            "Unknown exported-type relationship result."),
+                    };
+                    definitionName =
+                        MetadataTypeDefinitionNameReader.Read(
+                            reader,
+                            exportedTypeHandle)
+                        is MetadataTypeDefinitionNameReadResult.Read read
+                            ? read.Name
+                            : null;
+                }
+                else
+                {
+                    definitionName =
+                        MetadataTypeDefinitionNameReader.Read(
+                            reader,
+                            exportedTypeHandle,
+                            observeDecodeWork) switch
+                        {
+                            MetadataTypeDefinitionNameReadResult.Read read => read.Name,
+                            MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                                throw new MetadataRowRejectedException(
+                                    "type forwarder identity",
+                                    rejected.Failure),
+                            _ => throw new InvalidOperationException(
+                                "Unknown exported-type name result."),
+                        };
+                    fullName = definitionName.ToMetadataFullName();
+                }
 
                 // Get the target assembly
                 string targetAssembly = "";
                 if (exportedType.Implementation.Kind == HandleKind.AssemblyReference)
                 {
                     var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)exportedType.Implementation);
-                    targetAssembly = reader.GetString(assemblyRef.Name);
+                    targetAssembly = budget is null
+                        ? reader.GetString(assemblyRef.Name)
+                        : DecodeString(
+                            reader,
+                            assemblyRef.Name,
+                            observeDecodeWork);
                 }
 
                 var typeForwarder = new TypeForwarder
                 {
-                    DefinitionName =
-                        MetadataTypeDefinitionNameReader.Read(
-                            reader,
-                            exportedTypeHandle)
-                        is MetadataTypeDefinitionNameReadResult.Read read
-                            ? read.Name
-                            : null,
+                    DefinitionName = definitionName,
                     TypeName = fullName,
                     TargetAssembly = targetAssembly
                 };
@@ -2513,6 +2545,7 @@ public static class ApiSurfaceExtractor
                     paramTypes[0].EstimatedRenderedLength,
                     int.MaxValue));
             extensionReceiverType = paramTypes[0].RenderCanonical();
+            beforeRetainText?.Invoke(extensionReceiverType);
         }
 
         List<string> parameters = [];
@@ -3151,13 +3184,16 @@ public static class ApiSurfaceExtractor
                 if (!IsEnum(reader, typeDef))
                     continue;
 
-                if (TypeResolver.ResolveTypeName(reader, typeHandle)
-                    is not MetadataTypeNameResult.Resolved resolvedEnumType)
+                if (MetadataTypeDefinitionNameReader.Read(
+                        reader,
+                        typeHandle,
+                        beforeDecodeWork)
+                    is not MetadataTypeDefinitionNameReadResult.Read resolvedEnumType)
                 {
                     continue;
                 }
 
-                var enumTypeName = resolvedEnumType.Value;
+                string enumTypeName = resolvedEnumType.Name.ToMetadataFullName();
                 if (!string.Equals(typeName, enumTypeName, StringComparison.Ordinal))
                     continue;
 
@@ -3762,7 +3798,7 @@ public static class ApiSurfaceExtractor
         return count;
     }
 
-    static long CountRetainedText(ApiMember member)
+    internal static long CountRetainedText(ApiMember member)
     {
         long count = 0;
         AddText(ref count, member.Name);
@@ -3834,6 +3870,7 @@ public static class ApiSurfaceExtractor
         AddText(ref count, signature.CanonicalReturnType);
         AddText(ref count, signature.ReturnAttributes);
         AddText(ref count, signature.MemberName);
+        AddText(ref count, signature.ExtensionReceiverType);
         foreach (TypeParameter parameter in signature.TypeParameters)
             AddText(ref count, parameter);
         foreach (ApiParameter parameter in signature.Parameters)

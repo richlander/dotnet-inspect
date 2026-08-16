@@ -553,6 +553,43 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void SurfaceProjection_PreflightUsesTheRemainingSharedBudget()
+    {
+        var budget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(1_000_000);
+        budget.BeginParticipant();
+        _ = BrowserSurfaceProjection.Type(
+            new ApiType
+            {
+                Namespace = new string('C', 10_000),
+                Name = "Committed",
+                MetadataName = "Committed",
+                Kind = "class",
+            },
+            "Committed.dll",
+            "asset:committed",
+            "Committed",
+            budget);
+        budget.CommitParticipant();
+        Assert.True(budget.CommittedCharacters > 40_000);
+
+        budget.BeginParticipant();
+        Assert.Throws<BrowserSurfaceProjection.BrowserSurfaceTextBoundExceededException>(
+            () => BrowserSurfaceProjection.Type(
+                new ApiType
+                {
+                    Namespace = new string('P', 80_000),
+                    Name = "Pending",
+                    MetadataName = "Pending",
+                    Kind = "class",
+                },
+                "Pending.dll",
+                "asset:pending",
+                "Pending",
+                budget));
+    }
+
+    [Fact]
     public async Task QueryPackage_FirstTransportTruncationReturnsTypedNotice()
     {
         const string packageId = "First.Transport.Truncation";

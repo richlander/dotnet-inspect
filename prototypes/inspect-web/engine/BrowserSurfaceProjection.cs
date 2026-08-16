@@ -245,7 +245,7 @@ internal static class BrowserSurfaceProjection
 
         void EnsureCanMaterialize(long estimatedCharacters)
         {
-            if (estimatedCharacters > MaxCharacters)
+            if (estimatedCharacters > MaxCharacters - (long)_committed - _pending)
                 throw new BrowserSurfaceTextBoundExceededException();
         }
 

@@ -492,7 +492,8 @@ internal static class MetadataTypeDefinitionNameReader
 
     internal static MetadataTypeDefinitionNameReadResult Read(
         MetadataReader reader,
-        TypeReferenceHandle handle)
+        TypeReferenceHandle handle,
+        Action<int>? beforeMaterialize = null)
     {
         Span<TypeReferenceHandle> rootToLeaf =
             stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -509,12 +510,14 @@ internal static class MetadataTypeDefinitionNameReader
 
         return ReadChain<TypeReferenceHandle, TypeReferenceNameRow>(
             reader,
-            rootToLeaf[..consumedNodes]);
+            rootToLeaf[..consumedNodes],
+            beforeMaterialize);
     }
 
     internal static MetadataTypeDefinitionNameReadResult Read(
         MetadataReader reader,
-        ExportedTypeHandle handle)
+        ExportedTypeHandle handle,
+        Action<int>? beforeMaterialize = null)
     {
         Span<ExportedTypeHandle> rootToLeaf =
             stackalloc ExportedTypeHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -531,7 +534,8 @@ internal static class MetadataTypeDefinitionNameReader
 
         return ReadChain<ExportedTypeHandle, ExportedTypeNameRow>(
             reader,
-            rootToLeaf[..consumedNodes]);
+            rootToLeaf[..consumedNodes],
+            beforeMaterialize);
     }
 
     static MetadataTypeDefinitionNameReadResult ReadChain<THandle, TRow>(

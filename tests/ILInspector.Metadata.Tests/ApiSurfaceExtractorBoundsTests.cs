@@ -170,6 +170,66 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void ExhaustedForwarderBudgetStopsBeforeDecodingItsName()
+    {
+        byte[] image = BuildForwarderImage(
+            new string('F', 4_000_000),
+            "Target");
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                10,
+                10,
+                10,
+                0,
+                100,
+                1_024));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(result);
+        Assert.Equal(ApiSurfaceExtractionBound.TypeForwarders, exceeded.Bound);
+        Assert.True(
+            allocated < 4L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void ForwarderTargetAssemblyIsChargedBeforeDecoding()
+    {
+        byte[] image = BuildForwarderImage(
+            "Forwarded",
+            new string('A', 4_000_000));
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                10,
+                10,
+                10,
+                1,
+                100,
+                1_024));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(result);
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharacters,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 4L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
     public void MetadataRowBudget_IsExactAndStopsBeforeExtraction()
     {
         var generous = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
@@ -238,6 +298,32 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Assert.Equal(
             ApiSurfaceExtractionBound.RetainedTextCharacters,
             exceeded.Bound);
+    }
+
+    [Fact]
+    public void ExtensionReceiverIdentityContributesItsOwnRetainedText()
+    {
+        const string receiver = "System.Collections.Generic.IEnumerable<T>";
+        var withoutReceiver = new ApiMember
+        {
+            Name = "M",
+            Kind = "extension-method",
+            SignatureModel = new ApiSignature(),
+        };
+        var withReceiver = new ApiMember
+        {
+            Name = "M",
+            Kind = "extension-method",
+            SignatureModel = new ApiSignature
+            {
+                ExtensionReceiverType = receiver,
+            },
+        };
+
+        Assert.Equal(
+            receiver.Length,
+            ApiSurfaceExtractor.CountRetainedText(withReceiver)
+                - ApiSurfaceExtractor.CountRetainedText(withoutReceiver));
     }
 
     [Fact]
@@ -340,6 +426,15 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void GenericAttributeTypeSpec_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildWideGenericAttributeImage(
+                argumentCount: 1_000,
+                nameLength: 150_000));
+    }
+
+    [Fact]
     public void PropertyAccessorReturnAttribute_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
@@ -385,6 +480,15 @@ public sealed class ApiSurfaceExtractorBoundsTests
             BuildNestedTypeNameChainImage(
                 depth: 256,
                 nameLength: 4_000));
+    }
+
+    [Fact]
+    public void EnclosingTypeReferenceChain_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildNestedTypeReferenceFieldImage(
+                depth: 256,
+                nameLength: 100_000));
     }
 
     [Fact]
@@ -492,9 +596,18 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void EnumDefaultScan_ChargesSkippedEnclosingTypeNames()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildNestedEnumDefaultImage(
+                depth: 256,
+                nameLength: 4_000));
+    }
+
+    [Fact]
     public void LargeVisibilityAttribute_StopsBeforeDecodingItsMessage()
     {
-        byte[] image = BuildLargeObsoleteAttributeImage(messageLength: 4_000_000);
+        byte[] image = BuildLargeObsoleteAttributeImage(messageLength: 40_000_000);
         using var stream = new MemoryStream(image, writable: false);
         using var peReader = new PEReader(stream);
         long before = GC.GetAllocatedBytesForCurrentThread();
@@ -516,6 +629,41 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Assert.True(
             allocated < 64L * 1024 * 1024,
             $"bounded extraction allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void GenericAttributeConstructorHasBoundedUnboundedParity()
+    {
+        using var unboundedStream = File.OpenRead(SelfPath);
+        using var unboundedReader = new PEReader(unboundedStream);
+        ApiSurface unbounded = ApiSurfaceExtractor.Extract(
+            unboundedReader,
+            ApiSurfaceExtractionScope.Public);
+        Assert.Contains(
+            unbounded.Types,
+            type => type.FullName.EndsWith(
+                nameof(GenericAttributeBoundedFixture),
+                StringComparison.Ordinal));
+        using var boundedStream = File.OpenRead(SelfPath);
+        using var boundedReader = new PEReader(boundedStream);
+        var bounded = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            ApiSurfaceExtractor.ExtractBounded(
+                boundedReader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue)));
+
+        Assert.Equal(
+            unbounded.Types.Select(type => type.FullName),
+            bounded.Surface.Types.Select(type => type.FullName));
+        Assert.Equal(
+            unbounded.InspectionFailures.Count,
+            bounded.Surface.InspectionFailures.Count);
     }
 
     static ApiSurface Unbounded()
@@ -1555,6 +1703,187 @@ public sealed class ApiSurfaceExtractorBoundsTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildNestedEnumDefaultImage(int depth, int nameLength)
+    {
+        var metadata = Metadata("EnumDefaultBomb");
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle enumBase = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+        TypeDefinitionHandle host = AddModuleAndPublicType(metadata, "Host");
+        TypeDefinitionHandle target =
+            MetadataTokens.TypeDefinitionHandle(depth + 3);
+        ParameterHandle parameter = metadata.AddParameter(
+            ParameterAttributes.Optional | ParameterAttributes.HasDefault,
+            metadata.GetOrAddString("value"),
+            sequenceNumber: 1);
+        metadata.AddConstant(parameter, 1);
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x00);
+        methodSignature.WriteCompressedInteger(1);
+        methodSignature.WriteByte(0x01);
+        methodSignature.WriteByte(0x11);
+        WriteTypeDefOrRef(methodSignature, target);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.Abstract,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(methodSignature),
+            bodyOffset: -1,
+            parameter);
+
+        TypeDefinitionHandle parent = host;
+        for (int index = 0; index < depth; index++)
+        {
+            TypeDefinitionHandle nested = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPrivate
+                    | TypeAttributes.Sealed,
+                default,
+                metadata.GetOrAddString(new string('E', nameLength)),
+                enumBase,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+            metadata.AddNestedType(nested, parent);
+            parent = nested;
+        }
+
+        TypeDefinitionHandle actualTarget = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("TargetEnum"),
+            enumBase,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        Assert.Equal(target, actualTarget);
+        var enumFieldSignature = new BlobBuilder();
+        enumFieldSignature.WriteByte(0x06);
+        enumFieldSignature.WriteByte(0x08);
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(enumFieldSignature));
+        FieldDefinitionHandle literal = metadata.AddFieldDefinition(
+            FieldAttributes.Public
+                | FieldAttributes.Static
+                | FieldAttributes.Literal,
+            metadata.GetOrAddString("One"),
+            metadata.GetOrAddBlob(enumFieldSignature));
+        metadata.AddConstant(literal, 1);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildForwarderImage(string typeName, string assemblyName)
+    {
+        var metadata = Metadata("ForwarderBomb");
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddExportedType(
+            TypeAttributes.Public | (TypeAttributes)0x00200000,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString(typeName),
+            target,
+            typeDefinitionId: 0);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildWideGenericAttributeImage(
+        int argumentCount,
+        int nameLength)
+    {
+        var metadata = Metadata("GenericAttributeBomb");
+        AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString($"GenericAttribute`{argumentCount}"));
+        TypeReferenceHandle argumentType = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString(new string('A', nameLength)));
+        var typeSpecSignature = new BlobBuilder();
+        WriteWideGenericType(
+            typeSpecSignature,
+            attributeType,
+            argumentType,
+            argumentCount);
+        TypeSpecificationHandle typeSpec =
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(typeSpecSignature));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            typeSpec,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        TypeDefinitionHandle host = AddModuleAndPublicType(metadata, "Host");
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            host,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNestedTypeReferenceFieldImage(int depth, int nameLength)
+    {
+        var metadata = Metadata("NestedTypeReferenceBomb");
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        EntityHandle scope = target;
+        for (int index = 0; index < depth; index++)
+        {
+            scope = metadata.AddTypeReference(
+                scope,
+                index == 0
+                    ? metadata.GetOrAddString("Contracts")
+                    : default,
+                metadata.GetOrAddString(new string('N', nameLength)));
+        }
+
+        AddModuleAndPublicType(metadata, "Host");
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x06);
+        signature.WriteByte(0x12);
+        WriteTypeDefOrRef(signature, scope);
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.Static,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(signature));
+        return Serialize(metadata);
+    }
+
     static byte[] BuildLargeObsoleteAttributeImage(int messageLength)
     {
         var metadata = Metadata("ObsoleteBomb");
@@ -1595,6 +1924,15 @@ public sealed class ApiSurfaceExtractorBoundsTests
             constructor,
             metadata.GetOrAddBlob(value));
         return Serialize(metadata);
+    }
+
+    public sealed class GenericApiSurfaceAttribute<T> : Attribute
+    {
+    }
+
+    [GenericApiSurfaceAttribute<string>]
+    public sealed class GenericAttributeBoundedFixture
+    {
     }
 
     static void WriteTypeDefOrRef(BlobBuilder signature, EntityHandle handle)

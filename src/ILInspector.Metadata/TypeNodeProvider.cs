@@ -35,11 +35,10 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
     {
-        TypeDefinition type = reader.GetTypeDefinition(handle);
-        _beforeMaterialize?.Invoke(
-            reader.GetBlobReader(type.Name).Length
-                + reader.GetBlobReader(type.Namespace).Length);
-        string name = NameDecoder.GetTypeFromDefinition(reader, handle, rawTypeKind);
+        string name = TypeResolver.GetTypeNameFromDefinition(
+            reader,
+            handle,
+            _beforeMaterialize);
         _beforeRetain?.Invoke(name);
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
         return new NamedTypeNode(name, isRef);
@@ -47,11 +46,10 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
-        TypeReference type = reader.GetTypeReference(handle);
-        _beforeMaterialize?.Invoke(
-            reader.GetBlobReader(type.Name).Length
-                + reader.GetBlobReader(type.Namespace).Length);
-        string name = NameDecoder.GetTypeFromReference(reader, handle, rawTypeKind);
+        string name = TypeResolver.GetTypeNameFromReference(
+            reader,
+            handle,
+            _beforeMaterialize);
         _beforeRetain?.Invoke(name);
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
         return new NamedTypeNode(name, isRef);
