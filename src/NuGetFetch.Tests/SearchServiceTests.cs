@@ -118,6 +118,9 @@ public class SearchServiceTests
     [InlineData("""{"data":[{"id":"Contoso.Package","version":"not-a-version"}]}""", false)]
     [InlineData("""{"data":[{"id":"Contoso.Package","version":" 1.0.0"}]}""", false)]
     [InlineData("{\"data\":[{\"id\":\"Contoso.Package\\n\",\"version\":\"1.0.0\"}]}", false)]
+    [InlineData(
+        """{"data":[{"id":"Contoso.Package","version":"1.0.0","versions":[{"version":"not-a-version","downloads":1}]}]}""",
+        false)]
     public async Task SearchAsync_InvalidResultIdentity_Throws(
         string body,
         bool missingRequiredData)

@@ -117,7 +117,10 @@ public partial class SearchService
         if (results.Any(result =>
                 result is null
                 || !IsValidPackageId(result.Id)
-                || !IsValidPackageVersion(result.Version)))
+                || !IsValidPackageVersion(result.Version)
+                || result.Versions is not null
+                    && result.Versions.Any(version =>
+                        !IsValidPackageVersion(version.Version))))
         {
             throw new InvalidOperationException(
                 "The search response contained an invalid result identity.");
