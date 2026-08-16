@@ -3014,6 +3014,11 @@ public sealed class Lambda : IrExpression
 
     public TypeRef DelegateType { get; }
     public ImmutableArray<Parameter> Parameters { get; }
+    /// <summary>
+    /// Ref-kind evidence for explicitly typed lambda parameters. Empty when no
+    /// parameter is by-ref. <c>LambdaRaisingPassTests</c> gates preservation.
+    /// </summary>
+    public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; init; } = [];
     public ImmutableArray<TypeRef> Locals { get; }
     public ImmutableArray<string?> LocalNames { get; }
     public bool UsesUpdatedMemorySafetyRules { get; }

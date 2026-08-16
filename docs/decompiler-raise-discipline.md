@@ -162,6 +162,12 @@ required review shape.
   outside-nested like its `SlotConfined` sibling and would have deleted the sole
   initializer of a field a nested body still read (#2866) — the partial-sibling
   species again, this time split along storage class rather than render context.
+- **By-ref lambda parameters require declaration evidence.** A recovered lambda
+  with any by-ref parameter carries the synthesized method's exact
+  `ref`/`out`/`in` facts and renders the entire parameter list explicitly typed;
+  unknown or misaligned ref-kind facts decline instead of defaulting to `ref`.
+  `LambdaRaisingPassTests` gates both the compiler-produced positive and the
+  emitted C# syntax.
 - **Pretty-but-wrong loses to ugly-but-correct — and it is usually free.** When
   a raise would emit prettier source but the shape is not *provably* the exact
   pattern, decline to the honest lowered scaffolding. On honest input the proof

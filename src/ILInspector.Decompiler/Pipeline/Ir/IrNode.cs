@@ -33,6 +33,16 @@ public abstract class IrNode
     public void SetSourceOffset(int offset) => SourceOffset = offset;
 
     /// <summary>
+    /// Whether this node may render the label for <see cref="SourceOffset"/>.
+    /// Semantic clones retain provenance but suppress label ownership so they
+    /// cannot steal a surviving branch target from the canonical statement.
+    /// <c>StructuringGotoScopeTests</c> gates this separation.
+    /// </summary>
+    public bool OwnsSourceLabel { get; private set; } = true;
+
+    public void SuppressSourceLabel() => OwnsSourceLabel = false;
+
+    /// <summary>
     /// Best-effort provenance for a node synthesized by a pass: adopt the source
     /// offset of an existing node it derives from, but only when this node has
     /// none of its own.
