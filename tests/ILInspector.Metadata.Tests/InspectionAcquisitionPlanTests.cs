@@ -292,16 +292,51 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
-    public void ObserveOpenReadCancellation_PreservesRegistrationAndReportsCancellation()
+    public void WithoutLocalPath_PreservesRegistrationAndAcquisition()
+    {
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.CreateFromPath(
+                SelfPath,
+                AssemblyResolutionProvenance.Local("test"));
+
+        ResolvedAssemblyReference contentOnly =
+            descriptor.WithoutLocalPath();
+
+        Assert.Same(
+            descriptor.Registration,
+            contentOnly.Registration);
+        Assert.Equal(descriptor.Identity, contentOnly.Identity);
+        Assert.Null(contentOnly.Path);
+        Assert.Same(descriptor.OpenRead, contentOnly.OpenRead);
+        Assert.Same(descriptor.Provenance, contentOnly.Provenance);
+        Assert.Equal(
+            descriptor.LastWriteTimeUtc,
+            contentOnly.LastWriteTimeUtc);
+        using Stream stream = contentOnly.OpenRead();
+        Assert.True(stream.CanRead);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ObserveOpenReadCancellation_PreservesRegistrationAndReportsOpenOrReadCancellation(
+        bool cancelDuringRead)
     {
         var cancellation =
             new OperationCanceledException("test");
         OperationCanceledException? observed = null;
+        byte[] image = SelfBytes();
+        Func<Stream> openRead =
+            cancelDuringRead
+                ? () => new CancellationOnReadStream(
+                    image,
+                    cancellation)
+                : () => throw cancellation;
         var descriptor =
             ResolvedAssemblyReference.Create(
-                ReadIdentity(SelfBytes()),
+                ReadIdentity(image),
                 path: null,
-                openRead: () => throw cancellation,
+                openRead,
                 provenance:
                     AssemblyResolutionProvenance.Local("test"));
 
@@ -312,10 +347,24 @@ public class InspectionAcquisitionPlanTests
         Assert.Same(
             descriptor.Registration,
             decorated.Registration);
-        Assert.Same(
-            cancellation,
-            Assert.Throws<OperationCanceledException>(
-                () => decorated.OpenRead()));
+        if (cancelDuringRead)
+        {
+            using Stream stream = decorated.OpenRead();
+            Assert.Same(
+                cancellation,
+                Assert.Throws<OperationCanceledException>(
+                    () => stream.Read(
+                        new byte[1],
+                        offset: 0,
+                        count: 1)));
+        }
+        else
+        {
+            Assert.Same(
+                cancellation,
+                Assert.Throws<OperationCanceledException>(
+                    () => decorated.OpenRead()));
+        }
         Assert.Same(cancellation, observed);
     }
 
@@ -995,6 +1044,21 @@ public class InspectionAcquisitionPlanTests
                     "Synthetic disposal failure.");
             }
         }
+    }
+
+    sealed class CancellationOnReadStream(
+        byte[] image,
+        OperationCanceledException cancellation)
+        : MemoryStream(image, writable: false)
+    {
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw cancellation;
+
+        public override int Read(Span<byte> buffer) =>
+            throw cancellation;
     }
 
     sealed class NonSeekableReadStream(Stream inner) : Stream

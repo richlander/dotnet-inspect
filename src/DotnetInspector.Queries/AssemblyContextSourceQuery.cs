@@ -514,11 +514,13 @@ public static class AssemblyContextSourceQuery
             new CancellationObservingBindingPolicy(
                 participant.BindingPolicy,
                 bindingPolicyVersion);
+        ResolvedAssemblyReference decompilerAssembly =
+            retained.WithoutLocalPath();
         MemberRenderResult decompiled =
             MemberBodyProducer.ProduceMember(
                 target.Type,
                 target.Member,
-                retained,
+                decompilerAssembly,
                 bindingPolicy);
         bindingPolicy.ThrowIfObserved();
         cancellationToken.ThrowIfCancellationRequested();
@@ -620,10 +622,12 @@ public static class AssemblyContextSourceQuery
             new CancellationObservingBindingPolicy(
                 participant.BindingPolicy,
                 bindingPolicyVersion);
+        ResolvedAssemblyReference decompilerAssembly =
+            retained.WithoutLocalPath();
         DecompilerResult decompiled =
             MemberBodyProducer.Project(
                 target,
-                retained,
+                decompilerAssembly,
                 bindingPolicy);
         bindingPolicy.ThrowIfObserved();
         cancellationToken.ThrowIfCancellationRequested();

@@ -196,14 +196,18 @@ gate the entry identity boundaries, while
 and
 `AssemblyContextSourceQueryTests.BindingPolicyVersionChangeDuringFallback_IsRejected`
 gate the in-flight boundaries. Cancellation raised by the binding policy or a
-selected dependency descriptor during decompiler fallback remains exceptional,
-as does cancellation requested through the query token while selection returns
-normally;
+selected dependency descriptor while opening or reading its content during
+decompiler fallback remains exceptional, as does cancellation requested through
+the query token while selection returns normally;
 `AssemblyContextSourceQueryTests.BindingPolicyCancellation_PropagatesFromDecompilerFallback`
 `AssemblyContextSourceQueryTests.SelectedDescriptorCancellation_PropagatesFromFallback`,
 and
 `AssemblyContextSourceQueryTests.BindingPolicyRequestedTokenCancellation_StopsFallback`
-gate the member and type paths. Cancellation observed after a successful
+gate the member and type paths. Fallback removes the retained descriptor's
+filesystem path before invoking the Decompiler, so ambient sidecar PDBs cannot
+bypass explicit PDB-store capabilities or change content-shaped output;
+`AssemblyContextSourceQueryTests.DecompilerFallback_IgnoresAmbientSidecarPath`
+gates the member and type paths. Cancellation observed after a successful
 source-store read or write remains exceptional rather than returning authored
 success or publishing the bytes to the process-local cache;
 `AssemblyContextSourceQueryTests.SourceStoreSuccessfulCancellation_PropagatesBeforeAuthoredSuccess`

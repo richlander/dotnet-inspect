@@ -301,6 +301,70 @@ public sealed class AssemblyContextSourceQueryTests
             decompiled.AuthoredAttempt.Lines.Value);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DecompilerFallback_IgnoresAmbientSidecarPath(
+        bool typeQuery)
+    {
+        TestAssembly pathless = TestAssembly.Create();
+        TestAssembly pathful =
+            TestAssembly.Create(retainPath: true);
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+
+        Assert.Null(pathless.Assembly.Path);
+        Assert.NotNull(pathful.Assembly.Path);
+        Assert.Equal(
+            await DecompileAsync(pathless),
+            await DecompileAsync(pathful));
+
+        async Task<string> DecompileAsync(
+            TestAssembly assembly)
+        {
+            AssemblyContextGroup group =
+                workspace.CreateAssemblyContextGroup(
+                    [assembly.Participant]);
+            if (typeQuery)
+            {
+                AssemblyTypeSourceEntry typeResult =
+                    await AssemblyContextSourceQuery
+                        .ExecuteTypeAsync(
+                            group,
+                            assembly.Participant,
+                            assembly.TypeRequest(
+                                nameof(
+                                    AssemblyContextSourceQueryTests)),
+                            host.Context,
+                            TestContext.Current.CancellationToken);
+                return Assert.IsType<AssemblyTypeSource.Decompiled>(
+                        Assert.IsType<
+                            AssemblyTypeSourceEntry.Available>(
+                                typeResult)
+                            .Source)
+                    .Text;
+            }
+
+            AssemblyMemberSourceEntry memberResult =
+                await AssemblyContextSourceQuery
+                    .ExecuteMemberAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.MemberRequest(
+                            nameof(FindMetadataStreamOffset),
+                            nameof(
+                                AssemblyContextSourceQueryTests)),
+                        host.Context,
+                        TestContext.Current.CancellationToken);
+            return Assert.IsType<AssemblyMemberSource.Decompiled>(
+                    Assert.IsType<
+                        AssemblyMemberSourceEntry.Available>(
+                            memberResult)
+                        .Source)
+                .Text;
+        }
+    }
+
     [Fact]
     public async Task PreCanceledQueries_StopBeforeSnapshotAndDecompilerFallback()
     {
@@ -611,10 +675,13 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
     public async Task SelectedDescriptorCancellation_PropagatesFromFallback(
-        bool typeQuery)
+        bool typeQuery,
+        bool cancelDuringRead)
     {
         byte[] bytes =
             WithoutDebugDirectory(
@@ -623,10 +690,11 @@ public sealed class AssemblyContextSourceQueryTests
                         .Assembly.Location));
         TestAssembly assembly =
             TestAssembly.Create(bytes);
+        byte[] coreLibraryBytes =
+            File.ReadAllBytes(
+                typeof(object).Assembly.Location);
         AssemblyReferenceIdentity coreLibraryIdentity =
-            ReadIdentity(
-                File.ReadAllBytes(
-                    typeof(object).Assembly.Location));
+            ReadIdentity(coreLibraryBytes);
         int opens = 0;
         assembly.Policy.SelectOverride =
             request =>
@@ -640,6 +708,11 @@ public sealed class AssemblyContextSourceQueryTests
                         () =>
                         {
                             Interlocked.Increment(ref opens);
+                            if (cancelDuringRead)
+                            {
+                                return new CancellationOnReadStream(
+                                    coreLibraryBytes);
+                            }
                             throw new OperationCanceledException(
                                 "Synthetic selected-descriptor cancellation.");
                         },
@@ -1827,7 +1900,8 @@ public sealed class AssemblyContextSourceQueryTests
         internal FrameworkBindingPolicy Policy { get; }
 
         internal static TestAssembly Create(
-            string? selectedName = null)
+            string? selectedName = null,
+            bool retainPath = false)
         {
             string path =
                 typeof(AssemblyContextSourceQueryTests)
@@ -1846,7 +1920,9 @@ public sealed class AssemblyContextSourceQueryTests
             var assembly =
                 ResolvedAssemblyReference.Create(
                     identity,
-                    path: null,
+                    retainPath
+                        ? path
+                        : null,
                     () => new MemoryStream(
                         bytes,
                         writable: false),
@@ -2339,6 +2415,21 @@ public sealed class AssemblyContextSourceQueryTests
 
         public string? TryGetLocalPath(string key) =>
             null;
+    }
+
+    sealed class CancellationOnReadStream(byte[] bytes)
+        : MemoryStream(bytes, writable: false)
+    {
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new OperationCanceledException(
+                "Synthetic selected-descriptor read cancellation.");
+
+        public override int Read(Span<byte> buffer) =>
+            throw new OperationCanceledException(
+                "Synthetic selected-descriptor read cancellation.");
     }
 
     sealed class DisposeCountingStream(Stream inner)
