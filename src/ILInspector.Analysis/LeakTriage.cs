@@ -26,6 +26,8 @@ public enum LeakTriageFailureKind
 {
     InstructionDecoding,
     MethodResolution,
+    MethodMetadata,
+    BodyAcquisition,
 }
 
 public readonly record struct LeakTriageFailure(
@@ -88,7 +90,11 @@ public sealed record LeakTriageResult(
 public static class LeakTriageAnalyzer
 {
     public static ImmutableArray<LeakTriageFinding> AnalyzeAssembly(string path)
-        => AnalyzeAssemblyDetailed(path).Findings;
+    {
+        LeakTriageResult result = AnalyzeAssemblyDetailed(path);
+        ThrowIfFailed(result);
+        return result.Findings;
+    }
 
     public static LeakTriageResult AnalyzeAssemblyDetailed(string path)
     {
@@ -120,7 +126,16 @@ public static class LeakTriageAnalyzer
         byte[] il,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         Func<int, MemberRef> resolveMethod)
-        => AnalyzeMethodDetailed(method, il, exceptionRegions, resolveMethod, null).Findings;
+    {
+        LeakTriageResult result = AnalyzeMethodDetailed(
+            method,
+            il,
+            exceptionRegions,
+            resolveMethod,
+            null);
+        ThrowIfFailed(result);
+        return result.Findings;
+    }
 
     public static ImmutableArray<LeakTriageFinding> AnalyzeMethod(
         MethodIdentity method,
@@ -128,7 +143,16 @@ public static class LeakTriageAnalyzer
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         Func<int, MemberRef> resolveMethod,
         Func<int, TypeRef?>? resolveCatchType)
-        => AnalyzeMethodDetailed(method, il, exceptionRegions, resolveMethod, resolveCatchType).Findings;
+    {
+        LeakTriageResult result = AnalyzeMethodDetailed(
+            method,
+            il,
+            exceptionRegions,
+            resolveMethod,
+            resolveCatchType);
+        ThrowIfFailed(result);
+        return result.Findings;
+    }
 
     public static LeakTriageResult AnalyzeMethodDetailed(
         MethodIdentity method,
@@ -153,6 +177,22 @@ public static class LeakTriageAnalyzer
             return Empty;
 
         ImmutableArray<DecodedInstruction> instructions;
+        IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)>
+            catchAllCleanup;
+        try
+        {
+            catchAllCleanup = ComputeCreditableCatchCleanup(
+                exceptionRegions,
+                resolveCatchType);
+        }
+        catch (Exception ex) when (IsRecoverable(ex))
+        {
+            return Failed(
+                method,
+                LeakTriageFailureKind.MethodResolution,
+                ex);
+        }
+
         try
         {
             instructions = InstructionDecoder.Decode(il);
@@ -191,7 +231,6 @@ public static class LeakTriageAnalyzer
             if (!reaching.IsComplete)
                 return Suppressed(method, "incomplete-cfg-or-rd-suppressed", reaching.IncompleteReason ?? "Incomplete CFG/RD evidence.", null, null);
 
-            var catchAllCleanup = ComputeCreditableCatchCleanup(exceptionRegions, resolveCatchType);
             var candidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
             var exceptionPathCandidates = ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
             var rents = FindRents(method, instructions, graph, reaching, calls, candidates).ToImmutableArray();
@@ -236,20 +275,40 @@ public static class LeakTriageAnalyzer
     static LeakTriageResult Suppressed(MethodIdentity method, string shape, string evidence, int? rentOffset, int? ilOffset)
         => new([], [new LeakTriageCandidate(method, shape, evidence, rentOffset, ilOffset)]);
 
-    static LeakTriageResult Failed(
+    internal static LeakTriageResult Failed(
         MethodIdentity method,
         LeakTriageFailureKind kind,
         Exception exception) =>
+        Failed(
+            method.MetadataToken,
+            kind,
+            exception.GetType().Name);
+
+    internal static LeakTriageResult Failed(
+        int methodToken,
+        LeakTriageFailureKind kind,
+        string reason) =>
         new([], [])
         {
             Failures =
             [
                 new LeakTriageFailure(
-                    method.MetadataToken,
+                    methodToken,
                     kind,
-                    exception.GetType().Name),
+                    reason),
             ],
         };
+
+    static void ThrowIfFailed(LeakTriageResult result)
+    {
+        if (result.Failures.IsEmpty)
+            return;
+        LeakTriageFailure first = result.Failures[0];
+        throw new InvalidOperationException(
+            $"Leak analysis was incomplete at method token "
+            + $"0x{first.MethodToken:X8} during {first.Kind} "
+            + $"({first.Reason}).");
+    }
 
     static void AnalyzeRent(
         MethodIdentity method,
@@ -836,7 +895,15 @@ public static class LeakTriageAnalyzer
         {
             if (instruction.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj))
                 continue;
-            calls[instruction.Offset] = resolveMethod(checked((int)instruction.OperandValue));
+            MemberRef member =
+                resolveMethod(
+                    checked((int)instruction.OperandValue));
+            if (member.Kind == MemberKind.Unsupported)
+            {
+                throw new BadImageFormatException(
+                    "Method operand could not be resolved.");
+            }
+            calls[instruction.Offset] = member;
         }
         return calls;
     }

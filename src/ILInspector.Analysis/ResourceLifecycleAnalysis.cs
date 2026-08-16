@@ -148,6 +148,10 @@ public static class ResourceLifecycleAnalysis
                 "instruction decoding",
             LeakTriageFailureKind.MethodResolution =>
                 "method resolution",
+            LeakTriageFailureKind.MethodMetadata =>
+                "method metadata validation",
+            LeakTriageFailureKind.BodyAcquisition =>
+                "method body acquisition",
             _ => "analysis",
         };
 }

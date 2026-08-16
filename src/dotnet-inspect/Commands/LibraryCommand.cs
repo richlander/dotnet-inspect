@@ -972,7 +972,8 @@ public class LibraryCommand
 
         return inspections.Any(
                 inspection =>
-                    inspection.SourceIntegrityMismatches is { Count: > 0 })
+                    inspection.SourceIntegrityMismatches is { Count: > 0 }
+                    || inspection.InspectionFailures is { Count: > 0 })
             || identifierFailures.Count > 0
             ? 1
             : 0;
@@ -2402,9 +2403,6 @@ public class LibraryCommand
     internal static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline, bool writeEmptyNote = true)
     {
-        if (options.Count)
-            return;
-
         var emptyResults = inspections
             .Select(inspection => pipeline.GetEmptySections(
                 inspection, options.Verbosity, options.IncludeSections))
@@ -2439,7 +2437,10 @@ public class LibraryCommand
             .Where(section => !relevantFailures.Any(
                 entry => FailureAffectsSection(entry.Failure.Section, section)))
             .ToList();
-        if (writeEmptyNote && unexplained.Count > 0 && empty.Count == requested)
+        if (!options.Count
+            && writeEmptyNote
+            && unexplained.Count > 0
+            && empty.Count == requested)
         {
             var label = unexplained.Count == 1 ? "section has" : "sections have";
             CommandError.WriteNote(
@@ -2447,7 +2448,7 @@ public class LibraryCommand
         }
     }
 
-    private static bool RejectEmptyExactSection(LibraryInspection inspection, LibraryOptions options,
+    internal static bool RejectEmptyExactSection(LibraryInspection inspection, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline) =>
         RejectEmptyExactSection([inspection], options, pipeline);
 
@@ -2473,6 +2474,21 @@ public class LibraryCommand
         }
         if (emptySection is null)
             return false;
+
+        bool explainedByFailure = inspections.Any(inspection =>
+            (inspection.InspectionFailures ?? []).Any(failure =>
+                FailureAffectsSection(
+                    failure.Section,
+                    emptySection)));
+        if (explainedByFailure)
+        {
+            WarnEmptySections(
+                inspections,
+                options,
+                pipeline,
+                writeEmptyNote: false);
+            return true;
+        }
 
         CommandError.WriteLine($"This section ({emptySection}) produced no output.");
         return true;

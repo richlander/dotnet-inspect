@@ -16334,6 +16334,73 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_ExactEmptyFailedSectionNamesFailure()
+    {
+        LibraryInspection inspection =
+            FailedResourceTriageInspection();
+        var options = new LibraryOptions
+        {
+            IncludeSections = [SectionNames.ArrayPoolEscapes],
+            ExactIncludeSections = [SectionNames.ArrayPoolEscapes],
+        };
+
+        bool rejected = false;
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => rejected =
+                LibraryCommand.RejectEmptyExactSection(
+                    inspection,
+                    options,
+                    LibrarySections.CreatePipeline()));
+
+        Assert.True(rejected);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Array Pool Escapes inspection failed "
+            + "(Resource lifecycle occurrence): fixture failure",
+            error);
+        Assert.DoesNotContain(
+            "produced no output",
+            output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_CountStillNamesFailedSection()
+    {
+        var options = new LibraryOptions
+        {
+            Count = true,
+            IncludeSections = [SectionNames.ArrayPoolEscapes],
+        };
+
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.WarnEmptySections(
+                [FailedResourceTriageInspection()],
+                options,
+                LibrarySections.CreatePipeline()));
+
+        Assert.Empty(output);
+        Assert.Contains(
+            "Array Pool Escapes inspection failed "
+            + "(Resource lifecycle occurrence): fixture failure",
+            error);
+    }
+
+    static LibraryInspection FailedResourceTriageInspection()
+    {
+        var subject = new FindingSubject("fixture", "fixture");
+        return new LibraryInspection
+        {
+            FileName = "Lib.dll",
+            ResourceLifecycleInspection =
+                new FindingInspection<ResourceLifecycleOccurrence>.Failed(
+                    new InspectionError(
+                        subject,
+                        AnalysisFindings.ResourceLifecycleDescriptor,
+                        "fixture failure")),
+        };
+    }
+
+    [Fact]
     public async Task PackageCommand_AllLibraries_AggregatesIntegrationsWithLibraryProvenance()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage(

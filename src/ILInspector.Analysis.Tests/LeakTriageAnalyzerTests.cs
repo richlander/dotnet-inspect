@@ -576,6 +576,40 @@ public sealed class LeakTriageAnalyzerTests
             failed.Error.Reason);
     }
 
+    [Theory]
+    [InlineData(LibraryBodyAnalysisFeatures.LeakTriage)]
+    [InlineData(LibraryBodyAnalysisFeatures.All)]
+    public void ResourceLifecycleAnalysis_MalformedMethodBodyIsVisible(
+        LibraryBodyAnalysisFeatures features)
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ArrayPoolLeakFixtures).Assembly.Location);
+        int methodToken =
+            ReplaceMethodCodeSizeWithInvalidValue(image);
+
+        var inspection = ResourceLifecycleAnalysis.InspectAssembly(
+            () => LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedResourceTriageBody.dll",
+                ImmutableArray.Create(image),
+                features),
+            new FindingSubject(
+                "malformed-body",
+                "malformed-body"));
+
+        var failed =
+            Assert.IsType<FindingInspection<ResourceLifecycleOccurrence>.Failed>(
+                inspection.Value);
+        Assert.Contains(
+            $"method token 0x{methodToken:X8}",
+            failed.Error.Reason);
+        Assert.Contains(
+            "method body acquisition",
+            failed.Error.Reason);
+        Assert.Contains(
+            nameof(BadImageFormatException),
+            failed.Error.Reason);
+    }
+
     [Fact]
     public void LibraryBodyIndex_RequiresLeakTriageFeature()
     {
@@ -1117,6 +1151,114 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    public void DetailedAnalysis_UnsupportedMethodOperandIsTyped()
+    {
+        LeakTriageResult result =
+            AnalyzeSyntheticWithResolver(token =>
+                token == TokenUnknown
+                    ? MemberRef.Unsupported(
+                        "artifact-controlled reason")
+                    : ResolveSyntheticMember(token));
+
+        var failure = Assert.Single(result.Failures);
+        Assert.Equal(
+            LeakTriageFailureKind.MethodResolution,
+            failure.Kind);
+        Assert.Equal(
+            nameof(BadImageFormatException),
+            failure.Reason);
+        Assert.DoesNotContain(
+            "artifact-controlled",
+            failure.Reason);
+    }
+
+    [Fact]
+    public void DetailedAnalysis_CatchTypeResolutionFailureIsTyped()
+    {
+        LeakTriageResult result =
+            LeakTriageAnalyzer.AnalyzeMethodDetailed(
+                SyntheticMethod(),
+                [
+                    .. Call(TokenShared),
+                    0x1F, 0x10,
+                    .. Callvirt(TokenRent),
+                    0x0A,
+                    0x2A,
+                    0x26,
+                    0x2A,
+                ],
+                [
+                    Region(
+                        ExceptionRegionKind.Catch,
+                        tryOffset: 0,
+                        tryLength: 14,
+                        handlerOffset: 14,
+                        handlerLength: 2,
+                        catchType: 0x01000001),
+                ],
+                ResolveSyntheticMember,
+                _ => throw new BadImageFormatException(
+                    "artifact-controlled catch type"));
+
+        var failure = Assert.Single(result.Failures);
+        Assert.Equal(
+            LeakTriageFailureKind.MethodResolution,
+            failure.Kind);
+        Assert.Equal(
+            nameof(BadImageFormatException),
+            failure.Reason);
+    }
+
+    [Fact]
+    public void AnalyzeMethod_ThrowsWhenDetailedAnalysisIsIncomplete()
+    {
+        InvalidOperationException failure =
+            Assert.Throws<InvalidOperationException>(() =>
+                LeakTriageAnalyzer.AnalyzeMethod(
+                    SyntheticMethod(),
+                    [
+                        .. Call(TokenShared),
+                        0x1F, 0x10,
+                        .. Callvirt(TokenRent),
+                        0x0A,
+                        .. Call(TokenUnknown),
+                        0x2A,
+                    ],
+                    [],
+                    token => token == TokenUnknown
+                        ? MemberRef.Unsupported(
+                            "artifact-controlled reason")
+                        : ResolveSyntheticMember(token)));
+
+        Assert.Contains(
+            nameof(LeakTriageFailureKind.MethodResolution),
+            failure.Message);
+        Assert.DoesNotContain(
+            "artifact-controlled",
+            failure.Message);
+    }
+
+    [Theory]
+    [InlineData(MethodImplAttributes.IL, true)]
+    [InlineData(
+        MethodImplAttributes.IL
+            | MethodImplAttributes.Managed,
+        true)]
+    [InlineData(MethodImplAttributes.Native, false)]
+    [InlineData(
+        MethodImplAttributes.Native
+            | MethodImplAttributes.Unmanaged,
+        false)]
+    [InlineData(MethodImplAttributes.Runtime, false)]
+    public void LeakTriageRunner_AnalyzesOnlyManagedIlBodies(
+        MethodImplAttributes attributes,
+        bool expected) =>
+        Assert.Equal(
+            expected,
+            LibraryMethodAnalysisRunner.HasManagedIlBody(
+                attributes));
+
+    [Fact]
     public void FaultHandlerReturn_DoesNotSatisfyNormalLeavePath()
     {
         var findings = AnalyzeSynthetic([
@@ -1186,17 +1328,38 @@ public sealed class LeakTriageAnalyzerTests
 
     static LeakTriageResult AnalyzeSyntheticDetailed(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
     {
-        var method = new MethodIdentity(
+        MethodIdentity method = SyntheticMethod();
+        return LeakTriageAnalyzer.AnalyzeMethodDetailed(method, il, exceptionRegions, ResolveSyntheticMember);
+    }
+
+    static LeakTriageResult AnalyzeSyntheticWithResolver(
+        Func<int, MemberRef> resolveMethod) =>
+        LeakTriageAnalyzer.AnalyzeMethodDetailed(
+            SyntheticMethod(),
+            [
+                .. Call(TokenShared),
+                0x1F, 0x10,
+                .. Callvirt(TokenRent),
+                0x0A,
+                .. Call(TokenUnknown),
+                0x2A,
+            ],
+            [],
+            resolveMethod);
+
+    static MethodIdentity SyntheticMethod() =>
+        new(
             "Fixture",
             Guid.Empty,
-            TypeRef.Definition("Fixture", "Fixtures", nameof(Synthetic)),
+            TypeRef.Definition(
+                "Fixture",
+                "Fixtures",
+                nameof(Synthetic)),
             nameof(Synthetic),
             [],
             TypeRef.CoreLib("System", "Void"),
             0x06000001,
             IsStatic: true);
-        return LeakTriageAnalyzer.AnalyzeMethodDetailed(method, il, exceptionRegions, ResolveSyntheticMember);
-    }
 
     static int ReplaceFinalReturnWithInvalidMemberRef(byte[] image)
     {
@@ -1218,11 +1381,15 @@ public sealed class LeakTriageAnalyzerTests
             InstructionDecoder.Decode(body.GetILBytes() ?? [])
                 .Last(instruction =>
                 {
+                    if (instruction.Operand
+                        != OperandKind.InlineMethod)
+                    {
+                        return false;
+                    }
                     EntityHandle operand =
                         MetadataTokens.EntityHandle(
                             checked((int)instruction.OperandValue));
-                    return instruction.Operand == OperandKind.InlineMethod
-                        && operand.Kind == HandleKind.MemberReference
+                    return operand.Kind == HandleKind.MemberReference
                         && reader.StringComparer.Equals(
                             reader.GetMemberReference(
                                 (MemberReferenceHandle)operand).Name,
@@ -1249,6 +1416,30 @@ public sealed class LeakTriageAnalyzerTests
         BinaryPrimitives.WriteInt32LittleEndian(
             image.AsSpan(operandOffset, 4),
             0x0AFFFFFF);
+        return MetadataTokens.GetToken(methodHandle);
+    }
+
+    static int ReplaceMethodCodeSizeWithInvalidValue(
+        byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single(handle =>
+                reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    nameof(ArrayPoolLeakFixtures
+                        .ExternalReadBeforeReturn)));
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+        int methodOffset = RvaToFileOffset(
+            peReader.PEHeaders,
+            method.RelativeVirtualAddress);
+        Assert.Equal(3, image[methodOffset] & 3);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(methodOffset + 4, 4),
+            0x7F000000);
         return MetadataTokens.GetToken(methodHandle);
     }
 
