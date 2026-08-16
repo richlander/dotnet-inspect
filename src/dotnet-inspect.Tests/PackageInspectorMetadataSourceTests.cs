@@ -153,6 +153,11 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.Null(Assert.Single(
             unverified.RuntimeIdentifierPackages!,
             package => package.RuntimeIdentifier == "linux-x64").Exists);
+        Assert.Equal(
+            "unknown",
+            Assert.Single(
+                PackageInspectionJson.Create(unverified).RuntimeIdentifierPackages!,
+                package => package.RuntimeIdentifier == "linux-x64").Available);
 
         InspectionResult result = await PackageInspector.InspectAsync(
             resolution,
@@ -181,6 +186,18 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             result.RuntimeIdentifierPackages!,
             package => package.RuntimeIdentifier == "linux-x64");
         Assert.False(linuxPackage.Exists);
+        List<RidPackageReferenceJson> jsonPackages =
+            PackageInspectionJson.Create(result).RuntimeIdentifierPackages!;
+        Assert.Equal(
+            "yes",
+            Assert.Single(
+                jsonPackages,
+                package => package.RuntimeIdentifier == "any").Available);
+        Assert.Equal(
+            "no",
+            Assert.Single(
+                jsonPackages,
+                package => package.RuntimeIdentifier == "linux-x64").Available);
     }
 
     [Theory]

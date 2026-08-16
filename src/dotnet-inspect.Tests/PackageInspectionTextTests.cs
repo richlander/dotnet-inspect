@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using DotnetInspector.Models;
 using DotnetInspector.Packages;
@@ -296,12 +297,48 @@ public class PackageInspectionTextTests
         string projected = JsonSerializer.Serialize(
             PackageInspectionJson.Create(result),
             PackageInspectionJsonContext.Default.PackageInspectionJson);
-        using JsonDocument previousDocument = JsonDocument.Parse(previous);
-        using JsonDocument projectedDocument = JsonDocument.Parse(projected);
+        JsonNode previousNode = JsonNode.Parse(previous)!;
+        JsonNode projectedNode = JsonNode.Parse(projected)!;
+        foreach (JsonNode? package in projectedNode[
+            "runtime_identifier_packages"]!.AsArray())
+        {
+            Assert.True(package!.AsObject().Remove("available"));
+        }
 
-        Assert.True(JsonElement.DeepEquals(
-            previousDocument.RootElement,
-            projectedDocument.RootElement));
+        Assert.True(JsonNode.DeepEquals(
+            previousNode,
+            projectedNode));
+    }
+
+    [Theory]
+    [InlineData(true, "yes")]
+    [InlineData(false, "no")]
+    [InlineData(null, "unknown")]
+    public void JsonProjection_PreservesRidPackageAvailability(
+        bool? exists,
+        string expected)
+    {
+        var result = new InspectionResult
+        {
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "linux-x64",
+                    PackageId = "Example.Package.linux-x64",
+                    Exists = exists,
+                },
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(
+            PackageInspectionJson.Create(result),
+            PackageInspectionJsonContext.Default.PackageInspectionJson);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement package = document.RootElement
+            .GetProperty("runtime_identifier_packages")[0];
+
+        Assert.Equal(expected, package.GetProperty("available").GetString());
     }
 
     [Fact]
