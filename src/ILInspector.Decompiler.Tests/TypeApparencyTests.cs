@@ -5,7 +5,7 @@ namespace ILInspector.Decompiler.Tests;
 /// <summary>
 /// Direct coverage of the shared per-site "type is apparent" predicate
 /// (<see cref="CSharpPrinter.TypeIsApparent"/>) that the target-typed-<c>new</c>
-/// shortener consumes and a future opt-in <c>var</c> lens will consume. Each apparent
+/// shortener and opt-in <c>var</c> policy consume. Each apparent
 /// shape is paired with a close negative so the predicate stays conservative: it must
 /// report apparent only when the right-hand side spells the declared type exactly.
 /// </summary>
@@ -69,6 +69,7 @@ public class TypeApparencyTests
     public void ValueTypeCast_ViaUnboxAny_IsNotApparent_DocumentedV1Boundary()
         // A value-type cast (`(int)obj`) is genuinely apparent in C# but is modeled by
         // UnboxAny, not CastClass. v1 declines it — a documented extension point for the
-        // `var` slice, not a defect (declining is output-safe). This locks the boundary.
+        // `var` policy's apparency bucket, not a defect (declining is output-safe).
+        // This locks the boundary.
         => Assert.False(CSharpPrinter.TypeIsApparent(IntType, new UnboxAny(IntType, new LoadArgument(0, "obj", OtherType))));
 }
