@@ -3,7 +3,7 @@ using System.Reflection.PortableExecutable;
 
 using ILInspector.Instructions;
 
-namespace ILInspector.Instructions.Tests;
+namespace ILInspector.ILDiff.Tests;
 
 public class IlAssemblyDiffTests
 {
