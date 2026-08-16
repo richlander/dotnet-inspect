@@ -19,9 +19,8 @@ property asserted below is **unverified** until the gates named in
 ## Purpose
 
 Three consumers need a portable workspace description and are currently served
-by none (the browser workbench described below lives on the
-`feature/wasm-site-main` branch, not in the main tree — claims about it cite
-that branch's `prototypes/inspect-web/src/app.js`):
+by none (the browser workbench described below lives in the main tree under
+`prototypes/inspect-web`; claims about it cite that implementation):
 
 - The browser workbench's home demos are hand-authored base64 URL strings, and
   one demo (`runCallGraphDemo`) is imperative code because the URL packet
