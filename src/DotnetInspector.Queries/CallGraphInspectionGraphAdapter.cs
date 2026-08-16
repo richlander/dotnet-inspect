@@ -346,7 +346,8 @@ public static class CallGraphInspectionGraphAdapter
 
     internal static bool HasCompletePhysicalOccurrences(
         CallGraphEdge edge) =>
-        !edge.HasUnavailablePhysicalOccurrences;
+        edge.CallSiteIds.Length > 0
+        && !edge.HasUnavailablePhysicalOccurrences;
 
     private static void AddOccurrenceCharacteristics(
         List<InspectionGraphCharacteristic> characteristics,

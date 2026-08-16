@@ -91,6 +91,31 @@ public class CallGraphProjectionTests
             correspondence: null);
     }
 
+    static GraphNodeEvidence DefinitionEvidence(DirectCall call)
+    {
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(CallGraphProjectionTests).Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "call-graph projection test"));
+        GraphNodeStorageKey storage =
+            GraphNodeStorageKey.Definition(
+                source,
+                call.Caller.ModuleVersionId,
+                call.Caller.MetadataToken);
+        return new GraphNodeEvidence(
+            storage,
+            GraphNodeIdentity.FromStorage(storage),
+            correspondence: null);
+    }
+
+    static GraphNodeEvidence Reidentified(
+        GraphNodeEvidence evidence) =>
+        new(
+            evidence.Storage,
+            GraphNodeIdentity.CreateDocumentLocal(),
+            correspondence: null);
+
     static DirectCall Call(
         MemberRef caller,
         MemberRef callee,
@@ -337,7 +362,9 @@ public class CallGraphProjectionTests
         MemberRef peer = Member("Peer", "Invoke");
         DirectCall focusCallsPeer = Call(focus, peer, 4);
         DirectCall peerCallsFocus = Call(peer, focus, 8);
-        GraphNodeEvidence focusEvidence = Evidence(1);
+        GraphNodeEvidence focusEvidence =
+            DefinitionEvidence(focusCallsPeer);
+        GraphNodeEvidence peerEvidence = Evidence(2);
         CallTreeNode callerRoot = Node(
             focus,
             CallTreeStatus.Expanded,
@@ -356,7 +383,7 @@ public class CallGraphProjectionTests
                         },
                     ]) with
                 {
-                    GraphEvidence = Evidence(2),
+                    GraphEvidence = peerEvidence,
                     ParentEdgeCallSites = [peerCallsFocus],
                 },
             ]) with
@@ -369,7 +396,7 @@ public class CallGraphProjectionTests
             [
                 Leaf(peer) with
                 {
-                    GraphEvidence = Evidence(3),
+                    GraphEvidence = Reidentified(peerEvidence),
                     ParentEdgeCallSites = [focusCallsPeer],
                 },
             ]) with
@@ -413,8 +440,11 @@ public class CallGraphProjectionTests
             Call(focus, peer, 4) with { InLoop = true };
         DirectCall plain = Call(focus, peer, 12);
         DirectCall peerCallsFocus = Call(peer, focus, 20);
-        GraphNodeEvidence focusEvidence = Evidence(1);
-        GraphNodeEvidence calleeEvidence = Evidence(3);
+        GraphNodeEvidence focusEvidence =
+            DefinitionEvidence(looped);
+        GraphNodeEvidence peerEvidence = Evidence(2);
+        GraphNodeEvidence calleeEvidence =
+            Reidentified(peerEvidence);
         CallTreeNode callerRoot = Node(
             focus,
             CallTreeStatus.Expanded,
@@ -432,7 +462,7 @@ public class CallGraphProjectionTests
                         },
                     ]) with
                 {
-                    GraphEvidence = Evidence(2),
+                    GraphEvidence = peerEvidence,
                     ParentEdgeCallSites = [peerCallsFocus],
                 },
             ]) with
@@ -483,13 +513,15 @@ public class CallGraphProjectionTests
         DirectCall focusCallsPeer = Call(focus, peer, 4);
         DirectCall peerCallsFocus = Call(peer, focus, 8);
         GraphNodeEvidence focusEvidence = Evidence(1);
+        GraphNodeEvidence peerEvidence =
+            DefinitionEvidence(peerCallsFocus);
         CallTreeNode callerRoot = Node(
             focus,
             CallTreeStatus.Expanded,
             [
                 Leaf(peer) with
                 {
-                    GraphEvidence = Evidence(2),
+                    GraphEvidence = peerEvidence,
                     ParentEdgeCallSites = [peerCallsFocus],
                 },
             ]) with
@@ -514,7 +546,7 @@ public class CallGraphProjectionTests
                         },
                     ]) with
                 {
-                    GraphEvidence = Evidence(3),
+                    GraphEvidence = Reidentified(peerEvidence),
                     ParentEdgeCallSites = [focusCallsPeer],
                 },
             ]) with
@@ -539,6 +571,45 @@ public class CallGraphProjectionTests
             edge =>
                 edge.HasUnavailablePhysicalOccurrences);
         Assert.Equal(2, projection.CallSites.Length);
+    }
+
+    [Fact]
+    public void SameMvidSitesFromDistinctArtifactsRemainDistinct()
+    {
+        MemberRef focus = Member("Focus", "Run");
+        MemberRef peer = Member("Peer", "Invoke");
+        DirectCall peerCallsFocus = Call(peer, focus, 8);
+        GraphNodeEvidence firstCallerEvidence =
+            DefinitionEvidence(peerCallsFocus);
+        GraphNodeEvidence secondCallerEvidence =
+            DefinitionEvidence(peerCallsFocus);
+        CallTreeNode root = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Leaf(peer) with
+                {
+                    GraphEvidence = firstCallerEvidence,
+                    ParentEdgeCallSites = [peerCallsFocus],
+                },
+                Leaf(peer) with
+                {
+                    GraphEvidence = secondCallerEvidence,
+                    ParentEdgeCallSites = [peerCallsFocus],
+                },
+            ]) with
+        {
+            GraphEvidence = Evidence(1),
+        };
+
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallers(root);
+
+        Assert.Equal(2, projection.Edges.Length);
+        Assert.Equal(2, projection.CallSites.Length);
+        Assert.All(
+            projection.Edges,
+            edge => Assert.Single(edge.CallSiteIds));
     }
 
     [Fact]

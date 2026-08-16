@@ -105,13 +105,16 @@ The projection owns everything a host must not re-invent in JavaScript:
 - **Physical evidence.** Every projected node retains the distinct
   `GraphNodeEvidence` carried by the tree occurrences that collapsed into it.
   Every product-built tree child also retains all `DirectCall` receipts for its
-  parent edge. `CallGraphProjection.CallSites` deduplicates those receipts by
-  caller assembly name, MVID, caller token, IL offset, and operand token when
-  caller and callee walks observe the same physical site. Detached logical
-  caller identity is deliberately excluded because independent direction
-  scopes can assign different identities to the same physical caller. Each
-  logical edge retains the resulting dense call-site ids. The catalog scope
-  retains the complete physical store independently. A
+  parent edge. `CallGraphProjection.CallSites` deduplicates catalog receipts by
+  the caller definition's acquisition-aware storage identity, IL offset, and
+  operand token when caller and callee walks observe the same physical site.
+  Assembly-local and synthetic trees use their structural caller identity.
+  Detached logical caller identity is deliberately excluded because
+  independent direction scopes can assign different identities to the same
+  physical caller. Acquisition identity remains included because distinct
+  artifacts can share assembly name, MVID, tokens, and offsets. Each logical
+  edge retains the resulting dense call-site ids. The catalog scope retains the
+  complete physical store independently. A
   receipt observed through independently detached direction scopes can map to
   different logical callers or targets when those scopes cannot reconcile the
   same catalog identity. The first deterministic edge retains the one physical
@@ -123,6 +126,7 @@ The projection owns everything a host must not re-invent in JavaScript:
   `ConflictingDetachedTargetsKeepOnePhysicalReceipt` and
   `ConflictingDetachedCallersKeepOnePhysicalReceipt`,
   `PartiallyConflictingEdgeDisclosesMissingLoopedReceipt`,
+  `SameMvidSitesFromDistinctArtifactsRemainDistinct`, and
   `CallGraph_IndependentScopeIdentityConflictRemainsUsable` gate that behavior.
   Exact row lookup consults these retained receipts before structural fallback;
   `FindCalleeRowUsesRetainedNonRepresentativeCallSite` gates repeated sites

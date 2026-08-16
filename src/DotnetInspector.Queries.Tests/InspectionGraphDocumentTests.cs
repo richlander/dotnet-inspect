@@ -317,6 +317,10 @@ public sealed class InspectionGraphDocumentTests
         {
             HasUnavailablePhysicalOccurrences = false,
         };
+        var evidenceFree = complete with
+        {
+            CallSiteIds = [],
+        };
 
         Assert.False(
             CallGraphInspectionGraphAdapter
@@ -324,6 +328,9 @@ public sealed class InspectionGraphDocumentTests
         Assert.True(
             CallGraphInspectionGraphAdapter
                 .HasCompletePhysicalOccurrences(complete));
+        Assert.False(
+            CallGraphInspectionGraphAdapter
+                .HasCompletePhysicalOccurrences(evidenceFree));
     }
 
     static void AssertCharacteristic(

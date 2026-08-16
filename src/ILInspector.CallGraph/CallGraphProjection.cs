@@ -431,17 +431,18 @@ public sealed partial class CallGraphProjection
             public bool FallbackAnyCallInLoop { get; set; }
             public bool HasUnavailablePhysicalOccurrences { get; set; }
             public bool AnyCallInLoop =>
-                PhysicalAnyCallInLoop
-                || (HasUnavailablePhysicalOccurrences
-                    && FallbackAnyCallInLoop);
+                CallSiteIds.Count > 0
+                    ? PhysicalAnyCallInLoop
+                        || (HasUnavailablePhysicalOccurrences
+                            && FallbackAnyCallInLoop)
+                    : FallbackAnyCallInLoop;
             public string? LegacyLoopHint { get; set; }
             public List<int> CallSiteIds { get; } = [];
         }
 
         private readonly record struct CallSiteIdentity(
-            string CallerAssemblyName,
-            Guid ModuleVersionId,
-            int MethodToken,
+            GraphNodeStorageKey? CallerStorage,
+            GraphNodeIdentity? StructuralCaller,
             int ILOffset,
             int OperandToken);
 
@@ -486,6 +487,7 @@ public sealed partial class CallGraphProjection
                     childId,
                     nodeId,
                     child.ParentEdgeCallSites,
+                    child.GraphEvidence,
                     child.Perf is { InLoop: true },
                     child.Perf?.LoopHint,
                     CallGraphEdgeOrigin.Callers);
@@ -508,6 +510,7 @@ public sealed partial class CallGraphProjection
                     nodeId,
                     childId,
                     child.ParentEdgeCallSites,
+                    node.GraphEvidence,
                     child.Perf is { InLoop: true },
                     child.Perf?.LoopHint,
                     CallGraphEdgeOrigin.Callees);
@@ -608,6 +611,7 @@ public sealed partial class CallGraphProjection
             int from,
             int to,
             ImmutableArray<DirectCall> callSites,
+            GraphNodeEvidence? callerEvidence,
             bool fallbackInLoop,
             string? fallbackLoopHint,
             CallGraphEdgeOrigin origin)
@@ -622,7 +626,7 @@ public sealed partial class CallGraphProjection
             MutableEdge edge = _edges[index];
             if (callSites.IsDefaultOrEmpty)
             {
-                AddFallbackEvidence(
+                AddLegacyFallbackEvidence(
                     edge,
                     fallbackInLoop,
                     fallbackLoopHint);
@@ -632,10 +636,13 @@ public sealed partial class CallGraphProjection
             foreach (DirectCall call in callSites)
             {
                 ArgumentNullException.ThrowIfNull(call);
+                GraphNodeStorageKey? callerStorage =
+                    CallerStorage(callerEvidence, call);
                 var identity = new CallSiteIdentity(
-                    call.Caller.AssemblyName,
-                    call.Caller.ModuleVersionId,
-                    call.Caller.MetadataToken,
+                    callerStorage,
+                    callerStorage is null
+                        ? _nodes[from].Identity
+                        : null,
                     call.ILOffset,
                     call.OperandToken);
                 if (_callSiteIds.TryGetValue(
@@ -653,7 +660,7 @@ public sealed partial class CallGraphProjection
                     {
                         // Independently detached direction scopes can disagree
                         // on the target identity for one physical receipt.
-                        AddFallbackEvidence(
+                        AddUnavailablePhysicalEvidence(
                             edge,
                             fallbackInLoop,
                             fallbackLoopHint);
@@ -678,12 +685,25 @@ public sealed partial class CallGraphProjection
             }
         }
 
-        static void AddFallbackEvidence(
+        static GraphNodeStorageKey? CallerStorage(
+            GraphNodeEvidence? evidence,
+            DirectCall call) =>
+            evidence?.Storage is
+                {
+                    Kind: GraphNodeStorageKind.Definition,
+                } storage
+            && storage.ModuleVersionId
+                == call.Caller.ModuleVersionId
+            && storage.MethodToken
+                == call.Caller.MetadataToken
+                ? storage
+                : null;
+
+        static void AddLegacyFallbackEvidence(
             MutableEdge edge,
             bool inLoop,
             string? loopHint)
         {
-            edge.HasUnavailablePhysicalOccurrences = true;
             edge.FallbackAnyCallInLoop |= inLoop;
             if (edge.CallSiteIds.Count == 0
                 && inLoop
@@ -691,6 +711,18 @@ public sealed partial class CallGraphProjection
             {
                 edge.LegacyLoopHint = loopHint;
             }
+        }
+
+        static void AddUnavailablePhysicalEvidence(
+            MutableEdge edge,
+            bool inLoop,
+            string? loopHint)
+        {
+            edge.HasUnavailablePhysicalOccurrences = true;
+            AddLegacyFallbackEvidence(
+                edge,
+                inLoop,
+                loopHint);
         }
     }
 
