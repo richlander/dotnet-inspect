@@ -68,23 +68,37 @@ public static class OperatorMetadata
             reader,
             declaringType,
             declaringIdentity);
+        var parameterHandles = method.GetParameters();
 
         bool anyParameterIsDeclaringType = false;
-        bool hasByRefParameter = false;
+        bool hasForbiddenByRefParameter = false;
         for (int i = 0; i < signature.ParameterTypes.Length; i++)
         {
             var parameterType = signature.ParameterTypes[i];
-            if (parameterType.IsByRef)
-                hasByRefParameter = true;
+            if (parameterType.IsByRef
+                && !IsInParameter(reader, parameterHandles, i + 1))
+            {
+                hasForbiddenByRefParameter = true;
+            }
             if (parameterType.Matches(declaringIdentity, selfConstrainedTypeParameters))
                 anyParameterIsDeclaringType = true;
         }
 
         if (OperatorNames.IsConversionOperatorMethodName(name)
-            && signature.ParameterTypes is [var conversionSource]
-            && conversionSource.MatchesExactly(signature.ReturnType))
+            && signature.ParameterTypes is [var encodedConversionSource])
         {
-            return false;
+            var conversionSource = encodedConversionSource.WithoutByRef();
+            var conversionTarget = signature.ReturnType.WithoutByRef();
+            if (conversionSource.MatchesExactly(conversionTarget)
+                || IsForbiddenNullableSelfConversion(
+                    conversionSource,
+                    conversionTarget,
+                    declaringIdentity)
+                || IsSameOrDerivedFrom(reader, conversionSource, conversionTarget)
+                || IsSameOrDerivedFrom(reader, conversionTarget, conversionSource))
+            {
+                return false;
+            }
         }
 
         if (name is
@@ -93,7 +107,10 @@ public static class OperatorMetadata
                 or "op_CheckedIncrement"
                 or "op_CheckedDecrement"
             && signature.ParameterTypes is [var operand]
-            && !IsSameOrDerivedFrom(reader, signature.ReturnType, operand))
+            && !IsSameOrDerivedFrom(
+                reader,
+                signature.ReturnType.WithoutByRef(),
+                operand.WithoutByRef()))
         {
             return false;
         }
@@ -108,12 +125,53 @@ public static class OperatorMetadata
                     ? "bool"
                     : "",
             signature.ParameterTypes.Length,
-            hasByRefParameter,
+            hasForbiddenByRefParameter,
             OperatorNames.DeclaringTypeParticipates(
                 name,
                 anyParameterIsDeclaringType,
                 signature.ReturnType.Matches(declaringIdentity, selfConstrainedTypeParameters)),
             hasByRefReturn: signature.ReturnType.IsByRef);
+    }
+
+    static bool IsInParameter(
+        MetadataReader reader,
+        ParameterHandleCollection parameterHandles,
+        int sequenceNumber)
+    {
+        foreach (var handle in parameterHandles)
+        {
+            var parameter = reader.GetParameter(handle);
+            if (parameter.SequenceNumber != sequenceNumber)
+                continue;
+
+            var attributes = parameter.Attributes;
+            return (attributes & ParameterAttributes.In) != 0
+                && (attributes & ParameterAttributes.Out) == 0;
+        }
+
+        return false;
+    }
+
+    static bool IsForbiddenNullableSelfConversion(
+        OperatorSignatureType source,
+        OperatorSignatureType target,
+        OperatorSignatureType declaringType)
+    {
+        if (source.IsNullable
+            && source.TypeArguments is [var sourceUnderlying]
+            && sourceUnderlying.MatchesExactly(target))
+        {
+            return !source.MatchesExactly(declaringType);
+        }
+
+        if (target.IsNullable
+            && target.TypeArguments is [var targetUnderlying]
+            && targetUnderlying.MatchesExactly(source))
+        {
+            return !target.MatchesExactly(declaringType);
+        }
+
+        return false;
     }
 
     // C# 11 permits an interface operator operand to be a type parameter only
@@ -305,12 +363,14 @@ public static class OperatorMetadata
                 return TypeParameterIndex == other.TypeParameterIndex;
             if (Identity.IsNil || other.Identity.IsNil)
             {
-                if (!Identity.IsNil
-                    || !other.Identity.IsNil
-                    || Namespace is null
+                if (Namespace is null
                     || Name is null
+                    || other.Namespace is null
+                    || other.Name is null
                     || Namespace != other.Namespace
-                    || Name != other.Name)
+                    || Name != other.Name
+                    || (!Identity.IsNil && !IsTrustedCoreLibraryType)
+                    || (!other.Identity.IsNil && !other.IsTrustedCoreLibraryType))
                 {
                     return false;
                 }
@@ -328,6 +388,11 @@ public static class OperatorMetadata
             }
             return true;
         }
+
+        public OperatorSignatureType WithoutByRef()
+            => IsByRef && TypeArguments is [var element]
+                ? element
+                : this;
 
         public OperatorSignatureType Instantiate(
             ImmutableArray<OperatorSignatureType> typeArguments)
@@ -364,8 +429,8 @@ public static class OperatorMetadata
         internal static OperatorSignatureType Opaque => new(false, false, false, -1, default, false, null, null, false, false, []);
         public OperatorSignatureType GetPrimitiveType(PrimitiveTypeCode typeCode)
             => typeCode == PrimitiveTypeCode.Void
-                ? new OperatorSignatureType(true, false, false, -1, default, false, "System", "Void", false, false, [])
-                : new OperatorSignatureType(false, false, false, -1, default, false, "System", typeCode.ToString(), false, false, []);
+                ? new OperatorSignatureType(true, false, false, -1, default, true, "System", "Void", false, false, [])
+                : new OperatorSignatureType(false, false, false, -1, default, true, "System", typeCode.ToString(), false, false, []);
 
         public OperatorSignatureType GetTypeFromDefinition(
             MetadataReader reader,

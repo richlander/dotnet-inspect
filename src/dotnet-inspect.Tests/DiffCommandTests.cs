@@ -2157,7 +2157,10 @@ public class DiffCommandTests
                 [TypeRef.Definition("Asm", "Sample", "Widget"), TypeRef.Definition("Asm", "Sample", "Widget")],
                 TypeRef.Definition("Asm", "Sample", "Widget"),
                 MetadataToken: 0x06000003,
-                IsStatic: true));
+                IsStatic: true)
+            {
+                IsOperator = MetadataOperatorFact.Yes
+            });
 
         var explicitImpl = DiffMember("IFoo.Bar", signature: "void IFoo.Bar()");
         explicitImpl.Kind = "explicit-interface-implementation";

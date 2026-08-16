@@ -133,6 +133,8 @@ public sealed class OperatorApiSurfaceTests
             Define("op_BitwiseOr", Operator, [builder], builder);
             // C# operators cannot return by reference.
             Define("op_LeftShift", Operator, [builder, typeof(int)], builder.MakeByRefType());
+            // C# operators permit in parameters, but not ref parameters.
+            Define("op_UnaryNegation", Operator, [builder.MakeByRefType()], builder);
             // A conversion cannot convert the declaring type to itself (CS0555).
             Define("op_CheckedExplicit", Operator, [builder], builder);
             // Increment/decrement must return the operand type or a derived type.
@@ -157,6 +159,7 @@ public sealed class OperatorApiSurfaceTests
         Assert.False(image.IsCSharpOperatorDeclaration("op_BitwiseAnd"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_BitwiseOr"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_LeftShift"));
+        Assert.False(image.IsCSharpOperatorDeclaration("op_UnaryNegation"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_CheckedExplicit"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_Increment"));
         Assert.True(image.IsCSharpOperatorDeclaration("op_Decrement"));
@@ -170,8 +173,8 @@ public sealed class OperatorApiSurfaceTests
         {
             "op_Addition", "op_Subtraction", "op_Multiply", "op_Division",
             "op_Modulus", "op_BitwiseAnd", "op_BitwiseOr", "op_LeftShift",
-            "op_CheckedExplicit", "op_Increment", "op_Decrement", "op_Equality",
-            "op_True", "op_Implicit", "op_Explicit",
+            "op_UnaryNegation", "op_CheckedExplicit", "op_Increment",
+            "op_Decrement", "op_Equality", "op_True", "op_Implicit", "op_Explicit",
         })
         {
             Assert.Equal("operator", Assert.Single(image.Members, m => m.Name == name).Kind);
@@ -323,6 +326,7 @@ public sealed class OperatorApiSurfaceTests
     [InlineData("System.Decimal", "op_UnaryNegation")]
     [InlineData("System.Decimal", "op_Increment")]
     [InlineData("System.TimeSpan", "op_LessThan")]
+    [InlineData("System.String", "op_Equality")]
     [InlineData("System.Nullable`1", "op_Implicit")]
     [InlineData("System.Nullable`1", "op_Explicit")]
     [InlineData("System.Numerics.IAdditionOperators`3", "op_Addition")]
@@ -399,6 +403,80 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
+    public void CSharpOperatorDeclaration_AcceptsInParameters()
+    {
+        using var stream = File.OpenRead(typeof(InParameterOperator).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = Assert.Single(
+            reader.TypeDefinitions,
+            handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == nameof(InParameterOperator));
+        var method = Assert.Single(
+            reader.GetTypeDefinition(typeHandle).GetMethods()
+                .Select(reader.GetMethodDefinition),
+            candidate => reader.GetString(candidate.Name) == "op_Addition");
+
+        Assert.True(OperatorMetadata.IsCSharpOperatorDeclaration(reader, method));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsNullableSelfConversion()
+    {
+        using var image = OperatorImage.BuildModule(
+            module =>
+            {
+                var valueType = module.DefineType(
+                    "OperatorSurface",
+                    TypeAttributes.Public
+                        | TypeAttributes.Sealed
+                        | TypeAttributes.SequentialLayout,
+                    typeof(ValueType));
+                var method = valueType.DefineMethod(
+                    "op_Implicit",
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    typeof(Nullable<>).MakeGenericType(valueType),
+                    [valueType]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+                valueType.CreateType();
+            },
+            "OperatorSurface");
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Implicit"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsBaseDerivedConversion()
+    {
+        using var image = OperatorImage.BuildModule(
+            module =>
+            {
+                var baseType = module.DefineType(
+                    "ConversionBase",
+                    TypeAttributes.Public | TypeAttributes.Class);
+                var derivedType = module.DefineType(
+                    "ConversionDerived",
+                    TypeAttributes.Public | TypeAttributes.Class,
+                    baseType);
+                var method = baseType.DefineMethod(
+                    "op_Implicit",
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    baseType,
+                    [derivedType]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+                baseType.CreateType();
+                derivedType.CreateType();
+            },
+            "ConversionBase");
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Implicit"));
+    }
+
+    [Fact]
     public void CSharpOperatorDeclaration_AcceptsNullableSelfConstrainedOperands()
     {
         using var stream = File.OpenRead(typeof(NullableSelfConstrainedOperator<>).Assembly.Location);
@@ -435,6 +513,14 @@ public sealed class OperatorApiSurfaceTests
     }
 
     public sealed class DerivedIncrementResult : DerivedIncrementBase;
+
+    public readonly struct InParameterOperator
+    {
+        public static InParameterOperator operator +(
+            in InParameterOperator left,
+            InParameterOperator right)
+            => left;
+    }
 
     sealed class OperatorImage : IDisposable
     {

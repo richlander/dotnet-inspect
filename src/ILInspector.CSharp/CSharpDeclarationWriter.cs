@@ -2224,10 +2224,9 @@ internal static class CSharpDeclarationWriter
                 parameter => parameter.Modifier is "ref" or "out" or "ref readonly")
             : OperatorParametersHaveRefOrOutModifier(parameters);
         bool isPublic = member.Accessibility is null or "public";
-        // Extraction proves declaring-type participation structurally. When that
-        // typed fact is absent — a JSON-round-tripped or shell-produced member —
-        // fall back to the shape this text still supports rather than parsing
-        // presentation text for a structural answer.
+        // Extraction proves declaring-type participation structurally. A
+        // shell-produced member may lack that fact, so its fallback remains
+        // shape-only; extracted facts survive JSON round-trips.
         bool isCSharpDeclaration = member.CSharpOperatorDeclaration
             ?? OperatorNames.IsCSharpOperatorDeclaration(
                 methodName,

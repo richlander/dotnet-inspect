@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp.Tests;
@@ -1414,6 +1415,36 @@ public sealed class CSharpDeclarationWriterTests
         Assert.Equal(
             "public static bool op_Equality(Samples.Tuples left, Samples.Tuples right)",
             CSharpDeclarationWriter.RenderMemberDeclaration(type, equality));
+    }
+
+    [Fact]
+    public void MemberDeclaration_PreservesNegativeOperatorProofAcrossJsonRoundTrip()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "op_Multiply",
+                    Kind = "operator",
+                    Signature = "int op_Multiply(int left, int right)",
+                    IsStatic = true,
+                    CSharpOperatorDeclaration = false,
+                },
+            ],
+        };
+        var roundTripped = JsonSerializer.Deserialize<ApiType>(
+            JsonSerializer.Serialize(type))!;
+        var member = Assert.Single(roundTripped.Members);
+
+        Assert.False(member.CSharpOperatorDeclaration);
+        Assert.Equal(
+            "public static int op_Multiply(int left, int right)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, member));
     }
 
     [Theory]

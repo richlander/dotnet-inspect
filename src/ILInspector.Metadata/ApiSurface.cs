@@ -586,11 +586,10 @@ public class ApiMember
     /// Whether extraction proved this member representable as a C# operator
     /// declaration — accessibility, static-ness, parameter and return shape, and
     /// declaring-type participation all checked against the metadata. Null when
-    /// the fact was never extracted, most notably after a JSON round-trip, where
-    /// declaration rendering falls back to the shape it can still recompute
-    /// rather than recovering structural participation from display text.
+    /// the fact was never extracted. The nullable value is persisted so a JSON
+    /// round-trip cannot replace structural proof with a display-text inference.
     /// </summary>
-    [JsonIgnore]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? CSharpOperatorDeclaration { get; set; }
 
     /// <summary>

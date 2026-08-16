@@ -66,6 +66,10 @@ of repeated in every row.
 | `ApiType`, `ApiMember`, `ApiParameter` | Materialized, JSON-capable API output | API inventory, presentation fields, and persisted identity projections | Reader-local resolution or body identity |
 | `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
 
+`ApiMember.CSharpOperatorDeclaration` persists metadata's structural
+representability proof. Declaration consumers must not replace that proof after
+a JSON round-trip by inferring declaring-type participation from display text.
+
 #### `DotnetInspector.Queries`
 
 | Currency | Scope | Answers | Does not answer |

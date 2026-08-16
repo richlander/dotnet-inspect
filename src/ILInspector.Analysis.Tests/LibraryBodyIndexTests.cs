@@ -2425,6 +2425,20 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_PreserveOperatorIdentity()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var opportunity = Assert.Single(
+            index.OptimizationOpportunities,
+            candidate => candidate.Method.Name == "op_Addition"
+                && candidate.Shape == "small-array");
+
+        Assert.Equal(MetadataOperatorFact.Yes, opportunity.Method.IsOperator);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_PromotesProvablyLocalArrayToStackalloc()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -5854,6 +5868,11 @@ public class OptimizationOpportunityFixtures
 {
     private readonly int _field = 3;
     private readonly UserDisplayClassTarget _displayClassTarget = new();
+
+    public static int[] operator +(
+        OptimizationOpportunityFixtures left,
+        OptimizationOpportunityFixtures right)
+        => new int[4];
     private int[]? _arrayField;
     private PlainObject? _objectField;
     private static PlainObject? _staticObjectField;

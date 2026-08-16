@@ -691,6 +691,42 @@ public class ApiOutputFormatterTests
         Assert.Contains("\"is_finalizer\": true", json, System.StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ApiTypeJson_PersistsNegativeCSharpOperatorProof()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "op_Multiply",
+                    Kind = "operator",
+                    Signature = "int op_Multiply(int left, int right)",
+                    CSharpOperatorDeclaration = false,
+                },
+            ],
+        };
+
+        string json = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        string compactJson = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeCompactJsonContext.Default.ApiType);
+
+        Assert.Contains(
+            "\"c_sharp_operator_declaration\": false",
+            json,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"c_sharp_operator_declaration\":false",
+            compactJson,
+            System.StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Real-artifact canary for issue #3664. The single-member decompiled-source
     /// view supplies its own generic-parameter names, which makes the ApiSignature

@@ -102,7 +102,7 @@ public class ApiInventoryQueryTests
     }
 
     [Fact]
-    public void Members_CompilerProducedExtensionOperatorHasOneKindFacet()
+    public void Members_OrdinaryOpNamedExtensionMethodDoesNotGainOperatorFacet()
     {
         using var inspection = AssemblyInspectionSession.Open(
             typeof(ApiInventoryQueryTests).Assembly.Location);
@@ -114,21 +114,22 @@ public class ApiInventoryQueryTests
             type.Members,
             member => member.Name == "op_Addition");
 
-        Assert.Equal("operator", extensionOperator.Kind);
+        Assert.Equal("method", extensionOperator.Kind);
         Assert.True(extensionOperator.IsExtension);
 
         var result = ApiInventoryQuery.Members(type);
 
-        var operatorFacet = Assert.Single(
+        Assert.DoesNotContain(
             result.KindFacets,
-            facet => facet.SingularLabel == "operator" && facet.Count == 1);
-        Assert.Single(
+            facet => facet.SingularLabel == "operator");
+        var physicalExtensionFacet = Assert.Single(
             result.KindFacets,
-            facet => facet.SingularLabel == "extension method" && facet.Count == 1);
-        Assert.Single(
+            facet => facet.SingularLabel == "extension method");
+        Assert.Equal(2, physicalExtensionFacet.Count);
+        Assert.Contains(
             ApiInventoryQuery.Members(
                 type,
-                new ApiMemberInventoryRequest([operatorFacet.Id]))
+                new ApiMemberInventoryRequest([physicalExtensionFacet.Id]))
             .Members,
             member => member.Name == "op_Addition");
 
