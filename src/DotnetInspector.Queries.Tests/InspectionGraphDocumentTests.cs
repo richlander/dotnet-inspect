@@ -1,7 +1,10 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.Fixtures;
+using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -305,32 +308,130 @@ public sealed class InspectionGraphDocumentTests
     [Fact]
     public void CallAdapter_TreatsPartialPhysicalEvidenceAsIncomplete()
     {
-        var partial = new CallGraphEdge(
-            0,
-            1,
-            AnyCallInLoop: true,
-            CallGraphEdgeOrigin.Callees,
-            [0],
-            HasUnavailablePhysicalOccurrences: true,
-            LegacyLoopHint: null);
-        var complete = partial with
-        {
-            HasUnavailablePhysicalOccurrences = false,
-        };
-        var evidenceFree = complete with
-        {
-            CallSiteIds = [],
-        };
+        MemberRef focus = Member("Focus");
+        MemberRef firstPeer = Member("FirstPeer");
+        MemberRef secondPeer = Member("SecondPeer");
+        DirectCall looped = Call(
+            focus,
+            firstPeer,
+            offset: 4,
+            inLoop: true);
+        DirectCall plain = Call(
+            focus,
+            firstPeer,
+            offset: 12);
+        CallTreeNode callerRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            Node(
+                firstPeer,
+                CallTreeStatus.Expanded,
+                Node(
+                    focus,
+                    CallTreeStatus.AlreadyShown) with
+                {
+                    ParentEdgeCallSites = [looped],
+                }));
+        CallTreeNode calleeRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            Node(
+                secondPeer,
+                CallTreeStatus.Leaf) with
+            {
+                ParentEdgeCallSites = [looped, plain],
+            });
+        CallGraphProjection projection =
+            CallGraphProjection.Create(callerRoot, calleeRoot);
+        int partialEdgeId = Assert.Single(
+            projection.Rows,
+            row => row.Edge.From == projection.Focus.Id
+                && projection.Nodes[row.Edge.To].Member
+                    == secondPeer).Number - 1;
 
-        Assert.False(
-            CallGraphInspectionGraphAdapter
-                .HasCompletePhysicalOccurrences(partial));
-        Assert.True(
-            CallGraphInspectionGraphAdapter
-                .HasCompletePhysicalOccurrences(complete));
-        Assert.False(
-            CallGraphInspectionGraphAdapter
-                .HasCompletePhysicalOccurrences(evidenceFree));
+        InspectionGraphDocument document =
+            CallGraphInspectionGraphAdapter.Create(projection);
+
+        InspectionGraphEdge partial =
+            document.Edges[partialEdgeId];
+        int occurrenceId = Assert.Single(partial.OccurrenceIds);
+        var evidence = Assert.IsType<CallGraphCallSiteEvidence>(
+            document.Occurrences[occurrenceId].Evidence);
+        Assert.Equal(plain.ILOffset, evidence.ILOffset);
+        Assert.Contains(
+            document.Limits,
+            limit => ReferenceEquals(
+                    limit.Descriptor,
+                    CallGraphInspectionGraphCatalog
+                        .PhysicalOccurrencesUnavailable)
+                && limit.Target
+                    == InspectionGraphTarget.Edge(partialEdgeId));
+        Assert.DoesNotContain(
+            document.Characteristics,
+            characteristic =>
+                characteristic.Target
+                    == InspectionGraphTarget.Edge(partialEdgeId));
+        Assert.Contains(
+            document.Characteristics,
+            characteristic =>
+                characteristic.Target
+                    == InspectionGraphTarget.Occurrence(occurrenceId));
+    }
+
+    [Fact]
+    public void CallAdapter_PreservesAcquisitionDistinctReceipts()
+    {
+        string path =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+
+        CallTreeNode MakeTree()
+        {
+            LibraryBodyIndex index = LibraryBodyIndex.Open(path);
+            MethodIdentity method = index.DeclaredMethods.Single(
+                candidate =>
+                    candidate.DeclaringType.Name
+                        == "InstanceRecursionApi"
+                    && candidate.Name == "IsEven");
+            ResolvedAssemblyReference assembly =
+                ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local(
+                        "inspection graph acquisition test"));
+            using var scope = new CatalogCallGraphScope(
+                new AssemblyDependencyResolver(
+                    new AssemblyDependencyResolutionOptions(path)),
+                [new CatalogCallGraphParticipant(index, assembly)]);
+            return scope.Detach(
+                scope.BuildCallerTree(
+                    index,
+                    method.MetadataToken));
+        }
+
+        CallTreeNode first = MakeTree();
+        CallTreeNode second = MakeTree();
+        CallTreeNode combined = first with
+        {
+            Children = [.. first.Children, .. second.Children],
+        };
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallers(combined);
+
+        InspectionGraphDocument document =
+            CallGraphInspectionGraphAdapter.Create(projection);
+
+        Assert.Equal(4, projection.CallSites.Length);
+        Assert.Equal(4, document.Occurrences.Length);
+        Assert.Equal(
+            InspectionGraphDocumentScope.SessionBound,
+            document.Scope);
+        Assert.Equal(
+            4,
+            document.Occurrences
+                .Select(occurrence =>
+                    Assert.IsType<CallGraphCallSiteEvidence>(
+                        occurrence.Evidence).Identity)
+                .Distinct()
+                .Count());
     }
 
     static void AssertCharacteristic(

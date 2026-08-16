@@ -297,7 +297,8 @@ fabricating a call site. A product edge with only a subset of its physical
 receipts retains those receipts and the same limit, but omits aggregates that
 would imply the subset was complete.
 `CallAdapter_RetainsPhysicalSitesAndTypedAggregates`,
-`CallAdapter_TreatsPartialPhysicalEvidenceAsIncomplete`, and
+`CallAdapter_TreatsPartialPhysicalEvidenceAsIncomplete`,
+`CallAdapter_PreservesAcquisitionDistinctReceipts`, and
 `AnnotatedMemberDocument_ReusesCalleeLayerAndMapsEveryPhysicalCallSite`
 gate the physical and compiler-produced paths.
 
@@ -349,8 +350,10 @@ fallback.
 from which evidence happens to be present. Each owner-issued subject identity
 declares whether it retains session authority, and portable construction
 rejects any subject that does. The call adapter derives the scope from the
-`GraphNodeIdentity` values the projection actually used rather than accepting a
-caller assertion.
+`GraphNodeIdentity` values and physical receipt identities the projection
+actually used rather than accepting a caller assertion. Acquisition-aware call
+receipts make the document session-bound even when their logical endpoint
+subjects have portable detached identities.
 
 ### Nodes and groups
 
@@ -498,9 +501,13 @@ occurrence to an `integration.composed` edge.
 tree edge retains its physical `DirectCall` receipts, and projection
 deduplicates the same call site when caller and callee walks both observe it.
 Each receipt retains IL offset, operand token, call kind, loop state, and a
-descriptive dispatch classification. `AnnotatedCallGraphOccurrence` remains
-the source-overlay seam for focus-member facts; it maps those same physical
-coordinates to stable edge rows and source facts.
+descriptive dispatch classification. Its opaque typed identity retains the
+caller acquisition when catalog evidence is complete, so two acquired artifacts
+with identical MVIDs and call coordinates remain distinct occurrences while
+both producer deduplication and document validation use the same currency.
+`AnnotatedCallGraphOccurrence` remains the source-overlay seam for focus-member
+facts; it maps those same physical coordinates to stable edge rows and source
+facts.
 
 ## Characteristics
 

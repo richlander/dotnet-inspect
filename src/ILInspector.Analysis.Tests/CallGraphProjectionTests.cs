@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 
 using DotnetInspector.Fixtures;
+using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
@@ -591,11 +592,15 @@ public class CallGraphProjectionTests
                 {
                     GraphEvidence = firstCallerEvidence,
                     ParentEdgeCallSites = [peerCallsFocus],
+                    ParentEdgeCallerDefinition =
+                        firstCallerEvidence.Storage,
                 },
                 Leaf(peer) with
                 {
                     GraphEvidence = secondCallerEvidence,
                     ParentEdgeCallSites = [peerCallsFocus],
+                    ParentEdgeCallerDefinition =
+                        secondCallerEvidence.Storage,
                 },
             ]) with
         {
@@ -610,6 +615,108 @@ public class CallGraphProjectionTests
         Assert.All(
             projection.Edges,
             edge => Assert.Single(edge.CallSiteIds));
+    }
+
+    [Fact]
+    public void DetachedCatalogDirectionsDeduplicatePhysicalReceipts()
+    {
+        string path =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        LibraryBodyIndex index = LibraryBodyIndex.Open(path);
+        MethodIdentity method = index.DeclaredMethods.Single(
+            candidate =>
+                candidate.DeclaringType.Name
+                    == "InstanceRecursionApi"
+                && candidate.Name == "IsEven");
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "call-graph projection test"));
+
+        CallTreeNode callers;
+        using (var scope = new CatalogCallGraphScope(
+            new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(path)),
+            [new CatalogCallGraphParticipant(index, assembly)]))
+        {
+            callers = scope.Detach(
+                scope.BuildCallerTree(
+                    index,
+                    method.MetadataToken));
+        }
+
+        CallTreeNode callees;
+        using (var scope = new CatalogCallGraphScope(
+            new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(path)),
+            [new CatalogCallGraphParticipant(index, assembly)]))
+        {
+            callees = scope.Detach(
+                scope.BuildCallTree(
+                    index,
+                    method.MetadataToken));
+        }
+
+        CallGraphProjection projection =
+            CallGraphProjection.Create(callers, callees);
+
+        Assert.Equal(2, projection.CallSites.Length);
+        Assert.All(
+            projection.CallSites.GroupBy(site =>
+                (
+                    site.Call.Caller.ModuleVersionId,
+                    site.Call.Caller.MetadataToken,
+                    site.Call.ILOffset,
+                    site.Call.OperandToken)),
+            group => Assert.Single(group));
+        Assert.All(
+            projection.CallSites,
+            site => Assert.False(site.Identity.IsPortable));
+    }
+
+    [Fact]
+    public void MixedEvidenceProjectionUsesOneReceiptIdentityDomain()
+    {
+        MemberRef focus = Member("Focus", "Run");
+        DirectCall recursive = Call(focus, focus, 4);
+        GraphNodeEvidence evidence =
+            DefinitionEvidence(recursive);
+        CallTreeNode callerRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Leaf(
+                    focus,
+                    CallTreeStatus.AlreadyShown) with
+                {
+                    GraphEvidence = evidence,
+                    ParentEdgeCallSites = [recursive],
+                    ParentEdgeCallerDefinition =
+                        evidence.Storage,
+                },
+            ]) with
+        {
+            GraphEvidence = evidence,
+        };
+        CallTreeNode calleeRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            [
+                Leaf(
+                    focus,
+                    CallTreeStatus.AlreadyShown) with
+                {
+                    ParentEdgeCallSites = [recursive],
+                },
+            ]);
+
+        CallGraphProjection projection =
+            CallGraphProjection.Create(callerRoot, calleeRoot);
+
+        Assert.Single(projection.Edges);
+        Assert.Single(projection.CallSites);
+        Assert.True(projection.CallSites[0].Identity.IsPortable);
     }
 
     [Fact]

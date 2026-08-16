@@ -675,7 +675,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 MethodSignals signals,
                 int depth,
                 bool inLoop,
-                ImmutableArray<DirectCall> parentEdgeCallSites = default)
+                ImmutableArray<DirectCall> parentEdgeCallSites = default,
+                GraphNodeStorageKey? parentEdgeCallerDefinition = null)
             {
                 GraphNodeIdentity identity = evidence.Identity;
                 bool external = !string.Equals(
@@ -713,7 +714,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                             source),
                         evidence,
                         parentEdgeCallSites:
-                            parentEdgeCallSites);
+                            parentEdgeCallSites,
+                        parentEdgeCallerDefinition:
+                            parentEdgeCallerDefinition);
                 }
 
                 var edges = rawEdges
@@ -746,7 +749,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                             source),
                         evidence,
                         parentEdgeCallSites:
-                            parentEdgeCallSites);
+                            parentEdgeCallSites,
+                        parentEdgeCallerDefinition:
+                            parentEdgeCallerDefinition);
                 }
                 if (!expanded.Add(identity))
                 {
@@ -766,7 +771,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                             source),
                         evidence,
                         parentEdgeCallSites:
-                            parentEdgeCallSites);
+                            parentEdgeCallSites,
+                        parentEdgeCallerDefinition:
+                            parentEdgeCallerDefinition);
                 }
 
                 var children =
@@ -789,7 +796,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             edge.Caller.Signals,
                             depth + 1,
                             edge.Call.InLoop,
-                            edgeGroup.Calls));
+                            edgeGroup.Calls,
+                            edge.Caller.Evidence.Storage));
                 }
 
                 CallTreeStatus status = truncated
@@ -817,7 +825,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                         source),
                     evidence,
                     parentEdgeCallSites:
-                        parentEdgeCallSites);
+                        parentEdgeCallSites,
+                    parentEdgeCallerDefinition:
+                        parentEdgeCallerDefinition);
             }
 
             StoredDefinition? definition = DefinitionFor(
@@ -851,7 +861,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 int depth,
                 bool inLoop,
                 bool hasVirtualDispatchOccurrence,
-                ImmutableArray<DirectCall> parentEdgeCallSites = default)
+                ImmutableArray<DirectCall> parentEdgeCallSites = default,
+                GraphNodeStorageKey? parentEdgeCallerDefinition = null)
             {
                 GraphNodeIdentity identity = evidence.Identity;
                 StoredDefinition? definition = DefinitionFor(identity);
@@ -899,7 +910,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         evidence,
                         definition?.Diagnostic,
                         hasUnresolvedDispatch,
-                        parentEdgeCallSites);
+                        parentEdgeCallSites,
+                        parentEdgeCallerDefinition);
                 }
 
                 int fanout = rawEdges.Length;
@@ -922,7 +934,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         evidence,
                         definition?.Diagnostic,
                         hasUnresolvedDispatch,
-                        parentEdgeCallSites);
+                        parentEdgeCallSites,
+                        parentEdgeCallerDefinition);
                 }
                 if (!expanded.Add(identity))
                 {
@@ -943,7 +956,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         evidence,
                         definition?.Diagnostic,
                         hasUnresolvedDispatch,
-                        parentEdgeCallSites);
+                        parentEdgeCallSites,
+                        parentEdgeCallerDefinition);
                 }
 
                 var edges = rawEdges
@@ -982,7 +996,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             depth + 1,
                             edge.Call.InLoop,
                             edgeGroup.HasVirtualDispatch,
-                            edgeGroup.Calls));
+                            edgeGroup.Calls,
+                            edge.Caller.Evidence.Storage));
                 }
 
                 CallTreeStatus status = truncated
@@ -1013,7 +1028,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                     evidence,
                     definition?.Diagnostic,
                     hasUnresolvedDispatch,
-                    parentEdgeCallSites);
+                    parentEdgeCallSites,
+                    parentEdgeCallerDefinition);
             }
 
             return Build(
@@ -1190,7 +1206,8 @@ public sealed class CatalogCallGraphScope : IDisposable
             GraphNodeEvidence evidence,
             AnalysisDiagnostic? diagnostic = null,
             bool hasUnresolvedDispatch = false,
-            ImmutableArray<DirectCall> parentEdgeCallSites = default) =>
+            ImmutableArray<DirectCall> parentEdgeCallSites = default,
+            GraphNodeStorageKey? parentEdgeCallerDefinition = null) =>
             new(member, kind, status, children, perf)
             {
                 GraphEvidence = evidence,
@@ -1200,6 +1217,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 ParentEdgeCallSites = parentEdgeCallSites.IsDefault
                     ? []
                     : parentEdgeCallSites,
+                ParentEdgeCallerDefinition =
+                    parentEdgeCallerDefinition,
             };
 
         static IOrderedEnumerable<StoredEdge> OrderForwardEdges(

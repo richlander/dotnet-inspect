@@ -148,12 +148,7 @@ public static class CallGraphInspectionGraphCatalog
             occurrence.Evidence switch
             {
                 CallGraphCallSiteEvidence callSite =>
-                    (
-                        occurrence.SourceSubject,
-                        callSite.CallerModuleVersionId,
-                        callSite.CallerMethodToken,
-                        callSite.ILOffset,
-                        callSite.OperandToken),
+                    callSite.Identity,
                 CallGraphLogicalEdgeEvidence =>
                     (
                         occurrence.SourceSubject,
@@ -179,6 +174,7 @@ public sealed record CallGraphLogicalEdgeEvidence(int RowNumber)
 
 /// <summary>Typed evidence for one physical IL call site.</summary>
 public sealed record CallGraphCallSiteEvidence(
+    CallGraphCallSiteIdentity Identity,
     Guid CallerModuleVersionId,
     int CallerMethodToken,
     int ILOffset,
@@ -258,6 +254,7 @@ public static class CallGraphInspectionGraphAdapter
                         source,
                         target,
                         new CallGraphCallSiteEvidence(
+                            callSite.Identity,
                             call.Caller.ModuleVersionId,
                             call.Caller.MetadataToken,
                             call.ILOffset,
@@ -327,6 +324,8 @@ public static class CallGraphInspectionGraphAdapter
         return new InspectionGraphDocument(
             projection.Nodes.All(static node =>
                 node.Identity.IsPortable)
+            && projection.CallSites.All(static callSite =>
+                callSite.Identity.IsPortable)
                 ? InspectionGraphDocumentScope.Portable
                 : InspectionGraphDocumentScope.SessionBound,
             nodes,

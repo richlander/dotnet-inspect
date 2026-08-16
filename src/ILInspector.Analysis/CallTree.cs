@@ -61,6 +61,13 @@ public sealed record CallTreeNode(
     public ImmutableArray<DirectCall> ParentEdgeCallSites { get; init; } = [];
 
     /// <summary>
+    /// Acquisition-aware definition storage for the caller that owns
+    /// <see cref="ParentEdgeCallSites"/>, when a catalog scope supplied the
+    /// edge.
+    /// </summary>
+    public GraphNodeStorageKey? ParentEdgeCallerDefinition { get; init; }
+
+    /// <summary>
     /// The recoverable body-analysis failure that made this node incomplete, if any.
     /// </summary>
     public AnalysisDiagnostic? Diagnostic { get; init; }
