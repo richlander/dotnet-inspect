@@ -23,7 +23,6 @@ public static class LibrarySections
     public const string ScannerClassifiedMethods = "ClassifiedMethods";
     public const string ScannerInfoCounts = "InfoCounts";
     public const string ScannerAuditSignals = "AuditSignals";
-    public const string ScannerSwitches = "Switches";
     public const string ScannerUnsafeMembers = "UnsafeMembers";
     public const string ScannerTopLeverage = "TopLeverage";
     public const string ScannerOptimizationOpportunities = "OptimizationOpportunities";
@@ -101,7 +100,8 @@ public static class LibrarySections
                 SourceLinkDiscoverable)
             .Add<Symbols>()
             .Add<Signals>(HasAssemblyInfo)
-            .Add<Switches>()
+            .Add<IdentifierConfusion>(AssemblyReferencesQuery.Definition)
+            .Add<Switches>(SwitchesQuery.Definition)
             .Add<IntegrationOpportunities>(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition)
             .Add<AI>(AssemblyContextIntegrationsQuery.Definition)
@@ -160,6 +160,7 @@ public static class LibrarySections
                 SectionNames.NonNormalizedPaths,
                 SectionNames.SourceLinkDiagnostics,
                 SectionNames.Signals,
+                SectionNames.IdentifierConfusion,
                 SectionNames.Symbols)
             .AddCategory(SectionCategoryNames.Performance,
                 [.. PerformanceKinds.Sections, SectionNames.ArrayPoolEscapes, SectionNames.TopLeverage])
@@ -198,10 +199,6 @@ public static class LibrarySections
                     session => AuditSignalBuilder.PopulateLibraryAudit(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
                     () => AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
                 ScannerClassifiedMethods)
-            .Add(ScannerSwitches, SectionCost.NetworkFree, ctx =>
-                ctx.Model.SwitchInspection = ctx.Scan(
-                    session => LibraryMetadataService.ScanSwitches(session, ctx.AssemblyPath, ctx.Logger),
-                    () => LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger)))
             .Add(ScannerUnsafeMembers, SectionCost.Unbounded, ctx =>
                 ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTopLeverage, SectionCost.Unbounded, ctx =>
@@ -296,6 +293,10 @@ public static class LibrarySections
                 ctx.Query(
                     ResourcesQuery.Execute,
                     ex => new ResourcesResult.Failed(ex)))
+            .Add(SwitchesQuery.Definition, ctx =>
+                ctx.Query(
+                    SwitchesQuery.Execute,
+                    ex => new SwitchesResult.Failed(ex)))
             .Add(TypeForwardersQuery.Definition, ctx =>
                 ctx.Query(
                     TypeForwardersQuery.Execute,
@@ -458,12 +459,24 @@ public static class LibrarySections
             => model.AuditSignals is { Count: > 0 };
     }
 
+    public sealed class IdentifierConfusion : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.IdentifierConfusion;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model)
+            => IdentifierConfusionAudit.InspectLibrary(model).Count > 0;
+    }
+
     public sealed class Switches : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.Switches;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static string? ScannerKey => ScannerSwitches;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.SwitchInspection.CanRenderWithPresence(model.HasSwitches);
     }

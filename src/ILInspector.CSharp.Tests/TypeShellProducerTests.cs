@@ -138,6 +138,447 @@ public sealed class TypeShellProducerTests
         Assert.Null(nestedRequest.Type.BaseType);
     }
 
+    [Fact]
+    public void MemberShellProducer_ComposesInitPropertyPolicy()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Value",
+            Kind: CSharpShellMemberKind.PropertyGet,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetGetterWithInitSetter,
+            Body: "return _value;",
+            ReturnAttributes: ["return: System.Diagnostics.CodeAnalysis.NotNull"],
+            GetterToken: 0x06000001,
+            SetterToken: 0x06000002));
+
+        Assert.Equal(CSharpBodyPolicy.Full, policy.BodyPolicy);
+        Assert.Equal("property", policy.Member.Kind);
+        Assert.Equal(0x06000001, policy.Member.GetterToken);
+        Assert.Equal(0x06000002, policy.Member.SetterToken);
+        Assert.Collection(
+            policy.Member.SignatureModel!.Accessors,
+            getter =>
+            {
+                Assert.Equal("get", getter.Kind);
+                Assert.Equal(
+                    ["return: System.Diagnostics.CodeAnalysis.NotNull"],
+                    getter.ReturnAttributes);
+            },
+            setter => Assert.Equal("init", setter.Kind));
+
+        var body = Assert.IsType<CSharpPropertyBody>(policy.Body);
+        Assert.Equal(
+            CSharpAccessorBody.Block("return _value;") with { IsReplacementTarget = true },
+            body.Getter);
+        Assert.Equal(CSharpAccessorBody.Throw, body.Setter);
+    }
+
+    [Fact]
+    public void MemberShellProducer_ComposesExplicitInterfaceEventWithSiblingBody()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Changed",
+            Kind: CSharpShellMemberKind.EventAdd,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "System.Action",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetEventAccessorWithSibling,
+            Body: "_changed += value;",
+            ExplicitInterfaceMemberName: "IEvents.Changed",
+            SiblingBody: "int* p = stackalloc int[1]; _changed -= value;",
+            AdderToken: 0x06000003,
+            RemoverToken: 0x06000004));
+
+        Assert.True(policy.Member.IsUnsafe);
+        Assert.Equal("explicit-interface-implementation", policy.Member.Kind);
+        Assert.Equal("IEvents.Changed", policy.Member.Name);
+        Assert.Collection(
+            policy.Member.SignatureModel!.Accessors,
+            adder => Assert.Equal("add", adder.Kind),
+            remover => Assert.Equal("remove", remover.Kind));
+
+        var body = Assert.IsType<CSharpEventBody>(policy.Body);
+        Assert.Equal(
+            CSharpAccessorBody.Block("_changed += value;") with { IsReplacementTarget = true },
+            body.Adder);
+        Assert.Equal(
+            CSharpAccessorBody.Block("int* p = stackalloc int[1]; _changed -= value;"),
+            body.Remover);
+    }
+
+    [Fact]
+    public void MemberShellProducer_MarksTargetMethodBodyForReplacement()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Run",
+            Kind: CSharpShellMemberKind.Method,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "void",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return;"));
+
+        var body = Assert.IsType<CSharpBlockBody>(policy.Body);
+        Assert.True(body.IsReplacementTarget);
+    }
+
+    [Fact]
+    public void MemberShellProducer_ComposesExplicitInterfaceMethodDeclaration()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Run",
+            Kind: CSharpShellMemberKind.Method,
+            IsStatic: false,
+            Parameters: [new CSharpShellParameter("value", "ref int")],
+            ReturnType: "T?",
+            TypeParameters:
+            [
+                new CSharpShellTypeParameter(
+                    "T",
+                    ["class"],
+                    [new TypeParameterConstraint("class", IsTypeName: false)],
+                    TypeParameterTypeKind.ReferenceType)
+            ],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return default;",
+            ExplicitInterfaceMemberName: "Samples.IRunner.Run",
+            DeclarationSignature: "this harness text must not be used"));
+
+        Assert.Equal(
+            "T? Samples.IRunner.Run<T>(ref int value)",
+            policy.Member.Signature);
+
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Runner",
+            Kind = "class",
+            Interfaces = ["Samples.IRunner"],
+            Members = [policy.Member],
+        };
+        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides: [policy]));
+
+        Assert.Contains(
+            "T? Samples.IRunner.Run<T>(ref int value)",
+            Assert.Single(result.Units).Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "where T : class",
+            Assert.Single(result.Units).Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberShellProducer_PrintsExplicitInterfaceInitProperty()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Value",
+            Kind: CSharpShellMemberKind.PropertyGet,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetGetterWithInitSetter,
+            Body: "return 1;",
+            ExplicitInterfaceMemberName: "IValue.Value"));
+
+        var type = new ApiType
+        {
+            Name = "Holder",
+            Kind = "class",
+            Interfaces = ["IValue"],
+            Members = [policy.Member],
+        };
+        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides: [policy]));
+
+        Assert.Contains(
+            "int IValue.Value",
+            Assert.Single(result.Units).Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "init",
+            Assert.Single(result.Units).Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberShellProducer_PreservesInitOnlyPropertyShapes()
+    {
+        var skeleton = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Value",
+            Kind: CSharpShellMemberKind.PropertySet,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.InitOnlyProperty,
+            Body: null));
+        var stub = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Value",
+            Kind: CSharpShellMemberKind.PropertySet,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.ThrowInit,
+            Body: null));
+
+        Assert.Equal(CSharpBodyPolicy.Skeleton, skeleton.BodyPolicy);
+        Assert.Equal(CSharpBodyPolicy.Stub, stub.BodyPolicy);
+        Assert.All(
+            [skeleton, stub],
+            policy => Assert.Collection(
+                policy.Member.SignatureModel!.Accessors,
+                accessor => Assert.Equal("init", accessor.Kind)));
+        var body = Assert.IsType<CSharpPropertyBody>(stub.Body);
+        Assert.Null(body.Getter);
+        Assert.Equal(CSharpAccessorBody.Throw, body.Setter);
+    }
+
+    [Theory]
+    [InlineData(CSharpShellMemberKind.Method, "Run")]
+    [InlineData(CSharpShellMemberKind.Method, " IRunner.Run")]
+    [InlineData(CSharpShellMemberKind.Method, "IRunner..Run")]
+    [InlineData(CSharpShellMemberKind.Method, "I Runner.Run")]
+    [InlineData(CSharpShellMemberKind.Method, "IMap<I Runner, int>.Run")]
+    [InlineData(CSharpShellMemberKind.Method, "IMap<Ns..Value, int>.Run")]
+    [InlineData(CSharpShellMemberKind.Method, "IMap<string,, int>.Run")]
+    public void MemberShellProducer_RejectsUnqualifiedExplicitInterfaceName(
+        CSharpShellMemberKind memberKind,
+        string explicitInterfaceMemberName)
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+                Name: "Run",
+                Kind: memberKind,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: "void",
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.TargetBody,
+                Body: "return;",
+                ExplicitInterfaceMemberName: explicitInterfaceMemberName)));
+
+        Assert.Contains(
+            "must be qualified as 'Interface.Member'",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("IMap<string, int>.Run")]
+    [InlineData("IMap<System.Collections.Generic.IReadOnlyList<string>, int[,]>.Run")]
+    [InlineData("IMap<(int left, string right), int>.Run")]
+    public void MemberShellProducer_AcceptsGenericExplicitInterfaceName(string name)
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Run",
+            Kind: CSharpShellMemberKind.Method,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "void",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return;",
+            ExplicitInterfaceMemberName: name));
+
+        Assert.Equal($"void {name}()", policy.Member.Signature);
+    }
+
+    [Fact]
+    public void MemberShellProducer_RejectsBodylessExplicitInterfaceMethod()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+                Name: "Run",
+                Kind: CSharpShellMemberKind.Method,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: "void",
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.None,
+                Body: null,
+                ExplicitInterfaceMemberName: "IRunner.Run")));
+
+        Assert.Contains(
+            "body shape 'None' is not valid for member kind 'Method'",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(CSharpShellBodyKind.None)]
+    [InlineData(CSharpShellBodyKind.InitOnlyProperty)]
+    public void MemberShellProducer_RejectsExplicitSetterOnlySkeleton(
+        CSharpShellBodyKind bodyKind)
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+                Name: "Value",
+                Kind: CSharpShellMemberKind.PropertySet,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: "int",
+                TypeParameters: [],
+                BodyKind: bodyKind,
+                Body: null,
+                ExplicitInterfaceMemberName: "IValue.Value")));
+
+        Assert.Contains(
+            $"body shape '{bodyKind}' is not valid for member kind 'PropertySet'",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(CSharpShellMemberKind.Constructor)]
+    [InlineData(CSharpShellMemberKind.Field)]
+    public void MemberShellProducer_RejectsExplicitInterfaceNameForUnsupportedMember(
+        CSharpShellMemberKind memberKind)
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+                Name: "Member",
+                Kind: memberKind,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: "int",
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.None,
+                Body: null,
+                ExplicitInterfaceMemberName: "IContract.Member")));
+
+        Assert.Contains(
+            $"Member kind '{memberKind}' does not support an explicit-interface name",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(CSharpShellMemberKind.PropertyGet, CSharpShellBodyKind.TargetSetterWithGetter)]
+    [InlineData(CSharpShellMemberKind.PropertySet, CSharpShellBodyKind.TargetGetterWithSetter)]
+    [InlineData(CSharpShellMemberKind.Method, CSharpShellBodyKind.TargetInitBody)]
+    [InlineData(CSharpShellMemberKind.Method, CSharpShellBodyKind.TargetEventAccessorWithSibling)]
+    [InlineData(CSharpShellMemberKind.EventAdd, CSharpShellBodyKind.AutoProperty)]
+    [InlineData(CSharpShellMemberKind.Method, CSharpShellBodyKind.FieldInitializer)]
+    [InlineData(CSharpShellMemberKind.Field, CSharpShellBodyKind.Throw)]
+    [InlineData(CSharpShellMemberKind.PropertySet, CSharpShellBodyKind.AutoProperty)]
+    public void MemberShellProducer_RejectsBodyKindForDifferentMemberShape(
+        CSharpShellMemberKind memberKind,
+        CSharpShellBodyKind bodyKind)
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+                Name: "Member",
+                Kind: memberKind,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: "int",
+                TypeParameters: [],
+                BodyKind: bodyKind,
+                Body: "return 0;",
+                SiblingBody: "return;")));
+
+        Assert.Contains(
+            $"body shape '{bodyKind}' is not valid for member kind '{memberKind}'",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberShellProducer_ComposesPrimaryConstructorStubInitializer()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(
+            new CSharpMemberShellSpec(
+                Name: ".ctor",
+                Kind: CSharpShellMemberKind.Constructor,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: null,
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.Throw,
+                Body: null),
+            primaryConstructorParameterCount: 2);
+
+        Assert.Equal(CSharpBodyPolicy.Stub, policy.BodyPolicy);
+        var body = Assert.IsType<CSharpBlockBody>(policy.Body);
+        Assert.Equal("throw null;", body.Source);
+        Assert.NotNull(body.ConstructorInitializer);
+        Assert.Equal(CSharpConstructorInitializerKind.This, body.ConstructorInitializer.Kind);
+        Assert.Equal(["default", "default"], body.ConstructorInitializer.Arguments);
+    }
+
+    [Fact]
+    public void MemberShellProducer_PreservesStubConstructorInitializer()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(
+            new CSharpMemberShellSpec(
+                Name: ".ctor",
+                Kind: CSharpShellMemberKind.Constructor,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: null,
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.Throw,
+                Body: null,
+                ConstructorInitializer: "base((int*)0)"));
+
+        Assert.True(policy.Member.IsUnsafe);
+        var body = Assert.IsType<CSharpBlockBody>(policy.Body);
+        Assert.Equal("throw null;", body.Source);
+        Assert.NotNull(body.ConstructorInitializer);
+        Assert.Equal(CSharpConstructorInitializerKind.Base, body.ConstructorInitializer.Kind);
+        Assert.Equal(["(int*)0"], body.ConstructorInitializer.Arguments);
+    }
+
+    [Theory]
+    [InlineData(CSharpShellMemberKind.Method, "base(1)")]
+    [InlineData(CSharpShellMemberKind.Constructor, "other(1)")]
+    public void MemberShellProducer_RejectsInvalidConstructorInitializer(
+        CSharpShellMemberKind kind,
+        string initializer)
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+                Name: kind == CSharpShellMemberKind.Constructor ? ".ctor" : "Run",
+                Kind: kind,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: kind == CSharpShellMemberKind.Constructor ? null : "void",
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.Throw,
+                Body: null,
+                ConstructorInitializer: initializer)));
+
+        Assert.Contains("Constructor initializers require a constructor shell", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("ref int", null, "int", "ref")]
+    [InlineData("ref int", "out", "int", "out")]
+    [InlineData("string", null, "string", null)]
+    public void MemberShellProducer_NormalizesParameterModifier(
+        string type,
+        string? modifier,
+        string expectedType,
+        string? expectedModifier)
+    {
+        var parameter = CSharpMemberShellProducer.BuildParameter(
+            new CSharpShellParameter("value", type, modifier));
+
+        Assert.Equal(expectedType, parameter.Type);
+        Assert.Equal(expectedModifier, parameter.Modifier);
+    }
+
     static async Task RuntimeAsyncFixture()
         => await Task.Yield();
 

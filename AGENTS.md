@@ -14,16 +14,6 @@ rules. Detailed design, subsystem mechanics, version requirements, and
 historical context belong with their owning code, workflow, or focused
 documentation.
 
-### Nightshift is opt-in
-
-`NIGHTSHIFT.md`, the `nightshift` skills, and the
-`nightshift`/`turnstile`/`octoshift` tools describe a separate multi-agent
-operating model with its own vocabulary and its own stricter gates. **They apply
-only when you have been explicitly told that you are working in Nightshift mode
-for this session.** Otherwise they are inapplicable: follow this file, and do
-not adopt Nightshift roles, orders, gates, or tooling merely because you noticed
-those documents exist.
-
 ### Markout changes use the co-development loop
 
 When a change needs new or altered Markout behavior, read
@@ -279,16 +269,16 @@ wrapper is the one tested copy of that logic; `IlToolsActivationTests` in
 goes back to hand-rolling the assembly.
 
 The script pins the `ilasm`/`ildasm` version for CI and local runs alike;
-`ci.yml`, `deep-inspect.yml`, and `release.yml` invoke `eng/restore-iltools.sh`
-directly, appending its output to `$GITHUB_PATH` so the runner does the joining.
-Only `ci.yml` passes `--mdv`, because it is the only workflow that runs the
-metadata oracle suite. Each install step is `continue-on-error` so that a feed
-outage does not cost every other result in the lane, but a terminal
+`ci.yml` and `deep-inspect.yml` invoke `eng/restore-iltools.sh` directly,
+appending its output to `$GITHUB_PATH` so the runner does the joining. Only
+`ci.yml` passes `--mdv`, because it is the only workflow that runs the metadata
+oracle suite. Each install step is `continue-on-error` so that a feed outage
+does not cost every other result in the lane, but a terminal
 `Check ilasm/ildasm[/mdv] result` step fails the lane if acquisition failed:
-losing oracle coverage is red, not a quietly shorter skip list. In
-`release.yml`, that failed test lane blocks every package build and publish
-job. `IlToolsActivationTests.SlowWorkflows_FailAfterOracleRestoreFailure`
-gates the Deep Inspect and publish wiring.
+losing oracle coverage is red, not a quietly shorter skip list. Deep Inspect
+cannot certify that commit, so `release.yml` rejects the run before building
+packages. `IlToolsActivationTests.SlowWorkflows_FailAfterOracleRestoreFailure`
+gates the Deep Inspect wiring.
 
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.

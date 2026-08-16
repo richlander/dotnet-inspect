@@ -278,6 +278,27 @@ and
 `PlatformResolverTests.ResolveAssembly_AssemblyNameCannotEscapeReferencePack`
 gate these seams.
 
+### Restored manifest paths remain within their owning roots
+
+Paths read from `.deps.json` and `project.assets.json` are relative artifact
+identity, not authority to choose a filesystem location. `StorePath` resolves
+each path one root at a time and rejects rooted values, traversal segments,
+volume-qualified segments, empty segments, and separator ambiguity before the
+filesystem is consulted. A `.deps.json` `localPath` remains under the target
+assembly directory. Package paths remain under the global packages root, and
+asset paths remain under their owning package directory rather than merely
+somewhere else in the package cache.
+
+Project-assets rejection diagnostics name the manifest field and containment
+rule without echoing the rejected value. The
+`AssemblyDependencyResolverTests.ResolveAll_DepsJsonLocalPathCannotEscapeTargetDirectory`,
+`AssemblyDependencyResolverTests.ResolveAll_DepsJsonPackagePathCannotEscapeGlobalPackagesRoot`,
+`ProjectAssetsParserTests.Parse_LibraryPathCannotEscapeGlobalPackagesRoot`,
+`ProjectAssetsParserTests.Parse_AssetPathCannotEscapeOwningPackageDirectory`,
+`ProjectAssetsParserTests.ParsePackageReferences_LibraryPathCannotEscapeGlobalPackagesRoot`,
+`ProjectAssetsParserTests.ParsePackageFileEntries_FilePathCannotEscapeOwningPackageDirectory`,
+and `StorePathTests` gates enforce this boundary.
+
 ### Package archives use traversal-aware extraction
 
 NuGet package extraction uses `ZipFile.ExtractToDirectory`, which rejects
@@ -288,10 +309,32 @@ into product caches (`FileSystemPackageStore.CommitAsync`).
 Symbol-package (`.snupkg`) PDB acquisition does not extract the archive to disk.
 `SnupkgPdbReader` opens the archive in memory, matches candidate entries by file
 name only (never by attacker-controlled directory paths), validates each
-candidate's PDB header and debug GUID, and returns the matching bytes. Those
+candidate's PDB header and complete Portable PDB content id (GUID plus stamp),
+and returns the matching bytes. Those
 bytes are then persisted through `IPdbStore`; the filesystem implementation
 (`FileSystemPdbStore`) maps only store-composed, per-segment-validated keys onto
-disk, so no archive-entry name is ever used as an output path.
+disk, so no archive-entry name is ever used as an output path. It publishes
+through a unique sibling staging file and atomically replaces the final entry,
+so a concurrent reader never accepts a partially written PDB. Symbol-server
+keys include the canonical provider host and complete Portable PDB content
+identity, preserving both provider and payload identity on cache reuse. A
+pathless host reads the same validated store entry through
+`AcquiredPortablePdb`; its explicit-capability service overload requires both
+the store and an already authorized package-source policy, while the legacy
+desktop overload remains path-bound instead of permitting a pathless caller to
+discover ambient NuGet configuration. Store failures while opening or reading
+that acquired entry propagate rather than becoming ordinary symbol absence.
+These properties are gated by
+`PdbIdentityTests.LoadPdbFromStream_RejectsMatchingGuidWithDifferentStamp`,
+`PdbIdentityTests.PortablePdbIdentity_WindowsCodeViewCannotAuthorizePortablePdb`,
+`SymbolPackageDownloaderTests.AcquirePdbAsync_MsdlCachePreservesProvider`,
+`SymbolPackageDownloaderTests.AcquiredPortablePdb_DifferentStampsRemainRepeatable`,
+`SymbolPackageDownloaderTests.AcquirePdbAsync_ExplicitStore_DoesNotUseAmbientCaches`,
+`PdbAcquisitionServiceTests.DescriptorAcquisition_RequiresExplicitHostCapabilities`,
+`PdbAcquisitionServiceTests.PathlessParticipant_DesktopOverloadDoesNotAcquire`,
+`PdbAcquisitionServiceTests.PathlessParticipant_StoreReadFailureIsVisible`,
+and
+`PdbStoreTests.FileSystemPdbStore_FailedReplacementPreservesPublishedContent`.
 
 Package identifiers and versions used as cache path components pass
 `NuGetCache.ValidatePathComponent`, which rejects empty or whitespace values,
@@ -308,8 +351,49 @@ file name recovered from untrusted PE debug metadata that is not a usable single
 segment yields a graceful "no symbols" miss rather than an output path. General
 cache entries use SHA-256-derived keys through `CoreCache`.
 
-Archive containment does not itself bound expanded bytes, entry count, or disk
-consumption. Resource budgets remain an open requirement below.
+The Browser-Wasm package path is filesystem-free but uses the shared
+`PackageCoordinateResolver`, `PackagePayloadAcquisition`,
+`PackageArchiveValidator`, and `PackageResourceUrl` owners. Host policy supplies
+the narrower bounds: the shared 16 MB text-response cap for a version listing,
+128 MB for a downloaded nupkg, 512 MB for aggregate declared archive expansion,
+64 MB for one expanded assembly entry, and 16 MB for one expanded Markdown or
+XML entry. It also rejects more than 4,096 archive entries. The shared archive
+validator selects the same highest-offset end record as `ZipArchive` and scans
+its central directory without allocating entry objects before `ZipArchive` can
+materialize them, then applies its path, directory, compression, CRC, and
+observed-expansion checks.
+`InMemoryPackageContent` rejects an entry whose declared expanded length exceeds
+the caller's limit before allocating that length, then verifies the observed
+expansion against the declaration. `InMemoryPackageContentTests` gates the
+pre-expansion rejection and bounded declared/unknown-length stream reads.
+The host's 128 MB package-cache budget is aggregate: an open inspection scope's
+nupkg remains represented in the same LRU, and evicting that package disposes
+every retaining scope before removing the cache entry. Scope reuse therefore
+cannot keep an evicted archive alive outside the advertised budget.
+Package downloads must declare their content length. The Browser implements
+`IPackagePayloadTransferPolicy`, which reserves that length and evicts unleased
+entries after shared transport receives the headers but before it reads the
+body. The reservation becomes a cache entry only after shared archive validation,
+store commit, and re-admission complete.
+Composite workspace construction temporarily leases each resolved coordinate,
+so a later acquisition cannot evict an earlier pending coordinate. In-flight
+reservations and retained cache entries share the same 12-package/128 MB limit.
+Before assembly identity decoding, each workspace role also rejects more than
+256 selected assemblies or a declared expanded total above that role's 32/64 MB
+retained-image budget.
+`BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
+gates aggregate ownership and eviction; its oversized-role case gates
+pre-decoding rejection.
+`PackageArchiveEntryFlood_IsRejectedBeforeArchiveEnumeration` gates the
+host-specific central-directory entry limit.
+`PackagePayloadAcquisitionTests.TransferPolicy_ReservesBeforeBodyReadAndCompletesAfterCommit`,
+`TransferPolicy_RejectedPayloadDisposesWithoutCompleting`, and
+`TransferPolicy_CanRequireContentLengthBeforeBodyRead` gate the capacity seam.
+
+Those controls are specific to the Browser-Wasm acquisition host. Archive
+containment in the broader product does not itself bound expanded bytes, entry
+count, or disk consumption, and symbol-package expansion has its own path.
+Product-wide resource budgets remain an open requirement below.
 
 ### Untrusted JSON rejects duplicate properties
 
@@ -334,6 +418,31 @@ The coverage is not yet complete, and the gaps are on the feed path specifically
 `NuGetFetch.NuGetApi` deserializes the service index, version index, and search responses through a
 source-generated context that does not reject duplicates. `runfaster` also still parses its trace
 inputs directly. Nothing gates the invariant, which is why the gaps persisted; see open work below.
+
+### NuGet metadata response bodies are bounded
+
+NuGetFetch reads service indexes, version indexes, and search responses headers-first, rejects an
+advertised `Content-Length` above the configured ceiling, and counts the bytes actually consumed
+when the length is absent or false. The default ceiling is 16 MiB. A separate body-phase timeout
+defaults to 30 seconds and never exceeds a shorter configured `HttpClient.Timeout`, because that
+client timeout stops applying once a headers-first request returns. Metadata requests also require
+Browser/Wasm streaming-response mode so the browser transport cannot buffer an unbounded body
+before the counting stream sees it.
+
+Oversize and body-timeout failures have dedicated exception types. They are not represented as
+`JsonException`, `HttpRequestException`, a null document, or an empty result, so existing malformed
+JSON handling and multi-source fallback cannot turn a resource-limit failure into success-shaped
+output. Direct `NuGetApi` stream consumers pass through the same bounded reader. Package payload
+streams (`.nupkg` and `.snupkg`) are deliberately excluded; their larger download policy belongs to
+the acquisition layer.
+
+This is gated by
+`NuGetMetadataLimitTests.Search_AdvertisedOversizeRejectsBeforeReadingTheBody`,
+`NuGetMetadataLimitTests.Search_UnderreportedLengthCannotBypassTheActualByteLimit`,
+`NuGetMetadataLimitTests.MetadataGets_RequestBrowserStreaming`,
+`NuGetMetadataLimitTests.StalledBodyUsesTheBodyPhaseTimeout`,
+`NuGetMetadataLimitTests.DirectNuGetApiReadersUseTheDefaultLimit`, and
+`NuGetMetadataLimitTests.PackagePayloadIsNotSubjectToTheMetadataLimit`.
 
 ### SourceLink provenance is read off the URL source is fetched from
 
@@ -904,6 +1013,118 @@ structure and must not interpret inspected text as authority.
 > caller, while refusing is a policy only a caller can choose — but it means the
 > trust axis currently exists only where a command line can express it.
 
+The package inspection path now has the enabling boundary and a bounded audit
+summary, but not the refusal policy:
+`PackageInspectionText` carries every package-model text field to Markdown,
+direct JSON, and focused package table/JSONL metadata as `InertString`;
+content-output rows do the same for their package, version, and path framing.
+`InspectionResultView.RequiredContainment` reports the inspection model's
+aggregate before a sink unwraps it, and package `Signals` reports whether that
+aggregate is empty plus its `TextConcern` category kinds. The explicit
+`Audit: Artifact Text` section lists package-model field locations and concern
+kinds, but never the field values. It is not the scalar-by-scalar refusal survey
+mode described below: it reports one row per contained presentation field and
+does not change rendering policy. Explicit document payloads remain raw by
+contract. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`
+and `Package_MultiplePackages_SignalsIncludePackageFileConcerns` gate the
+summary across single-package and survey modes;
+`PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gates the
+detail reporting boundary. This is intentionally not a global CLI signal.
+Other commands and projections still have their own presentation models, so
+adopting the flags at the root today would claim coverage they do not have.
+
+Identifier confusion is a separate semantic risk from rendering. Package IDs
+and assembly names containing non-ASCII characters remain safe to carry as
+graphic text, so `TextConcern` correctly stays empty. Package Signals and
+library Signals over the selected assembly plus direct references nevertheless
+report those identifiers for review, and a bounded exact homoglyph fold
+confirms Greek/Cyrillic lookalikes in the ecosystem prefixes `System`,
+`Microsoft`, and `Azure`. The explicit library
+`Audit: Identifier Confusion` section additionally resolves the transitive
+reference closure; the unbounded traversal requires that explicit gesture. The
+section exposes model locations, classifications, matched prefixes, similarity,
+and code points without echoing identifier content.
+`IdentifierConfusionDetectorTests` gates the detector boundary, including
+monotone classification when several confirmed homoglyphs compose one reserved
+prefix,
+`DescribeCharacters_DeduplicatesRepeatedHomoglyphCodePoints` gates stable
+code-point rendering when one substitution occurs more than once,
+`LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames`
+gates the direct library producer demand,
+`PackageAllLibrariesIdentifierConfusionAudit_CollectsTransitiveReferences`
+gates survey-mode demand,
+`LibraryIdentifierConfusionAudit_FullEffectiveDiscoveryIncludesTransitiveOnlyConcern`
+gates full-effective discovery,
+`LibrarySignals_FullEffectiveDiscoveryPropagatesReferenceFailure`
+gates nonzero failure propagation through Signals effective discovery,
+`LibraryIdentifierConfusionAudit_DoesNotRepeatDirectReferenceFromClosure`
+gates direct/closure identity deduplication,
+`LibraryAudit_PreservesCaseDistinctResolvedNames` gates case-distinct
+direct/closure suppression, while
+`LibraryIdentifierConfusionAudit_PreservesCaseDistinctUnresolvedReferences`
+gates preservation of those spellings through traversal,
+`LibraryIdentifierConfusionAudit_DeduplicatesDiamondClosure` gates one
+projection row per resolved identity when several reference paths converge,
+`AssemblyReferenceTreeResolutionTests.DistinctSameNameReferences_DoNotSuppressResolvableIdentity`
+gates distinct typed AssemblyRefs that share a simple name,
+`LibraryIdentifierConfusionAudit_FailsWhenResolvedReferenceCannotBeRead`
+gates visible traversal failure for absolute and bare relative library paths,
+including preservation of the other selected `@Audit` sections,
+`LibraryPackageIdentifierConfusionAudit_FailsWithoutPartialDocument` gates the
+same content-free hard failure for an exact package-backed library selection,
+`PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
+gates clean diagnostics, healthy partial results, and nonzero completion for
+survey-mode traversal failure,
+`LibraryCommand_TfmAll_PreservesHealthyIdentifierAuditResults` gates the same
+per-source outcome contract across target frameworks, and
+`LibraryIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
+plus
+`PackageAllLibrariesIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
+gate visible root AssemblyRef decode failure without a success-shaped clean
+result. Traversal diagnostics retain caller-known command context, while survey
+warnings identify the package-relative library and a bounded failure category;
+neither repeats the AssemblyRef value, product-owned extraction path, or inner
+exception message.
+`LibraryReferenceTree_ReadFailureDiagnosticIsContentFree` gates that same
+diagnostic contract on the public reference-tree projection.
+`PackagePipeline_IdentifierConfusionAudit_DemandsRegistrationMetadata` plus
+`InspectAsync_IdentifierAuditMetadataIncludesAlternatePackageId` gate the
+alternate-package metadata demand, producer result, and moderated network
+cost. `InspectAsync_IdentifierAuditMetadataFailureRemainsVisible` gates an
+`Unavailable` result when registry acquisition cannot establish
+alternate-package metadata; a failed acquisition is not interpreted as an
+absent alternate ID.
+`FetchAllMetadataAsync_FlatContainerOnlyCompletesOptionalMetadata` and
+`PackageCommand_FlatContainerOnlyPreservesLocalIdentifierDetection` gate the
+complement: absence of optional deprecation resources in a valid service index
+is not an acquisition failure.
+`FetchAllMetadataAsync_SearchDeprecationMustMatchRequestedVersion` gates
+version-specific authority for search deprecation metadata;
+`FetchAllMetadataAsync_DoesNotCacheMismatchedSearchVersion` gates retry after
+that mismatch, while
+`FetchAllMetadataAsync_CachesMatchingSearchVersionWithoutDeprecation` and
+`FetchAllMetadataAsync_CachesCatalogAuthorityDespiteSearchVersionMismatch`
+gate authoritative absence and catalog precedence;
+`FetchAllMetadataAsync_DoesNotCacheMismatchedInlineCatalogIdentity` and
+`FetchAllMetadataAsync_DoesNotCacheMismatchedFetchedCatalogIdentity` gate the
+same identity and retry contract for both catalog forms; and
+`FetchAllMetadataAsync_IgnoresMalformedCatalogReference` gates retry after a
+malformed catalog reference.
+`PackageCommand_IdentifierMetadataFailureIsNonzero` gates nonzero completion
+and content-free diagnostics for that failure.
+`MultiPackageCount_CountsSelectedAuditRows` gates scalar counts against the
+selected audit rows rather than unrelated package-info fields;
+`MultiPackageCount_PreservesSelectedSectionMap` plus
+`MultiPackageCount_PreservesFixedOverviewMap` gate multi-section count maps;
+`Package_MultiplePackages_FixedOverviewCountPopulatesSections` gates the
+command path that supplies those fixed-overview sections;
+`LibraryPackageSignals_FullEffectiveDiscoveryWarnsOnce` gates one diagnostic
+per package effective-discovery failure;
+`LibraryCommand_SelectedReferences_TreeDedupUsesShallowestPath` gates
+minimum-depth canonicalization under a bounded reference traversal; and
+`PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent`
+gates content-free Markdown and structured output.
+
 Presentation is **two orthogonal decisions**, and collapsing them into one flag
 is a design error.
 
@@ -1092,7 +1313,7 @@ only ordinary compiler output.
 | Surface | Required evidence |
 | --- | --- |
 | Resource extraction | Traversal and rooted names rejected before writes; valid nested and empty resources retained; malformed ranges rejected; separator/case aliases collide; existing file preserved; device/control names rejected |
-| Archive extraction | Zip-slip fixture; expanded-size and entry-count policy tests once budgets exist |
+| Archive extraction | Zip-slip fixture; Browser-Wasm declared/observed expanded-size rejection; product-wide expanded-size and entry-count policy tests once those budgets exist |
 | Metadata and signatures | Malformed table/blob fixtures, depth/size limits, no process crash |
 | SourceLink | Private/loopback targets rejected per hop; attributed redirects must preserve the complete repository/revision origin; rendered network source requires the portable-PDB checksum; pre-origin-validation caches are ignored; allowed public targets and checksum paths retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
@@ -1107,8 +1328,10 @@ only ordinary compiler output.
    source-generated feed contexts, and `runfaster` trace parsing. Add a gate
    asserting no product JSON entry point parses outside the guard, so the set
    cannot silently regrow.
-2. Define package, symbol, source-download, and decompressed-archive byte and
-   entry-count budgets.
+2. Define product-wide package, symbol, source-download, and
+   decompressed-archive byte and entry-count budgets. The Browser-Wasm package
+   host now has byte and entry-count limits, but that host-specific policy does not settle the
+   extraction, symbol, or entry-count contracts for other consumers.
 3. Audit every product write against the derived-path rules, including symbol
    server cache path construction.
 4. Continue auditing Markdown, plain-text, and stderr rendering for terminal

@@ -46,6 +46,7 @@ public sealed record CSharpFormatOptions
     public bool ForceAsync { get; init; }
     public bool ForceUnsafe { get; init; }
     public bool IncludeCustomAttributes { get; init; } = false;
+    public bool IncludeSignatureAttributes { get; init; } = true;
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
     public bool OmitPropertyAccessors { get; init; }
@@ -92,6 +93,53 @@ public sealed class CSharpFormatter
             member,
             _declarationOptions,
             methodParameters);
+    }
+
+    /// <summary>
+    /// Formats one accessor declaration head, including its return attributes
+    /// and accessor-specific accessibility.
+    /// </summary>
+    public string FormatAccessorHead(
+        ApiType type,
+        ApiMember member,
+        string kind)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+
+        var accessor = member.SignatureModel?.Accessors
+            .FirstOrDefault(candidate => candidate.Kind == kind);
+        var parts = new List<string>();
+        if (accessor?.ReturnAttributes is { Count: > 0 } returnAttributes)
+        {
+            var attributeProbe = new ApiMember
+            {
+                Name = "__AccessorAttributeProbe",
+                Kind = "method",
+                SignatureModel = new ApiSignature
+                {
+                    ReturnType = "void",
+                    MemberName = "__AccessorAttributeProbe",
+                    ReturnAttributes = returnAttributes
+                }
+            };
+            string formattedProbe = FormatMember(type, attributeProbe);
+            attributeProbe.SignatureModel.ReturnAttributes = [];
+            string formattedDeclaration = FormatMember(type, attributeProbe);
+            if (!formattedProbe.EndsWith(formattedDeclaration, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"C# accessor '{member.Name}.{kind}' return attributes were not rendered.");
+            }
+            string attributePrefix = formattedProbe[..^formattedDeclaration.Length].TrimEnd();
+            if (attributePrefix.Length > 0)
+                parts.Add(attributePrefix);
+        }
+        if (!string.IsNullOrWhiteSpace(accessor?.Accessibility))
+            parts.Add(accessor.Accessibility!);
+        parts.Add(kind);
+        return string.Join(" ", parts);
     }
 
     public string FormatMemberWithBody(
@@ -520,6 +568,7 @@ public sealed class CSharpFormatter
             ForceAsync = options.ForceAsync,
             ForceUnsafe = options.ForceUnsafe,
             IncludeCustomAttributes = options.IncludeCustomAttributes,
+            IncludeSignatureAttributes = options.IncludeSignatureAttributes,
             IncludeObsoleteAttribute = options.IncludeObsoleteAttribute,
             OmitInterfaceMemberModifiers = options.OmitInterfaceMemberModifiers,
             OmitPropertyAccessors = options.OmitPropertyAccessors

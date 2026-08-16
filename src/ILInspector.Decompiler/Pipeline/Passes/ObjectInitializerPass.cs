@@ -1013,7 +1013,7 @@ public sealed class ObjectInitializerPass : IIrPass
     // argument or a member value — holds a `ref` to it that the fold could reorder
     // across. Scoped to this function's slot pool (nested functions have their own).
     static bool AddressTakenOnce(IrFunction function, int index)
-        => GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function)
+        => function.DescendantsOutsideNestedFunctions
             .OfType<LoadLocalAddress>()
             .Count(address => address.Index == index) == 1;
 
@@ -1227,7 +1227,7 @@ public sealed class ObjectInitializerPass : IIrPass
         // — over-counting a load would wrongly block the inline, and (worse) inlining
         // into a nested scope's load would reparent an outer expression across the
         // closure boundary. DescendantsOutsideNestedFunctions stops at those bounds.
-        IEnumerable<IrNode> Scoped() => GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function);
+        IEnumerable<IrNode> Scoped() => function.DescendantsOutsideNestedFunctions;
 
         foreach (var statement in skipped)
         {

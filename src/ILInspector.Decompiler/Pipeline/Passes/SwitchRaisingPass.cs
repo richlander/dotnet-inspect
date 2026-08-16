@@ -75,11 +75,18 @@ public sealed class SwitchRaisingPass : IIrPass
 
     static bool FoldOne(IrFunction function, Stepper stepper)
     {
-        var leaveTargets = function.Descendants.OfType<Leave>()
-            .Select(leave => leave.TargetOffset)
-            .ToHashSet();
+        var leaveTargetsByScope = new Dictionary<IrNode, HashSet<int>>(ReferenceEqualityComparer.Instance);
+        foreach (var leave in function.Descendants.OfType<Leave>())
+        {
+            var scope = FunctionScopeOf(leave, function);
+            (leaveTargetsByScope.TryGetValue(scope, out var targets)
+                ? targets
+                : leaveTargetsByScope[scope] = []).Add(leave.TargetOffset);
+        }
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
+            if (!leaveTargetsByScope.TryGetValue(FunctionScopeOf(container, function), out var leaveTargets))
+                leaveTargets = [];
             var blocks = container.Blocks;
             for (int s = 0; s < blocks.Count; s++)
             {
@@ -98,6 +105,18 @@ public sealed class SwitchRaisingPass : IIrPass
             }
         }
         return false;
+    }
+
+    static IrNode FunctionScopeOf(IrNode node, IrFunction function)
+    {
+        for (var current = node.Parent;
+            current is not null && !ReferenceEquals(current, function);
+            current = current.Parent)
+        {
+            if (current is Lambda or LocalFunctionStatement)
+                return current;
+        }
+        return function;
     }
 
     static bool Raise(
@@ -221,10 +240,25 @@ public sealed class SwitchRaisingPass : IIrPass
                 return false;
         if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
             return false;
+        if (OuterContinueCouldBeCaptured(blocks, regions, offsetToIndex))
+            return false;
 
         // Nothing outside the switch (the block s aside, which dispatches) may
         // enter the owned blocks — including a leave from another container.
-        if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
+        // A bare default dispatcher is tiled as owned but omitted by Build, so
+        // no surviving transfer may target it, including one from a case body.
+        bool defaultDispatcherIsRetained =
+            defaultBodyHead == defaultIndex || defaultSharesTarget == defaultIndex;
+        int? consumedDefaultDispatcherOffset = defaultDispatcherIsRetained
+            ? null
+            : blocks[defaultIndex].StartOffset;
+        if (!OnlyReachedByTable(
+                blocks,
+                owned,
+                s,
+                leaveTargets,
+                regions,
+                consumedDefaultDispatcherOffset))
             return false;
 
         Build(function, container, s, sw, caseTargets, regions, defaultBodyHead, defaultSharesTarget, join, regionEnd, stepper);
@@ -372,6 +406,8 @@ public sealed class SwitchRaisingPass : IIrPass
         }
         if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
             return false;
+        if (OuterContinueCouldBeCaptured(blocks, regions, offsetToIndex))
+            return false;
 
         // The join must be a genuine merge a section breaks to — never an arbitrary
         // terminating case (which would wrongly empty-case it). A predecessor
@@ -392,7 +428,7 @@ public sealed class SwitchRaisingPass : IIrPass
             if (idx < defaultIndex || idx >= regionEnd)
                 return false;
 
-        if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
+        if (!OnlyReachedByTable(blocks, owned, s, leaveTargets, regions))
             return false;
 
         GuardRange? guardRange = TryGetPrecedingEnumGuardRange(
@@ -1024,7 +1060,10 @@ public sealed class SwitchRaisingPass : IIrPass
 
     /// <summary>
     /// Successor block indices (including conditional/no-terminator fall-through),
-    /// or false for an unsupported section shape such as a direct structured transfer.
+    /// or false for an unsupported section shape. A terminal <see cref="Continue"/>
+    /// has no successor in this container and keeps its enclosing-loop owner when
+    /// wrapped in a switch; <see cref="Break"/> declines because the new switch
+    /// would capture it.
     /// </summary>
     internal static bool TrySuccessors(IReadOnlyList<Block> blocks, int idx, Dictionary<int, int> offsetToIndex, out List<int> succs)
     {
@@ -1038,7 +1077,7 @@ public sealed class SwitchRaisingPass : IIrPass
         var last = block.Children.Count > 0 ? block.Children[^1] : null;
         switch (last)
         {
-            case Return or Throw:
+            case Return or Throw or Continue:
                 return true;
             case Branch branch:
                 if (!offsetToIndex.TryGetValue(branch.TargetOffset, out int bt))
@@ -1052,7 +1091,7 @@ public sealed class SwitchRaisingPass : IIrPass
                 if (idx + 1 < blocks.Count)
                     succs.Add(idx + 1);
                 return true;
-            case SwitchBranch or Leave or EndFinally or EndFilter or Break or Continue:
+            case SwitchBranch or Leave or EndFinally or EndFilter or Break:
                 return false;
             default:
                 if (idx + 1 < blocks.Count)
@@ -1271,19 +1310,115 @@ public sealed class SwitchRaisingPass : IIrPass
         return false;
     }
 
-    static bool OnlyReachedByTable(IReadOnlyList<Block> blocks, HashSet<int> owned, int s, HashSet<int> leaveTargets)
+    static bool ContainsOuterOwnedContinue(IReadOnlyList<Block> blocks, List<int> region)
     {
-        var ownedOffsets = owned.Select(i => blocks[i].StartOffset).ToHashSet();
-        if (ownedOffsets.Overlaps(leaveTargets))
+        foreach (int idx in region)
+        {
+            var root = blocks[idx];
+            foreach (var node in root.DescendantsOutsideNestedFunctions)
+            {
+                if (node is not Continue @continue)
+                    continue;
+                for (var ancestor = @continue.Parent; ancestor is not null; ancestor = ancestor.Parent)
+                {
+                    if (ReferenceEquals(ancestor, root))
+                        return true;
+                    if (ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement)
+                        break;
+                }
+            }
+        }
+        return false;
+    }
+
+    static bool RegionContainsCycle(
+        IReadOnlyList<Block> blocks,
+        List<int> region,
+        Dictionary<int, int> offsetToIndex)
+    {
+        var members = region.ToHashSet();
+        var incoming = region.ToDictionary(index => index, _ => 0);
+        var successorsByIndex = new Dictionary<int, HashSet<int>>();
+        foreach (int index in region)
+        {
+            if (!TrySuccessors(blocks, index, offsetToIndex, out var successors))
+                return true;
+            var internalSuccessors = successors.Where(members.Contains).ToHashSet();
+            foreach (int targetOffset in TargetsInFunctionScope(blocks[index]))
+                if (offsetToIndex.TryGetValue(targetOffset, out int target) && members.Contains(target))
+                    internalSuccessors.Add(target);
+            successorsByIndex.Add(index, internalSuccessors);
+            foreach (int target in internalSuccessors)
+                incoming[target]++;
+        }
+
+        var ready = new Queue<int>(incoming.Where(pair => pair.Value == 0).Select(pair => pair.Key));
+        int visited = 0;
+        while (ready.Count > 0)
+        {
+            int index = ready.Dequeue();
+            visited++;
+            foreach (int target in successorsByIndex[index])
+            {
+                if (--incoming[target] == 0)
+                    ready.Enqueue(target);
+            }
+        }
+        return visited != region.Count;
+    }
+
+    static bool OuterContinueCouldBeCaptured(
+        IReadOnlyList<Block> blocks,
+        IReadOnlyDictionary<int, List<int>> regions,
+        Dictionary<int, int> offsetToIndex)
+    {
+        foreach (var region in regions.Values)
+        {
+            if (!ContainsOuterOwnedContinue(blocks, region))
+                continue;
+            if (RegionContainsCycle(blocks, region, offsetToIndex))
+                return true;
+        }
+        return false;
+    }
+
+    static bool OnlyReachedByTable(
+        IReadOnlyList<Block> blocks,
+        HashSet<int> owned,
+        int s,
+        HashSet<int> leaveTargets,
+        IReadOnlyDictionary<int, List<int>>? regions = null,
+        int? consumedDefaultDispatcherOffset = null)
+    {
+        if (!TryMapOwnedOffsets(blocks, owned, out var ownedByOffset))
             return false;
+        if (ownedByOffset.Keys.Any(leaveTargets.Contains))
+            return false;
+        var regionByBlock = BuildRegionByBlock(regions);
+
         for (int idx = 0; idx < blocks.Count; idx++)
         {
-            if (idx == s || owned.Contains(idx))
-                continue;   // the switch dispatches the table; owned-internal edges are fine
             foreach (var node in blocks[idx].Children)
-                foreach (int target in Targets(node))
-                    if (ownedOffsets.Contains(target))
+            {
+                if (idx == s
+                    && ReferenceEquals(node, blocks[idx].Children[^1])
+                    && node is SwitchBranch)
+                {
+                    continue;
+                }
+                foreach (int target in TargetsInFunctionScope(node))
+                {
+                    if (target == consumedDefaultDispatcherOffset)
                         return false;
+                    if (EntersOwnedRegionFromOutsideOrSibling(
+                            ownedByOffset,
+                            regionByBlock,
+                            owned,
+                            idx,
+                            target))
+                        return false;
+                }
+            }
         }
         return true;
     }
@@ -1298,11 +1433,22 @@ public sealed class SwitchRaisingPass : IIrPass
             if (owned.Contains(idx))
                 continue;
             foreach (var node in blocks[idx].Children)
-                foreach (int target in Targets(node))
+                foreach (int target in TargetsInFunctionScope(node))
                     if (target == joinOffset)
                         return false;
         }
         return true;
+    }
+
+    static IEnumerable<int> TargetsInFunctionScope(IrNode node)
+    {
+        if (node is Lambda or LocalFunctionStatement)
+            yield break;
+        foreach (int target in Targets(node))
+            yield return target;
+        foreach (var descendant in node.DescendantsOutsideNestedFunctions)
+            foreach (int target in Targets(descendant))
+                yield return target;
     }
 
     static IEnumerable<int> Targets(IrNode node) => node switch
@@ -1712,6 +1858,14 @@ public sealed class SwitchRaisingPass : IIrPass
         for (int i = 0; i < blocks.Count; i++)
             offsetToIndex[blocks[i].StartOffset] = i;
 
+        if (RegionContainsCycle(
+            blocks,
+            Enumerable.Range(s, dispatchEnd - s + 1).ToList(),
+            offsetToIndex))
+        {
+            return false;
+        }
+
         if (!offsetToIndex.TryGetValue(defaultOffset, out int defaultIndex) || defaultIndex <= dispatchEnd)
             return false;
 
@@ -1761,8 +1915,10 @@ public sealed class SwitchRaisingPass : IIrPass
                 return false;
         if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
             return false;
+        if (OuterContinueCouldBeCaptured(blocks, regions, offsetToIndex))
+            return false;
 
-        if (!OnlyReachedByChain(blocks, owned, s, dispatchEnd, leaveTargets))
+        if (!OnlyReachedByChain(blocks, owned, s, dispatchEnd, leaveTargets, regions))
             return false;
 
         BuildSwitchStatement(container, s, dispatchEnd, value, caseTargets, caseLabels,
@@ -1776,7 +1932,8 @@ public sealed class SwitchRaisingPass : IIrPass
         value = null!;
         replaceFromChild = -1;
 
-        for (int i = 0; i < block.Children.Count - 1; i++)
+        int i = block.Children.Count - 2;
+        if (i >= 0)
         {
             if (block.Children[i] is StoreLocal
                 {
@@ -1910,22 +2067,93 @@ public sealed class SwitchRaisingPass : IIrPass
         return preds;
     }
 
-    /// <summary>No block outside the dispatch chain (or the owned bodies) may branch into a body.</summary>
-    static bool OnlyReachedByChain(IReadOnlyList<Block> blocks, HashSet<int> owned, int s, int dispatchEnd, HashSet<int> leaveTargets)
+    /// <summary>
+    /// Protects consumed dispatch blocks and keeps surviving body transfers
+    /// within the section region that will own both endpoints.
+    /// </summary>
+    static bool OnlyReachedByChain(
+        IReadOnlyList<Block> blocks,
+        HashSet<int> owned,
+        int s,
+        int dispatchEnd,
+        HashSet<int> leaveTargets,
+        IReadOnlyDictionary<int, List<int>>? regions = null)
     {
-        var ownedOffsets = owned.Select(i => blocks[i].StartOffset).ToHashSet();
-        if (ownedOffsets.Overlaps(leaveTargets))
+        if (!TryMapOwnedOffsets(blocks, owned, out var ownedByOffset))
+            return false;
+        var regionByBlock = BuildRegionByBlock(regions);
+        var consumedDispatchOffsets = Enumerable.Range(s + 1, dispatchEnd - s)
+            .Select(i => blocks[i].StartOffset)
+            .ToHashSet();
+        if (ownedByOffset.Keys.Any(leaveTargets.Contains) || consumedDispatchOffsets.Overlaps(leaveTargets))
             return false;
         for (int idx = 0; idx < blocks.Count; idx++)
         {
-            if ((idx >= s && idx <= dispatchEnd) || owned.Contains(idx))
-                continue;   // the dispatch chain legitimately jumps into the bodies
             foreach (var node in blocks[idx].Children)
-                foreach (int target in Targets(node))
-                    if (ownedOffsets.Contains(target))
+            {
+                if (idx >= s
+                    && idx <= dispatchEnd
+                    && ReferenceEquals(node, blocks[idx].Children[^1])
+                    && node is Branch or ConditionalBranch or SwitchBranch)
+                {
+                    continue;
+                }
+                foreach (int target in TargetsInFunctionScope(node))
+                    if (consumedDispatchOffsets.Contains(target)
+                        || EntersOwnedRegionFromOutsideOrSibling(
+                            ownedByOffset,
+                            regionByBlock,
+                            owned,
+                            idx,
+                            target))
+                    {
                         return false;
+                    }
+            }
         }
         return true;
+    }
+
+    static bool TryMapOwnedOffsets(
+        IReadOnlyList<Block> blocks,
+        HashSet<int> owned,
+        out Dictionary<int, int> ownedByOffset)
+    {
+        ownedByOffset = new Dictionary<int, int>();
+        foreach (int index in owned)
+            if (!ownedByOffset.TryAdd(blocks[index].StartOffset, index))
+                return false;
+        return true;
+    }
+
+    static Dictionary<int, int> BuildRegionByBlock(IReadOnlyDictionary<int, List<int>>? regions)
+    {
+        var regionByBlock = new Dictionary<int, int>();
+        if (regions is not null)
+            foreach (var (head, region) in regions)
+                foreach (int block in region)
+                    regionByBlock.Add(block, head);
+        return regionByBlock;
+    }
+
+    static bool EntersOwnedRegionFromOutsideOrSibling(
+        IReadOnlyDictionary<int, int> ownedByOffset,
+        IReadOnlyDictionary<int, int> regionByBlock,
+        HashSet<int> owned,
+        int sourceBlock,
+        int targetOffset)
+    {
+        if (!ownedByOffset.TryGetValue(targetOffset, out int targetBlock))
+            return false;
+        if (!owned.Contains(sourceBlock))
+            return true;
+
+        // Each region becomes a separate section container. A surviving
+        // cross-region transfer can target a block hidden by that section's
+        // independent structuring pass.
+        return regionByBlock.TryGetValue(sourceBlock, out int sourceRegion)
+            && regionByBlock.TryGetValue(targetBlock, out int targetRegion)
+            && sourceRegion != targetRegion;
     }
 
     static void BuildSwitchStatement(
@@ -2041,7 +2269,7 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var tail = sectionBlocks[^1];
         var tailLast = tail.Children.Count > 0 ? tail.Children[^1] : null;
-        if (tailLast is not (Return or Throw or Break or Branch or ConditionalBranch or SwitchBranch))
+        if (!TerminatesSwitchSection(tailLast))
             tail.Add(new Break());
 
         var body = new BlockContainer();
@@ -2049,6 +2277,10 @@ public sealed class SwitchRaisingPass : IIrPass
             body.Add(block);
         return body;
     }
+
+    static bool TerminatesSwitchSection(IrNode? node)
+        => node is Return or Throw or Break or Continue
+            or Branch or ConditionalBranch or SwitchBranch;
 
     static void BuildCaseTargetJoin(
         IrFunction function, BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
@@ -2198,13 +2430,8 @@ public sealed class SwitchRaisingPass : IIrPass
             if (index == switchIndex)
                 continue;
             foreach (var child in blocks[index].Children)
-            {
-                foreach (var node in child.Descendants.Prepend(child))
-                {
-                    if (Targets(node).Contains(switchOffset))
-                        return false;
-                }
-            }
+                if (TargetsInFunctionScope(child).Contains(switchOffset))
+                    return false;
         }
         return true;
     }
@@ -2310,7 +2537,7 @@ public sealed class SwitchRaisingPass : IIrPass
                 tail.Add(node);
 
         var tailLast = tail.Children.Count > 0 ? tail.Children[^1] : null;
-        if (tailLast is not (Return or Throw or Break or Branch or ConditionalBranch or SwitchBranch))
+        if (!TerminatesSwitchSection(tailLast))
             tail.Add(new Break());
 
         var body = new BlockContainer();

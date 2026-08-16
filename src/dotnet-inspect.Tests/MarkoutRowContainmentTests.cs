@@ -1,5 +1,7 @@
 using System.Collections;
 using System.Reflection;
+using DotnetInspector.Models;
+using InertText;
 
 namespace DotnetInspector.Tests;
 
@@ -409,9 +411,6 @@ public class MarkoutRowContainmentTests
         "SourceIntegritySection.Status",
         "SourceLinkAuditSection.SourceFiles",
         "SourceLinkAuditSection.Status",
-        "SwitchRow.Api",
-        "SwitchRow.Kind",
-        "SwitchRow.Switch",
         "TopLeverageRow.Callers",
         "TopLeverageRow.Depth",
         "TopLeverageRow.Fanout",
@@ -484,6 +483,7 @@ public class MarkoutRowContainmentTests
         List<string> declined = [];
         int checkedTypes = 0;
         int checkedProperties = 0;
+        var checkedPropertiesByType = new Dictionary<Type, int>();
 
         foreach (var type in assembly.GetTypes().Where(IsSerializableRow).OrderBy(t => t.FullName, StringComparer.Ordinal))
         {
@@ -526,6 +526,7 @@ public class MarkoutRowContainmentTests
                 }
 
                 checkedProperties++;
+                checkedPropertiesByType[type] = checkedPropertiesByType.GetValueOrDefault(type) + 1;
 
                 if (text.Contains(Bidi, StringComparison.Ordinal))
                 {
@@ -545,6 +546,17 @@ public class MarkoutRowContainmentTests
         Assert.True(
             checkedProperties >= 150,
             $"Only {checkedProperties} string columns received the hostile value; the fill is not reaching columns.");
+        Assert.True(
+            checkedPropertiesByType.GetValueOrDefault(typeof(DotnetInspector.Views.InspectionResultView)) >= 10,
+            "InspectionResultView did not receive the hostile package model; its computed columns were not checked.");
+        Assert.Equal(
+            5,
+            checkedPropertiesByType.GetValueOrDefault(
+                typeof(DotnetInspector.Views.PackageSourceAvailabilitySection)));
+        Assert.Equal(
+            6,
+            checkedPropertiesByType.GetValueOrDefault(
+                typeof(DotnetInspector.Views.PackageSourceIntegritySection)));
 
         Assert.Equal(OutOfReach, declined.Order(StringComparer.Ordinal).ToArray());
 
@@ -708,7 +720,44 @@ public class MarkoutRowContainmentTests
             return Hostile;
         }
 
+        if (type == typeof(InspectionResult))
+        {
+            // InspectionResultView projects a model rather than accepting text
+            // columns directly, so give it hostile values through that model.
+            return PackageInspectionTextTests.CompleteResult(Hostile);
+        }
+
+        if (type == typeof(InertString))
+        {
+            return new InertString(TextPolicy.Field, Hostile);
+        }
+
+        if (type == typeof(List<PackageSourceLinkIssueText>))
+        {
+            return new List<PackageSourceLinkIssueText>
+            {
+                new(
+                    new InertString(TextPolicy.Field, Hostile),
+                    new InertString(TextPolicy.Field, Hostile)),
+            };
+        }
+
+        if (type == typeof(List<PackageSourceLinkFileText>))
+        {
+            return new List<PackageSourceLinkFileText>
+            {
+                new(
+                    new InertString(TextPolicy.Field, Hostile),
+                    new InertString(TextPolicy.Field, Hostile)),
+            };
+        }
+
         var underlying = Nullable.GetUnderlyingType(type);
+        if (underlying == typeof(InertString))
+        {
+            return new InertString(TextPolicy.Field, Hostile);
+        }
+
         if (underlying is not null)
         {
             return null;

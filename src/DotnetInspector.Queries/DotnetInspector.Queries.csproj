@@ -17,11 +17,20 @@
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
+    <PackageReference Include="NuGet.Versioning" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />
+    <!--
+      The companion query assembly reuses the participant loop and the group's snapshot access so
+      Research projections keep session and snapshot ownership inside the query layer. Keeping
+      Research and Decompiler dependencies out of core query consumers is why it is a separate
+      assembly rather than a namespace here.
+    -->
+    <InternalsVisibleTo Include="DotnetInspector.ResearchQueries" />
   </ItemGroup>
 </Project>

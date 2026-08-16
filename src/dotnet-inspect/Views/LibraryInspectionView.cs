@@ -271,6 +271,16 @@ public class LibraryInspectionView
         _data.AuditSignals?.Select(s => new AuditSignalRow(s.Area, s.Signal, s.Value, s.Evidence)).ToList();
 
     [MarkoutIgnore]
+    public bool HasIdentifierConfusion =>
+        IdentifierConfusionAudit.InspectLibrary(_data).Count > 0;
+
+    [MarkoutSection(
+        Name = SectionNames.IdentifierConfusion,
+        ShowWhenProperty = nameof(HasIdentifierConfusion))]
+    public List<IdentifierConfusionRow> IdentifierConfusion =>
+        IdentifierConfusionRows.Create(IdentifierConfusionAudit.InspectLibrary(_data));
+
+    [MarkoutIgnore]
     public bool HasSwitches => _data.SwitchInspection.HasFindings();
 
     [MarkoutSection(Name = "Switches", ShowWhenProperty = nameof(HasSwitches))]
@@ -280,7 +290,7 @@ public class LibraryInspectionView
             .OrderBy(s => s.Kind, StringComparer.Ordinal)
             .ThenBy(s => s.Switch, StringComparer.Ordinal)
             .ThenBy(s => s.Api, StringComparer.Ordinal)
-            .Select(s => new SwitchRow(s.Kind, MarkoutInline.Code(s.Switch), MarkoutInline.Code(s.Api)))
+            .Select(s => new SwitchRow(s.Kind, s.Switch, s.Api))
             .ToList() is { Count: > 0 } rows ? rows : null;
 
     [MarkoutIgnore]
@@ -1719,7 +1729,26 @@ public record InspectionFailureRow(
 public record SwitchRow(
     string Kind,
     string Switch,
-    [property: MarkoutPropertyName("API")] string Api);
+    string Api)
+{
+    /// <summary>
+    /// Crosses exact switch evidence into field-safe presentation text.
+    /// Gate: LibraryFindingConsumerTests.SwitchesQueryProjection_PreservesIdentityUntilInertViewBoundary.
+    /// </summary>
+    public string Kind { get; init; } =
+        new InertString(TextPolicy.Field, Kind).ToString();
+
+    /// <inheritdoc cref="Kind"/>
+    public string Switch { get; init; } =
+        MarkoutInline.Code(
+            new InertString(TextPolicy.Field, Switch).ToString());
+
+    /// <inheritdoc cref="Kind"/>
+    [MarkoutPropertyName("API")]
+    public string Api { get; init; } =
+        MarkoutInline.Code(
+            new InertString(TextPolicy.Field, Api).ToString());
+}
 
 [MarkoutSerializable]
 public record IntegrationOpportunityRow(

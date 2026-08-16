@@ -15,11 +15,11 @@ shared contracts, not dynamically loaded plugins.
 
 This document describes the target core architecture and the principles that
 govern its migration. Library metadata, direct-reference, extension-method,
-custom-attribute, manifest-resource, type-forwarder, union-type, SourceLink, and
-API-comparison inspection plus implementation-relationship and type/member
-search inspection are the first typed-query canaries: commands and section
-catalogs plan typed demand while queries remain independent of acquisition and
-output. The `diff` Changes section consumes one API-comparison result over
+custom-attribute, manifest-resource, type-forwarder, union-type, switch,
+SourceLink, and API-comparison inspection plus implementation-relationship and
+type/member search inspection are the first typed-query canaries: commands and
+section catalogs plan typed demand while queries remain independent of
+acquisition and output. The `diff` Changes section consumes one API-comparison result over
 host-resolved surfaces, retaining Metadata-owned Finding correspondence and
 compatibility classification without coupling the query to endpoint acquisition
 or output.
@@ -307,6 +307,20 @@ all-group cleanup after an owned-resource failure, and
 `InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
 gates preservation of an in-flight callback failure when deferred cleanup also
 fails.
+Portable-PDB acquisition now follows the same content-shaped boundary:
+`AcquiredPortablePdb` opens repeatable content from a host-supplied `IPdbStore`,
+and `PdbAcquisitionService` can load it for a pathless
+`ResolvedAssemblyReference`. That explicit-capability descriptor overload
+requires the store and package-source authorization; the legacy desktop
+descriptor overload remains path-bound. The filesystem store supplies the
+compatibility path used by desktop decompiler callers; an in-memory store
+supplies the same validated PDB bytes to browser/Wasm hosts, paired with the
+same explicit `IPackageSourceAuthorization` used for package acquisition.
+Stored Portable PDB content is keyed by GUID plus stamp, so the content
+reference remains repeatable across otherwise-colliding symbol-server lookup
+keys. This capability does not itself add a group query; it is the symbol-input
+seam such a query consumes.
+
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
 gates asynchronous host work over a retained descriptor without reopening its
 source.
@@ -559,9 +573,10 @@ The existing `ScannerRegistry` remains an assembly-local predecessor: its
 explicit prerequisites, once-per-run resources, deterministic ordering, and
 tracing are useful foundations. `DotnetInspector.Queries` and its optional
 Research-backed companion now own typed metadata, direct-reference,
-extension-method, custom-attribute, manifest-resource, type-forwarder,
-union-type, SourceLink, API-comparison, and Analysis body-signal comparison
-plans. The Analysis query
+assembly-context reference, package dependency-group, extension-method,
+custom-attribute, manifest-resource, type-forwarder, union-type, switch,
+SourceLink, API-comparison, and Analysis body-signal comparison plans. The
+Analysis query
 consumes old/new `LibraryBodyIndex` collections and returns
 `ResearchComparison`; the diff CLI still owns lazy path-to-index acquisition as
 a transitional adapter. String keys, mutable CLI models, path-shaped residual
