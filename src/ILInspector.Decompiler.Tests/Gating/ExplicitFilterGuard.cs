@@ -94,17 +94,36 @@ internal static class ExplicitFilterGuard
                 + string.Join('\n', unmatched.Select(filter => $"  {filter.Option} \"{filter.Query}\""));
         }
 
-        List<ITestCase> runTestCases = DeserializeRunTestCases(projectAssembly);
         try
         {
-            if (!HasRunnableSelection(projectAssembly, testCases, runTestCases))
+            if (projectAssembly.TestCasesToRun.Count > 0)
+            {
+                SerializationHelper.Instance.AddRegisteredSerializers(testAssembly);
+            }
+        }
+        catch (Exception)
+        {
+            // The console runner performs the same registration and owns any
+            // registration diagnostic and exit code.
+            return null;
+        }
+
+        DeserializedRunTests runSelection = DeserializeRunTestCases(projectAssembly);
+        try
+        {
+            if (runSelection.InvalidCount > 0)
+            {
+                return "error: one or more -run test-case serializations could not be deserialized.";
+            }
+
+            if (!HasRunnableSelection(projectAssembly, testCases, runSelection.TestCases))
             {
                 return "error: the combined xUnit selectors matched no runnable tests.";
             }
         }
         finally
         {
-            await DisposeTestCasesAsync(runTestCases);
+            await DisposeTestCasesAsync(runSelection.TestCases);
         }
 
         return null;
@@ -121,7 +140,7 @@ internal static class ExplicitFilterGuard
         IReadOnlyList<(ITestCase TestCase, bool PassedFilter)> testCases,
         IReadOnlyList<ITestCase> runTestCases)
     {
-        bool directSelection = projectAssembly.TestCasesToRun.Count > 0
+        bool directSelection = runTestCases.Count > 0
             || projectAssembly.TestCaseIDsToRun.Count > 0;
         var selected = new List<ITestCase>(runTestCases);
 
@@ -152,9 +171,10 @@ internal static class ExplicitFilterGuard
         return selected.Any(testCase => IsRunnable(testCase, explicitOption));
     }
 
-    private static List<ITestCase> DeserializeRunTestCases(XunitProjectAssembly projectAssembly)
+    private static DeserializedRunTests DeserializeRunTestCases(XunitProjectAssembly projectAssembly)
     {
         var result = new List<ITestCase>();
+        int invalidCount = 0;
         foreach (string serialization in projectAssembly.TestCasesToRun)
         {
             try
@@ -163,15 +183,18 @@ internal static class ExplicitFilterGuard
                 {
                     result.Add(testCase);
                 }
+                else
+                {
+                    invalidCount++;
+                }
             }
             catch (Exception)
             {
-                // Match the console runner: malformed serialized cases are not
-                // selections and are ignored when it builds the direct-run set.
+                invalidCount++;
             }
         }
 
-        return result;
+        return new DeserializedRunTests(result, invalidCount);
     }
 
     private static async ValueTask DisposeTestCasesAsync(IEnumerable<ITestCase> testCases)
@@ -227,4 +250,6 @@ internal static class ExplicitFilterGuard
 
         return matcher.Filter(assemblyName, testCase);
     }
+
+    private sealed record DeserializedRunTests(List<ITestCase> TestCases, int InvalidCount);
 }

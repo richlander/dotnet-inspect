@@ -111,8 +111,9 @@ entry gate invalidates every later result, so run it first and report it.
    `-filter` selector that matches no discovered test, including one unmatched
    selector alongside valid selectors. It also rejects combined selectors that
    resolve to no runnable test because of test-case IDs, serialized `-run`
-   selections, or explicit-test mode. A misspelled targeted gate therefore
-   fails instead of reporting a successful zero-test or partial run.
+   selections, or explicit-test mode, and reports stale or malformed `-run`
+   serializations directly. A misspelled targeted gate therefore fails instead
+   of reporting a successful zero-test or partial run.
 
 3. **IR invariant checks.** Every pass must leave a structurally valid tree.
    `IrPasses.Run` calls `function.CheckInvariant()` after each pass — armed by

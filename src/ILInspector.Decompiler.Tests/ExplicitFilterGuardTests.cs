@@ -92,7 +92,8 @@ public class ExplicitFilterGuardTests
         Assert.DoesNotContain("TEST EXECUTION SUMMARY", disjointId.Output);
 
         Assert.Equal(2, invalidRun.ExitCode);
-        Assert.Contains("combined xUnit selectors matched no runnable tests", invalidRun.Error);
+        Assert.Contains("-run test-case serializations could not be deserialized", invalidRun.Error);
+        Assert.DoesNotContain("combined xUnit selectors", invalidRun.Error);
         Assert.DoesNotContain("TEST EXECUTION SUMMARY", invalidRun.Output);
 
         Assert.Equal(2, explicitOnly.ExitCode);
