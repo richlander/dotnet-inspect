@@ -5,6 +5,9 @@ namespace CiChangeDetection;
 
 internal static class DecompilerProjectGraphPolicy
 {
+    private const string RootProjectDirectory =
+        "src/ILInspector.Decompiler.Tests";
+
     internal static void Validate(string repository)
     {
         static bool IsProjectDirectory(string repository, string relativePath)
@@ -23,10 +26,14 @@ internal static class DecompilerProjectGraphPolicy
             project == ancestor
             || project.StartsWith($"{ancestor}/", StringComparison.Ordinal);
 
-        if (!IsAtOrBelowProject(
+        static bool ProjectTreesOverlap(string left, string right) =>
+            IsAtOrBelowProject(left, right)
+            || IsAtOrBelowProject(right, left);
+
+        if (!ProjectTreesOverlap(
                 "src/dotnet-inspect/Nested",
                 "src/dotnet-inspect")
-            || IsAtOrBelowProject(
+            || ProjectTreesOverlap(
                 "src/dotnet-inspect.TestsExtra",
                 "src/dotnet-inspect.Tests"))
         {
@@ -68,7 +75,7 @@ internal static class DecompilerProjectGraphPolicy
             };
             startInfo.ArgumentList.Add("msbuild");
             startInfo.ArgumentList.Add(
-                "src/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj");
+                $"{RootProjectDirectory}/ILInspector.Decompiler.Tests.csproj");
             startInfo.ArgumentList.Add("-t:GenerateRestoreGraphFile");
             startInfo.ArgumentList.Add(
                 $"-p:RestoreGraphOutputPath={graphPath}");
@@ -125,17 +132,24 @@ internal static class DecompilerProjectGraphPolicy
                 })
                 .ToHashSet(StringComparer.Ordinal);
 
+            if (!projectClosure.Contains(RootProjectDirectory))
+            {
+                throw new InvalidOperationException(
+                    "Decompiler project graph does not contain its root: " +
+                    RootProjectDirectory);
+            }
+
             string[] unsafeExemptions = actual
                 .Where(exemption =>
                     projectClosure.Any(project =>
-                        IsAtOrBelowProject(project, exemption)))
+                        ProjectTreesOverlap(project, exemption)))
                 .Order()
                 .ToArray();
             if (unsafeExemptions.Length != 0)
             {
                 throw new InvalidOperationException(
                     "eng/decompiler-gate-skip-projects.txt exempts project " +
-                    "trees containing projects in the evaluated Release " +
+                    "trees overlapping projects in the evaluated Release " +
                     "ILInspector.Decompiler.Tests graph: [" +
                     string.Join(", ", unsafeExemptions) + "].");
             }
