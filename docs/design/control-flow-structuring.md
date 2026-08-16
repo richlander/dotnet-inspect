@@ -363,10 +363,11 @@ Every pass in this layer carries these proof obligations in code review:
 actually built, not against a separate simulation of that build. It builds from
 cloned blocks, verifies that existing `break`/`continue`/retry-`leave` transfers
 retain their enclosing owner and that every internal surviving `Leave` retains
-a label owner, and rejects any lexical block that places statements after a
-terminal transfer. It then installs that candidate transactionally or declines.
-The compiler-backed and synthetic owner/decline boundaries are gated by
-`InfiniteLoopStructuringTests` and `StructuringGotoScopeTests`.
+a label owner. It also rejects an actual retained-region build that places
+another arm after a terminal retained-merge branch. It then installs that
+candidate transactionally or declines. The compiler-backed and synthetic
+owner/decline boundaries are gated by `InfiniteLoopStructuringTests` and
+`StructuringGotoScopeTests`.
 
 Cloned statements retain `SourceOffset` as provenance, but semantic clones do
 not own that offset's printable label. Only the canonical surviving statement

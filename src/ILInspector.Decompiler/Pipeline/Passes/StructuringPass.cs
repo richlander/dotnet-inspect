@@ -408,8 +408,7 @@ public sealed class StructuringPass : IIrPass
                 buildCtx,
                 structured,
                 start: 0,
-                stop: buildBlocks.Count)
-            || HasStatementsAfterTerminalTransfer(structured))
+                stop: buildBlocks.Count))
         {
             recorder?.Record("loop-changes-control-flow-owner");
             if (TryStructureRetainedRegions(container, ctx, context))
@@ -484,8 +483,7 @@ public sealed class StructuringPass : IIrPass
                     buildContexts[rangeIndex],
                     built,
                     range.Start,
-                    range.Merge)
-                || HasStatementsAfterTerminalTransfer(built))
+                    range.Merge))
             {
                 context.StructuringDiagnostics?.RecordRetainedDecline(
                     "retained-loop-changes-control-flow-owner");
@@ -692,8 +690,7 @@ public sealed class StructuringPass : IIrPass
             breakTarget: null,
             continueTarget: null);
         return !ctx.LoopOwnershipUnsafe
-            && !HasDanglingInternalLeaveTarget(ctx, built, candidate.Start, candidate.Merge)
-            && !HasStatementsAfterTerminalTransfer(built);
+            && !HasDanglingInternalLeaveTarget(ctx, built, candidate.Start, candidate.Merge);
     }
 
     static Ctx CreateRetainedCtx(
@@ -1118,22 +1115,6 @@ public sealed class StructuringPass : IIrPass
                 && target >= start
                 && target < stop
                 && !survivingLabels.Contains(leave.TargetOffset));
-    }
-
-    static bool HasStatementsAfterTerminalTransfer(IrNode root)
-    {
-        foreach (var block in root.DescendantsAndSelfOutsideNestedFunctions.OfType<Block>())
-        {
-            for (int i = 0; i + 1 < block.Children.Count; i++)
-            {
-                if (block.Children[i] is Return or Throw or Branch or Leave
-                    or Break or Continue or EndFinally or EndFilter)
-                {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     static bool HasOwnerBeforeRoot(IrNode node, IrNode root, Func<IrNode, bool> isOwner)
@@ -2225,6 +2206,8 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (ctx.RetainedMergeIndex == branchTarget)
                     {
+                        if (i + 1 != stop)
+                            ctx.LoopOwnershipUnsafe = true;
                         result.Add(last);
                         i++;
                         break;

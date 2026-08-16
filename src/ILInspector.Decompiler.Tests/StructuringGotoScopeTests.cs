@@ -220,7 +220,7 @@ public class StructuringGotoScopeTests
     }
 
     [Fact]
-    public void RetainedRegion_TerminalBranchBeforeAlternateArm_StaysFlat()
+    public void RetainedRegion_DoesNotAppendAlternateArmAfterTerminalBranch()
     {
         var b0 = new Block(0x00);
         b0.Add(new ConditionalBranch(Cond(), 0x54));
@@ -239,7 +239,6 @@ public class StructuringGotoScopeTests
 
         var function = Structured([b0, b1, b2, b3, b4, b5]);
 
-        Assert.Empty(function.Descendants.OfType<IfStatement>());
         Assert.All(
             function.Descendants.OfType<Block>(),
             block => Assert.DoesNotContain(
