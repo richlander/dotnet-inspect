@@ -79,7 +79,9 @@ internal static class MethodDefinitionFacts
                 effectiveReturnType);
         }
 
-        return GenericObjectDynamicFact(declaredReturnType, effectiveReturnType);
+        return GenericObjectDynamicFact(
+            DynamicElementType(declaredReturnType),
+            DynamicElementType(effectiveReturnType));
     }
 
     internal static MetadataFactState FieldDynamicFact(
@@ -104,12 +106,21 @@ internal static class MethodDefinitionFacts
             attributes,
             "System.Runtime.CompilerServices",
             "DynamicAttribute");
-        if (DynamicReader.IsTopLevelDynamic(DynamicReader.GetDynamicFlags(reader, attributes)))
+        var flags = DynamicReader.GetDynamicFlags(reader, attributes);
+        bool isDynamic = declaredType.Kind == TypeRefKind.ByRef
+            ? DynamicReader.IsByRefElementDynamic(flags)
+            : DynamicReader.IsTopLevelDynamic(flags);
+        if (isDynamic)
             return MetadataFactState.Yes;
         if (hasDynamicAttribute)
             return MetadataFactState.Unknown;
-        return GenericObjectDynamicFact(declaredType, effectiveType);
+        return GenericObjectDynamicFact(DynamicElementType(declaredType), DynamicElementType(effectiveType));
     }
+
+    static TypeRef DynamicElementType(TypeRef type)
+        => type.Kind == TypeRefKind.ByRef && type.ElementType is { } element
+            ? element
+            : type;
 
     static MetadataFactState GenericObjectDynamicFact(TypeRef declaredType, TypeRef effectiveType)
     {

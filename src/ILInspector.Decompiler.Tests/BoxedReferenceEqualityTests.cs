@@ -45,6 +45,23 @@ public class BoxedReferenceEqualityTests
     }
 
     [Fact]
+    public void ByRefDynamicMethodReferenceEquality_PreservesObjectComparison()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.ByRefDynamicMethodReferenceEquals));
+
+        Assert.Contains("return (object)(DynamicReference()) == (object)right;", output);
+    }
+
+    [Fact]
+    public void ByRefObjectMethodReferenceEquality_RemainsPlainObjectComparison()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.ByRefObjectMethodReferenceEquals));
+
+        Assert.Contains("ObjectReference()", output);
+        Assert.DoesNotContain("(object)", output);
+    }
+
+    [Fact]
     public void DynamicFieldReferenceEquality_PreservesObjectComparison()
     {
         string output = Print(nameof(BoxedReferenceEqualitySpecimens.DynamicFieldReferenceEquals));
@@ -74,6 +91,14 @@ public class BoxedReferenceEqualityTests
         string output = Print(nameof(BoxedReferenceEqualitySpecimens.GenericDynamicFieldReferenceEquals));
 
         Assert.Contains("return (object)carrier.Slot == (object)right;", output);
+    }
+
+    [Fact]
+    public void GenericByRefDynamicPropertyReferenceEquality_PreservesObjectComparison()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.GenericByRefDynamicPropertyReferenceEquals));
+
+        Assert.Contains("return (object)(carrier.Reference) == (object)right;", output);
     }
 
     [Fact]
@@ -322,6 +347,9 @@ public class BoxedReferenceEqualityTests
 
 public static class BoxedReferenceEqualitySpecimens
 {
+    static dynamic s_dynamicReference = new UserEquality();
+    static object s_objectReference = new UserEquality();
+
     public static bool StringReferenceEquals(string left, string right)
         => (object)left == right;
 
@@ -336,6 +364,16 @@ public static class BoxedReferenceEqualitySpecimens
 
     public static bool DynamicMethodReferenceEquals(DynamicCarrier carrier, object right)
         => (object)carrier.Method() == right;
+
+    public static ref dynamic DynamicReference() => ref s_dynamicReference;
+
+    public static bool ByRefDynamicMethodReferenceEquals(object right)
+        => (object)DynamicReference() == right;
+
+    public static ref object ObjectReference() => ref s_objectReference;
+
+    public static bool ByRefObjectMethodReferenceEquals(object right)
+        => (object)ObjectReference() == right;
 
     public static bool DynamicFieldReferenceEquals(DynamicCarrier carrier, object right)
         => (object)carrier.Field == right;
@@ -352,6 +390,11 @@ public static class BoxedReferenceEqualitySpecimens
         GenericDynamicCarrier<dynamic> carrier,
         object right)
         => (object)carrier.Slot == right;
+
+    public static bool GenericByRefDynamicPropertyReferenceEquals(
+        GenericDynamicCarrier<dynamic> carrier,
+        object right)
+        => (object)carrier.Reference == right;
 
     public static bool DynamicArrayElementReferenceEquals(
         dynamic[] values,
@@ -435,6 +478,8 @@ public sealed class GenericDynamicCarrier<T>
 {
     public T Value { get; init; } = default!;
     public T Slot = default!;
+    T _reference = default!;
+    public ref T Reference => ref _reference;
 }
 
 public sealed class UserEquality

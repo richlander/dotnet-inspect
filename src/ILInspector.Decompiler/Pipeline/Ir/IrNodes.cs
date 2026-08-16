@@ -95,10 +95,11 @@ public sealed record MethodRef(
     public ImmutableArray<TypeRef> DefinitionParameterTypes { get; init; } = [];
 
     /// <summary>
-    /// Whether the method's top-level return type was authored as
-    /// <c>dynamic</c>. A dynamic return is encoded as <c>System.Object</c> plus
-    /// <c>DynamicAttribute</c> on parameter sequence 0; MemberRefs do not carry
-    /// that row, so unresolved callees remain <see cref="MetadataFactState.Unknown"/>.
+    /// Whether the method's return type, or a by-ref return's element type, was
+    /// authored as <c>dynamic</c>. A dynamic return is encoded as
+    /// <c>System.Object</c> plus <c>DynamicAttribute</c> on parameter sequence 0;
+    /// MemberRefs do not carry that row, so unresolved callees remain
+    /// <see cref="MetadataFactState.Unknown"/>.
     /// </summary>
     public MetadataFactState ReturnIsDynamic { get; init; } = MetadataFactState.Unknown;
 

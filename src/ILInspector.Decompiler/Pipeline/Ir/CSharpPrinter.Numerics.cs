@@ -1784,6 +1784,8 @@ public sealed partial class CSharpPrinter
             DynamicGetMember => true,
             Call call => MayRenderDynamicResult(call.Callee),
             LoadProperty property => MayRenderDynamicResult(property.Accessor),
+            LoadIndirect { Address: Call call } => MayRenderByRefDynamicResult(call.Callee),
+            LoadIndirect { Address: LoadProperty property } => MayRenderByRefDynamicResult(property.Accessor),
             LoadField field => IsSystemObjectType(field.Field.Type)
                 && field.Field.DynamicFact != MetadataFactState.No,
             LoadElement { ResultType: { } type } => IsSystemObjectType(type),
@@ -1807,6 +1809,15 @@ public sealed partial class CSharpPrinter
 
     static bool MayRenderDynamicResult(MethodRef method)
         => IsSystemObjectType(method.ReturnType)
+            && method.ReturnIsDynamic != MetadataFactState.No;
+
+    static bool MayRenderByRefDynamicResult(MethodRef method)
+        => method.ReturnType is
+            {
+                Kind: TypeRefKind.ByRef,
+                ElementType: { } element,
+            }
+            && IsSystemObjectType(element)
             && method.ReturnIsDynamic != MetadataFactState.No;
 
     string ObjectReferenceOperand(IrExpression operand)

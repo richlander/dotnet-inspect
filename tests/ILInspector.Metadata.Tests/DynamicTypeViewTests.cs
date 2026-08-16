@@ -1,3 +1,7 @@
+using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using ILInspector.Metadata;
@@ -380,6 +384,99 @@ public sealed class DynamicTypeViewTests
         int pos = 0;
         node.ApplyDynamic(flags, ref pos);
         Assert.Equal("object[]", node.Render());
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0, 0, 0, 0 })]                         // invalid prolog
+    [InlineData(new byte[] { 1, 0, 0 })]                            // truncated marker form
+    [InlineData(new byte[] { 1, 0, 1, 0 })]                         // named argument present
+    [InlineData(new byte[] { 1, 0, 1, 0, 0, 0, 2, 0, 0 })]          // invalid bool
+    [InlineData(new byte[] { 1, 0, 1, 0, 0, 0, 1, 0, 0, 0 })]       // trailing byte
+    public void MalformedAttributeEncoding_ReturnsNoDynamicFlags(byte[] blob)
+    {
+        Assert.Null(ReadDynamicFlags(blob));
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 1, 0, 0, 0 }, new byte[] { 1 })]
+    [InlineData(
+        new byte[] { 1, 0, 2, 0, 0, 0, 0, 1, 0, 0 },
+        new byte[] { 0, 1 })]
+    public void ValidAttributeEncoding_ReturnsDynamicFlags(byte[] blob, byte[] expected)
+    {
+        Assert.Equal(expected, ReadDynamicFlags(blob));
+    }
+
+    static byte[]? ReadDynamicFlags(byte[] attributeBlob)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MalformedDynamic.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedDynamic"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var expressions = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Linq.Expressions"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a }),
+            default,
+            default);
+        var dynamicAttribute = metadata.AddTypeReference(
+            expressions,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("DynamicAttribute"));
+        var constructorSignature = new BlobBuilder();
+        constructorSignature.WriteByte(0x20); // instance default calling convention
+        constructorSignature.WriteCompressedInteger(0);
+        constructorSignature.WriteByte(0x01); // void
+        var constructor = metadata.AddMemberReference(
+            dynamicAttribute,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("Carrier"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte(0x06); // field
+        fieldSignature.WriteByte(0x1c); // object
+        var field = metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(fieldSignature));
+        metadata.AddCustomAttribute(
+            field,
+            constructor,
+            metadata.GetOrAddBlob(attributeBlob));
+
+        var image = new BlobBuilder();
+        new MetadataRootBuilder(metadata, suppressValidation: true).Serialize(image, 0, 0);
+        using var provider = MetadataReaderProvider.FromMetadataImage(
+            ImmutableArray.Create(image.ToArray()));
+        var reader = provider.GetMetadataReader();
+
+        return DynamicReader.GetDynamicFlags(
+            reader,
+            reader.GetFieldDefinition(field).GetCustomAttributes());
     }
 
     // --- IsTopLevelDynamic predicate: only the outermost (index-0) position ---

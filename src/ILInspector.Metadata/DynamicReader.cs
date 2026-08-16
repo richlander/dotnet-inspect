@@ -22,8 +22,9 @@ public static class DynamicReader
 {
     /// <summary>
     /// Gets the DynamicAttribute transform-flags array (0 = object, 1 = dynamic)
-    /// from custom attributes. Returns null when the attribute is not present.
-    /// The no-argument marker form returns a one-element array.
+    /// from custom attributes. Returns null when the attribute is not present or
+    /// its custom-attribute encoding is malformed. The no-argument marker form
+    /// returns a one-element array.
     /// </summary>
     public static byte[]? GetDynamicFlags(MetadataReader reader, CustomAttributeHandleCollection attributes)
     {
@@ -35,24 +36,28 @@ public static class DynamicReader
 
             var blob = reader.GetBlobReader(attr.Value);
             if (blob.Length < 2) return null;
-            blob.ReadUInt16(); // prolog
+            if (blob.ReadUInt16() != 1) return null;
 
             // DynamicAttribute():        prolog(2) + namedArgs(2) = 4          -> marker form
             // DynamicAttribute(bool[]):  prolog(2) + count(4) + N bytes + namedArgs(2) = 8+N
             if (blob.RemainingBytes == 2)
             {
                 // Marker form: the whole (bare object) type is dynamic.
-                return [1];
+                return blob.ReadUInt16() == 0 ? [1] : null;
             }
 
             if (blob.RemainingBytes >= 6)
             {
                 int count = blob.ReadInt32();
-                if (count < 0 || count > blob.RemainingBytes - 2) return null;
+                if (count < 0 || blob.RemainingBytes != count + 2) return null;
                 var flags = new byte[count];
                 for (int i = 0; i < count; i++)
-                    flags[i] = (byte)(blob.ReadByte() != 0 ? 1 : 0);
-                return flags;
+                {
+                    byte flag = blob.ReadByte();
+                    if (flag > 1) return null;
+                    flags[i] = flag;
+                }
+                return blob.ReadUInt16() == 0 ? flags : null;
             }
 
             return null;

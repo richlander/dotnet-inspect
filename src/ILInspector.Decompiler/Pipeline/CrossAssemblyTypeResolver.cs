@@ -619,22 +619,34 @@ internal sealed class CrossAssemblyTypeResolver
         return true;
     }
 
-    static bool SameSignatureType(TypeRef resolved, TypeRef expected, bool allowCoreLibraryAliases)
+    internal static bool SameSignatureType(TypeRef resolved, TypeRef expected, bool allowCoreLibraryAliases)
     {
-        if (resolved.Equals(expected))
-            return true;
         if (resolved.Kind != expected.Kind)
             return false;
 
         switch (resolved.Kind)
         {
             case TypeRefKind.Definition:
-                return resolved.Namespace == expected.Namespace
-                    && resolved.Name == expected.Name
-                    && (resolved.Assembly == expected.Assembly
-                        || (allowCoreLibraryAliases
-                            && (resolved.Assembly == TypeRef.CoreLibrary
-                                || expected.Assembly == TypeRef.CoreLibrary)));
+                if (resolved.Namespace != expected.Namespace
+                    || resolved.Name != expected.Name)
+                {
+                    return false;
+                }
+                if (allowCoreLibraryAliases
+                    && (resolved.Assembly == TypeRef.CoreLibrary
+                        || expected.Assembly == TypeRef.CoreLibrary))
+                {
+                    return true;
+                }
+                if (resolved.Assembly != expected.Assembly)
+                    return false;
+                // Trusted platform facades are intentionally canonicalized to
+                // one core-library identity across target-framework versions.
+                if (resolved.Assembly == TypeRef.CoreLibrary)
+                    return true;
+                return resolved.ResolutionAssembly is not { } resolvedAssembly
+                    || expected.ResolutionAssembly is not { } expectedAssembly
+                    || resolvedAssembly.IsEquivalentTo(expectedAssembly);
             case TypeRefKind.GenericInstance:
                 if (!SameSignatureType(resolved.ElementType!, expected.ElementType!, allowCoreLibraryAliases)
                     || resolved.TypeArguments.Length != expected.TypeArguments.Length)
@@ -658,7 +670,7 @@ internal sealed class CrossAssemblyTypeResolver
                         return false;
                 return true;
             default:
-                return false;
+                return resolved.Equals(expected);
         }
     }
 
@@ -996,7 +1008,17 @@ internal sealed class CrossAssemblyTypeResolver
 
     static bool NeedsReturnDynamicFact(MethodRef method)
         => method.ReturnIsDynamic == MetadataFactState.Unknown
-            && method.ReturnType is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" };
+            && DynamicResultType(method.ReturnType) is
+            {
+                Kind: TypeRefKind.Definition,
+                Namespace: "System",
+                Name: "Object",
+            };
+
+    static TypeRef DynamicResultType(TypeRef type)
+        => type.Kind == TypeRefKind.ByRef && type.ElementType is { } element
+            ? element
+            : type;
 
     static bool IsDelegateType(MetadataReader reader, TypeDefinition typeDef)
     {

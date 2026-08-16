@@ -60,6 +60,32 @@ public class ReferenceEqualityMetadataFactsTests
         }
     }
 
+    [Fact]
+    public void MalformedDynamicAttribute_RemainsUnknown()
+    {
+        string directory = Directory.CreateTempSubdirectory("malformed-dynamic-fact-").FullName;
+        string path = Path.Combine(directory, "MalformedDynamic.dll");
+        try
+        {
+            File.WriteAllBytes(path, BuildMalformedDynamicField());
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            var reader = source.Reader;
+            var type = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(type => reader.GetString(type.Name) == "Carrier");
+            var field = reader.GetFieldDefinition(Assert.Single(type.GetFields()));
+            var objectType = TypeRef.CoreLib("System", "Object");
+
+            Assert.Equal(
+                MetadataFactState.Unknown,
+                MethodDefinitionFacts.FieldDynamicFact(reader, field, objectType, objectType));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     static void AssertOrder(
         string consumer,
         string v1,
@@ -87,10 +113,64 @@ public class ReferenceEqualityMetadataFactsTests
         var v1Identity = TypeDefinitionIdentity.Create(v1Type)!.Value;
         var v2Identity = TypeDefinitionIdentity.Create(v2Type)!.Value;
         Assert.NotEqual(v1Identity, v2Identity);
+        AssertEquivalentAssemblyIdentityMatches(v1Type);
+        Assert.False(CrossAssemblyTypeResolver.SameSignatureType(v1Type, v2Type, allowCoreLibraryAliases: false));
+        AssertCoreLibraryVersionAliasesMatch();
 
         var operatorFree = ImmutableHashSet.Create(v1Identity);
         Assert.Contains("return left == right;", PrintSynthetic(v1Type, operatorFree));
         Assert.Contains("return (object)left == (object)right;", PrintSynthetic(v2Type, operatorFree));
+    }
+
+    static void AssertEquivalentAssemblyIdentityMatches(TypeRef type)
+    {
+        var equivalent = TypeRef.DefinitionWithResolution(
+            type.Assembly,
+            type.Namespace,
+            type.Name,
+            type.ValueTypeHint,
+            type.InlineArray,
+            type.EnclosingType,
+            type.DefinitionName!,
+            type.ResolutionAssembly);
+
+        Assert.True(CrossAssemblyTypeResolver.SameSignatureType(type, equivalent, allowCoreLibraryAliases: false));
+    }
+
+    static void AssertCoreLibraryVersionAliasesMatch()
+    {
+        const string ns = "System.Collections.Generic";
+        var definitionName = MetadataTypeDefinitionName.Create(ns, ["List`1"]) switch
+        {
+            MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+            _ => throw new InvalidOperationException("List metadata name is invalid"),
+        };
+        var runtime8 = new AssemblyReferenceIdentity(
+            "System.Runtime",
+            new Version(8, 0, 0, 0),
+            null,
+            "b03f5f7f11d50a3a");
+        var runtime11 = runtime8 with { Version = new Version(11, 0, 0, 0) };
+        var first = TypeRef.DefinitionWithResolution(
+            TypeRef.CoreLibrary,
+            ns,
+            "List`1",
+            ValueTypeHint.ReferenceType,
+            MetadataFactState.Unknown,
+            null,
+            definitionName,
+            runtime8);
+        var second = TypeRef.DefinitionWithResolution(
+            TypeRef.CoreLibrary,
+            ns,
+            "List`1",
+            ValueTypeHint.ReferenceType,
+            MetadataFactState.Unknown,
+            null,
+            definitionName,
+            runtime11);
+
+        Assert.True(CrossAssemblyTypeResolver.SameSignatureType(first, second, allowCoreLibraryAliases: false));
     }
 
     static IrFunction Import(MetadataSource source, string methodName)
@@ -215,6 +295,80 @@ public class ReferenceEqualityMetadataFactsTests
                 firstParameter);
         }
 
+        return Serialize(metadata, new BlobBuilder());
+    }
+
+    static byte[] BuildMalformedDynamicField()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MalformedDynamic.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedDynamic"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var systemRuntime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a }),
+            default,
+            default);
+        var expressions = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Linq.Expressions"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a }),
+            default,
+            default);
+        var objectType = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        var dynamicAttribute = metadata.AddTypeReference(
+            expressions,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("DynamicAttribute"));
+        var constructorSignature = new BlobBuilder();
+        constructorSignature.WriteByte(0x20);
+        constructorSignature.WriteCompressedInteger(0);
+        constructorSignature.WriteByte(0x01);
+        var constructor = metadata.AddMemberReference(
+            dynamicAttribute,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("Carrier"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte(0x06);
+        fieldSignature.WriteByte(0x1c);
+        var field = metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(fieldSignature));
+        metadata.AddCustomAttribute(
+            field,
+            constructor,
+            metadata.GetOrAddBlob(new byte[] { 0, 0, 0, 0 }));
         return Serialize(metadata, new BlobBuilder());
     }
 

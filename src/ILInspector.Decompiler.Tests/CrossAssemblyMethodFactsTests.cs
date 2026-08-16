@@ -142,11 +142,19 @@ public class CrossAssemblyMethodFactsTests
 
         var property = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseDynamicProperty), "get_DynamicValue");
         var method = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseDynamicMethod), "GetDynamicValue");
+        var byRefMethod = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseByRefDynamicMethod), "GetDynamicReference");
+        var byRefObjectMethod = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseByRefObjectMethod), "GetObjectReference");
         Assert.Equal(MetadataFactState.Yes, property.Callee.ReturnIsDynamic);
         Assert.Equal(MetadataFactState.Yes, method.Callee.ReturnIsDynamic);
+        Assert.Equal(MetadataFactState.Yes, byRefMethod.Callee.ReturnIsDynamic);
+        Assert.Equal(MetadataFactState.No, byRefObjectMethod.Callee.ReturnIsDynamic);
 
         Assert.Contains("(object)library.DynamicValue == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseDynamicProperty));
         Assert.Contains("(object)library.GetDynamicValue() == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseDynamicMethod));
+        Assert.Contains("(object)(library.GetDynamicReference()) == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseByRefDynamicMethod));
+        Assert.Contains("(object)(library.DynamicReference) == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseByRefDynamicProperty));
+        Assert.Contains("(object)(library.Reference) == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseGenericByRefDynamicProperty));
+        Assert.DoesNotContain("(object)", PrintRaised(source, CrossAssemblyFixtureMethods.UseByRefObjectMethod));
     }
 
     [Fact]
@@ -375,15 +383,22 @@ public class CrossAssemblyMethodFactsTests
                     public sealed class DynamicLibrary
                     {
                         readonly ExternalNumber _value = new(1);
+                        dynamic _reference = new ExternalNumber(4);
+                        object _objectReference = new ExternalNumber(5);
                         public dynamic DynamicField = new ExternalNumber(2);
                         public object ObjectField = new ExternalNumber(3);
                         public dynamic DynamicValue => _value;
                         public dynamic GetDynamicValue() => _value;
+                        public ref dynamic GetDynamicReference() => ref _reference;
+                        public ref dynamic DynamicReference => ref _reference;
+                        public ref object GetObjectReference() => ref _objectReference;
                     }
 
                     public sealed class GenericDynamicLibrary<T>
                     {
                         public T Value = default!;
+                        T _reference = default!;
+                        public ref T Reference => ref _reference;
                     }
 
                     public sealed class ExternalReference
@@ -484,6 +499,15 @@ public class CrossAssemblyMethodFactsTests
                         public static bool UseDynamicMethod(DynamicLibrary library, object right)
                             => (object)library.GetDynamicValue() == right;
 
+                        public static bool UseByRefDynamicMethod(DynamicLibrary library, object right)
+                            => (object)library.GetDynamicReference() == right;
+
+                        public static bool UseByRefDynamicProperty(DynamicLibrary library, object right)
+                            => (object)library.DynamicReference == right;
+
+                        public static bool UseByRefObjectMethod(DynamicLibrary library, object right)
+                            => (object)library.GetObjectReference() == right;
+
                         public static bool UseDynamicField(DynamicLibrary library, object right)
                             => (object)library.DynamicField == right;
 
@@ -492,6 +516,9 @@ public class CrossAssemblyMethodFactsTests
 
                         public static bool UseGenericDynamicField(GenericDynamicLibrary<dynamic> library, object right)
                             => (object)library.Value == right;
+
+                        public static bool UseGenericByRefDynamicProperty(GenericDynamicLibrary<dynamic> library, object right)
+                            => (object)library.Reference == right;
 
                         public static bool UseExternalNewObject(object right)
                             => (object)new ExternalReference() == right;
@@ -559,9 +586,13 @@ public class CrossAssemblyMethodFactsTests
         public const string UseProperty = nameof(UseProperty);
         public const string UseDynamicProperty = nameof(UseDynamicProperty);
         public const string UseDynamicMethod = nameof(UseDynamicMethod);
+        public const string UseByRefDynamicMethod = nameof(UseByRefDynamicMethod);
+        public const string UseByRefDynamicProperty = nameof(UseByRefDynamicProperty);
+        public const string UseByRefObjectMethod = nameof(UseByRefObjectMethod);
         public const string UseDynamicField = nameof(UseDynamicField);
         public const string UseObjectField = nameof(UseObjectField);
         public const string UseGenericDynamicField = nameof(UseGenericDynamicField);
+        public const string UseGenericByRefDynamicProperty = nameof(UseGenericByRefDynamicProperty);
         public const string UseExternalNewObject = nameof(UseExternalNewObject);
         public const string UseUri = nameof(UseUri);
         public const string UseExternalInlineArray = nameof(UseExternalInlineArray);
