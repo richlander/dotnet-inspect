@@ -107,6 +107,11 @@ public class StructuralCloneCensusTests
             StructuralCloneCensusSeedStatus.Unresolved,
             report.Seed!.Status);
         Assert.Equal(0, report.Receipt.ProcessedMethods);
+        string text = StructuralCloneCensus.Format(report);
+        Assert.Contains("suppressed=57", text);
+        Assert.Contains(
+            "eligible-without-emitted-family=0",
+            text);
     }
 
     [Fact]
@@ -128,6 +133,25 @@ public class StructuralCloneCensusTests
         Assert.Contains(
             "suppressed buckets",
             StructuralCloneCensus.Format(report, top: 1));
+    }
+
+    [Fact]
+    public void Run_ClusteredSeedSurvivesUnrelatedPartialWork()
+    {
+        StructuralCloneCensusReport report = StructuralCloneCensus.Run(
+            FixturePath,
+            $"{FixtureType}::{nameof(StructuralCloneFixture.ExactPositiveA)}",
+            maximumCandidateComparisons: 1);
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.LimitReached,
+            report.Disposition);
+        Assert.Equal(
+            StructuralCloneCensusSeedStatus.Clustered,
+            report.Seed!.Status);
+        Assert.Equal(2, report.Seed.Cluster!.Members.Length);
+        Assert.NotEmpty(report.SuppressedBuckets);
+        Assert.Null(report.ExactSingletonMethods);
     }
 
     [Fact]
@@ -286,6 +310,18 @@ public class StructuralCloneCensusTests
         Assert.Contains(
             "--top requires a positive integer.",
             invalidTop.error);
+
+        (int exitCode, string output, string error) invalidTopOtherMode =
+            await RunHarness(
+                "--precision-sample",
+                FixturePath,
+                "--top",
+                "invalid");
+        Assert.Equal(2, invalidTopOtherMode.exitCode);
+        Assert.Equal("", invalidTopOtherMode.output);
+        Assert.Contains(
+            "--top requires a positive integer.",
+            invalidTopOtherMode.error);
 
         (int exitCode, string output, string error) orphan =
             await RunHarness("--seed", "System.String::Concat");

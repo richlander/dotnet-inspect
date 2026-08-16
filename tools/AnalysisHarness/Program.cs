@@ -258,9 +258,13 @@ for (int i = 0; i < args.Length; i++)
             break;
         case "--top":
             if (NextPathValue(args, ref i) is not { } t
-                || !int.TryParse(t, out top))
+                || !int.TryParse(t, out int parsedTop))
             {
                 topArgumentValid = false;
+            }
+            else
+            {
+                top = parsedTop;
             }
             break;
         case "--max-depth":
@@ -327,7 +331,7 @@ if ((cloneCensusSeedSpecified
             + "--clone-census.");
     return 2;
 }
-if (cloneCensusSpecified && (!topArgumentValid || top < 1))
+if (!topArgumentValid || top < 1)
 {
     Console.Error.WriteLine("--top requires a positive integer.");
     return 2;

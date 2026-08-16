@@ -283,6 +283,8 @@ public static class StructuralCloneCensus
         output.Append(report.Receipt.InputMethods);
         output.Append(" processed=");
         output.Append(report.Receipt.ProcessedMethods);
+        output.Append(" suppressed=");
+        output.Append(report.Receipt.SuppressedMethods);
         output.Append(" eligible=");
         output.Append(report.Receipt.EligibleMethods);
         output.Append(" unsupported=");
@@ -299,6 +301,8 @@ public static class StructuralCloneCensus
         output.Append(report.ClusteredMethods);
         output.Append(" largest=");
         output.Append(report.LargestCluster);
+        output.Append(" eligible-without-emitted-family=");
+        output.Append(report.EligibleWithoutEmittedCluster);
         output.Append(" exact-singletons=");
         output.AppendLine(
             report.ExactSingletonMethods?.ToString(
