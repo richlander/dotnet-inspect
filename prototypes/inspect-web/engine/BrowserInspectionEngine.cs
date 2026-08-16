@@ -1081,7 +1081,7 @@ public static partial class BrowserInspectionEngine
     // Presentation over the neutral projection. docs/design/call-graph-projection.md makes
     // rendering host-owned on purpose: the projection carries identity, direction, cycles, and
     // boundaries, and every front end spells them for itself.
-    static string Mermaid(CallGraphProjection projection)
+    internal static string Mermaid(CallGraphProjection projection)
     {
         var builder = new StringBuilder("graph LR\n");
         foreach (CallGraphNode node in projection.Nodes)

@@ -538,6 +538,36 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void CallGraphMermaid_ContainsArtifactLabels()
+    {
+        TypeRef declaringType = TypeRef.Definition(
+            "Sample",
+            "Example",
+            "A\u202E\uD800-Caf\u00E9\U0001F600");
+        var member = new MemberRef(
+            declaringType,
+            "Run",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method);
+        var tree = new CallTreeNode(
+            member,
+            Kind: null,
+            CallTreeStatus.Leaf,
+            Children: []);
+        CallGraphProjection projection = CallGraphProjection.FromCallees(tree);
+
+        string mermaid = BrowserInspectionEngine.Mermaid(projection);
+
+        Assert.Contains(
+            "&#92;u202E&#92;uD800-Caf\u00E9\U0001F600",
+            mermaid,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain('\u202E', mermaid);
+        Assert.DoesNotContain('\uD800', mermaid);
+    }
+
+    [Fact]
     public void CallGraphTargets_CarryEveryNavigableNodeWithNormalizedKinds()
     {
         TypeRef declaringTypeDefinition = TypeRef.Definition(
