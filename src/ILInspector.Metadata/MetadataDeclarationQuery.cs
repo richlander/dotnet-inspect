@@ -355,6 +355,7 @@ public static class MetadataDeclarationQuery
             {
                 Kind = "set",
                 Accessibility = AccessorAccessibility(setter.Attributes & MethodAttributes.MemberAccessMask, bestAccess),
+                ReturnAttributes = ReturnAttributes(reader, setter.GetParameters()).ToList(),
             });
         }
 

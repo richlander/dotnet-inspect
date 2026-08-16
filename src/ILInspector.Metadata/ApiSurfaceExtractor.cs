@@ -2810,7 +2810,12 @@ public static class ApiSurfaceExtractor
                     ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters())
                 });
             if (hasSetter)
-                accessorModels.Add(new ApiAccessor { Kind = "set", Accessibility = AccessorAccessibility(setterAccess, Math.Max((int)getterAccess, (int)setterAccess)) });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "set",
+                    Accessibility = AccessorAccessibility(setterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
+                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                });
             accessorStr = (getStr, setStr) switch
             {
                 (not null, not null) => $"{{ {getStr}; {setStr}; }}",
@@ -2825,13 +2830,22 @@ public static class ApiSurfaceExtractor
             {
                 accessorStr = "{ get; set; }";
                 accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
-                accessorModels.Add(new ApiAccessor { Kind = "set" });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "set",
+                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                });
             }
             else if (hasPublicGetter && hasSetter)
             {
                 accessorStr = "{ get; private set; }";
                 accessorModels.Add(new ApiAccessor { Kind = "get", ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Getter).GetParameters()) });
-                accessorModels.Add(new ApiAccessor { Kind = "set", Accessibility = "private" });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "set",
+                    Accessibility = "private",
+                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                });
             }
             else if (hasPublicGetter)
             {
@@ -2841,7 +2855,11 @@ public static class ApiSurfaceExtractor
             else if (hasPublicSetter)
             {
                 accessorStr = "{ set; }";
-                accessorModels.Add(new ApiAccessor { Kind = "set" });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "set",
+                    ReturnAttributes = ReturnParameterAttributes(reader, reader.GetMethodDefinition(accessors.Setter).GetParameters())
+                });
             }
             else
             {

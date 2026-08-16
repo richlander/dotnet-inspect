@@ -1900,7 +1900,7 @@ internal static class CSharpDeclarationWriter
     static bool IsExplicitInterfaceProperty(ApiMember member)
         => member.Kind == "explicit-interface-implementation"
             && member.Name.Contains('.', StringComparison.Ordinal)
-            && HasOnlyAccessors(member, "get", "set");
+            && HasOnlyAccessors(member, "get", "set", "init");
 
     static bool IsExplicitInterfaceEvent(ApiMember member)
         => member.Kind == "explicit-interface-implementation"
@@ -1910,9 +1910,9 @@ internal static class CSharpDeclarationWriter
     static bool IsEvent(ApiMember member)
         => member.Kind == "event" || IsExplicitInterfaceEvent(member);
 
-    static bool HasOnlyAccessors(ApiMember member, string first, string second)
+    static bool HasOnlyAccessors(ApiMember member, params string[] kinds)
         => member.SignatureModel?.Accessors is { Count: > 0 } accessors
-            && accessors.All(accessor => accessor.Kind == first || accessor.Kind == second);
+            && accessors.All(accessor => kinds.Contains(accessor.Kind, StringComparer.Ordinal));
 
     internal static string FormatParameter(
         ApiParameter parameter,

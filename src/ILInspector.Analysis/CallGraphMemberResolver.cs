@@ -11,6 +11,10 @@ namespace ILInspector.Analysis;
 /// Hosts transport and compare <see cref="CallGraphMemberSelector.Key"/> as opaque identity;
 /// they do not parse display signatures or recreate metadata matching rules.
 /// </summary>
+/// <remarks>
+/// <c>CallGraphMemberResolverTests.Resolve_DistinguishesInstanceAndStaticMethodsWithTheSameSignature</c>
+/// gates the instance/static identity discriminator across both producers and structural remapping.
+/// </remarks>
 public static class CallGraphMemberResolver
 {
     /// <summary>
@@ -106,6 +110,7 @@ public static class CallGraphMemberResolver
         return CreateSelector(
             member.Name,
             member.GenericArity,
+            member.HasThis,
             member.OpenSignatureParameters.Select(TypeIdentity),
             TypeIdentity(member.OpenSignatureReturn));
     }
@@ -129,6 +134,7 @@ public static class CallGraphMemberResolver
         return CreateSelector(
             member.Name,
             member.SignatureModel?.TypeParameters.Count ?? 0,
+            !member.IsStatic,
             (member.SignatureModel?.Parameters ?? [])
                 .Select(parameter => Normalize(parameter.CanonicalTypeWithModifier)),
             Normalize(
@@ -200,6 +206,7 @@ public static class CallGraphMemberResolver
             var selector = CreateSelector(
                 $"get_{member.Name}",
                 0,
+                !member.IsStatic,
                 owner.ParameterTypes,
                 owner.ReturnType);
             yield return new(selector.Name, selector.Key, new(member, getter));
@@ -210,6 +217,7 @@ public static class CallGraphMemberResolver
             var selector = CreateSelector(
                 $"set_{member.Name}",
                 0,
+                !member.IsStatic,
                 owner.ParameterTypes.Append(owner.ReturnType),
                 "System.Void");
             yield return new(selector.Name, selector.Key, new(member, setter));
@@ -220,6 +228,7 @@ public static class CallGraphMemberResolver
             var selector = CreateSelector(
                 $"add_{member.Name}",
                 0,
+                !member.IsStatic,
                 [owner.ReturnType],
                 "System.Void");
             yield return new(selector.Name, selector.Key, new(member, adder));
@@ -230,6 +239,7 @@ public static class CallGraphMemberResolver
             var selector = CreateSelector(
                 $"remove_{member.Name}",
                 0,
+                !member.IsStatic,
                 [owner.ReturnType],
                 "System.Void");
             yield return new(selector.Name, selector.Key, new(member, remover));
@@ -239,12 +249,14 @@ public static class CallGraphMemberResolver
     static CallGraphMemberSelector CreateSelector(
         string name,
         int genericArity,
+        bool hasThis,
         IEnumerable<string> parameterTypes,
         string returnType)
     {
         var parameters = parameterTypes.ToImmutableArray();
         var key = new StringBuilder();
         Append(key, name);
+        key.Append(hasThis ? 'I' : 'S').Append(';');
         key.Append(genericArity).Append(';');
         key.Append(parameters.Length).Append(';');
         foreach (string parameter in parameters)

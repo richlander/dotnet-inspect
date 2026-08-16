@@ -95,6 +95,53 @@ public sealed class CSharpFormatter
             methodParameters);
     }
 
+    /// <summary>
+    /// Formats one accessor declaration head, including its return attributes
+    /// and accessor-specific accessibility.
+    /// </summary>
+    public string FormatAccessorHead(
+        ApiType type,
+        ApiMember member,
+        string kind)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+
+        var accessor = member.SignatureModel?.Accessors
+            .FirstOrDefault(candidate => candidate.Kind == kind);
+        var parts = new List<string>();
+        if (accessor?.ReturnAttributes is { Count: > 0 } returnAttributes)
+        {
+            var attributeProbe = new ApiMember
+            {
+                Name = "__AccessorAttributeProbe",
+                Kind = "method",
+                SignatureModel = new ApiSignature
+                {
+                    ReturnType = "void",
+                    MemberName = "__AccessorAttributeProbe",
+                    ReturnAttributes = returnAttributes
+                }
+            };
+            string formattedProbe = FormatMember(type, attributeProbe);
+            attributeProbe.SignatureModel.ReturnAttributes = [];
+            string formattedDeclaration = FormatMember(type, attributeProbe);
+            if (!formattedProbe.EndsWith(formattedDeclaration, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"C# accessor '{member.Name}.{kind}' return attributes were not rendered.");
+            }
+            string attributePrefix = formattedProbe[..^formattedDeclaration.Length].TrimEnd();
+            if (attributePrefix.Length > 0)
+                parts.Add(attributePrefix);
+        }
+        if (!string.IsNullOrWhiteSpace(accessor?.Accessibility))
+            parts.Add(accessor.Accessibility!);
+        parts.Add(kind);
+        return string.Join(" ", parts);
+    }
+
     public string FormatMemberWithBody(
         ApiType type,
         ApiMember member,

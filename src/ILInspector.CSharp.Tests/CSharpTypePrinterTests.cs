@@ -2993,6 +2993,39 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void FormatAccessorHead_OmittedAttributesDoNotLeaveLeadingWhitespace()
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Value",
+                Accessors =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "get",
+                        Accessibility = "private",
+                        ReturnAttributes = ["Marker"]
+                    }
+                ]
+            }
+        };
+        var formatter = new CSharpFormatter(
+            new CSharpFormatOptions { IncludeSignatureAttributes = false });
+
+        string head = formatter.FormatAccessorHead(
+            CreateEmptyType("Samples", "Widget"),
+            property,
+            "get");
+
+        Assert.Equal("private get", head);
+    }
+
+    [Fact]
     public void FullPropertyAndEventBodiesPlanAccessorReturnAttributes()
     {
         var property = new ApiMember

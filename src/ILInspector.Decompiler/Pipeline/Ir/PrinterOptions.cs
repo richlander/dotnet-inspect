@@ -119,7 +119,7 @@ public sealed record PrinterOptions
     /// and the rest of the keyword types — is spelled <c>var</c> instead of the
     /// explicit type, provided <c>var</c> is faithful there (the initializer's type
     /// is exactly the declared type and it is not a target-typed form such as
-    /// <c>default</c>/<c>null</c>/<c>new()</c>). Byte-neutral: <c>var</c> is a
+    /// <c>null</c>, a collection expression, or <c>new()</c>). Byte-neutral: <c>var</c> is a
     /// compile-time inference with no IL consequence, so this is a spelling choice,
     /// not a lens. Off by default — the shipped output keeps the explicit type,
     /// matching dotnet/runtime's <c>csharp_style_var_for_built_in_types = false</c>.
