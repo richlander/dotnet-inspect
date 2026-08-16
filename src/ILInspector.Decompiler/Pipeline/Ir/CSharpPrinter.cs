@@ -5069,7 +5069,8 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string? TargetTypedNewText(IrExpression value, TypeRef? target)
     {
-        if (target is null
+        if (!_options.PreferImplicitObjectCreation
+            || target is null
             || value is not NewObject creation
             || MultiDimArrayCreationText(creation) is not null
             || IsSystemObjectType(creation.Constructor.DeclaringType)

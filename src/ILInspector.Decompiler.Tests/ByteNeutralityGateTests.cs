@@ -128,6 +128,9 @@ public sealed class ByteNeutralityGateTests
         new("var-spelling-style", "var-elsewhere",
             typeof(VarWhenApparentSpecimen), nameof(VarWhenApparentSpecimen.NotApparent),
             "() -> corelib:System.Int32"),
+        new("object-creation-style", "explicit",
+            typeof(VarWhenApparentSpecimen), nameof(VarWhenApparentSpecimen.NestedObjectCreation),
+            "() -> corelib:System.Int32"),
         // Synthesis: suppress symbols so the product default invents `num`, while
         // slot-local-names restores V_0. Both forms must compile back identically.
         new("slot-local-names", "true",
