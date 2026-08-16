@@ -503,6 +503,42 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task LateStreamAcquisitionCleanupFailureDoesNotMaskDeadline()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static async (message, _) =>
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100));
+                return StreamResponse(
+                    message,
+                    new ThrowingDisposeMemoryStream());
+            }));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(40),
+                operation: TimeSpan.FromSeconds(1)));
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                async () =>
+                {
+                    await using Stream package = await nuget.DownloadAsync(
+                        "package",
+                        "1.0.0",
+                        cancellationToken:
+                            TestContext.Current.CancellationToken);
+                });
+
+        Assert.Contains(
+            ExceptionTree(error),
+            exception => exception is InvalidOperationException
+                && exception.Message.Contains(
+                    "Simulated late cleanup failure",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RequestDeadline_TranslatesStreamingAcquisitionIoAbort()
     {
         using var client = new HttpClient(new DelayedHandler(
@@ -1314,6 +1350,51 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task AsyncCallerCancellation_RetainsDisposalFailure()
+    {
+        var stallingStream = new ThrowingDisposeStallingStream();
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(
+                    StreamResponse(message, stallingStream))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(5),
+                operation: TimeSpan.FromSeconds(10)));
+        using var cancellation = new CancellationTokenSource();
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: cancellation.Token);
+        byte[] buffer = new byte[1];
+        Task<int> read = package.ReadAsync(
+                buffer,
+                cancellation.Token)
+            .AsTask();
+        await stallingStream.ReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        Assert.Null(Record.Exception(cancellation.Cancel));
+        OperationCanceledException error =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
+                    _ = await read.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal(cancellation.Token, error.CancellationToken);
+        Assert.Contains(
+            ExceptionTree(error),
+            exception => exception is IOException
+                && exception.Message.Contains(
+                    "Simulated disposal failure",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RequestDeadline_DisposalFailureIsRetained()
     {
         var stallingStream = new ThrowingDisposeStallingStream();
@@ -1749,6 +1830,8 @@ public sealed class NuGetDeadlineTests
     private sealed class ThrowingDisposeStallingStream : Stream
     {
         private readonly ManualResetEventSlim _disposed = new();
+        private readonly TaskCompletionSource _disposedAsync =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _readStarted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _disposeAttempted;
@@ -1775,12 +1858,24 @@ public sealed class NuGetDeadlineTests
                 nameof(ThrowingDisposeStallingStream));
         }
 
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            _readStarted.TrySetResult();
+            await _disposedAsync.Task;
+            throw new ObjectDisposedException(
+                nameof(ThrowingDisposeStallingStream));
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing
                 && Interlocked.Exchange(ref _disposeAttempted, 1) == 0)
             {
                 _disposed.Set();
+                _disposedAsync.TrySetResult();
+                Thread.Sleep(50);
                 throw new IOException("Simulated disposal failure.");
             }
 
@@ -1794,5 +1889,23 @@ public sealed class NuGetDeadlineTests
             throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class ThrowingDisposeMemoryStream : MemoryStream
+    {
+        public ThrowingDisposeMemoryStream()
+            : base([1, 2, 3], writable: false)
+        {
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                throw new InvalidOperationException(
+                    "Simulated late cleanup failure.");
+            }
+        }
     }
 }
