@@ -28,6 +28,29 @@ public enum TypeRefKind
 }
 
 /// <summary>
+/// Definition identity for metadata facts that must distinguish two references
+/// with the same C#-style name but different exact assembly identities.
+/// <see cref="TypeRef"/> equality intentionally omits resolution provenance, so
+/// caches and materialized facts that depend on the defining assembly use this
+/// key instead. Exact AssemblyRef record identity is deliberately conservative:
+/// equivalent facade spellings may produce duplicate work or casts, but never
+/// collapse two distinct definitions into one fact.
+/// </summary>
+internal readonly record struct TypeDefinitionIdentity(
+    TypeRef Definition,
+    AssemblyReferenceIdentity? ResolutionAssembly)
+{
+    public static TypeDefinitionIdentity? Create(TypeRef? type)
+    {
+        if (type?.Kind == TypeRefKind.GenericInstance)
+            type = type.ElementType;
+        return type is { Kind: TypeRefKind.Definition } definition
+            ? new TypeDefinitionIdentity(definition, definition.ResolutionAssembly)
+            : null;
+    }
+}
+
+/// <summary>
 /// Whether a type was decoded from an <c>ELEMENT_TYPE_VALUETYPE</c> or
 /// <c>ELEMENT_TYPE_CLASS</c> signature token — recoverable locally, with no
 /// external assembly resolution. <see cref="Unknown"/> when the type was reached

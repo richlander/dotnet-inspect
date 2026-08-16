@@ -137,7 +137,9 @@ internal sealed class CrossAssemblyTypeResolver
         bool needsDelegate = NeedsDelegateFact(callee);
         bool needsOperator = NeedsOperatorFact(callee);
         bool needsAccessor = NeedsAccessorFact(callee);
-        if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsExtension && !needsDelegate && !needsOperator && !needsAccessor)
+        bool needsReturnDynamic = NeedsReturnDynamicFact(callee);
+        if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsExtension && !needsDelegate
+            && !needsOperator && !needsAccessor && !needsReturnDynamic)
             return callee;
 
         var type = NamedDefinition(callee.DeclaringType);
@@ -165,6 +167,7 @@ internal sealed class CrossAssemblyTypeResolver
                 ? resolved.ParameterRefKinds.State
                 : callee.ParameterRefKindsFacts,
             RequiresUnsafe = callee.RequiresUnsafe || (needsUnsafe && resolved.RequiresUnsafe),
+            ReturnIsDynamic = needsReturnDynamic ? resolved.ReturnIsDynamic : callee.ReturnIsDynamic,
             CompilerGenerated = needsGenerated ? resolved.CompilerGenerated : callee.CompilerGenerated,
             DeclaringTypeCompilerGenerated = needsGenerated ? resolved.DeclaringTypeCompilerGenerated : callee.DeclaringTypeCompilerGenerated,
             DeclaringTypeIsDelegate = needsDelegate ? resolved.DeclaringTypeIsDelegate : callee.DeclaringTypeIsDelegate,
@@ -281,14 +284,22 @@ internal sealed class CrossAssemblyTypeResolver
     {
         hasOperator = false;
         bool unresolved = false;
-        var seen = new HashSet<TypeRef>();
+        int remainingWork = OperatorHierarchyLimits.WorkItems;
+        var seen = new HashSet<TypeDefinitionIdentity>();
         var pending = new Stack<(TypeRef Type, ResolvedAssemblyReference? LocalAssembly)>();
         pending.Push((type, null));
 
-        while (pending.Count > 0 && seen.Count < 256)
+        while (pending.Count > 0
+            && seen.Count < OperatorHierarchyLimits.Types
+            && remainingWork-- > 0)
         {
             var (current, localAssembly) = pending.Pop();
-            if (!seen.Add(current))
+            if (TypeDefinitionIdentity.Create(current) is not { } currentIdentity)
+            {
+                unresolved = true;
+                continue;
+            }
+            if (!seen.Add(currentIdentity))
                 continue;
 
             if (NamedDefinition(current) is not { } definition)
@@ -302,8 +313,15 @@ internal sealed class CrossAssemblyTypeResolver
 
             var reader = assembly.Reader;
             var typeDef = reader.GetTypeDefinition(handle);
+            bool budgetExhausted = false;
             foreach (var methodHandle in typeDef.GetMethods())
             {
+                if (remainingWork-- <= 0)
+                {
+                    unresolved = true;
+                    budgetExhausted = true;
+                    break;
+                }
                 var method = reader.GetMethodDefinition(methodHandle);
                 if (string.Equals(reader.GetString(method.Name), methodName, StringComparison.Ordinal)
                     && MethodDefinitionFacts.IsOperator(
@@ -315,12 +333,24 @@ internal sealed class CrossAssemblyTypeResolver
                     return true;
                 }
             }
+            if (budgetExhausted)
+                break;
 
             var typeArguments = current.Kind == TypeRefKind.GenericInstance ? current.TypeArguments : [];
             if ((typeDef.Attributes & System.Reflection.TypeAttributes.Interface) != 0)
             {
                 foreach (var baseInterface in DecodeInterfaces(reader, typeDef, typeArguments))
+                {
+                    if (remainingWork-- <= 0)
+                    {
+                        unresolved = true;
+                        budgetExhausted = true;
+                        break;
+                    }
                     pending.Push((baseInterface, resolved.Assembly.Assembly));
+                }
+                if (budgetExhausted)
+                    break;
             }
             else if (DecodeBaseType(reader, typeDef, typeArguments) is { } baseType)
             {
@@ -430,13 +460,25 @@ internal sealed class CrossAssemblyTypeResolver
                     continue;
                 bool allowCoreLibraryAliases = type.Assembly == TypeRef.CoreLibrary
                     || ScopeFor(type) == AssemblyResolutionScope.Platform;
-                if (!TryMatchMethod(reader, typeDef, method, callee, allowCoreLibraryAliases, out var parameterRefKinds))
+                if (!TryMatchMethod(
+                    reader,
+                    typeDef,
+                    method,
+                    callee,
+                    allowCoreLibraryAliases,
+                    out var parameterRefKinds,
+                    out var declaredReturnType))
                     continue;
 
                 bool methodCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes());
                 return new ResolvedMethodFacts(
                     parameterRefKinds,
                     typeRequiresUnsafe || MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
+                    MethodDefinitionFacts.ReturnDynamicFact(
+                        reader,
+                        method,
+                        declaredReturnType,
+                        callee.ReturnType),
                     FactState(methodCompilerGenerated),
                     FactState(typeCompilerGenerated),
                     FactState(IsDelegateType(reader, typeDef)),
@@ -512,9 +554,11 @@ internal sealed class CrossAssemblyTypeResolver
         MethodDefinition method,
         MethodRef callee,
         bool allowCoreLibraryAliases,
-        out ParameterRefKindResult parameterRefKinds)
+        out ParameterRefKindResult parameterRefKinds,
+        out TypeRef declaredReturnType)
     {
         parameterRefKinds = default;
+        declaredReturnType = TypeRef.Unsupported("unmatched method return");
         var scope = new GenericScope(
             MethodDefinitionFacts.GenericParameterNames(reader, declaringType.GetGenericParameters()),
             MethodDefinitionFacts.GenericParameterNames(reader, method.GetGenericParameters()));
@@ -531,6 +575,7 @@ internal sealed class CrossAssemblyTypeResolver
         var returnType = signature.ReturnType.Instantiate(typeArguments, methodArguments);
         if (!SameSignatureType(returnType, callee.ReturnType, allowCoreLibraryAliases))
             return false;
+        declaredReturnType = signature.ReturnType;
 
         if (signature.ParameterTypes.Length != callee.ParameterTypes.Length)
             return false;
@@ -922,6 +967,10 @@ internal sealed class CrossAssemblyTypeResolver
                 || method.Name.StartsWith("add_", StringComparison.Ordinal)
                 || method.Name.StartsWith("remove_", StringComparison.Ordinal));
 
+    static bool NeedsReturnDynamicFact(MethodRef method)
+        => method.ReturnIsDynamic == MetadataFactState.Unknown
+            && method.ReturnType is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" };
+
     static bool IsDelegateType(MetadataReader reader, TypeDefinition typeDef)
     {
         try { return BaseTypeName(reader, typeDef.BaseType) is "System.MulticastDelegate"; }
@@ -933,6 +982,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly record struct ResolvedMethodFacts(
         ParameterRefKindResult ParameterRefKinds,
         bool RequiresUnsafe,
+        MetadataFactState ReturnIsDynamic,
         MetadataFactState CompilerGenerated,
         MetadataFactState DeclaringTypeCompilerGenerated,
         MetadataFactState DeclaringTypeIsDelegate,

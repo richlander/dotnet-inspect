@@ -7,6 +7,14 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
+internal static class OperatorHierarchyLimits
+{
+    // Bound both graph depth and breadth: malformed metadata can attach an
+    // arbitrary number of duplicate InterfaceImpl rows to one definition.
+    public const int Types = 256;
+    public const int WorkItems = 4096;
+}
+
 /// <summary>
 /// Owner of the PE and metadata readers for one assembly, with an explicit
 /// lifetime contract (docs/decompiler-ir.md). Everything that
@@ -357,7 +365,7 @@ public sealed class MetadataSource : IDisposable
     HashSet<TypeRef>? _delegates;
     HashSet<TypeRef>? _equalityOperatorTypes;
     HashSet<TypeRef>? _inequalityOperatorTypes;
-    readonly ConcurrentDictionary<(TypeRef Type, string MethodName), MetadataFactState> _operatorHierarchyFacts = new();
+    readonly ConcurrentDictionary<(TypeDefinitionIdentity Type, string MethodName), MetadataFactState> _operatorHierarchyFacts = new();
 
     /// <summary>
     /// The C# shape of a type defined in THIS assembly — enum, struct, or
@@ -510,9 +518,11 @@ public sealed class MetadataSource : IDisposable
     /// </remarks>
     internal MetadataFactState HasOperatorInBindingHierarchy(TypeRef type, string methodName)
     {
-        if (NamedDefinition(type) is not { } definition || string.IsNullOrEmpty(definition.Assembly))
+        if (NamedDefinition(type) is not { } definition
+            || string.IsNullOrEmpty(definition.Assembly)
+            || TypeDefinitionIdentity.Create(definition) is not { } identity)
             return MetadataFactState.Unknown;
-        var cacheKey = (type, methodName);
+        var cacheKey = (identity, methodName);
         if (_operatorHierarchyFacts.TryGetValue(cacheKey, out var cached))
             return cached;
 
@@ -532,17 +542,23 @@ public sealed class MetadataSource : IDisposable
             _ => throw new ArgumentOutOfRangeException(nameof(methodName)),
         };
         bool unresolved = false;
-        var seen = new HashSet<TypeRef>();
+        int remainingWork = OperatorHierarchyLimits.WorkItems;
+        var seen = new HashSet<TypeDefinitionIdentity>();
         var pending = new Stack<TypeRef>();
         pending.Push(type);
-        while (pending.Count > 0 && seen.Count < 256)
+        while (pending.Count > 0
+            && seen.Count < OperatorHierarchyLimits.Types
+            && remainingWork-- > 0)
         {
             var current = pending.Pop();
             if (NamedDefinition(current) is not { } currentDefinition
-                || !seen.Add(currentDefinition))
+                || TypeDefinitionIdentity.Create(currentDefinition) is not { } currentIdentity)
             {
+                unresolved = true;
                 continue;
             }
+            if (!seen.Add(currentIdentity))
+                continue;
 
             if (currentDefinition.Assembly != self)
             {
@@ -565,12 +581,21 @@ public sealed class MetadataSource : IDisposable
 
             if (_interfaces!.Contains(currentDefinition))
             {
+                bool budgetExhausted = false;
                 foreach (var baseInterface in _interfaceImpls![currentDefinition])
                 {
+                    if (remainingWork-- <= 0)
+                    {
+                        unresolved = true;
+                        budgetExhausted = true;
+                        break;
+                    }
                     pending.Push(current.Kind == TypeRefKind.GenericInstance
                         ? baseInterface.Instantiate(current.TypeArguments, [])
                         : baseInterface);
                 }
+                if (budgetExhausted)
+                    break;
                 continue;
             }
 

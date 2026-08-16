@@ -135,6 +135,35 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void CrossAssemblyDynamicReturns_PreserveReferenceIdentity()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        var property = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseDynamicProperty), "get_DynamicValue");
+        var method = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseDynamicMethod), "GetDynamicValue");
+        Assert.Equal(MetadataFactState.Yes, property.Callee.ReturnIsDynamic);
+        Assert.Equal(MetadataFactState.Yes, method.Callee.ReturnIsDynamic);
+
+        Assert.Contains("(object)library.DynamicValue == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseDynamicProperty));
+        Assert.Contains("(object)library.GetDynamicValue() == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseDynamicMethod));
+    }
+
+    [Fact]
+    public void MissingCrossAssemblyDynamicFacts_DeclineConservatively()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            null,
+            TestAssemblyReferenceResolvers.None);
+
+        var call = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseDynamicMethod), "GetDynamicValue");
+        Assert.Equal(MetadataFactState.Unknown, call.Callee.ReturnIsDynamic);
+        Assert.Contains("(object)library.GetDynamicValue() == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseDynamicMethod));
+    }
+
+    [Fact]
     public void CrossAssemblyInlineArrayHelper_RecoversInlineArrayTypeArgumentFact()
     {
         using var fixture = CrossAssemblyFixture.Create();
@@ -219,6 +248,13 @@ public class CrossAssemblyMethodFactsTests
         return CSharpPrinter.Print(function).Output ?? "";
     }
 
+    static string PrintRaised(MetadataSource source, string methodName)
+    {
+        var function = ImportFunction(source, methodName);
+        IrPasses.Run(function);
+        return CSharpPrinter.Print(function).Output ?? "";
+    }
+
     static void AssertCallRefKind(MetadataSource source, string methodName, string calleeName, ArgumentRefKind expected)
     {
         var call = SingleCall(source, methodName, calleeName);
@@ -295,6 +331,13 @@ public class CrossAssemblyMethodFactsTests
                     {
                         public PropertyLibrary(int count) => Count = count;
                         public int Count { get; }
+                    }
+
+                    public sealed class DynamicLibrary
+                    {
+                        readonly ExternalNumber _value = new(1);
+                        public dynamic DynamicValue => _value;
+                        public dynamic GetDynamicValue() => _value;
                     }
 
                     public readonly struct ExternalNumber
@@ -381,6 +424,12 @@ public class CrossAssemblyMethodFactsTests
                         public static int UseProperty(PropertyLibrary library)
                             => library.Count;
 
+                        public static bool UseDynamicProperty(DynamicLibrary library, object right)
+                            => (object)library.DynamicValue == right;
+
+                        public static bool UseDynamicMethod(DynamicLibrary library, object right)
+                            => (object)library.GetDynamicValue() == right;
+
                         public static bool UseUri(string value)
                             => System.Uri.TryCreate(value, System.UriKind.Absolute, out var uri) && uri is not null;
 
@@ -442,6 +491,8 @@ public class CrossAssemblyMethodFactsTests
         public const string UseExternalRefStruct = nameof(UseExternalRefStruct);
         public const string UseExternalStruct = nameof(UseExternalStruct);
         public const string UseProperty = nameof(UseProperty);
+        public const string UseDynamicProperty = nameof(UseDynamicProperty);
+        public const string UseDynamicMethod = nameof(UseDynamicMethod);
         public const string UseUri = nameof(UseUri);
         public const string UseExternalInlineArray = nameof(UseExternalInlineArray);
     }

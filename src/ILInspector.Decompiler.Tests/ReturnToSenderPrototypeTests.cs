@@ -7918,11 +7918,31 @@ public class ReturnToSenderPrototypeTests
             public sealed class A;
             public sealed class B;
 
+            public sealed class DynamicCarrier
+            {
+                readonly Row _value = new();
+                public dynamic Property => _value;
+                public dynamic Method() => _value;
+            }
+
+            public sealed class GenericDynamicCarrier<T>
+            {
+                public T Value { get; init; }
+            }
+
             public static class Cases
             {
                 public static bool Mixed<T>(T left, Row right) => (object)left == (object)right;
                 public static bool Unrelated(A left, B right) => (object)left == (object)right;
                 public static bool DynamicMember(dynamic value, object right) => (object)value.Member == right;
+                public static bool DynamicProperty(DynamicCarrier carrier, object right) => (object)carrier.Property == right;
+                public static bool DynamicMethod(DynamicCarrier carrier, object right) => (object)carrier.Method() == right;
+                public static bool DynamicConditional(DynamicCarrier carrier, bool choose, object right)
+                    => (object)(choose ? carrier.Property : carrier.Method()) == right;
+                public static bool GenericDynamicProperty(GenericDynamicCarrier<dynamic> carrier, object right)
+                    => (object)carrier.Value == right;
+                public static bool DynamicArrayElement(dynamic[] values, int index, object right)
+                    => (object)values[index] == right;
             }
             """);
         try
@@ -7933,6 +7953,11 @@ public class ReturnToSenderPrototypeTests
                     new ReturnToSender.RequestedTarget("Cases", "Mixed", 0),
                     new ReturnToSender.RequestedTarget("Cases", "Unrelated", 0),
                     new ReturnToSender.RequestedTarget("Cases", "DynamicMember", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicProperty", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicMethod", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicConditional", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "GenericDynamicProperty", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicArrayElement", 0),
                 ]);
 
             Assert.All(results, result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
@@ -7941,6 +7966,21 @@ public class ReturnToSenderPrototypeTests
                 StringComparison.Ordinal));
             Assert.Contains(results, result => result.Source.Contains(
                 "return (object)(value.Member) == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)carrier.Property == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)carrier.Method() == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "(object)(choose ? carrier.Property : carrier.Method()) == (object)right",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)carrier.Value == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)values[index] == (object)right;",
                 StringComparison.Ordinal));
         }
         finally

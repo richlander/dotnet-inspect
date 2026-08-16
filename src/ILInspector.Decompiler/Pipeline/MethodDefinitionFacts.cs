@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -59,6 +60,39 @@ internal static class MethodDefinitionFacts
     // declaring class and module). The method-level mark is the precise signal.
     internal static bool HasExtensionAttribute(MetadataReader reader, MethodDefinition method)
         => HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.CompilerServices", "ExtensionAttribute");
+
+    internal static MetadataFactState ReturnDynamicFact(
+        MetadataReader reader,
+        MethodDefinition method,
+        TypeRef declaredReturnType,
+        TypeRef effectiveReturnType)
+    {
+        foreach (var parameterHandle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(parameterHandle);
+            if (parameter.SequenceNumber != 0)
+                continue;
+            var attributes = parameter.GetCustomAttributes();
+            bool hasDynamicAttribute = HasAttribute(
+                reader,
+                attributes,
+                "System.Runtime.CompilerServices",
+                "DynamicAttribute");
+            if (DynamicReader.IsTopLevelDynamic(DynamicReader.GetDynamicFlags(reader, attributes)))
+                return MetadataFactState.Yes;
+            if (hasDynamicAttribute)
+                return MetadataFactState.Unknown;
+            break;
+        }
+
+        // A generic return substituted with object may have been authored through
+        // a dynamic type argument (for example Box<dynamic>.Value). The MethodDef
+        // itself cannot prove the source view, so absence of [Dynamic] is not No.
+        return declaredReturnType.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
+            && effectiveReturnType is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" }
+                ? MetadataFactState.Unknown
+                : MetadataFactState.No;
+    }
 
     // [OverloadResolutionPriority] (C# 13) reorders applicable candidates before
     // betterness, so a differently-typed sibling can win a shortened call the

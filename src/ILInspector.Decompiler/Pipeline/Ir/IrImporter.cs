@@ -636,8 +636,9 @@ public static class IrImporter
         var unionTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
         var byRefLikeTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
         var interfaceTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
-        var equalityOperatorFreeTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
-        var inequalityOperatorFreeTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
+        var equalityOperatorFreeTypes = ImmutableHashSet.CreateBuilder<TypeDefinitionIdentity>();
+        var inequalityOperatorFreeTypes = ImmutableHashSet.CreateBuilder<TypeDefinitionIdentity>();
+        var operatorFactsConsidered = new HashSet<TypeDefinitionIdentity>();
 
         void Consider(TypeRef? type)
         {
@@ -656,7 +657,7 @@ public static class IrImporter
             // named definitions carry a shape/member map entry themselves.
             if (type.Kind == TypeRefKind.GenericInstance)
                 type = type.ElementType;
-            if (type is not { Kind: TypeRefKind.Definition } || !shapes.TryAdd(type, default))
+            if (type is not { Kind: TypeRefKind.Definition })
                 return;
             var kind = source.ClassifyResolvedType(type);
             var shape = kind switch
@@ -666,20 +667,23 @@ public static class IrImporter
                 TypeShapeKind.Class or TypeShapeKind.Interface or TypeShapeKind.Delegate => TypeShape.Reference,
                 _ => TypeShape.Unknown,
             };
-            shapes[type] = shape;
+            if (TypeDefinitionIdentity.Create(type) is { } identity
+                && operatorFactsConsidered.Add(identity)
+                && shape == TypeShape.Reference)
+            {
+                if (source.HasOperatorInBindingHierarchy(type, "op_Equality") == MetadataFactState.No)
+                    equalityOperatorFreeTypes.Add(identity);
+                if (source.HasOperatorInBindingHierarchy(type, "op_Inequality") == MetadataFactState.No)
+                    inequalityOperatorFreeTypes.Add(identity);
+            }
+            if (!shapes.TryAdd(type, shape))
+                return;
             // Interface-ness is folded into TypeShape.Reference above, but the
             // printer needs it apart from a class to re-insert the ((I)this) cast
             // an implicit class→interface upcast erases. Record the confirmed
             // definition only; an unresolved (Unknown) type is left absent.
             if (kind == TypeShapeKind.Interface)
                 interfaceTypes.Add(type);
-            if (shape == TypeShape.Reference)
-            {
-                if (source.HasOperatorInBindingHierarchy(type, "op_Equality") == MetadataFactState.No)
-                    equalityOperatorFreeTypes.Add(type);
-                if (source.HasOperatorInBindingHierarchy(type, "op_Inequality") == MetadataFactState.No)
-                    inequalityOperatorFreeTypes.Add(type);
-            }
             if (source.IsUnionType(type))
                 unionTypes.Add(type);
             // Only a value type can be a ref struct; skip the cross-assembly
@@ -2147,6 +2151,11 @@ public static class IrImporter
                 string methodName = reader.GetString(method.Name);
                 return new MethodRef(declaring, methodName, signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
                 {
+                    ReturnIsDynamic = MethodDefinitionFacts.ReturnDynamicFact(
+                        reader,
+                        method,
+                        signature.ReturnType,
+                        signature.ReturnType),
                     IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
                     IsOperator = FactState(MethodDefinitionFacts.IsOperator(method, methodName, signature.Header.IsInstance)),
                     AccessorKind = MethodDefinitionFacts.ReadAccessorKind(reader, declaringType, (MethodDefinitionHandle)handle),
@@ -2175,7 +2184,15 @@ public static class IrImporter
                 var typeArguments = declaring.Kind == TypeRefKind.GenericInstance ? declaring.TypeArguments : [];
                 string memberName = reader.GetString(member.Name);
                 var parameterTypes = ImmutableArray.CreateRange(signature.ParameterTypes.Select(p => p.Instantiate(typeArguments, [])));
-                var memberFacts = MemberReferenceDefinitionFacts(reader, member, memberName, signature.Header.IsInstance, parameterTypes);
+                var returnType = signature.ReturnType.Instantiate(typeArguments, []);
+                var memberFacts = MemberReferenceDefinitionFacts(
+                    reader,
+                    member,
+                    memberName,
+                    signature.Header.IsInstance,
+                    signature.ReturnType,
+                    returnType,
+                    parameterTypes);
                 bool trustedPlatform = IsTrustedPlatformMemberReference(reader, member.Parent);
                 var accessorKind = MemberReferenceAccessorKind(reader, member, memberName);
                 if (accessorKind == AccessorKind.Unknown && trustedPlatform)
@@ -2189,7 +2206,7 @@ public static class IrImporter
                 return new MethodRef(
                     declaring,
                     memberName,
-                    signature.ReturnType.Instantiate(typeArguments, []),
+                    returnType,
                     parameterTypes,
                     signature.Header.IsInstance)
                 {
@@ -2210,6 +2227,7 @@ public static class IrImporter
                     // otherwise be lost; recover it from the underlying MethodDef.
                     ParameterRefKinds = memberFacts.ParameterRefKinds.Kinds,
                     ParameterRefKindsFacts = memberFacts.ParameterRefKinds.State,
+                    ReturnIsDynamic = memberFacts.ReturnIsDynamic,
                     IsOperator = memberFacts.IsOperator,
                     CompilerGenerated = memberFacts.CompilerGenerated,
                     DeclaringTypeCompilerGenerated = memberFacts.DeclaringTypeCompilerGenerated,
@@ -2223,11 +2241,17 @@ public static class IrImporter
                 var spec = reader.GetMethodSpecification((MethodSpecificationHandle)handle);
                 var generic = ResolveMethod(reader, spec.Method, callerScope);
                 var methodArguments = GuardedDecode.MethodSpecArguments(reader, spec, callerScope);
+                var returnType = generic.ReturnType.Instantiate([], methodArguments);
                 return generic with
                 {
                     TypeArguments = methodArguments,
                     DefinitionParameterTypes = generic.ParameterTypes,
-                    ReturnType = generic.ReturnType.Instantiate([], methodArguments),
+                    ReturnType = returnType,
+                    ReturnIsDynamic = generic.ReturnIsDynamic == MetadataFactState.No
+                        && generic.ReturnType.Kind == TypeRefKind.MethodGenericParameter
+                        && returnType is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" }
+                            ? MetadataFactState.Unknown
+                            : generic.ReturnIsDynamic,
                     ParameterTypes = [.. generic.ParameterTypes.Select(p => p.Instantiate([], methodArguments))],
                 };
             }
@@ -2336,6 +2360,7 @@ public static class IrImporter
     /// </summary>
     static (
         ParameterRefKindResult ParameterRefKinds,
+        MetadataFactState ReturnIsDynamic,
         MetadataFactState IsOperator,
         MetadataFactState CompilerGenerated,
         MetadataFactState DeclaringTypeCompilerGenerated) MemberReferenceDefinitionFacts(
@@ -2343,6 +2368,8 @@ public static class IrImporter
         MemberReference member,
         string memberName,
         bool hasThis,
+        TypeRef declaredReturnType,
+        TypeRef effectiveReturnType,
         ImmutableArray<TypeRef> parameterTypes)
     {
         var fallbackRefKinds = parameterTypes.Any(p => p.Kind == TypeRefKind.ByRef)
@@ -2350,7 +2377,12 @@ public static class IrImporter
             : new ParameterRefKindResult([], ParameterRefKindFacts.NotRequired);
 
         if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
-            return (fallbackRefKinds, MetadataFactState.Unknown, MetadataFactState.Unknown, MetadataFactState.Unknown);
+            return (
+                fallbackRefKinds,
+                MetadataFactState.Unknown,
+                MetadataFactState.Unknown,
+                MetadataFactState.Unknown,
+                MetadataFactState.Unknown);
 
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var typeCompilerGenerated = FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes()));
@@ -2370,12 +2402,22 @@ public static class IrImporter
                     : fallbackRefKinds;
                 return (
                     parameterRefKinds,
+                    MethodDefinitionFacts.ReturnDynamicFact(
+                        reader,
+                        method,
+                        declaredReturnType,
+                        effectiveReturnType),
                     FactState(MethodDefinitionFacts.IsOperator(method, memberName, hasThis)),
                     FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
                     typeCompilerGenerated);
             }
         }
-        return (fallbackRefKinds, MetadataFactState.Unknown, MetadataFactState.Unknown, typeCompilerGenerated);
+        return (
+            fallbackRefKinds,
+            MetadataFactState.Unknown,
+            MetadataFactState.Unknown,
+            MetadataFactState.Unknown,
+            typeCompilerGenerated);
     }
 
     internal static bool IsTrustedPlatformMemberReference(MetadataReader reader, EntityHandle parent) => parent.Kind switch
@@ -2625,7 +2667,14 @@ public static class IrImporter
                 return new FieldRef(declaring, name, fieldType)
                 {
                     BackingPropertyName = MemberReferenceBackingPropertyName(reader, member, name),
-                    DeclaringTypeCompilerGenerated = MemberReferenceDefinitionFacts(reader, member, name, false, []).DeclaringTypeCompilerGenerated,
+                    DeclaringTypeCompilerGenerated = MemberReferenceDefinitionFacts(
+                        reader,
+                        member,
+                        name,
+                        hasThis: false,
+                        declaredReturnType: fieldType,
+                        effectiveReturnType: fieldType,
+                        parameterTypes: []).DeclaringTypeCompilerGenerated,
                     IsDynamic = MemberReferenceFieldIsDynamic(reader, member, name),
                 };
             }

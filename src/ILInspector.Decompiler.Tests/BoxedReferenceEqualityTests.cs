@@ -29,6 +29,46 @@ public class BoxedReferenceEqualityTests
     }
 
     [Fact]
+    public void DynamicPropertyReferenceEquality_PreservesObjectComparison()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.DynamicPropertyReferenceEquals));
+
+        Assert.Contains("return (object)carrier.Property == (object)right;", output);
+    }
+
+    [Fact]
+    public void DynamicMethodReferenceEquality_PreservesObjectComparison()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.DynamicMethodReferenceEquals));
+
+        Assert.Contains("return (object)carrier.Method() == (object)right;", output);
+    }
+
+    [Fact]
+    public void DynamicConditionalReferenceEquality_PreservesObjectComparison()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.DynamicConditionalReferenceEquals));
+
+        Assert.Contains("(object)(choose ? carrier.Property : carrier.Method()) == (object)right", output);
+    }
+
+    [Fact]
+    public void GenericDynamicPropertyReferenceEquality_PreservesObjectComparison()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.GenericDynamicPropertyReferenceEquals));
+
+        Assert.Contains("return (object)carrier.Value == (object)right;", output);
+    }
+
+    [Fact]
+    public void DynamicArrayElementReferenceEquality_PreservesObjectComparison()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.DynamicArrayElementReferenceEquals));
+
+        Assert.Contains("return (object)values[index] == (object)right;", output);
+    }
+
+    [Fact]
     public void UserOperatorReferenceInequality_PreservesObjectComparison()
     {
         string output = Print(nameof(BoxedReferenceEqualitySpecimens.UserReferenceNotEquals));
@@ -152,6 +192,47 @@ public class BoxedReferenceEqualityTests
         Assert.DoesNotContain("return left != right;", output);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnresolvedReferenceProducingExpression_PreservesObjectComparison(bool castClass)
+    {
+        var unresolved = TypeRef.Definition("External", "External", "OperatorType");
+        var rightType = unresolved.WithValueTypeHint(ValueTypeHint.ReferenceType);
+        IrExpression left = castClass
+            ? new CastClass(unresolved, new LoadArgument(0, "value", TypeRef.CoreLib("System", "Object")))
+            : new IsInstance(unresolved, new LoadArgument(0, "value", TypeRef.CoreLib("System", "Object")));
+        var comparison = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            left,
+            new LoadArgument(1, "right", rightType));
+        var block = new Block();
+        block.Add(new Return(comparison));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Boolean"),
+                [
+                    new Parameter("value", TypeRef.CoreLib("System", "Object")),
+                    new Parameter("right", rightType),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        string output = CSharpPrinter.Print(function).Output!;
+
+        string expectedLeft = castClass
+            ? "(object)((OperatorType)value)"
+            : "(object)(value as OperatorType)";
+        Assert.Contains($"return {expectedLeft} == (object)right;", output);
+    }
+
     static string Print(string methodName)
     {
         using var context = new MetadataContext(TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
@@ -179,6 +260,26 @@ public static class BoxedReferenceEqualitySpecimens
 
     public static bool DynamicMemberReferenceEquals(dynamic value, object right)
         => (object)value.Member == right;
+
+    public static bool DynamicPropertyReferenceEquals(DynamicCarrier carrier, object right)
+        => (object)carrier.Property == right;
+
+    public static bool DynamicMethodReferenceEquals(DynamicCarrier carrier, object right)
+        => (object)carrier.Method() == right;
+
+    public static bool DynamicConditionalReferenceEquals(DynamicCarrier carrier, bool choose, object right)
+        => (object)(choose ? carrier.Property : carrier.Method()) == right;
+
+    public static bool GenericDynamicPropertyReferenceEquals(
+        GenericDynamicCarrier<dynamic> carrier,
+        object right)
+        => (object)carrier.Value == right;
+
+    public static bool DynamicArrayElementReferenceEquals(
+        dynamic[] values,
+        int index,
+        object right)
+        => (object)values[index] == right;
 
     public static bool UserReferenceNotEquals(UserEquality left, UserEquality right)
         => (object)left != right;
@@ -224,6 +325,20 @@ public static class BoxedReferenceEqualitySpecimens
 
         return -1;
     }
+}
+
+public sealed class DynamicCarrier
+{
+    readonly UserEquality _value = new();
+
+    public dynamic Property => _value;
+
+    public dynamic Method() => _value;
+}
+
+public sealed class GenericDynamicCarrier<T>
+{
+    public T Value { get; init; } = default!;
 }
 
 public sealed class UserEquality

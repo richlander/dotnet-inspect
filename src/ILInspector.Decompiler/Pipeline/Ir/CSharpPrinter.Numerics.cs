@@ -1694,7 +1694,15 @@ public sealed partial class CSharpPrinter
     }
 
     bool IsKnownReferenceComparison(IrExpression left, IrExpression right)
-        => IsKnownReferenceType(left.ResultType) && IsKnownReferenceType(right.ResultType);
+        => IsKnownReferenceValue(left) && IsKnownReferenceValue(right);
+
+    bool IsKnownReferenceValue(IrExpression expression)
+        => expression switch
+        {
+            IsInstance instance => !IsValueTypeTarget(instance.Type),
+            CastClass or Box => true,
+            _ => IsKnownReferenceType(expression.ResultType),
+        };
 
     bool IsKnownReferenceType(TypeRef? type)
         => TypeFamilies.Of(type) == StackFamily.O
@@ -1717,8 +1725,14 @@ public sealed partial class CSharpPrinter
             return false;
         if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
             return true;
-        var definition = NamedDefinition(type);
-        if (definition is { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" })
+        if (TypeDefinitionIdentity.Create(type) is not { } definition)
+            return false;
+        if (definition.Definition is
+            {
+                Assembly: TypeRef.CoreLibrary,
+                Namespace: "System",
+                Name: "Object",
+            })
             return true;
         return kind == ComparisonKind.Equal
             ? _function.EqualityOperatorFreeTypes.Contains(definition)
@@ -1728,7 +1742,31 @@ public sealed partial class CSharpPrinter
     static bool BareReferenceEqualityBinds(TypeRef? left, TypeRef? right)
         => left is not null
             && right is not null
-            && (left.Equals(right) || IsObject(left) || IsObject(right));
+            && (SameResolvedType(left, right) || IsObject(left) || IsObject(right));
+
+    static bool SameResolvedType(TypeRef left, TypeRef right)
+    {
+        if (!left.Equals(right))
+            return false;
+        if (TypeDefinitionIdentity.Create(left) is { } leftIdentity
+            && TypeDefinitionIdentity.Create(right) is { } rightIdentity
+            && leftIdentity != rightIdentity)
+        {
+            return false;
+        }
+        if (left.ElementType is { } leftElement
+            && right.ElementType is { } rightElement
+            && !SameResolvedType(leftElement, rightElement))
+        {
+            return false;
+        }
+        for (int i = 0; i < left.TypeArguments.Length; i++)
+        {
+            if (!SameResolvedType(left.TypeArguments[i], right.TypeArguments[i]))
+                return false;
+        }
+        return true;
+    }
 
     static bool IsObject(TypeRef type)
         => type is
@@ -1740,7 +1778,23 @@ public sealed partial class CSharpPrinter
         };
 
     static bool RendersAsDynamic(IrExpression operand)
-        => operand is DynamicGetMember || IsDynamicTypedReceiver(operand);
+        => operand switch
+        {
+            DynamicGetMember => true,
+            Call call => MayRenderDynamicResult(call.Callee),
+            LoadProperty property => MayRenderDynamicResult(property.Accessor),
+            LoadElement { ResultType: { } type } => IsSystemObjectType(type),
+            Conditional conditional => RendersAsDynamic(conditional.WhenTrue)
+                || RendersAsDynamic(conditional.WhenFalse),
+            Coalesce coalesce => RendersAsDynamic(coalesce.Left)
+                || RendersAsDynamic(coalesce.Right),
+            NullConditional conditional => RendersAsDynamic(conditional.Member),
+            _ => IsDynamicTypedReceiver(operand),
+        };
+
+    static bool MayRenderDynamicResult(MethodRef method)
+        => IsSystemObjectType(method.ReturnType)
+            && method.ReturnIsDynamic != MetadataFactState.No;
 
     string ObjectReferenceOperand(IrExpression operand)
         => operand is Box box

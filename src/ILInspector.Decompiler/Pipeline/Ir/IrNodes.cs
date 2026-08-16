@@ -95,6 +95,14 @@ public sealed record MethodRef(
     public ImmutableArray<TypeRef> DefinitionParameterTypes { get; init; } = [];
 
     /// <summary>
+    /// Whether the method's top-level return type was authored as
+    /// <c>dynamic</c>. A dynamic return is encoded as <c>System.Object</c> plus
+    /// <c>DynamicAttribute</c> on parameter sequence 0; MemberRefs do not carry
+    /// that row, so unresolved callees remain <see cref="MetadataFactState.Unknown"/>.
+    /// </summary>
+    public MetadataFactState ReturnIsDynamic { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// Per-parameter call-site ref-kind (ref/out/in), aligned 1:1 with
     /// <see cref="ParameterTypes"/>. Populated for callees resolved as a
     /// MethodDef, from the parameter rows (IsReadOnlyAttribute / the Out flag),
@@ -674,15 +682,15 @@ public sealed class IrFunction : IrNode
     /// rebound to user code by the metadata-free printer.
     /// </summary>
     /// <remarks>Gated by <c>BoxedReferenceEqualityTests</c>.</remarks>
-    public IReadOnlySet<TypeRef> EqualityOperatorFreeTypes { get; set; }
-        = ImmutableHashSet<TypeRef>.Empty;
+    internal IReadOnlySet<TypeDefinitionIdentity> EqualityOperatorFreeTypes { get; set; }
+        = ImmutableHashSet<TypeDefinitionIdentity>.Empty;
 
     /// <summary>
     /// The <c>op_Inequality</c> counterpart of
     /// <see cref="EqualityOperatorFreeTypes"/>.
     /// </summary>
-    public IReadOnlySet<TypeRef> InequalityOperatorFreeTypes { get; set; }
-        = ImmutableHashSet<TypeRef>.Empty;
+    internal IReadOnlySet<TypeDefinitionIdentity> InequalityOperatorFreeTypes { get; set; }
+        = ImmutableHashSet<TypeDefinitionIdentity>.Empty;
 
     public override IEnumerable<TypeRef> DirectTypes
         => Signature.Parameters.Select(p => p.Type)
