@@ -104,8 +104,8 @@ internal sealed class LibraryMethodAnalysisResult
 
 /// <summary>
 /// Runs the ordered topic producers for one method while the assembly builder
-/// retains scheduling, primary-image ownership and metadata-dependent resolver
-/// implementations, and result aggregation.
+/// retains scheduling, primary-image lifetime, and result aggregation. The
+/// primary metadata resolver owns metadata-dependent judgments and adapters.
 /// </summary>
 internal sealed class LibraryMethodAnalysisRunner(
     ILibraryMethodAnalysisInfrastructure infrastructure)

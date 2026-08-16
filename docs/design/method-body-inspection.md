@@ -287,16 +287,24 @@ acquisition, the intentionally throwing `InstructionDecoder.Decode` +
 canonical context, topic-producer sequencing, leak-only handling, recoverable
 diagnostics, and method-local result publication. It receives one
 `ILibraryMethodAnalysisInfrastructure` from the assembly builder for the
-caller-owned primary-image reader/PE pair, method identity and generic scope,
-and the existing allocation/optimization/call metadata resolvers. Topic
-producers still receive only their narrow contracts.
+caller-owned primary-image reader/PE pair. The builder delegates method
+identity, generic scope, and the existing allocation/optimization/call
+metadata resolvers to `LibraryBodyPrimaryMetadataResolver`. Topic producers
+still receive only their narrow contracts.
 `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gates calls, safety
 evidence, and diagnostics surviving a later recoverable failure;
 `LibraryBodyIndex_PrefetchedImageScopeSkipsMalformedUnselectedBody` gates
 scoped decode with an excluded malformed-body close negative. The assembly
 builder retains the metadata-ordered work list, parallel scheduling,
-primary-image metadata judgments, assembly-level projections, and result
-aggregation. `LibraryBodyReferenceMetadataResolver` separately owns
+assembly-level projections, and result aggregation.
+`LibraryBodyPrimaryMetadataResolver` owns primary-image method identity,
+unsafe/generated attribute judgments, token/member/type/field/calli/value-type
+and delegate facts, async-state-machine caching, and the narrow resolver
+adapters. `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
+`OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
+`Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
+representative identity, cached classification, and token-shape behavior.
+`LibraryBodyReferenceMetadataResolver` separately owns
 cross-assembly type-definition binding, referenced-image metadata lifetime,
 and its registration-keyed cache for that acquisition. It builds on
 `AssemblyReferenceBindingPolicy` and `TypeResolutionCatalog` rather than adding

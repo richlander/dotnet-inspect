@@ -1044,6 +1044,10 @@ kbd {
 .diag { color: var(--dim); white-space: nowrap; cursor: help; }
 .diag::before { content: "·"; margin-right: 8px; color: var(--line-strong); cursor: default; }
 .diag-total { color: var(--muted); }
+.build-identity { color: var(--dim); white-space: nowrap; }
+.build-identity::before { content: "·"; margin-right: 8px; color: var(--line-strong); }
+.build-identity a { color: var(--blue); text-decoration: none; }
+.build-identity a:hover { text-decoration: underline; }
 
 .command-area { position: relative; z-index: 20; min-height: 45px; border-top: 1px solid var(--line-strong); background: var(--chrome); }
 .command-panel { position: relative; }
