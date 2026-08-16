@@ -336,7 +336,9 @@ compiler-produced shape, and
 synthetic shapes. An external interface cannot authenticate the enclosing TypeDef as a class;
 `SameImageConstraintRejectsExternalConstructedInterfaceBase` gates that close negative.
 `Extract_RejectsForgedClassMarkerForExternalValueTypeBase` gates the fail-closed path;
-`Extract_CyclicExternalConstructedBasesStayUndetermined` gates dependency cycles;
+`Extract_CyclicExternalConstructedBasesStayUndetermined` gates dependency cycles: the kind
+stays undetermined and the cycle is retained as a typed inspection failure, so an otherwise
+identical API diff cannot report a clean result;
 `DeepConstructedBaseAuthenticationUsesBoundedStack` and
 `SameImageTypeSpecificationBaseAuthenticationUsesBoundedStack` gate bounded native-stack
 use across TypeSpec handles, while
@@ -440,7 +442,10 @@ side/token pairs from different inputs do not collapse
 API, diff, Research, and CLI projection rather than being inferred from display text
 (`FromApiDiff_ScopesInspectionFailureToDependencyAssembly`,
 `BuildFullApiView_PreservesCompleteDependencyIdentity`, and
-`BuildDocumentView_ProjectsInspectionFailuresToJson`). Diff member filtering preserves the
+`BuildDocumentView_ProjectsInspectionFailuresToJson`). Research's exact assembly-group policy
+uses the same ECMA identity equivalence as Metadata binding, including case-insensitive names
+and neutral-culture normalization
+(`Compare_AssemblyGroupUsesMetadataIdentityEquivalence`). Diff member filtering preserves the
 failure set, document JSON/Markdown renders contained failure rows, and single-shape output
 reports an explicit incomplete-comparison diagnostic; every incomplete comparison exits
 nonzero (`FilterApiDiffByMemberTargets_PreservesInspectionFailures`,
