@@ -712,7 +712,7 @@ public class CSharpStructuralComparisonTests
 
         Assert.Equal(
             System.Convert.ToHexString(hash.GetHashAndReset()),
-            CSharpBodyDiff.ComputeBodyFingerprint(source, method));
+            CSharpBodyDiff.ComputePhysicalMethodFingerprint(source, method));
     }
 
     [Fact]

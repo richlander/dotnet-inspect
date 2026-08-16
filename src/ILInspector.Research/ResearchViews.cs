@@ -476,7 +476,7 @@ public static partial class ResearchViews
                     source.AssemblyName,
                     source.ModuleVersionId,
                     token,
-                    CSharpBodyDiff.ComputeBodyFingerprint(source, handle),
+                    CSharpBodyDiff.ComputePhysicalMethodFingerprint(source, handle),
                     $"{type}.{method} (0x{token:X8})");
             }
         }
