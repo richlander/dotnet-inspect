@@ -1521,6 +1521,26 @@ public class LibraryBodyIndexTests
                     "AnalyzeAsync",
                     StringComparison.Ordinal));
 
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: false,
+                    moveNextHasBody: false));
+            var bodilessMoveNext =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                bodilessMoveNext
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Contains(
+                bodilessMoveNext.Diagnostics,
+                diagnostic => diagnostic.Method.Contains(
+                    "AnalyzeAsync",
+                    StringComparison.Ordinal));
+
             foreach (byte unsupportedHeader
                 in new byte[] { 0x25, 0x60, 0xA0 })
             {
@@ -1744,7 +1764,8 @@ public class LibraryBodyIndexTests
         bool runtimeAsyncSource = false,
         bool malformedSourceMethodImpl = false,
         bool sourceImplementsOtherInterface = true,
-        bool incompatibleSourceMethodImpl = false)
+        bool incompatibleSourceMethodImpl = false,
+        bool moveNextHasBody = true)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1992,12 +2013,15 @@ public class LibraryBodyIndexTests
             maxStack: 1);
         metadata.AddMethodDefinition(
             MethodAttributes.Public
-                | MethodAttributes.Virtual,
+                | MethodAttributes.Virtual
+                | (!moveNextHasBody
+                    ? MethodAttributes.Abstract
+                    : 0),
             MethodImplAttributes.IL,
             metadata.GetOrAddString("MoveNext"),
             metadata.GetOrAddBlob(
                 new byte[] { 0x20, 0x00, 0x01 }),
-            moveNextBody,
+            moveNextHasBody ? moveNextBody : -1,
             MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle otherAsync =
             metadata.AddMethodDefinition(
@@ -2084,6 +2108,47 @@ public class LibraryBodyIndexTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    [Fact]
+    public void MethodImplSignature_RequiresByRefDirection()
+    {
+        TypeRef declaring = TypeRef.Definition(
+            "Probe",
+            "Sample",
+            "Reader");
+        TypeRef byRefInt = TypeRef.ByRef(
+            TypeRef.CoreLib("System", "Int32"));
+        TypeRef task = TypeRef.Definition(
+            "System.Runtime",
+            "System.Threading.Tasks",
+            "Task",
+            trustedFrameworkAssembly: true);
+        var body = new MemberRef(
+            declaring,
+            "AnalyzeAsync",
+            [byRefInt],
+            task,
+            MemberKind.Method)
+        {
+            HasThis = true,
+            SignatureHeader = 0x20,
+            RequiredParameterCount = 1,
+            ParameterDirections =
+                [ParameterDirection.Ref],
+        };
+        var declaration = body with
+        {
+            Name = "OtherAsync",
+            ParameterDirections =
+                [ParameterDirection.Out],
+        };
+
+        Assert.False(
+            LibraryBodyAnalysisBuilder
+                .SameMethodImplSignature(
+                    body,
+                    declaration));
     }
 
     [Theory]

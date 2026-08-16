@@ -1384,6 +1384,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _reader.GetMethodDefinition(body);
             if (bodyDefinition.GetDeclaringType()
                     != typeHandle
+                || bodyDefinition.RelativeVirtualAddress == 0
                 || !IsMoveNextBody(body))
             {
                 return false;
@@ -1395,7 +1396,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
 
         foreach (var handle in type.GetMethods())
         {
-            if (!IsMoveNextBody(handle)
+            if (_reader.GetMethodDefinition(handle)
+                    .RelativeVirtualAddress == 0
+                || !IsMoveNextBody(handle)
                 || !_reader.StringComparer.Equals(
                     _reader.GetMethodDefinition(handle).Name,
                     "MoveNext"))

@@ -1604,16 +1604,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         {
             return TypeRelation.Unknown;
         }
-        if (!SameMethodImplSignature(
-                sourceBody,
-                declaration))
-        {
-            return TypeRelation.Unknown;
-        }
-
         if (declarationHandle.Kind
             == HandleKind.MethodDefinition)
         {
+            if (!SameMethodImplSignature(
+                    sourceBody,
+                    declaration))
+            {
+                return TypeRelation.Unknown;
+            }
             var definition = _reader.GetMethodDefinition(
                 (MethodDefinitionHandle)declarationHandle);
             if ((definition.Attributes
@@ -1655,6 +1654,22 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 out bool ambiguous);
         if (ambiguous || resolvedMethod.IsNil)
             return TypeRelation.Unknown;
+        MemberRef resolvedDeclaration =
+            MemberResolver.ResolveMethod(
+                resolvedType.DefiningReader,
+                resolvedMethod,
+                GenericScope.Empty);
+        declaration = declaration with
+        {
+            ParameterDirections =
+                resolvedDeclaration.ParameterDirections,
+        };
+        if (!SameMethodImplSignature(
+                sourceBody,
+                declaration))
+        {
+            return TypeRelation.Unknown;
+        }
         MethodAttributes attributes =
             resolvedType.DefiningReader
                 .GetMethodDefinition(resolvedMethod)
@@ -1678,7 +1693,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             : TypeRelation.No;
     }
 
-    static bool SameMethodImplSignature(
+    internal static bool SameMethodImplSignature(
         MemberRef body,
         MemberRef declaration)
         => body.HasThis == declaration.HasThis
@@ -1691,6 +1706,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             && AsyncSiblingTypesMatch(
                 body.ParameterTypes,
                 declaration.ParameterTypes)
+            && body.ParameterDirections
+                .SequenceEqual(
+                    declaration.ParameterDirections)
             && AsyncSiblingTypesMatch(
                 body.ReturnType,
                 declaration.ReturnType);
