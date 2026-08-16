@@ -1620,8 +1620,7 @@ public sealed partial class CSharpPrinter
         // pointer types (CS8521), so this uses the equality form, not is-null.
         if (kind is ComparisonKind.Equal or ComparisonKind.NotEqual)
         {
-            if (IsCurrentEqualityOperator()
-                && IsKnownReferenceComparison(left, right))
+            if (NeedsReferenceIdentityCast(kind, left, right))
             {
                 return $"(object){Operand(left)} {ComparisonOperator(kind)} (object){Operand(right)}";
             }
@@ -1694,16 +1693,36 @@ public sealed partial class CSharpPrinter
             : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
     }
 
-    bool IsCurrentEqualityOperator()
-        => _function.Name is "op_Equality" or "op_Inequality";
-
     bool IsKnownReferenceComparison(IrExpression left, IrExpression right)
         => IsKnownReferenceType(left.ResultType) && IsKnownReferenceType(right.ResultType);
 
     bool IsKnownReferenceType(TypeRef? type)
         => TypeFamilies.Of(type) == StackFamily.O
             || type is { Kind: TypeRefKind.SzArray or TypeRefKind.Array }
+            || type?.DeclaredValueTypeHint == ValueTypeHint.ReferenceType
             || type is not null && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference;
+
+    bool NeedsReferenceIdentityCast(ComparisonKind kind, IrExpression left, IrExpression right)
+        => IsKnownReferenceComparison(left, right)
+            && (!IsOperatorFreeReferenceOperand(left, kind)
+                || !IsOperatorFreeReferenceOperand(right, kind));
+
+    bool IsOperatorFreeReferenceOperand(IrExpression operand, ComparisonKind kind)
+    {
+        if (IsDynamicTypedReceiver(operand))
+            return false;
+        var type = operand.ResultType;
+        if (type is null)
+            return false;
+        if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
+            return true;
+        var definition = NamedDefinition(type);
+        if (definition is { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" })
+            return true;
+        return kind == ComparisonKind.Equal
+            ? _function.EqualityOperatorFreeTypes.Contains(definition)
+            : _function.InequalityOperatorFreeTypes.Contains(definition);
+    }
 
     string BoxedReferenceOperand(IrExpression operand)
         => operand is Box box ? $"(object){Operand(box.Operand)}" : Operand(operand);

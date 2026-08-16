@@ -666,6 +666,24 @@ public sealed class IrFunction : IrNode
     public IReadOnlySet<TypeRef> InterfaceTypes { get; set; }
         = ImmutableHashSet<TypeRef>.Empty;
 
+    /// <summary>
+    /// Reference definitions proven while metadata was live not to declare
+    /// <c>op_Equality</c> anywhere C# operator lookup can bind it. A definition
+    /// absent from this set is not assumed operator-free: unresolved external
+    /// hierarchies stay conservative so raw IL reference identity cannot be
+    /// rebound to user code by the metadata-free printer.
+    /// </summary>
+    /// <remarks>Gated by <c>BoxedReferenceEqualityTests</c>.</remarks>
+    public IReadOnlySet<TypeRef> EqualityOperatorFreeTypes { get; set; }
+        = ImmutableHashSet<TypeRef>.Empty;
+
+    /// <summary>
+    /// The <c>op_Inequality</c> counterpart of
+    /// <see cref="EqualityOperatorFreeTypes"/>.
+    /// </summary>
+    public IReadOnlySet<TypeRef> InequalityOperatorFreeTypes { get; set; }
+        = ImmutableHashSet<TypeRef>.Empty;
+
     public override IEnumerable<TypeRef> DirectTypes
         => Signature.Parameters.Select(p => p.Type)
             .Append(Signature.ReturnType)

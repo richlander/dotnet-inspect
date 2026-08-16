@@ -39,6 +39,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _byRefLikeCache = new();
     readonly ConcurrentDictionary<(MethodRef Method, TypeResolutionCoordinates Type), ResolvedMethodFacts?> _methodFactCache = new();
     readonly ConcurrentDictionary<(TypeRef Instance, TypeResolutionCoordinates Type, TypeRef Interface), MetadataFactState> _interfaceCache = new();
+    readonly ConcurrentDictionary<(TypeResolutionCoordinates Type, string MethodName), MetadataFactState> _operatorHierarchyCache = new();
 
     public CrossAssemblyTypeResolver(
         MetadataReader selfReader,
@@ -234,6 +235,111 @@ internal sealed class CrossAssemblyTypeResolver
         _interfaceCache[key] = result;
         return result;
     }
+
+    /// <summary>
+    /// Whether the C# operator-binding hierarchy for a referenced type declares
+    /// the requested special-name operator. Class types walk their base chain;
+    /// interface types walk their base interfaces. Unreachable metadata returns
+    /// <see cref="MetadataFactState.Unknown"/>.
+    /// </summary>
+    /// <remarks>
+    /// Gated by <c>BoxedReferenceEqualityTests</c>' cross-assembly
+    /// operator-bearing and operator-free hierarchy cases.
+    /// </remarks>
+    public MetadataFactState HasOperatorInBindingHierarchy(TypeRef type, string methodName)
+    {
+        var definition = NamedDefinition(type);
+        if (definition is null
+            || !TryCoordinates(definition, out TypeResolutionCoordinates coordinates))
+        {
+            return MetadataFactState.Unknown;
+        }
+
+        var key = (coordinates, methodName);
+        if (_operatorHierarchyCache.TryGetValue(key, out var cached))
+            return cached;
+
+        var result = MetadataFactState.Unknown;
+        try
+        {
+            if (definition.Assembly != _selfCanonical
+                && TryHasOperatorInBindingHierarchy(type, methodName, out bool hasOperator))
+            {
+                result = hasOperator ? MetadataFactState.Yes : MetadataFactState.No;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            result = MetadataFactState.Unknown;
+        }
+
+        _operatorHierarchyCache[key] = result;
+        return result;
+    }
+
+    bool TryHasOperatorInBindingHierarchy(TypeRef type, string methodName, out bool hasOperator)
+    {
+        hasOperator = false;
+        bool unresolved = false;
+        var seen = new HashSet<TypeRef>();
+        var pending = new Stack<(TypeRef Type, ResolvedAssemblyReference? LocalAssembly)>();
+        pending.Push((type, null));
+
+        while (pending.Count > 0 && seen.Count < 256)
+        {
+            var (current, localAssembly) = pending.Pop();
+            if (!seen.Add(current))
+                continue;
+
+            if (NamedDefinition(current) is not { } definition)
+                continue;
+            if (Locate(definition, localAssembly) is not { } resolved
+                || _context.Open(resolved, out var handle) is not { } assembly)
+            {
+                unresolved = true;
+                continue;
+            }
+
+            var reader = assembly.Reader;
+            var typeDef = reader.GetTypeDefinition(handle);
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (string.Equals(reader.GetString(method.Name), methodName, StringComparison.Ordinal)
+                    && MethodDefinitionFacts.IsOperator(
+                        method,
+                        methodName,
+                        hasThis: (method.Attributes & System.Reflection.MethodAttributes.Static) == 0))
+                {
+                    hasOperator = true;
+                    return true;
+                }
+            }
+
+            var typeArguments = current.Kind == TypeRefKind.GenericInstance ? current.TypeArguments : [];
+            if ((typeDef.Attributes & System.Reflection.TypeAttributes.Interface) != 0)
+            {
+                foreach (var baseInterface in DecodeInterfaces(reader, typeDef, typeArguments))
+                    pending.Push((baseInterface, resolved.Assembly.Assembly));
+            }
+            else if (DecodeBaseType(reader, typeDef, typeArguments) is { } baseType)
+            {
+                if (!IsObject(baseType))
+                    pending.Push((baseType, resolved.Assembly.Assembly));
+            }
+        }
+
+        return !unresolved && pending.Count == 0;
+    }
+
+    static bool IsObject(TypeRef type)
+        => type is
+        {
+            Kind: TypeRefKind.Definition,
+            Assembly: TypeRef.CoreLibrary,
+            Namespace: "System",
+            Name: "Object",
+        };
 
     bool TryImplements(TypeRef type, TypeRef iface, out bool implements)
     {

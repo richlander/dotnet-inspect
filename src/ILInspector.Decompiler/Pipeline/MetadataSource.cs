@@ -355,6 +355,9 @@ public sealed class MetadataSource : IDisposable
     HashSet<TypeRef>? _unionTypes;
     HashSet<TypeRef>? _byRefLikeTypes;
     HashSet<TypeRef>? _delegates;
+    HashSet<TypeRef>? _equalityOperatorTypes;
+    HashSet<TypeRef>? _inequalityOperatorTypes;
+    readonly ConcurrentDictionary<(TypeRef Type, string MethodName), MetadataFactState> _operatorHierarchyFacts = new();
 
     /// <summary>
     /// The C# shape of a type defined in THIS assembly — enum, struct, or
@@ -496,6 +499,102 @@ public sealed class MetadataSource : IDisposable
     }
 
     /// <summary>
+    /// Whether the named reference type's C# binding hierarchy declares the
+    /// requested equality operator. <see cref="MetadataFactState.No"/> is
+    /// returned only after the reachable class/base or interface hierarchy has
+    /// been inspected; unresolved hierarchy edges remain unknown.
+    /// </summary>
+    /// <remarks>
+    /// Gated by <c>BoxedReferenceEqualityTests</c>' same-assembly inherited
+    /// operator and operator-free class cases.
+    /// </remarks>
+    internal MetadataFactState HasOperatorInBindingHierarchy(TypeRef type, string methodName)
+    {
+        if (NamedDefinition(type) is not { } definition || string.IsNullOrEmpty(definition.Assembly))
+            return MetadataFactState.Unknown;
+        var cacheKey = (type, methodName);
+        if (_operatorHierarchyFacts.TryGetValue(cacheKey, out var cached))
+            return cached;
+
+        EnsureTypeMaps();
+        string self = Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "";
+        if (definition.Assembly != self)
+        {
+            var crossAssembly = CrossAssembly.HasOperatorInBindingHierarchy(type, methodName);
+            _operatorHierarchyFacts.TryAdd(cacheKey, crossAssembly);
+            return crossAssembly;
+        }
+
+        var operatorTypes = methodName switch
+        {
+            "op_Equality" => _equalityOperatorTypes!,
+            "op_Inequality" => _inequalityOperatorTypes!,
+            _ => throw new ArgumentOutOfRangeException(nameof(methodName)),
+        };
+        var memo = new Dictionary<TypeRef, MetadataFactState>();
+        var visiting = new HashSet<TypeRef>();
+
+        MetadataFactState Resolve(TypeRef current)
+        {
+            if (NamedDefinition(current) is not { } currentDefinition)
+                return MetadataFactState.Unknown;
+            if (currentDefinition.Assembly != self)
+                return CrossAssembly.HasOperatorInBindingHierarchy(current, methodName);
+            if (memo.TryGetValue(currentDefinition, out var cached))
+                return cached;
+            if (!visiting.Add(currentDefinition))
+                return MetadataFactState.Unknown;
+
+            MetadataFactState result;
+            if (operatorTypes.Contains(currentDefinition))
+            {
+                result = MetadataFactState.Yes;
+            }
+            else if (_interfaces!.Contains(currentDefinition))
+            {
+                result = MetadataFactState.No;
+                foreach (var baseInterface in _interfaceImpls![currentDefinition])
+                {
+                    var instantiated = current.Kind == TypeRefKind.GenericInstance
+                        ? baseInterface.Instantiate(current.TypeArguments, [])
+                        : baseInterface;
+                    var baseFact = Resolve(instantiated);
+                    if (baseFact == MetadataFactState.Yes)
+                    {
+                        result = MetadataFactState.Yes;
+                        break;
+                    }
+                    if (baseFact == MetadataFactState.Unknown)
+                        result = MetadataFactState.Unknown;
+                }
+            }
+            else if (!_baseTypes!.TryGetValue(currentDefinition, out var baseType))
+            {
+                result = MetadataFactState.Unknown;
+            }
+            else if (baseType is null || IsObject(baseType))
+            {
+                result = MetadataFactState.No;
+            }
+            else
+            {
+                var instantiated = current.Kind == TypeRefKind.GenericInstance
+                    ? baseType.Instantiate(current.TypeArguments, [])
+                    : baseType;
+                result = Resolve(instantiated);
+            }
+
+            visiting.Remove(currentDefinition);
+            memo[currentDefinition] = result;
+            return result;
+        }
+
+        var result = Resolve(type);
+        _operatorHierarchyFacts.TryAdd(cacheKey, result);
+        return result;
+    }
+
+    /// <summary>
     /// The named members of a same-assembly enum, as value → name (every
     /// underlying integer width normalized to <see cref="long"/>). Null for a
     /// non-enum or cross-assembly type. Aliases keep the first declared name.
@@ -536,6 +635,8 @@ public sealed class MetadataSource : IDisposable
         var unionTypes = new HashSet<TypeRef>();
         var byRefLikeTypes = new HashSet<TypeRef>();
         var delegates = new HashSet<TypeRef>();
+        var equalityOperatorTypes = new HashSet<TypeRef>();
+        var inequalityOperatorTypes = new HashSet<TypeRef>();
         foreach (var handle in Reader.TypeDefinitions)
         {
             var typeDef = Reader.GetTypeDefinition(handle);
@@ -571,6 +672,22 @@ public sealed class MetadataSource : IDisposable
                 if (ResolveEnumUnderlyingType(typeDef, scope) is { } underlying)
                     enumUnderlyingTypes[key] = underlying;
             }
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = Reader.GetMethodDefinition(methodHandle);
+                string methodName = Reader.GetString(method.Name);
+                bool hasThis = (method.Attributes & System.Reflection.MethodAttributes.Static) == 0;
+                if (methodName == "op_Equality"
+                    && MethodDefinitionFacts.IsOperator(method, methodName, hasThis))
+                {
+                    equalityOperatorTypes.Add(key);
+                }
+                else if (methodName == "op_Inequality"
+                    && MethodDefinitionFacts.IsOperator(method, methodName, hasThis))
+                {
+                    inequalityOperatorTypes.Add(key);
+                }
+            }
         }
         _enumMembers = enums;
         _enumUnderlyingTypes = enumUnderlyingTypes;
@@ -581,6 +698,8 @@ public sealed class MetadataSource : IDisposable
         _unionTypes = unionTypes;
         _byRefLikeTypes = byRefLikeTypes;
         _delegates = delegates;
+        _equalityOperatorTypes = equalityOperatorTypes;
+        _inequalityOperatorTypes = inequalityOperatorTypes;
         _shapes = shapes;   // assign last: ResolveShape gates on _shapes
         }
     }

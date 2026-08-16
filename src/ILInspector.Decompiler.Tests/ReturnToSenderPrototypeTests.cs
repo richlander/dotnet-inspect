@@ -7866,6 +7866,44 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesRawReferenceEqualityBesideUserOperator()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(Row left, Row right) => false;
+                public static bool operator !=(Row left, Row right) => true;
+                public static bool SameReference(Row left, Row right, bool useOperator)
+                {
+                    if (useOperator && left == right)
+                        return false;
+                    return (object)left == right;
+                }
+                public override bool Equals(object obj) => false;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Row", "SameReference", 0),
+                ]);
+
+            var referenceComparison = Assert.Single(results);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, referenceComparison.Status);
+            Assert.Contains("return (object)left == (object)right;", referenceComparison.Source);
+            Assert.Contains("left == right", referenceComparison.Source);
+            Assert.Contains("operator ==(", referenceComparison.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_PreservesRecordGeneratedVirtualHelperShells()
     {
         var assemblyPath = CompileFixture("""

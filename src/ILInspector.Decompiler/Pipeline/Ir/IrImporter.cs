@@ -636,6 +636,8 @@ public static class IrImporter
         var unionTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
         var byRefLikeTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
         var interfaceTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
+        var equalityOperatorFreeTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
+        var inequalityOperatorFreeTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
 
         void Consider(TypeRef? type)
         {
@@ -671,6 +673,13 @@ public static class IrImporter
             // definition only; an unresolved (Unknown) type is left absent.
             if (kind == TypeShapeKind.Interface)
                 interfaceTypes.Add(type);
+            if (shape == TypeShape.Reference)
+            {
+                if (source.HasOperatorInBindingHierarchy(type, "op_Equality") == MetadataFactState.No)
+                    equalityOperatorFreeTypes.Add(type);
+                if (source.HasOperatorInBindingHierarchy(type, "op_Inequality") == MetadataFactState.No)
+                    inequalityOperatorFreeTypes.Add(type);
+            }
             if (source.IsUnionType(type))
                 unionTypes.Add(type);
             // Only a value type can be a ref struct; skip the cross-assembly
@@ -731,6 +740,10 @@ public static class IrImporter
             function.ByRefLikeTypes = byRefLikeTypes.ToImmutable();
         if (interfaceTypes.Count > 0)
             function.InterfaceTypes = interfaceTypes.ToImmutable();
+        if (equalityOperatorFreeTypes.Count > 0)
+            function.EqualityOperatorFreeTypes = equalityOperatorFreeTypes.ToImmutable();
+        if (inequalityOperatorFreeTypes.Count > 0)
+            function.InequalityOperatorFreeTypes = inequalityOperatorFreeTypes.ToImmutable();
     }
 
     /// <summary>Block leaders: entry, branch and leave targets, instructions following a terminator, and every exception-region boundary.</summary>
