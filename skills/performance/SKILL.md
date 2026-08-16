@@ -43,9 +43,9 @@ dnx dotnet-inspect -y -- library MyLib.dll -D @Performance --effective
 dnx dotnet-inspect -y -- library MyLib.dll -S @Performance --count
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Boxing" --jsonl
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
-  --loop --min-confidence high --top 20 --tsv
+  --where "Priority>=high" --top 20 --tsv
 dnx dotnet-inspect -y -- library MyLib.dll \
-  --triage-shape scan-method-in-loop-call,linq-scan-in-loop,string-build-in-loop \
+  --triage-shape scan-method-in-loop-call,scan-method-in-recursive-traversal,linq-scan-in-loop,string-build-in-loop \
   --top 20 --tsv
 dnx dotnet-inspect -y -- library MyLib.dll --triage-shape capturing-delegate --top 10 --jsonl
 ```
@@ -54,9 +54,10 @@ Target IL-visible costs (allocations: box, newarr, delegate newobj,
 ToArray/ToList/Concat), not JIT-handled concerns (isinst/castclass folding,
 devirtualization, bounds-check elimination, null-check folding).
 
-Use `--loop` for repeated hot costs, `--min-confidence high|medium|low` for a
-confidence floor, `--triage-shape` for one or more shapes, and `--top N` for the
-curated ranked prefix. Supplying any of those flags selects the applicable
+Use `--where "Priority>=high"` for the signal-dense first pass, `--loop` for
+repeated costs, `--min-confidence high|medium|low` for an evidence/rewrite
+confidence floor, `--triage-shape` for one or more shapes, and `--top N` for
+the curated ranked prefix. Supplying any of those flags selects the applicable
 performance lens automatically. In library row formats, `Performance:*`
 flattens two or more populated kind sections into one table with a leading
 `Kind` column. If filtering leaves one populated kind, row formats use that
@@ -65,14 +66,32 @@ discriminator must remain explicit. `@Performance` also includes heterogeneous
 sections, so use it for discovery, counts, Markdown, or JSON documents instead.
 `--top` narrows ranked data before rendering; `--rows N` caps rendered rows
 afterward. Common shapes
-include `capturing-delegate`, `box-value-type`, `small-array`,
-`linq-scan-in-loop`, `scan-method-in-loop-call` (a linear-scan helper invoked
-from a caller loop), `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
+include `capturing-delegate`, `box-value-type`,
+`generic-parameter-object-box` (an unconstrained generic value boxed for
+`object.Equals`; it allocates only for value-type instantiations and starts at
+medium priority unless loop evidence proves repetition), `small-array`,
+`cache-lookup-factory-delegate` (a per-call instance factory passed to
+`ConcurrentDictionary.GetOrAdd`), `linq-scan-in-loop`,
+`scan-method-in-loop-call` (a linear-scan helper invoked from a caller loop),
+`scan-method-in-recursive-traversal` (a scan repeated once per recursive
+traversal node), `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
 that can be hoisted), `string-build-in-loop`, `enumerator-allocation`,
 `async-state-machine`, and `allocation-hotspot`. Query the algorithmic shapes
-explicitly: `scan-method-in-loop-call` stays low-confidence because static
-analysis cannot prove that the scanned sequence grows with the caller's loop,
-so a `--min-confidence high` pass intentionally excludes it.
+explicitly: scan helpers stay low-confidence because static analysis cannot
+prove that the scanned sequence grows with the loop or traversal, so a
+`--min-confidence high` pass intentionally excludes them.
+
+The default `Triage` order keeps `Priority` separate from `Confidence`.
+`Priority` is a static actionability judgment: directly evidenced algorithmic amplification,
+avoidable cache-lookup factory allocations, and actionable high allocation
+weight rank high; recursive scan helpers without shared-source identity and
+other generic repeated costs rank medium; ordinary one-shot
+candidates rank low. Escape-unknown `small-array` rows remain medium even at
+high weight because no safe stack rewrite is proven. `Confidence` describes
+certainty in the evidence and proposed rewrite, so a high-priority,
+low-confidence row is intentionally an early investigation target rather than
+a claimed runtime win. Flattened `Performance:*` row output preserves this
+global order across kinds.
 
 For registry, pipeline, or object-graph construction that does not match a local
 rewrite shape, opt into the aggregate allocation fanout:
