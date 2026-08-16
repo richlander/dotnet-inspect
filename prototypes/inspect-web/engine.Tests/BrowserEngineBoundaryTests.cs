@@ -593,17 +593,24 @@ public sealed class BrowserEngineBoundaryTests
             CallTreeStatus.Leaf,
             [],
             new CallTreePerf(0, 0, 1, true, "loop"));
+        var nonLoopNode = new CallTreeNode(
+            callee with { Name = "Wait" },
+            null,
+            CallTreeStatus.Leaf,
+            [],
+            new CallTreePerf(0, 0, 1, false));
         var root = new CallTreeNode(
             caller,
             null,
             CallTreeStatus.Expanded,
-            [calleeNode],
+            [calleeNode, nonLoopNode],
             new CallTreePerf(0, 0, 1, false));
 
         string mermaid = BrowserInspectionEngine.Mermaid(
             CallGraphProjection.FromCallees(root));
 
         Assert.Contains("n0 -- loop --> n1", mermaid);
+        Assert.Contains("n0 --> n2", mermaid);
     }
 
     [Fact]
