@@ -1489,9 +1489,11 @@ internal static class LibraryMetadataService
         if (generatedFrameworkTypes.Contains(name))
             return true;
 
-        int generatedNested = name.IndexOf(".<>", StringComparison.Ordinal);
-        return generatedNested >= 0
-            && generatedFrameworkTypes.Contains(name[..generatedNested]);
+        string? containingType =
+            Analysis.CompilerGeneratedNames.ContainingTypeDisplayName(
+                opportunity.Method.DeclaringType);
+        return containingType is not null
+            && generatedFrameworkTypes.Contains(containingType);
     }
 
     static bool IsSourceFunctionName(string methodName)

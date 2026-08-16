@@ -1025,6 +1025,34 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void IncludePerformanceOpportunity_KeepsOrdinaryNestedSourceFunction()
+    {
+        var opportunity = Opp(
+            "<Build>b__0",
+            inLoop: false,
+            confidence: "medium",
+            rootReach: 1,
+            shape: "generic-parameter-object-box");
+        opportunity = opportunity with
+        {
+            Method = opportunity.Method with
+            {
+                DeclaringType = ILInspector.Analysis.TypeRef.Definition(
+                    "Asm",
+                    "Ns",
+                    "GeneratedOuter+Worker"),
+            },
+        };
+
+        Assert.True(LibraryMetadataService.IncludePerformanceOpportunity(
+            opportunity,
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "Ns.GeneratedOuter",
+            }));
+    }
+
+    [Fact]
     public void BuildShapeView_GroupsMethodOverloadsByLogicalName()
     {
         var type = new ApiType

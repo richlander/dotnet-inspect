@@ -1,3 +1,5 @@
+using ILInspector.Metadata;
+
 namespace ILInspector.Analysis;
 
 /// <summary>
@@ -5,7 +7,7 @@ namespace ILInspector.Analysis;
 /// Shared so allocation escape classification and optimization-opportunity
 /// classification read one spelling of the same names rather than two.
 /// </summary>
-internal static class CompilerGeneratedNames
+public static class CompilerGeneratedNames
 {
     /// <summary>Closure environment types: <c>&lt;&gt;c__DisplayClass...</c>.</summary>
     internal const string DisplayClassPrefix = "<>c__DisplayClass";
@@ -41,4 +43,65 @@ internal static class CompilerGeneratedNames
     internal static bool IsLocalFunctionOrLambda(string methodName)
         => methodName.Contains(">g__", StringComparison.Ordinal)
             || methodName.Contains(">b__", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Returns the qualified display name of the immediate containing type for
+    /// a nested compiler-generated implementation type, or
+    /// <see langword="null"/> when the relationship is absent or ambiguous.
+    /// </summary>
+    /// <remarks>
+    /// <c>CompilerGeneratedNamesTests.ContainingTypeDisplayName_UsesExactSegmentsAndConservativeFlatFallback</c>
+    /// gates the exact and legacy-flat paths.
+    /// </remarks>
+    public static string? ContainingTypeDisplayName(TypeRef type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+
+        TypeRef definition = type.Kind == TypeRefKind.GenericInstance
+            && type.ElementType is { } element
+                ? element
+                : type;
+        if (definition.Kind != TypeRefKind.Definition)
+            return null;
+
+        string? containingName;
+        string @namespace;
+        if (definition.Resolution?.Type is { } exactName)
+        {
+            if (exactName.Segments.Length < 2
+                || !IsGeneratedTypeName(exactName.Segments[^1]))
+            {
+                return null;
+            }
+
+            containingName = string.Join(
+                '.',
+                exactName.Segments[..^1]
+                    .Select(MetadataNameArity.StripFromSegment));
+            @namespace = exactName.Namespace;
+        }
+        else
+        {
+            int boundary = definition.Name.LastIndexOf('+');
+            if (boundary <= 0
+                || definition.Name.IndexOf('+') != boundary
+                || boundary == definition.Name.Length - 1
+                || !IsGeneratedTypeName(definition.Name[(boundary + 1)..]))
+            {
+                return null;
+            }
+
+            containingName =
+                MetadataNameArity.StripFromSegment(definition.Name[..boundary]);
+            @namespace = definition.Namespace;
+        }
+
+        return @namespace.Length == 0
+            ? containingName
+            : $"{@namespace}.{containingName}";
+    }
+
+    static bool IsGeneratedTypeName(string name)
+        => name.StartsWith('<')
+            || name.StartsWith("__", StringComparison.Ordinal);
 }

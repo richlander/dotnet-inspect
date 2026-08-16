@@ -93,6 +93,57 @@ public class TypeRefAritySpellingTests
     }
 
     [Fact]
+    public void GenericInstance_UsesValidatedNestedSegmentsAndInnermostArguments()
+    {
+        TypeRef[] arguments =
+        [
+            TypeRef.CoreLib("System", "String"),
+            TypeRef.CoreLib("System", "Int32"),
+        ];
+
+        Assert.Equal(
+            "N.Outer.Widget<int>",
+            TypeRef.GenericInstance(
+                ResolvedDefinition(
+                    "Outer`1+Widget`1",
+                    "Outer`1",
+                    "Widget`1"),
+                [.. arguments]).ToQualifiedDisplayString());
+        Assert.Equal(
+            "N.Outer.Widget<int>",
+            TypeRef.GenericInstance(
+                TypeRef.Definition(
+                    "Asm",
+                    "N",
+                    "Outer`1+Widget`1"),
+                [.. arguments]).ToQualifiedDisplayString());
+    }
+
+    [Fact]
+    public void GenericInstance_PreservesAmbiguousOrMismatchedFlatNestedSpelling()
+    {
+        Assert.Equal(
+            "N.Outer+Widget`1",
+            TypeRef.GenericInstance(
+                TypeRef.Definition("Asm", "N", "Outer+Widget`1"),
+                [TypeRef.CoreLib("System", "Int32")])
+            .ToQualifiedDisplayString());
+        Assert.Equal(
+            "N.Outer`1+Middle`1+Widget`1",
+            TypeRef.GenericInstance(
+                TypeRef.Definition(
+                    "Asm",
+                    "N",
+                    "Outer`1+Middle`1+Widget`1"),
+                [
+                    TypeRef.CoreLib("System", "String"),
+                    TypeRef.CoreLib("System", "Object"),
+                    TypeRef.CoreLib("System", "Int32"),
+                ])
+            .ToQualifiedDisplayString());
+    }
+
+    [Fact]
     public void GenericInstance_QualifiedDisplayKeepsTheDefinitionNamespace()
     {
         var dictionary = TypeRef.GenericInstance(

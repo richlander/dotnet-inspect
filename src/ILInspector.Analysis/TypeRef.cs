@@ -307,12 +307,29 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
         if (ElementType!.Resolution?.Type is { } exactName)
         {
-            string display = TypeResolver.ApplyGenericArguments(
-                exactName.Segments,
-                arguments);
+            string display = TryRenderNestedGenericInstance(
+                    exactName.Segments,
+                    arguments,
+                    out string rendered)
+                ? rendered
+                : string.Join('.', exactName.Segments);
             return qualified && exactName.Namespace.Length > 0
                 ? $"{exactName.Namespace}.{display}"
                 : display;
+        }
+
+        if (TryInferNestedSegments(
+                ElementType.Name,
+                arguments.Length,
+                out string[] inferredSegments)
+            && TryRenderNestedGenericInstance(
+                inferredSegments,
+                arguments,
+                out string inferredDisplay))
+        {
+            return qualified && ElementType.Namespace.Length > 0
+                ? $"{ElementType.Namespace}.{inferredDisplay}"
+                : inferredDisplay;
         }
 
         if (ElementType.Name.IndexOfAny(['.', '+']) >= 0)
@@ -329,6 +346,54 @@ public sealed class TypeRef : IEquatable<TypeRef>
             ? ElementType.QualifiedDisplayName()
             : ElementType.DisplayName();
         return $"{displayName}<{string.Join(", ", arguments)}>";
+    }
+
+    static bool TryRenderNestedGenericInstance(
+        IReadOnlyList<string> segments,
+        IReadOnlyList<string> arguments,
+        out string display)
+    {
+        display = "";
+        if (segments.Count == 0)
+            return false;
+
+        long totalArity = 0;
+        foreach (string segment in segments)
+            totalArity += ArityOf(segment);
+        if (totalArity != arguments.Count)
+            return false;
+
+        string typeName = string.Join('.', segments.Select(StripArity));
+        int ownArity = ArityOf(segments[^1]);
+        display = ownArity == 0
+            ? typeName
+            : $"{typeName}<{string.Join(", ", arguments.Skip(arguments.Count - ownArity))}>";
+        return true;
+    }
+
+    static bool TryInferNestedSegments(
+        string name,
+        int argumentCount,
+        out string[] segments)
+    {
+        segments = [];
+        int boundary = name.IndexOf('+');
+        if (boundary <= 0
+            || boundary != name.LastIndexOf('+')
+            || boundary == name.Length - 1)
+        {
+            return false;
+        }
+
+        string outer = name[..boundary];
+        string inner = name[(boundary + 1)..];
+        long nestedArity = (long)ArityOf(outer) + ArityOf(inner);
+        int literalArity = ArityOf(name);
+        if (nestedArity != argumentCount || literalArity == argumentCount)
+            return false;
+
+        segments = [outer, inner];
+        return true;
     }
 
     string QualifiedRawName()
