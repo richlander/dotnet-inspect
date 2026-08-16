@@ -21,6 +21,12 @@ structuring, C#, or inspected-assembly loading. The library reads the single
 `MetadataReader` it is handed and never loads referenced assemblies; cross-assembly
 type references coarsen to object-reference and generic parameters to `Unknown`.
 
+IL body and assembly comparison is a consumer above this boundary. It lives in
+[`ILInspector.ILDiff`](../ILInspector.ILDiff), which owns canonicalization,
+alignment, Finding projection, typed diff failures, and diff presentation.
+Instructions does not acquire the Findings or Text dependencies required by
+that component.
+
 ## Pieces
 
 | Type | Role |

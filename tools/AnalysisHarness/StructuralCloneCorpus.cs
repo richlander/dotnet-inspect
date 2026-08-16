@@ -11,7 +11,12 @@ namespace ILInspector.AnalysisHarness;
 
 public sealed record StructuralCloneCorpusDocument(
     [property: JsonRequired] int SchemaVersion,
-    [property: JsonRequired] ImmutableArray<StructuralCloneCorpusCase> Cases);
+    [property: JsonRequired] ImmutableArray<StructuralCloneCorpusCase> Cases,
+    [property: JsonRequired] StructuralCloneCorpusDiscovery Discovery);
+
+public sealed record StructuralCloneCorpusDiscovery(
+    [property: JsonRequired]
+    ImmutableArray<StructuralCloneCorpusMethod> Population);
 
 public sealed record StructuralCloneCorpusCase(
     [property: JsonRequired] string Id,
@@ -41,13 +46,29 @@ public sealed record StructuralCloneCorpusCaseResult(
     StructuralCloneVerificationReceipt Receipt,
     bool Passed);
 
+public sealed record StructuralCloneCorpusCluster(
+    ImmutableArray<StructuralCloneCorpusMethod> Members);
+
+public sealed record StructuralCloneCorpusDiscoveryResult(
+    StructuralCloneDiscoveryDisposition Disposition,
+    ImmutableArray<StructuralCloneCorpusCluster> ExpectedClusters,
+    ImmutableArray<StructuralCloneCorpusCluster> ActualClusters,
+    ImmutableArray<StructuralCloneSuppressedBucket> SuppressedBuckets,
+    ImmutableArray<StructuralCloneDiscoveryBlocker> Blockers,
+    StructuralCloneDiscoveryReceipt Receipt,
+    bool Passed);
+
 public sealed record StructuralCloneCorpusReport(
     string Assembly,
     int Total,
     int Passed,
-    ImmutableArray<StructuralCloneCorpusCaseResult> Cases)
+    ImmutableArray<StructuralCloneCorpusCaseResult> Cases,
+    StructuralCloneCorpusDiscoveryResult Discovery)
 {
-    public bool Success => Total > 0 && Passed == Total;
+    public bool Success =>
+        Total > 0
+        && Passed == Total
+        && Discovery.Passed;
 }
 
 public static class StructuralCloneCorpus
@@ -157,13 +178,62 @@ public static class StructuralCloneCorpus
                     passed));
         }
 
+        var methodsByHandle =
+            new Dictionary<MethodDefinitionHandle, StructuralCloneCorpusMethod>();
+        ImmutableArray<MethodDefinitionHandle>.Builder population =
+            ImmutableArray.CreateBuilder<MethodDefinitionHandle>(
+                corpus.Discovery.Population.Length);
+        foreach (StructuralCloneCorpusMethod method
+            in corpus.Discovery.Population)
+        {
+            MethodDefinitionHandle handle = Resolve(reader, method);
+            methodsByHandle.Add(handle, method);
+            population.Add(handle);
+        }
+        StructuralCloneDiscoveryResult discovery =
+            StructuralCloneAnalysis.Discover(
+                image,
+                population.ToImmutable());
+        ImmutableArray<StructuralCloneCorpusCluster> expectedClusters =
+            ExpectedClusters(corpus);
+        ImmutableArray<StructuralCloneCorpusCluster> actualClusters =
+        [
+            .. discovery.Clusters
+                .Select(cluster =>
+                    new StructuralCloneCorpusCluster(
+                        [
+                            .. cluster.Members
+                                .Select(member =>
+                                    methodsByHandle[member.Handle])
+                                .OrderBy(MethodKey, StringComparer.Ordinal),
+                        ]))
+                .OrderBy(ClusterKey, StringComparer.Ordinal),
+        ];
+        bool discoveryPassed =
+            discovery.Disposition
+                == StructuralCloneDiscoveryDisposition.Completed
+            && discovery.SuppressedBuckets.IsEmpty
+            && expectedClusters
+                .Select(ClusterKey)
+                .SequenceEqual(
+                    actualClusters.Select(ClusterKey),
+                    StringComparer.Ordinal);
+
         ImmutableArray<StructuralCloneCorpusCaseResult> cases =
             results.ToImmutable();
         return new StructuralCloneCorpusReport(
             Path.GetFullPath(assemblyPath),
             cases.Length,
             cases.Count(static item => item.Passed),
-            cases);
+            cases,
+            new StructuralCloneCorpusDiscoveryResult(
+                discovery.Disposition,
+                expectedClusters,
+                actualClusters,
+                discovery.SuppressedBuckets,
+                discovery.Blockers,
+                discovery.Receipt,
+                discoveryPassed));
     }
 
     public static string ToJson(StructuralCloneCorpusReport report)
@@ -196,21 +266,44 @@ public static class StructuralCloneCorpus
             }
             output.AppendLine();
         }
+        output.Append(report.Discovery.Passed ? "PASS " : "FAIL ");
+        output.Append("closed-world exact discovery: expected ");
+        output.Append(report.Discovery.ExpectedClusters.Length);
+        output.Append(" clusters, actual ");
+        output.Append(report.Discovery.ActualClusters.Length);
+        output.Append(" clusters, disposition ");
+        output.AppendLine(report.Discovery.Disposition.ToString());
+        foreach (StructuralCloneCorpusCluster cluster
+            in report.Discovery.ActualClusters)
+        {
+            output.Append("  ");
+            output.AppendLine(string.Join(
+                " = ",
+                cluster.Members.Select(static member =>
+                    $"{member.Type}::{member.Method}")));
+        }
         return output.ToString();
     }
 
     static void Validate(StructuralCloneCorpusDocument document)
     {
-        if (document.SchemaVersion != 1)
+        if (document.SchemaVersion != 2)
         {
             throw new InvalidDataException(
-                $"Unsupported structural clone corpus schema {document.SchemaVersion}; expected 1.");
+                $"Unsupported structural clone corpus schema {document.SchemaVersion}; expected 2.");
         }
         if (document.Cases.IsDefaultOrEmpty)
             throw new InvalidDataException(
                 "The structural clone relationship ledger has no cases.");
+        if (document.Discovery is null
+            || document.Discovery.Population.IsDefaultOrEmpty)
+        {
+            throw new InvalidDataException(
+                "The structural clone relationship ledger has no closed-world discovery population.");
+        }
 
         HashSet<string> ids = new(StringComparer.Ordinal);
+        HashSet<string> caseMethods = new(StringComparer.Ordinal);
         foreach (StructuralCloneCorpusCase item in document.Cases)
         {
             if (string.IsNullOrWhiteSpace(item.Id) || !ids.Add(item.Id))
@@ -218,6 +311,8 @@ public static class StructuralCloneCorpus
                     $"Corpus case ids must be non-empty and unique: '{item.Id}'.");
             ValidateMethod(item.Id, "left", item.Left);
             ValidateMethod(item.Id, "right", item.Right);
+            caseMethods.Add(MethodKey(item.Left));
+            caseMethods.Add(MethodKey(item.Right));
             if (item.ExpectedDisposition == StructuralCloneDisposition.Completed
                 ^ item.ExpectedRelation is not null)
             {
@@ -237,7 +332,97 @@ public static class StructuralCloneCorpus
                 throw new InvalidDataException(
                     $"Corpus case '{item.Id}' must declare a tags array.");
         }
+
+        HashSet<string> population = new(StringComparer.Ordinal);
+        foreach (StructuralCloneCorpusMethod method
+            in document.Discovery.Population)
+        {
+            ValidateMethod("discovery", "population", method);
+            if (!population.Add(MethodKey(method)))
+            {
+                throw new InvalidDataException(
+                    $"Discovery population method '{method.Type}::{method.Method}' is duplicated.");
+            }
+        }
+        if (!caseMethods.SetEquals(population))
+        {
+            throw new InvalidDataException(
+                "The closed-world discovery population must equal the distinct methods declared by relationship cases.");
+        }
     }
+
+    static ImmutableArray<StructuralCloneCorpusCluster> ExpectedClusters(
+        StructuralCloneCorpusDocument corpus)
+    {
+        Dictionary<string, string> parent =
+            corpus.Discovery.Population.ToDictionary(
+                MethodKey,
+                MethodKey,
+                StringComparer.Ordinal);
+
+        foreach (StructuralCloneCorpusCase item in corpus.Cases)
+        {
+            if (item.ExpectedDisposition
+                    == StructuralCloneDisposition.Completed
+                && item.ExpectedRelation == StructuralCloneRelation.Exact)
+            {
+                Union(
+                    parent,
+                    MethodKey(item.Left),
+                    MethodKey(item.Right));
+            }
+        }
+
+        return
+        [
+            .. corpus.Discovery.Population
+                .GroupBy(
+                    method => Find(parent, MethodKey(method)),
+                    StringComparer.Ordinal)
+                .Where(static group => group.Count() > 1)
+                .Select(group =>
+                    new StructuralCloneCorpusCluster(
+                        [
+                            .. group.OrderBy(
+                                MethodKey,
+                                StringComparer.Ordinal),
+                        ]))
+                .OrderBy(ClusterKey, StringComparer.Ordinal),
+        ];
+    }
+
+    static void Union(
+        Dictionary<string, string> parent,
+        string left,
+        string right)
+    {
+        string leftRoot = Find(parent, left);
+        string rightRoot = Find(parent, right);
+        if (!StringComparer.Ordinal.Equals(leftRoot, rightRoot))
+            parent[rightRoot] = leftRoot;
+    }
+
+    static string Find(
+        Dictionary<string, string> parent,
+        string member)
+    {
+        string root = member;
+        while (!StringComparer.Ordinal.Equals(root, parent[root]))
+            root = parent[root];
+        while (!StringComparer.Ordinal.Equals(member, root))
+        {
+            string next = parent[member];
+            parent[member] = root;
+            member = next;
+        }
+        return root;
+    }
+
+    static string ClusterKey(StructuralCloneCorpusCluster cluster)
+        => string.Join("\n", cluster.Members.Select(MethodKey));
+
+    static string MethodKey(StructuralCloneCorpusMethod method)
+        => $"{method.Type}\0{method.Method}";
 
     static MethodDefinitionHandle Resolve(
         MetadataReader reader,
