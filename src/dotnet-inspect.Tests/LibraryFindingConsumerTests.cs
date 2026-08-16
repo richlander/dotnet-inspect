@@ -17,6 +17,8 @@ using InertText;
 
 namespace DotnetInspector.Tests;
 
+// Mutates the process-global CoreCache root; serialize with in-process CLI/cache tests (#3471).
+[Collection("Console")]
 public class LibraryFindingConsumerTests
 {
     [Fact]
