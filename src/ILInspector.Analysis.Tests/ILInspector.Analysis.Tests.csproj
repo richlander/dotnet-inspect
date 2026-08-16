@@ -46,6 +46,7 @@
     <ProjectReference Include="..\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
+    <ProjectReference Include="..\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\..\tools\AnalysisHarness\AnalysisHarness.csproj" />
     <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
