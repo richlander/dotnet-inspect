@@ -32,9 +32,9 @@ const string Usage =
           true/false-positive judgement. No automatic oracle.
 
       --clone-corpus <assembly> [--relationship-ledger <file>] [--json]
-          Grade the product-owned structural clone comparator against the committed relationship
-          corpus. The ledger owns candidate pairs and expected disposition/relation; the harness
-          resolves typed metadata identities and does not reconstruct normalization or verification.
+          Grade product-owned structural clone comparison and exact discovery against the
+          committed closed-world corpus. The harness resolves typed metadata identities and does
+          not reconstruct candidate retrieval, normalization, correspondence, or verification.
 
       --allocation-readout <file> [--top N] [--json]
           Sweep a corpus list and aggregate allocation occurrence/opportunity metadata
