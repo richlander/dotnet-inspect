@@ -342,7 +342,7 @@ typed one" without checking the operation is a real hazard, and grepping
 
 A third, unrelated `sealed record TypeRef(string FullName, string Namespace,
 string SimpleName)` is private to
-`src/ILInspector.CSharp/CSharpDeclarationWriter.cs:1783`.
+`CSharpDeclarationWriter`.
 
 **The model duplication is a committed decision, not drift.**
 `docs/architecture.md` records it as principle 9, and
@@ -355,9 +355,10 @@ erase required distinctions or become a union of unrelated owner policy.
 The boundary is capability-based, not dependency-count-based. Analysis already
 references Metadata for acquisition, structured binding, and definition
 correspondence, while retaining its own structural decoder. That decoder cannot
-represent the shapes a shared model would have to carry
-(`src/ILInspector.Analysis/TypeRefDecoder.cs:232-234`), so a shared model "would
-have forced `Analysis` to keep its own anyway."
+represent the shapes a shared model would have to carry:
+`TypeRefDecoder.GetFunctionPointerType` and `GetModifiedType` produce explicit
+unsupported outcomes. A shared model would have forced Analysis to keep its own
+anyway.
 
 The earlier rule-of-three trip-wire applied to one small attribute-name walk.
 It has been superseded by concrete shared-guard adoption in Analysis and

@@ -25,8 +25,8 @@ Resume consolidation in `ILInspector.MetadataPrimitives`, but consolidate
 - Provider-facing wrappers remain local when they turn the same mechanical
   rejection into different owner-specific outcomes.
 - Existing forwarded public identities in the `ILInspector.Metadata` namespace
-  remain unchanged in the first slice. A source-and-test census should expose
-  which names are pinned by repository behavior and require new neutral
+  remain unchanged in the first slice. A source, test, and corpus census should
+  expose which names are pinned by repository behavior and require new neutral
   currencies to use `ILInspector.MetadataPrimitives`.
 
 This document records the decision only. It does not authorize combining the
@@ -95,7 +95,7 @@ references MetadataPrimitives directly.
 | --- | --- |
 | Metadata relationships | Bounded TypeDef, TypeRef, ExportedType, and related handle walks; typed rejection |
 | Signature admission | Structural blob prescan and cross-TypeSpec depth/byte budgets |
-| Neutral metadata names | Validated namespace plus root-to-leaf metadata-name segments used by bounded mechanics |
+| Bounded name traversal | Root-to-leaf handle/segment walks, `MaxTypeNameCharacters`, and typed rejection; the assembled definition-name currency stays in Metadata |
 | Method coordinates | `MetadataMethodAddress` and other neutral coordinates declared by this owner |
 | Neutral structural identity | Bounded keys used for matching without display policy |
 | Work budgets | Limits and typed exhaustion/rejection shared across consumers |
@@ -181,6 +181,9 @@ one rejection kind, while the local decoders preserve separate reasons for
 active recursion, per-TypeSpec bytes, cumulative bytes, and unsafe structural
 nesting. Those reasons participate in rendered output, equality, hashing, and
 Decompiler fidelity diagnostics. Consolidation must not collapse them.
+The current rejection precedence is active recursion depth, per-TypeSpec bytes,
+cumulative bytes, then unsafe structural nesting; the shared guard must retain
+that order for the configured semantic-decoder path.
 
 The first implementation slice should:
 
@@ -196,14 +199,24 @@ The first implementation slice should:
 5. preserve successful and rejected projections byte-for-byte, including
    reason text, equality, hashing, and fidelity-diagnostic grouping.
 
+The detailed admission result is not permission to change the existing shared
+string contract. `SignatureDecoder` and `GuardedSignatureDecoder` must continue
+to expose the same coarse `SignatureDecodeRejectionKind` and detail text for
+top-level and nested TypeSpec rejection. The shared adapter may deliberately
+coarsen the new admission discriminator at that boundary.
+
 `ProviderSignatureDecodeBoundaryTests` is the existing anti-ratchet gate for
 top-level provider decodes and nested TypeSpec entry. The implementation slice
 must update that gate so its accepted Analysis/Decompiler pattern is the shared
 `TypeSpecGuard`, then mutation-prove that bypassing the guard in either decoder
 fails. `TypeRefDecoderRecursionTests` in both owner suites must cover matching
 close-negative cases at 1,025 and 4,097 bytes, active-depth exhaustion, and
-unsafe structural nesting. Outcome tests must pin each owner's reason text and
-`TypeRef` equality before and after convergence.
+unsafe structural nesting. A nested fixture must also violate the per-TypeSpec
+and cumulative limits together, pinning per-TypeSpec rejection precedence.
+Outcome tests must pin each owner's reason text and `TypeRef` equality before
+and after convergence. Exact top-level and nested string-outcome tests must pin
+the existing coarse rejection kind, detail, and `GetValueOrThrow` exception
+text.
 
 Removing the 1,024-byte cap is explicitly deferred. A legal 4,095-byte generic
 shape can amplify into thousands of resolved names and millions of rendered
@@ -229,13 +242,15 @@ methods. The shared owner is the prescan and TypeSpec admission mechanism;
 the consuming owner decides what rejection means.
 
 `StringSignatureDecodeBoundaryTests` currently scans Metadata and
-MetadataPrimitives only. Decompiler's requirement that string-producing
-decodes pass through its `GuardedSignatureText` and `GetValueOrThrow` policy is
+MetadataPrimitives only. Decompiler has two string-producing gateway families:
+`GuardedSignatureText` terminates signature text through `GetValueOrThrow`,
+while `CSharpBodyDiff.ResolveIdentityTypeName` terminates typed
+`TypeResolver.ResolveTypeName` failures through
+`MetadataIdentityResolutionException`. Closure across both families is
 therefore **not verified**. The first implementation slice must extend the gate
-to enumerate every Decompiler string gateway, assert that each gateway body
-terminates through `GetValueOrThrow`, and mutation-prove that removing or
-replacing that call fails. It must also prove that a new prescanned direct use
-still fails when it bypasses the owner gateway.
+to enumerate each gateway and its expected owner failure boundary, including
+both `SignatureDecoder` and `TypeResolver` string entry points. Mutations that
+remove, replace, or bypass either boundary must fail.
 
 A generic decode helper belongs in MetadataPrimitives only if at least three
 consumers need the same typed outcome contract. Line-count reduction alone is
@@ -255,6 +270,12 @@ Do not merge them into one provider or move their string policy downward.
 A focused ILDiff cleanup may rename them to make the two projections obvious
 and may share genuinely byte-identical primitive spelling helpers, but it must
 preserve their distinct failure and normalization contracts.
+`ILInspector.ILDiff.Tests.SignatureDecoderSafetyTests` covers assembly/member
+pairing rejection, but no named gate jointly proves that pairing and operand
+canonicalization retain their distinct outcomes. That distinction is **not
+verified** as a refactoring invariant. Any cleanup slice must first add focused
+outcome tests for both providers and mutation-prove that merging their failure
+or normalization paths fails.
 
 ### 4. Make the namespace split deliberate
 
@@ -272,6 +293,8 @@ full type names are observable repository behavior:
   `LibraryFindingConsumerTests.TypeForwardersQueryProjection_RetainsFindingSemanticsAndDisplayProjection`
   pin the former name across runtime resolution, query output, and Finding
   projection;
+- `tools/DecompilerHarness/corpus/pr-quick-baseline.json` also pins that name
+  in CI-consumed self-inspection corpus identities;
 - no test independently pins the forwarded
   `ILInspector.Metadata.MethodStructuralSignature` name;
 - a CLR type forwarder cannot preserve an old full type name while changing its
@@ -285,11 +308,12 @@ should instead:
 1. inventory every public primitive as a repo-pinned legacy name, an ungated
    forwarded name, or owner-native `ILInspector.MetadataPrimitives`;
 2. retain, migrate, or retire each old name deliberately, updating all exact
-   string expectations and adding or removing forwarding tests to match;
+   string and corpus expectations and adding or removing forwarding tests to
+   match;
 3. require new neutral currencies to use the owner-native namespace;
-4. add a source/forwarder/test census that fails on an unclassified public
-   type, stale forwarding contract, or exact test-side name expectation absent
-   from the classification.
+4. add a source/forwarder/test/corpus census that fails on an unclassified
+   public type, stale forwarding contract, or exact expectation absent from the
+   classification.
 
 This makes the mixed namespace deliberate without adding duplicate wrapper
 types. The classification property is currently **not gated**.
@@ -322,7 +346,7 @@ Keep the work in independently reviewable slices:
    and preserve the current 1,024-byte admission and rejection projections.
 2. **Namespace ownership classification** — inventory legacy forwarded
    identities and owner-native types, then add the
-   source/forwarder/test-expectation census.
+   source/forwarder/test/corpus-expectation census.
 3. **Optional local clarity** — rename ILDiff's two providers if the names
    continue to obscure their distinct projections.
 
