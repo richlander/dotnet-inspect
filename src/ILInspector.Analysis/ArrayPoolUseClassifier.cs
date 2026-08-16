@@ -237,7 +237,7 @@ static class ArrayPoolUseClassifier
         return slot >= 0;
     }
 
-    internal static bool IsLoadLocal(DecodedInstruction instruction, int slot)
+    static bool IsLoadLocal(DecodedInstruction instruction, int slot)
         => instruction.OpCode switch
         {
             ILOpCode.Ldloc_0 => slot == 0,
