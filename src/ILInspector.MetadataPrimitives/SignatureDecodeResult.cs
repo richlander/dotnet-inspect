@@ -128,10 +128,9 @@ public static class GuardedSignatureDecoder
         Action<int>? beforeMaterialize = null)
         => SignatureDecoder.Decode(() =>
         {
-            TypeSpecification typeSpecification =
-                reader.GetTypeSpecification(handle);
             beforeMaterialize?.Invoke(
-                reader.GetBlobReader(typeSpecification.Signature).Length);
+                reader.GetBlobReader(
+                    reader.GetTypeSpecification(handle).Signature).Length);
             if (!TypeSpecGuard.TryEnter(
                 reader,
                 handle,
@@ -149,11 +148,11 @@ public static class GuardedSignatureDecoder
 
             using (scope)
             {
-                return typeSpecification.DecodeSignature(
-                        beforeMaterialize is null
-                            ? SignatureDecoder.Instance
-                            : new SignatureDecoder(beforeMaterialize),
-                        context);
+                return reader.GetTypeSpecification(handle).DecodeSignature(
+                    beforeMaterialize is null
+                        ? SignatureDecoder.Instance
+                        : new SignatureDecoder(beforeMaterialize),
+                    context);
             }
         });
 }

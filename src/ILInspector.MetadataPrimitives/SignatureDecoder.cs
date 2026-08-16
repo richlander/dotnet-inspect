@@ -61,10 +61,9 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
-        TypeSpecification typeSpecification =
-            reader.GetTypeSpecification(handle);
         _beforeMaterialize?.Invoke(
-            reader.GetBlobReader(typeSpecification.Signature).Length);
+            reader.GetBlobReader(
+                reader.GetTypeSpecification(handle).Signature).Length);
         if (!TypeSpecGuard.TryEnter(
             reader,
             handle,
@@ -81,7 +80,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         }
         using (scope)
         {
-            return typeSpecification.DecodeSignature(this, context);
+            return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
         }
     }
 
