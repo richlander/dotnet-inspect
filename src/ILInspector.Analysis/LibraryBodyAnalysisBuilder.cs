@@ -26,6 +26,8 @@ internal sealed class LibraryBodyAnalysisBuilder :
     readonly string _path;
     readonly MetadataReader _reader;
     readonly PEReader _peReader;
+    readonly LibraryBodyPrimaryMetadataResolver
+        _primaryMetadataResolver;
     readonly LibraryBodyReferenceMetadataResolver? _referenceMetadataResolver;
     readonly string _assemblyName;
     readonly Guid _mvid;
@@ -121,6 +123,14 @@ internal sealed class LibraryBodyAnalysisBuilder :
         _typeDefinitionIndex = new(
             BuildTypeDefinitionIndex,
             LazyThreadSafetyMode.ExecutionAndPublication);
+        _primaryMetadataResolver =
+            new LibraryBodyPrimaryMetadataResolver(
+                reader,
+                _assemblyName,
+                _mvid,
+                ResolveMethod,
+                GenericParameterCanBeValueType,
+                IsStableReceiverGetter);
         if (resolver is not null && reader.IsAssembly)
             _referenceMetadataResolver =
                 new LibraryBodyReferenceMetadataResolver(
@@ -139,15 +149,15 @@ internal sealed class LibraryBodyAnalysisBuilder :
         _peReader;
 
     string ILibraryMethodAnalysisInfrastructure.AssemblyName =>
-        _assemblyName;
+        _primaryMetadataResolver.AssemblyName;
 
     Guid ILibraryMethodAnalysisInfrastructure.Mvid =>
-        _mvid;
+        _primaryMetadataResolver.Mvid;
 
     GenericScope ILibraryMethodAnalysisInfrastructure.CreateScope(
         TypeDefinition typeDefinition,
         MethodDefinition methodDefinition) =>
-        CreateScope(
+        _primaryMetadataResolver.CreateScope(
             typeDefinition,
             methodDefinition);
 
@@ -157,7 +167,7 @@ internal sealed class LibraryBodyAnalysisBuilder :
             MethodDefinitionHandle methodHandle,
             MethodDefinition methodDefinition,
             GenericScope scope) =>
-        CreateMethodIdentity(
+        _primaryMetadataResolver.CreateMethodIdentity(
             typeHandle,
             methodHandle,
             methodDefinition,
@@ -169,8 +179,7 @@ internal sealed class LibraryBodyAnalysisBuilder :
             MethodIdentity caller,
             byte[] il,
             IReadOnlyCollection<ExceptionRegion> exceptionRegions) =>
-        new MethodAnalysisResolver(
-            this,
+        _primaryMetadataResolver.CreateMethodAnalysisResolver(
             scope,
             caller,
             il,
@@ -180,8 +189,7 @@ internal sealed class LibraryBodyAnalysisBuilder :
         ILibraryMethodAnalysisInfrastructure.CreateCallResolver(
             GenericScope scope,
             MethodIdentity caller) =>
-        new CallResolver(
-            this,
+        _primaryMetadataResolver.CreateCallResolver(
             scope,
             caller);
 
@@ -189,34 +197,34 @@ internal sealed class LibraryBodyAnalysisBuilder :
         int token,
         GenericScope scope,
         MethodDefinitionHandle caller) =>
-        ResolveMethod(
-            MetadataTokens.EntityHandle(token),
+        _primaryMetadataResolver.ResolveMethod(
+            token,
             scope,
             caller);
 
     string? ILibraryMethodAnalysisInfrastructure.CalliReturnDetail(
         int token,
         GenericScope scope) =>
-        CalliReturnDetail(
+        _primaryMetadataResolver.CalliReturnDetail(
             token,
             scope);
 
     bool ILibraryMethodAnalysisInfrastructure.IsAllocatingValueTypeBox(
         int token,
         GenericScope scope) =>
-        IsAllocatingValueTypeBox(
+        _primaryMetadataResolver.IsAllocatingValueTypeBox(
             token,
-            ResolveTypeToken(
-                token,
-                scope));
+            scope);
 
     bool ILibraryMethodAnalysisInfrastructure.HasGeneratedCodeAttribute(
         CustomAttributeHandleCollection attributes) =>
-        HasGeneratedCodeAttribute(attributes);
+        _primaryMetadataResolver.HasGeneratedCodeAttribute(
+            attributes);
 
     bool ILibraryMethodAnalysisInfrastructure.HasCompilerGeneratedAttribute(
         CustomAttributeHandleCollection attributes) =>
-        HasCompilerGeneratedAttribute(attributes);
+        _primaryMetadataResolver.HasCompilerGeneratedAttribute(
+            attributes);
 
     bool ILibraryMethodAnalysisInfrastructure.TryResolveLiftedSourceOwner(
         MethodDefinitionHandle liftedHandle,
@@ -234,7 +242,7 @@ internal sealed class LibraryBodyAnalysisBuilder :
     bool ILibraryMethodAnalysisInfrastructure.DispatchCanTargetOverride(
         TypeDefinition declaringType,
         MethodDefinition method) =>
-        DispatchCanTargetOverride(
+        LibraryBodyPrimaryMetadataResolver.DispatchCanTargetOverride(
             declaringType,
             method);
 
@@ -1933,96 +1941,6 @@ internal sealed class LibraryBodyAnalysisBuilder :
             return (_reader.GetString(declType.Namespace), _reader.GetString(declType.Name));
         }
         return ("", "");
-    }
-
-    // Metadata- and IL-dependent judgments for one method's body analyses.
-    // The builder owns the metadata reader, the caller's generic scope, and the raw
-    // IL bytes; topic producers see only these narrow answers, so they cannot open a
-    // second decode or metadata traversal path.
-    sealed class MethodAnalysisResolver(
-        LibraryBodyAnalysisBuilder owner,
-        GenericScope scope,
-        MethodIdentity caller,
-        byte[] il,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions)
-        : ILibraryMethodAnalysisResolver
-    {
-        public TypeRef ResolveType(int token)
-            => owner.ResolveTypeToken(token, scope);
-
-        public MemberRef ResolveMember(int token)
-            => owner.ResolveMethod(
-                MetadataTokens.EntityHandle(token),
-                scope,
-                (MethodDefinitionHandle)
-                    MetadataTokens.EntityHandle(
-                        caller.MetadataToken));
-
-        public NewObjectConstructionKind ClassifyConstruction(
-            int operandToken,
-            TypeRef declaringType)
-        {
-            if (!owner.IsNonHeapNewObj(operandToken, declaringType))
-                return NewObjectConstructionKind.Heap;
-            return owner.IsUnresolvedExternalValueTypeConstruction(
-                operandToken,
-                declaringType)
-                    ? NewObjectConstructionKind.UnresolvedExternalValueType
-                    : NewObjectConstructionKind.NonHeap;
-        }
-
-        public bool IsDelegateConstructor(int operandToken, MemberRef constructor)
-            => owner.IsDelegateConstructorToken(operandToken, constructor);
-
-        public bool IsAllocatingValueTypeBox(int operandToken, TypeRef boxed)
-            => owner.IsAllocatingValueTypeBox(operandToken, boxed);
-
-        public bool GenericParameterCanBeValueType(TypeRef genericParameter)
-            => owner.GenericParameterCanBeValueType(
-                genericParameter,
-                caller);
-
-        public bool IsStableReceiverGetter(DecodedInstruction instruction)
-            => owner.IsStableReceiverGetter(instruction);
-
-        public bool IsAsyncStateMachineType(TypeRef? type)
-            => owner.IsAsyncStateMachineType(type);
-
-        public bool IsInAssemblyReferenceType(int typeToken)
-            => owner.IsInAssemblyReferenceTypeElement(typeToken);
-
-        public (TypeRef? DeclaringType, string? Name) ResolveFieldOwner(int fieldToken)
-            => owner.ResolveFieldOwner(fieldToken, scope);
-
-        public ReachingDefinitionsResult AnalyzeReachingDefinitions()
-            => ReachingDefinitions.Analyze(
-                il,
-                ArgumentSlotCount(caller),
-                exceptionRegions);
-    }
-
-    // Metadata-dependent call-site facts for one method. MethodCallAnalysis owns
-    // the body traversal and projection while this resolver retains reader/scope
-    // ownership and the established malformed-metadata behavior.
-    sealed class CallResolver(
-        LibraryBodyAnalysisBuilder owner,
-        GenericScope scope,
-        MethodIdentity caller)
-        : IMethodCallResolver
-    {
-        public MemberRef ResolveMember(int token)
-            => owner.ResolveMethod(
-                MetadataTokens.EntityHandle(token),
-                scope,
-                (MethodDefinitionHandle)
-                    MetadataTokens.EntityHandle(
-                        caller.MetadataToken));
-
-        public MemberRef ResolveIndirectCall(int signatureToken)
-            => owner.ResolveCalliMember(signatureToken, scope);
-
-        public int DefinitionToken(int operandToken)
-            => owner.PeelToDefinitionToken(operandToken);
     }
 
     // A value-type `newobj` whose operand is an unresolvable external TypeRef is still

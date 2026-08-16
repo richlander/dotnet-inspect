@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -18,15 +19,38 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     readonly string _assemblyName;
     readonly Guid _mvid;
     readonly bool _memorySafetyRulesEnabled;
+    readonly Func<
+        EntityHandle,
+        GenericScope,
+        MethodDefinitionHandle,
+        MemberRef> _resolveMethod;
+    readonly Func<TypeRef, MethodIdentity, bool>
+        _genericParameterCanBeValueType;
+    readonly Func<DecodedInstruction, bool>
+        _isStableReceiverGetter;
 
     internal LibraryBodyPrimaryMetadataResolver(
         MetadataReader reader,
         string assemblyName,
-        Guid mvid)
+        Guid mvid,
+        Func<
+            EntityHandle,
+            GenericScope,
+            MethodDefinitionHandle,
+            MemberRef> resolveMethod,
+        Func<TypeRef, MethodIdentity, bool>
+            genericParameterCanBeValueType,
+        Func<DecodedInstruction, bool>
+            isStableReceiverGetter)
     {
         _reader = reader;
         _assemblyName = assemblyName;
         _mvid = mvid;
+        _resolveMethod = resolveMethod;
+        _genericParameterCanBeValueType =
+            genericParameterCanBeValueType;
+        _isStableReceiverGetter =
+            isStableReceiverGetter;
         _memorySafetyRulesEnabled = DetectMemorySafetyRules();
     }
 
@@ -49,8 +73,19 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             il,
             exceptionRegions);
 
-    internal IMethodCallResolver CreateCallResolver(GenericScope scope) =>
-        new CallResolver(this, scope);
+    internal IMethodCallResolver CreateCallResolver(
+        GenericScope scope,
+        MethodIdentity caller) =>
+        new CallResolver(this, scope, caller);
+
+    internal MemberRef ResolveMethod(
+        int token,
+        GenericScope scope,
+        MethodDefinitionHandle caller) =>
+        _resolveMethod(
+            MetadataTokens.EntityHandle(token),
+            scope,
+            caller);
 
     internal bool IsAllocatingValueTypeBox(int token, GenericScope scope) =>
         IsAllocatingValueTypeBox(token, ResolveTypeToken(token, scope));
@@ -277,10 +312,12 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             => owner.ResolveTypeToken(token, scope);
 
         public MemberRef ResolveMember(int token)
-            => MemberResolver.ResolveMethod(
-                owner._reader,
-                MetadataTokens.EntityHandle(token),
-                scope);
+            => owner.ResolveMethod(
+                token,
+                scope,
+                (MethodDefinitionHandle)
+                    MetadataTokens.EntityHandle(
+                        caller.MetadataToken));
 
         public NewObjectConstructionKind ClassifyConstruction(
             int operandToken,
@@ -300,6 +337,16 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
         public bool IsAllocatingValueTypeBox(int operandToken, TypeRef boxed)
             => owner.IsAllocatingValueTypeBox(operandToken, boxed);
+
+        public bool GenericParameterCanBeValueType(
+            TypeRef genericParameter) =>
+            owner._genericParameterCanBeValueType(
+                genericParameter,
+                caller);
+
+        public bool IsStableReceiverGetter(
+            DecodedInstruction instruction) =>
+            owner._isStableReceiverGetter(instruction);
 
         public bool IsAsyncStateMachineType(TypeRef? type)
             => owner.IsAsyncStateMachineType(type);
@@ -322,14 +369,17 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     // ownership and the established malformed-metadata behavior.
     sealed class CallResolver(
         LibraryBodyPrimaryMetadataResolver owner,
-        GenericScope scope)
+        GenericScope scope,
+        MethodIdentity caller)
         : IMethodCallResolver
     {
         public MemberRef ResolveMember(int token)
-            => MemberResolver.ResolveMethod(
-                owner._reader,
-                MetadataTokens.EntityHandle(token),
-                scope);
+            => owner.ResolveMethod(
+                token,
+                scope,
+                (MethodDefinitionHandle)
+                    MetadataTokens.EntityHandle(
+                        caller.MetadataToken));
 
         public MemberRef ResolveIndirectCall(int signatureToken)
             => owner.ResolveCalliMember(signatureToken, scope);
