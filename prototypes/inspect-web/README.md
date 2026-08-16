@@ -287,10 +287,11 @@ makes that split on purpose: the projection owns identity, direction, cycles,
 and boundaries, and each front end spells them for itself. The Mermaid renderer
 HTML-encodes delimiters and visibly encodes control, line-separator, Unicode
 format, and unpaired-surrogate characters before artifact labels enter the
-grammar. `MermaidLabel_ContainsGrammarSignificantArtifactText` in both the
-engine and JavaScript suites gates that containment while preserving ordinary
-Unicode scalar text. The type-relationship renderer applies the same
-containment. Call-graph navigation receives typed
+grammar. The engine's
+`MermaidLabel_ContainsGrammarSignificantArtifactText` and JavaScript's
+`Mermaid labels contain grammar-significant metadata` gate that containment
+while preserving ordinary Unicode scalar text. The type-relationship renderer
+applies the same containment. Call-graph navigation receives typed
 targets for every projected node and uses the transport's normalized lowercase
 node kind rather than inferring identity from SVG text.
 Package participants never satisfy platform-scoped bindings. Incomplete node,
