@@ -103,14 +103,18 @@ public sealed class NuGetDeadlineTests
     [Fact]
     public async Task OperationCeiling_SpansServiceDiscoveryAndVersionLookup()
     {
+        var versionLookupStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         int request = 0;
         using var client = new HttpClient(new DelayedHandler(
             async (message, cancellationToken) =>
             {
-                request++;
+                int currentRequest = Interlocked.Increment(ref request);
+                if (currentRequest == 2)
+                    versionLookupStarted.TrySetResult();
                 await Task.Delay(
-                    request == 1
-                        ? TimeSpan.FromMilliseconds(45)
+                    currentRequest == 1
+                        ? TimeSpan.FromMilliseconds(100)
                         : Timeout.InfiniteTimeSpan,
                     cancellationToken);
                 return JsonResponse(
@@ -130,17 +134,22 @@ public sealed class NuGetDeadlineTests
         var nuget = new NuGetClient(
             client,
             Options(
-                request: TimeSpan.FromMilliseconds(200),
-                operation: TimeSpan.FromMilliseconds(80)));
+                request: TimeSpan.FromSeconds(5),
+                operation: TimeSpan.FromSeconds(2)));
+
+        Task<IReadOnlyList<string>> versions = nuget.GetVersionsAsync(
+            "package",
+            ServiceIndexUrl,
+            cancellationToken: TestContext.Current.CancellationToken);
+        await versionLookupStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
 
         NuGetOperationTimeoutException error =
             await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
-                () => nuget.GetVersionsAsync(
-                    "package",
-                    ServiceIndexUrl,
-                    cancellationToken: TestContext.Current.CancellationToken));
+                () => versions);
 
-        Assert.Equal(TimeSpan.FromMilliseconds(80), error.Timeout);
+        Assert.Equal(TimeSpan.FromSeconds(2), error.Timeout);
         Assert.Equal(2, request);
     }
 
