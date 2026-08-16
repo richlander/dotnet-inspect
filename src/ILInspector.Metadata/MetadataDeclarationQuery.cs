@@ -1364,22 +1364,18 @@ public static class MetadataDeclarationQuery
             .Select(handle => reader.GetString(reader.GetGenericParameter(handle).Name))
             .ToArray();
 
+    /// <summary>
+    /// The cumulative arity a metadata full name declares across its components.
+    /// Only a canonical <c>`N</c> counts (<see cref="MetadataNameArity"/>), so a
+    /// digit run that is name text does not inflate the count.
+    /// </summary>
     static int GenericArity(string metadataFullName)
     {
-        var arity = 0;
-        for (var i = 0; i < metadataFullName.Length; i++)
+        int arity = 0;
+        foreach (MetadataNameComponent component in
+            MetadataNameArity.EnumerateComponents(metadataFullName))
         {
-            if (metadataFullName[i] != '`')
-                continue;
-            var start = i + 1;
-            var end = start;
-            while (end < metadataFullName.Length && char.IsDigit(metadataFullName[end]))
-                end++;
-            if (end > start && int.TryParse(metadataFullName.AsSpan(start, end - start), out var value))
-            {
-                arity += value;
-                i = end - 1;
-            }
+            arity += component.Arity;
         }
 
         return arity;

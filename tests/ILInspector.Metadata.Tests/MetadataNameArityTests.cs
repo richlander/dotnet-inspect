@@ -21,11 +21,16 @@ public class MetadataNameArityTests
     [InlineData("List`1", "List", 1)]
     [InlineData("Dictionary`2", "Dictionary", 2)]
     [InlineData("Wide`10", "Wide", 10)]
-    // ECMA-335 II.22.20 gives GenericParam a 2-byte Number, so 65535 is the
-    // largest count an image can declare — and the largest one this recognises.
+    // ECMA-335 II.22.20 gives GenericParam a 2-byte *zero-based* Number, so the
+    // highest index is 65535 and a name can declare 65536 parameters. 65536 is
+    // therefore the largest count this recognises; 65537 is not an arity.
     [InlineData("Wide`65535", "Wide", 65535)]
-    [InlineData("Wide`65536", "Wide`65536", 0)]
+    [InlineData("Wide`65536", "Wide", 65536)]
+    [InlineData("Wide`65537", "Wide`65537", 0)]
+    [InlineData("Wide`99999", "Wide`99999", 0)]
     [InlineData("Wide`99999999999", "Wide`99999999999", 0)]
+    [InlineData("Wide`2147483647", "Wide`2147483647", 0)]
+    [InlineData("Wide`2147483648", "Wide`2147483648", 0)]
     // No suffix at all.
     [InlineData("Widget", "Widget", 0)]
     [InlineData("", "", 0)]
@@ -64,19 +69,70 @@ public class MetadataNameArityTests
     }
 
     [Theory]
-    // Each nested segment carries its own arity, and each is stripped on its own.
+    // A nested metadata name nests with '+' only, and each segment carries its own
+    // arity.
     [InlineData("Outer`1+Inner`2", "Outer+Inner")]
     [InlineData("Outer`1+Inner", "Outer+Inner")]
     [InlineData("Outer+Inner`1", "Outer+Inner")]
-    [InlineData("Outer`1.Inner`2", "Outer.Inner")]
-    [InlineData("System.Collections.Generic.List`1", "System.Collections.Generic.List")]
-    [InlineData("System.Collections.Generic.Dictionary`2.Enumerator", "System.Collections.Generic.Dictionary.Enumerator")]
+    [InlineData("List`1", "List")]
+    // A '.' is an ordinary character in a metadata name, not a boundary. The
+    // trailing component of these names carries no canonical suffix, so nothing
+    // is stripped and the identity survives — the whole point of #4217's
+    // boundary split.
+    [InlineData("<>c__DisplayClass1`1.Foo", "<>c__DisplayClass1`1.Foo")]
+    [InlineData("A`1.B", "A`1.B")]
+    [InlineData("Outer`1+Inner`1.Trailing", "Outer+Inner`1.Trailing")]
+    [InlineData("Odd.Name`2", "Odd.Name")]
     // A literal backtick in one segment leaves that segment — and only it — intact.
     [InlineData("Outer`Literal+Inner`1", "Outer`Literal+Inner")]
-    [InlineData("Ns.Widget`Literal", "Ns.Widget`Literal")]
     [InlineData("Widget", "Widget")]
-    public void NestedName_StripsEachSegmentIndependently(string name, string expected)
+    public void NestedMetadataName_ParsesOnlyPlusBoundaries(string name, string expected)
         => Assert.Equal(expected, MetadataNameArity.StripFromNestedName(name));
+
+    [Theory]
+    // ApiType.Name flattens a nested chain with '.', so that spelling — and only
+    // that spelling — parses dot boundaries. A namespace is never part of it.
+    [InlineData("Outer`1.Inner`2", "Outer.Inner")]
+    [InlineData("Outer`1.Inner", "Outer.Inner")]
+    [InlineData("List`1", "List")]
+    [InlineData("Widget`Literal", "Widget`Literal")]
+    // '+' is name text in this spelling, so a literal '+' is preserved and its
+    // component is parsed as a whole.
+    [InlineData("Weird+Name`1", "Weird+Name")]
+    [InlineData("Weird`1+Name", "Weird`1+Name")]
+    public void DottedChain_ParsesOnlyDotBoundaries(string chain, string expected)
+        => Assert.Equal(expected, MetadataNameArity.StripFromDottedChain(chain));
+
+    /// <summary>
+    /// The two nesting spellings answer differently for the same text, which is
+    /// exactly why the contract is split: a caller that picks the wrong one
+    /// rewrites a name it was supposed to preserve.
+    /// </summary>
+    [Fact]
+    public void NestedAndDottedContracts_DisagreeWhereTheDelimiterIsNameText()
+    {
+        Assert.Equal("A`1.B", MetadataNameArity.StripFromNestedName("A`1.B"));
+        Assert.Equal("A.B", MetadataNameArity.StripFromDottedChain("A`1.B"));
+        Assert.Equal("A+B", MetadataNameArity.StripFromNestedName("A`1+B"));
+        Assert.Equal("A`1+B", MetadataNameArity.StripFromDottedChain("A`1+B"));
+
+        // A name whose text contains a dot keeps its identity under the metadata
+        // contract, so it cannot be mistaken for the nested pair (A`1, B).
+        Assert.NotEqual(
+            MetadataNameArity.StripFromNestedName("A`1.B"),
+            MetadataNameArity.StripFromNestedName("A`1+B"));
+    }
+
+    [Theory]
+    // Flattened search/display text: both delimiters are treated as boundaries,
+    // and a component is only ever shortened by its own canonical suffix — the
+    // rest of the name is never truncated.
+    [InlineData("Ns.Widget`1", "Ns.Widget")]
+    [InlineData("Ns.Outer`1+Inner`1", "Ns.Outer+Inner")]
+    [InlineData("Ns`1.Widget", "Ns.Widget")]
+    [InlineData("Ns.Widget`1Extra", "Ns.Widget`1Extra")]
+    public void FlattenedName_StripsEveryComponentWithoutTruncating(string name, string expected)
+        => Assert.Equal(expected, MetadataNameArity.StripFromFlattenedName(name));
 
     /// <summary>
     /// The collision the first-backtick truncation produced: two distinct metadata
@@ -90,8 +146,35 @@ public class MetadataNameArityTests
             MetadataNameArity.StripFromSegment("Widget"),
             MetadataNameArity.StripFromSegment("Widget`Literal"));
         Assert.NotEqual(
-            MetadataNameArity.StripFromNestedName("Ns.Widget"),
-            MetadataNameArity.StripFromNestedName("Ns.Widget`Literal"));
+            MetadataNameArity.StripFromDottedChain("Ns.Widget"),
+            MetadataNameArity.StripFromDottedChain("Ns.Widget`Literal"));
+    }
+
+    /// <summary>
+    /// The component walk every rewriting consumer shares: boundaries, canonical
+    /// arity, and the exact span each component contributes.
+    /// </summary>
+    [Fact]
+    public void ComponentWalk_ReportsBoundariesAndCanonicalArity()
+    {
+        const string name = "Ns.Outer`2+Inner`Literal";
+        var components = new List<(string Component, string SimpleName, int Arity, char? Delimiter)>();
+        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(name))
+        {
+            components.Add((
+                name.Substring(component.Start, component.Length),
+                name.Substring(component.Start, component.SimpleNameLength),
+                component.Arity,
+                component.Delimiter));
+        }
+
+        Assert.Equal(
+            [
+                ("Ns", "Ns", 0, '.'),
+                ("Outer`2", "Outer", 2, '+'),
+                ("Inner`Literal", "Inner`Literal", 0, null),
+            ],
+            components);
     }
 
     /// <summary>

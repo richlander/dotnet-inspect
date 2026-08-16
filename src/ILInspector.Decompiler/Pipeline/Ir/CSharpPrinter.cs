@@ -6148,18 +6148,18 @@ public sealed partial class CSharpPrinter
         // unless the reference is made from inside that enclosing type, where the
         // innermost name is in scope (Enumerator inside List<T>.GetEnumerator).
         string text = TypeTextCore(type);
-        int tick = text.IndexOf('`');
-        string rendered = tick < 0 ? text : text[..tick];
+        // Rendered text, so the flattened parse: any arity that survived
+        // rendering is dropped, while a backtick that is name text stays visible
+        // for the spellability gate instead of truncating the spelling onto a
+        // different type (#4217).
+        string rendered = MetadataNameArity.StripFromFlattenedName(text);
         RecordFrameworkTypeImportDecision(type, rendered);
         return rendered;
     }
 
     string TypeQualifierText(TypeRef type)
     {
-        string rendered = TypeTextCore(type);
-        int tick = rendered.IndexOf('`');
-        if (tick >= 0)
-            rendered = rendered[..tick];
+        string rendered = MetadataNameArity.StripFromFlattenedName(TypeTextCore(type));
 
         if (FirstTypeQualifierSegment(rendered) is { } segment && IsStaticCallNameShadowed(segment))
             rendered = FullyQualifiedTypeText(type);
@@ -6190,10 +6190,8 @@ public sealed partial class CSharpPrinter
         if (definition.Kind != TypeRefKind.Definition || definition.Namespace.Length == 0 && definition.Name.Length == 0)
             return type.ToDisplayString();
 
-        string text = type.ToDisplayString(TypeRef.Definition("__dotnet_inspect", "__", "__"));
-        int tick = text.IndexOf('`');
-        if (tick >= 0)
-            text = text[..tick];
+        string text = MetadataNameArity.StripFromFlattenedName(
+            type.ToDisplayString(TypeRef.Definition("__dotnet_inspect", "__", "__")));
         return definition.Namespace.Length == 0
             ? $"global::{text}"
             : $"global::{EscapeNamespace(definition.Namespace)}.{text}";
@@ -6355,11 +6353,9 @@ public sealed partial class CSharpPrinter
         var name = type.Name;
         var nested = name.LastIndexOf('+');
         var innermost = nested < 0 ? name : name[(nested + 1)..];
-        var tick = innermost.IndexOf('`');
-        if (tick < 0)
-            return null;
-        return int.TryParse(innermost[(tick + 1)..], out var arity) && arity > 0
-            ? arity
-            : null;
+        // Only a canonical `N declares arity: int.TryParse would take a signed or
+        // padded count, spelling `Widget<>` for a type that is not generic.
+        int arity = MetadataNameArity.OfSegment(innermost);
+        return arity > 0 ? arity : null;
     }
 }

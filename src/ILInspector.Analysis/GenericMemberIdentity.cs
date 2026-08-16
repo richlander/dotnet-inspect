@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Linq;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -46,8 +47,24 @@ public static class GenericMemberIdentity
         => type.Kind == TypeRefKind.GenericInstance
             || (type.Kind == TypeRefKind.Definition && HasArity(type.Name));
 
-    /// <summary>A metadata type name carries a generic arity suffix (e.g. <c>List`1</c>).</summary>
-    public static bool HasArity(string name) => name.IndexOf('`') >= 0;
+    /// <summary>
+    /// A metadata type name carries a generic arity suffix (e.g. <c>List`1</c>) on
+    /// any of its nested segments — an enclosing type's arity makes the nested
+    /// type generic too. Only the canonical <c>`N</c> counts
+    /// (<see cref="MetadataNameArity"/>), so a name whose backtick is literal
+    /// (<c>Widget`Literal</c>) is not generic.
+    /// </summary>
+    public static bool HasArity(string name)
+    {
+        foreach (MetadataNameComponent component in
+            MetadataNameArity.EnumerateComponents(name, dotIsBoundary: false))
+        {
+            if (component.Arity > 0)
+                return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Whether a type mentions a generic parameter anywhere — the open-definition

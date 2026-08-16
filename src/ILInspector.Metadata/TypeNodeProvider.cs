@@ -56,19 +56,29 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetGenericInstantiation(TypeNode genericType, ImmutableArray<TypeNode> typeArguments)
     {
         string rawName = genericType is NamedTypeNode n ? n.Name : genericType.Render();
-        var backtickIndex = rawName.IndexOf('`');
-        if (backtickIndex < 0)
+
+        // Split at the first canonical `N marker, keeping any trailing nested-type
+        // segment (Dictionary`2.Enumerator -> base "Dictionary", suffix
+        // ".Enumerator") so the instantiation renders Dictionary<…>.Enumerator
+        // rather than collapsing to Dictionary<…>. MetadataNameArity owns what
+        // counts as a marker, so a literal backtick (Widget`Literal) is name text
+        // and keeps the name whole.
+        MetadataNameComponent marker = default;
+        bool found = false;
+        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(rawName))
+        {
+            if (component.Arity <= 0)
+                continue;
+            marker = component;
+            found = true;
+            break;
+        }
+
+        if (!found)
             return new GenericTypeNode(rawName, genericType.IsReferenceType, typeArguments);
 
-        // Strip only the arity digits at the first backtick, keeping any trailing
-        // nested-type segment (Dictionary`2.Enumerator -> base "Dictionary",
-        // suffix ".Enumerator") so the instantiation renders Dictionary<…>.Enumerator
-        // rather than collapsing to Dictionary<…>.
-        var baseName = rawName[..backtickIndex];
-        var suffixStart = backtickIndex + 1;
-        while (suffixStart < rawName.Length && char.IsDigit(rawName[suffixStart]))
-            suffixStart++;
-        var nestedSuffix = TypeResolver.FormatDisplayName(rawName[suffixStart..]);
+        var baseName = rawName[..marker.SimpleNameEnd];
+        var nestedSuffix = TypeResolver.FormatDisplayName(rawName[marker.End..]);
         return new GenericTypeNode(
             baseName,
             genericType.IsReferenceType,

@@ -214,15 +214,18 @@ public sealed class CSharpFormatter
 
     /// <summary>
     /// Strips the CLR generic-arity suffix (e.g. <c>List`1</c> becomes <c>List</c>)
-    /// from each segment of a metadata type name, where segments are delimited by
-    /// <c>.</c> and <c>+</c> (<c>Outer`1.Inner`2</c> becomes <c>Outer.Inner</c>).
+    /// from each segment of an <see cref="ApiType.Name"/>-shaped type-name chain,
+    /// whose nesting boundary is spelled <c>.</c> (<c>Outer`1.Inner`2</c> becomes
+    /// <c>Outer.Inner</c>). Pass the type-name chain only: a namespace is not a
+    /// type-name segment and carries no arity, so callers keep it aside (as
+    /// <see cref="ApiType.Namespace"/> already does) and re-attach it afterwards.
     /// A segment whose backtick does not introduce a canonical decimal arity
     /// (<c>Widget`Literal</c>) is preserved unchanged rather than truncated, so
     /// distinct metadata names do not collapse into one spelling candidate;
     /// <see cref="MetadataNameArity"/> owns that rule and names its gate.
     /// </summary>
     public static string StripArity(string name)
-        => MetadataNameArity.StripFromNestedName(name);
+        => MetadataNameArity.StripFromDottedChain(name);
 
     /// <summary>
     /// Normalizes a raw metadata/IL type display string into C# source spelling:
@@ -413,9 +416,11 @@ public sealed class CSharpFormatter
     public static string FormatTypeName(ApiType type, bool includeVariance = false)
     {
         ArgumentNullException.ThrowIfNull(type);
-        int tick = type.Name.IndexOf('`');
-        string name = tick >= 0 ? type.Name[..tick] : type.Name;
-        name = CSharpIdentifier.ContainIdentifierForDeclaration(name);
+        // ApiType.Name is a '.'-spelled type-name chain; only a canonical `N is
+        // arity (MetadataNameArity), so a nested chain keeps its components and a
+        // literal backtick keeps the name distinct.
+        string name = CSharpIdentifier.ContainIdentifierForDeclaration(
+            MetadataNameArity.StripFromDottedChain(type.Name));
         return type.TypeParameters.Count == 0
             ? name
             : $"{name}<{string.Join(", ", type.TypeParameters.Select(parameter => FormatTypeParameter(parameter, includeVariance)))}>";
@@ -427,8 +432,7 @@ public sealed class CSharpFormatter
         if (!IsGeneratedMetadataName(metadataName))
             return metadataName;
 
-        int arity = metadataName.IndexOf('`');
-        string sourceName = arity < 0 ? metadataName : metadataName[..arity];
+        string sourceName = MetadataNameArity.StripFromSegment(metadataName);
         var builder = new System.Text.StringBuilder(sourceName.Length + 1);
         if (sourceName.Length == 0 || !(char.IsLetter(sourceName[0]) || sourceName[0] == '_'))
             builder.Append('_');

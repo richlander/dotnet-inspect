@@ -666,9 +666,10 @@ public static class ApiOutputFormatter
             int angle = name.IndexOf('<');
             if (angle >= 0)
                 name = name[..angle];
-            int tick = name.IndexOf('`');
-            if (tick >= 0)
-                name = name[..tick];
+            // Only a canonical `N is arity (MetadataNameArity), so a finalizer on
+            // a type whose backtick is name text keeps that name instead of
+            // spelling a different type's destructor.
+            name = MetadataNameArity.StripFromSegment(name);
             // Contained on the composed spelling rather than at the call site:
             // the sibling branch there contains its own text, and a finalizer
             // node reached output raw because only that one branch was covered.

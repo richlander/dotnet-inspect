@@ -34,26 +34,43 @@ namespace ILInspector.Metadata;
 /// results report the name rather than silently accepting a truncated one.
 /// </para>
 /// <para>
-/// The parse is per segment. A nested metadata name spells its own arity on each
-/// segment (<c>Outer`1+Inner`2</c>), so callers that hold a nested or dotted name
-/// use <see cref="StripFromNestedName(string)"/>, which applies the same rule to
-/// each <c>.</c>/<c>+</c>-delimited segment.
+/// The parse is per segment, and the segment boundary depends on the spelling the
+/// caller holds — which is why there is no single "strip a name" entry point:
+/// </para>
+/// <list type="bullet">
+/// <item><description><see cref="StripFromSegment(string)"/> for one metadata
+/// name (a <c>TypeDef</c>/<c>TypeRef</c> row's <c>Name</c>);</description></item>
+/// <item><description><see cref="StripFromNestedName(string)"/> for a nested
+/// metadata chain, where <c>+</c> is the only boundary and <c>.</c> is a literal
+/// name character — the spelling <c>TypeRef.Name</c> carries;</description></item>
+/// <item><description><see cref="StripFromDottedChain(string)"/> for a
+/// namespace-free type-name chain whose nesting boundary is spelled <c>.</c> —
+/// the spelling <c>ApiType.Name</c> carries;</description></item>
+/// <item><description><see cref="StripFromFlattenedName(string)"/> for already
+/// flattened display or search text, where the nesting spelling is no longer
+/// known. It treats both delimiters as boundaries and is therefore not an
+/// identity contract.</description></item>
+/// </list>
+/// <para>
+/// A namespace is never part of these inputs. Namespace text is not a type-name
+/// segment and carries no arity, so a caller holding a namespace-qualified name
+/// keeps the namespace aside and parses only the type-name chain.
 /// </para>
 /// <para>
 /// <c>MetadataNameArityTests</c> in <c>ILInspector.Metadata.Tests</c> is the gate
 /// for every rule above, including the identity collisions that first-backtick
-/// truncation produced.
+/// truncation and boundary conflation produced.
 /// </para>
 /// </remarks>
 public static class MetadataNameArity
 {
     /// <summary>
     /// The largest arity a metadata image can encode. ECMA-335 II.22.20 gives a
-    /// <c>GenericParam</c> row a 2-byte <c>Number</c>, so no image declares more
-    /// than 65535 parameters on one name; a larger decimal suffix is not an
-    /// arity.
+    /// <c>GenericParam</c> row a 2-byte zero-based <c>Number</c>, so the highest
+    /// index is 65535 and a name can declare 65536 parameters; a larger decimal
+    /// suffix is not an arity.
     /// </summary>
-    public const int MaxArity = ushort.MaxValue;
+    public const int MaxArity = ushort.MaxValue + 1;
 
     // MaxArity is five digits, so a longer digit run is out of range by length
     // alone — checked before accumulating so the accumulation cannot overflow.
@@ -121,33 +138,139 @@ public static class MetadataNameArity
     }
 
     /// <summary>
-    /// A nested or namespace-qualified metadata name with each segment's
-    /// canonical generic-arity suffix removed
-    /// (<c>Outer`1+Inner`2</c> becomes <c>Outer+Inner</c>). Segment boundaries
-    /// are <c>.</c> and <c>+</c>; a segment with no canonical suffix — including
-    /// one holding a literal backtick — is preserved unchanged.
+    /// A nested metadata name with each segment's canonical generic-arity suffix
+    /// removed (<c>Outer`1+Inner`2</c> becomes <c>Outer+Inner</c>). Only <c>+</c>
+    /// is a segment boundary: a <c>.</c> is an ordinary metadata-name character
+    /// here, so <c>&lt;&gt;c__DisplayClass1`1.Foo</c> — one name whose text
+    /// contains a dot — keeps its suffix and its identity.
     /// </summary>
     public static string StripFromNestedName(string name)
+        => StripDelimited(name, dotIsBoundary: false, plusIsBoundary: true);
+
+    /// <summary>
+    /// A namespace-free type-name chain whose nesting boundary is spelled
+    /// <c>.</c> — the flattening <c>ApiType.Name</c> uses — with each segment's
+    /// canonical generic-arity suffix removed (<c>Outer`1.Inner`2</c> becomes
+    /// <c>Outer.Inner</c>). Never pass a namespace-qualified name: namespace text
+    /// is not a type-name segment.
+    /// </summary>
+    public static string StripFromDottedChain(string chain)
+        => StripDelimited(chain, dotIsBoundary: true, plusIsBoundary: false);
+
+    /// <summary>
+    /// Already flattened display or search text, with the canonical
+    /// generic-arity suffix removed from every <c>.</c>/<c>+</c>-delimited
+    /// component. The two delimiters cannot be told apart once a name is
+    /// flattened, so this is a display and matching convenience, not an identity
+    /// contract; identity paths use the boundary-exact members above.
+    /// </summary>
+    public static string StripFromFlattenedName(string name)
+        => StripDelimited(name, dotIsBoundary: true, plusIsBoundary: true);
+
+    /// <summary>
+    /// Walks a name's components and the canonical arity suffix of each, so a
+    /// consumer that must rewrite or inspect parts of a name in place shares this
+    /// boundary walk and this grammar instead of re-deriving either.
+    /// </summary>
+    public static MetadataNameComponentEnumerator EnumerateComponents(
+        string name,
+        bool dotIsBoundary = true,
+        bool plusIsBoundary = true)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return new MetadataNameComponentEnumerator(name, dotIsBoundary, plusIsBoundary);
+    }
+
+    static string StripDelimited(string name, bool dotIsBoundary, bool plusIsBoundary)
     {
         ArgumentNullException.ThrowIfNull(name);
         if (!name.Contains('`', StringComparison.Ordinal))
             return name;
 
         var builder = new StringBuilder(name.Length);
-        int start = 0;
-        for (int i = 0; i <= name.Length; i++)
+        foreach (MetadataNameComponent component in
+            EnumerateComponents(name, dotIsBoundary, plusIsBoundary))
         {
-            if (i != name.Length && name[i] is not ('.' or '+'))
-                continue;
-
-            ReadOnlySpan<char> segment = name.AsSpan(start, i - start);
-            TryReadSuffix(segment, out _, out int simpleNameLength);
-            builder.Append(segment[..simpleNameLength]);
-            if (i != name.Length)
-                builder.Append(name[i]);
-            start = i + 1;
+            builder.Append(name, component.Start, component.SimpleNameLength);
+            if (component.Delimiter is { } delimiter)
+                builder.Append(delimiter);
         }
 
         return builder.ToString();
     }
+}
+
+/// <summary>
+/// One component of a metadata name, its canonical generic arity, and the
+/// delimiter that ended it. <see cref="SimpleNameLength"/> equals
+/// <see cref="Length"/> when the component carries no canonical arity suffix, so
+/// a consumer that copies <see cref="SimpleNameLength"/> characters preserves a
+/// non-arity backtick exactly.
+/// </summary>
+/// <param name="Start">Index of the component's first character in the name.</param>
+/// <param name="Length">Length of the component, excluding its delimiter.</param>
+/// <param name="SimpleNameLength">Length of the component without a canonical arity suffix.</param>
+/// <param name="Arity">The canonical arity, or 0 when the component declares none.</param>
+/// <param name="Delimiter">The delimiter that ended the component, or null at the end of the name.</param>
+public readonly record struct MetadataNameComponent(
+    int Start,
+    int Length,
+    int SimpleNameLength,
+    int Arity,
+    char? Delimiter)
+{
+    /// <summary>Index just past the component's arity suffix, i.e. its end.</summary>
+    public int End => Start + Length;
+
+    /// <summary>Index just past the component's simple name.</summary>
+    public int SimpleNameEnd => Start + SimpleNameLength;
+}
+
+/// <summary>Enumerates the components of a metadata name. See <see cref="MetadataNameArity.EnumerateComponents"/>.</summary>
+public struct MetadataNameComponentEnumerator
+{
+    readonly string name;
+    readonly bool dotIsBoundary;
+    readonly bool plusIsBoundary;
+    int next;
+
+    internal MetadataNameComponentEnumerator(string name, bool dotIsBoundary, bool plusIsBoundary)
+    {
+        this.name = name;
+        this.dotIsBoundary = dotIsBoundary;
+        this.plusIsBoundary = plusIsBoundary;
+        next = 0;
+        Current = default;
+    }
+
+    public MetadataNameComponent Current { get; private set; }
+
+    public readonly MetadataNameComponentEnumerator GetEnumerator() => this;
+
+    public bool MoveNext()
+    {
+        if (next > name.Length)
+            return false;
+
+        int start = next;
+        int end = start;
+        while (end < name.Length && !IsBoundary(name[end]))
+            end++;
+
+        MetadataNameArity.TryReadSuffix(
+            name.AsSpan(start, end - start),
+            out int arity,
+            out int simpleNameLength);
+        Current = new MetadataNameComponent(
+            start,
+            end - start,
+            simpleNameLength,
+            arity,
+            end < name.Length ? name[end] : null);
+        next = end + 1;
+        return true;
+    }
+
+    readonly bool IsBoundary(char value)
+        => (dotIsBoundary && value == '.') || (plusIsBoundary && value == '+');
 }

@@ -986,8 +986,10 @@ public sealed class CSharpTypePrinter
                 $"Type '{type.FullName}' must use a metadata name rather than C# type-argument spelling.");
         }
 
-        var tick = type.Name.LastIndexOf('`');
-        if (tick < 0)
+        // Only a canonical `N is arity (MetadataNameArity): int.TryParse would
+        // accept "Widget`+1", padded digits, and non-ASCII digits, letting a name
+        // that is not a generic spelling satisfy the arity contract.
+        if (!MetadataNameArity.TryReadSuffix(type.Name, out int arity, out _))
         {
             if (type.TypeParameters.Count > 0 && !allowMissingMetadataArity)
             {
@@ -998,9 +1000,7 @@ public sealed class CSharpTypePrinter
             return;
         }
 
-        if (!int.TryParse(type.Name.AsSpan(tick + 1), out var arity)
-            || arity <= 0
-            || arity != type.TypeParameters.Count)
+        if (arity != type.TypeParameters.Count)
         {
             throw new ArgumentException(
                 $"Type '{type.FullName}' has inconsistent metadata arity and type parameters.");

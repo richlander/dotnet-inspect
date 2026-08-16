@@ -791,13 +791,12 @@ public static class MemberBodyProducer
             TerminateMemberDeclaration = terminateMemberDeclaration
         });
 
+    // ApiType.Name spells nesting with '.', and only a canonical `N is an arity
+    // suffix (MetadataNameArity), so Outer`1.Inner keeps its inner component and
+    // Widget`Literal keeps its identity.
     static string DisplayName(ApiType type)
     {
-        string name = type.Name;
-        int tick = name.IndexOf('`');
-        if (tick >= 0)
-            name = name[..tick];
-        name = EscapeQualifiedIdentifier(name);
+        string name = EscapeQualifiedIdentifier(MetadataNameArity.StripFromDottedChain(type.Name));
         if (type.TypeParameters.Count > 0)
             name += $"<{string.Join(", ", type.TypeParameters.Select(TypeParameterDisplayName))}>";
         return name;
@@ -1792,10 +1791,8 @@ public static class MemberBodyProducer
         {
             if (ns.Length == 0)
                 return;
-            int tick = name.IndexOf('`');
-            bool generic = tick >= 0;
-            if (generic)
-                name = name[..tick];
+            bool generic = MetadataNameArity.OfSegment(name) > 0;
+            name = MetadataNameArity.StripFromSegment(name);
             if (!nsToNames.TryGetValue(ns, out var names))
                 nsToNames[ns] = names = new HashSet<string>(StringComparer.Ordinal);
             names.Add(generic ? name + "<" : name);

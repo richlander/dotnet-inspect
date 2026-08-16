@@ -2121,12 +2121,13 @@ internal static class CSharpDeclarationWriter
         return true;
     }
 
+    // ApiType.Name spells a nested chain with '.', so arity is stripped per
+    // component and a backtick that is not a canonical suffix stays in the name
+    // (MetadataNameArity). Truncating at the first backtick dropped every
+    // following component, spelling Outer`1.Inner as the unrelated type Outer.
     static string FormatTypeDisplayName(string name, IReadOnlyList<TypeParameter> typeParameters)
     {
-        var tick = name.IndexOf('`');
-        if (tick >= 0)
-            name = name[..tick];
-        name = ContainQualifiedName(name);
+        name = ContainQualifiedName(MetadataNameArity.StripFromDottedChain(name));
         if (typeParameters.Count > 0)
             name += $"<{string.Join(", ", typeParameters.Select(TypeParameterDisplayName))}>";
         return name;
@@ -2272,9 +2273,7 @@ internal static class CSharpDeclarationWriter
         int sep = name.LastIndexOfAny(['.', '+']);
         if (sep >= 0)
             name = name[(sep + 1)..];
-        var arityIndex = name.IndexOf('`');
-        var typeName = arityIndex < 0 ? name : name[..arityIndex];
-        return SanitizeIdentifier(typeName);
+        return SanitizeIdentifier(MetadataNameArity.StripFromSegment(name));
     }
 
     static string EscapeMemberNameInSignature(string signature, string memberName)

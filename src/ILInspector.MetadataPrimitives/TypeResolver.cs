@@ -470,6 +470,8 @@ public static class TypeResolver
     /// </summary>
     public static string ApplyGenericArguments(string genericTypeName, IReadOnlyList<string> typeArguments)
     {
+        ArgumentNullException.ThrowIfNull(genericTypeName);
+        ArgumentNullException.ThrowIfNull(typeArguments);
         if (!genericTypeName.Contains('`'))
         {
             return typeArguments.Count == 0
@@ -477,43 +479,23 @@ public static class TypeResolver
                 : $"{genericTypeName}<{string.Join(", ", typeArguments)}>";
         }
 
-        var result = new System.Text.StringBuilder(genericTypeName.Length + 16);
-        var argIndex = 0;
-        for (var i = 0; i < genericTypeName.Length; i++)
-        {
-            if (genericTypeName[i] != '`')
+        int argIndex = 0;
+        return RewriteAritySegments(
+            genericTypeName,
+            (int arity, StringBuilder builder) =>
             {
-                result.Append(genericTypeName[i]);
-                continue;
-            }
-
-            var digitStart = i + 1;
-            var digitEnd = digitStart;
-            while (digitEnd < genericTypeName.Length && char.IsDigit(genericTypeName[digitEnd]))
-                digitEnd++;
-
-            if (digitEnd == digitStart
-                || !int.TryParse(genericTypeName.AsSpan(digitStart, digitEnd - digitStart), out var arity)
-                || arity <= 0)
-            {
-                result.Append('`');
-                continue;
-            }
-
-            var take = Math.Min(arity, typeArguments.Count - argIndex);
-            result.Append('<');
-            for (var k = 0; k < take; k++)
-            {
-                if (k > 0)
-                    result.Append(", ");
-                result.Append(typeArguments[argIndex + k]);
-            }
-            result.Append('>');
-            argIndex += take;
-            i = digitEnd - 1;
-        }
-
-        return result.ToString();
+                int take = Math.Min(arity, typeArguments.Count - argIndex);
+                builder.Append('<');
+                for (int k = 0; k < take; k++)
+                {
+                    if (k > 0)
+                        builder.Append(", ");
+                    builder.Append(typeArguments[argIndex + k]);
+                }
+                builder.Append('>');
+                argIndex += take;
+                return true;
+            });
     }
 
     /// <summary>
@@ -525,38 +507,100 @@ public static class TypeResolver
         if (string.IsNullOrEmpty(typeName) || !typeName.Contains('`'))
             return typeName;
 
-        var result = new System.Text.StringBuilder(typeName.Length + 8);
-        for (var i = 0; i < typeName.Length; i++)
+        return RewriteAritySegments(
+            typeName,
+            static (int arity, StringBuilder builder) =>
+            {
+                if (arity > MaxDisplayedPlaceholders)
+                    return false;
+
+                builder.Append('<');
+                for (int parameterIndex = 1; parameterIndex <= arity; parameterIndex++)
+                {
+                    if (parameterIndex > 1)
+                        builder.Append(", ");
+                    builder.Append(arity == 1 ? "T" : $"T{parameterIndex}");
+                }
+                builder.Append('>');
+                return true;
+            });
+    }
+
+    /// <summary>
+    /// The most type-parameter placeholders <see cref="FormatDisplayName"/> will
+    /// synthesize for one arity marker. A canonical arity reaches
+    /// <see cref="MetadataNameArity.MaxArity"/>, and expanding that many
+    /// placeholders would turn a short hostile name into a megabyte of display
+    /// text, so a larger arity keeps its raw <c>`N</c> spelling: the name stays
+    /// visible and bounded instead of being rendered or silently dropped.
+    /// </summary>
+    internal const int MaxDisplayedPlaceholders = 64;
+
+    /// <summary>
+    /// Rewrites every canonical generic-arity suffix in a flattened type name,
+    /// leaving all other text — including a backtick that is not a canonical
+    /// suffix — exactly as it was. Suffix recognition is
+    /// <see cref="MetadataNameArity"/>'s, applied to each <c>.</c>/<c>+</c>
+    /// component, so an arbitrary digit run (<c>Bomb`2147483647</c>), a
+    /// non-ASCII digit, a signed or padded count, or digits followed by more text
+    /// is text, not arity. <paramref name="render"/> returns false to decline a
+    /// marker, which restores its raw spelling.
+    /// </summary>
+    static string RewriteAritySegments(string name, Func<int, StringBuilder, bool> render)
+    {
+        var result = new StringBuilder(name.Length + 16);
+        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(name))
         {
-            if (typeName[i] != '`')
+            ReadOnlySpan<char> text = name.AsSpan(component.Start, component.Length);
+            ReadOnlySpan<char> decoration = text[TypeDecorationStart(text)..];
+            ReadOnlySpan<char> metadataName = text[..^decoration.Length];
+
+            if (MetadataNameArity.TryReadSuffix(metadataName, out int arity, out int simpleNameLength))
             {
-                result.Append(typeName[i]);
-                continue;
+                result.Append(metadataName[..simpleNameLength]);
+                int beforeRender = result.Length;
+                if (render(arity, result))
+                {
+                    result.Append(decoration);
+                }
+                else
+                {
+                    result.Length = beforeRender;
+                    result.Append(text[simpleNameLength..]);
+                }
+            }
+            else
+            {
+                result.Append(text);
             }
 
-            var digitStart = i + 1;
-            var digitEnd = digitStart;
-            while (digitEnd < typeName.Length && char.IsDigit(typeName[digitEnd]))
-                digitEnd++;
-
-            if (digitEnd == digitStart || !int.TryParse(typeName.AsSpan(digitStart, digitEnd - digitStart), out var arity) || arity <= 0)
-            {
-                result.Append(typeName[i]);
-                continue;
-            }
-
-            result.Append('<');
-            for (var parameterIndex = 1; parameterIndex <= arity; parameterIndex++)
-            {
-                if (parameterIndex > 1)
-                    result.Append(", ");
-                result.Append(arity == 1 ? "T" : $"T{parameterIndex}");
-            }
-            result.Append('>');
-            i = digitEnd - 1;
+            if (component.Delimiter is { } delimiter)
+                result.Append(delimiter);
         }
 
         return result.ToString();
+    }
+
+    /// <summary>
+    /// Where a component's metadata name ends and signature decoration —
+    /// array, pointer, by-ref, or nullable syntax — begins. Decoration is
+    /// display syntax rather than name text, so it is set aside before the arity
+    /// grammar is applied and restored after the arguments
+    /// (<c>List`1[]</c> renders <c>List&lt;T&gt;[]</c>).
+    /// </summary>
+    /// <remarks>
+    /// Decoration is a suffix, so it is measured from the end. Scanning from the
+    /// start would cut a compiler-generated name at its leading
+    /// <c>&lt;&gt;</c> — <c>&lt;&gt;c__DisplayClass0_0`1</c> is a name, not a
+    /// decorated one — and leave its arity marker unexpanded in emitted C#.
+    /// </remarks>
+    static int TypeDecorationStart(ReadOnlySpan<char> component)
+    {
+        int start = component.Length;
+        while (start > 0 && component[start - 1] is '[' or ']' or '*' or '&' or '?' or ',')
+            start--;
+
+        return start;
     }
 
     static RelationshipTraversalResult<string> FormatChain<THandle>(

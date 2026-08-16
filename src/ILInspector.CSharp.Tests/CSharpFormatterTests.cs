@@ -1339,7 +1339,6 @@ public sealed class CSharpFormatterTests
     [InlineData("Widget`01", "Widget`01")]
     [InlineData("Widget`99999999999", "Widget`99999999999")]
     [InlineData("Outer`1.Inner`2", "Outer.Inner")]
-    [InlineData("Outer`1+Inner", "Outer+Inner")]
     [InlineData("Outer`Literal.Inner`1", "Outer`Literal.Inner")]
     public void StripArity_RemovesOnlyCanonicalGenericAritySuffixes(string name, string expected)
         => Assert.Equal(expected, CSharpFormatter.StripArity(name));
@@ -1353,6 +1352,57 @@ public sealed class CSharpFormatterTests
         => Assert.NotEqual(
             CSharpFormatter.StripArity("Widget"),
             CSharpFormatter.StripArity("Widget`Literal"));
+
+    /// <summary>
+    /// The input is an <c>ApiType.Name</c>-shaped chain: nesting is spelled
+    /// <c>.</c>, a <c>+</c> is name text, and a namespace is never included. A
+    /// namespace passed in here would have its text rewritten, which is why
+    /// callers keep it beside the chain.
+    /// </summary>
+    [Theory]
+    [InlineData("Weird+Name`1", "Weird+Name")]
+    [InlineData("Weird`1+Name", "Weird`1+Name")]
+    [InlineData("Outer`1.Inner`2", "Outer.Inner")]
+    public void StripArity_ParsesTheDottedTypeNameChainOnly(string name, string expected)
+        => Assert.Equal(expected, CSharpFormatter.StripArity(name));
+
+    /// <summary>
+    /// Delegate rendering used to truncate the name at the first backtick, which
+    /// dropped every following nested component and spelled a distinct type
+    /// (#4217). The declaring chain and a non-arity backtick both survive.
+    /// </summary>
+    [Fact]
+    public void FormatDelegate_KeepsNestedComponentsAndNonArityBackticks()
+    {
+        static ApiMember Invoke() => new()
+        {
+            Name = "Invoke",
+            Kind = "method",
+            SignatureModel = new ApiSignature { ReturnType = "void", Parameters = [] }
+        };
+
+        var nested = new ApiType
+        {
+            Name = "Outer`1.Callback",
+            Kind = "delegate",
+            Accessibility = "public"
+        };
+        var literal = new ApiType
+        {
+            Name = "Callback`Literal",
+            Kind = "delegate",
+            Accessibility = "public"
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions());
+
+        Assert.Equal(
+            "public delegate void Outer.Callback();",
+            formatter.FormatDelegate(nested, Invoke()));
+        Assert.Contains(
+            "Callback`Literal",
+            formatter.FormatDelegate(literal, Invoke()),
+            StringComparison.Ordinal);
+    }
 
     [Theory]
     [InlineData("System.Int32", "int")]

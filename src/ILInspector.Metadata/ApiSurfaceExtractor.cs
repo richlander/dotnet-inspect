@@ -1691,11 +1691,30 @@ public static class ApiSurfaceExtractor
 
     private static IEnumerable<string> GetTypeMatchKeys(ApiType type)
     {
-        var fullNameKey = NormalizeTypeMatchKey(type.FullName);
-        if (fullNameKey != null)
-            yield return fullNameKey;
+        // Built from the structured parts, not from FullName: the namespace is
+        // carried verbatim and only the type-name chain is parsed for arity. A
+        // namespace is not a type-name segment, so a namespace whose text
+        // contains a backtick (`Ns`1`) must not be folded away — doing so
+        // collided the type with a global type named `Ns` (#4217).
+        string typeName = MetadataNameArity.StripFromDottedChain(type.Name);
+        string? ns = type.Namespace;
+        yield return string.IsNullOrEmpty(ns) ? typeName : $"{ns}.{typeName}";
     }
 
+    /// <summary>
+    /// The match key for a rendered type reference (an extension method's
+    /// extended-type text). Type arguments are removed group-wise rather than by
+    /// truncating at the first <c>&lt;</c>, so a nested reference keeps the
+    /// segments after the arguments (<c>Ns.Outer&lt;T&gt;.Inner</c> keys as
+    /// <c>Ns.Outer.Inner</c>) and matches the same type's structured key.
+    /// </summary>
+    /// <remarks>
+    /// Rendered text has already lost the namespace boundary, so this side parses
+    /// no arity at all: the type side removes the arity it can locate exactly,
+    /// and a rendered reference simply spells the instantiated name. Stripping
+    /// here would rewrite namespace text — <c>Ns`1.Widget</c> would key as
+    /// <c>Ns.Widget</c> and steal the extension from a real <c>Ns.Widget</c>.
+    /// </remarks>
     private static string? NormalizeTypeMatchKey(string? typeName)
     {
         if (string.IsNullOrWhiteSpace(typeName))
@@ -1715,35 +1734,43 @@ public static class ApiSurfaceExtractor
             value = value[..^1];
 
         value = PrimitiveTypeNames.ToClrFullName(value);
+        return RemoveTypeArgumentGroups(value);
+    }
 
-        var genericIndex = value.IndexOf('<');
-        if (genericIndex > 0)
-            value = value[..genericIndex];
+    /// <summary>
+    /// Removes balanced <c>&lt;…&gt;</c> type-argument groups from a rendered
+    /// type reference, keeping the text on both sides. Unbalanced text is
+    /// returned unchanged so a malformed render is not silently reshaped.
+    /// </summary>
+    private static string RemoveTypeArgumentGroups(string value)
+    {
+        int open = value.IndexOf('<');
+        if (open < 0)
+            return value;
 
-        // Both sides of this match are cut at their first generic marker, so the
-        // arity form cuts where the C# form cuts at '<'. The cut point is the
-        // first segment carrying a canonical `N suffix (MetadataNameArity owns
-        // that rule): a segment whose backtick is literal (Widget`Literal) is not
-        // a generic marker and must not fold onto the unsuffixed name.
-        int segmentStart = 0;
-        for (int i = 0; i <= value.Length; i++)
+        var builder = new StringBuilder(value.Length);
+        int depth = 0;
+        foreach (char c in value)
         {
-            if (i != value.Length && value[i] is not ('.' or '+'))
-                continue;
-            if (MetadataNameArity.TryReadSuffix(
-                    value.AsSpan(segmentStart, i - segmentStart),
-                    out _,
-                    out int simpleNameLength)
-                && segmentStart + simpleNameLength > 0)
+            if (c == '<')
             {
-                value = value[..(segmentStart + simpleNameLength)];
-                break;
+                depth++;
+                continue;
             }
 
-            segmentStart = i + 1;
+            if (c == '>')
+            {
+                if (depth == 0)
+                    return value;
+                depth--;
+                continue;
+            }
+
+            if (depth == 0)
+                builder.Append(c);
         }
 
-        return value;
+        return depth == 0 ? builder.ToString() : value;
     }
 
     /// <summary>
