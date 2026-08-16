@@ -2,12 +2,189 @@ using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
 [Collection("Console")]
 public class MemberCallGraphSectionTests
 {
+    [Fact]
+    public async Task PreResolvedSection_OverridesStaleRawSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            Select = [SectionNames.Methods],
+            IncludeSections = [SectionNames.Signature],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task EmptyPreResolvedSection_DoesNotResolveStaleRawSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            Select = [SectionNames.Methods],
+            IncludeSections = [],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(CountOutput.SingleSectionRequiredMessage, result.Error);
+    }
+
+    [Fact]
+    public async Task EmptyPreResolvedSection_ValidatesBeforeAcquisition()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "Missing.Type.Member",
+            AssemblyPath = Path.Combine(Path.GetTempPath(), "missing-member-selection.dll"),
+            Select = [SectionNames.Methods],
+            IncludeSections = [],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(CountOutput.SingleSectionRequiredMessage, result.Error);
+        Assert.DoesNotContain("not found", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task EmptyPreResolvedSection_SelectsNoDefaultSections()
+    {
+        var options = new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            IncludeSections = [],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Detailed,
+        };
+
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(options));
+        var type = new ApiType
+        {
+            Name = "Fixture",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = nameof(MemberCallGraphFixture.RootCall),
+                    Kind = "method",
+                    MetadataToken = 0x06000001
+                }
+            ]
+        };
+        var resolvedOptions = options with { MemberSectionsPreResolved = true };
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("## ", result.Output);
+        Assert.Empty(ApiCommand.GetRequestedMemberSections(type, resolvedOptions));
+        Assert.Empty(
+            ApiOutputFormatter.BuildTypeWriterOptions(type, resolvedOptions).IncludeSections!);
+        Assert.Empty(
+            ApiMemberSectionPipelines.Create(resolvedOptions).GetDiscoverableSections(
+                type,
+                resolvedOptions.IncludeSections,
+                explicitInclude: true));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task EmptyPreResolvedSection_SelectsNoDefaultTabularRows(
+        bool tsv,
+        bool jsonl)
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+                IncludeSections = [],
+                Tabular = true,
+                Tsv = tsv,
+                Jsonl = jsonl,
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Detailed
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(string.Empty, result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task PreResolvedDetailSection_IgnoresStaleAllSelectorDuringAutoSelection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            Select = [SelectResolver.AllSelector],
+            IncludeSections = [SectionNames.Signature],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public void PreResolvedDetailSections_IgnoreStaleAllSelectorDuringFormatting()
+    {
+        var type = new ApiType
+        {
+            Name = "Fixture",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = nameof(MemberCallGraphFixture.RootCall),
+                    Kind = "method",
+                    MetadataToken = 0x06000001,
+                    Signature = "public void RootCall()"
+                }
+            ]
+        };
+        var options = new MemberOptions
+        {
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            OverloadIndex = 1,
+            Select = [SelectResolver.AllSelector],
+            IncludeSections = [SectionNames.Signature, SectionNames.CallGraph],
+            MemberSectionsPreResolved = true,
+        };
+
+        var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+
+        Assert.Equal(
+            [SectionNames.Summary, SectionNames.Signature, SectionNames.CallGraph],
+            writerOptions.IncludeSections);
+    }
+
     [Fact]
     public async Task CallGraphSection_RendersEdgeTableByDefault()
     {
