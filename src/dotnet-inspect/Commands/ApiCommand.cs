@@ -1280,7 +1280,8 @@ public class ApiCommand
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
             if (GetRequestedMemberSections(type, options)
-                .Contains(SectionNames.PerformanceTriage))
+                    .Contains(SectionNames.PerformanceTriage)
+                && HasExplicitPerformanceTriageSelector(options))
             {
                 CommandError.Write(
                     "Document --json cannot represent Performance Triage analysis. "
@@ -2515,6 +2516,15 @@ public class ApiCommand
         => selector.Equals(
             SectionNames.AnnotatedSourceDocument,
             StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasExplicitPerformanceTriageSelector(ApiOptions options)
+        => options.Select?.Any(static selector =>
+               selector.Equals(
+                   SectionNames.PerformanceTriage,
+                   StringComparison.OrdinalIgnoreCase)
+               || selector.Equals(
+                   "Optimization Opportunities",
+                   StringComparison.OrdinalIgnoreCase)) == true;
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;
