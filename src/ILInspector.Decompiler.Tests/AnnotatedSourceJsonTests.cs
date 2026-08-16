@@ -134,7 +134,7 @@ public class AnnotatedSourceJsonTests
 
         Assert.Equal(expectedMessage, error.Message);
         Assert.DoesNotContain(HostilePropertyName, error.Message, StringComparison.Ordinal);
-        Assert.Null(error.InnerException);
+        AssertContained(error);
     }
 
     [Theory]
@@ -152,7 +152,117 @@ public class AnnotatedSourceJsonTests
 
         Assert.Equal(expectedMessage, error.Message);
         Assert.DoesNotContain(HostileContent, error.Message, StringComparison.Ordinal);
-        Assert.Null(error.InnerException);
+        AssertContained(error);
+    }
+
+    [Theory]
+    [InlineData(false, "Annotated-source JSON is malformed.")]
+    [InlineData(true, "Structural comparison JSON is malformed.")]
+    public void StrictReaders_ContainRawMalformedUtf16(
+        bool structuralComparison,
+        string expectedMessage)
+    {
+        const string RawUnpairedSurrogate = "\uD800";
+        string json = (structuralComparison ? StructuralComparisonJson() : CompactJson()).Replace(
+            structuralComparison ? "\"subject\":\"test\"" : "\"text\":\"return;\"",
+            structuralComparison
+                ? $"\"subject\":\"{RawUnpairedSurrogate}\""
+                : $"\"text\":\"{RawUnpairedSurrogate}\"",
+            StringComparison.Ordinal);
+
+        var error = Assert.Throws<JsonException>(
+            () => Deserialize(structuralComparison, json));
+
+        Assert.Equal(expectedMessage, error.Message);
+        AssertContained(error);
+    }
+
+    [Theory]
+    [InlineData(false, "Annotated-source JSON is malformed.")]
+    [InlineData(true, "Structural comparison JSON violates the JSON contract.")]
+    public void StrictReaders_ContainEscapedMalformedUtf16PropertyNames(
+        bool structuralComparison,
+        string expectedMessage)
+    {
+        string json = (structuralComparison ? StructuralComparisonJson() : CompactJson()).Replace(
+            structuralComparison ? "\"subject\":\"test\"" : "\"text\":\"return;\"",
+            structuralComparison
+                ? "\"subject\":\"test\",\"\\uD800\":0"
+                : "\"text\":\"return;\",\"\\uD800\":0",
+            StringComparison.Ordinal);
+
+        var error = Assert.Throws<JsonException>(
+            () => Deserialize(structuralComparison, json));
+
+        Assert.Equal(expectedMessage, error.Message);
+        AssertContained(error);
+    }
+
+    [Theory]
+    [InlineData("\"text\":\"return;\"", "\"text\":null", "text")]
+    [InlineData("\"kind\":\"ReturnStatement\"", "\"kind\":null", "kind")]
+    public void StrictDocumentReader_RejectsNullRequiredFields(
+        string oldValue,
+        string newValue,
+        string expected)
+    {
+        string json = CompactJson().Replace(oldValue, newValue, StringComparison.Ordinal);
+
+        var error = Assert.Throws<JsonException>(
+            () => AnnotatedSourceJson.DeserializeDocument(json));
+
+        Assert.Contains("null required properties", error.Message, StringComparison.Ordinal);
+        Assert.Contains(expected, error.Message, StringComparison.Ordinal);
+        AssertContained(error);
+    }
+
+    [Theory]
+    [InlineData("subject")]
+    [InlineData("before")]
+    [InlineData("after")]
+    [InlineData("before_node_ids")]
+    [InlineData("after_node_ids")]
+    [InlineData("correspondences")]
+    public void StrictStructuralReader_RejectsNullRequiredFields(string propertyName)
+    {
+        string json = StructuralComparisonJson();
+        string oldValue = propertyName switch
+        {
+            "subject" => "\"subject\":\"test\"",
+            "before" => $"\"before\":{CompactJson()}",
+            "after" => $"\"after\":{CompactJson()}",
+            "before_node_ids" => "\"before_node_ids\":[0]",
+            "after_node_ids" => "\"after_node_ids\":[0]",
+            "correspondences" =>
+                "\"correspondences\":[{\"before_node_id\":0,\"after_node_id\":0}]",
+            _ => throw new ArgumentOutOfRangeException(nameof(propertyName)),
+        };
+        string jsonWithNull = json.Replace(
+            oldValue,
+            $"\"{propertyName}\":null",
+            StringComparison.Ordinal);
+
+        var error = Assert.Throws<JsonException>(
+            () => AnnotatedSourceJson.DeserializeStructuralComparison(jsonWithNull));
+
+        Assert.Contains("null required properties", error.Message, StringComparison.Ordinal);
+        Assert.Contains(propertyName, error.Message, StringComparison.Ordinal);
+        AssertContained(error);
+    }
+
+    [Fact]
+    public void StrictStructuralReader_RejectsNullCorrespondence()
+    {
+        string json = StructuralComparisonJson().Replace(
+            """{"before_node_id":0,"after_node_id":0}""",
+            "null",
+            StringComparison.Ordinal);
+
+        var error = Assert.Throws<JsonException>(
+            () => AnnotatedSourceJson.DeserializeStructuralComparison(json));
+
+        Assert.Equal("correspondences must contain JSON objects.", error.Message);
+        AssertContained(error);
     }
 
     [Theory]
@@ -172,18 +282,6 @@ public class AnnotatedSourceJsonTests
             () => AnnotatedSourceJson.DeserializeDocument(json));
 
         Assert.Contains(expected, error.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void StrictDocumentReader_RejectsMalformedUtf16Transport()
-    {
-        string json = CompactJson().Replace(
-            "\"text\":\"return;\"",
-            "\"text\":\"\\uD800\"",
-            StringComparison.Ordinal)
-            .Replace("\"length\":7", "\"length\":1", StringComparison.Ordinal);
-
-        Assert.ThrowsAny<Exception>(() => AnnotatedSourceJson.DeserializeDocument(json));
     }
 
     [Fact]
@@ -231,7 +329,7 @@ public class AnnotatedSourceJsonTests
     {
         string document = CompactJson();
         return
-            $$"""{"subject":"test","before":{{document}},"after":{{document}},"before_node_ids":[],"after_node_ids":[],"correspondences":[]}""";
+            $$"""{"subject":"test","before":{{document}},"after":{{document}},"before_node_ids":[0],"after_node_ids":[0],"correspondences":[{"before_node_id":0,"after_node_id":0}]}""";
     }
 
     static void Deserialize(bool structuralComparison, string json)
@@ -240,6 +338,14 @@ public class AnnotatedSourceJsonTests
             _ = AnnotatedSourceJson.DeserializeStructuralComparison(json);
         else
             _ = AnnotatedSourceJson.DeserializeDocument(json);
+    }
+
+    static void AssertContained(JsonException error)
+    {
+        Assert.Null(error.InnerException);
+        Assert.Null(error.Path);
+        Assert.Null(error.LineNumber);
+        Assert.Null(error.BytePositionInLine);
     }
 
     static AnnotatedSourceDocument Document()

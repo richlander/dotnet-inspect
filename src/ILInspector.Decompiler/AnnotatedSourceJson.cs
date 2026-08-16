@@ -91,14 +91,21 @@ public static class AnnotatedSourceJson
         {
             document = JsonDocument.Parse(json);
         }
-        catch (JsonException)
+        catch (Exception error) when (error is JsonException or ArgumentException)
         {
             throw new JsonException(malformedJsonError);
         }
 
         using (document)
         {
-            validate(document.RootElement);
+            try
+            {
+                validate(document.RootElement);
+            }
+            catch (InvalidOperationException)
+            {
+                throw new JsonException(malformedJsonError);
+            }
         }
     }
 
@@ -195,7 +202,12 @@ public static class AnnotatedSourceJson
             return;
 
         foreach (var value in values.EnumerateArray())
+        {
+            if (value.ValueKind != JsonValueKind.Object)
+                throw new JsonException($"{name} must contain JSON objects.");
+
             RequireProperties(value, requiredProperties, name);
+        }
     }
 
     static void RequireProperties(
@@ -219,6 +231,18 @@ public static class AnnotatedSourceJson
         {
             throw new JsonException(
                 $"{name} is missing required properties: {string.Join(", ", missing)}.");
+        }
+
+        string[] nullProperties =
+        [
+            .. requiredProperties.Where(
+                propertyName => value.TryGetProperty(propertyName, out var property)
+                    && property.ValueKind == JsonValueKind.Null)
+        ];
+        if (nullProperties.Length > 0)
+        {
+            throw new JsonException(
+                $"{name} has null required properties: {string.Join(", ", nullProperties)}.");
         }
     }
 }
