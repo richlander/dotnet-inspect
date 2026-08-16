@@ -679,6 +679,21 @@ Research overlay bridge, and the application layer:
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
 - **CSharp** owns model-bound C# spelling through `CSharpFormatter` and exact typed-request composition through `CSharpTypePrinter`, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes. It does not depend on Decompiler or Research.
 - **CSharpText** owns dependency-free, model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source ranges. It has no metadata, SRM, PDB, SourceLink, acquisition, decompiler, or presentation dependency and does not claim to be a parser.
+  `DeclarationIndexBuilder` owns the single forward token traversal, scope and
+  trust state, and linear span finalization.
+  `DeclarationHeaderGrammar` owns pure header truncation, classification,
+  declarator splitting, operator and delegate naming, and extension-scope
+  recognition over an immutable enclosing-scope snapshot. It owns no traversal
+  or span state.
+  `DeclarationIndexTests.EveryDeclarationRoslynReports_IsReportedIdenticallyByTheIndex`
+  gates corpus-level projection parity.
+  `DeclarationIndexTests.EachDeclaratorCarriesItsOwnInitializerFact`,
+  `DeclarationIndexTests.ACheckedOperator_IsNamedForItsSymbolAlone`,
+  `DeclarationIndexTests.DelegatesFunctionPointersAndDestructors_AreClassifiedApart`,
+  `DeclarationIndexTests.AConstructorNamedExtension_IsNotAnExtensionBlock`,
+  and
+  `DeclarationIndexTests.AGenericExtensionBlock_IsTransparentJustLikeAPlainOne`
+  gate the header grammar's focused positive and close-negative cases.
 - **Metadata** owns PE/PDB extraction and raw typed correlations. It does not know SourceLink maps, GUIDs, URLs, or provenance and does not expose its readers.
 - **SourceLink** owns map extraction and processing, canonical source paths, URL decoration, provenance, high-level resolution, source Findings, and SourceLink-aware audits. SourceLinkFetch remains the single map/provenance grammar owner and does not depend on Metadata.
 - **ReturnToSender** remains tools-only and owns closure discovery, cluster membership, synthesis, accessibility flattening, and body-policy selection. It passes typed requests to CSharp rather than maintaining a parallel declaration model.
@@ -730,11 +745,21 @@ Research overlay bridge, and the application layer:
   repeat member and type
   resolution, and lazily requests its own reaching-definitions result through
   `IOptimizationOpportunityResolver`; the producer does not own the metadata
-  reader, generic scope, or raw IL. The assembly reader retains PE/body
-  acquisition, the intentionally throwing decode path, method identity and
-  scope creation, primary-image metadata and raw-IL ownership through the shared
-  narrow method-analysis resolver, orchestration and diagnostics, resource/leak
-  analysis, and result aggregation. Cross-assembly type-definition binding,
+  reader, generic scope, or raw IL. `LibraryMethodAnalysisRunner` owns the
+  ordered per-method lifecycle: body acquisition, the intentionally throwing
+  decode and canonical context construction, topic-producer sequencing,
+  leak-only handling, recoverable diagnostics, and publication of partial
+  method-local calls and safety evidence. It consumes one
+  `ILibraryMethodAnalysisInfrastructure` implemented by the assembly builder;
+  that contract supplies the caller-owned primary-image reader/PE pair,
+  method identity and generic scope, and the existing narrow metadata
+  resolvers without exposing them to topic producers.
+  `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gates partial failure
+  publication, and
+  `LibraryBodyIndex_PrefetchedImageScopeSkipsMalformedUnselectedBody` gates
+  scoped decode through the runner. The assembly builder retains the
+  metadata-ordered work list, parallel scheduling, primary-image metadata
+  judgments, and result aggregation. Cross-assembly type-definition binding,
   referenced-image metadata lifetime, and the registration-keyed cache belong
   to `LibraryBodyReferenceMetadataResolver`, which composes
   `AssemblyReferenceBindingPolicy` and `TypeResolutionCatalog`.

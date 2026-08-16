@@ -798,6 +798,63 @@ public class UntrustedPackageContainmentTests : IDisposable
         HostileOutputAssert.NoRenderingHazard(output, "package --layout");
     }
 
+    [Fact]
+    public async Task MultiPackageSignatureRows_WithHostilePackageId_RenderNoHazard()
+    {
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(new InspectionOptions
+            {
+                PackageArgs = [_path, _path],
+                Select = [PackageSections.Signature],
+                SelectExplicitlySet = true,
+                Fields = ["Signed"],
+                Tabular = true,
+                Tsv = true,
+                TabularExplicitlySet = true,
+                FormatExplicitlySet = true,
+                TipLevel = TipLevel.Quiet,
+            }));
+
+        Assert.True(exit == 0, error);
+        HostileOutputAssert.MarkersRendered(
+            output,
+            "package Signature --tsv",
+            "INJECTEDPKGID");
+        HostileOutputAssert.NoRenderingHazard(
+            output,
+            "package Signature --tsv");
+    }
+
+    [Fact]
+    public void SigningSection_WithHostileValues_ContainsRenderedText()
+    {
+        const string Hostile =
+            "Value\u000BINJVT\u001B[31m\nINJNL\u2028INJLS\u202EINJRLO";
+        var section = new SigningSection
+        {
+            Publisher = Hostile,
+            Repository = Hostile,
+            Status = Hostile,
+        };
+
+        foreach (string? value in
+            new[] { section.Publisher, section.Repository, section.Status })
+        {
+            Assert.NotNull(value);
+            HostileOutputAssert.MarkersRendered(
+                value!,
+                "Signature",
+                "INJVT",
+                "INJNL",
+                "INJLS",
+                "INJRLO");
+            Assert.DoesNotContain(
+                value!,
+                character => character is '\n' or '\r'
+                    || HostileOutputAssert.IsForbidden(character));
+        }
+    }
+
 }
 
 /// <summary>

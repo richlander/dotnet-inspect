@@ -5,7 +5,20 @@ namespace NuGetFetch;
 
 public static class NuGetApi
 {
-    public static async ValueTask<ServiceIndex?> GetServiceIndexAsync(Stream json, CancellationToken cancellationToken = default)
+    private static readonly NuGetFetchOptions DefaultOptions = new();
+
+    public static ValueTask<ServiceIndex?> GetServiceIndexAsync(
+        Stream json,
+        CancellationToken cancellationToken = default) =>
+        NuGetMetadataReader.ReadStreamAsync(
+            json,
+            DeserializeServiceIndexAsync,
+            DefaultOptions,
+            cancellationToken);
+
+    internal static async ValueTask<ServiceIndex?> DeserializeServiceIndexAsync(
+        Stream json,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -17,7 +30,18 @@ public static class NuGetApi
         }
     }
 
-    public static async ValueTask<VersionIndex?> GetVersionIndexAsync(Stream json, CancellationToken cancellationToken = default)
+    public static ValueTask<VersionIndex?> GetVersionIndexAsync(
+        Stream json,
+        CancellationToken cancellationToken = default) =>
+        NuGetMetadataReader.ReadStreamAsync(
+            json,
+            DeserializeVersionIndexAsync,
+            DefaultOptions,
+            cancellationToken);
+
+    internal static async ValueTask<VersionIndex?> DeserializeVersionIndexAsync(
+        Stream json,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -39,8 +63,22 @@ public static class NuGetApi
     /// indistinguishable from a genuine zero-result search, which turns a hard
     /// failure into success-shaped empty output. See issue #3417.
     /// </remarks>
-    public static async ValueTask<SearchResponse?> GetSearchResponseAsync(Stream json, CancellationToken cancellationToken = default)
-        => await JsonSerializer.DeserializeAsync(json, NuGetJsonContext.Default.SearchResponse, cancellationToken).ConfigureAwait(false);
+    public static ValueTask<SearchResponse?> GetSearchResponseAsync(
+        Stream json,
+        CancellationToken cancellationToken = default) =>
+        NuGetMetadataReader.ReadStreamAsync(
+            json,
+            DeserializeSearchResponseAsync,
+            DefaultOptions,
+            cancellationToken);
+
+    internal static async ValueTask<SearchResponse?> DeserializeSearchResponseAsync(
+        Stream json,
+        CancellationToken cancellationToken) =>
+        await JsonSerializer.DeserializeAsync(
+            json,
+            NuGetJsonContext.Default.SearchResponse,
+            cancellationToken).ConfigureAwait(false);
 }
 
 // Feeds disagree about whether a JSON number is a number. Azure DevOps Artifacts

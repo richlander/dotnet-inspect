@@ -345,7 +345,7 @@ jobs:
       # Fast decompiler unit tests: pass logic, printer, importer facts, identity,
       # and classification regressions. Slow compile-back/recompile, corpus-sweep,
       # and fidelity tests are tagged [Trait("Speed", "Slow")] and excluded here;
-      # the full suite (including those) runs in Deep Inspect / publish. Mark any
+      # the full suite (including those) runs in Deep Inspect. Mark any
       # new Roslyn-heavy/recompile test Slow so it stays out of the PR gate.
       - name: Run decompiler unit tests (fast)
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
@@ -359,7 +359,7 @@ jobs:
       # Fast IL round-trip oracle: focused fixture and handwritten IL cases run
       # in PR CI when the round-trip tests or source dependencies change. The
       # assembly-wide sweep is tagged [Trait("Speed", "Slow")] and runs in
-      # Deep Inspect / publish / full local runs.
+      # Deep Inspect / full local runs.
       - name: Restore vendored ILAssembler
         if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
         run: bash eng/restore-ilassembler.sh
@@ -517,8 +517,8 @@ jobs:
   #
   # These gates carry doc comments asserting they fail CI, but every pre-merge
   # lane runs `-trait- "Speed=Slow"` and they are all Slow, so until now they
-  # ran only in release.yml and the weekly Deep Inspect lane — where they were
-  # exceeding the job timeout, and a *cancelled* job does not satisfy Deep
+  # historically ran only in release.yml and the then-weekly Deep Inspect lane
+  # — where they were exceeding the job timeout, and a *cancelled* job does not satisfy Deep
   # Inspect's `if: ... && failure()` notifier. Detection latency was unbounded,
   # not weekly (#3432). Five real regressions (#3489-#3493) accumulated unseen.
   #

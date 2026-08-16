@@ -48,6 +48,22 @@ public class SwitchExpressionRaisingTests
     }
 
     [Fact]
+    [Trait("Area", "Pass")]
+    public void ValueBlocksWithNestedBranchTargetedJoin_DeclinesSwitchExpressionRaise()
+    {
+        var function = BuildLeaveTargetedCandidate(
+            extraTarget: 0x0003,
+            useLeave: false,
+            nestTarget: true);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<SwitchExpression>());
+        Assert.Contains(function.Body.Blocks, block => block.StartOffset == 0x0003);
+    }
+
+    [Fact]
     public void ValueBlocksWithoutLeaveTarget_RaisesToSwitchExpression()
     {
         var function = BuildLeaveTargetedCandidate(includeLeaveTarget: false);
@@ -60,7 +76,11 @@ public class SwitchExpressionRaisingTests
         Assert.DoesNotContain(function.Body.Blocks, block => block.StartOffset == 0x0002);
     }
 
-    static IrFunction BuildLeaveTargetedCandidate(bool includeLeaveTarget = true, int extraTarget = 0x0002, bool useLeave = true)
+    static IrFunction BuildLeaveTargetedCandidate(
+        bool includeLeaveTarget = true,
+        int extraTarget = 0x0002,
+        bool useLeave = true,
+        bool nestTarget = false)
     {
         var body = new BlockContainer();
 
@@ -85,7 +105,20 @@ public class SwitchExpressionRaisingTests
         if (includeLeaveTarget)
         {
             var residue = new Block(0x0004);
-            residue.Add(useLeave ? new Leave(extraTarget) : new Branch(extraTarget));
+            IrNode transfer = useLeave ? new Leave(extraTarget) : new Branch(extraTarget);
+            if (nestTarget)
+            {
+                var arm = new Block();
+                arm.Add(transfer);
+                residue.Add(new IfStatement(
+                    new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+                    arm,
+                    elseArm: null));
+            }
+            else
+            {
+                residue.Add(transfer);
+            }
             body.Add(residue);
         }
 

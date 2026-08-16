@@ -619,6 +619,22 @@ public class InlineArraySpilledElementTests
             [typeof(DeconstructionTarget)] = slot => BufferBoundBy(new DeconstructionAssignment([slot], [Object], BoxInt(0), [true])),
         };
 
+    [Fact]
+    public void MarkLocalEliminated_AllowsVariableLessUsingResourceSlot()
+    {
+        var function = BufferBoundBy(new UsingStatement(
+            0,
+            Buffer,
+            BoxInt(0),
+            new BlockContainer(),
+            declaresResourceVariable: false));
+
+        function.MarkLocalEliminated(0);
+
+        Assert.Contains(0, function.EliminatedLocalSlots);
+        Assert.False(CSharpSpellability.HasUnrepresentableMetadataName(function));
+    }
+
     // Two locals so a carrier can be pointed at slot 1 without leaving the local table.
     // Slot 0 is the unspellable buffer and slot 1 is spellable, so eliminating slot 0
     // is observable through HasUnrepresentableMetadataName: if the refusal leg ever

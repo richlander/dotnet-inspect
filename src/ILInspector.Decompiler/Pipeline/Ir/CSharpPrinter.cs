@@ -588,32 +588,32 @@ public sealed partial class CSharpPrinter
     {
         var sb = new StringBuilder();
         _labelTargets = CollectBranchTargets(function);
-        foreach (var usingNode in DescendantsOutsideNestedFunctions(function).OfType<UsingStatement>())
+        foreach (var usingNode in function.DescendantsOutsideNestedFunctions.OfType<UsingStatement>())
             _usingLocals.Add(usingNode.LocalIndex);
-        foreach (var foreachNode in DescendantsOutsideNestedFunctions(function).OfType<ForeachStatement>())
+        foreach (var foreachNode in function.DescendantsOutsideNestedFunctions.OfType<ForeachStatement>())
             _foreachLocals.Add(foreachNode.LocalIndex);
-        foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<IsPattern>())
+        foreach (var pattern in function.DescendantsOutsideNestedFunctions.OfType<IsPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
-        foreach (var pattern in DescendantsOutsideNestedFunctions(function).OfType<RecursivePropertyDeclarationPattern>())
+        foreach (var pattern in function.DescendantsOutsideNestedFunctions.OfType<RecursivePropertyDeclarationPattern>())
             _isPatternLocals.Add(pattern.LocalIndex);
-        foreach (var arm in DescendantsOutsideNestedFunctions(function).OfType<UnionSwitchExpressionArm>())
+        foreach (var arm in function.DescendantsOutsideNestedFunctions.OfType<UnionSwitchExpressionArm>())
             if (arm.LocalIndex is { } localIndex)
                 _isPatternLocals.Add(localIndex);
-        foreach (var arm in DescendantsOutsideNestedFunctions(function).OfType<PatternSwitchExpressionArm>())
+        foreach (var arm in function.DescendantsOutsideNestedFunctions.OfType<PatternSwitchExpressionArm>())
         {
             if (arm.LocalIndex is { } localIndex)
                 _isPatternLocals.Add(localIndex);
             if (arm.Subpattern is { } subpattern)
                 _isPatternLocals.Add(subpattern.LocalIndex);
         }
-        foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
+        foreach (var deconstruction in function.DescendantsOutsideNestedFunctions.OfType<DeconstructionAssignment>())
             foreach (var target in deconstruction.Targets)
                 if (target is { Kind: DeconstructionTargetKind.Local, IsDeclared: true })
                     _deconstructionLocals.Add(target.LocalIndex);
         CollectDeclaringStores(function);
         CollectInlineReceiverTempStores(function);
         CollectStackSlotNames(function);
-        foreach (var fixedNode in DescendantsOutsideNestedFunctions(function).OfType<Fixed>())
+        foreach (var fixedNode in function.DescendantsOutsideNestedFunctions.OfType<Fixed>())
         {
             if (fixedNode.LocalIsStackSlot)
                 _fixedStackSlotNames.Add(FixedLocalName(fixedNode));
@@ -675,9 +675,9 @@ public sealed partial class CSharpPrinter
         => returnType is not { Namespace: "System", Name: "Void" }
             && returnType.Kind != TypeRefKind.ByRef
             && !AsyncReturnForbidsValue(returnType, requiresAsyncBodyModifier)
-            && !DescendantsOutsideNestedFunctions(bodyRoot).Any(static n => n is YieldReturn or YieldBreak)
-            && DescendantsOutsideNestedFunctions(bodyRoot).Any(static n => n is UnsupportedNode)
-            && !DescendantsOutsideNestedFunctions(bodyRoot).Any(static n => n is Return);
+            && !bodyRoot.DescendantsOutsideNestedFunctions.Any(static n => n is YieldReturn or YieldBreak)
+            && bodyRoot.DescendantsOutsideNestedFunctions.Any(static n => n is UnsupportedNode)
+            && !bodyRoot.DescendantsOutsideNestedFunctions.Any(static n => n is Return);
 
     static bool AsyncReturnForbidsValue(TypeRef type, bool requiresAsyncBodyModifier)
     {
@@ -784,7 +784,7 @@ public sealed partial class CSharpPrinter
     static HashSet<int> CollectBranchTargets(IrFunction function)
     {
         var targets = new HashSet<int>();
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             switch (node)
             {
@@ -805,7 +805,7 @@ public sealed partial class CSharpPrinter
             .Where(clause => clause.VariableIndex is not null)
             .Select(clause => clause.VariableIndex!.Value)
             .ToHashSet();
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             switch (node)
             {
@@ -822,7 +822,7 @@ public sealed partial class CSharpPrinter
             }
         }
         int switchIndex = 0;
-        foreach (var switchBranch in DescendantsOutsideNestedFunctions(function).OfType<SwitchBranch>())
+        foreach (var switchBranch in function.DescendantsOutsideNestedFunctions.OfType<SwitchBranch>())
         {
             string name = ReserveName($"__switchValue{switchIndex++}", new HashSet<string>(CurrentScopeNames(), StringComparer.Ordinal));
             _switchTemps.TryAdd(switchBranch, name);
@@ -884,7 +884,7 @@ public sealed partial class CSharpPrinter
         _stackSlotUnifiedTypes.Clear();
         _stackSlotDeclarations.Clear();
 
-        var nodes = DescendantsOutsideNestedFunctions(function).ToList();
+        var nodes = function.DescendantsOutsideNestedFunctions.ToList();
         var storesBySlot = new Dictionary<int, List<IrExpression>>();
         var loadsBySlot = new Dictionary<int, List<LoadStackSlot>>();
         var extraLoadTargetsBySlot = new Dictionary<int, List<TypeRef>>();
@@ -1330,9 +1330,9 @@ public sealed partial class CSharpPrinter
         // once, up front, with its merged type — declaring it at one store would
         // type it from that branch's value and strand the other branch's store.
         var slotStoreCounts = new Dictionary<int, int>();
-        foreach (var store in DescendantsOutsideNestedFunctions(function).OfType<StoreStackSlot>())
+        foreach (var store in function.DescendantsOutsideNestedFunctions.OfType<StoreStackSlot>())
             slotStoreCounts[store.Slot] = slotStoreCounts.GetValueOrDefault(store.Slot) + 1;
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             switch (node)
             {
@@ -1454,7 +1454,7 @@ public sealed partial class CSharpPrinter
 
     /// <summary>True when the local slot is read (loaded by value or address) anywhere in the body.</summary>
     static bool LocalIsRead(IrFunction function, int index)
-        => DescendantsOutsideNestedFunctions(function).Any(n =>
+        => function.DescendantsOutsideNestedFunctions.Any(n =>
             (n is LoadLocal load && load.Index == index)
             || (n is LoadLocalAddress address && address.Index == index));
 
@@ -1470,7 +1470,7 @@ public sealed partial class CSharpPrinter
         while (end + 1 < container.Children.Count && HasUnsafeOperation(container.Children[end + 1]))
             end++;
 
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             if (node is LoadLocal load && load.Index == store.Index
                 || node is LoadLocalAddress address && address.Index == store.Index)
@@ -1578,7 +1578,7 @@ public sealed partial class CSharpPrinter
         if (HasBranchTargetAfterStatement(store))
             return false;
         bool sawLoad = false;
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             if (node is StoreStackSlot s && s.Slot == store.Slot
                 || node is LoadStackSlot l && l.Slot == store.Slot)
@@ -1599,7 +1599,7 @@ public sealed partial class CSharpPrinter
         if (statement.Parent is not Block block || statement.ChildIndex < 0)
             return false;
         return block.Children.Skip(statement.ChildIndex + 1)
-            .SelectMany(DescendantsAndSelfOutsideNestedFunctions)
+            .SelectMany(node => node.DescendantsAndSelfOutsideNestedFunctions)
             .Any(n => n.SourceOffset >= 0 && _labelTargets.Contains(n.SourceOffset));
     }
 
@@ -1607,7 +1607,7 @@ public sealed partial class CSharpPrinter
     {
         if (IsLocalReference(node, index))
             return true;
-        return DescendantsOutsideNestedFunctions(node).Any(n => IsLocalReference(n, index));
+        return node.DescendantsOutsideNestedFunctions.Any(n => IsLocalReference(n, index));
     }
 
     static bool ReferencesLocalIncludingSharedNestedScopes(IrNode node, int index)
@@ -1634,7 +1634,7 @@ public sealed partial class CSharpPrinter
     {
         if (IsStackSlotReference(node, slot))
             return true;
-        return DescendantsOutsideNestedFunctions(node).Any(n => IsStackSlotReference(n, slot));
+        return node.DescendantsOutsideNestedFunctions.Any(n => IsStackSlotReference(n, slot));
     }
 
     static bool IsLocalReference(IrNode node, int index)
@@ -1656,18 +1656,9 @@ public sealed partial class CSharpPrinter
         return false;
     }
 
-    static IEnumerable<IrNode> DescendantsAndSelfOutsideNestedFunctions(IrNode node)
-    {
-        yield return node;
-        if (node is Lambda or LocalFunctionStatement)
-            yield break;
-        foreach (var descendant in DescendantsOutsideNestedFunctions(node))
-            yield return descendant;
-    }
-
     void CollectInlineReceiverTempStores(IrFunction function)
     {
-        foreach (var block in DescendantsOutsideNestedFunctions(function).OfType<Block>())
+        foreach (var block in function.DescendantsOutsideNestedFunctions.OfType<Block>())
         {
             for (int i = 0; i + 1 < block.Children.Count; i++)
             {
@@ -1744,7 +1735,7 @@ public sealed partial class CSharpPrinter
     static bool LastReferenceIsInside(IrFunction function, int localIndex, IrNode subtree)
     {
         IrNode? last = null;
-        foreach (var node in DescendantsOutsideNestedFunctions(function))
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             if (node is LoadLocal load && load.Index == localIndex
                 || node is StoreLocal store && store.Index == localIndex
@@ -1759,18 +1750,6 @@ public sealed partial class CSharpPrinter
                 return true;
         }
         return false;
-    }
-
-    static IEnumerable<IrNode> DescendantsOutsideNestedFunctions(IrNode node)
-    {
-        foreach (var child in node.Children)
-        {
-            yield return child;
-            if (child is Lambda or LocalFunctionStatement)
-                continue;
-            foreach (var descendant in DescendantsOutsideNestedFunctions(child))
-                yield return descendant;
-        }
     }
 
     // internal so IrFunction.MarkLocalEliminated can reuse the exact shared-vs-isolated
@@ -2099,7 +2078,10 @@ public sealed partial class CSharpPrinter
         if (node is LocalFunctionStatement localFunction)
         {
             string modifier = localFunction.IsStatic ? "static " : "";
-            string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{ParameterTypeText(p)} {CSharpNaming.ContainedIdentifier(p.Name)}"));
+            string parameters = string.Join(
+                ", ",
+                localFunction.Parameters.Select((parameter, index) =>
+                    $"{ParameterTypeText(parameter, index < localFunction.ParameterRefKinds.Length ? localFunction.ParameterRefKinds[index] : ArgumentRefKind.Value)} {CSharpNaming.ContainedIdentifier(parameter.Name)}"));
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.ContainedIdentifier(localFunction.Name)}({parameters})";
             if (localFunction.ExpressionBody is { } body)
             {
@@ -2419,9 +2401,10 @@ public sealed partial class CSharpPrinter
         {
             sb.Append(pad);
             int headerStart = sb.Length;
-            sb.Append(usingStatement.IsAwait ? "await using (" : "using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
-                .Append(LocalName(usingStatement.LocalIndex)).Append(" = ")
-                .Append(CoerceText(usingStatement.Resource, usingStatement.ResourceType)).AppendLf(")");
+            sb.Append(usingStatement.IsAwait ? "await using (" : "using (");
+            if (usingStatement.DeclaresResourceVariable)
+                sb.Append(TypeText(usingStatement.ResourceType)).Append(' ').Append(LocalName(usingStatement.LocalIndex)).Append(" = ");
+            sb.Append(UsingResourceText(usingStatement)).AppendLf(")");
             _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             sb.Append(pad);
             int bodyStart = sb.Length;
@@ -3123,7 +3106,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = ref {Deref(s.Value)};"
             : $"{LocalName(s.Index)} = ref {Deref(s.Value)};",
         StoreLocal s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {InitializerText(s.Value, s.Type, SpellVarForApparentType(s.Type, s.Value) ? null : s.Type)};"
+            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {DeclarationInitializerText(s.Type, s.Value)};"
             : AssignmentText(s, $"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
         ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {CoerceText(c.Value, c.InnermostTargetType)};",
@@ -3137,7 +3120,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(refType)} {StackSlotName(s)} = ref {Deref(s.Value)};"
             : $"{StackSlotName(s)} = ref {Deref(s.Value)};",
         StoreStackSlot s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {InitializerText(s.Value, StackSlotTargetType(s), SpellVarForApparentType(StackSlotTargetType(s)!, s.Value) ? null : StackSlotTargetType(s))};"
+            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {DeclarationInitializerText(StackSlotTargetType(s)!, s.Value)};"
             : AssignmentText(s, StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
         StoreField s => AssignmentText(
             s,
@@ -3634,7 +3617,7 @@ public sealed partial class CSharpPrinter
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target, d.IsVirtual)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
         Lambda lam => LambdaText(lam),
-        LocalFunctionInvocation inv => $"{CSharpNaming.ContainedIdentifier(inv.Name)}({Arguments(inv.Arguments)})",
+        LocalFunctionInvocation inv => $"{CSharpNaming.ContainedIdentifier(inv.Name)}({Arguments(inv.Arguments, inv.ParameterTypes, inv.ParameterRefKinds, coerceValues: false)})",
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => MemberTargetText(
@@ -3759,6 +3742,22 @@ public sealed partial class CSharpPrinter
         if (!p.IsDynamic)
             return TypeText(p.Type);
         return p.Type.Kind == TypeRefKind.ByRef ? "ref dynamic" : "dynamic";
+    }
+
+    string ParameterTypeText(Parameter parameter, ArgumentRefKind refKind)
+    {
+        if (parameter.Type.Kind != TypeRefKind.ByRef || refKind == ArgumentRefKind.Value)
+            return ParameterTypeText(parameter);
+
+        string element = parameter.IsDynamic
+            ? "dynamic"
+            : TypeText(parameter.Type.ElementType!);
+        return refKind switch
+        {
+            ArgumentRefKind.Out => $"out {element}",
+            ArgumentRefKind.In => $"in {element}",
+            _ => $"ref {element}",
+        };
     }
 
     string CoalesceText(Coalesce co, TypeRef? target = null)
@@ -4053,12 +4052,12 @@ public sealed partial class CSharpPrinter
                 // per-imported-function, so a nested local function / lambda can
                 // reuse this slot independently and must not count as a second
                 // definition (that would disable the provenance and reprint `!x`).
-                var stores = DescendantsOutsideNestedFunctions(_function).OfType<StoreStackSlot>().Where(s => s.Slot == load.Slot).ToList();
+                var stores = _function.DescendantsOutsideNestedFunctions.OfType<StoreStackSlot>().Where(s => s.Slot == load.Slot).ToList();
                 return stores.Count == 1 ? stores[0].Value : null;
             }
             case LoadLocal load:
             {
-                var stores = DescendantsOutsideNestedFunctions(_function).OfType<StoreLocal>().Where(s => s.Index == load.Index).ToList();
+                var stores = _function.DescendantsOutsideNestedFunctions.OfType<StoreLocal>().Where(s => s.Index == load.Index).ToList();
                 return stores.Count == 1 ? stores[0].Value : null;
             }
             default:
@@ -4391,6 +4390,18 @@ public sealed partial class CSharpPrinter
             box,
             rendered.Text,
             rendered.Kind);
+    }
+
+    string UsingResourceText(UsingStatement usingStatement)
+    {
+        if (usingStatement.DeclaresResourceVariable
+            || usingStatement.Resource.ResultType?.Equals(usingStatement.ResourceType) == true)
+        {
+            return CoerceText(usingStatement.Resource, usingStatement.ResourceType);
+        }
+
+        string text = $"({TypeText(usingStatement.ResourceType)}){Operand(usingStatement.Resource)}";
+        return CaptureContextualExpression(usingStatement.Resource, text, "ConversionExpression");
     }
 
     string DerefLoadText(LoadIndirect load)
@@ -5099,13 +5110,13 @@ public sealed partial class CSharpPrinter
     /// (<see cref="UnboxAny"/>, e.g. <c>(int)obj</c>), an object/collection initializer
     /// (<see cref="ObjectInitializerExpression"/> wrapping the creation), and an
     /// array/span literal (<see cref="ArrayLiteral"/>/<see cref="SpanLiteral"/>, e.g.
-    /// <c>new int[] { 1, 2 }</c>). They are extension points for the <c>var</c> slice,
-    /// not defects — declining is always output-safe.
+    /// <c>new int[] { 1, 2 }</c>). They remain conservative apparency declines; the
+    /// broader <c>var</c> policy may still accept a shape through its independent
+    /// exact-inference gate.
     /// </para>
     /// Pure over the typed IR (SRM-only, Roslyn-free); the target-typed-<c>new</c>
-    /// shortener (<see cref="TargetTypedNewText"/>) consumes it today, and the planned
-    /// <c>var</c> lens will consult the same predicate so the two axes share one
-    /// apparency judgment.
+    /// shortener (<see cref="TargetTypedNewText"/>) and <c>var</c> policy
+    /// (<see cref="SpellVar"/>) share this apparency judgment.
     /// </summary>
     internal static bool TypeIsApparent(TypeRef declaredType, IrExpression initializer) => initializer switch
     {
@@ -5651,7 +5662,7 @@ public sealed partial class CSharpPrinter
     Dictionary<int, (object Switch, object Arm)> ArmScopedPatternLocals()
     {
         var owners = new Dictionary<int, (object, object)>();
-        foreach (var arm in DescendantsOutsideNestedFunctions(_function).OfType<PatternSwitchExpressionArm>())
+        foreach (var arm in _function.DescendantsOutsideNestedFunctions.OfType<PatternSwitchExpressionArm>())
         {
             object owningSwitch = arm.Parent ?? arm;
             if (arm.LocalIndex is { } localIndex)
@@ -5659,7 +5670,7 @@ public sealed partial class CSharpPrinter
             if (arm.Subpattern is { } subpattern)
                 owners[subpattern.LocalIndex] = (owningSwitch, arm);
         }
-        foreach (var arm in DescendantsOutsideNestedFunctions(_function).OfType<UnionSwitchExpressionArm>())
+        foreach (var arm in _function.DescendantsOutsideNestedFunctions.OfType<UnionSwitchExpressionArm>())
             if (arm.LocalIndex is { } localIndex)
                 owners[localIndex] = (arm.Parent ?? arm, arm);
         return owners;
@@ -5685,7 +5696,7 @@ public sealed partial class CSharpPrinter
     HashSet<int> LoopCounterLocals()
     {
         var counters = new HashSet<int>();
-        foreach (var loop in DescendantsOutsideNestedFunctions(_function).OfType<ForLoop>())
+        foreach (var loop in _function.DescendantsOutsideNestedFunctions.OfType<ForLoop>())
         {
             var increment = loop.Increment;
             if (increment is StoreLocal direct)
@@ -6325,34 +6336,105 @@ public sealed partial class CSharpPrinter
 
     string DeclarationTypeText(TypeRef type, IrExpression initializer)
         // An anonymous type has no spellable name, so `var` is mandatory here — not a
-        // taste call. Otherwise the declaration keeps its explicit type unless the
-        // opt-in apparent-type `var` bucket applies (see `SpellVarForApparentType`),
-        // which is off on the byte-stable default. `var` and the target-typed-`new`
-        // shortener are *mutually exclusive* spellings of the same apparent site, not
-        // simultaneous: dropping both ends of `List<int> x = new List<int>()` at once
-        // yields `var x = new()`, which is CS8754 (no target type for `new()`). When
-        // this returns `var`, the caller suppresses the shortener (passing a null
-        // `new` target to `InitializerText`) so the RHS keeps its explicit `new T(...)`.
+        // taste call. Otherwise the declaration keeps its explicit type unless its
+        // style bucket is enabled and the initializer proves exact inference.
         => (initializer is AnonymousObject anonymous && type.Equals(anonymous.Type))
-            || SpellVarForApparentType(type, initializer)
+            || SpellVar(type, initializer)
             ? "var"
             : TypeText(type);
 
     /// <summary>
-    /// Whether an opt-in apparent-type <c>var</c> spelling applies to a local
-    /// declaration (`csharp_style_var_when_type_is_apparent`). True only when the
-    /// bucket is enabled, the declared type is <em>not</em> a C# built-in keyword type
-    /// (those belong to the separate built-in-types bucket, keeping the two families a
-    /// clean partition), and the initializer makes the type apparent
-    /// (<see cref="TypeIsApparent"/> — object creation of the exact type, an array
-    /// creation, or an explicit reference cast). Apparency guarantees the initializer's
-    /// static type is exactly the declared type, so <c>var</c> infers that same type:
-    /// byte-neutral (no IL consequence) and always faithful. Off by default.
+    /// Renders a declaration initializer. A <c>var</c> declaration cannot also use
+    /// target-typed <c>new()</c> (CS8754), so the same decision that spells
+    /// <c>var</c> suppresses that shortener and retains explicit <c>new T(...)</c>.
     /// </summary>
-    bool SpellVarForApparentType(TypeRef type, IrExpression initializer)
-        => _options.PreferVarWhenTypeApparent
-            && !IsBuiltInType(type)
-            && TypeIsApparent(type, initializer);
+    string DeclarationInitializerText(TypeRef type, IrExpression initializer)
+        => InitializerText(initializer, type, SpellVar(type, initializer) ? null : type);
+
+    /// <summary>
+    /// Whether the enabled editorconfig-style bucket spells this declaration with
+    /// <c>var</c>. Built-in, apparent non-built-in, and elsewhere form a disjoint
+    /// partition in that order. Every bucket shares the exact-inference gate: the
+    /// initializer's rendered C# natural type must be exactly the declared type.
+    /// </summary>
+    bool SpellVar(TypeRef type, IrExpression initializer)
+    {
+        if (!VarInfersDeclaredType(type, initializer))
+            return false;
+        if (IsBuiltInType(type))
+            return _options.PreferVarForBuiltInTypes;
+        return TypeIsApparent(type, initializer)
+            ? _options.PreferVarWhenTypeApparent
+            : _options.PreferVarElsewhere;
+    }
+
+    /// <summary>
+    /// Proves that replacing the explicit declaration type with <c>var</c> preserves
+    /// the local's type. <see cref="IrExpression.ResultType"/> is not sufficient by
+    /// itself: constants can be retagged by their sink, coercions can render as bare
+    /// implicit conversions, and several raised forms are target-typed. This is an
+    /// allow list of renderings whose natural type the printer owns; unknown forms
+    /// decline rather than failing open as new IR nodes are added.
+    /// </summary>
+    static bool VarInfersDeclaredType(TypeRef type, IrExpression initializer)
+    {
+        // `dynamic` erases to System.Object at every nesting depth. Calls and member
+        // reads do not yet retain the full DynamicAttribute transform, so matching
+        // erased TypeRefs are not proof that `var` preserves the authored static type.
+        if (ContainsSystemObjectType(type) && !ErasedObjectTypeIsProvenBySyntax(type, initializer))
+        {
+            return false;
+        }
+
+        TypeRef? inferred = initializer switch
+        {
+            Constant constant => ConstantNaturalType(constant),
+            NewObject or ObjectInitializerExpression or WithExpression
+                or NewArray or ArrayLiteral or CastClass or UnboxAny
+                or TypeOf or SizeOf or DefaultValue
+                or InterpolatedStringExpression or DelegateCreation
+                or Call or CallIndirect or LocalFunctionInvocation
+                or LoadArgument { IsDynamic: false } or LoadLocal
+                or LoadField { Field.IsDynamic: false } or LoadProperty
+                or Binary or Comparison or LogicalBinary or LogicalNot or TupleBinaryExpression
+                or ArrayLength or RangeExpression or IndexFromEnd or SliceExpression
+                or AwaitExpression or IncrementDecrement or IsPattern
+                => EffectiveType(initializer),
+            _ => null,
+        };
+        return inferred?.Equals(type) == true;
+    }
+
+    static bool ContainsSystemObjectType(TypeRef type)
+    {
+        if (IsSystemObjectType(type))
+            return true;
+        if (type.ElementType is { } element && ContainsSystemObjectType(element))
+            return true;
+        return type.TypeArguments.Any(ContainsSystemObjectType);
+    }
+
+    static bool ErasedObjectTypeIsProvenBySyntax(TypeRef type, IrExpression initializer)
+        => initializer is NewObject or ObjectInitializerExpression
+            or NewArray or ArrayLiteral or CastClass or UnboxAny
+            or DefaultValue or DelegateCreation or LoadLocal
+            || IsSystemObjectType(type) && initializer is LoadArgument { IsDynamic: false };
+
+    /// <summary>The type C# infers for the literal text emitted by <see cref="ConstantText"/>.</summary>
+    static TypeRef? ConstantNaturalType(Constant constant)
+        => constant.Value switch
+        {
+            string => TypeRef.CoreLib("System", "String"),
+            bool => TypeRef.CoreLib("System", "Boolean"),
+            char => TypeRef.CoreLib("System", "Char"),
+            int => TypeRef.CoreLib("System", "Int32"),
+            long value when value is >= int.MinValue and <= int.MaxValue => TypeRef.CoreLib("System", "Int32"),
+            long value when value is >= 0 and <= uint.MaxValue => TypeRef.CoreLib("System", "UInt32"),
+            long => TypeRef.CoreLib("System", "Int64"),
+            float => TypeRef.CoreLib("System", "Single"),
+            double => TypeRef.CoreLib("System", "Double"),
+            _ => null,
+        };
 
     /// <summary>
     /// Whether a declared type is a C# built-in (predefined keyword) type — the set
