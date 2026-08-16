@@ -103,33 +103,44 @@ public class SearchServiceTests
     }
 
     [Theory]
-    [InlineData("""{"data":[null]}""")]
-    [InlineData("""{"data":[{"id":null,"version":"1.0.0"}]}""")]
-    [InlineData("""{"data":[{"version":"1.0.0"}]}""")]
-    [InlineData("""{"data":[{"id":"","version":"1.0.0"}]}""")]
-    [InlineData("""{"data":[{"id":"Contoso.Package","version":null}]}""")]
-    [InlineData("""{"data":[{"id":"Contoso.Package"}]}""")]
-    [InlineData("""{"data":[{"id":"Contoso.Package","version":""}]}""")]
-    [InlineData("""{"data":[{"id":" Contoso.Package","version":"1.0.0"}]}""")]
-    [InlineData("""{"data":[{"id":"Contoso..Package","version":"1.0.0"}]}""")]
-    [InlineData("""{"data":[{"id":"Contoso/Package","version":"1.0.0"}]}""")]
-    [InlineData("{\"data\":[{\"id\":\"Contoso.P\\u0430ckage\",\"version\":\"1.0.0\"}]}")]
-    [InlineData("{\"data\":[{\"id\":\"Pkg\\u0301\",\"version\":\"1.0.0\"}]}")]
-    [InlineData("""{"data":[{"id":"Contoso.Package","version":"not-a-version"}]}""")]
-    [InlineData("""{"data":[{"id":"Contoso.Package","version":" 1.0.0"}]}""")]
-    [InlineData("{\"data\":[{\"id\":\"Contoso.Package\\n\",\"version\":\"1.0.0\"}]}")]
-    public async Task SearchAsync_InvalidResultIdentity_Throws(string body)
+    [InlineData("""{"data":[null]}""", true)]
+    [InlineData("""{"data":[{"id":null,"version":"1.0.0"}]}""", true)]
+    [InlineData("""{"data":[{"version":"1.0.0"}]}""", true)]
+    [InlineData("""{"data":[{"id":"","version":"1.0.0"}]}""", false)]
+    [InlineData("""{"data":[{"id":"Contoso.Package","version":null}]}""", true)]
+    [InlineData("""{"data":[{"id":"Contoso.Package"}]}""", true)]
+    [InlineData("""{"data":[{"id":"Contoso.Package","version":""}]}""", false)]
+    [InlineData("""{"data":[{"id":" Contoso.Package","version":"1.0.0"}]}""", false)]
+    [InlineData("""{"data":[{"id":"Contoso..Package","version":"1.0.0"}]}""", false)]
+    [InlineData("""{"data":[{"id":"Contoso/Package","version":"1.0.0"}]}""", false)]
+    [InlineData("{\"data\":[{\"id\":\"Contoso.P\\u0430ckage\",\"version\":\"1.0.0\"}]}", false)]
+    [InlineData("{\"data\":[{\"id\":\"Pkg\\u0301\",\"version\":\"1.0.0\"}]}", false)]
+    [InlineData("""{"data":[{"id":"Contoso.Package","version":"not-a-version"}]}""", false)]
+    [InlineData("""{"data":[{"id":"Contoso.Package","version":" 1.0.0"}]}""", false)]
+    [InlineData("{\"data\":[{\"id\":\"Contoso.Package\\n\",\"version\":\"1.0.0\"}]}", false)]
+    public async Task SearchAsync_InvalidResultIdentity_Throws(
+        string body,
+        bool missingRequiredData)
     {
         var handler = new CapturingHandler(body);
         using var client = new HttpClient(handler);
         var service = new SearchService(client, SearchUrl);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await service.SearchAsync(
-                "q",
-                cancellationToken: TestContext.Current.CancellationToken));
-
-        Assert.Contains("result identity", exception.Message);
+        if (missingRequiredData)
+        {
+            await Assert.ThrowsAsync<JsonException>(() =>
+                service.SearchAsync(
+                    "q",
+                    cancellationToken: TestContext.Current.CancellationToken));
+        }
+        else
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.SearchAsync(
+                    "q",
+                    cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Contains("result identity", exception.Message);
+        }
     }
 
     [Fact]
