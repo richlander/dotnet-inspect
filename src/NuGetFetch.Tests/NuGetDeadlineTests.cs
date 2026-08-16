@@ -1274,6 +1274,86 @@ public sealed class NuGetDeadlineTests
         Assert.IsNotType<NuGetOperationTimeoutException>(error);
     }
 
+    [Fact]
+    public async Task CallerCancellation_DisposalFailureDoesNotEscape()
+    {
+        var stallingStream = new ThrowingDisposeStallingStream();
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(
+                    StreamResponse(message, stallingStream))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(5),
+                operation: TimeSpan.FromSeconds(10)));
+        using var cancellation = new CancellationTokenSource();
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: cancellation.Token);
+        byte[] buffer = new byte[1];
+        Task<int> read = Task.Run(
+            () => package.Read(buffer, 0, buffer.Length),
+            TestContext.Current.CancellationToken);
+        await stallingStream.ReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        Assert.Null(Record.Exception(cancellation.Cancel));
+        OperationCanceledException error =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
+                    _ = await read.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal(cancellation.Token, error.CancellationToken);
+        Assert.True(stallingStream.DisposeAttempted);
+    }
+
+    [Fact]
+    public async Task RequestDeadline_DisposalFailureIsRetained()
+    {
+        var stallingStream = new ThrowingDisposeStallingStream();
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(
+                    StreamResponse(message, stallingStream))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(500),
+                operation: TimeSpan.FromSeconds(5)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        byte[] buffer = new byte[1];
+        Task<int> read = Task.Run(
+            () => package.Read(buffer, 0, buffer.Length),
+            TestContext.Current.CancellationToken);
+        await stallingStream.ReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                async () =>
+                    _ = await read.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            ExceptionTree(error),
+            exception => exception is IOException
+                && exception.Message.Contains(
+                    "Simulated disposal failure",
+                    StringComparison.Ordinal));
+    }
+
     private static NuGetFetchOptions Options(
         TimeSpan request,
         TimeSpan operation) =>
@@ -1282,6 +1362,26 @@ public sealed class NuGetDeadlineTests
             RequestTimeout = request,
             OperationTimeout = operation,
         };
+
+    private static IEnumerable<Exception> ExceptionTree(
+        Exception exception)
+    {
+        yield return exception;
+
+        if (exception is AggregateException aggregate)
+        {
+            foreach (Exception inner in aggregate.InnerExceptions)
+            {
+                foreach (Exception descendant in ExceptionTree(inner))
+                    yield return descendant;
+            }
+        }
+        else if (exception.InnerException is Exception inner)
+        {
+            foreach (Exception descendant in ExceptionTree(inner))
+                yield return descendant;
+        }
+    }
 
     private static HttpResponseMessage JsonResponse(
         HttpRequestMessage request,
@@ -1634,6 +1734,56 @@ public sealed class NuGetDeadlineTests
                 _disposed.Set();
                 _disposedAsync.TrySetResult();
             }
+            base.Dispose(disposing);
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class ThrowingDisposeStallingStream : Stream
+    {
+        private readonly ManualResetEventSlim _disposed = new();
+        private readonly TaskCompletionSource _readStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _disposeAttempted;
+
+        public Task ReadStarted => _readStarted.Task;
+        public bool DisposeAttempted =>
+            Volatile.Read(ref _disposeAttempted) != 0;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            _readStarted.TrySetResult();
+            _disposed.Wait();
+            throw new ObjectDisposedException(
+                nameof(ThrowingDisposeStallingStream));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing
+                && Interlocked.Exchange(ref _disposeAttempted, 1) == 0)
+            {
+                _disposed.Set();
+                throw new IOException("Simulated disposal failure.");
+            }
+
             base.Dispose(disposing);
         }
 

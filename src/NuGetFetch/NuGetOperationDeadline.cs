@@ -134,6 +134,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
         if (_callerToken.IsCancellationRequested)
         {
             throw new OperationCanceledException(
+                "NuGet operation was canceled by the caller.",
+                exception,
                 _callerToken);
         }
 
@@ -165,20 +167,33 @@ internal sealed class NuGetOperationDeadline : IDisposable
             or HttpRequestException
             or ObjectDisposedException;
 
-    private sealed class DeadlineStream(
-        Stream inner,
-        IDisposable owner,
-        CancellationTokenSource requestCancellation,
-        NuGetOperationDeadline operation) : Stream
+    private sealed class DeadlineStream : Stream
     {
-        private readonly CancellationToken _requestToken =
-            requestCancellation.Token;
-        private readonly CancellationTokenRegistration _deadlineRegistration =
-            requestCancellation.Token.UnsafeRegister(
-                static state => ((IDisposable)state!).Dispose(),
-                owner);
+        private readonly Stream inner;
+        private readonly IDisposable owner;
+        private readonly CancellationTokenSource requestCancellation;
+        private readonly NuGetOperationDeadline operation;
+        private readonly CancellationToken _requestToken;
+        private readonly CancellationTokenRegistration _deadlineRegistration;
+        private Exception? _abortDisposalFailure;
         private int _deadlineCompleted;
         private bool _disposed;
+
+        public DeadlineStream(
+            Stream inner,
+            IDisposable owner,
+            CancellationTokenSource requestCancellation,
+            NuGetOperationDeadline operation)
+        {
+            this.inner = inner;
+            this.owner = owner;
+            this.requestCancellation = requestCancellation;
+            this.operation = operation;
+            _requestToken = requestCancellation.Token;
+            _deadlineRegistration = _requestToken.UnsafeRegister(
+                static state => ((DeadlineStream)state!).AbortOwner(),
+                this);
+        }
 
         public override bool CanRead => inner.CanRead;
         public override bool CanSeek => inner.CanSeek;
@@ -264,7 +279,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
                         cancellationToken);
                 }
 
-                operation.ThrowTranslated(ex, requestCancellation);
+                ThrowTranslated(ex);
                 throw;
             }
             catch (Exception ex) when (IsDeadlineAbort(ex))
@@ -379,7 +394,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             }
             catch (OperationCanceledException ex)
             {
-                operation.ThrowTranslated(ex, requestCancellation);
+                ThrowTranslated(ex);
                 throw;
             }
         }
@@ -404,11 +419,34 @@ internal sealed class NuGetOperationDeadline : IDisposable
             _requestToken.IsCancellationRequested
             && NuGetOperationDeadline.IsDeadlineAbort(exception);
 
+        private void AbortOwner()
+        {
+            try
+            {
+                owner.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Interlocked.CompareExchange(
+                    ref _abortDisposalFailure,
+                    ex,
+                    null);
+            }
+        }
+
         private void ThrowTranslated(Exception exception)
         {
+            Exception? disposalFailure =
+                Volatile.Read(ref _abortDisposalFailure);
+            Exception inner = disposalFailure is null
+                ? exception
+                : new AggregateException(
+                    "NuGet response disposal failed while aborting a deadline.",
+                    exception,
+                    disposalFailure);
             var cancellation = new OperationCanceledException(
                 "NuGet response stream was aborted after its deadline expired.",
-                exception,
+                inner,
                 _requestToken);
             operation.ThrowTranslated(cancellation, requestCancellation);
         }
