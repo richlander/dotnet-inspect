@@ -290,7 +290,12 @@ public class ResearchDiffTests
             TypeRef.CoreLib("System", "Void"),
             MetadataToken: 0x06000001,
             IsStatic: true,
-            IsExtension: isExtension);
+            IsExtension: isExtension)
+        {
+            IsOperator = methodName == "op_Addition"
+                ? MetadataOperatorFact.Yes
+                : MetadataOperatorFact.No
+        };
 
         var subject = ResearchMemberIdentity.SubjectFromMethod(method);
 
@@ -305,7 +310,10 @@ public class ResearchDiffTests
         var widget = TypeRef.Definition("Asm", "Sample", "Widget");
         var toInt = new MethodIdentity(
             "Asm", Guid.Empty, widget, "op_Explicit", [widget],
-            TypeRef.CoreLib("System", "Int32"), MetadataToken: 0x06000001, IsStatic: true);
+            TypeRef.CoreLib("System", "Int32"), MetadataToken: 0x06000001, IsStatic: true)
+        {
+            IsOperator = MetadataOperatorFact.Yes
+        };
         var toLong = toInt with { ReturnType = TypeRef.CoreLib("System", "Int64"), MetadataToken = 0x06000002 };
 
         var idInt = ResearchMemberIdentity.SubjectFromMethod(toInt).Id;
