@@ -42,6 +42,65 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
+    public void Resolve_DistinguishesInstanceAndStaticMethodsWithTheSameSignature()
+    {
+        var instanceMember = Method("int");
+        instanceMember.MetadataToken = 0x06000001;
+        var staticMember = Method("int");
+        staticMember.MetadataToken = 0x06000002;
+        staticMember.IsStatic = true;
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [instanceMember, staticMember],
+        };
+        var declaringType = TypeRef.Definition("Samples", "Samples", "Owner");
+        var instanceReference = new MemberRef(
+            declaringType,
+            "M",
+            [TypeRef.CoreLib("System", "Int32")],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        };
+        var staticReference = new MemberRef(
+            declaringType,
+            "M",
+            [TypeRef.CoreLib("System", "Int32")],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method);
+
+        CallGraphMemberSelector instanceSelector =
+            CallGraphMemberResolver.CreateSelector(instanceReference);
+        CallGraphMemberSelector staticSelector =
+            CallGraphMemberResolver.CreateSelector(staticReference);
+
+        Assert.NotEqual(instanceSelector.Key, staticSelector.Key);
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, instanceMember).Key,
+            instanceSelector.Key);
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, staticMember).Key,
+            staticSelector.Key);
+        Assert.Same(
+            instanceMember,
+            CallGraphMemberResolver.Resolve(
+                type,
+                instanceSelector.Name,
+                instanceSelector.Key)!
+                .Member);
+        Assert.Same(
+            staticMember,
+            CallGraphMemberResolver.Resolve(
+                type,
+                staticSelector.Name,
+                staticSelector.Key)!
+                .Member);
+    }
+
+    [Fact]
     public void Resolve_UsesStructuredIndexerAccessorIdentity()
     {
         var type = new ApiType
@@ -59,7 +118,10 @@ public sealed class CallGraphMemberResolverTests
             "get_Item",
             [TypeRef.CoreLib("System", "String")],
             TypeRef.CoreLib("System", "Int32"),
-            MemberKind.Method));
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
 
         var resolved = CallGraphMemberResolver.Resolve(
             type,
@@ -87,7 +149,10 @@ public sealed class CallGraphMemberResolverTests
             "get_Item",
             [TypeRef.CoreLib("System", "Int32")],
             TypeRef.CoreLib("System", "Int32"),
-            MemberKind.Method));
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
 
         var resolved = CallGraphMemberResolver.Resolve(
             type,
@@ -204,7 +269,10 @@ public sealed class CallGraphMemberResolverTests
             "M",
             [modified],
             TypeRef.CoreLib("System", "Void"),
-            MemberKind.Method));
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
         var type = new ApiType { Namespace = "Samples", Name = "Owner" };
         var member = Method("int");
 
@@ -230,7 +298,10 @@ public sealed class CallGraphMemberResolverTests
             "M",
             [TypeRef.UnsupportedFunctionPointer(signature)],
             TypeRef.CoreLib("System", "Void"),
-            MemberKind.Method));
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
         var type = new ApiType { Namespace = "Samples", Name = "Owner" };
         var member = Method("delegate* unmanaged[Cdecl]<int, void>");
 
@@ -258,7 +329,10 @@ public sealed class CallGraphMemberResolverTests
                     ]),
             ],
             TypeRef.CoreLib("System", "Void"),
-            MemberKind.Method));
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
         var type = new ApiType { Namespace = "Samples", Name = "Owner" };
         var member = Method("Samples.Outer<int>.Inner<string>");
 

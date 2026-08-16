@@ -7,7 +7,7 @@ set -e -o pipefail
 # main. So when the change set cannot be determined, force every
 # output true: CI over-runs instead of silently vanishing. Enforced
 # by the fallback branch below, which runs no fallible command, and
-# by eng/test-ci-change-detection.cs.
+# by the CiChangeDetection gate invoked by eng/test-ci-change-detection.cs.
 FILES=""
 RESOLVED=false
 if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
@@ -281,10 +281,11 @@ while IFS= read -r -d '' file; do
     tests/*) CODE=true ;;
     tools/DecompilerHarness/*.md|tools/DecompilerHarness/*.txt) ;;
     tools/DecompilerHarness/*) CODE=true ;;
-    # This file is the owning executable gate for this classifier and
-    # its pinned prerequisites. Editing the gate must run the product
-    # test lane as well as executing the gate here in `changes`.
+    # The file-based entrypoint and its conventional library own this
+    # classifier gate and its pinned prerequisites. Editing either must run
+    # the product test lane as well as executing the gate here in `changes`.
     eng/test-ci-change-detection.cs) CODE=true ;;
+    eng/CiChangeDetection/*) CODE=true ;;
     eng/prepare-decompiler-assertion-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-opt-in-corpus.sh) CODE=true ;;
