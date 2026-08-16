@@ -383,9 +383,14 @@ Before assembly identity decoding, each workspace role also rejects more than
 retained-image budget.
 Browser API-surface projection separately limits retained model text to
 32,000,000 characters across selected assemblies and 1,000,000 characters for
-one type header or member. The extractor checks rendered type lengths and
-charges signature components as it constructs them, before composite signature
-strings exist. Repeated signature references share decoded metadata names.
+one type header, member, failure, or forwarder. The extractor checks the exact
+rendered grammar used by retained types, counts expanding name containment,
+and charges signature components as it constructs them, before composite
+signature strings exist. It scans string constants and custom-attribute string
+arguments for a proven retained lower bound before SRM decodes them; exact
+rendered text is still charged afterward, so the preflight cannot reject a
+model that fits. Forwarder count and full-name text are admitted before the
+full name is built. Repeated signature references share decoded metadata names.
 Complete type headers, members and nested signature models, failures,
 forwarders, and canonical identities are charged before retention. Type text
 remains pending until the whole type commits, so a malformed or over-budget
@@ -408,6 +413,14 @@ host-specific central-directory entry limit.
 `ParameterFanOut_IsStoppedBeforeLargeSignatureMaterialization` gate exact
 aggregate/per-model accounting, render-length preflight, and the repeated
 shared-string and single-signature amplification shapes.
+`ExpandingMethodName_IsStoppedBeforeContainedSpellingMaterialization`,
+`StringDefault_IsStoppedBeforeDecodeAndEscaping`,
+`AttributeString_IsStoppedBeforeDecodeAndEscaping`,
+`EventComposite_IsStoppedBeforeSignatureMaterialization`,
+`TypeSpecificationPreflight_UsesRetainedGenericGrammar`,
+`TypeForwarderCount_IsCheckedBeforeFullNameMaterialization`, and
+`TypeForwarderText_IsCheckedBeforeFullNameMaterialization` cover the
+pre-materialization paths above.
 `AssemblyContextApiSurfaceQueryTests.ExecuteBounded_SpendsRetainedTextAcrossParticipants`
 and `ExecuteBounded_ReportsPerModelTextLimit` gate cross-assembly spending and
 typed per-model truncation. Browser

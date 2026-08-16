@@ -387,6 +387,177 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void ExpandingMethodName_IsStoppedBeforeContainedSpellingMaterialization()
+    {
+        byte[] image = BuildRepeatedLongMethodNameImage(
+            methodCount: 1,
+            nameCharacters: 200_000,
+            nameCharacter: '\u202e');
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void StringDefault_IsStoppedBeforeDecodeAndEscaping()
+    {
+        byte[] image = BuildStringDefaultImage(2_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void AttributeString_IsStoppedBeforeDecodeAndEscaping()
+    {
+        byte[] image = BuildAttributeStringImage(2_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void EventComposite_IsStoppedBeforeSignatureMaterialization()
+    {
+        byte[] image = BuildEventImage(
+            typeNameCharacters: 600_000,
+            eventNameCharacters: 600_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 8_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void TypeSpecificationPreflight_UsesRetainedGenericGrammar()
+    {
+        byte[] image = BuildTupleEventImage();
+        using (var peReader = new PEReader(
+            new MemoryStream(image, writable: false)))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeSpecificationHandle handle =
+                MetadataTokens.TypeSpecificationHandle(1);
+            TypeNode node = GuardedProviderDecode.TypeSpec(
+                reader,
+                handle,
+                TypeNodeProvider.CreateCaching(),
+                (GenericContext?)null,
+                new DegradedTypeNode());
+            string resolved = TypeResolver.GetTypeNameFromSpecification(
+                reader,
+                handle);
+            Assert.Equal(resolved, node.RenderCanonical());
+            Assert.Equal(
+                resolved.Length,
+                node.RenderLength(canonicalTuples: true));
+        }
+        var bounds = new ApiSurfaceExtractionBounds(
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            32_000_000,
+            40);
+
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+    }
+
+    [Fact]
+    public void TypeForwarderCount_IsCheckedBeforeFullNameMaterialization()
+    {
+        byte[] image = BuildForwarderImage(1_200_000);
+        var bounds = new ApiSurfaceExtractionBounds(
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            0,
+            int.MaxValue,
+            32_000_000,
+            1_000_000);
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(ApiSurfaceExtractionBound.TypeForwarders, exceeded.Bound);
+        Assert.True(
+            allocated < 1_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void TypeForwarderText_IsCheckedBeforeFullNameMaterialization()
+    {
+        byte[] image = BuildForwarderImage(1_200_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 1_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void TypeNodeRenderLengths_AgreeWithEveryRenderedView()
     {
         var tuple = new GenericTypeNode(
@@ -601,7 +772,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
 
     static byte[] BuildRepeatedLongMethodNameImage(
         int methodCount,
-        int nameCharacters)
+        int nameCharacters,
+        char nameCharacter = 'M')
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -632,7 +804,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
 
-        StringHandle repeatedName = metadata.GetOrAddString(new string('M', nameCharacters));
+        StringHandle repeatedName = metadata.GetOrAddString(
+            new string(nameCharacter, nameCharacters));
         var signature = new BlobBuilder();
         signature.WriteByte(0x00);
         signature.WriteCompressedInteger(0);
@@ -795,6 +968,253 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
         metadata.AddInterfaceImplementation(surface, interfaceType);
 
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static ApiSurfaceExtractionBounds BrowserTextBounds() => new(
+        100_000,
+        1_000_000,
+        1_024,
+        100_000,
+        250_000,
+        32_000_000,
+        1_000_000);
+
+    static byte[] BuildStringDefaultImage(int characterCount)
+    {
+        var metadata = CreateMetadata("StringDefault");
+        AddModuleAndSurfaceTypes(metadata);
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x0e);
+        signature.WriteByte(0x0e);
+        ParameterHandle parameter = metadata.AddParameter(
+            ParameterAttributes.Optional | ParameterAttributes.HasDefault,
+            metadata.GetOrAddString("value"),
+            1);
+        metadata.AddConstant(parameter, new string('x', characterCount));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            0,
+            parameter);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildAttributeStringImage(int characterCount)
+    {
+        var metadata = CreateMetadata("AttributeString");
+        TypeDefinitionHandle surface = AddModuleAndSurfaceTypes(metadata);
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("MarkAttribute"));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x0e);
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(signature));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteSerializedString(new string('a', characterCount));
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            surface,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildEventImage(
+        int typeNameCharacters,
+        int eventNameCharacters)
+    {
+        var metadata = CreateMetadata("Event");
+        TypeDefinitionHandle surface = AddModuleAndSurfaceTypes(metadata);
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle eventType = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(new string('T', typeNameCharacters)));
+        MethodDefinitionHandle adder = AddEventAdder(metadata, eventType);
+        EventDefinitionHandle eventDefinition = metadata.AddEvent(
+            EventAttributes.None,
+            metadata.GetOrAddString(new string('E', eventNameCharacters)),
+            eventType);
+        metadata.AddEventMap(surface, eventDefinition);
+        metadata.AddMethodSemantics(
+            eventDefinition,
+            MethodSemanticsAttributes.Adder,
+            adder);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildTupleEventImage()
+    {
+        var metadata = CreateMetadata("TupleEvent");
+        AssemblyReferenceHandle coreLib = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.CoreLib"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle valueTuple = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("ValueTuple`2"));
+        TypeReferenceHandle stringType = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("String"));
+        var typeSignature = new BlobBuilder();
+        typeSignature.WriteByte(0x15);
+        typeSignature.WriteByte(0x11);
+        typeSignature.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(valueTuple));
+        typeSignature.WriteCompressedInteger(2);
+        typeSignature.WriteByte(0x12);
+        typeSignature.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(stringType));
+        typeSignature.WriteByte(0x12);
+        typeSignature.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(stringType));
+        TypeSpecificationHandle tupleType = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(typeSignature));
+        TypeDefinitionHandle surface = AddModuleAndSurfaceTypes(metadata);
+        MethodDefinitionHandle adder = AddEventAdder(metadata, tupleType);
+        EventDefinitionHandle eventDefinition = metadata.AddEvent(
+            EventAttributes.None,
+            metadata.GetOrAddString("E"),
+            tupleType);
+        metadata.AddEventMap(surface, eventDefinition);
+        metadata.AddMethodSemantics(
+            eventDefinition,
+            MethodSemanticsAttributes.Adder,
+            adder);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildForwarderImage(int nameCharacters)
+    {
+        var metadata = CreateMetadata("Forwarder");
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddExportedType(
+            TypeAttributes.Public | (TypeAttributes)0x0020_0000,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(new string('F', nameCharacters)),
+            target,
+            0);
+        return Serialize(metadata);
+    }
+
+    static MetadataBuilder CreateMetadata(string name)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString($"{name}.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(name),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        return metadata;
+    }
+
+    static TypeDefinitionHandle AddModuleAndSurfaceTypes(
+        MetadataBuilder metadata)
+    {
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        return metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Surface"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+    }
+
+    static MethodDefinitionHandle AddEventAdder(
+        MetadataBuilder metadata,
+        EntityHandle eventType)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(
+            eventType.Kind == HandleKind.TypeSpecification
+                ? (byte)0x11
+                : (byte)0x12);
+        signature.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(eventType));
+        ParameterHandle parameter = metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("value"),
+            1);
+        return metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("add_E"),
+            metadata.GetOrAddBlob(signature),
+            0,
+            parameter);
+    }
+
+    static byte[] Serialize(MetadataBuilder metadata)
+    {
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata, suppressValidation: true),

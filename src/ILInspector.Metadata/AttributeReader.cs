@@ -86,7 +86,10 @@ public static class AttributeReader
             }
             else if (attrTypeName == ObsoleteAttributeName)
             {
-                if (!IsCompilerCompatibilityObsolete(reader, attributes, attr))
+                if (!IsCompilerCompatibilityObsolete(
+                        reader,
+                        attributes,
+                        TryGetAttributeDisplayValue(reader, attr)))
                     return true;
             }
         }
@@ -111,7 +114,11 @@ public static class AttributeReader
     /// <summary>
     /// Checks if the member has the [Obsolete] attribute, returning the optional message.
     /// </summary>
-    public static bool TryGetObsoleteAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes, out string? message)
+    public static bool TryGetObsoleteAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out string? message,
+        Action<long>? preflight = null)
     {
         foreach (var attrHandle in attributes)
         {
@@ -119,8 +126,15 @@ public static class AttributeReader
             var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
             if (attrTypeName == ObsoleteAttributeName)
             {
+                long lowerBound = 0;
+                if (preflight is not null
+                    && !TryGetFirstSerializedStringLength(reader, attr, out lowerBound))
+                {
+                    lowerBound = 0;
+                }
+                preflight?.Invoke(lowerBound);
                 message = TryGetAttributeDisplayValue(reader, attr);
-                if (IsCompilerCompatibilityObsolete(reader, attributes, attr))
+                if (IsCompilerCompatibilityObsolete(reader, attributes, message))
                 {
                     message = null;
                     return false;
@@ -148,10 +162,8 @@ public static class AttributeReader
     private static bool IsCompilerCompatibilityObsolete(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
-        CustomAttribute obsoleteAttribute)
+        string? message)
     {
-        var message = TryGetAttributeDisplayValue(reader, obsoleteAttribute);
-
         // Roslyn stamps a synthetic [Obsolete] on certain types/members purely to block older
         // compilers, pairing it with [CompilerFeatureRequired(<feature>)]. These are not real
         // deprecations, so they must not hide the API. Covers required members and ref structs
@@ -332,7 +344,8 @@ public static class AttributeReader
         MetadataReader reader, CustomAttributeHandleCollection attributes, SortedSet<string>? namespaces = null,
         Func<string, bool>? skipAttribute = null,
         bool qualifyNames = false,
-        Action<string>? beforeRetain = null)
+        Action<string>? beforeRetain = null,
+        Action<long>? preflight = null)
     {
         var result = new List<string>();
         foreach (var attrHandle in attributes)
@@ -343,7 +356,7 @@ public static class AttributeReader
                 continue;
             if (skipAttribute?.Invoke(typeName) == true)
                 continue;
-            if (TryRenderAttribute(reader, attr, qualifyNames) is not { } rendered)
+            if (TryRenderAttribute(reader, attr, qualifyNames, preflight) is not { } rendered)
                 continue;
             beforeRetain?.Invoke(rendered);
             int lastDot = typeName.LastIndexOf('.');
@@ -386,7 +399,8 @@ public static class AttributeReader
         MetadataReader reader,
         ParameterHandle parameter,
         SortedSet<string>? namespaces = null,
-        Action<string>? beforeRetain = null)
+        Action<string>? beforeRetain = null,
+        Action<long>? preflight = null)
     {
         var result = RenderAttributes(
             reader,
@@ -394,7 +408,8 @@ public static class AttributeReader
             namespaces,
             IsParameterSyntaxAttribute,
             qualifyNames: true,
-            beforeRetain: beforeRetain);
+            beforeRetain: beforeRetain,
+            preflight: preflight);
         try
         {
             if (TryRenderMarshalAsAttribute(reader, parameter) is { } marshalAs)
@@ -562,8 +577,15 @@ public static class AttributeReader
         return [];
     }
 
-    static string? TryRenderAttribute(MetadataReader reader, CustomAttribute attr, bool qualifyName)
+    static string? TryRenderAttribute(
+        MetadataReader reader, CustomAttribute attr, bool qualifyName, Action<long>? preflight)
     {
+        if (preflight is not null)
+        {
+            if (!TryGetAttributeStringLowerBound(reader, attr, out long lowerBound))
+                return null;
+            preflight(lowerBound);
+        }
         if (AttributeDecoder.TryDecode(reader, attr) is not { } value)
             return null;
         var typeName = GetAttributeTypeName(reader, attr.Constructor)!;
@@ -582,6 +604,319 @@ public static class AttributeReader
             args.Add($"{named.Name} = {text}");
         }
         return args.Count == 0 ? name : $"{name}({string.Join(", ", args)})";
+    }
+
+    static bool TryGetAttributeStringLowerBound(
+        MetadataReader reader, CustomAttribute attribute, out long lowerBound)
+    {
+        lowerBound = 0;
+        try
+        {
+            var provider = new AttributeValueTypeProvider();
+            var parameters = attribute.Constructor.Kind switch
+            {
+                HandleKind.MethodDefinition => GuardedProviderDecode.Method(
+                    reader,
+                    reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)attribute.Constructor),
+                    provider,
+                    context: null,
+                    AttributeValueType.Invalid).ParameterTypes,
+                HandleKind.MemberReference => GuardedProviderDecode.MemberRefMethod(
+                    reader,
+                    reader.GetMemberReference(
+                        (MemberReferenceHandle)attribute.Constructor),
+                    provider,
+                    context: null,
+                    AttributeValueType.Invalid).ParameterTypes,
+                _ => default,
+            };
+            if (parameters.IsDefault)
+                return false;
+
+            var blob = reader.GetBlobReader(attribute.Value);
+            if (blob.ReadUInt16() != 1)
+                return false;
+            foreach (var parameter in parameters)
+            {
+                if (!TryScanAttributeValue(reader, ref blob, parameter, ref lowerBound))
+                    return false;
+            }
+            int namedCount = blob.ReadUInt16();
+            for (int i = 0; i < namedCount; i++)
+            {
+                byte kind = blob.ReadByte();
+                if (kind is not (0x53 or 0x54)
+                    || !TryReadSerializedType(ref blob, out var type)
+                    || !TrySkipSerializedString(ref blob)
+                    || !TryScanAttributeValue(reader, ref blob, type, ref lowerBound))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or DecoderFallbackException
+                or OverflowException)
+        {
+            return false;
+        }
+    }
+    static bool TryScanAttributeValue(
+        MetadataReader reader, ref BlobReader blob, AttributeValueType type, ref long lowerBound)
+    {
+        while (type.Code == SerializationTypeCode.TaggedObject)
+        {
+            if (!TryReadSerializedType(ref blob, out type))
+                return false;
+        }
+        int size = type.Code switch
+        {
+            SerializationTypeCode.Boolean or SerializationTypeCode.Byte or SerializationTypeCode.SByte => 1,
+            SerializationTypeCode.Char or SerializationTypeCode.Int16 or SerializationTypeCode.UInt16 => 2,
+            SerializationTypeCode.Int32 or SerializationTypeCode.UInt32 or SerializationTypeCode.Single => 4,
+            SerializationTypeCode.Int64 or SerializationTypeCode.UInt64 or SerializationTypeCode.Double => 8,
+            SerializationTypeCode.Enum => GetEnumStorageSize(reader, type.TypeName!),
+            _ => 0,
+        };
+        if (size != 0)
+            return TrySkipBytes(ref blob, size);
+        return type.Code switch
+        {
+            SerializationTypeCode.String => TryCountSerializedString(ref blob, ref lowerBound),
+            SerializationTypeCode.Type => TryScanTypeValue(ref blob, ref lowerBound),
+            SerializationTypeCode.SZArray => blob.ReadUInt32() == uint.MaxValue,
+            _ => false,
+        };
+    }
+    static bool TryScanTypeValue(ref BlobReader blob, ref long lowerBound)
+    {
+        if (!TryReadSerializedStringLength(ref blob, out int byteCount))
+            return false;
+        if (byteCount < 0)
+            return true;
+
+        byte[] bytes = ArrayPool<byte>.Shared.Rent(Math.Min(byteCount, 4096));
+        char[] chars = ArrayPool<char>.Shared.Rent(4096);
+        try
+        {
+            Decoder decoder = Encoding.UTF8.GetDecoder();
+            int remaining = byteCount;
+            bool beforeAssemblyName = true;
+            while (remaining > 0)
+            {
+                int count = Math.Min(remaining, bytes.Length);
+                blob.ReadBytes(count, bytes, 0);
+                remaining -= count;
+                int charCount = decoder.GetChars(
+                    bytes.AsSpan(0, count),
+                    chars,
+                    flush: remaining == 0);
+                for (int index = 0; index < charCount; index++)
+                {
+                    char character = chars[index];
+                    if (beforeAssemblyName && character == ',')
+                    {
+                        beforeAssemblyName = false;
+                    }
+                    else if (beforeAssemblyName)
+                    {
+                        if (character is '`' or '[')
+                            return false;
+                        lowerBound++;
+                    }
+                }
+            }
+            return true;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(bytes);
+            ArrayPool<char>.Shared.Return(chars);
+        }
+    }
+    static bool TryReadSerializedType(ref BlobReader blob, out AttributeValueType type)
+    {
+        var code = blob.ReadSerializationTypeCode();
+        if (code == SerializationTypeCode.Enum)
+        {
+            string? name = blob.ReadSerializedString();
+            if (name is null)
+            {
+                type = AttributeValueType.Invalid;
+                return false;
+            }
+            int comma = name.IndexOf(',');
+            type = new(code, comma < 0 ? name : name[..comma]);
+            return true;
+        }
+        if (code == SerializationTypeCode.SZArray)
+        {
+            var elementCode = blob.ReadSerializationTypeCode();
+            bool validElement = elementCode == SerializationTypeCode.Enum
+                ? blob.ReadSerializedString() is not null
+                : AttributeValueType.For(elementCode).Code != SerializationTypeCode.Invalid;
+            type = AttributeValueType.Array;
+            return elementCode != SerializationTypeCode.SZArray && validElement;
+        }
+        type = AttributeValueType.For(code);
+        return type.Code != SerializationTypeCode.Invalid;
+    }
+    static bool TryCountSerializedString(ref BlobReader blob, ref long lowerBound)
+    {
+        if (!TryReadSerializedStringLength(ref blob, out int byteCount))
+            return false;
+        if (byteCount < 0)
+            return true;
+
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(Math.Min(byteCount, 4096));
+        try
+        {
+            Decoder decoder = Encoding.UTF8.GetDecoder();
+            int remaining = byteCount;
+            while (remaining > 0)
+            {
+                int count = Math.Min(remaining, buffer.Length);
+                blob.ReadBytes(count, buffer, 0);
+                remaining -= count;
+                lowerBound += decoder.GetCharCount(buffer.AsSpan(0, count), remaining == 0);
+            }
+            return true;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    static bool TryGetFirstSerializedStringLength(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        out long length)
+    {
+        length = 0;
+        try
+        {
+            var blob = reader.GetBlobReader(attribute.Value);
+            return blob.ReadUInt16() == 1
+                && TryCountSerializedString(ref blob, ref length);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or DecoderFallbackException
+                or OverflowException)
+        {
+            return false;
+        }
+    }
+
+    static bool TrySkipSerializedString(ref BlobReader blob)
+    {
+        if (!TryReadSerializedStringLength(ref blob, out int byteCount))
+            return false;
+        if (byteCount >= 0)
+            blob.Offset += byteCount;
+        return true;
+    }
+    static bool TryReadSerializedStringLength(ref BlobReader blob, out int byteCount)
+    {
+        byte marker = blob.ReadByte();
+        if (marker == 0xff)
+        {
+            byteCount = -1;
+            return true;
+        }
+        blob.Offset--;
+        byteCount = blob.ReadCompressedInteger();
+        return byteCount <= blob.RemainingBytes;
+    }
+    static bool TrySkipBytes(ref BlobReader blob, int count)
+    {
+        if (count > blob.RemainingBytes)
+            return false;
+        blob.Offset += count; return true;
+    }
+
+    static int GetEnumStorageSize(MetadataReader reader, string typeName)
+    {
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            if (TypeResolver.GetTypeNameFromDefinition(reader, handle) != typeName)
+                continue;
+            foreach (var fieldHandle in definition.GetFields())
+            {
+                var field = reader.GetFieldDefinition(fieldHandle);
+                if ((field.Attributes & FieldAttributes.Static) != 0)
+                    continue;
+                if (!SignatureBlobGuard.IsSafeToDecode(reader, field.Signature, SignatureBlobGuard.Kind.Field))
+                    return 4;
+                var signature = reader.GetBlobReader(field.Signature);
+                if (signature.ReadSignatureHeader().Kind != SignatureKind.Field)
+                    return 0;
+                var code = signature.ReadSignatureTypeCode();
+                while (code is SignatureTypeCode.OptionalModifier or SignatureTypeCode.RequiredModifier)
+                {
+                    signature.ReadTypeHandle();
+                    code = signature.ReadSignatureTypeCode();
+                }
+                return code switch
+                {
+                    SignatureTypeCode.Boolean or SignatureTypeCode.Byte or SignatureTypeCode.SByte => 1,
+                    SignatureTypeCode.Char or SignatureTypeCode.Int16 or SignatureTypeCode.UInt16 => 2,
+                    SignatureTypeCode.Int64 or SignatureTypeCode.UInt64 or SignatureTypeCode.Double => 8,
+                    SignatureTypeCode.Invalid => 0,
+                    _ => 4,
+                };
+            }
+        }
+        return 4;
+    }
+
+    readonly record struct AttributeValueType(SerializationTypeCode Code, string? TypeName = null)
+    {
+        public static readonly AttributeValueType Invalid = new(SerializationTypeCode.Invalid);
+        public static readonly AttributeValueType Array = new(SerializationTypeCode.SZArray);
+        public static AttributeValueType For(SerializationTypeCode code)
+            => (code >= SerializationTypeCode.Boolean && code <= SerializationTypeCode.String)
+                || code is SerializationTypeCode.Type or SerializationTypeCode.TaggedObject
+                ? new(code)
+                : Invalid;
+    }
+    sealed class AttributeValueTypeProvider : ISignatureTypeProvider<AttributeValueType, object?>
+    {
+        public AttributeValueType GetPrimitiveType(PrimitiveTypeCode code)
+            => code == PrimitiveTypeCode.Object
+                ? new(SerializationTypeCode.TaggedObject)
+                : AttributeValueType.For((SerializationTypeCode)code);
+        public AttributeValueType GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle handle, byte rawTypeKind)
+            => ForNamedType(TypeResolver.GetTypeNameFromDefinition(r, handle));
+        public AttributeValueType GetTypeFromReference(MetadataReader r, TypeReferenceHandle handle, byte rawTypeKind)
+            => ForNamedType(TypeResolver.GetTypeName(r, handle));
+        public AttributeValueType GetSZArrayType(AttributeValueType elementType)
+            => elementType.Code is SerializationTypeCode.Invalid or SerializationTypeCode.SZArray
+                ? AttributeValueType.Invalid
+                : AttributeValueType.Array;
+        AttributeValueType ForNamedType(string? name)
+            => name == "System.Type" ? new(SerializationTypeCode.Type)
+                : name is null ? AttributeValueType.Invalid
+                : new(SerializationTypeCode.Enum, name);
+
+        public AttributeValueType GetModifiedType(AttributeValueType modifier, AttributeValueType unmodifiedType, bool isRequired)
+            => unmodifiedType;
+        public AttributeValueType GetPinnedType(AttributeValueType elementType) => AttributeValueType.Invalid;
+        public AttributeValueType GetPointerType(AttributeValueType elementType) => AttributeValueType.Invalid;
+        public AttributeValueType GetByReferenceType(AttributeValueType elementType) => AttributeValueType.Invalid;
+        public AttributeValueType GetArrayType(AttributeValueType elementType, ArrayShape shape) => AttributeValueType.Invalid;
+        public AttributeValueType GetFunctionPointerType(MethodSignature<AttributeValueType> signature) => AttributeValueType.Invalid;
+        public AttributeValueType GetGenericInstantiation(AttributeValueType genericType, System.Collections.Immutable.ImmutableArray<AttributeValueType> arguments) => AttributeValueType.Invalid;
+        public AttributeValueType GetGenericMethodParameter(object? genericContext, int index) => AttributeValueType.Invalid;
+        public AttributeValueType GetGenericTypeParameter(object? genericContext, int index) => AttributeValueType.Invalid;
+        public AttributeValueType GetTypeFromSpecification(MetadataReader r, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind) => AttributeValueType.Invalid;
     }
 
     static string GetQualifiedAttributeName(string fullName)
@@ -624,12 +959,15 @@ public static class AttributeReader
 
     static string? RenderTypeArgument(string typeName)
     {
-        if (typeName.AsSpan().ContainsAny(s_typeArgumentDelimiters))
+        if (!CanRenderTypeArgument(typeName))
             return null;
         string escapedType = MetadataDeclarationQuery.EscapeCompatibilityTypeKeywords(
             typeName.Replace('+', '.'));
         return $"typeof({escapedType})";
     }
+
+    static bool CanRenderTypeArgument(string typeName)
+        => !typeName.AsSpan().ContainsAny(s_typeArgumentDelimiters);
 
     static string EscapeCharLiteral(char value) => value switch
     {

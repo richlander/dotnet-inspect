@@ -1,5 +1,7 @@
+using System.Buffers;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Text;
 
 namespace ILInspector.Metadata;
 
@@ -125,6 +127,42 @@ public static class MetadataSafetyPolicy
                 "The metadata string exceeds the structural-signature budget.");
         }
         return value;
+    }
+
+    /// <summary>Counts a metadata string's decoded UTF-16 characters without materializing it.</summary>
+    public static long GetStringCharacterCount(
+        MetadataReader reader,
+        StringHandle handle)
+    {
+        var blob = reader.GetBlobReader(handle);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(
+            Math.Max(1, Math.Min(blob.Length, 4096)));
+        try
+        {
+            Decoder decoder = new UTF8Encoding(
+                encoderShouldEmitUTF8Identifier: false,
+                throwOnInvalidBytes: true).GetDecoder();
+            long characters = 0;
+            while (blob.RemainingBytes > 0)
+            {
+                int count = Math.Min(blob.RemainingBytes, buffer.Length);
+                blob.ReadBytes(count, buffer, 0);
+                characters += decoder.GetCharCount(
+                    buffer.AsSpan(0, count),
+                    flush: blob.RemainingBytes == 0);
+            }
+            return characters;
+        }
+        catch (DecoderFallbackException ex)
+        {
+            throw new BadImageFormatException(
+                "The metadata string contains invalid UTF-8.",
+                ex);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 }
 

@@ -216,9 +216,12 @@ forwarders, total inspected metadata rows, and retained API-model text each have
 an explicit ceiling. The 32,000,000-character aggregate text budget is spent
 across participants and includes type headers, member signatures and their
 structured models, failures, forwarders, and canonical identities. A separate
-1,000,000-character per-model ceiling checks type rendering and signature
-components before composite strings are built, so one hostile type or member
-cannot consume the aggregate allowance during construction. A rejected type's
+1,000,000-character per-model ceiling checks the retained type grammar,
+expanding name containment, signature components, default strings, rendered
+attribute strings, event composites, and forwarder names before their large
+composite forms are built. Lower-bound scans of encoded strings run before SRM
+decodes them, while the final rendered value is charged exactly afterward. A
+rejected type's
 pending text is discarded with that type rather than charged to later
 participants. Assembly metadata identity is serialized once per assembly
 descriptor; type rows carry only the `assemblyId` join.

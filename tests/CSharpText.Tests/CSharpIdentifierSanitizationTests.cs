@@ -75,6 +75,17 @@ public sealed class CSharpIdentifierSanitizationTests
     public void ContainComposedName_PreservesStructuralPunctuation(string name)
         => Assert.Equal(name, CSharpIdentifierCore.ContainComposedName(name));
 
+    [Theory]
+    [InlineData("Method")]
+    [InlineData("Method\r\nNext")]
+    [InlineData("Method\u0085Next")]
+    [InlineData("Method\u202eNext")]
+    [InlineData("\0\u2028\r\n")]
+    public void ContainedComposedNameLength_EqualsRenderedLength(string name)
+        => Assert.Equal(
+            CSharpIdentifierCore.ContainComposedName(name).Length,
+            CSharpIdentifierCore.ContainedComposedNameLength(name));
+
     /// <summary>
     /// The decompiler's contract for an unspellable-but-harmless name is to keep
     /// identity visible and report the problem through the fidelity marker, not to

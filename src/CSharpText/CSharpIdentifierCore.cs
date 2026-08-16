@@ -191,6 +191,36 @@ internal static class CSharpIdentifierCore
     }
 
     /// <summary>
+    /// The exact length of <see cref="ContainComposedName"/> without materializing
+    /// its contained spelling.
+    /// </summary>
+    public static long ContainedComposedNameLength(string name)
+    {
+        long length = 0;
+        for (int index = 0; index < name.Length; index++)
+        {
+            char current = name[index];
+            if (current == '\r'
+                && index + 1 < name.Length
+                && name[index + 1] == '\n')
+            {
+                index++;
+                length++;
+                continue;
+            }
+
+            if (current is '\r' or '\n' or '\f' or '\u0085' or '\u2028' or '\u2029')
+            {
+                length++;
+                continue;
+            }
+
+            length += IsRenderingHazard(current) ? 6 : 1;
+        }
+        return length;
+    }
+
+    /// <summary>
     /// A character that is safe as C# syntax but not safe once rendered: a C0/C1
     /// control that moves or rewrites the terminal cursor (vertical tab, ESC, NUL),
     /// or a Unicode bidi control that reorders its neighbors. Tab is deliberately

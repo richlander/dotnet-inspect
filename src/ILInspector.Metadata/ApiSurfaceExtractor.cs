@@ -403,7 +403,10 @@ public static class ApiSurfaceExtractor
                     qualifyNames: true,
                     beforeRetain: typeMaterialization is null
                         ? null
-                        : typeMaterialization.Retain),
+                        : typeMaterialization.Retain,
+                    preflight: typeMaterialization is null
+                        ? null
+                        : typeMaterialization.EnsureCanMaterialize),
             };
 
             // Determine kind
@@ -533,10 +536,15 @@ public static class ApiSurfaceExtractor
                     && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
                     continue;
 
-                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, method.GetCustomAttributes(), out var obsoleteMessage);
-
                 TextMaterializationBudget? materialization =
                     budget?.BeginModelMaterialization();
+                var isObsolete = AttributeReader.TryGetObsoleteAttribute(
+                    reader,
+                    method.GetCustomAttributes(),
+                    out var obsoleteMessage,
+                    materialization is null
+                        ? null
+                        : materialization.EnsureCanMaterialize);
                 materialization?.Retain(methodName);
                 var signature = GetMethodSignature(
                     reader,
@@ -679,10 +687,15 @@ public static class ApiSurfaceExtractor
                 if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, prop.GetCustomAttributes()))
                     continue;
 
-                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, prop.GetCustomAttributes(), out var obsoleteMessage);
-
                 TextMaterializationBudget? materialization =
                     budget?.BeginModelMaterialization();
+                var isObsolete = AttributeReader.TryGetObsoleteAttribute(
+                    reader,
+                    prop.GetCustomAttributes(),
+                    out var obsoleteMessage,
+                    materialization is null
+                        ? null
+                        : materialization.EnsureCanMaterialize);
                 var propertySignature = GetPropertySignature(
                     reader,
                     typeDef,
@@ -753,9 +766,15 @@ public static class ApiSurfaceExtractor
                 if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
                     continue;
 
-                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, field.GetCustomAttributes(), out var obsoleteMessage);
                 TextMaterializationBudget? materialization =
                     budget?.BeginModelMaterialization();
+                var isObsolete = AttributeReader.TryGetObsoleteAttribute(
+                    reader,
+                    field.GetCustomAttributes(),
+                    out var obsoleteMessage,
+                    materialization is null
+                        ? null
+                        : materialization.EnsureCanMaterialize);
                 materialization?.Retain(fieldName);
 
                 // Decode field type. For enums the special value__ field carries
@@ -868,9 +887,15 @@ public static class ApiSurfaceExtractor
                 if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, evt.GetCustomAttributes()))
                     continue;
 
-                var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, evt.GetCustomAttributes(), out var obsoleteMessage);
                 TextMaterializationBudget? materialization =
                     budget?.BeginModelMaterialization();
+                var isObsolete = AttributeReader.TryGetObsoleteAttribute(
+                    reader,
+                    evt.GetCustomAttributes(),
+                    out var obsoleteMessage,
+                    materialization is null
+                        ? null
+                        : materialization.EnsureCanMaterialize);
                 var eventType = ResolveRequiredTypeName(
                     reader,
                     evt.Type,
@@ -922,7 +947,10 @@ public static class ApiSurfaceExtractor
                     new()
                     {
                         Kind = "add",
-                        ReturnAttributes = ReturnParameterAttributes(reader, adder.GetParameters())
+                        ReturnAttributes = ReturnParameterAttributes(
+                            reader,
+                            adder.GetParameters(),
+                            materialization)
                     }
                 };
                 if (!accessors.Remover.IsNil)
@@ -932,20 +960,28 @@ public static class ApiSurfaceExtractor
                         Kind = "remove",
                         ReturnAttributes = ReturnParameterAttributes(
                             reader,
-                            reader.GetMethodDefinition(accessors.Remover).GetParameters())
+                            reader.GetMethodDefinition(accessors.Remover).GetParameters(),
+                            materialization)
                     });
                 }
 
+                materialization?.Retain(eventType);
+                string eventName = reader.GetString(evt.Name);
+                materialization?.Retain(eventName);
+                string eventDisplayName = SanitizeIdentifier(eventName);
+                materialization?.EnsureCanMaterialize(
+                    eventType.Length + 1L + eventDisplayName.Length);
+                string eventSignature = $"{eventType} {eventDisplayName}";
                 var member = new ApiMember
                 {
-                    Name = reader.GetString(evt.Name),
+                    Name = eventName,
                     Kind = "event",
                     ReturnType = eventType,
-                    Signature = $"{eventType} {SanitizeIdentifier(reader.GetString(evt.Name))}",
+                    Signature = eventSignature,
                     SignatureModel = new ApiSignature
                     {
                         ReturnType = eventType,
-                        MemberName = reader.GetString(evt.Name),
+                        MemberName = eventName,
                         Accessors = accessorModels
                     },
                     IsStatic = (adderAttributes & MethodAttributes.Static) != 0,
@@ -963,6 +999,13 @@ public static class ApiSurfaceExtractor
                         ? null
                         : MetadataTokens.GetToken(accessors.Remover)
                 };
+                materialization?.Retain(
+                    ApiSurfaceRetainedText.Member(member)
+                        - eventType.Length
+                        - eventName.Length
+                        - accessorModels.Sum(
+                            accessor => accessor.ReturnAttributes.Sum(
+                                attribute => attribute.Length)));
                 budget?.RetainMember(member);
                 apiType.Members.Add(member);
                 surface.PublicEventCount++;
@@ -1164,6 +1207,16 @@ public static class ApiSurfaceExtractor
                 if (!exportedType.IsForwarder)
                     continue;
 
+                budget?.BeginTypeForwarder();
+                TextMaterializationBudget? materialization =
+                    budget?.BeginModelMaterialization();
+                if (materialization is not null)
+                {
+                    materialization.EnsureCanMaterialize(
+                        GetExportedTypeFullNameLength(
+                            reader,
+                            exportedTypeHandle));
+                }
                 var fullName = reader.ResolveFullTypeName(exportedTypeHandle) switch
                 {
                     RelationshipTraversalResult<string>.Completed completed =>
@@ -1175,25 +1228,36 @@ public static class ApiSurfaceExtractor
                     _ => throw new InvalidOperationException(
                         "Unknown exported-type relationship result."),
                 };
-                budget?.BeginTypeForwarder();
+                materialization?.Retain(fullName);
 
                 // Get the target assembly
                 string targetAssembly = "";
                 if (exportedType.Implementation.Kind == HandleKind.AssemblyReference)
                 {
                     var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)exportedType.Implementation);
+                    materialization?.EnsureCanMaterialize(
+                        MetadataSafetyPolicy.GetStringCharacterCount(
+                            reader,
+                            assemblyRef.Name));
                     targetAssembly = reader.GetString(assemblyRef.Name);
                 }
+                materialization?.Retain(targetAssembly);
 
+                MetadataTypeDefinitionName? definitionName =
+                    MetadataTypeDefinitionNameReader.Read(
+                        reader,
+                        exportedTypeHandle)
+                    is MetadataTypeDefinitionNameReadResult.Read read
+                        ? read.Name
+                        : null;
+                if (definitionName is not null)
+                {
+                    materialization?.Retain(definitionName.Namespace);
+                    materialization?.Retain(definitionName.Segments);
+                }
                 var typeForwarder = new TypeForwarder
                 {
-                    DefinitionName =
-                        MetadataTypeDefinitionNameReader.Read(
-                            reader,
-                            exportedTypeHandle)
-                        is MetadataTypeDefinitionNameReadResult.Read read
-                            ? read.Name
-                            : null,
+                    DefinitionName = definitionName,
                     TypeName = fullName,
                     TargetAssembly = targetAssembly
                 };
@@ -1218,6 +1282,49 @@ public static class ApiSurfaceExtractor
                     exportedTypeHandle,
                     MetadataTypeNameFailure.Malformed(exportedTypeHandle, ex.Message));
             }
+        }
+
+        static long GetExportedTypeFullNameLength(
+            MetadataReader reader,
+            ExportedTypeHandle handle)
+        {
+            var traversal =
+                MetadataRelationshipTraversal.WalkExportedTypeImplementationChain(
+                    reader,
+                    handle);
+            if (traversal is RelationshipTraversalResult<RelationshipChain<ExportedTypeHandle>>.Rejected rejected)
+            {
+                throw new MetadataRowRejectedException(
+                    "type forwarder identity",
+                    MetadataTypeNameFailure.From(rejected.Rejection));
+            }
+
+            var chain =
+                ((RelationshipTraversalResult<RelationshipChain<ExportedTypeHandle>>.Completed)traversal)
+                    .Value;
+            long length = 0;
+            for (int index = 0; index < chain.Handles.Length; index++)
+            {
+                ExportedType exportedType = reader.GetExportedType(
+                    chain.Handles[index]);
+                if (index == 0)
+                {
+                    long namespaceLength =
+                        MetadataSafetyPolicy.GetStringCharacterCount(
+                            reader,
+                            exportedType.Namespace);
+                    length += namespaceLength == 0 ? 0 : namespaceLength + 1;
+                }
+                else
+                {
+                    length++;
+                }
+
+                length += MetadataSafetyPolicy.GetStringCharacterCount(
+                    reader,
+                    exportedType.Name);
+            }
+            return length;
         }
     }
 
@@ -2215,25 +2322,27 @@ public static class ApiSurfaceExtractor
             }
 
             var modifier = isParams ? "params" : refKind;
+            string? defaultValueText = hasDefault
+                && defaultValue is not DateTimeConstantDefault
+                    ? FormatDefaultValue(
+                        reader,
+                        defaultValue,
+                        type,
+                        AcceptsNullDefault(paramTypes[i]),
+                        materialization)
+                    : null;
             var paramStr = FormatParameter(
-                reader,
                 type,
                 paramName,
                 modifier,
                 hasDefault,
                 defaultValue,
-                AcceptsNullDefault(paramTypes[i]));
+                defaultValueText);
 
             if (i > 0)
                 materialization?.Retain(2);
             materialization?.Retain(paramStr.Length);
             parameters.Add(paramStr);
-            string? defaultValueText = DefaultValueText(
-                reader,
-                defaultValue,
-                type,
-                hasDefault,
-                AcceptsNullDefault(paramTypes[i]));
             var parameterModel = new ApiParameter
             {
                 Attributes = attributes,
@@ -2280,8 +2389,8 @@ public static class ApiSurfaceExtractor
         // the generic-parameter map), so it keeps the raw metadata spelling; only
         // the rendered signature is sanitized (issue #3319).
         var displayName = context.MethodParameters.Count > 0
-            ? $"{SanitizeMemberDisplayName(name)}<{string.Join(", ", methodTypeParameters.Select(parameter => SanitizeIdentifier(parameter.Name)))}>"
-            : SanitizeMemberDisplayName(name);
+            ? $"{SanitizeMemberDisplayName(name, materialization)}<{string.Join(", ", methodTypeParameters.Select(parameter => SanitizeIdentifier(parameter.Name)))}>"
+            : SanitizeMemberDisplayName(name, materialization);
         materialization?.Retain(methodName);
         materialization?.Retain(returnType.Length + 1L + displayName.Length + 2);
         string paramStr2 = string.Join(", ", parameters);
@@ -2310,7 +2419,10 @@ public static class ApiSurfaceExtractor
                     handle,
                     beforeRetain: materialization is null
                         ? null
-                        : materialization.Retain);
+                        : materialization.Retain,
+                    preflight: materialization is null
+                        ? null
+                        : materialization.EnsureCanMaterialize);
         }
 
         return [];
@@ -2327,7 +2439,10 @@ public static class ApiSurfaceExtractor
             qualifyNames: true,
             beforeRetain: materialization is null
                 ? null
-                : materialization.Retain);
+                : materialization.Retain,
+            preflight: materialization is null
+                ? null
+                : materialization.EnsureCanMaterialize);
 
     private static string FormatMethodReturnType(
         MetadataReader reader,
@@ -2413,7 +2528,10 @@ public static class ApiSurfaceExtractor
                     handle,
                     beforeRetain: materialization is null
                         ? null
-                        : materialization.Retain);
+                        : materialization.Retain,
+                    preflight: materialization is null
+                        ? null
+                        : materialization.EnsureCanMaterialize);
                 // An interop-marshalled `ref` parameter sets both In and Out, so
                 // neither flag alone identifies a C# `out`/`in`. Spelling such a
                 // parameter `out` breaks definite assignment in the body.
@@ -2439,7 +2557,10 @@ public static class ApiSurfaceExtractor
                     if (!constantHandle.IsNil)
                     {
                         var constant = reader.GetConstant(constantHandle);
-                        defaultValue = ReadConstantValue(reader, constant);
+                        defaultValue = ReadConstantValue(
+                            reader,
+                            constant,
+                            materialization);
                     }
                 }
 
@@ -2540,9 +2661,14 @@ public static class ApiSurfaceExtractor
         return false;
     }
 
-    private static object? ReadConstantValue(MetadataReader reader, Constant constant)
+    private static object? ReadConstantValue(
+        MetadataReader reader,
+        Constant constant,
+        TextMaterializationBudget? materialization)
     {
         var blob = reader.GetBlobReader(constant.Value);
+        if (constant.TypeCode == ConstantTypeCode.String)
+            materialization?.EnsureCanMaterialize(blob.Length / 2L);
         return constant.TypeCode switch
         {
             ConstantTypeCode.Boolean => blob.ReadBoolean(),
@@ -2570,7 +2696,12 @@ public static class ApiSurfaceExtractor
         => node.IsReferenceType
             || node.Render().StartsWith("System.Nullable<", StringComparison.Ordinal);
 
-    private static string FormatDefaultValue(MetadataReader reader, object? value, string typeName, bool acceptsNullDefault)
+    private static string FormatDefaultValue(
+        MetadataReader reader,
+        object? value,
+        string typeName,
+        bool acceptsNullDefault,
+        TextMaterializationBudget? materialization = null)
     {
         // A null constant is `default(T)` for a non-nullable value-type parameter
         // (the only legal spelling — `T x = null` is CS1750), and a genuine `null`
@@ -2594,19 +2725,12 @@ public static class ApiSurfaceExtractor
         {
             bool b => b ? "true" : "false",
             decimal d => FormatDecimalLiteral(d),
-            string s => StringLiteral(s),
+            string s => StringLiteral(s, materialization),
             char c => $"'{EscapeCharLiteral(c)}'",
             float f => f.ToString("G") + "f",
             double d => d.ToString("G"),
             _ => value.ToString() ?? "default"
         };
-    }
-
-    private static string? DefaultValueText(MetadataReader reader, object? value, string typeName, bool hasDefault, bool acceptsNullDefault)
-    {
-        if (!hasDefault || value is DateTimeConstantDefault)
-            return null;
-        return FormatDefaultValue(reader, value, typeName, acceptsNullDefault);
     }
 
     private static string EscapeCharLiteral(char c) => c switch
@@ -2631,13 +2755,12 @@ public static class ApiSurfaceExtractor
     };
 
     private static string FormatParameter(
-        MetadataReader reader,
         string type,
         string name,
         string? modifier,
         bool hasDefault,
         object? defaultValue,
-        bool acceptsNullDefault)
+        string? defaultValueText)
     {
         var escapedName = SanitizeIdentifier(name);
         var parameter = modifier is null ? $"{type} {escapedName}" : $"{modifier} {type} {escapedName}";
@@ -2650,7 +2773,7 @@ public static class ApiSurfaceExtractor
             return $"[{OptionalAttributeName}, {DateTimeConstantAttributeName}({ticks})] {parameter}";
         }
 
-        return $"{parameter} = {FormatDefaultValue(reader, defaultValue, type, acceptsNullDefault)}";
+        return $"{parameter} = {defaultValueText}";
     }
 
     /// <summary>
@@ -2667,8 +2790,14 @@ public static class ApiSurfaceExtractor
     /// <c>System.IConvertible.ToBoolean</c> — so this contains it rather than
     /// sanitizing it into one, which would mangle both.
     /// </summary>
-    private static string SanitizeMemberDisplayName(string name)
-        => CSharpIdentifierCore.ContainComposedName(name);
+    private static string SanitizeMemberDisplayName(
+        string name,
+        TextMaterializationBudget? materialization)
+    {
+        materialization?.EnsureCanMaterialize(
+            CSharpIdentifierCore.ContainedComposedNameLength(name));
+        return CSharpIdentifierCore.ContainComposedName(name);
+    }
 
     private static string SanitizeIdentifier(string name)
         => CSharpIdentifierCore.ContainIdentifier(name, CSharpKeywords.RequiresDeclarationEscape);
@@ -2685,8 +2814,11 @@ public static class ApiSurfaceExtractor
             : value.ToString(CultureInfo.InvariantCulture) + "L";
     }
 
-    private static string StringLiteral(string value)
+    private static string StringLiteral(
+        string value,
+        TextMaterializationBudget? materialization)
     {
+        materialization?.EnsureCanMaterialize(StringLiteralLength(value));
         var sb = new StringBuilder(value.Length + 2);
         sb.Append('"');
         foreach (var c in value)
@@ -2709,6 +2841,22 @@ public static class ApiSurfaceExtractor
         }
         sb.Append('"');
         return sb.ToString();
+    }
+
+    private static long StringLiteralLength(string value)
+    {
+        long length = 2;
+        foreach (char character in value)
+        {
+            length += character switch
+            {
+                '"' or '\\' or '\0' or '\a' or '\b' or '\f'
+                    or '\n' or '\r' or '\t' or '\v' => 2,
+                _ when CSharpIdentifierCore.RequiresLiteralEscape(character) => 6,
+                _ => 1,
+            };
+        }
+        return length;
     }
 
     private static string? TryFormatEnumDefaultValue(MetadataReader reader, object value, string typeName)
@@ -2821,7 +2969,7 @@ public static class ApiSurfaceExtractor
                 context,
                 (TypeNode)new DegradedTypeNode());
             materialization.EnsureCanMaterialize(
-                node.RenderLength(canonicalTuples: false));
+                node.RenderLength(canonicalTuples: true));
         }
 
         return TypeResolver.ResolveTypeName(reader, handle, context) switch
@@ -3171,24 +3319,26 @@ public static class ApiSurfaceExtractor
             }
 
             var modifier = isParams ? "params" : refKind;
+            string? defaultValueText = hasDefault
+                && defaultValue is not DateTimeConstantDefault
+                    ? FormatDefaultValue(
+                        reader,
+                        defaultValue,
+                        paramType,
+                        AcceptsNullDefault(paramTypes[i]),
+                        materialization)
+                    : null;
             var parameter = FormatParameter(
-                reader,
                 paramType,
                 paramName,
                 modifier,
                 hasDefault,
                 defaultValue,
-                AcceptsNullDefault(paramTypes[i]));
+                defaultValueText);
             if (i > 0)
                 materialization?.Retain(2);
             materialization?.Retain(parameter.Length);
             indexerParameters.Add(parameter);
-            string? defaultValueText = DefaultValueText(
-                reader,
-                defaultValue,
-                paramType,
-                hasDefault,
-                AcceptsNullDefault(paramTypes[i]));
             var parameterModel = new ApiParameter
             {
                 Attributes = attributes,
