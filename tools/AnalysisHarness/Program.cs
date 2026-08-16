@@ -36,6 +36,11 @@ const string Usage =
           committed closed-world corpus. The harness resolves typed metadata identities and does
           not reconstruct candidate retrieval, normalization, correspondence, or verification.
 
+      --clone-census <assembly> [--seed <0xMethodDef|Type::Method>] [--top N]
+          Run bounded product-owned exact discovery over every MethodDef in one assembly.
+          Reports exact families, receipts, suppression, and an optional seed-to-family drill-in.
+          --max-methods and --max-comparisons override the product admission/comparison limits.
+
       --allocation-readout <file> [--top N] [--json]
           Sweep a corpus list and aggregate allocation occurrence/opportunity metadata
           distributions: allocation, path, path confidence, post dominance, escape, shape, and
@@ -114,6 +119,14 @@ string? cloneCorpusAssembly = null;
 string? relationshipLedger = null;
 bool cloneCorpusSpecified = false;
 bool relationshipLedgerSpecified = false;
+string? cloneCensusAssembly = null;
+string? cloneCensusSeed = null;
+bool cloneCensusSpecified = false;
+bool cloneCensusSeedSpecified = false;
+bool cloneMaximumMethodsSpecified = false;
+bool cloneMaximumComparisonsSpecified = false;
+int cloneMaximumMethods = 50_000;
+int cloneMaximumComparisons = 100_000;
 string? allocationReadoutList = null;
 string? callerLoopCensusList = null;
 string? deferredCallbackCensusList = null;
@@ -129,6 +142,7 @@ string? memoryPoolLifecycleList = null;
 bool tsv = false;
 bool jsonl = false;
 int top = 20;
+bool topArgumentValid = true;
 int maxDepth = 4;
 
 for (int i = 0; i < args.Length; i++)
@@ -171,6 +185,38 @@ for (int i = 0; i < args.Length; i++)
             relationshipLedgerSpecified = true;
             relationshipLedger = NextPathValue(args, ref i);
             break;
+        case "--clone-census":
+            cloneCensusSpecified = true;
+            cloneCensusAssembly = NextPathValue(args, ref i);
+            break;
+        case "--seed":
+            cloneCensusSeedSpecified = true;
+            cloneCensusSeed = NextPathValue(args, ref i);
+            break;
+        case "--max-methods":
+            cloneMaximumMethodsSpecified = true;
+            if (NextPathValue(args, ref i) is not { } methodLimit
+                || !int.TryParse(methodLimit, out cloneMaximumMethods)
+                || cloneMaximumMethods < 1)
+            {
+                Console.Error.WriteLine(
+                    "--max-methods requires a positive integer.");
+                return 2;
+            }
+            break;
+        case "--max-comparisons":
+            cloneMaximumComparisonsSpecified = true;
+            if (NextPathValue(args, ref i) is not { } comparisonLimit
+                || !int.TryParse(
+                    comparisonLimit,
+                    out cloneMaximumComparisons)
+                || cloneMaximumComparisons < 1)
+            {
+                Console.Error.WriteLine(
+                    "--max-comparisons requires a positive integer.");
+                return 2;
+            }
+            break;
         case "--allocation-readout":
             allocationReadoutList = NextValue(args, ref i);
             break;
@@ -211,7 +257,11 @@ for (int i = 0; i < args.Length; i++)
             referenceFile = NextValue(args, ref i);
             break;
         case "--top":
-            if (NextValue(args, ref i) is { } t && int.TryParse(t, out int n)) top = n;
+            if (NextPathValue(args, ref i) is not { } t
+                || !int.TryParse(t, out top))
+            {
+                topArgumentValid = false;
+            }
             break;
         case "--max-depth":
             if (NextValue(args, ref i) is not { } depth
@@ -257,6 +307,73 @@ if (relationshipLedgerSpecified && !cloneCorpusSpecified)
         "--relationship-ledger requires --clone-corpus.");
     return 2;
 }
+if (cloneCensusSpecified && cloneCensusAssembly is null)
+{
+    Console.Error.WriteLine("--clone-census requires an assembly path.");
+    return 2;
+}
+if (cloneCensusSeedSpecified && cloneCensusSeed is null)
+{
+    Console.Error.WriteLine("--seed requires a selector.");
+    return 2;
+}
+if ((cloneCensusSeedSpecified
+        || cloneMaximumMethodsSpecified
+        || cloneMaximumComparisonsSpecified)
+    && !cloneCensusSpecified)
+{
+    Console.Error.WriteLine(
+        "--seed, --max-methods, and --max-comparisons require "
+            + "--clone-census.");
+    return 2;
+}
+if (cloneCensusSpecified && (!topArgumentValid || top < 1))
+{
+    Console.Error.WriteLine("--top requires a positive integer.");
+    return 2;
+}
+
+List<string> selectedModes = [];
+if (fixturesMode || list)
+    selectedModes.Add("--generated-fixtures");
+if (corpusList is not null)
+    selectedModes.Add("--corpus-list");
+if (recallAssembly is not null)
+    selectedModes.Add("--paydirt-recall");
+if (historicalPerformanceReference is not null)
+    selectedModes.Add("--historical-performance-recall");
+if (precisionAssembly is not null)
+    selectedModes.Add("--precision-sample");
+if (cloneCorpusSpecified)
+    selectedModes.Add("--clone-corpus");
+if (cloneCensusSpecified)
+    selectedModes.Add("--clone-census");
+if (allocationReadoutList is not null)
+    selectedModes.Add("--allocation-readout");
+if (callerLoopCensusList is not null)
+    selectedModes.Add("--caller-loop-census");
+if (deferredCallbackCensusList is not null)
+    selectedModes.Add("--deferred-callback-census");
+if (recursiveTraversalCensusList is not null)
+    selectedModes.Add("--recursive-traversal-census");
+if (allocationParityExpected is not null)
+    selectedModes.Add("--allocation-parity");
+if (annotationParityExpected is not null)
+    selectedModes.Add("--annotation-parity");
+if (leakTriageList is not null)
+    selectedModes.Add("--leak-triage");
+if (leakActionabilityList is not null)
+    selectedModes.Add("--leak-actionability");
+if (memoryPoolLifecycleList is not null)
+    selectedModes.Add("--memorypool-lifecycle");
+if (selectedModes.Count > 1)
+{
+    Console.Error.WriteLine(
+        "Analysis harness modes are mutually exclusive: "
+            + string.Join(", ", selectedModes)
+            + ".");
+    return 2;
+}
 
 // --tsv/--jsonl are tabular-format selectors for the leak cards; other modes use --json.
 // Reject them elsewhere rather than silently accepting-and-ignoring them.
@@ -278,6 +395,17 @@ if (precisionAssembly is not null)
 
 if (cloneCorpusAssembly is not null)
     return RunCloneCorpus(cloneCorpusAssembly, relationshipLedger, json);
+
+if (cloneCensusAssembly is not null)
+{
+    return RunCloneCensus(
+        cloneCensusAssembly,
+        cloneCensusSeed,
+        cloneMaximumMethods,
+        cloneMaximumComparisons,
+        top,
+        json);
+}
 
 if (allocationReadoutList is not null)
     return RunAllocationReadout(allocationReadoutList, top, json);
@@ -370,6 +498,45 @@ static int RunCloneCorpus(
             ? StructuralCloneCorpus.ToJson(report) + Environment.NewLine
             : StructuralCloneCorpus.Format(report));
     return report.Success ? 0 : 1;
+}
+
+static int RunCloneCensus(
+    string assembly,
+    string? seed,
+    int maximumMethods,
+    int maximumComparisons,
+    int top,
+    bool json)
+{
+    if (!File.Exists(assembly))
+    {
+        Console.Error.WriteLine($"Assembly not found: {assembly}");
+        return 2;
+    }
+
+    try
+    {
+        StructuralCloneCensusReport report = StructuralCloneCensus.Run(
+            assembly,
+            seed,
+            maximumMethods,
+            maximumComparisons);
+        Console.Write(
+            json
+                ? StructuralCloneCensus.ToJson(report)
+                    + Environment.NewLine
+                : StructuralCloneCensus.Format(report, top));
+        return report.Success ? 0 : 1;
+    }
+    catch (Exception ex) when (
+        ex is InvalidDataException
+            or BadImageFormatException
+            or IOException
+            or UnauthorizedAccessException)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 2;
+    }
 }
 
 static int RunAllocationReadout(string corpusList, int top, bool json)
