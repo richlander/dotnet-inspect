@@ -107,6 +107,7 @@ test("dependency graph node insertion is bounded", () => {
 });
 
 const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const engineSource = readFileSync(
   new URL("../engine/wwwroot/engine.js", import.meta.url),
   "utf8");
@@ -155,7 +156,7 @@ test("ready status shows versioned linked build provenance", () => {
     /class="statusbar"[\s\S]{0,200}\$\{buildIdentityHtml\(\)\}/);
   assert.match(
     appSource,
-    /class="home-foot"[\s\S]{0,200}\$\{buildIdentityHtml\(\)\}/);
+    /class="home-foot"[\s\S]{0,500}\$\{buildIdentityHtml\(\)\}/);
   assert.match(
     appSource,
     /identity\.commitUrl[\s\S]*target="_blank" rel="noopener noreferrer"/);
@@ -163,6 +164,31 @@ test("ready status shows versioned linked build provenance", () => {
   assert.match(
     deploySource,
     /-getProperty:VersionPrefix[\s\S]*-p:VersionPrefix="\$version"[\s\S]*-p:SourceRevisionId="\$GITHUB_SHA"[\s\S]*-p:BuildTimestampUtc="\$built_at"/);
+});
+
+test("bare home renders before wasm engine download", () => {
+  assert.doesNotMatch(appSource, /from "\/engine\.js"/);
+  assert.match(
+    appSource,
+    /async function loadEngineModule\(\)[\s\S]*await import\("\/engine\.js"\)/);
+  assert.match(
+    appSource,
+    /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*await loadEngineModule\(\)/);
+  assert.match(
+    appSource,
+    /class="home-search \$\{enginePending[\s\S]*class="home-engine-status"/);
+  assert.match(
+    appSource,
+    /state\.engineReady[\s\S]*browser wasm ready[\s\S]*browser wasm loading/);
+});
+
+test("settings keep a viewport-bounded scroll region", () => {
+  assert.match(
+    stylesSource,
+    /\.settings-page\s*\{[^}]*height: 100vh;[^}]*grid-template-rows: auto minmax\(0, 1fr\);/s);
+  assert.match(
+    stylesSource,
+    /\.settings-main\s*\{[^}]*min-height: 0;[^}]*overflow-y: auto;/s);
 });
 
 test("all dependency navigation paths use one product-owned coordinate matcher", () => {

@@ -1538,9 +1538,9 @@ kbd {
 #home-settings { font-size: 13px; line-height: 1; padding: 4px 8px; }
 
 .settings-page {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
   background:
     radial-gradient(1100px 620px at 82% -8%, var(--accent-soft), transparent 60%),
     var(--bg);
@@ -1566,11 +1566,13 @@ kbd {
 .settings-main {
   width: 100%;
   max-width: 720px;
+  min-height: 0;
   margin: 0 auto;
   padding: clamp(24px, 5vh, 56px) 28px 72px;
   display: flex;
   flex-direction: column;
   gap: 28px;
+  overflow-y: auto;
 }
 .settings-head h1 { margin: 0 0 8px; font-size: 26px; letter-spacing: -0.01em; }
 .settings-lede { margin: 0; color: var(--muted); font: 12px var(--mono); line-height: 1.5; max-width: 60ch; }
@@ -1656,14 +1658,42 @@ kbd {
   color: var(--text);
 }
 .home-lede {
-  margin: 0 0 26px;
+  margin: 0 0 10px;
   max-width: 56ch;
   color: var(--muted);
   font-size: 16px;
   line-height: 1.6;
 }
+.home-availability {
+  margin: 0 0 26px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.home-availability a { color: var(--text); text-underline-offset: 3px; }
+.home-availability a:hover { color: var(--accent); }
 
-.home-search { max-width: 620px; }
+.home-search { position: relative; max-width: 620px; }
+.home-search-content { transition: opacity 120ms ease, filter 120ms ease; }
+.home-search.engine-pending .home-search-content {
+  opacity: .35;
+  filter: grayscale(.7);
+}
+.home-engine-status {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  color: var(--text);
+}
+.home-engine-status .loader { width: 22px; height: 22px; }
+.home-engine-status strong { font: 12px var(--mono); font-weight: 500; }
 .home-search-box {
   display: flex;
   align-items: center;
@@ -1709,6 +1739,13 @@ kbd {
   transition: border-color 90ms ease, background 90ms ease, transform 90ms ease;
 }
 .home-demo:hover { border-color: var(--accent); background: var(--panel-raised); transform: translateY(-1px); }
+.home-demo:disabled, .home-demo:disabled:hover {
+  opacity: .45;
+  border-color: var(--line);
+  background: var(--panel);
+  cursor: wait;
+  transform: none;
+}
 .home-demo strong { font: 13px var(--mono); color: var(--text); }
 .home-demo small { color: var(--muted); font-size: 11px; }
 
@@ -1729,6 +1766,14 @@ kbd {
   font: 11px var(--mono);
 }
 .home-foot .diag { color: var(--dim); }
+.home-wasm-spinner {
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
 
 @media (max-width: 860px) {
   .home-hero { grid-template-columns: 1fr; gap: 28px; }
