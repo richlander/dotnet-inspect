@@ -17,6 +17,8 @@ using InertText;
 
 namespace DotnetInspector.Tests;
 
+// Mutates the process-global CoreCache root; serialize with in-process CLI/cache tests (#3471).
+[Collection("Console")]
 public class LibraryFindingConsumerTests
 {
     [Fact]
@@ -876,7 +878,7 @@ public class LibraryFindingConsumerTests
             File.Copy(replacementPath, targetPath, overwrite: true);
             File.SetLastWriteTimeUtc(targetPath, replacementTimestamp);
 
-            TestCache.InitializeSharedCore();
+            CoreCache.Initialize("dotnet-inspect-test");
             using var httpClient = new HttpClient();
             LibraryInspection inspection = Assert.IsType<LibraryInspection>(
                 await LibraryMetadataService.InspectAsync(

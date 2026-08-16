@@ -12,6 +12,8 @@ using DotnetInspector.Views;
 
 namespace DotnetInspector.Tests;
 
+// Mutates the process-global CoreCache root; serialize with in-process CLI/cache tests (#3471).
+[Collection("Console")]
 public sealed class PackageInspectorMetadataSourceTests : IDisposable
 {
     private readonly string _root = Path.Combine(
@@ -21,7 +23,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     public PackageInspectorMetadataSourceTests()
     {
         Directory.CreateDirectory(_root);
-        TestCache.InitializeSharedCore();
+        CoreCache.Initialize("dotnet-inspect-test");
     }
 
     [Fact]
