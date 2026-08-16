@@ -921,6 +921,7 @@ public class PackageCommand
                     // Capture output for projection diagnostics
                     var sw = new StringWriter { NewLine = "\n" };
                     var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
+                    writerOpts.RowWindow = RowWindow.ToMarkout(options.Rows);
                     var view = new InspectionResultView(result);
                     var rendered = OutputFormatter.RenderTable(!options.NoHeader,
                         (writer, formatter) =>
@@ -3642,7 +3643,12 @@ public class PackageCommand
                 CommandError.WriteNote("matched sections have no data across all libraries.");
 
             var projection = CaptureAllLibrariesCounts(
-                inspections, sections, libraryOptions, pipeline);
+                packageName,
+                version,
+                inspections,
+                sections,
+                libraryOptions,
+                pipeline);
             var ordered = OutputFormatter.ResolveCountMapSections(
                 pipeline, libraryOptions.IncludeSections, libraryOptions.FixedOverview);
             CountOutput.Write(
@@ -3992,7 +3998,13 @@ public class PackageCommand
 
         OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
         {
-            var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
+            var writerOptions = OutputFormatter.CreateProjectedWriterOptions(
+                options.Columns,
+                options.Fields);
+            OutputFormatter.ConfigureTableWriterOptions(
+                writerOptions,
+                options.Tsv,
+                options.Jsonl);
             var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
             markoutWriter.WriteTable(table.Headers, table.StableHeaders, table.Rows);
             markoutWriter.Flush();
@@ -4328,6 +4340,8 @@ public class PackageCommand
         };
 
     private static CountProjection CaptureAllLibrariesCounts(
+        string packageName,
+        string version,
         List<LibraryInspection> inspections,
         List<string> sections,
         LibraryOptions options,
@@ -4337,6 +4351,30 @@ public class PackageCommand
 
         foreach (var section in sections)
         {
+            if (BuildAllLibrariesTable(
+                    packageName,
+                    version,
+                    inspections,
+                    section) is { } table)
+            {
+                var writerOptions =
+                    OutputFormatter.CreateProjectedWriterOptions(
+                        options.Columns,
+                        options.Fields,
+                        options.Rows);
+                projection.Merge(CountProjectionFormatter.Capture(
+                    writer =>
+                    {
+                        writer.WriteHeading(2, section);
+                        writer.WriteTable(
+                            table.Headers,
+                            table.StableHeaders,
+                            table.Rows);
+                    },
+                    writerOptions));
+                continue;
+            }
+
             if (IsAggregatedAllLibrariesSection(section))
             {
                 if (BuildAggregatedSection(section, inspections) is { } document)

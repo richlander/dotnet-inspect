@@ -21825,13 +21825,25 @@ public partial class CommandExecutionTests
                 "--rows",
                 "1",
                 "--count");
+            var projected = await RunAppAsync(
+                "package",
+                package,
+                "-S",
+                "Package files",
+                "--jsonl",
+                "--columns",
+                "Path",
+                "--rows",
+                "1");
 
             Assert.Equal(0, full.Exit);
             Assert.Equal(0, windowed.Exit);
             Assert.Equal(0, count.Exit);
+            Assert.Equal(0, projected.Exit);
             Assert.Empty(full.Error);
             Assert.Empty(windowed.Error);
             Assert.Empty(count.Error);
+            Assert.Empty(projected.Error);
             Assert.True(
                 full.Output.Split(
                     '\n',
@@ -21841,6 +21853,57 @@ public partial class CommandExecutionTests
                     '\n',
                     StringSplitOptions.RemoveEmptyEntries));
             using var _ = JsonDocument.Parse(row);
+            string projectedRow = Assert.Single(
+                projected.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+            using var projectedDocument = JsonDocument.Parse(projectedRow);
+            Assert.Equal(
+                ["path"],
+                projectedDocument.RootElement
+                    .EnumerateObject()
+                    .Select(property => property.Name));
+            Assert.Equal("1", count.Output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_AllLibraries_CountWindowsCombinedTableOnce()
+    {
+        var (package, directory) = CreateLocalLibPackage();
+        try
+        {
+            var rows = await RunAppAsync(
+                "package",
+                package,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--jsonl",
+                "--rows",
+                "1");
+            var count = await RunAppAsync(
+                "package",
+                package,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--count",
+                "--rows",
+                "1");
+
+            Assert.Equal(0, rows.Exit);
+            Assert.Equal(0, count.Exit);
+            Assert.Contains("Using TFM:", rows.Error);
+            Assert.Contains("Using TFM:", count.Error);
+            Assert.Single(
+                rows.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
             Assert.Equal("1", count.Output.Trim());
         }
         finally
