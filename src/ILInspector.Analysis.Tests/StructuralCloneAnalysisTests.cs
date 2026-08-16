@@ -931,6 +931,31 @@ public class StructuralCloneAnalysisTests
     }
 
     [Fact]
+    public void Compare_MalformedMetadataRootFailsWithoutThrowing()
+    {
+        byte[] bytes = BuildTwinAssembly([0x2A]);
+        using (PEReader validImage = OpenImage(bytes))
+            bytes[validImage.PEHeaders.MetadataStartOffset] = 0;
+        using PEReader image = OpenImage(bytes);
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneDisposition.Failed,
+            comparison.Disposition);
+        Assert.Null(comparison.Relation);
+        Assert.Contains(
+            comparison.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneBlockerKind.MetadataReadFailure);
+    }
+
+    [Fact]
     public void Compare_EdgeLimitPrecedesMetadataOperandValidation()
     {
         using PEReader image = OpenImage(

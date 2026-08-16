@@ -260,15 +260,33 @@ public static class StructuralCloneAnalysis
                 "Structural clone comparison requires a managed metadata image.",
                 nameof(image));
 
-        MetadataReader reader = image.GetMetadataReader();
-        ValidateHandle(reader, left, nameof(left));
-        ValidateHandle(reader, right, nameof(right));
         ValidateLimits(limits ??= new StructuralCloneComparisonLimits());
 
         MetadataMethodAddress leftAddress =
             new(Guid.Empty, left);
         MetadataMethodAddress rightAddress =
             new(Guid.Empty, right);
+        MetadataReader reader;
+        try
+        {
+            reader = image.GetMetadataReader();
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            return MetadataReadFailure(
+                leftAddress,
+                rightAddress,
+                "metadata root",
+                ex);
+        }
+
+        ValidateHandle(reader, left, nameof(left));
+        ValidateHandle(reader, right, nameof(right));
         try
         {
             ModuleDefinition module = reader.GetModuleDefinition();
@@ -288,19 +306,11 @@ public static class StructuralCloneAnalysis
                 or InvalidOperationException
                 or OverflowException)
         {
-            return StructuralCloneComparison.NotCompleted(
+            return MetadataReadFailure(
                 leftAddress,
                 rightAddress,
-                StructuralCloneDisposition.Failed,
-                [
-                    new StructuralCloneBlocker(
-                        StructuralCloneBlockerKind.MetadataReadFailure,
-                        StructuralCloneSide.Both,
-                        $"The module identity is invalid: "
-                            + $"{ex.GetType().Name}: {ex.Message}"),
-                ],
-                new StructuralCloneVerificationReceipt(
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false));
+                "module identity",
+                ex);
         }
         BodyProduction leftBody =
             Produce(image, reader, leftAddress, StructuralCloneSide.Left, limits);
@@ -323,6 +333,25 @@ public static class StructuralCloneAnalysis
 
         return Compare(leftBody.Facts!, rightBody.Facts!, limits);
     }
+
+    static StructuralCloneComparison MetadataReadFailure(
+        MetadataMethodAddress leftAddress,
+        MetadataMethodAddress rightAddress,
+        string subject,
+        Exception exception) =>
+        StructuralCloneComparison.NotCompleted(
+            leftAddress,
+            rightAddress,
+            StructuralCloneDisposition.Failed,
+            [
+                new StructuralCloneBlocker(
+                    StructuralCloneBlockerKind.MetadataReadFailure,
+                    StructuralCloneSide.Both,
+                    $"The {subject} is invalid: "
+                        + $"{exception.GetType().Name}: {exception.Message}"),
+            ],
+            new StructuralCloneVerificationReceipt(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false));
 
     internal static StructuralCloneComparison Compare(
         StructuralCloneBodyFacts left,
