@@ -610,13 +610,18 @@ public sealed class LeakTriageAnalyzerTests
             failed.Error.Reason);
     }
 
-    [Fact]
-    public void ResourceLifecycleAnalysis_MalformedCatchTypeIsVisible()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ResourceLifecycleAnalysis_MalformedCatchTypeIsVisible(
+        bool nilCatchType)
     {
         byte[] image = File.ReadAllBytes(
             typeof(ArrayPoolLeakFixtures).Assembly.Location);
         int methodToken =
-            ReplaceCatchTypeWithMethodDefinition(image);
+            ReplaceCatchTypeWithMethodDefinition(
+                image,
+                nilCatchType);
 
         var inspection = ResourceLifecycleAnalysis.InspectAssembly(
             () => LibraryBodyIndex.OpenFromPrefetchedImage(
@@ -1521,7 +1526,8 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     static int ReplaceCatchTypeWithMethodDefinition(
-        byte[] image)
+        byte[] image,
+        bool nilCatchType)
     {
         using var stream = new MemoryStream(image, writable: false);
         using var peReader = new PEReader(stream);
@@ -1576,7 +1582,7 @@ public sealed class LeakTriageAnalyzerTests
                         image.AsSpan(
                             clause + (fat ? 20 : 8),
                             4),
-                        replacementToken);
+                        nilCatchType ? 0 : replacementToken);
                     return replacementToken;
                 }
             }
