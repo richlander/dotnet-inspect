@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -50,6 +51,76 @@ public class MemberIdentityValueEqualityTests
                 .AsyncSiblingTypeIdentity(left)
                 .Length < 10_000);
     }
+
+    [Fact]
+    public void TypeRefShallowEqualityAndHashing_DoNotAllocate()
+    {
+        TypeRef leftLeaf = TypeRef.CoreLib("System", "Int32");
+        TypeRef rightLeaf = TypeRef.CoreLib("System", "Int32");
+        TypeRef definition =
+            TypeRef.Definition("Sample", "Sample", "Pair`2");
+        TypeRef leftGeneric =
+            TypeRef.GenericInstance(
+                definition,
+                [leftLeaf, TypeRef.CoreLib("System", "String")]);
+        TypeRef rightGeneric =
+            TypeRef.GenericInstance(
+                TypeRef.Definition("Sample", "Sample", "Pair`2"),
+                [rightLeaf, TypeRef.CoreLib("System", "String")]);
+
+        Assert.Equal(
+            0,
+            MeasureEqualityAllocations(leftLeaf, leftLeaf));
+        Assert.Equal(
+            0,
+            MeasureEqualityAllocations(leftLeaf, rightLeaf));
+        Assert.Equal(
+            0,
+            MeasureHashAllocations(leftLeaf));
+        Assert.Equal(
+            0,
+            MeasureEqualityAllocations(leftGeneric, rightGeneric));
+        Assert.Equal(
+            0,
+            MeasureHashAllocations(leftGeneric));
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static long MeasureEqualityAllocations(
+        TypeRef left,
+        TypeRef right)
+    {
+        bool result = false;
+        for (int i = 0; i < 1_000; i++)
+            result ^= left.Equals(right);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 1_000; i++)
+            result ^= left.Equals(right);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        Consume(result);
+        return allocated;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static long MeasureHashAllocations(TypeRef type)
+    {
+        int result = 0;
+        for (int i = 0; i < 1_000; i++)
+            result ^= type.GetHashCode();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 1_000; i++)
+            result ^= type.GetHashCode();
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        Consume(result);
+        return allocated;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static void Consume<T>(T value) { }
 
     static readonly TypeRef DeclaringType = TypeRef.Definition(
         "Example",

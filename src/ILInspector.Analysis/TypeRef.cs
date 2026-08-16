@@ -263,6 +263,15 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         if (other is null)
             return false;
+        int fastPathBudget = 64;
+        TypeRefComparison fastPath = TryEqualsShallow(
+            this,
+            other,
+            depth: 0,
+            ref fastPathBudget);
+        if (fastPath != TypeRefComparison.Fallback)
+            return fastPath == TypeRefComparison.Equal;
+
         var pending = new Stack<(TypeRef Left, TypeRef Right)>();
         var visited = new HashSet<(TypeRef Left, TypeRef Right)>(
             TypeRefPairReferenceComparer.Instance);
@@ -314,10 +323,123 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public override bool Equals(object? obj) => Equals(obj as TypeRef);
 
     public override int GetHashCode()
-        => StructuralHash(
+    {
+        int fastPathBudget = 64;
+        if (TryStructuralHashShallow(
+                this,
+                depth: 0,
+                ref fastPathBudget,
+                out int hash))
+        {
+            return hash;
+        }
+        return StructuralHash(
             this,
             new Dictionary<TypeRef, int>(
                 ReferenceEqualityComparer.Instance));
+    }
+
+    static TypeRefComparison TryEqualsShallow(
+        TypeRef left,
+        TypeRef right,
+        int depth,
+        ref int budget)
+    {
+        if (ReferenceEquals(left, right))
+            return TypeRefComparison.Equal;
+        if (left.Kind != right.Kind
+            || !StringComparer.OrdinalIgnoreCase.Equals(
+                left.Assembly,
+                right.Assembly)
+            || left.Namespace != right.Namespace
+            || left.Name != right.Name
+            || left.Rank != right.Rank
+            || left.GenericParameterIndex
+                != right.GenericParameterIndex
+            || left.UnsupportedReason
+                != right.UnsupportedReason
+            || (left.ElementType is null)
+                != (right.ElementType is null)
+            || left.TypeArguments.Length
+                != right.TypeArguments.Length)
+        {
+            return TypeRefComparison.NotEqual;
+        }
+        if (budget-- == 0 || depth == 8)
+            return TypeRefComparison.Fallback;
+        if (left.ElementType is not null)
+        {
+            TypeRefComparison element = TryEqualsShallow(
+                left.ElementType,
+                right.ElementType!,
+                depth + 1,
+                ref budget);
+            if (element != TypeRefComparison.Equal)
+                return element;
+        }
+        for (int i = 0; i < left.TypeArguments.Length; i++)
+        {
+            TypeRefComparison argument = TryEqualsShallow(
+                left.TypeArguments[i],
+                right.TypeArguments[i],
+                depth + 1,
+                ref budget);
+            if (argument != TypeRefComparison.Equal)
+                return argument;
+        }
+        return TypeRefComparison.Equal;
+    }
+
+    static bool TryStructuralHashShallow(
+        TypeRef type,
+        int depth,
+        ref int budget,
+        out int result)
+    {
+        result = 0;
+        if (budget-- == 0 || depth == 8)
+            return false;
+        var hash = new HashCode();
+        hash.Add(type.Kind);
+        hash.Add(
+            type.Assembly,
+            StringComparer.OrdinalIgnoreCase);
+        hash.Add(type.Namespace);
+        hash.Add(type.Name);
+        hash.Add(type.Rank);
+        hash.Add(type.GenericParameterIndex);
+        hash.Add(type.UnsupportedReason);
+        if (type.ElementType is null)
+        {
+            hash.Add(0);
+        }
+        else
+        {
+            if (!TryStructuralHashShallow(
+                    type.ElementType,
+                    depth + 1,
+                    ref budget,
+                    out int elementHash))
+            {
+                return false;
+            }
+            hash.Add(elementHash);
+        }
+        foreach (TypeRef argument in type.TypeArguments)
+        {
+            if (!TryStructuralHashShallow(
+                    argument,
+                    depth + 1,
+                    ref budget,
+                    out int argumentHash))
+            {
+                return false;
+            }
+            hash.Add(argumentHash);
+        }
+        result = hash.ToHashCode();
+        return true;
+    }
 
     static int StructuralHash(
         TypeRef type,
@@ -367,6 +489,13 @@ public sealed class TypeRef : IEquatable<TypeRef>
             => HashCode.Combine(
                 RuntimeHelpers.GetHashCode(pair.Left),
                 RuntimeHelpers.GetHashCode(pair.Right));
+    }
+
+    enum TypeRefComparison
+    {
+        Equal,
+        NotEqual,
+        Fallback,
     }
 
     string DisplayName()
