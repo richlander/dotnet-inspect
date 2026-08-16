@@ -432,6 +432,162 @@ public class FidelityCheckGeneratedFilterTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void Evaluate_UsesProductWholeMemberForGenericExplicitInterfaceMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IGenericMethod
+            {
+                T Echo<T>(T value) where T : class;
+            }
+
+            public sealed class GenericMethodFixture : IGenericMethod
+            {
+                T IGenericMethod.Echo<T>(T value) => value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "GenericMethodFixture",
+                    candidate => candidate.Method == "IGenericMethod.Echo"));
+            Assert.True(result.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Evaluate_DeclinesQualifiedExplicitInterfaceWhenTypeShadowsNamespace()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace N
+            {
+                public sealed class N { }
+                public interface I { void M(); }
+                public sealed class C : I { void I.M() { } }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == "C"));
+            var method = Assert.Single(
+                type.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "N.I.M");
+            using var source = MetadataSource.Open(assemblyPath);
+
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                method,
+                targeted: true,
+                isPrimaryConstructor: false));
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "N.C",
+                    candidate => candidate.Method == "N.I.M"));
+            Assert.False(result.UsedProductWholeMember);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesMismatchedMethodImplBodyName()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "fixture.dll");
+        try
+        {
+            var assemblyName = new AssemblyName("MismatchedExplicitMethod");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+            var iType = module.DefineType(
+                "I",
+                TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+            var iMethod = iType.DefineMethod(
+                "M",
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                typeof(void),
+                Type.EmptyTypes);
+            var jType = module.DefineType(
+                "J",
+                TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+            jType.DefineMethod(
+                "M",
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                typeof(void),
+                Type.EmptyTypes);
+            var type = module.DefineType(
+                "C",
+                TypeAttributes.Public | TypeAttributes.Sealed,
+                typeof(object),
+                [iType]);
+            type.DefineDefaultConstructor(MethodAttributes.Public);
+            var body = type.DefineMethod(
+                "J.M",
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                typeof(void),
+                Type.EmptyTypes);
+            body.GetILGenerator().Emit(OpCodes.Ret);
+            type.DefineMethodOverride(body, iMethod);
+            iType.CreateType();
+            jType.CreateType();
+            type.CreateType();
+            assemblyBuilder.Save(assemblyPath);
+
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var typeDef = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == "C"));
+            var method = Assert.Single(
+                typeDef.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "J.M");
+            using var source = MetadataSource.Open(assemblyPath);
+
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                method,
+                targeted: true,
+                isPrimaryConstructor: false));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void Evaluate_DeclinesProductWholeMemberForMultiMethodExplicitInterface()
     {
         var assemblyPath = CompileFixture("""

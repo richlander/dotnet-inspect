@@ -3011,7 +3011,7 @@ static class FidelityCheck
                     reader.GetTypeDefinition(target.Interface),
                     interfaceMethod)))
             {
-                interfaces.Add(Clean(target.InterfaceName));
+                interfaces.Add($"global::{Clean(target.InterfaceName)}");
             }
         }
         foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
@@ -3045,6 +3045,8 @@ static class FidelityCheck
     {
         if (ShapeOf(reader, typeDef) != TypeKind.Class)
             return [];
+        if (!typeDef.GetDeclaringType().IsNil)
+            return [];
 
         var directInterfaces = typeDef.GetInterfaceImplementations()
             .Select(handle => reader.GetInterfaceImplementation(handle).Interface)
@@ -3073,11 +3075,15 @@ static class FidelityCheck
             }
 
             var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
+            string expectedBodyName =
+                $"{interfaceName}.{reader.GetString(declaration.Name)}";
             if (interfaceDef.GetInterfaceImplementations().Count != 0
                 || interfaceDef.GetProperties().Count != 0
                 || interfaceDef.GetEvents().Count != 0
                 || interfaceDef.GetMethods().Count != 1
                 || interfaceDef.GetMethods().Single() != declarationHandle
+                || reader.GetString(body.Name) != expectedBodyName
+                || HasQualifiedInterfaceRootCollision(reader, typeDef, interfaceName)
                 || body.Attributes.HasFlag(MethodAttributes.Static)
                 || declaration.Attributes.HasFlag(MethodAttributes.Static)
                 || declaration.Attributes.HasFlag(MethodAttributes.SpecialName)
@@ -3095,6 +3101,38 @@ static class FidelityCheck
         }
 
         return targets;
+    }
+
+    static bool HasQualifiedInterfaceRootCollision(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        string interfaceName)
+    {
+        int separator = interfaceName.IndexOf('.');
+        if (separator < 0)
+            return false;
+
+        string root = interfaceName[..separator];
+        string targetNamespace = reader.GetString(typeDef.Namespace);
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var candidate = reader.GetTypeDefinition(handle);
+            if (candidate.GetDeclaringType().IsNil
+                && reader.StringComparer.Equals(candidate.Namespace, targetNamespace)
+                && StripArity(reader.GetString(candidate.Name)) == root)
+            {
+                return true;
+            }
+        }
+
+        foreach (var parameterHandle in typeDef.GetGenericParameters())
+        {
+            var parameter = reader.GetGenericParameter(parameterHandle);
+            if (reader.GetString(parameter.Name) == root)
+                return true;
+        }
+
+        return false;
     }
 
     static string CombineInheritance(string baseClause, string interfaceClause)
@@ -4083,9 +4121,11 @@ static class FidelityCheck
     /// because the scaffold already applies the
     /// decompiler's separately captured lifted field initializers to reconstructed
     /// fields, while property and event renders own both accessor declarations and bodies.
-    /// Multi-member, generic, nested, external, or static explicit-interface
-    /// shapes, field-like and explicit-interface events, and finalizers that
-    /// cannot be recovered as destructors remain on their existing fallback paths.
+    /// Multi-member, generic-interface, nested, external, static, or
+    /// name-colliding explicit-interface shapes, field-like and
+    /// explicit-interface events, and finalizers that cannot be recovered as
+    /// destructors remain on their existing fallback paths. Generic methods on an
+    /// otherwise eligible non-generic interface are supported.
     /// Non-essential custom attributes are omitted because the skeleton does not
     /// reproduce arbitrary attribute inheritance; compilation-required attributes
     /// such as <c>SkipLocalsInit</c> remain.
