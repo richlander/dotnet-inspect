@@ -163,6 +163,22 @@ that assumes the payload is dangerous and the wrapper is what holds it back. Her
 the payload is already inert. Losing the wrapper loses provenance, not
 protection.
 
+`TextConcern` retains why visual containment occurred: control, format/bidi,
+unpaired surrogate, line separator, or paragraph separator. The flags are
+captured while the untreated scalar is available and travel with the
+`InertString` through composition, policy tightening, bounding, and persistence
+restoration. An audit can therefore aggregate categories without importing the
+decoder or retaining a second raw copy. `RequiredContainment` is exactly
+`Concerns != None`; a literal backslash may affect `VisualForm` to preserve
+invertibility but contributes no concern.
+The package presentation boundary also records the model-field location when a
+source value first becomes an `InertString`. That provenance is kept separately
+from the payload, so `Audit: Artifact Text` can list locations and category
+kinds without retaining or redisplaying artifact content.
+`Concerns_SurviveCompositionRestorationAndBounding` and
+`Concerns_RespectThePolicyThatProducedTheValue` gate that propagation, and
+`Concerns_ClassifyWhyContainmentOccurred` gates the categories.
+
 ## Where text becomes inert
 
 The tempting answer is "as early as possible": have every API that returns
@@ -346,30 +362,55 @@ compiler: there is no conversion that would let a `string` into any of those
 fields. That is a stronger enforcement than a test, and it is the reason to
 prefer carrying the type over re-checking the text.
 
-Package descriptions are the second worked example. A nuspec description is
+Package inspection is the second worked example. A nuspec description is
 presentation-bound from the moment it is parsed, so `NuspecData.Description`
 contains it under `TextPolicy.Prose`; `InspectionResult.Description` carries the
-same `InertString`; and only the two sinks take it apart. JSON writes its encoded
-text as a JSON string, leaving structural escaping to the serializer. Markdown
-prefixes every line as a quotation, so package-authored headings and tables
-remain visibly package content rather than becoming peer structures in tool
-output. The line-oriented package cache is a persistence sink: it stores the
-exact encoded value in a length-delimited UTF-8 segment, then reconstructs the
-wrapper with `InertString.FromEncoded(TextPolicy.Prose, ...)` on read. Neither
-operation recovers the untreated description, and the cache consumer never
-names the decoder capability namespace. `PackageIndexCacheTests` gates that
-round-trip, malformed-entry rejection, and the distinction between null and
-empty descriptions.
-`NuspecHardeningTests.PresentationBoundDescription_IsCarriedAsInertString` gates
-the two model fields, and
-`HostileDescription_RemainsQuotedInMarkdownAndContainedInJson` gates both sinks.
+same `InertString`. The line-oriented package cache is a persistence sink: it
+stores the exact encoded value in a length-delimited UTF-8 segment, then
+reconstructs the wrapper with
+`InertString.FromEncoded(TextPolicy.Prose, ...)` on read. Neither operation
+recovers the untreated description, and the cache consumer never names the
+decoder capability namespace. `PackageIndexCacheTests` gates that round-trip,
+malformed-entry rejection, and the distinction between null and empty
+descriptions.
 
-The other nuspec fields remain `string` deliberately. Package IDs, versions,
-dependency coordinates, and readme paths participate in identity, parsing,
-matching, and path resolution before any of them reaches presentation. Encoding
-them at acquisition would change those answers. Their known grammars want typed
-allow-list rejection instead, which is a separate contract from
-presentation-bound prose.
+The other package fields stay exact while they participate in identity,
+parsing, matching, path selection, and dependency resolution. Encoding a
+package ID or readme path at acquisition would change those answers. At the
+last shared boundary after that work, `PackageInspectionText` projects every
+output-bound string to `InertString`. `InspectionResultView`,
+`PackageInspectionJson`, and the focused package table, JSONL, and content
+metadata rows consume that currency, so package renderers cannot disagree about
+which metadata crossed containment. Markdown takes strings apart only in its
+sink properties; structured rows do so only in serializer-facing getters.
+Document bodies remain raw payload values under the explicit contract described
+in `output-shapes.md`; structured modes apply JSON escaping. The package file
+collection is projected lazily, so an ordinary summary does not allocate one
+wrapper per archive entry; asking for its section or for the exhaustive
+aggregate materializes it.
+
+`PackageInspectionText.RequiredContainment` ORs the typed values before either
+sink unwraps them. It is complete for package inspection, not for every
+`dotnet-inspect` command, and therefore does not yet justify global trust-axis
+flags. `PresentationProjection_CoversEveryPackageModelTextProperty` derives the
+model-to-currency coverage set, and
+`RequiredContainment_CoversEveryPackageTextSourceIndividually` derives that
+source set again and makes exactly one field hostile per aggregate assertion.
+`JsonProjection_ContainsEveryArtifactTextScalar` supplies the hostile
+non-vacuity gate, and
+`JsonProjection_PreservesTheBenignInspectionResultContract` pins the existing
+structured schema and benign values.
+`PackageFileText_IsLazyUntilTheAggregateRequiresIt` and
+`PackageFileFamily_ProjectsOnlySelectedRows` gate the large-collection
+allocation boundary. `PayloadLensContainmentTests` gates the focused table,
+JSONL, content-metadata, and dependency-tree sinks while preserving raw
+document payloads. The description-specific gates remain
+`NuspecHardeningTests.PresentationBoundDescription_IsCarriedAsInertString` and
+`HostileDescription_RemainsQuotedInMarkdownAndContainedInJson`.
+
+Known grammars still want typed allow-list rejection in addition to this
+presentation boundary. Containment prevents a sink from acting on a package ID;
+it does not make an invalid ID valid.
 
 ## Holding a value is not the same as being able to reverse it
 
@@ -643,6 +684,17 @@ and asserts the boundary directly: *no* `TextPolicy` refuses it, swept over
 edit. Category rules cannot catch it and none should, since refusing every
 non-Latin letter would break most of the world's text. A corpus containing only
 what the policies catch would quietly imply they are sufficient.
+
+The identifier audit handles that boundary separately from `TextPolicy`.
+Package IDs and assembly names have an identity role in which non-ASCII
+characters are useful evidence even though they are safe graphic text. The
+audit therefore reports every non-ASCII identifier and gives exact folded
+`System`, `Microsoft`, and `Azure` candidates a bounded Greek/Cyrillic
+homoglyph classification. It does not change or contain the value, and it never
+echoes the identifier in the Signal or audit rows. Keeping this discriminator
+separate means `TextConcern` continues to answer whether rendering required
+containment while the identifier concern answers whether an identity deserves
+review.
 
 ## Placement
 

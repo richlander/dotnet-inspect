@@ -156,6 +156,9 @@ public class AssemblyDependencyResolverTests
             Assert.Equal(
                 AssemblyBindingFailureKind.CandidateUnavailable,
                 selection.Failure.Kind);
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                selection.Failure.CandidateFailureKind);
         }
         finally
         {
@@ -201,6 +204,9 @@ public class AssemblyDependencyResolverTests
             Assert.Equal(
                 AssemblyBindingFailureKind.CandidateUnavailable,
                 selection.Failure.Kind);
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                selection.Failure.CandidateFailureKind);
         }
         finally
         {
