@@ -700,7 +700,7 @@ public static class AttributeReader
             return true;
 
         byte[] bytes = ArrayPool<byte>.Shared.Rent(Math.Min(byteCount, 4096));
-        char[] chars = ArrayPool<char>.Shared.Rent(4096);
+        char[] chars = ArrayPool<char>.Shared.Rent(bytes.Length + 1);
         try
         {
             Decoder decoder = Encoding.UTF8.GetDecoder();

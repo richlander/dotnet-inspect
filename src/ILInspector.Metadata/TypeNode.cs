@@ -305,17 +305,38 @@ internal sealed class NamedTypeNode(string name, bool isReferenceType) : TypeNod
 }
 
 /// <summary>Generic instantiations (Dictionary&lt;K,V&gt;, Task&lt;T&gt;, etc.).</summary>
-internal sealed class GenericTypeNode(
-    string baseName,
-    bool isReferenceType,
-    ImmutableArray<TypeNode> arguments,
-    string nestedSuffix = "",
-    bool degradedGenericType = false) : TypeNode
+internal sealed class GenericTypeNode : TypeNode
 {
-    public string BaseName => baseName;
-    public ImmutableArray<TypeNode> Arguments => arguments;
-    public override bool IsReferenceType => isReferenceType;
-    public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);
+    readonly string _metadataName;
+    readonly string _nestedSuffix;
+    readonly bool _useMetadataArity;
+    readonly bool _isReferenceType;
+    readonly bool _degradedGenericType;
+
+    public GenericTypeNode(
+        string baseName,
+        bool isReferenceType,
+        ImmutableArray<TypeNode> arguments,
+        string nestedSuffix = "",
+        bool degradedGenericType = false,
+        bool useMetadataArity = false)
+    {
+        _metadataName = baseName;
+        _nestedSuffix = nestedSuffix;
+        _useMetadataArity = useMetadataArity;
+        _isReferenceType = isReferenceType;
+        _degradedGenericType = degradedGenericType;
+        Arguments = arguments;
+
+        int backtick = useMetadataArity ? baseName.IndexOf('`') : -1;
+        BaseName = backtick < 0 ? baseName : baseName[..backtick];
+    }
+
+    public string BaseName { get; }
+    public ImmutableArray<TypeNode> Arguments { get; }
+    public override bool IsReferenceType => _isReferenceType;
+    public override bool IsDegraded =>
+        _degradedGenericType || Arguments.Any(argument => argument.IsDegraded);
 
     public override string Render(bool canonicalTuples)
     {
@@ -333,8 +354,47 @@ internal sealed class GenericTypeNode(
             return IsReferenceType && IsNullableAnnotated ? $"{tuple}?" : tuple;
         }
 
-        var argsStr = string.Join(", ", arguments.Select(a => a.Render(canonicalTuples)));
-        var result = $"{baseName}<{argsStr}>{nestedSuffix}";
+        string result;
+        if (_useMetadataArity)
+        {
+            var builder = new System.Text.StringBuilder();
+            int argumentIndex = 0;
+            for (int index = 0; index < _metadataName.Length; index++)
+            {
+                if (_metadataName[index] != '`'
+                    || !TryReadArity(
+                        _metadataName,
+                        index,
+                        out int digitEnd,
+                        out int arity))
+                {
+                    builder.Append(_metadataName[index]);
+                    continue;
+                }
+
+                int take = Math.Min(arity, Arguments.Length - argumentIndex);
+                builder.Append('<');
+                for (int offset = 0; offset < take; offset++)
+                {
+                    if (offset > 0)
+                        builder.Append(", ");
+                    builder.Append(
+                        Arguments[argumentIndex + offset].Render(
+                            canonicalTuples));
+                }
+                builder.Append('>');
+                argumentIndex += take;
+                index = digitEnd - 1;
+            }
+            result = builder.ToString();
+        }
+        else
+        {
+            var argsStr = string.Join(
+                ", ",
+                Arguments.Select(argument => argument.Render(canonicalTuples)));
+            result = $"{BaseName}<{argsStr}>{_nestedSuffix}";
+        }
         return IsReferenceType && IsNullableAnnotated ? $"{result}?" : result;
     }
 
@@ -351,18 +411,54 @@ internal sealed class GenericTypeNode(
             return 2 + elementsLength + (IsReferenceType && IsNullableAnnotated ? 1 : 0);
         }
 
-        return baseName.Length
-            + 2
-            + JoinedLength(arguments.Select(argument => argument.RenderLength(canonicalTuples)))
-            + nestedSuffix.Length
-            + (IsReferenceType && IsNullableAnnotated ? 1 : 0);
+        long length;
+        if (_useMetadataArity)
+        {
+            length = 0;
+            int argumentIndex = 0;
+            for (int index = 0; index < _metadataName.Length; index++)
+            {
+                if (_metadataName[index] != '`'
+                    || !TryReadArity(
+                        _metadataName,
+                        index,
+                        out int digitEnd,
+                        out int arity))
+                {
+                    length++;
+                    continue;
+                }
+
+                int take = Math.Min(arity, Arguments.Length - argumentIndex);
+                length += 2;
+                for (int offset = 0; offset < take; offset++)
+                {
+                    if (offset > 0)
+                        length += 2;
+                    length += Arguments[argumentIndex + offset].RenderLength(
+                        canonicalTuples);
+                }
+                argumentIndex += take;
+                index = digitEnd - 1;
+            }
+        }
+        else
+        {
+            length = BaseName.Length
+                + 2
+                + JoinedLength(
+                    Arguments.Select(
+                        argument => argument.RenderLength(canonicalTuples)))
+                + _nestedSuffix.Length;
+        }
+        return length + (IsReferenceType && IsNullableAnnotated ? 1 : 0);
     }
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
         byte b = ConsumeByte(bytes, ref position, defaultByte);
         if (IsReferenceType && b == 2) IsNullableAnnotated = true;
-        foreach (var arg in arguments)
+        foreach (var arg in Arguments)
             arg.ApplyNullability(bytes, ref position, defaultByte);
     }
 
@@ -370,8 +466,26 @@ internal sealed class GenericTypeNode(
     {
         // The generic-type head is never object; it still consumes a flag.
         ConsumeDynamicFlag(flags, ref position, canBeDynamic: false);
-        foreach (var arg in arguments)
+        foreach (var arg in Arguments)
             arg.ApplyDynamic(flags, ref position);
+    }
+
+    static bool TryReadArity(
+        string name,
+        int backtick,
+        out int digitEnd,
+        out int arity)
+    {
+        int digitStart = backtick + 1;
+        digitEnd = digitStart;
+        arity = 0;
+        while (digitEnd < name.Length && char.IsDigit(name[digitEnd]))
+            digitEnd++;
+        return digitEnd > digitStart
+            && int.TryParse(
+                name.AsSpan(digitStart, digitEnd - digitStart),
+                out arity)
+            && arity > 0;
     }
 }
 

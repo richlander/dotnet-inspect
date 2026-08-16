@@ -205,6 +205,32 @@ public class AttributeReaderTests
             pair => Assert.InRange(pair.First, 0, pair.Second.Length));
     }
 
+    [Fact]
+    public void RenderAttributes_TypeArgumentSplitAcrossUtf8Chunks_DoesNotThrow()
+    {
+        using var provider = BuildSyntheticTypeAttribute();
+        MetadataReader reader = provider.GetMetadataReader();
+        TypeDefinitionHandle target = reader.TypeDefinitions.Single(
+            handle => reader.GetString(
+                reader.GetTypeDefinition(handle).Name) == "Target");
+        CustomAttributeHandleCollection attributes =
+            reader.GetTypeDefinition(target).GetCustomAttributes();
+        List<long> lowerBounds = [];
+
+        List<string> expected = AttributeReader.RenderAttributes(
+            reader,
+            attributes);
+        List<string> actual = AttributeReader.RenderAttributes(
+            reader,
+            attributes,
+            preflight: lowerBounds.Add);
+
+        Assert.Equal(expected, actual);
+        Assert.Single(actual);
+        Assert.Single(lowerBounds);
+        Assert.InRange(lowerBounds[0], 0, actual[0].Length);
+    }
+
     static CustomAttributeHandleCollection SampleAttributes(MetadataReader reader)
     {
         var handle = reader.TypeDefinitions.Single(h =>
@@ -280,6 +306,87 @@ public class AttributeReaderTests
         var image = new BlobBuilder();
         new MetadataRootBuilder(metadata, suppressValidation: true).Serialize(image, 0, 0);
         return MetadataReaderProvider.FromMetadataImage(ImmutableArray.Create(image.ToArray()));
+    }
+
+    static MetadataReaderProvider BuildSyntheticTypeAttribute()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("SyntheticType.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("SyntheticType"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle coreLib = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.CoreLib"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemType = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Type"));
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("Synthetic"),
+            metadata.GetOrAddString("TypeAttribute"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle target = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Synthetic"),
+            metadata.GetOrAddString("Target"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte((byte)SignatureTypeCode.Void);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(systemType));
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(signature));
+
+        byte[] typeName = Enumerable.Repeat((byte)'a', 8192).ToArray();
+        typeName[4093] = 0xf0;
+        typeName[4094] = 0x9f;
+        typeName[4095] = 0x98;
+        typeName[4096] = 0x80;
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteCompressedInteger(typeName.Length);
+        value.WriteBytes(typeName);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            target,
+            constructor,
+            metadata.GetOrAddBlob(value));
+
+        var image = new BlobBuilder();
+        new MetadataRootBuilder(
+            metadata,
+            suppressValidation: true).Serialize(image, 0, 0);
+        return MetadataReaderProvider.FromMetadataImage(
+            ImmutableArray.Create(image.ToArray()));
     }
 
     static void WriteRepeatedString(BlobBuilder value, int characterCount)

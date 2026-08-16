@@ -84,21 +84,15 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         if (backtickIndex < 0)
             return new GenericTypeNode(rawName, genericType.IsReferenceType, typeArguments);
 
-        // Strip only the arity digits at the first backtick, keeping any trailing
-        // nested-type segment (Dictionary`2.Enumerator -> base "Dictionary",
-        // suffix ".Enumerator") so the instantiation renders Dictionary<…>.Enumerator
-        // rather than collapsing to Dictionary<…>.
-        var baseName = rawName[..backtickIndex];
-        var suffixStart = backtickIndex + 1;
-        while (suffixStart < rawName.Length && char.IsDigit(rawName[suffixStart]))
-            suffixStart++;
-        var nestedSuffix = TypeResolver.FormatDisplayName(rawName[suffixStart..]);
+        // Keep metadata arity markers structural. Expanding one to N placeholder
+        // names here lets a few metadata digits allocate gigabytes before the
+        // caller can consult RenderLength.
         return new GenericTypeNode(
-            baseName,
+            rawName,
             genericType.IsReferenceType,
             typeArguments,
-            nestedSuffix,
-            genericType.IsDegraded);
+            degradedGenericType: genericType.IsDegraded,
+            useMetadataArity: true);
     }
 
     public TypeNode GetGenericMethodParameter(GenericContext? context, int index)

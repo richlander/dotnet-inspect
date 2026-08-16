@@ -418,6 +418,7 @@ shared-string and single-signature amplification shapes.
 `AttributeString_IsStoppedBeforeDecodeAndEscaping`,
 `EventComposite_IsStoppedBeforeSignatureMaterialization`,
 `TypeSpecificationPreflight_UsesRetainedGenericGrammar`,
+`TypeSpecificationPreflight_DoesNotExpandHostileNestedArity`,
 `TypeForwarderCount_IsCheckedBeforeFullNameMaterialization`, and
 `TypeForwarderText_IsCheckedBeforeFullNameMaterialization` cover the
 pre-materialization paths above.

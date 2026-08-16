@@ -513,6 +513,26 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void TypeSpecificationPreflight_DoesNotExpandHostileNestedArity()
+    {
+        byte[] image = BuildNestedArityConstraintImage(250_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Contains(
+            "N.Outer<int>.Inner<>",
+            extracted.Surface.Types.Single().TypeParameters.Single().Constraints);
+        Assert.True(
+            allocated < 1_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void TypeForwarderCount_IsCheckedBeforeFullNameMaterialization()
     {
         byte[] image = BuildForwarderImage(1_200_000);
@@ -1145,6 +1165,58 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.GetOrAddString(new string('F', nameCharacters)),
             target,
             0);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNestedArityConstraintImage(int nestedArity)
+    {
+        var metadata = CreateMetadata("NestedArity");
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle outer = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Outer`1"));
+        TypeReferenceHandle inner = metadata.AddTypeReference(
+            outer,
+            default,
+            metadata.GetOrAddString($"Inner`{nestedArity}"));
+        var typeSignature = new BlobBuilder();
+        typeSignature.WriteByte(0x15);
+        typeSignature.WriteByte(0x12);
+        typeSignature.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(inner));
+        typeSignature.WriteCompressedInteger(1);
+        typeSignature.WriteByte(0x08);
+        TypeSpecificationHandle constraint =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(typeSignature));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle surface = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Surface`1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        GenericParameterHandle parameter = metadata.AddGenericParameter(
+            surface,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            0);
+        metadata.AddGenericParameterConstraint(parameter, constraint);
         return Serialize(metadata);
     }
 
