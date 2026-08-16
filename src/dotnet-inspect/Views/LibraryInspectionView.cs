@@ -106,9 +106,9 @@ public class LibraryInspectionView
             .ThenBy(m => m.Signature, StringComparer.OrdinalIgnoreCase)
             .Select(m => new AsyncMethodRow(
                 m.MethodName,
-                MarkoutInline.Code(MetadataTypeNameFormatter.FormatGenericTypeName(m.DeclaringType)),
+                MetadataTypeNameFormatter.FormatGenericTypeName(m.DeclaringType),
                 m.Kind,
-                MarkoutInline.Code(m.Signature)))
+                m.Signature))
             .ToList();
 
     [MarkoutIgnore]
@@ -245,9 +245,9 @@ public class LibraryInspectionView
             .ThenBy(m => m.Signature, StringComparer.OrdinalIgnoreCase)
             .Select(m => new PInvokeMethodRow(
                 m.MethodName,
-                MarkoutInline.Code(MetadataTypeNameFormatter.FormatGenericTypeName(m.DeclaringType)),
+                MetadataTypeNameFormatter.FormatGenericTypeName(m.DeclaringType),
                 m.ModuleName ?? "",
-                MarkoutInline.Code(m.Signature)))
+                m.Signature))
             .ToList();
 
     [MarkoutIgnore]
@@ -1140,16 +1140,26 @@ public record PInvokeMethodRow(
     string Module,
     string Signature)
 {
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string Name { get; init; } = LibraryViewText.Contain(Name);
+    /// <summary>
+    /// Crosses exact classified-method evidence into field-safe presentation text.
+    /// Gate: LibraryFindingConsumerTests.ClassifiedMethodsQueryProjection_PreservesIdentityUntilInertViewBoundary.
+    /// </summary>
+    public string Name { get; init; } =
+        new InertString(TextPolicy.Field, Name).ToString();
 
     [MarkoutPropertyName("Declaring Type")]
-    public string DeclaringType { get; init; } = DeclaringType;
+    public string DeclaringType { get; init; } =
+        MarkoutInline.Code(
+            new InertString(TextPolicy.Field, DeclaringType).ToString());
 
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string Module { get; init; } = LibraryViewText.Contain(Module);
+    /// <inheritdoc cref="Name"/>
+    public string Module { get; init; } =
+        new InertString(TextPolicy.Field, Module).ToString();
 
-    public string Signature { get; init; } = Signature;
+    /// <inheritdoc cref="Name"/>
+    public string Signature { get; init; } =
+        MarkoutInline.Code(
+            new InertString(TextPolicy.Field, Signature).ToString());
 }
 
 [MarkoutSerializable]
@@ -1159,16 +1169,23 @@ public record AsyncMethodRow(
     string Kind,
     string Signature)
 {
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string Name { get; init; } = LibraryViewText.Contain(Name);
+    /// <inheritdoc cref="PInvokeMethodRow.Name"/>
+    public string Name { get; init; } =
+        new InertString(TextPolicy.Field, Name).ToString();
 
     [MarkoutPropertyName("Declaring Type")]
-    public string DeclaringType { get; init; } = DeclaringType;
+    public string DeclaringType { get; init; } =
+        MarkoutInline.Code(
+            new InertString(TextPolicy.Field, DeclaringType).ToString());
 
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
+    /// <inheritdoc cref="PInvokeMethodRow.Name"/>
+    public string Kind { get; init; } =
+        new InertString(TextPolicy.Field, Kind).ToString();
 
-    public string Signature { get; init; } = Signature;
+    /// <inheritdoc cref="PInvokeMethodRow.Name"/>
+    public string Signature { get; init; } =
+        MarkoutInline.Code(
+            new InertString(TextPolicy.Field, Signature).ToString());
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]

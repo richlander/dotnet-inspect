@@ -32,9 +32,9 @@ internal static class AuditSignalBuilder
 
     /// <summary>
     /// Signals derived from classified methods (unsafe public signatures, async kind) read
-    /// <see cref="LibraryInspection.ClassifiedMethodInspection"/>. That data is supplied by the
-    /// declared <c>ScannerClassifiedMethods</c> prerequisite on this scanner's registration, not
-    /// by a scan performed here.
+    /// <see cref="LibraryInspection.ClassifiedMethodInspection"/>. The Signals section declares
+    /// <c>ClassifiedMethodsQuery</c>; typed query results are applied before this CLI-owned
+    /// composition scanner runs.
     /// </summary>
     public static void PopulateLibraryAudit(string assemblyPath, LibraryInspection inspection, VerboseLogger logger)
     {
