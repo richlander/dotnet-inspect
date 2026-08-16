@@ -36,6 +36,43 @@ public class ReferenceEqualityMetadataFactsTests
     }
 
     [Fact]
+    public void SameNameExternalAssembly_DoesNotUseLocalTypeFacts()
+    {
+        string directory = Directory.CreateTempSubdirectory("reference-equality-self-identity-").FullName;
+        try
+        {
+            string v1 = Path.Combine(directory, "v1", "Twin.dll");
+            string v2 = Path.Combine(directory, "v2", "Twin.dll");
+            Directory.CreateDirectory(Path.GetDirectoryName(v1)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(v2)!);
+            File.WriteAllBytes(v1, BuildTwinEnum(new Version(1, 0, 0, 0)));
+            File.WriteAllBytes(v2, BuildSameNameExternalEnumConsumer());
+
+            var resolver = new VersionResolver(v1, v2);
+            using var context = new MetadataContext(resolver);
+            using var source = MetadataSource.OpenWithoutSymbols(v2, resolver, context);
+            var function = IrImporter.Import(source, "Collision.Cases", "Compare");
+            Assert.NotNull(function);
+            IrPasses.Run(function!);
+            function!.CheckInvariant();
+            var type = Assert.Single(function.Descendants.OfType<Comparison>()).Left.ResultType!;
+
+            Assert.Equal(new Version(1, 0, 0, 0), type.ResolutionAssembly?.Version);
+            Assert.Equal(TypeShapeKind.Enum, source.ClassifyResolvedType(type));
+            Assert.Equal(
+                MetadataFactState.No,
+                source.HasOperatorInBindingHierarchy(type, "op_Equality"));
+            string output = CSharpPrinter.Print(function).Output!;
+            Assert.Contains("return left == right;", output);
+            Assert.DoesNotContain("(object)", output);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void WideInterfaceHierarchy_ExhaustsWorkBudget()
     {
         string path = Path.Combine(
@@ -339,6 +376,7 @@ public class ReferenceEqualityMetadataFactsTests
 
     sealed class VersionResolver(string v1, string v2) : IAssemblyReferenceResolver
     {
+        readonly IAssemblyReferenceResolver _runtime = TestAssemblyReferenceResolvers.RuntimeAssemblies();
         readonly Dictionary<Version, string> _paths = new()
         {
             [new Version(1, 0, 0, 0)] = v1,
@@ -354,7 +392,7 @@ public class ReferenceEqualityMetadataFactsTests
                     ? ResolvedAssemblyReference.CreateFromPath(
                         path,
                         AssemblyResolutionProvenance.Local("ReferenceEqualityMetadataFactsTests"))
-                    : null;
+                    : _runtime.Resolve(identity, scope);
     }
 
     static byte[] BuildTwin(Version version, bool hasEquality)
@@ -418,6 +456,147 @@ public class ReferenceEqualityMetadataFactsTests
         }
 
         return Serialize(metadata, new BlobBuilder());
+    }
+
+    static byte[] BuildTwinEnum(Version version)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Twin.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Twin"),
+            version,
+            default,
+            default,
+            default,
+            default);
+        var systemRuntime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a }),
+            default,
+            default);
+        var enumType = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("E"),
+            enumType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        return Serialize(metadata, new BlobBuilder());
+    }
+
+    static byte[] BuildSameNameExternalEnumConsumer()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Twin.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Twin"),
+            new Version(2, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var systemRuntime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a }),
+            default,
+            default);
+        var twinV1 = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Twin"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var objectType = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        var externalEnum = metadata.AddTypeReference(
+            twinV1,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("E"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var localType = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("E"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Collision"),
+            metadata.GetOrAddString("Cases"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+
+        var methodBodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(methodBodies);
+        int compareBody = AddCeqBody(bodyEncoder);
+        var operatorParameters = metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("left"),
+            sequenceNumber: 1);
+        metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("right"),
+            sequenceNumber: 2);
+        var compareParameters = metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("left"),
+            sequenceNumber: 1);
+        metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("right"),
+            sequenceNumber: 2);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("op_Equality"),
+            EqualitySignature(metadata, localType),
+            bodyOffset: 0,
+            operatorParameters);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Compare"),
+            EqualitySignature(metadata, externalEnum, isValueType: true),
+            compareBody,
+            compareParameters);
+
+        return Serialize(metadata, methodBodies);
     }
 
     static byte[] BuildMalformedDynamicField()
@@ -596,7 +775,10 @@ public class ReferenceEqualityMetadataFactsTests
         return encoder.AddMethodBody(instructions, maxStack: 2);
     }
 
-    static BlobHandle EqualitySignature(MetadataBuilder metadata, EntityHandle type)
+    static BlobHandle EqualitySignature(
+        MetadataBuilder metadata,
+        EntityHandle type,
+        bool isValueType = false)
     {
         var signature = new BlobBuilder();
         new BlobEncoder(signature)
@@ -606,8 +788,8 @@ public class ReferenceEqualityMetadataFactsTests
                 returnType => returnType.Type().Boolean(),
                 parameters =>
                 {
-                    parameters.AddParameter().Type().Type(type, isValueType: false);
-                    parameters.AddParameter().Type().Type(type, isValueType: false);
+                    parameters.AddParameter().Type().Type(type, isValueType);
+                    parameters.AddParameter().Type().Type(type, isValueType);
                 });
         return metadata.GetOrAddBlob(signature);
     }

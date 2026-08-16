@@ -639,6 +639,7 @@ public static class IrImporter
         var equalityOperatorFreeTypes = ImmutableHashSet.CreateBuilder<TypeDefinitionIdentity>();
         var inequalityOperatorFreeTypes = ImmutableHashSet.CreateBuilder<TypeDefinitionIdentity>();
         var operatorFactsConsidered = new HashSet<TypeDefinitionIdentity>();
+        var classifications = new Dictionary<TypeDefinitionIdentity, (TypeShapeKind Kind, TypeShape Shape)>();
 
         void Consider(TypeRef? type)
         {
@@ -657,18 +658,25 @@ public static class IrImporter
             // named definitions carry a shape/member map entry themselves.
             if (type.Kind == TypeRefKind.GenericInstance)
                 type = type.ElementType;
-            if (type is not { Kind: TypeRefKind.Definition })
+            if (type is not { Kind: TypeRefKind.Definition }
+                || TypeDefinitionIdentity.Create(type) is not { } identity)
                 return;
-            var kind = source.ClassifyResolvedType(type);
-            var shape = kind switch
+            if (!classifications.TryGetValue(identity, out var classification))
             {
-                TypeShapeKind.Enum => TypeShape.Enum,
-                TypeShapeKind.Struct => TypeShape.ValueType,
-                TypeShapeKind.Class or TypeShapeKind.Interface or TypeShapeKind.Delegate => TypeShape.Reference,
-                _ => TypeShape.Unknown,
-            };
-            if (TypeDefinitionIdentity.Create(type) is { } identity
-                && operatorFactsConsidered.Add(identity)
+                var resolvedKind = source.ClassifyResolvedType(type);
+                classification = (
+                    resolvedKind,
+                    resolvedKind switch
+                    {
+                        TypeShapeKind.Enum => TypeShape.Enum,
+                        TypeShapeKind.Struct => TypeShape.ValueType,
+                        TypeShapeKind.Class or TypeShapeKind.Interface or TypeShapeKind.Delegate => TypeShape.Reference,
+                        _ => TypeShape.Unknown,
+                    });
+                classifications.Add(identity, classification);
+            }
+            var (kind, shape) = classification;
+            if (operatorFactsConsidered.Add(identity)
                 && shape == TypeShape.Reference)
             {
                 if (source.HasOperatorInBindingHierarchy(type, "op_Equality") == MetadataFactState.No)
@@ -2045,7 +2053,7 @@ public static class IrImporter
         };
     }
 
-    static MetadataFactState ArrayElementDynamicFact(IrExpression array)
+    internal static MetadataFactState ArrayElementDynamicFact(IrExpression array)
         => array switch
         {
             LoadArgument argument => argument.ArrayElementIsDynamic,

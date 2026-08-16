@@ -144,6 +144,31 @@ public class BoxedReferenceEqualityTests
     }
 
     [Fact]
+    public void ClassicAsyncDynamicParameterReferenceEquality_PreservesObjectComparison()
+    {
+        string output = PrintClassicAsync("DynamicReferenceIdentity");
+
+        Assert.Contains("return (object)(await value) == (object)right;", output);
+    }
+
+    [Fact]
+    public void ClassicAsyncDynamicArrayParameterReferenceEquality_PreservesObjectComparison()
+    {
+        string output = PrintClassicAsync("DynamicArrayReferenceIdentity");
+
+        Assert.Contains("return (object)(await value) == (object)right[0];", output);
+    }
+
+    [Fact]
+    public void ClassicAsyncObjectArrayParameterReferenceEquality_RemainsConcise()
+    {
+        string output = PrintClassicAsync("ObjectArrayReferenceIdentity");
+
+        Assert.Contains("return (await value) == right[0];", output);
+        Assert.DoesNotContain("(object)", output);
+    }
+
+    [Fact]
     public void DynamicSwitchExpressionReferenceEquality_PreservesObjectComparison()
     {
         string output = Print(nameof(BoxedReferenceEqualitySpecimens.DynamicSwitchExpressionReferenceEquals));
@@ -366,6 +391,31 @@ public class BoxedReferenceEqualityTests
             methodName);
         Assert.NotNull(function);
         IrPasses.Run(function!);
+        function!.CheckInvariant();
+        return CSharpPrinter.Print(function).Output!;
+    }
+
+    static string PrintClassicAsync(string methodName)
+    {
+        string configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;
+        string path = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "ILInspector.Decompiler.Fixtures.ClassicAsync",
+            configuration,
+            "ILInspector.Decompiler.Fixtures.ClassicAsync.dll"));
+        using var context = new MetadataContext(TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
+        using var source = MetadataSource.Open(path, context: context);
+        var function = IrImporter.Import(
+            source,
+            "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures",
+            methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(
+            function!,
+            IrPasses.Default,
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
         function!.CheckInvariant();
         return CSharpPrinter.Print(function).Output!;
     }

@@ -48,6 +48,19 @@ internal readonly record struct TypeDefinitionIdentity(
             ? new TypeDefinitionIdentity(definition, definition.ResolutionAssembly)
             : null;
     }
+
+    public static bool BelongsToAssembly(
+        TypeRef? type,
+        string canonicalAssembly,
+        AssemblyReferenceIdentity identity)
+    {
+        if (type?.Kind == TypeRefKind.GenericInstance)
+            type = type.ElementType;
+        return type is { Kind: TypeRefKind.Definition } definition
+            && definition.Assembly == canonicalAssembly
+            && (definition.ResolutionAssembly is null
+                || definition.ResolutionAssembly == identity);
+    }
 }
 
 /// <summary>

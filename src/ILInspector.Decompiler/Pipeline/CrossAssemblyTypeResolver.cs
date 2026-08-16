@@ -35,6 +35,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly string _selfCanonical;
     readonly MetadataContext _context;
     readonly ConcurrentDictionary<TypeResolutionCoordinates, ValueTypeHint> _valueTypeCache = new();
+    readonly ConcurrentDictionary<TypeResolutionCoordinates, TypeShapeKind> _shapeCache = new();
     readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _inlineArrayCache = new();
     readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _byRefLikeCache = new();
     readonly ConcurrentDictionary<(FieldRef Field, TypeResolutionCoordinates Type), ResolvedFieldFacts?> _fieldFactCache = new();
@@ -71,7 +72,7 @@ internal sealed class CrossAssemblyTypeResolver
         if (string.IsNullOrEmpty(type.Assembly))
             return type;
         // Same-assembly references are resolved by the importer's own shapes.
-        if (type.Assembly == _selfCanonical)
+        if (IsSelf(type))
             return type;
 
         var result = type;
@@ -96,7 +97,7 @@ internal sealed class CrossAssemblyTypeResolver
         {
             var dtType = NamedDefinition(field.DeclaringType);
             if (dtType is not null
-                && dtType.Assembly != _selfCanonical
+                && !IsSelf(dtType)
                 && Locate(dtType) is { } definition
                 && _context.Open(definition, out var handle) is { } assembly)
             {
@@ -117,7 +118,7 @@ internal sealed class CrossAssemblyTypeResolver
         var type = NamedDefinition(field.DeclaringType);
         if (type is null || string.IsNullOrEmpty(type.Assembly))
             return field;
-        if (type.Assembly == _selfCanonical)
+        if (IsSelf(type))
             return field;
 
         if (!TryCoordinates(type, out TypeResolutionCoordinates coordinates))
@@ -170,7 +171,7 @@ internal sealed class CrossAssemblyTypeResolver
         if (type is null || string.IsNullOrEmpty(type.Assembly))
             return callee;
         // Same-assembly callees are stamped by the importer from their MethodDef.
-        if (type.Assembly == _selfCanonical)
+        if (IsSelf(type))
             return callee;
 
         if (!TryCoordinates(type, out TypeResolutionCoordinates coordinates))
@@ -255,7 +256,7 @@ internal sealed class CrossAssemblyTypeResolver
         {
             if (NamedDefinition(type) is { } definition
                 && !string.IsNullOrEmpty(definition.Assembly)
-                && definition.Assembly != _selfCanonical
+                && !IsSelf(definition)
                 && TryImplements(type, iface, out var implements))
             {
                 result = implements ? MetadataFactState.Yes : MetadataFactState.No;
@@ -296,7 +297,7 @@ internal sealed class CrossAssemblyTypeResolver
         var result = MetadataFactState.Unknown;
         try
         {
-            if (definition.Assembly != _selfCanonical
+            if (!IsSelf(definition)
                 && TryHasOperatorInBindingHierarchy(type, methodName, out bool hasOperator))
             {
                 result = hasOperator ? MetadataFactState.Yes : MetadataFactState.No;
@@ -786,6 +787,16 @@ internal sealed class CrossAssemblyTypeResolver
     /// </summary>
     public TypeShapeKind ClassifyShape(TypeRef type)
     {
+        if (!TryCoordinates(type, out TypeResolutionCoordinates coordinates))
+            return TypeShapeKind.Unknown;
+        if (_shapeCache.TryGetValue(coordinates, out var cached))
+            return cached;
+        var shape = ClassifyShapeCore(type);
+        return _shapeCache.GetOrAdd(coordinates, shape);
+    }
+
+    TypeShapeKind ClassifyShapeCore(TypeRef type)
+    {
         try
         {
             if (Locate(type) is not { } definition
@@ -814,6 +825,12 @@ internal sealed class CrossAssemblyTypeResolver
             return TypeShapeKind.Unknown;
         }
     }
+
+    bool IsSelf(TypeRef type)
+        => TypeDefinitionIdentity.BelongsToAssembly(
+            type,
+            _selfCanonical,
+            _selfAssembly.Identity);
 
     ValueTypeHint ResolveValueTypeHint(TypeRef type)
     {

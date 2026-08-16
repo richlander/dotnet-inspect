@@ -432,7 +432,10 @@ public sealed class MetadataSource : IDisposable
         if (NamedDefinition(type) is not { } definition || string.IsNullOrEmpty(definition.Assembly))
             return TypeShapeKind.Unknown;
 
-        if (definition.Assembly == (Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : ""))
+        if (TypeDefinitionIdentity.BelongsToAssembly(
+            definition,
+            Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "",
+            _assembly.Identity))
         {
             EnsureTypeMaps();
             if (_delegates!.Contains(definition))
@@ -501,7 +504,10 @@ public sealed class MetadataSource : IDisposable
         // same-assembly type absent from it is not a ref struct. Only a
         // cross-assembly (referenced) definition needs the resolver, which reads
         // [IsByRefLike] from the defining assembly's metadata.
-        if (definition.Assembly == (Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : ""))
+        if (TypeDefinitionIdentity.BelongsToAssembly(
+            definition,
+            Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "",
+            _assembly.Identity))
             return _byRefLikeTypes!.Contains(definition);
         return CrossAssembly.IsByRefLike(definition) == MetadataFactState.Yes;
     }
@@ -528,7 +534,10 @@ public sealed class MetadataSource : IDisposable
 
         EnsureTypeMaps();
         string self = Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "";
-        if (definition.Assembly != self)
+        if (!TypeDefinitionIdentity.BelongsToAssembly(
+            definition,
+            self,
+            _assembly.Identity))
         {
             var crossAssembly = CrossAssembly.HasOperatorInBindingHierarchy(type, methodName);
             _operatorHierarchyFacts.TryAdd(cacheKey, crossAssembly);
@@ -560,7 +569,10 @@ public sealed class MetadataSource : IDisposable
             if (!seen.Add(currentIdentity))
                 continue;
 
-            if (currentDefinition.Assembly != self)
+            if (!TypeDefinitionIdentity.BelongsToAssembly(
+                currentDefinition,
+                self,
+                _assembly.Identity))
             {
                 var crossAssembly = CrossAssembly.HasOperatorInBindingHierarchy(current, methodName);
                 if (crossAssembly == MetadataFactState.Yes)
@@ -909,7 +921,10 @@ public sealed class MetadataSource : IDisposable
         if (type.Equals(s_enumerable) || definition.Equals(s_enumerable))
             return MetadataFactState.Yes;
 
-        if (definition.Assembly == (Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : ""))
+        if (TypeDefinitionIdentity.BelongsToAssembly(
+            definition,
+            Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "",
+            _assembly.Identity))
             return Implements(type, s_enumerable) ? MetadataFactState.Yes : MetadataFactState.No;
 
         return CrossAssembly.Implements(type, s_enumerable);

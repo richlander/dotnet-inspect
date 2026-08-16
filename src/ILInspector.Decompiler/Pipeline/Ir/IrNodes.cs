@@ -4411,7 +4411,7 @@ public sealed class LoadElement : IrExpression
 
     /// <summary>Null when the opcode does not encode one (ldelem.ref); the array's element type stands in.</summary>
     public TypeRef? ElementType { get; }
-    public MetadataFactState ResultIsDynamic { get; init; } = MetadataFactState.Unknown;
+    public MetadataFactState ResultIsDynamic { get; internal set; } = MetadataFactState.Unknown;
     public IrExpression Array => (IrExpression)Children[0];
     public IrExpression Index => (IrExpression)Children[1];
     public override TypeRef? ResultType

@@ -673,12 +673,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (clone is LoadField { Instance: LoadArgument { Index: 0, Name: "this" }, Field: var field }
             && TryGetParameter(kickoff, field.Name, out var argIndex, out var parameter))
         {
-            return new LoadArgument(argIndex, parameter.Name, parameter.Type);
+            return ParameterLoad(argIndex, parameter);
         }
         if (clone is LoadFieldAddress { Instance: LoadArgument { Index: 0, Name: "this" }, Field: var addressField }
             && TryGetParameter(kickoff, addressField.Name, out var addressArgIndex, out var addressParameter))
         {
-            return new LoadArgument(addressArgIndex, addressParameter.Name, addressParameter.Type);
+            return ParameterLoad(addressArgIndex, addressParameter);
         }
 
         return RemapInPlace(clone, kickoff) ? clone : null;
@@ -718,6 +718,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 return false;
             old.ReplaceWith(replacement);
         }
+        foreach (var load in node.Descendants.Prepend(node).OfType<LoadElement>())
+            load.ResultIsDynamic = IrImporter.ArrayElementDynamicFact(load.Array);
         return true;
 
         void Visit(IrNode current)
@@ -733,7 +735,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     }
                     else if (TryGetParameter(kickoff, field.Name, out var argIndex, out var parameter))
                     {
-                        swaps.Add((current, new LoadArgument(argIndex, parameter.Name, parameter.Type)));
+                        swaps.Add((current, ParameterLoad(argIndex, parameter)));
                     }
                     else
                     {
@@ -743,7 +745,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 case LoadFieldAddress { Instance: LoadArgument { Index: 0 }, Field: var field }:
                     if (TryGetParameter(kickoff, field.Name, out var addressArgIndex, out var addressParameter))
                     {
-                        swaps.Add((current, new LoadArgument(addressArgIndex, addressParameter.Name, addressParameter.Type)));
+                        swaps.Add((current, ParameterLoad(addressArgIndex, addressParameter)));
                     }
                     else
                     {
@@ -762,6 +764,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 Visit(child);
         }
     }
+
+    static LoadArgument ParameterLoad(int index, Parameter parameter)
+        => new(index, parameter.Name, parameter.Type)
+        {
+            IsDynamic = parameter.IsDynamic,
+            ArrayElementIsDynamic = parameter.ArrayElementIsDynamic,
+        };
 
     static bool TryGetParameter(IrFunction kickoff, string fieldName, out int index, out Parameter parameter)
     {
