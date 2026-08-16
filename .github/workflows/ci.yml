@@ -447,7 +447,7 @@ jobs:
         shell: bash
         run: |
           printf 'ILTOOLS_BASH=%s\n' "$(cygpath -w "$(command -v bash)")" >> "$GITHUB_ENV"
-          eng/restore-iltools.sh --rid win-x64 >> "$GITHUB_PATH"
+          eng/restore-iltools.sh --rid win-x64 --native-paths >> "$GITHUB_PATH"
 
       # Each suite below runs even when an earlier suite failed. The default
       # fail-fast behaviour reports the first broken suite and marks the rest
@@ -495,7 +495,7 @@ jobs:
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
 
       - name: Check ilasm/ildasm result
-        if: ${{ !cancelled() && steps.iltools.outcome != 'success' }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.iltools.outcome != 'success' }}
         shell: bash
         run: |
           echo "::error::Restoring ilasm/ildasm failed or timed out, so every Windows oracle test skipped." >&2

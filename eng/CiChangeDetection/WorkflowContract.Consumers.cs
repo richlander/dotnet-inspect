@@ -145,7 +145,8 @@ internal static partial class WorkflowContract
             ["test-windows/Run services tests"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Check ilasm/ildasm result"] =
-                "${{ !cancelled() && steps.iltools.outcome != 'success' }}",
+                "${{ !cancelled() && steps.build.outcome == 'success' && " +
+                "steps.iltools.outcome != 'success' }}",
             ["decompiler-gates/Upload gate report"] = "always()",
             ["csharp-diff-smoke/Upload C# Diff smoke artifact"] = "always()",
             ["il-diff-smoke/Upload IL Diff smoke artifact"] = "always()",

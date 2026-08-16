@@ -412,11 +412,16 @@ public class IlToolsActivationTests
 
     /// <summary>
     /// Interactive Git Bash activation needs MSYS-form paths so drive colons do
-    /// not split PATH. $GITHUB_PATH is consumed by native processes instead, so
-    /// the producer must ask cygpath for Windows form in that mode.
+    /// not split PATH. Native consumers need Windows form instead, so the
+    /// producer must honor the explicit mode rather than ambient $GITHUB_PATH.
     /// </summary>
-    [Fact]
-    public void Restore_WhenWritingGithubPath_EmitsNativeWindowsPaths()
+    [Theory]
+    [InlineData("", "/msys", "C:/native")]
+    [InlineData("--native-paths", "C:/native", "/msys")]
+    public void Restore_EmitsRequestedWindowsPathFormat(
+        string arguments,
+        string expectedPrefix,
+        string rejectedPrefix)
     {
         Assert.SkipUnless(HasBash, SkipReason);
 
@@ -466,7 +471,7 @@ public class IlToolsActivationTests
                     *) return 2 ;;
                 esac
             }
-            source "{{ToShellPath(RestoreScript)}}" --rid win-x64
+            source "{{ToShellPath(RestoreScript)}}" --rid win-x64 {{arguments}}
             """);
         info.Environment["GITHUB_PATH"] = Path.Combine(stubs.Path, "github_path");
         info.Environment["ILTOOLS_TEST_ROOT"] = ToShellPath(root);
@@ -479,12 +484,12 @@ public class IlToolsActivationTests
         Assert.True(
             process.ExitCode == 0,
             $"restore-iltools.sh exited {process.ExitCode}.\nstdout:\n{stdout}\nstderr:\n{stderr}");
-        Assert.DoesNotContain("/msys", stdout);
+        Assert.DoesNotContain(rejectedPrefix, stdout);
         string[] paths = stdout.Split(
             ['\r', '\n'],
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         Assert.True(paths.Length == 2, $"Expected two emitted paths.\nstdout:\n{stdout}");
-        Assert.All(paths, path => Assert.StartsWith("C:/native", path));
+        Assert.All(paths, path => Assert.StartsWith(expectedPrefix, path));
         Assert.Contains(paths, path => path.Contains("ilasm", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(paths, path => path.Contains("ildasm", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain("error:", stderr, StringComparison.OrdinalIgnoreCase);
@@ -764,12 +769,13 @@ public class IlToolsActivationTests
         Assert.Contains("shell: bash", installStep);
         Assert.Contains("ILTOOLS_BASH=", installStep);
         Assert.Contains(
-            "eng/restore-iltools.sh --rid win-x64 >> \"$GITHUB_PATH\"",
+            "eng/restore-iltools.sh --rid win-x64 --native-paths >> \"$GITHUB_PATH\"",
             installStep);
 
         string checkStep = job[terminalCheck..];
         Assert.Contains(
-            "if: ${{ !cancelled() && steps.iltools.outcome != 'success' }}",
+            "if: ${{ !cancelled() && steps.build.outcome == 'success' && " +
+            "steps.iltools.outcome != 'success' }}",
             checkStep);
         Assert.Contains("exit 1", checkStep);
         Assert.DoesNotContain("continue-on-error:", checkStep);

@@ -14,7 +14,7 @@
 # Diagnostics go to stderr and PATH entries to stdout, one per line, so the
 # output can be consumed directly:
 #
-#   CI:     eng/restore-iltools.sh >> "$GITHUB_PATH"
+#   CI:     eng/restore-iltools.sh --native-paths >> "$GITHUB_PATH"
 #   local:  source eng/activate-iltools.sh --mdv
 #
 # Do not assemble PATH from this script's output by hand. A child process
@@ -40,14 +40,17 @@ DOTNET_TOOLS_FEED=https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-too
 
 rid=""
 want_mdv=0
+native_paths=0
 
 usage() {
     cat >&2 <<'EOF'
-Usage: eng/restore-iltools.sh [--rid <rid>] [--mdv]
+Usage: eng/restore-iltools.sh [--rid <rid>] [--mdv] [--native-paths]
 
-  --rid <rid>  Runtime identifier to restore ilasm/ildasm for
-               (default: the host RID reported by `dotnet --info`).
-  --mdv        Also install the `mdv` global tool.
+  --rid <rid>     Runtime identifier to restore ilasm/ildasm for
+                  (default: the host RID reported by `dotnet --info`).
+  --mdv           Also install the `mdv` global tool.
+  --native-paths  Emit native paths for consumers such as $GITHUB_PATH
+                  instead of paths for the current shell.
 
 Prints the directories to add to PATH, one per line.
 EOF
@@ -62,6 +65,10 @@ while [ $# -gt 0 ]; do
             ;;
         --mdv)
             want_mdv=1
+            shift
+            ;;
+        --native-paths)
+            native_paths=1
             shift
             ;;
         -h|--help)
@@ -90,13 +97,15 @@ packages_dir="$root/artifacts/iltools/packages"
 
 # On Git Bash, `git rev-parse --show-toplevel` reports a Windows path
 # (C:/src/repo). Interactive activation needs MSYS form (/c/src/repo), because
-# the drive colon would split a shell PATH. GitHub Actions is the opposite:
-# $GITHUB_PATH is consumed by later native processes, so it needs Windows form.
-# cygpath owns both conversions; elsewhere the path is already host-native.
+# the drive colon would split a shell PATH. Native consumers such as
+# $GITHUB_PATH need Windows form instead. The caller chooses explicitly because
+# GitHub exports GITHUB_PATH to every step, including interactive activation
+# that still needs shell-form paths. cygpath owns both conversions; elsewhere
+# the path is already host-native.
 emit_path() {
     local emitted
     if [ -n "$cygpath" ]; then
-        if [ -n "${GITHUB_PATH:-}" ]; then
+        if [ "$native_paths" -eq 1 ]; then
             emitted="$("$cygpath" -w "$1")"
         else
             emitted="$("$cygpath" -u "$1")"
