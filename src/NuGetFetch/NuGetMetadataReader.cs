@@ -84,7 +84,9 @@ internal static class NuGetMetadataReader
 
         try
         {
-            return await operation(timeout.Token).ConfigureAwait(false);
+            T result = await operation(timeout.Token).ConfigureAwait(false);
+            timeout.Token.ThrowIfCancellationRequested();
+            return result;
         }
         catch (OperationCanceledException ex)
             when (!cancellationToken.IsCancellationRequested

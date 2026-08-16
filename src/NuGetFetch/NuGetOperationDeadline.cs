@@ -32,7 +32,10 @@ internal sealed class NuGetOperationDeadline : IDisposable
             CreateRequestCancellation();
         try
         {
-            return await request(requestCancellation.Token).ConfigureAwait(false);
+            T result = await request(requestCancellation.Token)
+                .ConfigureAwait(false);
+            requestCancellation.Token.ThrowIfCancellationRequested();
+            return result;
         }
         catch (OperationCanceledException ex)
         {
@@ -57,6 +60,12 @@ internal sealed class NuGetOperationDeadline : IDisposable
         {
             (Stream stream, IDisposable owner) =
                 await request(requestCancellation.Token).ConfigureAwait(false);
+            if (requestCancellation.IsCancellationRequested)
+            {
+                owner.Dispose();
+                requestCancellation.Token.ThrowIfCancellationRequested();
+            }
+
             _ownershipTransferred = true;
             return new DeadlineStream(
                 stream,
