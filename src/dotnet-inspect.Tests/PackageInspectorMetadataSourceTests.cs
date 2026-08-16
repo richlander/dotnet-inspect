@@ -180,6 +180,142 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.False(linuxPackage.Exists);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InspectAsync_RedirectedPayloadRidMappingsAreNotProbed(
+        bool usePayloadCache)
+    {
+        string wrapperRoot = Path.Combine(_root, "wrapper-probe");
+        string wrapperTools = Path.Combine(
+            wrapperRoot,
+            "tools",
+            "net10.0",
+            "any");
+        Directory.CreateDirectory(wrapperTools);
+        await File.WriteAllTextAsync(
+            Path.Combine(wrapperTools, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="wrapper-command" />
+              </Commands>
+              <RuntimeIdentifierPackages>
+                <RuntimeIdentifierPackage RuntimeIdentifier="any" Id="Wrapper.Package.any" />
+              </RuntimeIdentifierPackages>
+            </DotNetCliTool>
+            """,
+            TestContext.Current.CancellationToken);
+
+        string payloadRoot = Path.Combine(_root, "payload-probe");
+        string payloadTools = Path.Combine(
+            payloadRoot,
+            "tools",
+            "net10.0",
+            "any");
+        Directory.CreateDirectory(payloadTools);
+        await File.WriteAllTextAsync(
+            Path.Combine(payloadTools, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="payload-command" />
+              </Commands>
+              <RuntimeIdentifierPackages>
+                <RuntimeIdentifierPackage RuntimeIdentifier="linux-x64" Id="Unmapped.Package" />
+              </RuntimeIdentifierPackages>
+            </DotNetCliTool>
+            """,
+            TestContext.Current.CancellationToken);
+        File.Copy(
+            typeof(PackageInspectorMetadataSourceTests).Assembly.Location,
+            Path.Combine(payloadTools, "Payload.dll"));
+
+        string configPath = Path.Combine(_root, "nuget.config");
+        await File.WriteAllTextAsync(
+            configPath,
+            """
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="private" value="https://private.example/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="private">
+                  <package pattern="Wrapper.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """,
+            TestContext.Current.CancellationToken);
+
+        int requestCount = 0;
+        using var client = new HttpClient(new RoutingHandler(_ =>
+        {
+            requestCount++;
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }));
+        const string payloadPackage = "Wrapper.Package.any";
+        const string payloadProducer = "payload-source";
+        if (usePayloadCache)
+        {
+            PackageIndexCache.Set(
+                payloadPackage,
+                "1.0.0",
+                payloadProducer,
+                new InspectionResult
+                {
+                    PackageName = payloadPackage,
+                    Version = "1.0.0",
+                    IsRidSpecificPointerPackage = true,
+                    RuntimeIdentifierPackages =
+                    [
+                        new RidPackageReference
+                        {
+                            RuntimeIdentifier = "linux-x64",
+                            PackageId = "Unmapped.Package",
+                        },
+                    ],
+                });
+        }
+
+        var resolution = new PackageExtractionResult(
+            payloadRoot,
+            TempDir: null,
+            PackageName: payloadPackage,
+            Version: "1.0.0",
+            ProducerKey: usePayloadCache ? payloadProducer : null)
+        {
+            ToolWrapperChain =
+            [
+                new ToolWrapperPackage(
+                    wrapperRoot,
+                    "Wrapper.Package",
+                    "1.0.0",
+                    ProducerKey: "private"),
+            ],
+        };
+
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            payloadPackage,
+            "1.0.0",
+            isLocalFile: false,
+            localFilePath: null,
+            nuspec: null,
+            client,
+            new VerboseLogger(enabled: false),
+            verifyRidPackageAvailability: true,
+            sourceOptions: new NuGetSourceOptions { ConfigFile = configPath });
+
+        Assert.Equal(["wrapper-command"], result.ToolCommands);
+        RidPackageReference ridPackage = Assert.Single(
+            result.RuntimeIdentifierPackages!);
+        Assert.Equal("Wrapper.Package.any", ridPackage.PackageId);
+        Assert.True(ridPackage.Exists);
+        Assert.Equal(0, requestCount);
+    }
+
     [Fact]
     public async Task InspectAsync_CachedUnknownRidAvailabilityIsRecheckedWithoutPersisting()
     {

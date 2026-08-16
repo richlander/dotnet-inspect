@@ -54,7 +54,8 @@ internal static class PackageInspector
             }
             if (cached != null)
             {
-                if (verifyRidPackageAvailability
+                if (resolution.ToolWrapperChain.Count == 0
+                    && verifyRidPackageAvailability
                     && cached.IsRidSpecificPointerPackage
                     && cached.RuntimeIdentifierPackages?.Any(
                         package => package.Exists is null) == true)
@@ -175,7 +176,8 @@ internal static class PackageInspector
         }
 
         // Verify RID-specific packages exist (always do this for RID pointer packages)
-        if (verifyRidPackageAvailability
+        if (resolution.ToolWrapperChain.Count == 0
+            && verifyRidPackageAvailability
             && result.IsRidSpecificPointerPackage
             && result.RuntimeIdentifierPackages is { Count: > 0 })
         {
