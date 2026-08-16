@@ -294,7 +294,7 @@ public static class AssemblyContextSourceQuery
         try
         {
             access = group.UseAssemblySession(
-                participant.Assembly,
+                participant,
                 cancellationToken,
                 (session, retained) => new MemberInspectionSeed(
                     retained,
@@ -371,7 +371,7 @@ public static class AssemblyContextSourceQuery
         try
         {
             access = group.UseAssemblySession(
-                participant.Assembly,
+                participant,
                 cancellationToken,
                 (session, retained) => new TypeInspectionSeed(
                     retained,
@@ -466,6 +466,7 @@ public static class AssemblyContextSourceQuery
                             allowLocalSource:
                                 context.AllowLocalSourceReads)
                         .ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 if (authored.IsComplete
                     && authored.Text is { } authoredText)
                 {
@@ -549,6 +550,7 @@ public static class AssemblyContextSourceQuery
                             allowLocalSource:
                                 context.AllowLocalSourceReads)
                         .ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 if (authored.IsComplete
                     && authored.Text is { } authoredText)
                 {

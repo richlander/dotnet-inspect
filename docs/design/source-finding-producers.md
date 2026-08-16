@@ -179,7 +179,14 @@ gates that ownership boundary.
 A query with cancellation already requested still validates that the selected
 participant belongs to the group, then stops before snapshot acquisition.
 `AssemblyContextSourceQueryTests.PreCanceledQueries_StopBeforeSnapshotAndDecompilerFallback`
-gates the pre-entry member and type boundary.
+gates the pre-entry member and type boundary. Participant membership includes
+the binding-policy snapshot rather than assembly-descriptor identity alone;
+`AssemblyContextSourceQueryTests.SameDescriptorForeignParticipant_IsRejectedBeforeCancellation`
+gates that identity boundary. Cancellation observed after a successful
+source-store read or write remains exceptional rather than returning authored
+success or publishing the bytes to the process-local cache;
+`AssemblyContextSourceQueryTests.SourceStoreSuccessfulCancellation_PropagatesBeforeAuthoredSuccess`
+gates member and type acquisition at both store stages.
 
 Conditional branch liveness is composed only at the member slicing boundary:
 Metadata reports point lines, CSharpText reports lexical branch ranges, and the

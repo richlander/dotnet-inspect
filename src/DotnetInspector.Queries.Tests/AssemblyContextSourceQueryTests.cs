@@ -342,6 +342,71 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
+    public async Task SameDescriptorForeignParticipant_IsRejectedBeforeCancellation()
+    {
+        byte[] bytes =
+            WithoutDebugDirectory(
+                File.ReadAllBytes(
+                    typeof(AssemblyContextSourceQueryTests)
+                        .Assembly.Location));
+        TestAssembly assembly =
+            TestAssembly.Create(bytes);
+        var foreignPolicy =
+            new FrameworkBindingPolicy();
+        var foreign =
+            new AssemblyContextParticipant(
+                assembly.Assembly,
+                foreignPolicy);
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+        using var cancellation = new CancellationTokenSource();
+
+        foreach (bool canceled in new[] { false, true })
+        {
+            if (canceled)
+                cancellation.Cancel();
+
+            AssemblyMemberSourceEntry member =
+                await AssemblyContextSourceQuery
+                    .ExecuteMemberAsync(
+                        group,
+                        foreign,
+                        assembly.MemberRequest(
+                            nameof(SourceFixture.Describe)),
+                        host.Context,
+                        cancellation.Token);
+            AssemblyTypeSourceEntry type =
+                await AssemblyContextSourceQuery
+                    .ExecuteTypeAsync(
+                        group,
+                        foreign,
+                        assembly.TypeRequest(
+                            typeof(SourceFixture).Name),
+                        host.Context,
+                        cancellation.Token);
+
+            Assert.IsType<ArgumentException>(
+                Assert.IsType<
+                    AssemblyMemberSourceEntry.Unavailable>(
+                        member)
+                    .Failure.Error);
+            Assert.IsType<ArgumentException>(
+                Assert.IsType<
+                    AssemblyTypeSourceEntry.Unavailable>(
+                        type)
+                    .Failure.Error);
+        }
+
+        Assert.Empty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+        Assert.Equal(0, foreignPolicy.SelectionCount);
+    }
+
+    [Fact]
     public async Task SourceStoreFailure_FallsBackRepeatablyWithoutPublishingMemoryEntry()
     {
         TestAssembly assembly = TestAssembly.Create();
@@ -470,6 +535,69 @@ public sealed class AssemblyContextSourceQueryTests
         Assert.Equal(1, store.ReadAttempts);
         Assert.Equal(cancelRead ? 0 : 1, store.StoreAttempts);
         Assert.Equal(cancelRead ? 0 : 1, host.SourceRequests.Count);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task SourceStoreSuccessfulCancellation_PropagatesBeforeAuthoredSuccess(
+        bool member,
+        bool cancelRead)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        var store =
+            new SuccessfulCancelingSourceContentStore(
+                cancelRead,
+                SourceFileBytes());
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            store);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            using var cancellation =
+                new CancellationTokenSource();
+            store.Arm(cancellation);
+            if (member)
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                    () => AssemblyContextSourceQuery
+                        .ExecuteMemberAsync(
+                            group,
+                            assembly.Participant,
+                            assembly.MemberRequest(
+                                nameof(SourceFixture.Describe)),
+                            host.Context,
+                            cancellation.Token));
+            }
+            else
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                    () => AssemblyContextSourceQuery
+                        .ExecuteTypeAsync(
+                            group,
+                            assembly.Participant,
+                            assembly.TypeRequest(
+                                typeof(SourceFixture).Name),
+                            host.Context,
+                            cancellation.Token));
+            }
+
+            Assert.True(
+                cancellation.IsCancellationRequested);
+        }
+
+        Assert.Equal(2, store.ReadAttempts);
+        Assert.Equal(cancelRead ? 0 : 2, store.StoreAttempts);
+        Assert.Equal(cancelRead ? 0 : 2, host.SourceRequests.Count);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
     }
 
     [Fact]
@@ -1788,6 +1916,48 @@ public sealed class AssemblyContextSourceQueryTests
             Interlocked.Increment(ref _storeAttempts);
             source.Cancel();
             cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    sealed class SuccessfulCancelingSourceContentStore(
+        bool cancelRead,
+        byte[] content)
+        : ISourceContentStore
+    {
+        int _readAttempts;
+        int _storeAttempts;
+        CancellationTokenSource? _source;
+
+        internal int ReadAttempts =>
+            Volatile.Read(ref _readAttempts);
+        internal int StoreAttempts =>
+            Volatile.Read(ref _storeAttempts);
+
+        internal void Arm(
+            CancellationTokenSource source) =>
+            _source = source;
+
+        public ValueTask<byte[]?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _readAttempts);
+            if (!cancelRead)
+                return ValueTask.FromResult<byte[]?>(null);
+
+            _source!.Cancel();
+            return ValueTask.FromResult<byte[]?>(
+                content.ToArray());
+        }
+
+        public ValueTask StoreAsync(
+            string key,
+            ReadOnlyMemory<byte> value,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _storeAttempts);
+            _source!.Cancel();
             return ValueTask.CompletedTask;
         }
     }

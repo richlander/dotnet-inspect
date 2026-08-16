@@ -100,6 +100,7 @@ public class SourceFetcher
                 await _contentStore.TryOpenAsync(
                     url,
                     cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
         }
         catch (Exception ex) when (IsContentStoreFailure(ex))
         {
@@ -147,6 +148,7 @@ public class SourceFetcher
                     url,
                     bytes,
                     cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
             }
             catch (Exception ex) when (IsContentStoreFailure(ex))
             {
