@@ -251,10 +251,7 @@ public sealed record MemberRef(
                     == other.RequiredParameterCount)
             && GenericArity == other.GenericArity
             && ImmutableArrayValueEquality.SequenceEqual(OpenParameterTypes, other.OpenParameterTypes)
-            && Equals(OpenReturnType, other.OpenReturnType)
-            && ImmutableArrayValueEquality.SequenceEqual(
-                ParameterDirections,
-                other.ParameterDirections);
+            && Equals(OpenReturnType, other.OpenReturnType);
 
     public override int GetHashCode()
     {
@@ -272,9 +269,6 @@ public sealed record MemberRef(
         hash.Add(GenericArity);
         ImmutableArrayValueEquality.AddToHash(ref hash, OpenParameterTypes);
         hash.Add(OpenReturnType);
-        ImmutableArrayValueEquality.AddToHash(
-            ref hash,
-            ParameterDirections);
         return hash.ToHashCode();
     }
 

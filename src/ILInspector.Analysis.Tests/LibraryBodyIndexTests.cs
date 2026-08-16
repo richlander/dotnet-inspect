@@ -256,6 +256,22 @@ public class LibraryBodyIndexTests
                 .AsyncSiblingTypesMatch(
                     current,
                     same));
+        TypeRef differentCase = TypeRef.Definition(
+            "cOLLISION",
+            "Sample",
+            "Value",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    currentIdentity with
+                    {
+                        Name = "cOLLISION",
+                    }),
+                typeName));
+        Assert.True(
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingTypesMatch(
+                    current,
+                    differentCase));
         Assert.False(
             LibraryBodyAnalysisBuilder
                 .AsyncSiblingTypesMatch(
@@ -1677,6 +1693,28 @@ public class LibraryBodyIndexTests
                 path,
                 BuildMethodImplAsyncSourceAssembly(
                     includeMethodImpl: false,
+                    runtimeAsyncSource: true,
+                    sourceImplementation:
+                        MethodImplAttributes.Native));
+            var nativeRuntimeAsync =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                nativeRuntimeAsync
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Contains(
+                nativeRuntimeAsync.Diagnostics,
+                diagnostic => diagnostic.Method.Contains(
+                    "AnalyzeAsync",
+                    StringComparison.Ordinal));
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: false,
                     moveNextHasBody: false));
             var bodilessMoveNext =
                 LibraryBodyIndex.Open(path);
@@ -1941,6 +1979,8 @@ public class LibraryBodyIndexTests
         bool moveNextHasBody = true,
         MethodImplAttributes moveNextImplementation =
             MethodImplAttributes.IL,
+        MethodImplAttributes sourceImplementation =
+            MethodImplAttributes.IL,
         bool stateMachineUsesTasksContract = false)
     {
         var metadata = new MetadataBuilder();
@@ -2194,7 +2234,7 @@ public class LibraryBodyIndexTests
                             : 0
                         : MethodAttributes.Final
                             | MethodAttributes.NewSlot),
-                MethodImplAttributes.IL
+                sourceImplementation
                     | (runtimeAsyncSource
                         ? (MethodImplAttributes)0x2000
                         : 0),
@@ -3249,7 +3289,7 @@ public class LibraryBodyIndexTests
         var encoder =
             new MethodBodyStreamEncoder(bodies);
         var il = new BlobBuilder();
-        il.WriteByte((byte)ILOpCode.Ldarg_0);
+        il.WriteByte(0x02);
         il.WriteByte((byte)ILOpCode.Callvirt);
         il.WriteInt32(MetadataTokens.GetToken(read));
         il.WriteByte((byte)ILOpCode.Pop);
@@ -3867,6 +3907,13 @@ public class LibraryBodyIndexTests
                         .Type()
                         .Pointer()
                         .Int32());
+        var helperSignature = new BlobBuilder();
+        new BlobEncoder(helperSignature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
         var bodies = new BlobBuilder();
         var bodyEncoder = new MethodBodyStreamEncoder(bodies);
         var il = new BlobBuilder();
@@ -3876,8 +3923,10 @@ public class LibraryBodyIndexTests
         il.WriteByte((byte)ILOpCode.Pop);
         il.WriteByte((byte)ILOpCode.Call);
         il.WriteInt32(0x06000002);
-        il.WriteByte((byte)ILOpCode.Call);
+        il.WriteByte(0xFE);
+        il.WriteByte(0x06);
         il.WriteInt32(0x0AFFFFFF);
+        il.WriteByte((byte)ILOpCode.Pop);
         il.WriteByte((byte)ILOpCode.Ret);
         int bodyOffset = bodyEncoder.AddMethodBody(
             new InstructionEncoder(il),
@@ -3890,6 +3939,8 @@ public class LibraryBodyIndexTests
             maxStack: 0);
         BlobHandle signatureHandle =
             metadata.GetOrAddBlob(signature);
+        BlobHandle helperSignatureHandle =
+            metadata.GetOrAddBlob(helperSignature);
         MethodDefinitionHandle methodHandle =
             metadata.AddMethodDefinition(
                 MethodAttributes.Public | MethodAttributes.Static,
@@ -3902,7 +3953,7 @@ public class LibraryBodyIndexTests
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("Helper"),
-            signatureHandle,
+            helperSignatureHandle,
             helperBodyOffset,
             MetadataTokens.ParameterHandle(1));
         var pe = new ManagedPEBuilder(
@@ -3940,8 +3991,10 @@ public class LibraryBodyIndexTests
             Assert.Equal(
                 methodToken,
                 optimizationDiagnostic.MethodToken);
-            Assert.Empty(
-                optimizationIndex.OptimizationOpportunities);
+            Assert.Contains(
+                optimizationIndex.OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                    == "small-array");
             Assert.Single(optimizationIndex.DirectCalls);
             Assert.Equal(CallTreeStatus.AnalysisIncomplete, tree.Status);
             Assert.Same(diagnostic, tree.Diagnostic);
@@ -3949,7 +4002,6 @@ public class LibraryBodyIndexTests
             Assert.Contains(index.UnsafeEvidence, evidence =>
                 evidence.Member.MetadataToken == methodToken
                 && evidence.Reason == "Unsafe signature");
-
             CallTreeNode truncated =
                 index.BuildCallTree(
                     methodToken,

@@ -1279,6 +1279,14 @@ public class ApiCommand
 
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
+            if (GetRequestedMemberSections(type, options)
+                .Contains(SectionNames.PerformanceTriage))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent Performance Triage analysis. "
+                    + "Use --jsonl, --tsv, --table, or --print.");
+                return 1;
+            }
             // --fields/--columns select table columns; document JSON has no column-slicing
             // facility, so the combination is rejected rather than silently dropped. A scalar
             // payload projection (--value/--print) does compose, and is handled above.

@@ -4,6 +4,53 @@ namespace ILInspector.Analysis.Tests;
 
 public class MemberIdentityValueEqualityTests
 {
+    [Fact]
+    public void MemberRefEquality_IgnoresInternalParameterDirectionEvidence()
+    {
+        var baseline = new MemberRef(
+            TypeRef.Definition("Sample", "Sample", "Api"),
+            "Read",
+            [TypeRef.ByRef(TypeRef.CoreLib("System", "Int32"))],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            ParameterDirections = [ParameterDirection.Ref],
+        };
+        var memberReference = baseline with
+        {
+            ParameterDirections = [],
+        };
+
+        Assert.Equal(baseline, memberReference);
+        Assert.Equal(
+            baseline.GetHashCode(),
+            memberReference.GetHashCode());
+    }
+
+    [Fact]
+    public void TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear()
+    {
+        TypeRef left = TypeRef.CoreLib("System", "Int32");
+        TypeRef right = TypeRef.CoreLib("System", "Int32");
+        TypeRef pair =
+            TypeRef.Definition("Sample", "Sample", "Pair`2");
+        for (int depth = 0; depth < 30; depth++)
+        {
+            left = TypeRef.GenericInstance(pair, [left, left]);
+            right = TypeRef.GenericInstance(pair, [right, right]);
+        }
+
+        Assert.Equal(left, right);
+        Assert.Equal(left.GetHashCode(), right.GetHashCode());
+        Assert.True(
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingTypesMatch(left, right));
+        Assert.True(
+            LibraryBodyAnalysisBuilder
+                .AsyncSiblingTypeIdentity(left)
+                .Length < 10_000);
+    }
+
     static readonly TypeRef DeclaringType = TypeRef.Definition(
         "Example",
         "Example",

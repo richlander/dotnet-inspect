@@ -789,17 +789,23 @@ Research overlay bridge, and the application layer:
   canonical direct-call rows after ordinary opportunity collection and appends
   only this metadata-bound shape; recoverable sibling-classification failures
   remain diagnostic without discarding independent ordinary opportunities or
-  body signals. Trusted framework-contract identities, exact interface-slot
-  correspondence, friend-aware protected access, and nested private-access
-  domains are gated by
+  body signals. Constructed generic type relationships preserve DAG sharing
+  and bound structural identity/comparison work;
+  `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear` gates that
+  untrusted-metadata boundary. Trusted framework-contract identities, exact
+  interface-slot correspondence, friend-aware protected access, and nested
+  private-access domains are gated by
   `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,
   `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
   `OptimizationOpportunities_FriendAccessDoesNotProveProtectedReceiver`, and
   `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`.
   Performance command projections report body-index diagnostics independently
-  of unsafe scanning;
+  of unsafe scanning, and reject document JSON rather than silently omitting
+  requested Performance analysis;
   `PerformanceTriage_ReportsIncompleteAnalysisAcrossScopes` gates library,
-  type, and member disclosure.
+  type, and member disclosure, while
+  `PerformanceTriage_DocumentJsonRejectsUnsupportedAnalysis` gates the
+  unsupported document shape.
   `MethodInstructionFacts` owns the
   metadata-free local/argument-slot, operand, and single-branch-target grammar
   shared by safety and allocation

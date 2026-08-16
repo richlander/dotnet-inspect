@@ -309,16 +309,6 @@ internal sealed class LibraryMethodAnalysisRunner(
                 result.Signals = signals;
                 result.HasSignals = true;
             }
-            MethodCallAnalysis.Collect(
-                context,
-                _infrastructure.CreateCallResolver(scope),
-                offset => allocationFacts.MultiplicityAt(offset),
-                calls,
-                evidence,
-                includeIndirectOpcodes:
-                    hasUnsafeApiMember
-                    || hasUnsafeSignature
-                    || hasUnsafeLocals);
             if (includeOpportunities)
             {
                 var methodAttributes =
@@ -341,7 +331,20 @@ internal sealed class LibraryMethodAnalysisRunner(
                 {
                     result.Suppressed = true;
                 }
+            }
 
+            MethodCallAnalysis.Collect(
+                context,
+                _infrastructure.CreateCallResolver(scope),
+                offset => allocationFacts.MultiplicityAt(offset),
+                calls,
+                evidence,
+                includeIndirectOpcodes:
+                    hasUnsafeApiMember
+                    || hasUnsafeSignature
+                    || hasUnsafeLocals);
+            if (includeOpportunities)
+            {
                 try
                 {
                     ImmutableArray<OptimizationOpportunity>

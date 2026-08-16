@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 using ILInspector.Metadata;
@@ -2464,6 +2465,40 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         System.Text.StringBuilder identity,
         TypeRef type)
     {
+        var visited = new Dictionary<TypeRef, int>();
+        AppendAsyncSiblingTypeIdentity(
+            identity,
+            type,
+            visited);
+    }
+
+    internal static string AsyncSiblingTypeIdentity(
+        TypeRef type)
+    {
+        var identity = new StringBuilder();
+        AppendAsyncSiblingTypeIdentity(identity, type);
+        return identity.ToString();
+    }
+
+    static void AppendAsyncSiblingTypeIdentity(
+        System.Text.StringBuilder identity,
+        TypeRef type,
+        Dictionary<TypeRef, int> visited)
+    {
+        if (visited.TryGetValue(type, out int prior))
+        {
+            identity.Append('#').Append(prior).Append(';');
+            return;
+        }
+        if (visited.Count
+            >= MetadataSafetyPolicy.MaxRelationshipNodes)
+        {
+            throw new BadImageFormatException(
+                "The constructed type identity exceeds the metadata relationship limit.");
+        }
+        int nodeId = visited.Count;
+        visited.Add(type, nodeId);
+        identity.Append('{').Append(nodeId).Append(':');
         identity.Append((int)type.Kind).Append(';');
         AppendIdentityField(identity, type.Assembly);
         AppendIdentityField(identity, type.Namespace);
@@ -2535,7 +2570,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             identity.Append('[');
             AppendAsyncSiblingTypeIdentity(
                 identity,
-                type.ElementType);
+                type.ElementType,
+                visited);
             identity.Append(']');
         }
         foreach (TypeRef argument in type.TypeArguments)
@@ -2543,9 +2579,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             identity.Append('<');
             AppendAsyncSiblingTypeIdentity(
                 identity,
-                argument);
+                argument,
+                visited);
             identity.Append('>');
         }
+        identity.Append('}');
     }
 
     static void AppendIdentityField(
@@ -2580,44 +2618,81 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         TypeRef left,
         TypeRef right)
     {
-        if (!left.Equals(right))
-            return false;
-
-        TypeRef leftDefinition = DefinitionType(left);
-        TypeRef rightDefinition = DefinitionType(right);
-        bool coreLibraryType =
-            leftDefinition.Assembly
-                == TypeRef.CoreLibrary
-            && rightDefinition.Assembly
-                == TypeRef.CoreLibrary;
-        if (coreLibraryType
-            && !AreTrustedCoreLibraryFacades(
-                left,
-                right))
+        var pending = new Stack<(TypeRef Left, TypeRef Right)>();
+        var visited = new HashSet<(TypeRef Left, TypeRef Right)>(
+            TypeRefPairReferenceComparer.Instance);
+        pending.Push((left, right));
+        while (pending.Count > 0)
         {
-            return false;
-        }
+            (TypeRef currentLeft, TypeRef currentRight) =
+                pending.Pop();
+            if (!visited.Add((currentLeft, currentRight)))
+                continue;
+            if (visited.Count
+                > MetadataSafetyPolicy.MaxRelationshipNodes)
+            {
+                throw new BadImageFormatException(
+                    "The constructed type comparison exceeds the metadata relationship limit.");
+            }
+            if (currentLeft.Kind != currentRight.Kind
+                || !StringComparer.OrdinalIgnoreCase.Equals(
+                    currentLeft.Assembly,
+                    currentRight.Assembly)
+                || currentLeft.Namespace != currentRight.Namespace
+                || currentLeft.Name != currentRight.Name
+                || currentLeft.Rank != currentRight.Rank
+                || currentLeft.GenericParameterIndex
+                    != currentRight.GenericParameterIndex
+                || currentLeft.UnsupportedReason
+                    != currentRight.UnsupportedReason
+                || currentLeft.TypeArguments.Length
+                    != currentRight.TypeArguments.Length
+                || (currentLeft.ElementType is null)
+                    != (currentRight.ElementType is null))
+            {
+                return false;
+            }
 
-        if (!coreLibraryType
-            && !ExactNonCoreOriginsMatch(
-                DefinitionResolution(left),
-                DefinitionResolution(right)))
-        {
-            return false;
-        }
+            TypeRef leftDefinition =
+                DefinitionType(currentLeft);
+            TypeRef rightDefinition =
+                DefinitionType(currentRight);
+            bool coreLibraryType =
+                leftDefinition.Assembly
+                    == TypeRef.CoreLibrary
+                && rightDefinition.Assembly
+                    == TypeRef.CoreLibrary;
+            if (coreLibraryType
+                && !AreTrustedCoreLibraryFacades(
+                    currentLeft,
+                    currentRight))
+            {
+                return false;
+            }
+            if (!coreLibraryType
+                && !ExactNonCoreOriginsMatch(
+                    DefinitionResolution(currentLeft),
+                    DefinitionResolution(currentRight)))
+            {
+                return false;
+            }
 
-        if (left.ElementType is not null
-            && right.ElementType is not null
-            && !AsyncSiblingTypesMatch(
-                left.ElementType,
-                right.ElementType))
-        {
-            return false;
+            if (currentLeft.ElementType is not null)
+            {
+                pending.Push((
+                    currentLeft.ElementType,
+                    currentRight.ElementType!));
+            }
+            for (int i = 0;
+                i < currentLeft.TypeArguments.Length;
+                i++)
+            {
+                pending.Push((
+                    currentLeft.TypeArguments[i],
+                    currentRight.TypeArguments[i]));
+            }
         }
-
-        return AsyncSiblingTypesMatch(
-            left.TypeArguments,
-            right.TypeArguments);
+        return true;
     }
 
     static bool ExactNonCoreOriginsMatch(
@@ -2631,24 +2706,44 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         {
             (TypeReferenceOrigin.AssemblyReference l,
                 TypeReferenceOrigin.AssemblyReference r) =>
-                l.Assembly == r.Assembly,
+                l.Assembly.IsEquivalentTo(r.Assembly),
             (TypeReferenceOrigin.CurrentAssembly l,
                 TypeReferenceOrigin.CurrentAssembly r) =>
                 l.Assembly is not null
-                && l.Assembly == r.Assembly,
+                && r.Assembly is not null
+                && l.Assembly.IsEquivalentTo(r.Assembly),
             (TypeReferenceOrigin.CurrentAssembly l,
                 TypeReferenceOrigin.AssemblyReference r) =>
                 l.Assembly is not null
-                && l.Assembly == r.Assembly,
+                && l.Assembly.IsEquivalentTo(r.Assembly),
             (TypeReferenceOrigin.AssemblyReference l,
                 TypeReferenceOrigin.CurrentAssembly r) =>
                 r.Assembly is not null
-                && l.Assembly == r.Assembly,
+                && l.Assembly.IsEquivalentTo(r.Assembly),
             (TypeReferenceOrigin.ModuleReference l,
                 TypeReferenceOrigin.ModuleReference r) =>
                 l.ModuleName == r.ModuleName,
             _ => false,
         };
+    }
+
+    sealed class TypeRefPairReferenceComparer
+        : IEqualityComparer<(TypeRef Left, TypeRef Right)>
+    {
+        internal static TypeRefPairReferenceComparer Instance
+            { get; } = new();
+
+        public bool Equals(
+            (TypeRef Left, TypeRef Right) x,
+            (TypeRef Left, TypeRef Right) y)
+            => ReferenceEquals(x.Left, y.Left)
+                && ReferenceEquals(x.Right, y.Right);
+
+        public int GetHashCode(
+            (TypeRef Left, TypeRef Right) pair)
+            => HashCode.Combine(
+                RuntimeHelpers.GetHashCode(pair.Left),
+                RuntimeHelpers.GetHashCode(pair.Right));
     }
 
     static bool AreTrustedCoreLibraryFacades(

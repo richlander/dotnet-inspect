@@ -1356,6 +1356,47 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task PerformanceTriage_DocumentJsonRejectsUnsupportedAnalysis(
+        string command)
+    {
+        const string typeName =
+            "ILInspector.Analysis.AsyncSiblingFriendFixtures."
+            + "MalformedAsyncSourceFixture";
+        string assemblyPath =
+            FixtureCatalog.AnalysisAsyncSiblingFriend
+                .AssemblyPath();
+        string[] sourceArgs = command == "type"
+            ? [command, typeName, "--library", assemblyPath]
+            :
+            [
+                command,
+                typeName,
+                "AnalyzeAsync",
+                "--library",
+                assemblyPath,
+            ];
+
+        var result = await RunAppAsync(
+        [
+            .. sourceArgs,
+            "-S",
+            SectionNames.PerformanceTriage,
+            "--json",
+            "--tips",
+            "q",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Document --json cannot represent Performance Triage analysis.",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("asc")]
     [InlineData("desc")]
     public async Task PerformanceTriageOrderByCallerLoopDepth_PutsMissingEvidenceLast(string direction)

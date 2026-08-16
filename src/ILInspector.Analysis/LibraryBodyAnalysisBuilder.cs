@@ -685,10 +685,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         if (classification
             == MethodClassification.RuntimeAsync)
         {
-            if (methodDefinition.RelativeVirtualAddress == 0)
+            if (!HasAnalyzableIlBody(methodDefinition))
             {
                 throw new BadImageFormatException(
-                    "The async source method does not have an executable body.");
+                    "The async source method does not have an analyzable managed IL body.");
             }
             return !typeSourceGenerated
                 && !HasGeneratedCodeAttribute(
