@@ -61,6 +61,7 @@ public class NullCoalescingAssignmentPassTests
             body);
 
         new NullCoalescingAssignmentPass().Run(function, PassContext.None);
+        function.CheckInvariant();
 
         var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingAssignment>());
         Assert.Equal(0x10, assignment.SourceOffset);
