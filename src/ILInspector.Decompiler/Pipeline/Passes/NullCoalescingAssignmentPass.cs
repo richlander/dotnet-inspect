@@ -35,6 +35,7 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
             {
                 var value = (IrExpression)local.Store.DetachChildren()[0];
                 var replacement = new NullCoalescingAssignment(local.Local.Index, local.Local.Type, value);
+                replacement.InheritSourceOffset(statement);
                 context.Stepper.StepOver("raise local null check assignment to ??=", statement);
                 statement.ReplaceWith(replacement);
                 continue;
@@ -46,6 +47,7 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
                 var instance = field.Store.HasInstance ? (IrExpression)children[0] : null;
                 var value = (IrExpression)children[^1];
                 var replacement = new NullCoalescingFieldAssignment(field.Store.Field, instance, value);
+                replacement.InheritSourceOffset(statement);
                 context.Stepper.StepOver("raise field null check assignment to ??=", statement);
                 statement.ReplaceWith(replacement);
                 continue;
@@ -62,6 +64,7 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
                 value.Detach();
                 var replacement = new NullCoalescingPropertyAssignment(
                     property.Store.Accessor, instance, indexArguments, value, property.Store.IsVirtual);
+                replacement.InheritSourceOffset(statement);
                 context.Stepper.StepOver("raise property null check assignment to ??=", statement);
                 statement.ReplaceWith(replacement);
             }

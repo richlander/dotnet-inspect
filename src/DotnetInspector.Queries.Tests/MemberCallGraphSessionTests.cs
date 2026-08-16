@@ -125,6 +125,27 @@ public sealed class MemberCallGraphSessionTests
             });
         MemberCallGraphView view = graph.Callees();
         Assert.Equal(2, view.FocusCallSites.Length);
+        CallGraphProjection projection =
+            CallGraphProjection.Create(
+                view.CallerRoot,
+                view.CalleeRoot);
+        Assert.Equal(2, projection.CallSites.Length);
+        InspectionGraphDocument inspectionGraph =
+            CallGraphInspectionGraphAdapter.Create(projection);
+        InspectionGraphEdge inspectionEdge =
+            Assert.Single(inspectionGraph.Edges);
+        Assert.Equal(2, inspectionEdge.OccurrenceIds.Length);
+        Assert.All(
+            inspectionGraph.Occurrences,
+            occurrence => Assert.IsType<
+                CallGraphCallSiteEvidence>(
+                    occurrence.Evidence));
+        Assert.DoesNotContain(
+            inspectionGraph.Limits,
+            limit => ReferenceEquals(
+                limit.Descriptor,
+                CallGraphInspectionGraphCatalog
+                    .PhysicalOccurrencesUnavailable));
 
         using var source = MetadataSource.Open(CallerPath);
         AnnotatedMemberDocumentResult result =
