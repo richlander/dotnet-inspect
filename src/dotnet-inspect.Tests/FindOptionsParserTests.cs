@@ -46,4 +46,15 @@ public class FindOptionsParserTests
 
         Assert.All(FindTipArgs(tips), args => Assert.DoesNotContain("--members", args));
     }
+
+    [Theory]
+    [InlineData(typeof(IOException))]
+    [InlineData(typeof(TimeoutException))]
+    public void PackagePrefix_MetadataLimitFailuresRemainCleanCliErrors(
+        Type exceptionType)
+    {
+        var error = (Exception)Activator.CreateInstance(exceptionType)!;
+
+        Assert.True(CommandLineHelpers.IsPrefixResolutionFailure(error));
+    }
 }
