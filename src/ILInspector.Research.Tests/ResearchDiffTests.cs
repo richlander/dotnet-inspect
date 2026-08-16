@@ -316,6 +316,24 @@ public class ResearchDiffTests
         Assert.NotEqual(idInt, idLong);
     }
 
+    [Fact]
+    public void ResearchMemberIdentity_UnknownMemberReferenceDoesNotInventOperatorSelector()
+    {
+        var widget = TypeRef.Definition("Asm", "Sample", "Widget");
+        var member = new MemberRef(
+            widget,
+            "op_Equality",
+            [widget, widget],
+            TypeRef.CoreLib("System", "Boolean"),
+            MemberKind.Method);
+
+        Assert.Equal(MetadataOperatorFact.Unknown, member.IsOperator);
+        Assert.StartsWith(
+            "op_Equality~",
+            ResearchMemberIdentity.SubjectFromMember(member).Id,
+            StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// A body subject and its API anchor must be the same string, or an
     /// implementation diff cannot join a member's IL evidence to its API

@@ -189,7 +189,8 @@ public static class OperatorNames
         string returnType,
         int parameterCount,
         bool hasRefOrOutParameter = false,
-        bool declaringTypeParticipates = true)
+        bool declaringTypeParticipates = true,
+        bool hasByRefReturn = false)
     {
         if (!IsCSharpOperatorMethodName(methodName))
             return false;
@@ -211,6 +212,7 @@ public static class OperatorNames
         if (!isStatic
             || !isPublic
             || returnType is "void" or "System.Void"
+            || hasByRefReturn
             || hasRefOrOutParameter
             || !declaringTypeParticipates
             || RequiresBooleanReturn(methodName)

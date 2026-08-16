@@ -2235,7 +2235,10 @@ internal static class CSharpDeclarationWriter
                 isPublic,
                 returnType,
                 parameterCount,
-                hasRefOrOutParameter);
+                hasRefOrOutParameter,
+                hasByRefReturn:
+                    returnType.StartsWith("ref ", StringComparison.Ordinal)
+                    || returnType.Contains("] ref ", StringComparison.Ordinal));
         if (!isCSharpDeclaration || !HasRequiredOperatorSibling(type, member))
             return signature;
 

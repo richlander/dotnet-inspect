@@ -242,6 +242,18 @@ public class OperatorNamesTests
                 parameterCount: 2,
                 declaringTypeParticipates: true));
 
+    [Fact]
+    public void CSharp_operator_declaration_rejects_by_ref_return()
+        => Assert.False(
+            OperatorNames.IsCSharpOperatorDeclaration(
+                "op_Addition",
+                isStatic: true,
+                isPublic: true,
+                returnType: "T",
+                parameterCount: 2,
+                declaringTypeParticipates: true,
+                hasByRefReturn: true));
+
     [Theory]
     // Binary/unary operators need the declaring type among their parameters.
     [InlineData("op_Addition", true, false, true)]

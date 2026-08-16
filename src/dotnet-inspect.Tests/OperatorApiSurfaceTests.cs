@@ -131,6 +131,8 @@ public sealed class OperatorApiSurfaceTests
             Define("op_BitwiseAnd", Operator, [builder, builder], typeof(void));
             // Wrong arity for a binary operator.
             Define("op_BitwiseOr", Operator, [builder], builder);
+            // C# operators cannot return by reference.
+            Define("op_LeftShift", Operator, [builder, typeof(int)], builder.MakeByRefType());
             // C# permits comparison operators to return any type; only
             // true/false operators require bool.
             Define("op_Equality", Operator, [builder, builder], builder);
@@ -149,6 +151,7 @@ public sealed class OperatorApiSurfaceTests
         Assert.False(image.IsCSharpOperatorDeclaration("op_Modulus"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_BitwiseAnd"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_BitwiseOr"));
+        Assert.False(image.IsCSharpOperatorDeclaration("op_LeftShift"));
         Assert.True(image.IsCSharpOperatorDeclaration("op_Equality"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_True"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_Explicit"));
@@ -158,7 +161,7 @@ public sealed class OperatorApiSurfaceTests
         foreach (string name in new[]
         {
             "op_Addition", "op_Subtraction", "op_Multiply", "op_Division",
-            "op_Modulus", "op_BitwiseAnd", "op_BitwiseOr", "op_Equality",
+            "op_Modulus", "op_BitwiseAnd", "op_BitwiseOr", "op_LeftShift", "op_Equality",
             "op_True", "op_Implicit", "op_Explicit",
         })
         {
@@ -281,11 +284,35 @@ public sealed class OperatorApiSurfaceTests
         Assert.True(OperatorMetadata.IsCSharpOperatorDeclaration(reader, method));
     }
 
+    [Fact]
+    public void CSharpOperatorDeclaration_AcceptsNullableSelfConstrainedOperands()
+    {
+        using var stream = File.OpenRead(typeof(NullableSelfConstrainedOperator<>).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = Assert.Single(
+            reader.TypeDefinitions,
+            handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == "NullableSelfConstrainedOperator`1");
+        var method = Assert.Single(
+            reader.GetTypeDefinition(typeHandle).GetMethods()
+                .Select(reader.GetMethodDefinition),
+            candidate => reader.GetString(candidate.Name) == "op_Addition");
+
+        Assert.True(OperatorMetadata.IsCSharpOperatorDeclaration(reader, method));
+    }
+
     static string FullName(MetadataReader reader, TypeDefinition type)
     {
         string ns = reader.GetString(type.Namespace);
         string name = reader.GetString(type.Name);
         return ns.Length == 0 ? name : $"{ns}.{name}";
+    }
+
+    public interface NullableSelfConstrainedOperator<T>
+        where T : struct, NullableSelfConstrainedOperator<T>
+    {
+        static abstract T? operator +(T? left, T? right);
     }
 
     sealed class OperatorImage : IDisposable

@@ -94,7 +94,8 @@ public static class OperatorMetadata
             OperatorNames.DeclaringTypeParticipates(
                 name,
                 anyParameterIsDeclaringType,
-                signature.ReturnType.Matches(declaringIdentity, selfConstrainedTypeParameters)));
+                signature.ReturnType.Matches(declaringIdentity, selfConstrainedTypeParameters)),
+            hasByRefReturn: signature.ReturnType.IsByRef);
     }
 
     // C# 11 permits an interface operator operand to be a type parameter only

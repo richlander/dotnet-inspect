@@ -1,4 +1,3 @@
-using CSharpText;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -72,7 +71,7 @@ public static class ResearchMemberIdentity
             ApiMemberIdentity.GetMemberSelectorName(
                 method.Name,
                 method.IsExtension,
-                IsOperatorSelector(method.IsOperator, method.Name)),
+                IsOperatorSelector(method.IsOperator)),
             method.DeclaringType.ToQualifiedDisplayString(),
             method.Name == ".ctor" ? "#ctor" : method.Name,
             MethodGenericList(method),
@@ -89,7 +88,7 @@ public static class ResearchMemberIdentity
             ApiMemberIdentity.GetMemberSelectorName(
                 member.Name,
                 isExtensionMethod: false,
-                IsOperatorSelector(member.IsOperator, member.Name)),
+                IsOperatorSelector(member.IsOperator)),
             BodyTypeName(
                 GenericMemberIdentity.OpenDeclaringType(
                     member.DeclaringType)),
@@ -110,16 +109,11 @@ public static class ResearchMemberIdentity
     /// MethodDef answers exactly, which is what makes an ordinary method named
     /// <c>op_Multiply</c> join its API anchor instead of splitting off into an
     /// operator-prefixed subject. An unresolved MemberRef has no
-    /// <c>SpecialName</c> flag to read, so it falls back to the CLI operator
-    /// name vocabulary rather than dropping a real external operator's prefix.
+    /// <c>SpecialName</c> flag to read, so unknown evidence remains ordinary
+    /// rather than becoming positive operator proof from its name.
     /// </summary>
-    static bool IsOperatorSelector(MetadataOperatorFact fact, string name)
-        => fact switch
-        {
-            MetadataOperatorFact.Yes => true,
-            MetadataOperatorFact.No => false,
-            _ => OperatorNames.IsMetadataOperatorMethodName(name),
-        };
+    static bool IsOperatorSelector(MetadataOperatorFact fact)
+        => fact == MetadataOperatorFact.Yes;
 
     static BodyMemberIdentity BodyIdentityFromTarget(ResolvedMemberTarget target)
     {
