@@ -206,6 +206,9 @@ public class ApiCommand
 
     internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
     {
+        if (options is MemberOptions { IncludeSections: not null } preResolvedMemberOptions)
+            options = preResolvedMemberOptions with { MemberSectionsPreResolved = true };
+
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var memberPipeline = ApiMemberSectionPipelines.Create(options);
         bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
@@ -285,26 +288,29 @@ public class ApiCommand
         }
 
         // -S/--select with values: resolve as section filter for backpressure
-        var selectResult = SelectResolver.ResolveSelectAsSections(
-            options.Select,
-            knownSections,
-            bareSelectSections,
-            singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
-            selectDefault: options.SelectDefault);
-        if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
+        if (options.IncludeSections is null)
         {
-            // `-D` advertised these names and `-S` rejected them, on the same command line: the
-            // preamble was answering for the single-type pipeline while the render is a listing.
-            // Hold the rejection rather than resolving it here, because which pipeline is right is
-            // not known until the type lookup runs.
-            options = options with { SelectDeferredToListing = true };
-        }
-        else
-        {
-            if (SelectOutput.WriteUnresolved(selectResult))
-                return (null!, 1);
-            if (selectResult.Sections != null)
-                options = options with { IncludeSections = selectResult.Sections };
+            var selectResult = SelectResolver.ResolveSelectAsSections(
+                options.Select,
+                knownSections,
+                bareSelectSections,
+                singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+                selectDefault: options.SelectDefault);
+            if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
+            {
+                // `-D` advertised these names and `-S` rejected them, on the same command line: the
+                // preamble was answering for the single-type pipeline while the render is a listing.
+                // Hold the rejection rather than resolving it here, because which pipeline is right is
+                // not known until the type lookup runs.
+                options = options with { SelectDeferredToListing = true };
+            }
+            else
+            {
+                if (SelectOutput.WriteUnresolved(selectResult))
+                    return (null!, 1);
+                if (selectResult.Sections != null)
+                    options = options with { IncludeSections = selectResult.Sections };
+            }
         }
 
         // A deferred select has no IncludeSections yet, and the preamble cannot know whether a
@@ -577,8 +583,15 @@ public class ApiCommand
     {
         if (options.IncludeSections is not { Count: > 0 })
             return;
-        if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
-            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+        var sectionsPreResolved = options is MemberOptions { MemberSectionsPreResolved: true };
+        if (SelectResolver.IsActiveInfoSelector(
+                options.SelectDefault,
+                options.IncludeSections,
+                sectionsPreResolved)
+            || SelectResolver.IsActiveAllSelector(
+                options.Select,
+                options.IncludeSections,
+                sectionsPreResolved))
             return;
 
         var filtered = BuildFilteredTypeForSections(type, options);
@@ -785,8 +798,13 @@ public class ApiCommand
     internal static HashSet<string> GetRequestedMemberSections(ApiType type, ApiOptions options)
     {
         var pipeline = ApiMemberSectionPipelines.Create(options);
+        var explicitInclude = options is MemberOptions { MemberSectionsPreResolved: true };
         var sections = new HashSet<string>(
-            pipeline.GetEffectiveSections(type, options.Verbosity, options.IncludeSections),
+            pipeline.GetEffectiveSections(
+                type,
+                options.Verbosity,
+                options.IncludeSections,
+                explicitInclude: explicitInclude),
             StringComparer.OrdinalIgnoreCase);
         if (options.Discover is { Length: > 0 } discover)
         {
@@ -1619,12 +1637,18 @@ public class ApiCommand
             }
             else
             {
-                if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+                if (SelectResolver.IsActiveAllSelector(
+                    options.Select,
+                    options.IncludeSections,
+                    options is MemberOptions { MemberSectionsPreResolved: true }))
                 {
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     writerOptions.SectionOrder = pipeline.GetAllSelectorSections(type);
                 }
-                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
+                else if (SelectResolver.IsActiveInfoSelector(
+                    options.SelectDefault,
+                    options.IncludeSections,
+                    options is MemberOptions { MemberSectionsPreResolved: true }))
                 {
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     writerOptions.SectionOrder = pipeline.InfoSectionNames;
@@ -2025,7 +2049,10 @@ public class ApiCommand
     {
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
-        var effective = memberPipeline.GetDiscoverableSections(filteredType, options.IncludeSections);
+        var effective = memberPipeline.GetDiscoverableSections(
+            filteredType,
+            options.IncludeSections,
+            explicitInclude: options is MemberOptions { MemberSectionsPreResolved: true });
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
         var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };
@@ -2434,7 +2461,9 @@ public class ApiCommand
                 .ToList();
 
         // -S/--select scopes JSON to the requested sections, mirroring the markdown view.
-        if (options.IncludeSections is { Count: > 0 } sections)
+        if (options.IncludeSections is { } sections
+            && (sections.Count > 0
+                || options is MemberOptions { MemberSectionsPreResolved: true }))
         {
             outputType = ProjectTypeToSections(type, members, sections);
         }
@@ -2487,7 +2516,8 @@ public class ApiCommand
            && !IsProjectionRequested(options)
            && options.IncludeSections is { Count: 1 } sections
            && sections.Contains(SectionNames.AnnotatedSourceDocument)
-           && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options);
+           && (options is MemberOptions { MemberSectionsPreResolved: true }
+               || HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
 
     private static bool IsInvalidAnnotatedSourceDocumentJsonSelection(ApiOptions options)
         => options.JsonOutput
@@ -2495,9 +2525,11 @@ public class ApiCommand
            && !IsProjectionRequested(options)
            && options.IncludeSections is { Count: > 0 } sections
            && sections.Contains(SectionNames.AnnotatedSourceDocument)
-           && options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true
-           && (sections.Count != 1
-               || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
+           && (options is MemberOptions { MemberSectionsPreResolved: true }
+               ? sections.Count != 1
+               : options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true
+                 && (sections.Count != 1
+                     || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options)));
 
     private static bool HasOnlyExplicitAnnotatedSourceDocumentSelectors(ApiOptions options)
         => options.Select is { Length: > 0 } selectors

@@ -8975,6 +8975,56 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_PreResolvedAnnotatedSourceDocumentJson_IgnoresStaleSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(CommandCaretGestureFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(CommandCaretGestureFixture.Pump)],
+                OverloadIndex = 1,
+                Select = [SectionNames.Methods],
+                IncludeSections = [SectionNames.AnnotatedSourceDocument],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.True(document.RootElement.TryGetProperty("text", out _));
+        Assert.False(document.RootElement.TryGetProperty("name", out _));
+    }
+
+    [Fact]
+    public async Task Member_PreResolvedAnnotatedSourceDocumentJson_RejectsAuthoritativeComposition()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(CommandCaretGestureFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(CommandCaretGestureFixture.Pump)],
+                OverloadIndex = 1,
+                Select = [SectionNames.Methods],
+                IncludeSections =
+                [
+                    SectionNames.AnnotatedSourceDocument,
+                    SectionNames.Signature
+                ],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.",
+            result.Error);
+    }
+
+    [Fact]
     public async Task Member_AnnotatedSourceDocument_UsesTheSyntaxThePrinterSelected()
     {
         await AssertNodeKind(

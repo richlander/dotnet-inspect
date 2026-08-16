@@ -284,6 +284,13 @@ public record TypeOptions : ApiOptions
 /// </summary>
 public record MemberOptions : ApiOptions
 {
+    /// <summary>
+    /// True when <see cref="ApiOptions.IncludeSections"/> was supplied before the command
+    /// preamble. Retained raw selectors are provenance only and must not override that set or
+    /// control later member-pipeline transitions.
+    /// </summary>
+    public bool MemberSectionsPreResolved { get; init; }
+
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }
     public string? MemberDigest { get; init; }
