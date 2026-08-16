@@ -34,14 +34,14 @@ internal sealed class StructuringFlowFacts
     /// </summary>
     public required Dictionary<int, List<int>> JumpPredecessorIndices { get; init; }
     /// <summary>
-    /// Jump-edge predecessors plus nested-<see cref="Leave"/> owners of each
+    /// Jump-edge predecessors plus current-function nested-<see cref="Leave"/> owners of each
     /// target offset — the blocks that must own a clone before the original past-
     /// region target may be dropped.
     /// </summary>
     public required Dictionary<int, List<int>> ClonePredecessorIndices { get; init; }
     /// <summary>Dispatch fact (see <see cref="Collect"/>): offsets targeted by a switch dispatch.</summary>
     public required HashSet<int> SwitchTargets { get; init; }
-    /// <summary>Targets of every explicit control transfer, including descendant <see cref="Leave"/> nodes — the offsets whose labels structuring must preserve.</summary>
+    /// <summary>Targets of every explicit current-function control transfer, including descendant <see cref="Leave"/> nodes — the offsets whose labels structuring must preserve.</summary>
     public required HashSet<int> BranchTargets { get; init; }
 
     /// <summary>
@@ -113,7 +113,7 @@ internal sealed class StructuringFlowFacts
                 }
             }
 
-            foreach (var leave in block.Descendants.OfType<Leave>())
+            foreach (var leave in block.DescendantsOutsideNestedFunctions.OfType<Leave>())
             {
                 branchTargets.Add(leave.TargetOffset);
                 AddPredecessor(clonePredecessorIndices, leave.TargetOffset, blockIndex);
@@ -1201,8 +1201,8 @@ public sealed class StructuringPass : IIrPass
             // label and prints `goto IL_xxxx; // leave`; if that target is inside the
             // arm, nesting it would jump into scope. EhStructuringPass runs before
             // this pass, so a leave may already be nested inside a TryCatch/TryFinally
-            // shell in this source block — scan descendants, not just children.
-            foreach (var leave in blocks[source].Descendants.OfType<Leave>())
+            // shell in this source block — scan current-function descendants, not just children.
+            foreach (var leave in blocks[source].DescendantsOutsideNestedFunctions.OfType<Leave>())
             {
                 if (ctx.FlowFacts.OffsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
                     && leaveTarget >= start && leaveTarget < stop)
@@ -1303,14 +1303,14 @@ public sealed class StructuringPass : IIrPass
         return latch == -1 || !hasLoopExit ? null : latch;
     }
 
-    // Descendant Leave nodes targeting a given offset, collected in one pooled-DFS pass.
+    // Current-function Leave nodes targeting a given offset, collected in one pooled-DFS pass.
     // A `Descendants.OfType<Leave>().Where(l => l.TargetOffset == targetOffset)` allocates a
     // capturing closure + delegate + OfType/Where iterators on every call; this hot structuring
     // helper walks once and filters inline, materializing only the result list.
     static List<Leave> RetryLeavesTo(Block block, int targetOffset)
     {
         var result = new List<Leave>();
-        foreach (var node in block.Descendants)
+        foreach (var node in block.DescendantsOutsideNestedFunctions)
         {
             if (node is Leave leave && leave.TargetOffset == targetOffset)
                 result.Add(leave);
@@ -1323,7 +1323,7 @@ public sealed class StructuringPass : IIrPass
         if (blockIndex == latch && MayFallThroughAfterRetryReplacement(block, headOffset))
             return true;
 
-        foreach (var node in block.Descendants.Prepend(block))
+        foreach (var node in block.DescendantsOutsideNestedFunctions.Prepend(block))
         {
             if (node is Return or Throw or Break)
                 return true;
@@ -1491,7 +1491,7 @@ public sealed class StructuringPass : IIrPass
         var targets = new HashSet<int>();
         for (int i = 0; i < blocks.Count; i++)
         {
-            foreach (var leave in blocks[i].Descendants.OfType<Leave>())
+            foreach (var leave in blocks[i].DescendantsOutsideNestedFunctions.OfType<Leave>())
             {
                 if (offsetToIndex.TryGetValue(leave.TargetOffset, out int target) && target <= i)
                     targets.Add(target);
