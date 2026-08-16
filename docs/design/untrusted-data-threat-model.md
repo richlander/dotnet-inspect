@@ -409,10 +409,11 @@ compiler-generated field, or hidden member. This includes every enclosing
 TypeDef or TypeRef segment reached from a signature, skipped enum names scanned
 while formatting defaults, and forwarded type and target-assembly names.
 TypeSpec-owned generic attribute constructors use the same guarded signature
-decoder and preserve bounded/unbounded parity. Enum-valued attribute arguments
-also charge every type name inspected while resolving their underlying type;
-decode failures may skip malformed attributes, but a budget-observer failure
-must escape the decoder and produce typed truncation. The Browser separately
+decoder and preserve bounded/unbounded parity. Enum-valued arguments build one
+charged type-name index per attribute decode instead of rescanning every type
+for every argument; decode failures may skip malformed attributes, but a
+budget-observer failure must escape the decoder and produce typed truncation.
+The Browser separately
 applies the same bound while deriving type/member transport records, including
 canonical signatures, documentation IDs, and graph selectors that repeat
 declaring-type identity. It preflights each source model against the budget
@@ -434,7 +435,7 @@ pre-decoding rejection.
 `OneWideFieldSignature_StopsBeforeLargeAllocationAmplification`,
 `OneWideTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneLargeCustomAttribute_StopsBeforeLargeAllocationAmplification`,
-`RepeatedEnumAttributeLookups_StopBeforeQuadraticAllocationAmplification`,
+`RepeatedEnumAttributeLookups_DoNotAllocateQuadratically`,
 `GenericAttributeTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneDeeplyNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneArgumentNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,

@@ -426,12 +426,31 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
-    public void RepeatedEnumAttributeLookups_StopBeforeQuadraticAllocationAmplification()
+    public void RepeatedEnumAttributeLookups_DoNotAllocateQuadratically()
     {
-        AssertTextAmplificationIsBounded(
-            BuildRepeatedEnumAttributeLookupImage(
-                typeCount: 2_000,
-                namedArgumentCount: 2_000));
+        byte[] image = BuildRepeatedEnumAttributeLookupImage(
+            typeCount: 2_000,
+            namedArgumentCount: 2_000);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                maxTypes: 100_000,
+                maxMembers: 1_000_000,
+                maxInspectionFailures: 1_024,
+                maxTypeForwarders: 100_000,
+                maxMetadataRows: 250_000,
+                maxRetainedTextCharacters: 8_000_000));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result);
+        Assert.True(
+            allocated < 64L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
     }
 
     [Fact]

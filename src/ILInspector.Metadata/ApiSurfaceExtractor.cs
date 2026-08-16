@@ -335,8 +335,13 @@ public static class ApiSurfaceExtractor
         budget?.AdmitMetadataRows(reader);
         Action<string>? observeText =
             budget is null ? null : budget.ObservePendingText;
-        Action<int>? observeDecodeWork =
-            budget is null ? null : budget.ObservePendingDecodeWork;
+        var materializationContext = budget is null
+            ? null
+            : new AttributeDecoder.MaterializationContext(
+                budget.ObservePendingDecodeWork);
+        Action<int>? observeDecodeWork = materializationContext is null
+            ? null
+            : materializationContext.Observe;
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {

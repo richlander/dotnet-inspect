@@ -13,6 +13,17 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class AttributeDecoder
 {
+    internal sealed class MaterializationContext(Action<int> observe)
+    {
+        Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
+
+        public void Observe(int characters) => observe(characters);
+
+        public Dictionary<string, TypeDefinitionHandle> GetOrCreateTypeDefinitionsByName(
+            Func<Dictionary<string, TypeDefinitionHandle>> create)
+            => _typeDefinitionsByName ??= create();
+    }
+
     /// <summary>
     /// The fully qualified type name of an attribute, from its constructor handle.
     /// </summary>
@@ -119,6 +130,10 @@ public static class AttributeDecoder
         bool preserveSerializedTypeNames,
         Action<int>? beforeMaterialize) : ICustomAttributeTypeProvider<string>
     {
+        Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
+        readonly MaterializationContext? _materializationContext =
+            beforeMaterialize?.Target as MaterializationContext;
+
         public string GetPrimitiveType(PrimitiveTypeCode code) => code switch
         {
             PrimitiveTypeCode.Boolean => "bool",
@@ -158,29 +173,45 @@ public static class AttributeDecoder
 
         public PrimitiveTypeCode GetUnderlyingEnumType(string type)
         {
-            foreach (var handle in reader.TypeDefinitions)
-            {
-                var def = reader.GetTypeDefinition(handle);
-                if (TypeResolver.GetTypeNameFromDefinition(
-                        reader,
-                        handle,
-                        ObserveBeforeMaterialize) != type)
-                    continue;
-                foreach (var fieldHandle in def.GetFields())
-                {
-                    var field = reader.GetFieldDefinition(fieldHandle);
-                    if ((field.Attributes & FieldAttributes.Static) != 0)
-                        continue;
+            if (!TypeDefinitionsByName.TryGetValue(type, out var handle))
+                return PrimitiveTypeCode.Int32;
 
-                    // SRM decodes this field signature on the native stack before the
-                    // first provider callback, so an over-deep enum field blob would
-                    // overflow uncatchably. Prescan and fail closed to Int32.
-                    return SignatureBlobGuard.IsSafeToDecode(reader, field.Signature, SignatureBlobGuard.Kind.Field)
-                        ? field.DecodeSignature(new PrimitiveCodeProvider(), null)
-                        : PrimitiveTypeCode.Int32;
-                }
+            var def = reader.GetTypeDefinition(handle);
+            foreach (var fieldHandle in def.GetFields())
+            {
+                var field = reader.GetFieldDefinition(fieldHandle);
+                if ((field.Attributes & FieldAttributes.Static) != 0)
+                    continue;
+
+                // SRM decodes this field signature on the native stack before the
+                // first provider callback, so an over-deep enum field blob would
+                // overflow uncatchably. Prescan and fail closed to Int32.
+                return SignatureBlobGuard.IsSafeToDecode(reader, field.Signature, SignatureBlobGuard.Kind.Field)
+                    ? field.DecodeSignature(new PrimitiveCodeProvider(), null)
+                    : PrimitiveTypeCode.Int32;
             }
             return PrimitiveTypeCode.Int32;
+        }
+
+        Dictionary<string, TypeDefinitionHandle> TypeDefinitionsByName =>
+            _materializationContext?.GetOrCreateTypeDefinitionsByName(
+                BuildTypeDefinitionIndex)
+            ?? (_typeDefinitionsByName ??= BuildTypeDefinitionIndex());
+
+        Dictionary<string, TypeDefinitionHandle> BuildTypeDefinitionIndex()
+        {
+            var result = new Dictionary<string, TypeDefinitionHandle>(
+                reader.TypeDefinitions.Count,
+                StringComparer.Ordinal);
+            foreach (var handle in reader.TypeDefinitions)
+            {
+                string name = TypeResolver.GetTypeNameFromDefinition(
+                    reader,
+                    handle,
+                    ObserveBeforeMaterialize);
+                result.TryAdd(name, handle);
+            }
+            return result;
         }
 
         void ObserveBeforeMaterialize(int characters)
