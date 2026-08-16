@@ -565,6 +565,13 @@ public sealed class AssemblyContextGroup : IDisposable
                 "The participant does not belong to this context group.",
                 nameof(participant));
         }
+        if (!ReferenceEquals(
+                participant.BindingPolicy.Version,
+                BindingPolicyVersion))
+        {
+            throw new InvalidOperationException(
+                "The participant binding-policy snapshot changed after the assembly context group was created.");
+        }
 
         return registered;
     }

@@ -163,7 +163,10 @@ and `AssemblyContextSourceQueryTests.SourceStoreCancellation_Propagates` gate
 those boundaries.
 Portable-PDB acquisition and validation failures follow the same composition:
 the failed authored attempt remains visible while member or type decompilation
-continues, and cancellation still propagates.
+continues, and cancellation still propagates. Host PDB-store implementations
+may report operational failures with implementation-appropriate exception
+types; the query classifies every non-cancellation, non-fatal failure at the
+PDB-acquisition boundary.
 `AssemblyContextSourceQueryTests.PdbStoreFailure_PreservesAuthoredFailureAndFallsBackForMemberAndType`
 gates external-store failure, and
 `AssemblyContextSourceQueryTests.CorruptEmbeddedPdb_PreservesAuthoredFailureAndFallsBackForMemberAndType`
@@ -180,9 +183,16 @@ A query with cancellation already requested still validates that the selected
 participant belongs to the group, then stops before snapshot acquisition.
 `AssemblyContextSourceQueryTests.PreCanceledQueries_StopBeforeSnapshotAndDecompilerFallback`
 gates the pre-entry member and type boundary. Participant membership includes
-the binding-policy snapshot rather than assembly-descriptor identity alone;
+the binding-policy snapshot rather than assembly-descriptor identity alone,
+and a policy that rotates its snapshot after group creation is rejected before
+snapshot acquisition or cancellation;
 `AssemblyContextSourceQueryTests.SameDescriptorForeignParticipant_IsRejectedBeforeCancellation`
-gates that identity boundary. Cancellation observed after a successful
+and
+`AssemblyContextSourceQueryTests.ChangedBindingPolicySnapshot_IsRejectedBeforeCancellation`
+gate those identity boundaries. Cancellation raised by the binding policy
+during decompiler fallback remains exceptional;
+`AssemblyContextSourceQueryTests.BindingPolicyCancellation_PropagatesFromDecompilerFallback`
+gates the member and type paths. Cancellation observed after a successful
 source-store read or write remains exceptional rather than returning authored
 success or publishing the bytes to the process-local cache;
 `AssemblyContextSourceQueryTests.SourceStoreSuccessfulCancellation_PropagatesBeforeAuthoredSuccess`

@@ -407,6 +407,104 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
+    public async Task ChangedBindingPolicySnapshot_IsRejectedBeforeCancellation()
+    {
+        byte[] bytes =
+            WithoutDebugDirectory(
+                File.ReadAllBytes(
+                    typeof(AssemblyContextSourceQueryTests)
+                        .Assembly.Location));
+        TestAssembly assembly =
+            TestAssembly.Create(bytes);
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+        assembly.Policy.ChangeVersion();
+        using var cancellation = new CancellationTokenSource();
+
+        foreach (bool canceled in new[] { false, true })
+        {
+            if (canceled)
+                cancellation.Cancel();
+
+            AssemblyMemberSourceEntry member =
+                await AssemblyContextSourceQuery
+                    .ExecuteMemberAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.MemberRequest(
+                            nameof(SourceFixture.Describe)),
+                        host.Context,
+                        cancellation.Token);
+            AssemblyTypeSourceEntry type =
+                await AssemblyContextSourceQuery
+                    .ExecuteTypeAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest(
+                            typeof(SourceFixture).Name),
+                        host.Context,
+                        cancellation.Token);
+
+            Assert.IsType<InvalidOperationException>(
+                Assert.IsType<
+                    AssemblyMemberSourceEntry.Unavailable>(
+                        member)
+                    .Failure.Error);
+            Assert.IsType<InvalidOperationException>(
+                Assert.IsType<
+                    AssemblyTypeSourceEntry.Unavailable>(
+                        type)
+                    .Failure.Error);
+        }
+
+        Assert.Empty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+    }
+
+    [Fact]
+    public async Task BindingPolicyCancellation_PropagatesFromDecompilerFallback()
+    {
+        byte[] bytes =
+            WithoutDebugDirectory(
+                File.ReadAllBytes(
+                    typeof(AssemblyContextSourceQueryTests)
+                        .Assembly.Location));
+        TestAssembly assembly =
+            TestAssembly.Create(bytes);
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+        assembly.Policy.CancelSelection = true;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => AssemblyContextSourceQuery.ExecuteMemberAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Describe)),
+                host.Context,
+                TestContext.Current.CancellationToken));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(
+                    typeof(SourceFixture).Name),
+                host.Context,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+        Assert.True(assembly.Policy.SelectionCount > 0);
+    }
+
+    [Fact]
     public async Task SourceStoreFailure_FallsBackRepeatablyWithoutPublishingMemoryEntry()
     {
         TestAssembly assembly = TestAssembly.Create();
@@ -1976,7 +2074,7 @@ public sealed class AssemblyContextSourceQueryTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             Interlocked.Increment(ref _readAttempts);
-            throw new IOException(
+            throw new HttpRequestException(
                 "Synthetic PDB store failure.");
         }
 
@@ -2078,15 +2176,25 @@ public sealed class AssemblyContextSourceQueryTests
                     frameworkVersion: null,
                     "source query test"));
 
-        public AssemblyBindingPolicyVersion Version { get; } =
+        public AssemblyBindingPolicyVersion Version { get; private set; } =
             new();
         internal int SelectionCount =>
             Volatile.Read(ref _selectionCount);
+        internal bool CancelSelection { get; set; }
+
+        internal void ChangeVersion() =>
+            Version = new AssemblyBindingPolicyVersion();
 
         public AssemblyBindingSelection Select(
             AssemblyBindingRequest request)
         {
             Interlocked.Increment(ref _selectionCount);
+            if (CancelSelection)
+            {
+                throw new OperationCanceledException(
+                    "Synthetic binding-policy cancellation.");
+            }
+
             return request.Target
                 is AssemblyBindingTarget.AssemblyReference reference
                 && reference.Identity.Name

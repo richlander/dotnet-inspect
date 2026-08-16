@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Runtime.ExceptionServices;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -490,12 +491,16 @@ public static class AssemblyContextSourceQuery
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        var bindingPolicy =
+            new CancellationObservingBindingPolicy(
+                participant.BindingPolicy);
         MemberRenderResult decompiled =
             MemberBodyProducer.ProduceMember(
                 target.Type,
                 target.Member,
                 retained,
-                participant.BindingPolicy);
+                bindingPolicy);
+        bindingPolicy.ThrowIfObserved();
         if (decompiled.IsComplete
             && decompiled.Text is { } decompiledText)
         {
@@ -574,11 +579,15 @@ public static class AssemblyContextSourceQuery
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        var bindingPolicy =
+            new CancellationObservingBindingPolicy(
+                participant.BindingPolicy);
         DecompilerResult decompiled =
             MemberBodyProducer.Project(
                 target,
                 retained,
-                participant.BindingPolicy);
+                bindingPolicy);
+        bindingPolicy.ThrowIfObserved();
         if (decompiled.Succeeded
             && decompiled.Output is { } decompiledText)
         {
@@ -640,7 +649,7 @@ public static class AssemblyContextSourceQuery
                 opened,
                 Failure: null);
         }
-        catch (Exception ex) when (IsInspectionFailure(ex))
+        catch (Exception ex) when (IsPdbAcquisitionFailure(ex))
         {
             return new SourceLinkOpenResult(
                 Source: null,
@@ -723,6 +732,42 @@ public static class AssemblyContextSourceQuery
             or BadImageFormatException
             or InvalidOperationException
             or ArgumentException;
+
+    static bool IsPdbAcquisitionFailure(Exception error)
+        => error is not (OperationCanceledException
+            or OutOfMemoryException
+            or StackOverflowException
+            or AccessViolationException);
+
+    sealed class CancellationObservingBindingPolicy(
+        IAssemblyBindingPolicy inner)
+        : IAssemblyBindingPolicy
+    {
+        ExceptionDispatchInfo? _cancellation;
+
+        public AssemblyBindingPolicyVersion Version =>
+            inner.Version;
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request)
+        {
+            try
+            {
+                return inner.Select(request);
+            }
+            catch (OperationCanceledException ex)
+            {
+                Interlocked.CompareExchange(
+                    ref _cancellation,
+                    ExceptionDispatchInfo.Capture(ex),
+                    comparand: null);
+                throw;
+            }
+        }
+
+        internal void ThrowIfObserved() =>
+            Volatile.Read(ref _cancellation)?.Throw();
+    }
 
     sealed record MemberInspectionSeed(
         ResolvedAssemblyReference Retained,
