@@ -1194,7 +1194,10 @@ public class SectionPipelineTests
         Assert.Empty(discoveryScanners);
         Assert.Equal(
             [ClassifiedMethodsQuery.Definition],
-            pipeline.GetRequiredQueries(Verbosity.Detailed, include));
+            pipeline.GetRequiredQueries(
+                Verbosity.Detailed,
+                include,
+                excludeUnbounded: true));
     }
 
     [Fact]
