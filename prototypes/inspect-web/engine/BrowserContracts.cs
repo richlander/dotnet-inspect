@@ -152,6 +152,12 @@ public sealed record BrowserPackageCacheStats(
     int Workspaces,
     long ResidentBytes);
 
+public sealed record BrowserBuildIdentity(
+    string Version,
+    string? Commit,
+    string? BuiltAtUtc,
+    string? CommitUrl);
+
 /// <summary>
 /// One type's metadata projection, adapted from <c>ResearchViews.TypeProjectionResult</c> — the
 /// presentation-neutral seam the CLI consumes — so the browser never reimplements type-fact
@@ -231,6 +237,32 @@ public sealed record BrowserAssemblyReference(
     string Version,
     string? Culture,
     string? PublicKeyToken);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserDependencyCoordinateProvenance>))]
+public enum BrowserDependencyCoordinateProvenance
+{
+    NuGetPackage,
+    PlatformRuntime,
+}
+
+public sealed record BrowserDependencyCoordinateCandidate(
+    string Key,
+    BrowserDependencyCoordinateProvenance Provenance,
+    string PackageId,
+    string Version,
+    string TargetFramework);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserDependencyCoordinateMatchOutcome>))]
+public enum BrowserDependencyCoordinateMatchOutcome
+{
+    NoMatch,
+    Unique,
+    Ambiguous,
+}
+
+public sealed record BrowserDependencyCoordinateMatch(
+    BrowserDependencyCoordinateMatchOutcome Outcome,
+    string? CandidateKey);
 
 /// <summary>
 /// The annotated-source envelope: the product's portable <c>AnnotatedSourceDocument</c> serialized
@@ -380,7 +412,10 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
+[JsonSerializable(typeof(BrowserBuildIdentity))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(typeof(BrowserDependencyCoordinateCandidate[]))]
+[JsonSerializable(typeof(BrowserDependencyCoordinateMatch))]
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
