@@ -13,10 +13,13 @@ using DotnetInspector.Sections;
 using DotnetInspector.Views;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using InertText;
 
 namespace DotnetInspector.Tests;
 
+// Mutates the process-global CoreCache root; serialize with in-process CLI/cache tests (#3471).
+[Collection("Console")]
 public class LibraryFindingConsumerTests
 {
     [Fact]
@@ -135,13 +138,17 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
-    public void ClassifiedMethodScanner_RetainsFindingSemanticsAndDisplayProjection()
+    public void ClassifiedMethodsQueryProjection_RetainsFindingSemanticsAndDisplayProjection()
     {
+        string path = typeof(SampleUnsafeClass).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
         var inspection = new LibraryInspection();
 
-        inspection.Apply(LibraryMetadataService.ScanClassifiedMethods(
-            typeof(SampleUnsafeClass).Assembly.Location,
-            new VerboseLogger(enabled: false)));
+        LibraryMetadataService.ApplyClassifiedMethodsResult(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            ClassifiedMethodsQuery.Execute(session));
 
         var finding = Assert.Single(
             inspection.ClassifiedMethodInspection.Findings(),
@@ -152,6 +159,67 @@ public class LibraryFindingConsumerTests
             inspection.UnsafeMethods!,
             method => method.MethodName == nameof(SampleUnsafeClass.UnsafePointerMethod)
                       && method.Signature.Contains('*', StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ClassifiedMethodsQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    {
+        const string Name = "Method\u202EName";
+        const string DeclaringType = "Namespace.Type\U000E0074";
+        const string Signature = "void Method(\n)";
+        const string Module = "native\u200B.dll";
+        var anchor = new MemberAnchor(
+            "Method()",
+            "void Namespace.Type.Method()",
+            "0123456789",
+            "Namespace.Type",
+            "Method");
+        var method = new ClassifiedMethodInfo(
+            Name,
+            DeclaringType,
+            "Namespace",
+            Signature,
+            MethodClassification.PInvoke,
+            Module)
+        {
+            Anchor = anchor,
+            ReturnType = "void",
+        };
+        var result = new ClassifiedMethodsResult.Available([method]);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyClassifiedMethodsResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            result);
+
+        ClassifiedMethodInfo queryMethod = Assert.Single(result.Methods);
+        ClassifiedMethodObservation payload = Assert.Single(
+            inspection.ClassifiedMethodInspection.Findings()).Payload;
+        ClassifiedMethodSummary summary = Assert.Single(inspection.PInvokeMethods!);
+        PInvokeMethodRow row = Assert.Single(
+            new LibraryInspectionView(inspection).PInvokeMethodsSection!);
+
+        Assert.Equal(Name, queryMethod.MethodName);
+        Assert.Equal(DeclaringType, queryMethod.DeclaringType);
+        Assert.Equal(Signature, queryMethod.Signature);
+        Assert.Equal(Module, queryMethod.ModuleName);
+        Assert.Equal(anchor, payload.Anchor);
+        Assert.Equal(Name, summary.MethodName);
+        Assert.Equal(DeclaringType, summary.DeclaringType);
+        Assert.Equal(Signature, summary.Signature);
+        Assert.Equal(Module, summary.ModuleName);
+        Assert.NotEqual(Name, row.Name);
+        Assert.DoesNotContain("\U000E0074", row.DeclaringType, StringComparison.Ordinal);
+        Assert.DoesNotContain('\n', row.Signature);
+        Assert.DoesNotContain("\u200B", row.Module, StringComparison.Ordinal);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Name));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.DeclaringType));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Module));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Signature));
+        Assert.StartsWith("<code>", row.DeclaringType, StringComparison.Ordinal);
+        Assert.StartsWith("<code>", row.Signature, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -386,7 +454,14 @@ public class LibraryFindingConsumerTests
         var logger = new VerboseLogger(enabled: false);
         var inspection = new LibraryInspection();
 
-        inspection.Apply(LibraryMetadataService.ScanClassifiedMethods(missingPath, logger));
+        LibraryMetadataService.ApplyClassifiedMethodsResult(
+            missingPath,
+            inspection,
+            logger,
+            new ClassifiedMethodsResult.Failed(
+                new FileNotFoundException(
+                    "Classified method input was not found.",
+                    missingPath)));
         LibraryMetadataService.ApplyExtensionMethodsResult(
             missingPath,
             inspection,

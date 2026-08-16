@@ -14,8 +14,7 @@ namespace ILInspector.Decompiler.Tests;
 /// NativeAOT-safe accessors. These tests pin that contract so a host (the CLI
 /// resolver, a Wasm UI, the "full taste" aggregate) can rely on it, and so the
 /// catalog cannot silently drift from the <see cref="PrinterOptions"/> surface.
-/// Most knobs are two-state (boolean) toggles; the guarded-boolean-return knob is
-/// a single multi-value axis whose value domain the descriptor carries directly.
+/// Each knob carries its complete boolean or semantic value domain directly.
 /// </summary>
 public class StyleOptionCatalogTests
 {
@@ -146,6 +145,7 @@ public class StyleOptionCatalogTests
                 "var-spelling-style:var-for-built-in-types",
                 "var-spelling-style:var-when-type-apparent",
                 "var-spelling-style:var-elsewhere",
+                "explicit-object-creation",
                 "enum-case-label-order",
                 "prefer-long-literal-suffix",
             },
@@ -331,17 +331,20 @@ public class StyleOptionCatalogTests
     [Fact]
     public void ConfigKeyFalse_TogglesAnAxisOffWithoutTouchingSiblings()
     {
-        // A boolean knob's key = false is the per-value SetSelected(false) path: it
-        // clears its own backing state and nothing else. Proven on the four
-        // qualification knobs (each is a two-state axis with a config key).
+        // A two-state knob's key = false is the keyed value's
+        // SetSelected(false) path: it deselects that value and selects its sibling.
+        // Descriptor-level ConfigKey exposes only default-off knobs, so Get and
+        // ConfigKey retain the same polarity for generic hosts.
         foreach (var o in Options.Where(o => o.Values.Count == 2 && o.ConfigKey is not null))
         {
-            var onValue = o.Values.Single(v => v.ConfigKey is not null);
-            var enabled = onValue.SetSelected(PrinterOptions.Default, true);
-            Assert.Equal(onValue.Token, o.GetValue(enabled));
+            var keyedValue = o.Values.Single(v => v.ConfigKey is not null);
+            var sibling = o.Values.Single(v => v.ConfigKey is null);
+            var enabled = keyedValue.SetSelected(PrinterOptions.Default, true);
+            Assert.True(keyedValue.IsSelected(enabled));
 
-            var disabled = onValue.SetSelected(enabled, false);
-            Assert.Equal("false", o.GetValue(disabled));
+            var disabled = keyedValue.SetSelected(enabled, false);
+            Assert.False(keyedValue.IsSelected(disabled));
+            Assert.True(sibling.IsSelected(disabled));
         }
     }
 
@@ -636,6 +639,45 @@ public class StyleOptionCatalogTests
         // Full taste leaves the axis on its explicit default.
         var full = StyleOptionCatalog.ApplyFullTaste(PrinterOptions.Default);
         Assert.Equal("explicit", varStyle.GetValue(full));
+    }
+
+    [Fact]
+    public void ObjectCreationStyle_IsAByteNeutralExplicitOptOut()
+    {
+        var style = Options.Single(o => o.Id == "object-creation-style");
+
+        Assert.Equal(StyleOptionTier.Spelling, style.Tier);
+        Assert.False(style.ByteDivergent);
+        Assert.Equal(
+            new[] { "explicit", "target-typed" },
+            style.Values.Select(v => v.Token).ToArray());
+        Assert.Equal("target-typed", style.DefaultValue);
+        Assert.Equal("target-typed", style.GetValue(PrinterOptions.Default));
+
+        var explicitOptions = style.WithValue(PrinterOptions.Default, "explicit");
+        Assert.False(explicitOptions.PreferImplicitObjectCreation);
+        Assert.Equal("explicit", style.GetValue(explicitOptions));
+    }
+
+    [Fact]
+    public void ObjectCreationStyle_MirrorsEditorconfigPolarity_WithoutJoiningFullTaste()
+    {
+        var style = Options.Single(o => o.Id == "object-creation-style");
+        var targetTyped = style.Values.Single(v => v.Token == "target-typed");
+
+        Assert.Equal(
+            "csharp_style_implicit_object_creation_when_type_is_apparent",
+            targetTyped.ConfigKey);
+        // The key controls the default-on value, so the descriptor-level
+        // ConfigKey/Get convenience pair deliberately does not expose it with
+        // inverted polarity. Config resolution still consumes the value key.
+        Assert.Null(style.ConfigKey);
+        Assert.False(style.OracleEndorsed);
+        Assert.False(style.CorpusEndorsed);
+        Assert.DoesNotContain(StyleOptionCatalog.OracleEndorsedOptions, o => o.Id == style.Id);
+
+        Assert.True(targetTyped.SetSelected(PrinterOptions.Default, true).PreferImplicitObjectCreation);
+        Assert.False(targetTyped.SetSelected(PrinterOptions.Default, false).PreferImplicitObjectCreation);
     }
 
     [Fact]
