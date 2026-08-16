@@ -189,8 +189,7 @@ public static class OperatorNames
         string returnType,
         int parameterCount,
         bool hasRefOrOutParameter = false,
-        bool declaringTypeParticipates = true,
-        bool allowsNonBooleanResult = false)
+        bool declaringTypeParticipates = true)
     {
         if (!IsCSharpOperatorMethodName(methodName))
             return false;
@@ -215,7 +214,6 @@ public static class OperatorNames
             || hasRefOrOutParameter
             || !declaringTypeParticipates
             || RequiresBooleanReturn(methodName)
-                && !allowsNonBooleanResult
                 && returnType is not ("bool" or "System.Boolean"))
         {
             return false;
@@ -227,13 +225,7 @@ public static class OperatorNames
     static bool RequiresBooleanReturn(string methodName)
         => methodName is
             "op_True"
-            or "op_False"
-            or "op_Equality"
-            or "op_Inequality"
-            or "op_LessThan"
-            or "op_GreaterThan"
-            or "op_LessThanOrEqual"
-            or "op_GreaterThanOrEqual";
+            or "op_False";
 
     /// <summary>
     /// The C# declaring-type participation rule: a unary or binary operator

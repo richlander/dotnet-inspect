@@ -21,7 +21,7 @@ public sealed class OperatorApiSurfaceTests
     {
         // C# operator names.
         { "op_Addition", true, true, 0, "operator", true },
-        { "op_Equality", true, true, 0, "operator", false },
+        { "op_Equality", true, true, 0, "operator", true },
         { "op_CheckedAddition", true, true, 0, "operator", true },
         // ECMA-335 I.10.3 names C# has no declaration syntax for: still
         // operators in metadata, never renderable as C# operator declarations.
@@ -131,7 +131,8 @@ public sealed class OperatorApiSurfaceTests
             Define("op_BitwiseAnd", Operator, [builder, builder], typeof(void));
             // Wrong arity for a binary operator.
             Define("op_BitwiseOr", Operator, [builder], builder);
-            // Equality and true/false operators must return bool.
+            // C# permits comparison operators to return any type; only
+            // true/false operators require bool.
             Define("op_Equality", Operator, [builder, builder], builder);
             Define("op_True", Operator, [builder], builder);
             // Conversion participating through the return type only, which C# allows.
@@ -148,7 +149,7 @@ public sealed class OperatorApiSurfaceTests
         Assert.False(image.IsCSharpOperatorDeclaration("op_Modulus"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_BitwiseAnd"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_BitwiseOr"));
-        Assert.False(image.IsCSharpOperatorDeclaration("op_Equality"));
+        Assert.True(image.IsCSharpOperatorDeclaration("op_Equality"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_True"));
         Assert.False(image.IsCSharpOperatorDeclaration("op_Explicit"));
 
@@ -223,6 +224,8 @@ public sealed class OperatorApiSurfaceTests
     [InlineData("System.Decimal", "op_UnaryNegation")]
     [InlineData("System.Decimal", "op_Increment")]
     [InlineData("System.TimeSpan", "op_LessThan")]
+    [InlineData("System.Nullable`1", "op_Implicit")]
+    [InlineData("System.Nullable`1", "op_Explicit")]
     [InlineData("System.Numerics.IAdditionOperators`3", "op_Addition")]
     [InlineData("System.Numerics.IComparisonOperators`3", "op_GreaterThan")]
     public void CSharpOperatorDeclaration_AcceptsCompilerEmittedOperators(
@@ -251,6 +254,31 @@ public sealed class OperatorApiSurfaceTests
                 OperatorMetadata.IsCSharpOperatorDeclaration(reader, method),
                 $"{typeName}.{operatorName} should classify as a C# operator declaration.");
         }
+    }
+
+    [Theory]
+    [InlineData("op_Equality")]
+    [InlineData("op_Inequality")]
+    [InlineData("op_LessThan")]
+    [InlineData("op_GreaterThan")]
+    [InlineData("op_LessThanOrEqual")]
+    [InlineData("op_GreaterThanOrEqual")]
+    public void CSharpOperatorDeclaration_AcceptsNonBooleanComparisonOperators(
+        string operatorName)
+    {
+        using var stream = File.OpenRead(typeof(System.Data.SqlTypes.SqlInt32).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = Assert.Single(
+            reader.TypeDefinitions,
+            handle => FullName(reader, reader.GetTypeDefinition(handle))
+                == "System.Data.SqlTypes.SqlInt32");
+        var method = Assert.Single(
+            reader.GetTypeDefinition(typeHandle).GetMethods()
+                .Select(reader.GetMethodDefinition),
+            candidate => reader.GetString(candidate.Name) == operatorName);
+
+        Assert.True(OperatorMetadata.IsCSharpOperatorDeclaration(reader, method));
     }
 
     static string FullName(MetadataReader reader, TypeDefinition type)

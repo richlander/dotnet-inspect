@@ -201,7 +201,7 @@ public class OperatorNamesTests
     [InlineData("op_Addition", true, true, "T", 2, true, true, false)]
     [InlineData("op_UnaryNegation", true, true, "T", 1, false, true, true)]
     [InlineData("op_Equality", true, true, "bool", 2, false, true, true)]
-    [InlineData("op_Equality", true, true, "T", 2, false, true, false)]
+    [InlineData("op_Equality", true, true, "T", 2, false, true, true)]
     [InlineData("op_True", true, true, "System.Boolean", 1, false, true, true)]
     [InlineData("op_True", true, true, "int", 1, false, true, false)]
     [InlineData("op_Implicit", true, true, "T", 1, false, true, true)]
@@ -232,7 +232,7 @@ public class OperatorNamesTests
                 declaringTypeParticipates));
 
     [Fact]
-    public void CSharp_interface_operator_can_abstract_boolean_result()
+    public void CSharp_comparison_operator_can_return_non_boolean_type()
         => Assert.True(
             OperatorNames.IsCSharpOperatorDeclaration(
                 "op_GreaterThan",
@@ -240,8 +240,7 @@ public class OperatorNamesTests
                 isPublic: true,
                 returnType: "TResult",
                 parameterCount: 2,
-                declaringTypeParticipates: true,
-                allowsNonBooleanResult: true));
+                declaringTypeParticipates: true));
 
     [Theory]
     // Binary/unary operators need the declaring type among their parameters.

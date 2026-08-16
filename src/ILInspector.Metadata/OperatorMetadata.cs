@@ -94,9 +94,7 @@ public static class OperatorMetadata
             OperatorNames.DeclaringTypeParticipates(
                 name,
                 anyParameterIsDeclaringType,
-                signature.ReturnType.Matches(declaringIdentity, selfConstrainedTypeParameters)),
-            allowsNonBooleanResult:
-                (declaringType.Attributes & TypeAttributes.Interface) != 0);
+                signature.ReturnType.Matches(declaringIdentity, selfConstrainedTypeParameters)));
     }
 
     // C# 11 permits an interface operator operand to be a type parameter only
@@ -208,11 +206,18 @@ public static class OperatorMetadata
             var candidate = this;
             if (candidate.IsByRef && candidate.TypeArguments is [var byRefElement])
                 candidate = byRefElement;
+            if (candidate.MatchesDefinition(declaringType))
+                return true;
             if (candidate.IsTypeParameter)
                 return selfConstrainedTypeParameters.Contains(candidate.TypeParameterIndex);
             if (candidate.IsNullable && candidate.TypeArguments is [var underlying])
-                candidate = underlying;
-            return candidate.MatchesDefinition(declaringType);
+            {
+                if (underlying.MatchesDefinition(declaringType))
+                    return true;
+                if (underlying.IsTypeParameter)
+                    return selfConstrainedTypeParameters.Contains(underlying.TypeParameterIndex);
+            }
+            return false;
         }
 
         public bool MatchesDefinition(OperatorSignatureType declaringType)
