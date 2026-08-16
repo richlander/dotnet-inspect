@@ -16,6 +16,7 @@ using DotnetInspector.Views;
 using InertText;
 using ILInspector.Findings;
 using Markout;
+using Markout.Formatting;
 using System.Buffers;
 using System.Globalization;
 using System.Text;
@@ -849,17 +850,29 @@ public class PackageCommand
 
                 if (hasProjection)
                 {
-                    // Capture output for projection diagnostics
-                    var sw = new StringWriter { NewLine = "\n" };
                     var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
                     var view = new InspectionResultView(result);
+                    Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize =
+                        (writer, formatter, writerOptions) =>
+                            MarkoutSerializer.Serialize(
+                                view,
+                                writer,
+                                formatter,
+                                InspectionContext.Default,
+                                writerOptions);
                     var rendered = OutputFormatter.RenderTable(!options.NoHeader,
                         (writer, formatter) =>
                         {
                             OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                            MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts);
+                            serialize(writer, formatter, writerOpts);
                         });
-                    ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
+                    ProjectionDiagnostics.DiagnoseRendered(
+                        options.Fields,
+                        options.Columns,
+                        serialize,
+                        writerOpts,
+                        InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema(),
+                        writerOpts.IncludeSections);
                     Console.Out.Write(rendered);
                 }
                 else
@@ -871,7 +884,34 @@ public class PackageCommand
             {
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
                 if (hasProjection)
-                    ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, output);
+                {
+                    var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
+                    bool selectAll = SelectResolver.IsActiveAllSelector(
+                        options.Select,
+                        options.IncludeSections);
+                    bool selectInfo = SelectResolver.IsActiveInfoSelector(
+                        options.SelectDefault,
+                        options.IncludeSections);
+                    if (selectAll)
+                        writerOpts.SectionOrder = pipeline.GetAllSelectorSections(result);
+                    else if (selectInfo)
+                        writerOpts.SectionOrder = pipeline.InfoSectionNames;
+                    writerOpts.RowWindow = RowWindow.ToMarkout(options.Rows);
+                    var view = new InspectionResultView(result, includeTitleVersion: false);
+                    ProjectionDiagnostics.DiagnoseRendered(
+                        options.Fields,
+                        options.Columns,
+                        (writer, formatter, writerOptions) =>
+                            MarkoutSerializer.Serialize(
+                                view,
+                                writer,
+                                formatter,
+                                InspectionContext.Default,
+                                writerOptions),
+                        writerOpts,
+                        InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema(),
+                        writerOpts.IncludeSections);
+                }
                 if (!string.IsNullOrEmpty(options.OutputPath))
                 {
                     File.WriteAllText(options.OutputPath, output);

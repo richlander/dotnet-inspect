@@ -1254,9 +1254,9 @@ public class OutputFormatterTests
         formatter.FormatHeading(TextWriter.Null, sectionLevel, "Library Info", context: null);
         formatter.BeginTable(
             TextWriter.Null,
-            ["Property", "Contents"],
+            ["Contents", "Field"],
             MarkoutWriterOptions.Default);
-        formatter.WriteRow(TextWriter.Null, ["Assembly Version", "1.0.0.0"]);
+        formatter.WriteRow(TextWriter.Null, ["1.0.0.0", "Assembly Version"]);
         formatter.EndTable(TextWriter.Null, skippedRows: 0);
         formatter.FormatHeading(TextWriter.Null, sectionLevel, "Other Section", context: null);
         formatter.FormatFields(

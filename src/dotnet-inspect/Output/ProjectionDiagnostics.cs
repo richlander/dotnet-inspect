@@ -1,6 +1,6 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Markout;
+using Markout.Formatting;
 
 namespace DotnetInspector.Output;
 
@@ -77,13 +77,19 @@ public static class ProjectionDiagnostics
         // Warn (with the per-section discovery hint) only for names missing everywhere.
         foreach (var section in sectionNames)
         {
-            var validation = schema.ValidateProjection(section, names);
-            foreach (var name in validation.Unresolved)
+            var definition = schema.GetSection(section);
+            var compatible = definition is not null
+                && string.Equals(definition.ItemKind, kind, StringComparison.OrdinalIgnoreCase);
+            var validation = compatible
+                ? schema.ValidateProjection(section, names)
+                : null;
+            var unresolved = validation?.Unresolved ?? names;
+            foreach (var name in unresolved)
             {
                 if (resolvedSomewhere.Contains(name))
                     continue;
                 var msg = $"{kind} '{name}' not found in section '{section}'";
-                if (validation.Suggestions.TryGetValue(name, out var suggestions))
+                if (validation?.Suggestions.TryGetValue(name, out var suggestions) == true)
                     msg += $" (did you mean: {string.Join(", ", suggestions)}?)";
                 msg += $" Run -D \"{section}\" to list available {kind}s.";
                 CommandError.WriteWarning(msg);
@@ -99,12 +105,62 @@ public static class ProjectionDiagnostics
         return false;
     }
 
-    /// <summary>
-    /// Compares requested field/column names against rendered output.
-    /// Writes a note to stderr for valid names that produced no data.
-    /// </summary>
-    public static void DiagnoseRendered(string[]? requestedNames, string renderedOutput)
-        => DiagnoseRendered(requestedNames, renderedOutput, "field");
+    internal static void DiagnoseRendered(
+        string[]? fields,
+        string[]? columns,
+        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
+        MarkoutWriterOptions writerOptions,
+        DocumentSchema schema,
+        IReadOnlyCollection<string>? sectionNames = null,
+        IReadOnlySet<string>? fieldLayoutSections = null)
+    {
+        var actual = RenderManifestFormatter.Capture(serialize, writerOptions, schema);
+        IReadOnlyList<string> emittedFields = [];
+        if (fields is { Length: > 0 })
+        {
+            var savedProjection = writerOptions.Projection;
+            var savedWindow = writerOptions.RowWindow;
+            try
+            {
+                writerOptions.Projection = OutputFormatter.BuildProjection(columns: null, fields);
+                writerOptions.RowWindow = null;
+                var identity = RenderManifestFormatter.Capture(serialize, writerOptions, schema);
+                emittedFields = identity.FieldsFor(actual.ContentKeys);
+            }
+            finally
+            {
+                writerOptions.Projection = savedProjection;
+                writerOptions.RowWindow = savedWindow;
+            }
+        }
+
+        var resolvedFields = sectionNames is { Count: > 0 }
+            ? ResolveNamesAcrossSections(
+                schema,
+                sectionNames,
+                fields ?? [],
+                "field",
+                fieldLayoutSections)
+            : null;
+        var resolvedColumns = sectionNames is { Count: > 0 }
+            ? ResolveNamesAcrossSections(
+                schema,
+                sectionNames,
+                columns ?? [],
+                "column",
+                fieldLayoutSections)
+            : null;
+        DiagnoseEmitted(
+            resolvedFields is null
+                ? fields
+                : fields?.Where(resolvedFields.Contains).ToArray(),
+            resolvedColumns is null
+                ? columns
+                : columns?.Where(resolvedColumns.Contains).ToArray(),
+            emittedFields,
+            actual.TableColumns,
+            schema);
+    }
 
     internal static void DiagnoseProjectedJson(
         string[]? fields,
@@ -124,6 +180,67 @@ public static class ProjectionDiagnostics
                 emittedFields),
             "field");
 
+        var resolvedColumns = ResolveNamesAcrossSections(
+            schema, sectionNames, columns ?? [], "column", fieldLayoutSections);
+        ReportMissing(
+            UnmatchedRequests(
+                columns?.Where(resolvedColumns.Contains).ToArray(),
+                ExpandDisplayColumns(emittedColumns, schema)),
+            "column");
+    }
+
+    private static HashSet<string> ResolveNamesAcrossSections(
+        DocumentSchema schema,
+        IReadOnlyCollection<string> sectionNames,
+        string[] names,
+        string kind,
+        IReadOnlySet<string>? fieldLayoutSections)
+    {
+        var resolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var section in sectionNames)
+        {
+            var definition = schema.GetSection(section);
+            var compatible = definition is not null
+                && string.Equals(definition.ItemKind, kind, StringComparison.OrdinalIgnoreCase);
+            var unresolved = compatible
+                ? new HashSet<string>(
+                    schema.ValidateProjection(section, names).Unresolved,
+                    StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
+            foreach (var name in names)
+            {
+                if (!unresolved.Contains(name))
+                    resolved.Add(name);
+            }
+
+            if (string.Equals(kind, "column", StringComparison.Ordinal)
+                && fieldLayoutSections?.Contains(section) == true)
+            {
+                foreach (var name in MatchedRequests(names, ["Field", "Value"]))
+                    resolved.Add(name);
+            }
+        }
+
+        return resolved;
+    }
+
+    private static void DiagnoseEmitted(
+        string[]? fields,
+        string[]? columns,
+        IReadOnlyList<string> emittedFields,
+        IReadOnlyList<string> emittedColumns,
+        DocumentSchema schema)
+    {
+        ReportMissing(UnmatchedRequests(fields, emittedFields), "field");
+        ReportMissing(
+            UnmatchedRequests(columns, ExpandDisplayColumns(emittedColumns, schema)),
+            "column");
+    }
+
+    private static IReadOnlySet<string> ExpandDisplayColumns(
+        IReadOnlyList<string> emittedColumns,
+        DocumentSchema schema)
+    {
         var emittedMachineColumns = new HashSet<string>(
             emittedColumns,
             StringComparer.OrdinalIgnoreCase);
@@ -151,181 +268,7 @@ public static class ProjectionDiagnostics
         if (emittedMachineColumns.Contains("value"))
             emittedDisplayColumns.Add("Value");
 
-        var resolvedColumns = ResolveNamesAcrossSections(
-            schema, sectionNames, columns ?? [], "column", fieldLayoutSections);
-        ReportMissing(
-            UnmatchedRequests(
-                columns?.Where(resolvedColumns.Contains).ToArray(),
-                emittedDisplayColumns),
-            "column");
-    }
-
-    private static HashSet<string> ResolveNamesAcrossSections(
-        DocumentSchema schema,
-        IReadOnlyCollection<string> sectionNames,
-        string[] names,
-        string kind,
-        IReadOnlySet<string>? fieldLayoutSections)
-    {
-        var resolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var section in sectionNames)
-        {
-            var unresolved = new HashSet<string>(
-                schema.ValidateProjection(section, names).Unresolved,
-                StringComparer.OrdinalIgnoreCase);
-            foreach (var name in names)
-            {
-                if (!unresolved.Contains(name))
-                    resolved.Add(name);
-            }
-
-            if (string.Equals(kind, "column", StringComparison.Ordinal)
-                && fieldLayoutSections?.Contains(section) == true)
-            {
-                foreach (var name in MatchedRequests(names, ["Field", "Value"]))
-                    resolved.Add(name);
-            }
-        }
-
-        return resolved;
-    }
-
-    private static void DiagnoseRendered(string[]? requestedNames, string renderedOutput, string kind)
-    {
-        var missing = DocumentSchema.DiagnoseRendered(requestedNames, renderedOutput);
-        if (missing.Length > 0)
-        {
-            var renderedNames = ExtractRenderedNames(renderedOutput);
-            var matched = MatchedRequests(missing, renderedNames);
-            missing = [.. missing.Where(name => !matched.Contains(name))];
-        }
-        ReportMissing(missing, kind);
-    }
-
-    private static string[] ExtractRenderedNames(string renderedOutput)
-    {
-        if (string.IsNullOrWhiteSpace(renderedOutput))
-            return [];
-
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var lines = renderedOutput.ReplaceLineEndings("\n").Split('\n');
-        foreach (var line in lines)
-        {
-            var trimmed = line.Trim();
-            if (!trimmed.StartsWith('{'))
-                continue;
-
-            try
-            {
-                using var document = JsonDocument.Parse(trimmed);
-                if (document.RootElement.ValueKind != JsonValueKind.Object)
-                    continue;
-
-                foreach (var property in document.RootElement.EnumerateObject())
-                {
-                    AddRenderedName(names, property.Name);
-                    if (property.NameEquals("field")
-                        && property.Value.ValueKind == JsonValueKind.String)
-                    {
-                        AddRenderedName(names, property.Value.GetString());
-                    }
-                }
-            }
-            catch (JsonException)
-            {
-                // This is not JSONL; other rendered formats are handled below.
-            }
-        }
-
-        ExtractMarkdownTableNames(lines, names);
-        ExtractPlainTableNames(lines, names);
-        return [.. names];
-    }
-
-    private static void ExtractMarkdownTableNames(
-        string[] lines,
-        HashSet<string> names)
-    {
-        for (var i = 0; i + 1 < lines.Length; i++)
-        {
-            if (!MarkdownScan.IsTableLine(lines[i])
-                || !MarkdownScan.IsSeparatorLine(lines[i + 1]))
-            {
-                continue;
-            }
-
-            var headers = ParseMarkdownRow(lines[i]);
-            foreach (var header in headers)
-                AddRenderedName(names, header);
-
-            var fieldIndex = Array.FindIndex(
-                headers,
-                header => header.Equals("Field", StringComparison.OrdinalIgnoreCase));
-            if (fieldIndex < 0)
-                continue;
-
-            for (i += 2; i < lines.Length && MarkdownScan.IsTableLine(lines[i]); i++)
-            {
-                var cells = ParseMarkdownRow(lines[i]);
-                if (fieldIndex < cells.Length)
-                    AddRenderedName(names, cells[fieldIndex]);
-            }
-        }
-    }
-
-    private static void ExtractPlainTableNames(
-        string[] lines,
-        HashSet<string> names)
-    {
-        var firstLine = Array.FindIndex(lines, line => !string.IsNullOrWhiteSpace(line));
-        if (firstLine < 0)
-            return;
-
-        var headerLine = lines[firstLine].Trim();
-        if (headerLine.StartsWith('{')
-            || headerLine.StartsWith('#')
-            || MarkdownScan.IsTableLine(headerLine))
-        {
-            return;
-        }
-
-        var headers = SplitPlainRow(headerLine);
-        foreach (var header in headers)
-            AddRenderedName(names, header);
-
-        var fieldIndex = Array.FindIndex(
-            headers,
-            header => header.Equals("Field", StringComparison.OrdinalIgnoreCase));
-        if (fieldIndex < 0)
-            return;
-
-        for (var i = firstLine + 1; i < lines.Length; i++)
-        {
-            if (string.IsNullOrWhiteSpace(lines[i]))
-                break;
-
-            var cells = SplitPlainRow(lines[i].Trim());
-            if (fieldIndex < cells.Length)
-                AddRenderedName(names, cells[fieldIndex]);
-        }
-    }
-
-    private static string[] ParseMarkdownRow(string line) =>
-        [.. line.Trim().Trim('|').Split('|').Select(cell => cell.Trim())];
-
-    private static string[] SplitPlainRow(string line) =>
-        line.Contains('\t')
-            ? [.. line.Split('\t').Select(cell => cell.Trim())]
-            : Regex.Split(line, @"\s{2,}");
-
-    private static void AddRenderedName(HashSet<string> names, string? name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return;
-
-        names.Add(name);
-        if (name.Contains('_'))
-            names.Add(name.Replace('_', ' '));
+        return emittedDisplayColumns;
     }
 
     private static string[] UnmatchedRequests(
@@ -371,20 +314,25 @@ public static class ProjectionDiagnostics
     private static bool ValidateNames(DocumentSchema schema, string sectionName,
         string[] names, string kind)
     {
-        var validation = schema.ValidateProjection(sectionName, names);
-        if (validation.IsValid)
+        var definition = schema.GetSection(sectionName);
+        var compatible = definition is not null
+            && string.Equals(definition.ItemKind, kind, StringComparison.OrdinalIgnoreCase);
+        var validation = compatible
+            ? schema.ValidateProjection(sectionName, names)
+            : null;
+        if (validation?.IsValid == true)
             return true;
 
-        foreach (var name in validation.Unresolved)
+        foreach (var name in validation?.Unresolved ?? names)
         {
             var msg = $"{kind} '{name}' not found in section '{sectionName}'";
-            if (validation.Suggestions.TryGetValue(name, out var suggestions))
+            if (validation?.Suggestions.TryGetValue(name, out var suggestions) == true)
                 msg += $" (did you mean: {string.Join(", ", suggestions)}?)";
             msg += $" Run -D \"{sectionName}\" to list available {kind}s.";
             CommandError.WriteWarning(msg);
         }
 
-        if (validation.Resolved.Length > 0)
+        if (validation?.Resolved.Length > 0)
             return true;
 
         CommandError.Write($"No {kind}s matched projection: {string.Join(", ", names)}");

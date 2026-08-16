@@ -5,6 +5,8 @@ namespace DotnetInspector.Output;
 
 internal sealed class RenderedSectionManifest
 {
+    private const string RootSection = "\0";
+
     private readonly Dictionary<string, HashSet<string>> _tableColumns =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<string>> _fields =
@@ -12,10 +14,11 @@ internal sealed class RenderedSectionManifest
 
     internal void RecordTable(string? section, ReadOnlySpan<string> columns)
     {
-        if (section is null || _tableColumns.ContainsKey(section))
+        var key = section ?? RootSection;
+        if (_tableColumns.ContainsKey(key))
             return;
 
-        _tableColumns[section] = new HashSet<string>(
+        _tableColumns[key] = new HashSet<string>(
             columns.ToArray(),
             StringComparer.OrdinalIgnoreCase);
     }
@@ -28,13 +31,11 @@ internal sealed class RenderedSectionManifest
 
     internal void RecordFields(string? section, ReadOnlySpan<MarkoutField> fields)
     {
-        if (section is null)
-            return;
-
-        if (!_fields.TryGetValue(section, out var names))
+        var key = section ?? RootSection;
+        if (!_fields.TryGetValue(key, out var names))
         {
             names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            _fields[section] = names;
+            _fields[key] = names;
         }
 
         foreach (var field in fields)
@@ -43,13 +44,11 @@ internal sealed class RenderedSectionManifest
 
     internal void RecordField(string? section, string field)
     {
-        if (section is null)
-            return;
-
-        if (!_fields.TryGetValue(section, out var names))
+        var key = section ?? RootSection;
+        if (!_fields.TryGetValue(key, out var names))
         {
             names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            _fields[section] = names;
+            _fields[key] = names;
         }
 
         names.Add(field);
@@ -57,6 +56,19 @@ internal sealed class RenderedSectionManifest
 
     internal IReadOnlySet<string>? GetFields(string section)
         => _fields.TryGetValue(section, out var fields) ? fields : null;
+
+    internal IReadOnlySet<string> ContentKeys =>
+        _tableColumns.Keys.Concat(_fields.Keys).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    internal IReadOnlyList<string> TableColumns =>
+        [.. _tableColumns.Values.SelectMany(columns => columns)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+
+    internal IReadOnlyList<string> FieldsFor(IReadOnlySet<string> contentKeys) =>
+        [.. _fields
+            .Where(entry => contentKeys.Contains(entry.Key))
+            .SelectMany(entry => entry.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
 }
 
 internal sealed class RenderManifestFormatter :
@@ -69,7 +81,7 @@ internal sealed class RenderManifestFormatter :
     private readonly HashSet<string> _fieldSections;
     private string? _currentHeading;
     private string? _streamingTableSection;
-    private bool _streamingFieldTable;
+    private int _streamingFieldIndex = -1;
     private int _sectionHeadingLevel;
 
     internal RenderManifestFormatter(DocumentSchema schema)
@@ -98,11 +110,22 @@ internal sealed class RenderManifestFormatter :
         return formatter.Manifest;
     }
 
+    internal static RenderedSectionManifest Capture(
+        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
+        MarkoutWriterOptions options,
+        DocumentSchema schema)
+    {
+        var formatter = new RenderManifestFormatter(schema);
+        formatter.BeginDocument(options);
+        serialize(TextWriter.Null, formatter, options);
+        return formatter.Manifest;
+    }
+
     internal void BeginDocument(MarkoutWriterOptions options)
     {
         _currentHeading = null;
         _streamingTableSection = null;
-        _streamingFieldTable = false;
+        _streamingFieldIndex = -1;
         _sectionHeadingLevel = Math.Clamp(2 + options.HeadingLevelOffset, 1, 6);
     }
 
@@ -129,13 +152,18 @@ internal sealed class RenderManifestFormatter :
         MarkoutWriterOptions options)
     {
         Manifest.RecordTable(_currentHeading, headers);
-        if (!IsFieldSection(_currentHeading))
+        var fieldIndex = headers.IndexOf(
+            "Field",
+            StringComparer.OrdinalIgnoreCase);
+        if (!IsFieldSection(_currentHeading)
+            && !(_currentHeading is null && fieldIndex >= 0))
             return;
 
         foreach (var row in rows)
         {
-            if (row.Length > 0)
-                Manifest.RecordField(_currentHeading, row[0]);
+            var index = fieldIndex >= 0 ? fieldIndex : 0;
+            if (index < row.Length)
+                Manifest.RecordField(_currentHeading, row[index]);
         }
     }
 
@@ -146,19 +174,30 @@ internal sealed class RenderManifestFormatter :
     {
         Manifest.RecordTable(_currentHeading, headers);
         _streamingTableSection = _currentHeading;
-        _streamingFieldTable = IsFieldSection(_currentHeading);
+        _streamingFieldIndex = headers.IndexOf(
+            "Field",
+            StringComparer.OrdinalIgnoreCase);
+        if (IsFieldSection(_currentHeading))
+        {
+            if (_streamingFieldIndex < 0)
+                _streamingFieldIndex = 0;
+        }
+        else if (_currentHeading is not null)
+        {
+            _streamingFieldIndex = -1;
+        }
     }
 
     public void WriteRow(TextWriter writer, ReadOnlySpan<string> values)
     {
-        if (_streamingFieldTable && values.Length > 0)
-            Manifest.RecordField(_streamingTableSection, values[0]);
+        if (_streamingFieldIndex >= 0 && _streamingFieldIndex < values.Length)
+            Manifest.RecordField(_streamingTableSection, values[_streamingFieldIndex]);
     }
 
     public void EndTable(TextWriter writer, int skippedRows)
     {
         _streamingTableSection = null;
-        _streamingFieldTable = false;
+        _streamingFieldIndex = -1;
     }
 
     private bool IsFieldSection(string? section)

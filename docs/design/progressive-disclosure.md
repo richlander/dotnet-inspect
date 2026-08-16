@@ -138,6 +138,9 @@ Projection is validated against the selected section schema. Across multiple
 sections, a name may resolve in any selected section; tables that do not expose
 it contribute nothing. Unknown names produce diagnostics only when they resolve
 nowhere, and valid-but-empty names are reported as no data.
+For projected JSON, a section's declared no-data text represents an empty
+section rather than unsupported prose; arbitrary prose still fails the
+projection atomically.
 
 Future filtering and ordering should extend the shared row-query path rather
 than add one flag per column. See

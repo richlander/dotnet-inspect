@@ -287,15 +287,16 @@ public static class TypeCommand
 
                     if (tabularProjection)
                     {
-                        // Capture output so we can warn when a requested column produced no data
-                        // (e.g. a column not shown at this verbosity).
-                        var sw = new StringWriter { NewLine = "\n" };
-                        var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions, sw);
+                        var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
+                            apiType,
+                            foundIn,
+                            packageName,
+                            packageVersion,
+                            apiSource,
+                            selectedTfm,
+                            effectiveOptions);
                         if (writeExitCode != 0)
                             return writeExitCode;
-                        var rendered = sw.ToString();
-                        ProjectionDiagnostics.DiagnoseRendered(effectiveOptions.Fields ?? effectiveOptions.Columns, rendered);
-                        Console.Out.Write(rendered);
                     }
                     else
                     {

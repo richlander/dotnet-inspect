@@ -927,11 +927,31 @@ public class ApiCommand
                 // DiagnoseRendered, so `--fields Value` produced empty output and exit 0 while
                 // the same projection against `Type Info` and `Library Info` reported that the
                 // field does not exist.
+                Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> factSerialize =
+                    (writer, formatter, writerOptions) =>
+                        MarkoutSerializer.Serialize(
+                            view.ApiInfo!,
+                            writer,
+                            formatter,
+                            ApiViewContext.Default,
+                            writerOptions);
                 var factRows = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
                     options.Columns, options.Fields,
-                    (writer, formatter, writerOptions) =>
-                        MarkoutSerializer.Serialize(view.ApiInfo!, writer, formatter, ApiViewContext.Default, writerOptions));
-                ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, factRows);
+                    factSerialize);
+                var factDiagnosticOptions = OutputFormatter.CreateProjectedWriterOptions(
+                    options.Columns,
+                    options.Fields,
+                    options.Rows);
+                OutputFormatter.ConfigureTableWriterOptions(
+                    factDiagnosticOptions,
+                    options.Tsv,
+                    options.Jsonl);
+                ProjectionDiagnostics.DiagnoseRendered(
+                    options.Fields,
+                    options.Columns,
+                    factSerialize,
+                    factDiagnosticOptions,
+                    ApiViewContext.Default.GetSchemaInfo<ApiInfoSection>()!.ToDocumentSchema());
                 if (!TryReportEmptyProjection(factRows, options))
                     return 1;
                 Console.Out.Write(OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader));
@@ -939,11 +959,32 @@ public class ApiCommand
             }
 
             var (tableView, _) = ApiOutputFormatter.BuildSurfaceTableView(api, options);
+            Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> tableSerialize =
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(
+                        tableView,
+                        writer,
+                        formatter,
+                        ApiViewContext.Default,
+                        writerOptions);
             var rendered = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
                 options.Columns, options.Fields,
-                (writer, formatter, writerOptions) =>
-                    MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions));
-            ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
+                tableSerialize);
+            var tableDiagnosticOptions = OutputFormatter.CreateProjectedWriterOptions(
+                options.Columns,
+                options.Fields,
+                options.Rows);
+            OutputFormatter.ConfigureTableWriterOptions(
+                tableDiagnosticOptions,
+                options.Tsv,
+                options.Jsonl);
+            ProjectionDiagnostics.DiagnoseRendered(
+                options.Fields,
+                options.Columns,
+                tableSerialize,
+                tableDiagnosticOptions,
+                ApiViewContext.Default.GetSchemaInfo<ApiSurfaceTableView>()!.ToDocumentSchema(),
+                ["Types"]);
             if (!TryReportEmptyProjection(rendered, options))
                 return 1;
             Console.Out.Write(OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader));
@@ -1714,24 +1755,58 @@ public class ApiCommand
             {
                 var writerOpts = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
                 OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                OutputFormatter.WriteTable(sink, !options.NoHeader,
-                    (writer, formatter) =>
+                Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize =
+                    (writer, formatter, writerOptions) =>
                     {
-                        var markoutWriter = new MarkoutWriter(writer, formatter, writerOpts);
+                        var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
                         ApiOutputFormatter.SerializeTypeDocument(
                             view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                             explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, markoutWriter);
                         markoutWriter.Flush();
-                    }, options.Rows);
+                    };
+                OutputFormatter.WriteTable(sink, !options.NoHeader,
+                    (writer, formatter) => serialize(writer, formatter, writerOpts),
+                    options.Rows);
+                writerOpts.RowWindow = RowWindow.ToMarkout(options.Rows);
+                ProjectionDiagnostics.DiagnoseRendered(
+                    options.Fields,
+                    options.Columns,
+                    serialize,
+                    writerOpts,
+                    GetTypeDocumentSchema(options),
+                    writerOpts.IncludeSections,
+                    TypeFieldLayoutSections);
             }
             else
             {
                 var (tableView, _) = ApiOutputFormatter.BuildTypeTableView(type, options);
+                Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize =
+                    (writer, formatter, writerOptions) =>
+                        MarkoutSerializer.Serialize(
+                            tableView,
+                            writer,
+                            formatter,
+                            ApiViewContext.Default,
+                            writerOptions);
                 OutputFormatter.WriteProjectedTable(sink, !options.NoHeader, options.Tsv, options.Jsonl,
                     options.Columns, options.Fields,
-                    (writer, formatter, writerOptions) =>
-                        MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions),
+                    serialize,
                     options.Rows);
+                var diagnosticOptions = OutputFormatter.CreateProjectedWriterOptions(
+                    options.Columns,
+                    options.Fields,
+                    options.Rows);
+                OutputFormatter.ConfigureTableWriterOptions(
+                    diagnosticOptions,
+                    options.Tsv,
+                    options.Jsonl);
+                ProjectionDiagnostics.DiagnoseRendered(
+                    options.Fields,
+                    options.Columns,
+                    serialize,
+                    diagnosticOptions,
+                    ApiViewContext.Default.GetSchemaInfo<ApiTypeTableView>()!.ToDocumentSchema(),
+                    ["Members"]);
             }
         }
         else

@@ -73,6 +73,24 @@ public class ProjectionDiagnosticsTests
     }
 
     [Fact]
+    public async Task ValidateProjection_SingleSectionRejectsWrongItemKind()
+    {
+        var schema = new DocumentSchema().Add("Methods", "column", "Name");
+        bool result = true;
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            result = ProjectionDiagnostics.ValidateProjection(
+                schema, "Methods", fields: ["Name"], columns: null);
+            return Task.FromResult(0);
+        });
+
+        Assert.False(result);
+        Assert.Contains("field 'Name' not found", error, StringComparison.Ordinal);
+        Assert.Contains("No fields matched projection: Name", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DiagnoseProjectedJson_MachineColumnSatisfiesDisplayName()
     {
         var schema = new DocumentSchema().Add("Methods", "column", "Return Type");
@@ -133,34 +151,4 @@ public class ProjectionDiagnosticsTests
         Assert.DoesNotContain("Field", error, StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData("{\"kind\":\"interface\"}\n")]
-    [InlineData("kind\ninterface\n")]
-    [InlineData("Kind\ninterface\n")]
-    public async Task DiagnoseRendered_WildcardMatchesRenderedColumn(string rendered)
-    {
-        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
-        {
-            ProjectionDiagnostics.DiagnoseRendered(["K*", "Bogus"], rendered);
-            return Task.FromResult(0);
-        });
-
-        Assert.Contains("1 field has no data: Bogus", error, StringComparison.Ordinal);
-        Assert.DoesNotContain("K*", error, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("{\"field\":\"Kind\",\"value\":\"class\"}\n")]
-    [InlineData("field\tvalue\nKind\tclass\n")]
-    [InlineData("| Field | Value |\n| ----- | ----- |\n| Kind | class |\n")]
-    public async Task DiagnoseRendered_WildcardMatchesRenderedFieldIdentity(string rendered)
-    {
-        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
-        {
-            ProjectionDiagnostics.DiagnoseRendered(["K*"], rendered);
-            return Task.FromResult(0);
-        });
-
-        Assert.Empty(error);
-    }
 }

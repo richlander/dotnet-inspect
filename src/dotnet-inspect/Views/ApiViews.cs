@@ -6,6 +6,47 @@ using Markout;
 
 namespace DotnetInspector.Views;
 
+internal static class ApiSectionEmptyText
+{
+    internal const string TypeExceptionRegions = "No exception regions found on this type.";
+    internal const string CalledTypes = "No called types found for this type.";
+    internal const string TypeAllocationFacts = "No allocation facts found for this type.";
+    internal const string TypeSafetyFacts = "No safety facts found for this type.";
+    internal const string TypeCostFacts = "No cost facts found for this type.";
+    internal const string TopLeverage = "No intra-assembly call-graph leverage found for this type.";
+    internal const string TypePerformanceTriage = "No optimization opportunities were found for this type.";
+    internal const string TypeSourceFiles = "No SourceLink source files found for this type.";
+    internal const string SourceLocations = "No SourceLink source locations found for the selected member(s).";
+    internal const string AppliedTaste = "No recorded style choices were applied to this member.";
+    internal const string Calls = "No calls to other methods found in this method body.";
+    internal const string MemberExceptionRegions = "No exception regions found in this method body.";
+    internal const string Callers = "No callers found in this assembly.";
+    internal const string CallGraph = "No inbound callers or outbound calls found for this method.";
+    internal const string UnsafeOperations = "No unsafe operations found in this method body.";
+    internal const string Facts = "No hidden facts found in this method body.";
+    internal const string MemberAllocationFacts = "No allocation facts found in this method body.";
+    internal const string MemberSafetyFacts = "No safety facts found in this method body.";
+    internal const string MemberCostFacts = "No cost facts found in this method body.";
+
+    internal static bool IsDeclared(string section, string text) =>
+        (section, text) is
+            (SectionNames.ExceptionRegions, TypeExceptionRegions or MemberExceptionRegions)
+            or (SectionNames.CalledTypes, CalledTypes)
+            or (SectionNames.AllocationFacts, TypeAllocationFacts or MemberAllocationFacts)
+            or (SectionNames.SafetyFacts, TypeSafetyFacts or MemberSafetyFacts)
+            or (SectionNames.CostFacts, TypeCostFacts or MemberCostFacts)
+            or ("Top Leverage", TopLeverage)
+            or (SectionNames.PerformanceTriage, TypePerformanceTriage)
+            or ("Source Files", TypeSourceFiles)
+            or (SectionNames.SourceLocations, SourceLocations)
+            or (SectionNames.AppliedTaste, AppliedTaste)
+            or ("Calls", Calls)
+            or ("Callers", Callers)
+            or (SectionNames.CallGraph, CallGraph)
+            or ("Unsafe Operations", UnsafeOperations)
+            or ("Facts", Facts);
+}
+
 /// <summary>
 /// View model for single-type rendering. Pre-computes all display values from ApiType + options.
 /// </summary>
@@ -235,29 +276,29 @@ public class TypeView
     [JsonIgnore]
     public List<UnsafeMemberRow>? UnsafeMemberRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.ExceptionRegions, EmptyText = "No exception regions found on this type.")]
+    [MarkoutSection(Name = SectionNames.ExceptionRegions, EmptyText = ApiSectionEmptyText.TypeExceptionRegions)]
     [MarkoutIgnoreColumnWhen(nameof(TypeExceptionRegionFilterRangeIsEmpty), nameof(TypeExceptionRegionRow.FilterRange))]
     [MarkoutIgnoreColumnWhen(nameof(TypeExceptionRegionCaughtTypeIsEmpty), nameof(TypeExceptionRegionRow.CaughtType))]
     [JsonIgnore]
     public List<TypeExceptionRegionRow>? ExceptionRegionRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.CalledTypes, EmptyText = "No called types found for this type.")]
+    [MarkoutSection(Name = SectionNames.CalledTypes, EmptyText = ApiSectionEmptyText.CalledTypes)]
     [JsonIgnore]
     public List<CalledTypeRow>? CalledTypeRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.AllocationFacts, EmptyText = "No allocation facts found for this type.")]
+    [MarkoutSection(Name = SectionNames.AllocationFacts, EmptyText = ApiSectionEmptyText.TypeAllocationFacts)]
     [JsonIgnore]
     public List<AllocationFactRow>? AllocationFactRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.SafetyFacts, EmptyText = "No safety facts found for this type.")]
+    [MarkoutSection(Name = SectionNames.SafetyFacts, EmptyText = ApiSectionEmptyText.TypeSafetyFacts)]
     [JsonIgnore]
     public List<SafetyFactRow>? SafetyFactRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.CostFacts, EmptyText = "No cost facts found for this type.")]
+    [MarkoutSection(Name = SectionNames.CostFacts, EmptyText = ApiSectionEmptyText.TypeCostFacts)]
     [JsonIgnore]
     public List<CostFactRow>? CostFactRows { get; set; }
 
-    [MarkoutSection(Name = "Top Leverage", EmptyText = "No intra-assembly call-graph leverage found for this type.")]
+    [MarkoutSection(Name = "Top Leverage", EmptyText = ApiSectionEmptyText.TopLeverage)]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageVisibilityEmpty), nameof(TopLeverageRow.Visibility))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageGeneratedEmpty), nameof(TopLeverageRow.Generated))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageStableEmpty), nameof(TopLeverageRow.Stable))]
@@ -265,7 +306,7 @@ public class TypeView
     [JsonIgnore]
     public List<TopLeverageRow>? TopLeverageRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.PerformanceTriage, EmptyText = "No optimization opportunities were found for this type.")]
+    [MarkoutSection(Name = SectionNames.PerformanceTriage, EmptyText = ApiSectionEmptyText.TypePerformanceTriage)]
     [JsonIgnore]
     public List<OptimizationOpportunityRow>? OptimizationOpportunityRows { get; set; }
 
@@ -287,11 +328,11 @@ public class TypeView
     public static bool PropertySummaryDecodeIsEmpty(List<PropertySummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
     public static bool FieldSummaryDecodeIsEmpty(List<FieldSummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
 
-    [MarkoutSection(Name = "Source Files", EmptyText = "No SourceLink source files found for this type.")]
+    [MarkoutSection(Name = "Source Files", EmptyText = ApiSectionEmptyText.TypeSourceFiles)]
     [JsonIgnore]
     public List<TypeSourceFileRow>? SourceFileRows => TypeSourceFiles();
 
-    [MarkoutSection(Name = SectionNames.SourceLocations, EmptyText = "No SourceLink source locations found for the selected member(s).")]
+    [MarkoutSection(Name = SectionNames.SourceLocations, EmptyText = ApiSectionEmptyText.SourceLocations)]
     [MarkoutIgnoreColumnWhen(nameof(SourceLocationSelectorIsEmpty), nameof(MemberSourceLocationRow.Selector))]
     [JsonIgnore]
     public List<MemberSourceLocationRow>? SourceLocationRows { get; set; }
@@ -879,7 +920,7 @@ public class MemberCodeView
     [MarkoutSection(Name = SectionNames.FidelityCauses)]
     public List<FidelityCauseRow>? FidelityCauseRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.AppliedTaste, EmptyText = "No recorded style choices were applied to this member.")]
+    [MarkoutSection(Name = SectionNames.AppliedTaste, EmptyText = ApiSectionEmptyText.AppliedTaste)]
     public List<AppliedTasteRow>? AppliedTasteRows { get; set; }
 
     [MarkoutSection(Name = "Annotated Source")]
@@ -916,15 +957,15 @@ public class MemberCodeView
     [MarkoutSection(Name = SectionNames.SourceDiff)]
     public CodeSection SourceDiffCode { get; set; }
 
-    [MarkoutSection(Name = "Calls", EmptyText = "No calls to other methods found in this method body.")]
+    [MarkoutSection(Name = "Calls", EmptyText = ApiSectionEmptyText.Calls)]
     public List<CallSiteRow>? CallRows { get; set; }
 
-    [MarkoutSection(Name = "Exception Regions", EmptyText = "No exception regions found in this method body.")]
+    [MarkoutSection(Name = "Exception Regions", EmptyText = ApiSectionEmptyText.MemberExceptionRegions)]
     [MarkoutIgnoreColumnWhen(nameof(ExceptionRegionFilterRangeIsEmpty), nameof(ExceptionRegionRow.FilterRange))]
     [MarkoutIgnoreColumnWhen(nameof(ExceptionRegionCaughtTypeIsEmpty), nameof(ExceptionRegionRow.CaughtType))]
     public List<ExceptionRegionRow>? ExceptionRegionRows { get; set; }
 
-    [MarkoutSection(Name = "Callers", EmptyText = "No callers found in this assembly.")]
+    [MarkoutSection(Name = "Callers", EmptyText = ApiSectionEmptyText.Callers)]
     [MarkoutIgnoreColumnWhen(nameof(CallerSourceIsUniform), nameof(CallerSiteRow.Source))]
     public List<CallerSiteRow>? CallerRows { get; set; }
 
@@ -951,27 +992,27 @@ public class MemberCodeView
     public static bool CostFactMemberIsEmpty(List<CostFactRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.Member));
 
-    [MarkoutSection(Name = SectionNames.CallGraph, EmptyText = "No inbound callers or outbound calls found for this method.")]
+    [MarkoutSection(Name = SectionNames.CallGraph, EmptyText = ApiSectionEmptyText.CallGraph)]
     public Markout.Graph? CallGraph { get; set; }
 
     [MarkoutIgnore]
     public int? CallGraphRowCount { get; set; }
 
-    [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
+    [MarkoutSection(Name = "Unsafe Operations", EmptyText = ApiSectionEmptyText.UnsafeOperations)]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 
-    [MarkoutSection(Name = "Facts", EmptyText = "No hidden facts found in this method body.")]
+    [MarkoutSection(Name = "Facts", EmptyText = ApiSectionEmptyText.Facts)]
     public List<FactRow>? FactRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.AllocationFacts, EmptyText = "No allocation facts found in this method body.")]
+    [MarkoutSection(Name = SectionNames.AllocationFacts, EmptyText = ApiSectionEmptyText.MemberAllocationFacts)]
     [MarkoutIgnoreColumnWhen(nameof(AllocationFactMemberIsEmpty), nameof(AllocationFactRow.Member))]
     public List<AllocationFactRow>? AllocationFactRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.SafetyFacts, EmptyText = "No safety facts found in this method body.")]
+    [MarkoutSection(Name = SectionNames.SafetyFacts, EmptyText = ApiSectionEmptyText.MemberSafetyFacts)]
     [MarkoutIgnoreColumnWhen(nameof(SafetyFactMemberIsEmpty), nameof(SafetyFactRow.Member))]
     public List<SafetyFactRow>? SafetyFactRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.CostFacts, EmptyText = "No cost facts found in this method body.")]
+    [MarkoutSection(Name = SectionNames.CostFacts, EmptyText = ApiSectionEmptyText.MemberCostFacts)]
     [MarkoutIgnoreColumnWhen(nameof(CostFactMemberIsEmpty), nameof(CostFactRow.Member))]
     public List<CostFactRow>? CostFactRows { get; set; }
 

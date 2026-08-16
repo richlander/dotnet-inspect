@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Text;
 using System.Text.Json;
+using DotnetInspector.Views;
 using Markout;
 using Markout.Formatting;
 
@@ -352,6 +353,9 @@ internal sealed class JsonSectionFormatter :
         // sections. Named field/column projection deliberately selects the lowered sections, not
         // that preamble; plain --json remains the path that carries the typed summary.
         if (_current is null)
+            return;
+
+        if (!_current.HasContent && ApiSectionEmptyText.IsDeclared(_current.Name, text))
             return;
 
         ThrowUnsupportedBlock("paragraph");

@@ -6384,6 +6384,32 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SingleType_WildcardFieldWithValueOnlyJsonlHasNoFalseDiagnostic()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-S", "Type Info", "--fields", "K*", "--columns", "Value",
+            "--jsonl");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal("class", document.RootElement.GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public async Task TypeListing_HeaderlessWildcardTsvHasNoFalseDiagnostic()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--platform", "System.Runtime", "-S", "Interfaces",
+            "--columns", "K*", "--tsv", "--no-header", "--rows", "1");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("interface", output.Trim());
+    }
+
+    [Fact]
     public async Task TypeListing_QuietFieldUnderProjectedJsonUsesApiInfo()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -6573,6 +6599,20 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SingleType_ColumnOnlyNameIsRejectedAsField()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-S", "Methods", "--fields", "Name",
+            "--json", "--rows", "1", "--compact");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("field 'Name' not found", error, StringComparison.Ordinal);
+        Assert.Contains("No fields matched projection: Name", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SingleType_EmptySectionStillValidatesProjectedColumn()
     {
         var invalid = await RunAppAsync(
@@ -6748,15 +6788,15 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task UnsupportedEmptyTextSectionUnderProjectedJsonFailsAtomically()
+    public async Task EmptyTextSectionUnderProjectedJsonReturnsEmptyDocument()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.String.Clone:1", "--platform", "System.Runtime",
             "-S", "Calls", "--columns", "Callee", "--json");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("Section 'Calls' emitted a paragraph", error, StringComparison.Ordinal);
+        Assert.Equal(0, exit);
+        Assert.Equal("{}", output.Trim());
+        Assert.Contains("1 column has no data: Callee", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -16106,7 +16146,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, actual.Exit);
             Assert.Equal(0, expected.Exit);
-            Assert.Contains("1 field has no data: *", actual.Error, StringComparison.Ordinal);
+            Assert.Empty(actual.Error);
             Assert.Empty(expected.Error);
             Assert.Equal(expected.Output, actual.Output);
         }
