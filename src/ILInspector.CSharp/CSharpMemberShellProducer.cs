@@ -267,13 +267,15 @@ public static class CSharpMemberShellProducer
             IsVirtual = spec.IsVirtual,
             IsOverride = spec.IsOverride,
             IsSealed = spec.IsSealed,
-            Accessibility = spec.Accessibility switch
-            {
-                CSharpShellAccessibility.Public => "public",
-                CSharpShellAccessibility.Protected => "protected",
-                _ => throw new NotSupportedException(
-                    $"Unsupported C# shell accessibility '{spec.Accessibility}'."),
-            },
+            Accessibility = isExplicitInterface
+                ? "private"
+                : spec.Accessibility switch
+                {
+                    CSharpShellAccessibility.Public => "public",
+                    CSharpShellAccessibility.Protected => "protected",
+                    _ => throw new NotSupportedException(
+                        $"Unsupported C# shell accessibility '{spec.Accessibility}'."),
+                },
             Attributes = spec.Attributes?.ToList() ?? [],
             IsUnsafe = spec.RequiresUnsafeModifier || RequiresUnsafe(spec),
             IsAsync = spec.IsAsync,

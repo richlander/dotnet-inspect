@@ -272,6 +272,7 @@ public sealed class TypeShellProducerTests
         Assert.Equal(
             "T? Samples.IRunner.Run<T>(ref int value)",
             policy.Member.Signature);
+        Assert.Equal("private", policy.Member.Accessibility);
 
         var type = new ApiType
         {
