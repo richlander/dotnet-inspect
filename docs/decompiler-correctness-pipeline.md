@@ -137,8 +137,8 @@ Notes:
   facts, identity, and classification regressions without the broad integration
   and sweep costs. The slow CLI integration, compile-back/recompile,
   corpus-sweep, bind, scorecard, fidelity, and broad differential tests are
-  tagged `[Trait("Speed", "Slow")]` and run only in Deep Inspect / publish /
-  full local runs. **Mark any new Roslyn-heavy / recompile / corpus-sweeping or
+  tagged `[Trait("Speed", "Slow")]` and run only in Deep Inspect / full local
+  runs. **Mark any new Roslyn-heavy / recompile / corpus-sweeping or
   broad integration test `[Trait("Speed", "Slow")]`** — at the class level for a
   wholly-slow class, or the method level for one slow case in an otherwise fast
   class — so it stays out of the PR gate. A green PR CI run therefore does *not*
@@ -147,7 +147,7 @@ Notes:
   `dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release --
   -trait- "Speed=Slow"` when IL round-trip inputs change, while the unfiltered
   `DotnetInspector.ILRoundtrip.Tests` command keeps the assembly-wide sweep in
-  Deep Inspect / publish / full local coverage. Mark new broad/corpus-style
+  Deep Inspect / full local coverage. Mark new broad/corpus-style
   round-trip checks `[Trait("Speed", "Slow")]`.
 - A green entry gate is necessary, never sufficient: it says nothing about
   validity, fidelity, or corpus health. Do not report it as if it did.
@@ -249,9 +249,9 @@ Which area to run while iterating on a change:
 structuring, typing, or printer change can shift any corpus row, so it is not
 covered by its `Area=Pass` unit tests alone: before requesting review still run
 the full slow suite locally (unfiltered `ILInspector.Decompiler.Tests`, which
-Deep Inspect and release also run). `Area` does not change what CI runs — PR CI
-keys on `Speed` (`-trait- "Speed=Slow"`) and Deep Inspect/release run the whole
-slow set — so every area's slow gates already run before merge without any
+Deep Inspect also runs). `Area` does not change what CI runs — PR CI keys on
+`Speed` (`-trait- "Speed=Slow"`) and Deep Inspect runs the whole slow set — so
+every area's slow gates already run before release certification without any
 per-area CI wiring.
 
 ### `--gate` preset flag: discoverable trait bundles
@@ -302,10 +302,13 @@ notification was ever sent. Detection latency was unbounded, not weekly
 The `decompiler-gates` CI job closes that hole. Source, test, and tool projects
 run it by default, except for measured false positives in
 `eng/decompiler-gate-skip-projects.txt`. The initial exemptions are the CLI and
-its tests, which do not feed the gate. `test-ci-change-detection.cs` asserts
-that no exempted project appears in MSBuild's evaluated project-reference
-closure rooted at `ILInspector.Decompiler.Tests`. New projects therefore run
-the gate without a list update; an unreadable or invalid skip list exempts
+its tests, which do not feed the gate. `DecompilerProjectGraphPolicy` in the
+`eng/CiChangeDetection` gate asserts that every exemption names a project root
+and that no exempted project tree overlaps a project in MSBuild's evaluated
+Release project-reference closure rooted at `ILInspector.Decompiler.Tests`.
+New project trees therefore run the gate without a list update; neither a
+nested project nor a nested exemption can silently hide sources compiled by a
+graph project. An unreadable, invalid, or vacuous graph or skip list exempts
 nothing. Global build inputs and the gate's own scripts and pins remain
 explicit triggers. The job runs separately so it never serializes with the hot
 `test` lane, and executes `--gate pre-merge`.

@@ -4,6 +4,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using InertText;
 using NuGetFetch;
 
 namespace DotnetInspector.Inspectors;
@@ -31,9 +32,9 @@ internal static class AuditSignalBuilder
 
     /// <summary>
     /// Signals derived from classified methods (unsafe public signatures, async kind) read
-    /// <see cref="LibraryInspection.ClassifiedMethodInspection"/>. That data is supplied by the
-    /// declared <c>ScannerClassifiedMethods</c> prerequisite on this scanner's registration, not
-    /// by a scan performed here.
+    /// <see cref="LibraryInspection.ClassifiedMethodInspection"/>. The Signals section declares
+    /// <c>ClassifiedMethodsQuery</c>; typed query results are applied before this CLI-owned
+    /// composition scanner runs.
     /// </summary>
     public static void PopulateLibraryAudit(string assemblyPath, LibraryInspection inspection, VerboseLogger logger)
     {
@@ -133,6 +134,20 @@ internal static class AuditSignalBuilder
         AddPackageSignals(signals, in context);
 
         result.AuditSignals = signals;
+        AddPackageTextContainmentSignal(result, signals);
+    }
+
+    private static void AddPackageTextContainmentSignal(
+        InspectionResult result,
+        List<AuditSignal> signals)
+    {
+        TextConcern concerns = new PackageInspectionText(result).Concerns;
+        Add(
+            signals,
+            "Text",
+            "Artifact text containment",
+            concerns == TextConcern.None ? "None" : "Required",
+            TextConcernDisplay.Describe(concerns));
     }
 
     private readonly record struct DependencySignalSummary(
@@ -208,6 +223,7 @@ internal static class AuditSignalBuilder
         [
             LibrarySignalRows.ProvenanceSourceLink,
             LibrarySignalRows.ProvenanceDeterministic,
+            LibrarySignalRows.IdentityIdentifierConfusion,
             LibrarySignalRows.DependenciesDirectAssemblyReferences,
             LibrarySignalRows.CompatibilityAsyncKind,
             LibrarySignalRows.DependenciesTransitiveAssemblyReferences,
@@ -234,6 +250,7 @@ internal static class AuditSignalBuilder
         [
             PackageSignalRows.CompatibilitySupportedTfm,
             PackageSignalRows.CompatibilityPortable,
+            PackageSignalRows.IdentityIdentifierConfusion,
             PackageSignalRows.DocumentationReadme,
             PackageSignalRows.DocumentationAgentDocumentation,
             PackageSignalRows.LegalLicense,
@@ -272,6 +289,9 @@ internal static class AuditSignalBuilder
 
         public static SignalRow<LibrarySignalContext> ProvenanceDeterministic =>
             new("Provenance", "Deterministic", ResolveProvenanceDeterministic);
+
+        public static SignalRow<LibrarySignalContext> IdentityIdentifierConfusion =>
+            new("Identity", "Identifier confusion", ResolveIdentityIdentifierConfusion);
 
         public static SignalRow<LibrarySignalContext> DependenciesDirectAssemblyReferences =>
             new("Dependencies", "Direct assembly references", ResolveDependenciesDirectAssemblyReferences);
@@ -323,6 +343,22 @@ internal static class AuditSignalBuilder
 
         private static SignalValue? ResolveProvenanceDeterministic(in LibrarySignalContext context) =>
             new(FormatBool(context.Inspection.IsDeterministic), "PE debug directory and path normalization");
+
+        private static SignalValue? ResolveIdentityIdentifierConfusion(
+            in LibrarySignalContext context)
+        {
+            if (context.Inspection.IdentifierConfusionFailure is { } failure)
+            {
+                return new(
+                    "Unavailable",
+                    IdentifierConfusionAudit.DescribeFailure(failure));
+            }
+
+            return IdentifierConfusionAudit.Summarize(
+                    IdentifierConfusionAudit.InspectLibrarySummary(context.Inspection),
+                    "assembly names")
+                .ToSignalValue();
+        }
 
         private static SignalValue? ResolveDependenciesDirectAssemblyReferences(
             in LibrarySignalContext context) =>
@@ -408,6 +444,9 @@ internal static class AuditSignalBuilder
         public static SignalRow<PackageSignalContext> CompatibilityPortable =>
             new("Compatibility", "Portable", ResolveCompatibilityPortable);
 
+        public static SignalRow<PackageSignalContext> IdentityIdentifierConfusion =>
+            new("Identity", "Identifier confusion", ResolveIdentityIdentifierConfusion);
+
         public static SignalRow<PackageSignalContext> DocumentationReadme =>
             new("Documentation", "README", ResolveDocumentationReadme);
 
@@ -446,6 +485,27 @@ internal static class AuditSignalBuilder
 
         private static SignalValue? ResolveCompatibilityPortable(in PackageSignalContext context) =>
             FormatPortability(context.Result).ToSignalValue();
+
+        private static SignalValue? ResolveIdentityIdentifierConfusion(
+            in PackageSignalContext context)
+        {
+            if (context.Result.IdentifierConfusionFailure is { } failure)
+            {
+                return new(
+                    "Unavailable",
+                    IdentifierConfusionAudit.DescribeFailure(failure));
+            }
+
+            var summary = IdentifierConfusionAudit.Summarize(
+                IdentifierConfusionAudit.InspectPackage(context.Result),
+                "package IDs");
+            return context.Result.IdentifierConfusionRegistryScopeLimited
+                ? new(
+                    summary.Value,
+                    summary.Evidence
+                    + "; source advertises no deprecation metadata")
+                : summary.ToSignalValue();
+        }
 
         private static SignalValue? ResolveDocumentationReadme(in PackageSignalContext context) =>
             new(FormatBool(context.Result.HasReadme), context.Result.PackageReadmeFile ?? "package files");

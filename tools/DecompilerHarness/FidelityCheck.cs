@@ -3283,16 +3283,43 @@ static class FidelityCheck
             EmitStubProperties(reader, typeDef, targets, accessibility, thisFieldInits, stubPropertyAccessors,
                 orderedTargetProperties, sb, pad + "    ",
                 requireAutoProperty: kind == TypeKind.Struct);
+        var orderedTargetEvents = new Dictionary<MethodDefinitionHandle, EventDefinitionHandle>();
+        IndexTargetEvents(reader, typeDef, targets, orderedTargetEvents);
 
         foreach (var mh in typeDef.GetMethods())
         {
             if (stubPropertyAccessors.Contains(mh))
                 continue; // emitted as a property accessor above
+            if (orderedTargetEvents.TryGetValue(mh, out var targetEvent))
+            {
+                var accessors = reader.GetEventDefinition(targetEvent).GetAccessors();
+                if (mh == (!accessors.Adder.IsNil ? accessors.Adder : accessors.Remover))
+                {
+                    if (TryGetProductWholeEvent(accessors, targets, out var wholeEvent, out var targetAccessors))
+                    {
+                        EmitPrerenderedMember(wholeEvent, sb, pad + "    ");
+                        foreach (var targetAccessor in targetAccessors)
+                            productWholeMembers.Add(targetAccessor);
+                    }
+                }
+                continue; // emitted once, at its first accessor's metadata position
+            }
             if (orderedTargetProperties.TryGetValue(mh, out var targetProperty))
             {
                 var accessors = reader.GetPropertyDefinition(targetProperty).GetAccessors();
                 if (mh == (!accessors.Getter.IsNil ? accessors.Getter : accessors.Setter))
-                    EmitTargetProperty(reader, typeDef, targetProperty, targets, accessibility, sb, pad + "    ");
+                {
+                    if (TryGetProductWholeProperty(accessors, targets, out var wholeProperty, out var targetAccessors))
+                    {
+                        EmitPrerenderedMember(wholeProperty, sb, pad + "    ");
+                        foreach (var targetAccessor in targetAccessors)
+                            productWholeMembers.Add(targetAccessor);
+                    }
+                    else
+                    {
+                        EmitTargetProperty(reader, typeDef, targetProperty, targets, accessibility, sb, pad + "    ");
+                    }
+                }
                 continue; // emitted once, at its first accessor's metadata position
             }
             if (mh == primaryConstructorTarget.Key)
@@ -3520,6 +3547,13 @@ static class FidelityCheck
             string pname = reader.GetString(prop.Name);
             if (pname.Contains('<') || pname.Contains('.'))
                 continue; // compiler-generated / explicit interface impl
+            if (!requireAutoProperty
+                && TryGetProductWholeProperty(pa, targets, out _, out _))
+            {
+                if (!pa.Getter.IsNil) orderedTargetProperties[pa.Getter] = ph;
+                if (!pa.Setter.IsNil) orderedTargetProperties[pa.Setter] = ph;
+                continue;
+            }
             try
             {
                 if (!accessibility.CanSpellProperty(reader, prop, typeContext))
@@ -3551,6 +3585,13 @@ static class FidelityCheck
                 bool isAutoProperty = hasGet
                     && AccessorsAreCompilerGenerated(reader, pa)
                     && HasAutoPropertyBackingField(reader, typeDef, pname, ret, isStatic);
+                if (isAutoProperty
+                    && TryGetProductWholeProperty(pa, targets, out _, out _))
+                {
+                    if (!pa.Getter.IsNil) orderedTargetProperties[pa.Getter] = ph;
+                    if (!pa.Setter.IsNil) orderedTargetProperties[pa.Setter] = ph;
+                    continue;
+                }
                 bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
                     || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
                 if (accessorIsTarget && !isAutoProperty)
@@ -3583,6 +3624,91 @@ static class FidelityCheck
                 if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException) { }
+        }
+    }
+
+    static bool TryGetProductWholeProperty(
+        PropertyAccessors accessors,
+        IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        out string wholeProperty,
+        out IReadOnlyList<MethodDefinitionHandle> targetAccessors)
+    {
+        var handles = new List<MethodDefinitionHandle>(2);
+        var renders = new List<string>(2);
+        Add(accessors.Getter);
+        Add(accessors.Setter);
+
+        wholeProperty = "";
+        targetAccessors = handles;
+        if (handles.Count == 0
+            || renders.Count != handles.Count
+            || !renders.All(render => string.Equals(render, renders[0], StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        wholeProperty = renders[0];
+        return true;
+
+        void Add(MethodDefinitionHandle handle)
+        {
+            if (handle.IsNil || !targets.TryGetValue(handle, out var target))
+                return;
+            handles.Add(handle);
+            if (!target.RequiresAsync && target.WholeMember is { } render)
+                renders.Add(render);
+        }
+    }
+
+    static void IndexTargetEvents(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        Dictionary<MethodDefinitionHandle, EventDefinitionHandle> orderedTargetEvents)
+    {
+        foreach (var eventHandle in typeDef.GetEvents())
+        {
+            var eventDefinition = reader.GetEventDefinition(eventHandle);
+            var accessors = eventDefinition.GetAccessors();
+            if (!TryGetProductWholeEvent(accessors, targets, out _, out _))
+                continue;
+            if (!accessors.Adder.IsNil)
+                orderedTargetEvents[accessors.Adder] = eventHandle;
+            if (!accessors.Remover.IsNil)
+                orderedTargetEvents[accessors.Remover] = eventHandle;
+        }
+    }
+
+    static bool TryGetProductWholeEvent(
+        EventAccessors accessors,
+        IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        out string wholeEvent,
+        out IReadOnlyList<MethodDefinitionHandle> targetAccessors)
+    {
+        var handles = new List<MethodDefinitionHandle>(2);
+        var renders = new List<string>(2);
+        Add(accessors.Adder);
+        Add(accessors.Remover);
+
+        wholeEvent = "";
+        targetAccessors = handles;
+        if (handles.Count == 0
+            || renders.Count != handles.Count
+            || !renders.All(render => string.Equals(render, renders[0], StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        wholeEvent = renders[0];
+        return true;
+
+        void Add(MethodDefinitionHandle handle)
+        {
+            if (handle.IsNil || !targets.TryGetValue(handle, out var target))
+                return;
+            handles.Add(handle);
+            if (!target.RequiresAsync && target.WholeMember is { } render)
+                renders.Add(render);
         }
     }
 
@@ -3828,8 +3954,30 @@ static class FidelityCheck
                 // emitter this change replaces (#3062 review).
                 foreach (var type in ApiSurfaceExtractor.Extract(p, includeAll: true).Types)
                     foreach (var member in type.Members)
+                    {
                         if (member.MetadataToken is { } token)
-                            index[token] = (type, member);
+                        {
+                            if (member.Kind == "extension-method")
+                                index.TryAdd(token, (type, member));
+                            else
+                                index[token] = (type, member);
+                        }
+                        if (member.Kind == "property"
+                            && !member.Name.Contains('.', StringComparison.Ordinal))
+                        {
+                            if (member.GetterToken is { } getterToken)
+                                index.TryAdd(getterToken, (type, member));
+                            if (member.SetterToken is { } setterToken)
+                                index.TryAdd(setterToken, (type, member));
+                        }
+                        if (member.Kind == "event")
+                        {
+                            if (member.AdderToken is { } adderToken)
+                                index.TryAdd(adderToken, (type, member));
+                            if (member.RemoverToken is { } removerToken)
+                                index.TryAdd(removerToken, (type, member));
+                        }
+                    }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -3841,16 +3989,19 @@ static class FidelityCheck
     /// <summary>
     /// The product's whole-member render for a target method — the CSharp-owned
     /// signature (from Metadata's model) composed with the decompiler body —
-    /// replacing the harness's self-spelled signature. Ordinary constructors are
-    /// safe to migrate because the scaffold already applies the decompiler's
-    /// separately captured lifted field initializers to the reconstructed fields.
+    /// replacing the harness's self-spelled signature. Ordinary constructors,
+    /// recovered destructors, properties, and custom events are safe to migrate
+    /// because the scaffold already applies the
+    /// decompiler's separately captured lifted field initializers to reconstructed
+    /// fields, while property and event renders own both accessor declarations and bodies.
+    /// Field-like and explicit-interface events, and finalizers that cannot be
+    /// recovered as destructors, remain on their existing fallback paths.
     /// Non-essential custom attributes are omitted because the skeleton does not
     /// reproduce arbitrary attribute inheritance; compilation-required attributes
     /// such as <c>SkipLocalsInit</c> remain.
     /// A detected primary constructor remains type-header-owned and therefore
-    /// declines the member render. Accessors still decline because the product
-    /// renders their containing property. Broad evaluation renders the whole type
-    /// once and memoizes the batch; method-filtered evaluation uses the product's
+    /// declines the member render. Broad evaluation renders the whole type once
+    /// and memoizes the batch; method-filtered evaluation uses the product's
     /// targeted member path so unselected siblings are not rendered.
     /// </summary>
     internal static (string Text, IReadOnlySet<string> Namespaces)? TryRenderTargetMember(
@@ -3864,8 +4015,23 @@ static class FidelityCheck
         if (!TargetApiIndex(pe).TryGetValue(token, out var entry))
             return null;
         if (isPrimaryConstructor
-            || entry.Member.Kind is not ("method" or "operator" or "constructor"))
+            || entry.Member.Kind is not ("method" or "operator" or "constructor" or "finalizer" or "property" or "event"))
             return null;
+        if (entry.Member.Kind == "property"
+            && entry.Type.Kind == "struct"
+            && !MemberBodyProducer.IsCompilerGeneratedAutoPropertyAccessor(
+                source,
+                entry.Member,
+                mh))
+        {
+            return null;
+        }
+        if (entry.Member.Kind == "event" && entry.Member.IsOverride)
+        {
+            // The compile-back skeleton does not reconstruct non-target base events.
+            // An override event therefore cannot bind until event stubs exist.
+            return null;
+        }
 
         var result = targeted
             ? RenderTargetMember(entry.Type, entry.Member, source)
@@ -3875,6 +4041,24 @@ static class FidelityCheck
         if (entry.Member.Kind == "constructor"
             && SyntaxFactory.ParseMemberDeclaration(result.Text)
                 is not ConstructorDeclarationSyntax)
+        {
+            return null;
+        }
+        if (entry.Member.Kind == "finalizer"
+            && SyntaxFactory.ParseMemberDeclaration(result.Text)
+                is not DestructorDeclarationSyntax)
+        {
+            return null;
+        }
+        if (entry.Member.Kind == "property"
+            && SyntaxFactory.ParseMemberDeclaration(result.Text)
+                is not (PropertyDeclarationSyntax or IndexerDeclarationSyntax))
+        {
+            return null;
+        }
+        if (entry.Member.Kind == "event"
+            && SyntaxFactory.ParseMemberDeclaration(result.Text)
+                is not EventDeclarationSyntax)
         {
             return null;
         }

@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using ILInspector.Decompiler;
 using System.Text.Json.Serialization.Metadata;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
@@ -65,6 +64,16 @@ public partial class JsonContext : JsonSerializerContext
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(PackageInspectionJson))]
+[JsonSerializable(typeof(PackageInspectionJson[]))]
+internal partial class PackageInspectionJsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(DiffDocumentView))]
 internal partial class DiffJsonContext : JsonSerializerContext
 {
@@ -85,7 +94,7 @@ internal partial class PackageFileMultiJsonRowContext : JsonSerializerContext
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(PackageFileContent))]
+[JsonSerializable(typeof(PackageFileContentText))]
 internal partial class PackageFileContentJsonContext : JsonSerializerContext
 {
 }

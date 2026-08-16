@@ -119,7 +119,7 @@ public sealed record PrinterOptions
     /// and the rest of the keyword types — is spelled <c>var</c> instead of the
     /// explicit type, provided <c>var</c> is faithful there (the initializer's type
     /// is exactly the declared type and it is not a target-typed form such as
-    /// <c>default</c>/<c>null</c>/<c>new()</c>). Byte-neutral: <c>var</c> is a
+    /// <c>null</c>, a collection expression, or <c>new()</c>). Byte-neutral: <c>var</c> is a
     /// compile-time inference with no IL consequence, so this is a spelling choice,
     /// not a lens. Off by default — the shipped output keeps the explicit type,
     /// matching dotnet/runtime's <c>csharp_style_var_for_built_in_types = false</c>.
@@ -150,6 +150,18 @@ public sealed record PrinterOptions
     /// <c>csharp_style_var_elsewhere</c>.
     /// </summary>
     public bool PreferVarElsewhere { get; init; }
+
+    /// <summary>
+    /// When set, an eligible object creation whose constructed type is already
+    /// apparent from its assignment/declaration target renders as target-typed
+    /// <c>new(args)</c> instead of repeating the type in <c>new T(args)</c>.
+    /// On by default, preserving the shipped output and matching dotnet/runtime's
+    /// <c>csharp_style_implicit_object_creation_when_type_is_apparent = true</c>.
+    /// Setting it to <see langword="false"/> is a byte-neutral explicit-spelling
+    /// opt-out; compile-back identity is enforced by
+    /// <c>ByteNeutralityGateTests.CompileBackValue_On_RecompilesToTheSameIlAsOff</c>.
+    /// </summary>
+    public bool PreferImplicitObjectCreation { get; init; } = true;
 
     /// <summary>
     /// When set, a guarded boolean return the default view must render as a flat

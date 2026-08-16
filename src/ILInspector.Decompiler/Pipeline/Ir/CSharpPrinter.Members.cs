@@ -1158,7 +1158,8 @@ public sealed partial class CSharpPrinter
         IReadOnlyList<TypeRef> parameterTypes,
         ImmutableArray<ArgumentRefKind> refKinds,
         bool explicitIn = false,
-        bool chainFidelityCasts = false)
+        bool chainFidelityCasts = false,
+        bool coerceValues = true)
     {
         var parts = new List<string>();
         int i = 0;
@@ -1172,7 +1173,7 @@ public sealed partial class CSharpPrinter
                 && ChainFidelityCast(argument, parameter) is { } fidelityCast)
                 parts.Add(fidelityCast);
             else
-                parts.Add(parameter is not null ? CoerceText(argument, parameter) : Expression(argument));
+                parts.Add(coerceValues && parameter is not null ? CoerceText(argument, parameter) : Expression(argument));
             i++;
         }
         return string.Join(", ", parts);

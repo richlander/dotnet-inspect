@@ -59,23 +59,27 @@ change ready to merge.
   unrelated follow-up work on that PR. Integrate the effective base, resolve
   the conflict, re-read these instructions and the task-relevant docs, and push
   the replacement head immediately so CI starts. Run required local validation
-  against that exact pushed head after the push or in parallel with CI. This is
-  the standing exception to the validate-before-push order below; it changes
-  sequencing only, and the PR remains unready until local validation, CI, and
-  required review are clean. Recover a stack bottom-up so every child rests on
-  a conflict-free parent.
-- Form one frozen candidate for each review round. Immediately before local
-  validation, fetch and integrate the effective base, record that base tip, and
-  then keep the resulting head fixed through validation, push, CI, and review.
-  Do not fetch or integrate the base again merely because it advances while
-  those steps run. A conflict, author change, or review fix ends that candidate;
-  integrate the then-current effective base when forming its replacement. See
-  [Adversarial review](#adversarial-review). Rebase only before the branch's
-  first push. Once a branch is public or under review, merge `origin/main`;
-  never amend, rebase, or force-push reviewed history. A slice in a stack is the
-  standing exception: restacking rebases and force-pushes a public branch by
-  design — see [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues)
-  for the discipline that replaces this rule there.
+  against that exact pushed head in parallel with CI. This changes sequencing
+  only, and the PR remains unready until local validation, CI, and required
+  review are clean. Recover a stack bottom-up so every child rests on a
+  conflict-free parent.
+- Form one frozen candidate for each review round. Immediately before focused
+  local validation, fetch and integrate the effective base and record that base
+  tip. Once the smallest local test, lint, or build gate covering the authored
+  behavior passes, commit and push promptly. Keep that head fixed while broader
+  local validation, CI, and review run concurrently.
+- Do not fetch or integrate the base again merely because it advances, because
+  another PR is expected to land, or because later integration would make the
+  branch look newer. Base movement alone does not invalidate a candidate. A
+  conflict, an author change, a review fix, a current-head merge-path failure
+  that requires code changes, or an explicit user direction ends it. Integrate
+  the then-current effective base only when forming that replacement.
+- Rebase only before the branch's first push. Once a branch is public or under
+  review, merge `origin/main`; never amend, rebase, or force-push reviewed
+  history. A slice in a stack is the standing exception: restacking rebases and
+  force-pushes a public branch by design — see
+  [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues) for
+  the discipline that replaces this rule there.
 - After updating from main or resolving conflicts, re-read `AGENTS.md` and
   task-relevant docs before continuing.
 - Do not mix unrelated changes into one commit or sweep another contributor's
@@ -231,7 +235,7 @@ Tests use xUnit executable projects. **Use `dotnet run`, not `dotnet test`**;
 | Analysis | `dotnet run --project src/ILInspector.Analysis.Tests -c Release` |
 | Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
-| Inspection workspace | `dotnet run --project src/DotnetInspector.Queries.Tests -c Release` |
+| Inspection queries | `dotnet run --project src/DotnetInspector.Queries.Tests -c Release` |
 | Shared services | `dotnet run --project src/DotnetInspector.Services.Tests -c Release` |
 | Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
 | Metadata rendering and `mdi` | `dotnet run --project tests/DotnetInspector.MetadataRendering.Tests -c Release` |
@@ -269,16 +273,16 @@ wrapper is the one tested copy of that logic; `IlToolsActivationTests` in
 goes back to hand-rolling the assembly.
 
 The script pins the `ilasm`/`ildasm` version for CI and local runs alike;
-`ci.yml`, `deep-inspect.yml`, and `release.yml` invoke `eng/restore-iltools.sh`
-directly, appending its output to `$GITHUB_PATH` so the runner does the joining.
-Only `ci.yml` passes `--mdv`, because it is the only workflow that runs the
-metadata oracle suite. Each install step is `continue-on-error` so that a feed
-outage does not cost every other result in the lane, but a terminal
+`ci.yml` and `deep-inspect.yml` invoke `eng/restore-iltools.sh` directly,
+appending its output to `$GITHUB_PATH` so the runner does the joining. Only
+`ci.yml` passes `--mdv`, because it is the only workflow that runs the metadata
+oracle suite. Each install step is `continue-on-error` so that a feed outage
+does not cost every other result in the lane, but a terminal
 `Check ilasm/ildasm[/mdv] result` step fails the lane if acquisition failed:
-losing oracle coverage is red, not a quietly shorter skip list. In
-`release.yml`, that failed test lane blocks every package build and publish
-job. `IlToolsActivationTests.SlowWorkflows_FailAfterOracleRestoreFailure`
-gates the Deep Inspect and publish wiring.
+losing oracle coverage is red, not a quietly shorter skip list. Deep Inspect
+cannot certify that commit, so `release.yml` rejects the run before building
+packages. `IlToolsActivationTests.SlowWorkflows_FailAfterOracleRestoreFailure`
+gates the Deep Inspect wiring.
 
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
@@ -350,6 +354,17 @@ Match evidence to the claim and use the smallest existing check that proves it:
 
 - Start with focused tests for the changed subsystem; expand only when the
   change crosses boundaries or focused results expose broader risk.
+- Do not serialize independent evidence. After the focused pre-push gate is
+  green, start broader local suites, current-head CI, and eligible fixed-head
+  review concurrently. A long suite is not a reason to delay an independent
+  gate.
+- Run broad local suites once per authored head, not once per elapsed base
+  update. After a conflict-free base-only merge, inspect the integrated range
+  and rerun the focused gates for files, contracts, and behavior that can
+  interact with the branch. Let current-head CI provide the broad merge-path
+  confirmation. Rerun an otherwise non-interacting broad suite only when its
+  result is itself a claimed artifact, the integrated base changed its
+  prerequisites, or prior evidence exposed a reason.
 - For compiler-, metadata-, or IL-shape claims, include a compiled fixture or
   real artifact canary when practical. Synthetic fixtures are appropriate for
   unreachable states and seam isolation, but not as the only proof of a
@@ -441,53 +456,51 @@ npx markdownlint-cli <file>
 
 ## Adversarial review
 
-### Do not start a round until the branch is settled
+### Start a settled round without waiting for CI
 
-**A review round does not begin until the PR is stable and free of merge
-conflicts. For changes other than documentation-only PRs, it must also be green
-on every check that runs for it — and for a stacked PR, every layer must meet
-the conditions that apply to it.** This is a gate, not a preference: hold the
-round until that state clears unless the user explicitly adjusts the sequencing
-under [User-directed workflow adjustments](#user-directed-workflow-adjustments).
+**A review round begins as soon as the candidate head is pushed, settled,
+locally includes the effective base recorded at candidate formation, and has
+passed its focused pre-push gate.** Run review in parallel with broader local
+validation and CI by default. Do not wait for every check to complete before
+using an independent reviewer.
 
-In particular, an explicit user direction to run adversarial review in parallel
-with CI overrides the wait-for-green sequencing requirement. Do not refuse that
-direction because this section calls the default a gate. The review still
-applies only to its exact head, and CI must still pass before the change is
-ready to merge.
+A known conflict, known failing current-head required check, or known failing
+required local gate blocks the round. Pending CI or GitHub mergeability
+computation does not. If later evidence reveals a conflict or requires an
+author change, the round is superseded; if every check passes without moving
+the head, its clean reviews remain exact-head evidence.
 
-Documentation-only PRs covered by the Markdown-only validation rule above are
-the exception to the CI portion of this gate. Their only validation is
-Markdown linting, and waiting for that check to complete is orthogonal to
-adversarial review. Once the exact head is settled and conflict-free, its round
-may start while linting is pending; lint must still pass before merge.
+Documentation-only PRs follow the same sequencing. Their focused pre-push gate
+is Markdown linting, and a clean exact-head review may run concurrently with
+that gate when the candidate is already settled; lint must still pass before
+merge.
 
-Adversarial review is the scarcest resource in this workflow — several models, a
-self-contained prompt, isolated worktrees, real runs. A branch whose head is
-unpushed or still moving, whose candidate was formed without integrating its
-effective base, whose required review-gating CI is red, or whose PR reports a
-conflict has no single answer to "what am I reviewing?", so every finding it
-produces is provisional and every clean result is worthless. Form and freeze
-one candidate before the first round, and do so again before every subsequent
-round:
+Adversarial review is scarce, but serial wall-clock time is also a cost. Spend
+review only on a named frozen head with focused local evidence, then accept the
+bounded risk that later CI may supersede it. A branch whose head is unpushed or
+still moving, whose candidate was formed without integrating its effective
+base, or whose PR has a known failure or conflict has no single answer to "what
+am I reviewing?" Form and freeze one candidate before the first round, and do
+so again before every subsequent round:
 
 - **The head is pushed, named, and settled.** Reviewers get an exact base and
   head, not a branch that moves under them. Finish your own edits first.
-- **The candidate includes its effective base.** Immediately before local
+- **The candidate includes its effective base.** Immediately before focused
   validation, fetch and integrate the effective base and record the integrated
-  tip. The resulting head is the candidate: keep it fixed through local
+  tip. The resulting head is the candidate: keep it fixed through broader
   validation, push, CI, and review. Do **not** refetch or integrate the base
   merely because it advances during those steps; doing so creates an
-  integrate-validate-integrate loop without making the eventual review more
-  useful. Base movement alone does not invalidate a candidate. It remains
-  eligible while its exact pushed head is mergeable and green. If it becomes
+  integrate-validate-integrate loop without making the review more useful.
+  Base movement alone does not invalidate a candidate. It remains eligible
+  while its exact pushed head has no known failure or conflict. If it becomes
   conflicting, or an author change or review finding moves the head, end that
   candidate and integrate the then-current effective base while forming the
   replacement. Once the reviews are clean, see
   [Clean reviews are not spent by main
   moving](#clean-reviews-are-not-spent-by-main-moving).
-- **For changes other than documentation-only PRs, the PR is mergeable and
-  green** — two questions, one consolidated status query. Use a single
+- **Before merge, the PR is mergeable and green** — two questions, one
+  consolidated status query. Review does not wait for this result, but
+  readiness does. Use a single
   `gh api graphql` request that returns the PR's
   `headRefOid`, `mergeable`, `mergeStateStatus`, `statusCheckRollup` state and
   contexts with `pageInfo`, and the query's `rateLimit` cost, remaining quota,
@@ -540,10 +553,11 @@ round:
   yield until its reported reset time rather than sleeping or continuing to
   query. These intervals are minimums, not targets: wait longer when no
   decision depends on an immediate result.
-- **Every PR in a stack meets the applicable conditions above**, not only the
-  slice under review — a conflicted parent, or a non-documentation parent with
-  red CI, is an unsettled base for everything above it. A slice rebases onto its
-  parent, never onto `main`: only the stack's bottom open slice takes
+- **Before merge, every PR in a stack meets the applicable conditions above**,
+  not only the slice under review. A known-conflicted or known-red parent blocks
+  review of everything above it; a pending parent does not, provided each layer
+  has a settled pushed head and passed focused local evidence. A slice rebases
+  onto its parent, never onto `main`: only the stack's bottom open slice takes
   `origin/main` as its base, and rebasing an upper slice onto `main` pulls in
   work its parent has not landed and makes the slice's diff report its parent's
   changes as its own. `ci.yml` applies no base-branch filter, so every
@@ -704,7 +718,14 @@ remaining concern should be dismissed, before spending another round.
   change, not against sequencing a genuinely multi-slice one — see
   [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues).
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
-- Treat CI as confirmation, not discovery: run relevant local checks first.
+- Treat CI as confirmation, not discovery: run the smallest relevant local gate
+  first, then push the frozen candidate promptly. Run broader local validation,
+  CI, and fixed-head review concurrently.
+- A settled candidate should spend wall-clock time in parallel. If an hour
+  passes without an authored change while an eligible independent gate has not
+  started, stop and correct the sequencing or record the concrete blocker. Do
+  not respond by refreshing the base or rerunning a broad suite that already
+  proved the unchanged authored head.
 - `ci-required` is the only check that may gate merges, and the one the `main`
   ruleset is meant to require: an aggregate that fails if any job in `ci.yml`
   failed or was cancelled. It passes `skipped`, because most jobs are
@@ -744,8 +765,10 @@ until it is unreviewable, and over parallel PRs that race in the same files.
   slice above. Use `--force-with-lease`, restack only your own slices, and post
   a `range-diff` proving the restack changed the base and nothing else.
 - **Review depth is per-slice, by that slice's own risk**, not the stack's size.
-- **Review readiness is checked stack-wide before any slice's round**, using
-  the documentation-only CI exception where applicable — see
+- **Review-start readiness is checked stack-wide before any slice's round.**
+  Every layer must have a settled pushed head, focused local evidence, and no
+  known failure or conflict; pending CI is allowed. Merge readiness still
+  requires every layer to be green and mergeable — see
   [Adversarial review](#adversarial-review).
 - **A moved head — including one moved by a restack — needs a clean round at
   the new head**, and a restack never retires an open finding.

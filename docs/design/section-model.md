@@ -113,9 +113,9 @@ The single-type view uses the same concept for `@Analysis`, `@Audit`,
 `@Performance`, `@Source`, and `@SourceLink`.
 
 At package scope, `@Dependencies` groups direct and runtime-specific package
-dependencies, while `@Audit` cross-lists package signals, signing,
-vulnerabilities, and SourceLink integrity evidence. `@SourceLink` remains a
-separate provenance domain.
+dependencies, while `@Audit` cross-lists package signals, artifact-text concern
+locations, signing, vulnerabilities, and SourceLink integrity evidence.
+`@SourceLink` remains a separate provenance domain.
 
 ### Category doors
 
@@ -383,7 +383,7 @@ The library command's current authored ownership is:
 | --- | --- |
 | `@Library` | `Library Info`, `Inspection Failures`, `References`, `Signals`, `Symbols` |
 | `@Surface` | `Async Methods`, `Custom Attributes`, `Extension Methods`, `Resources`, `Switches`, `Type Forwarders`, `Union Types`, `P/Invoke Methods` |
-| `@Audit` | `Unsafe Members`, `P/Invoke Methods`, `Non-normalized Paths`, `SourceLink: Diagnostics`, `Signals`, `Symbols` |
+| `@Audit` | `Unsafe Members`, `P/Invoke Methods`, `Non-normalized Paths`, `SourceLink: Diagnostics`, `Signals`, `Audit: Identifier Confusion`, `Symbols` |
 | `@Performance` | All `Performance:*` sections, `Array Pool Escapes`, `Top Leverage` |
 | `@SourceLink` | All `SourceLink:*` sections |
 | `@Integrations` | All integration sections |
@@ -402,7 +402,7 @@ The package command's current authored ownership is:
 | `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Package files` |
 | `@Files` | `Package nuspec file`, `Package README file`, `Package skill files` |
 | `@Dependencies` | `Dependencies`, `Runtime Dependencies` |
-| `@Audit` | `Signals`, `Signature`, `Vulnerabilities`, `SourceLink: Availability`, `SourceLink: Missing Files`, `SourceLink: Integrity` |
+| `@Audit` | `Signals`, `Audit: Artifact Text`, `Audit: Identifier Confusion`, `Signature`, `Vulnerabilities`, `SourceLink: Availability`, `SourceLink: Missing Files`, `SourceLink: Integrity` |
 | `@SourceLink` | All `SourceLink:*` sections |
 
 `@Package` and `@Files` are base categories. The remaining categories are

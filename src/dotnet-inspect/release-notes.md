@@ -1,5 +1,63 @@
 # Release Notes
 
+## v0.19.0
+
+### Inspection and output
+
+- `find --json` now composes with `--columns` and `--fields`, emitting a
+  projected JSON document with the same rows, windows, compactness, and
+  snake_case field vocabulary as TSV and JSONL output (#3536).
+- **Breaking:** Explicit empty projection values and duplicate
+  `--columns`/`--fields` entries are now rejected at parse time for every
+  command and format. Overlapping wildcard patterns resolve each source column
+  once, while a name matching no column continues to fail closed during
+  rendering (#3536).
+- Multi-package inspection now renders and counts `Signature`, package fields,
+  and file projections consistently across Markdown, count, TSV, and JSONL
+  output, including global row windows and empty package rows (#4004).
+- Quiet .NET platform type listings use a compact shared-runtime metadata path,
+  avoiding full extraction while preserving forwarded type and extension method
+  counts. Rich, ASP.NET Core, pinned reference-pack, and structured output paths
+  retain full extraction (#4175).
+- Static and instance call-graph members now have distinct opaque selectors, so
+  close signatures no longer collide during remapping (#4219).
+- Call-graph projection now retains physical call-site receipts behind each
+  logical edge, preserving exact loop evidence and disclosing incomplete
+  occurrence sets instead of fabricating complete aggregates (#4193).
+
+### Safety and acquisition
+
+- Package presentation now carries containment evidence across every package
+  text source through a typed boundary. Aggregate projections report whether
+  containment was required while explicit document payloads remain
+  byte-preserving (#3831).
+- Package `Signals` now summarizes the Unicode concern kinds found in
+  package-model text. `Audit: Artifact Text` adds content-free field locations
+  and concern kinds without echoing the artifact content (#4090).
+- Package and library `Signals` now summarize non-ASCII identifiers and
+  reserved-prefix homoglyphs. `Audit: Identifier Confusion` adds content-free
+  locations, classifications, similarity, and code points (#4090).
+- PDB and SourceLink acquisition now handles pathless and content-shaped
+  responses while preserving visible diagnostics for rejected evidence
+  (#4138).
+- NuGet metadata acquisition now bounds response bodies, attributes failures to
+  their source, and reports malformed service indexes and version metadata
+  instead of silently treating them as absent (#4134, #4247).
+- Signature decoding and classification now enforce cumulative work budgets,
+  keeping deeply nested or broadly repeated metadata from multiplying
+  inspection cost without bound (#4170, #4188).
+
+### Experimental decompilation
+
+- Adds complete opt-in `var` spelling and a configurable
+  explicit-versus-target-typed object-creation style. Both choices are
+  byte-neutral (#4220, #4252).
+- Expands whole-member compile-back coverage for constructors, properties, and
+  events; recovers variable-less `using` statements; preserves local-function
+  argument ref kinds; and fixes several control-flow ownership, stack-merge,
+  and structuring fidelity failures (#4070, #4198, #4244, #4113, #4204, #4192,
+  #4101, #4255).
+
 ## v0.18.0
 
 ### Inspection correctness

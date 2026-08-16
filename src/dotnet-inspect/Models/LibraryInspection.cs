@@ -286,6 +286,27 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public AssemblyInfo? AssemblyInfo { get; set; }
 
+    [JsonIgnore]
+    internal List<AssemblyReferenceNode>? IdentifierConfusionReferenceClosure
+    {
+        get;
+        set;
+    }
+
+    [JsonIgnore]
+    internal IdentifierConfusionAuditFailureKind? IdentifierConfusionFailure
+    {
+        get;
+        set;
+    }
+
+    [JsonIgnore]
+    internal IdentifierConfusionAuditFailureKind? AssemblyReferenceFailureKind
+    {
+        get;
+        set;
+    }
+
     private FindingInspection<AssemblyReference>? _assemblyReferenceInspection;
 
     [JsonIgnore]
@@ -1165,6 +1186,7 @@ public record class OptimizationOpportunitySummary
     public string? Token { get; init; }
     public string Evidence { get; init; } = "";
     public string Fix { get; init; } = "";
+    public string Priority { get; init; } = "";
     public string Confidence { get; init; } = "";
     public string Loop { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

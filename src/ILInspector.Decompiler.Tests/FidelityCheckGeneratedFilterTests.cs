@@ -1,3 +1,4 @@
+using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
@@ -5,6 +6,8 @@ using ILInspector.DecompilerHarness;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -271,6 +274,562 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public void Evaluate_UsesProductWholeMemberForFinalizer()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class FinalizerWholeMemberFixture
+            {
+                private static bool _finalized;
+
+                ~FinalizerWholeMemberFixture() => _finalized = true;
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "FinalizerWholeMemberFixture"));
+            var finalizer = Assert.Single(
+                type.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "Finalize");
+
+            using var source = MetadataSource.Open(assemblyPath);
+            var wholeMember = FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                finalizer,
+                targeted: true,
+                isPrimaryConstructor: false);
+
+            Assert.NotNull(wholeMember);
+            Assert.IsType<Microsoft.CodeAnalysis.CSharp.Syntax.DestructorDeclarationSyntax>(
+                Microsoft.CodeAnalysis.CSharp.SyntaxFactory.ParseMemberDeclaration(
+                    wholeMember.Value.Text));
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "FinalizerWholeMemberFixture",
+                    method => method.Method == "Finalize"));
+            Assert.True(result.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+
+            var batchResult = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "FinalizerWholeMemberFixture"),
+                candidate => candidate.Method == "Finalize");
+            Assert.True(batchResult.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, batchResult.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Evaluate_DeclinesProductLiteralWholeMemberForVbFinalizer()
+    {
+        string assemblyPath = FixtureCatalog.DecompilerVbFinalizer.AssemblyPath();
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var reader = pe.GetMetadataReader();
+        var type = reader.GetTypeDefinition(Assert.Single(
+            reader.TypeDefinitions,
+            handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == "Handle"));
+        var finalizer = Assert.Single(
+            type.GetMethods(),
+            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "Finalize");
+
+        using var source = MetadataSource.Open(assemblyPath);
+        var wholeMember = FidelityCheck.TryRenderTargetMember(
+            pe,
+            source,
+            finalizer,
+            targeted: true,
+            isPrimaryConstructor: false);
+
+        Assert.Null(wholeMember);
+
+        var result = Assert.Single(
+            FidelityCheck.Evaluate(
+                assemblyPath,
+                typeName => typeName == "Handle",
+                method => method.Method == "Finalize"));
+        Assert.False(result.UsedProductWholeMember);
+        Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+        Assert.Contains("CS0250", result.Detail);
+    }
+
+    [Fact]
+    public void Evaluate_UsesProductWholePropertyForAccessors()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.ComponentModel;
+
+            public sealed class PropertyWholeMemberFixture
+            {
+                private int _value;
+
+                [Description("marker")]
+                public int Value
+                {
+                    get => _value;
+                    private set => _value = value;
+                }
+
+                public int this[int offset]
+                {
+                    get => _value + offset;
+                    set => _value = value - offset;
+                }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var typeHandle = Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "PropertyWholeMemberFixture");
+            var type = reader.GetTypeDefinition(typeHandle);
+            var valueProperty = Assert.Single(
+                type.GetProperties(),
+                handle => reader.GetString(reader.GetPropertyDefinition(handle).Name) == "Value");
+            var valueAccessors = reader.GetPropertyDefinition(valueProperty).GetAccessors();
+
+            using var source = MetadataSource.Open(assemblyPath);
+            var wholeMember = FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                valueAccessors.Setter,
+                targeted: true,
+                isPrimaryConstructor: false);
+
+            Assert.NotNull(wholeMember);
+            Assert.Contains("public int Value", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.Contains("private set", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("[Description", wholeMember.Value.Text, StringComparison.Ordinal);
+
+            var results = FidelityCheck.Evaluate(assemblyPath)
+                .Where(result => result.Type == "PropertyWholeMemberFixture"
+                    && result.Method is "get_Value" or "set_Value" or "get_Item" or "set_Item")
+                .ToList();
+
+            Assert.Equal(4, results.Count);
+            foreach (var result in results)
+            {
+                Assert.True(result.UsedProductWholeMember, result.Method);
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            }
+
+            var targetedSetter = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "PropertyWholeMemberFixture",
+                    method => method.Method == "set_Value"));
+            Assert.True(targetedSetter.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, targetedSetter.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Evaluate_UsesProductWholeEventForCustomAccessors()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public sealed class EventWholeMemberFixture
+            {
+                private EventHandler? _changed;
+                private static EventHandler? _staticChanged;
+
+                public event EventHandler? Changed
+                {
+                    add => _changed += value;
+                    remove => _changed -= value;
+                }
+
+                public static event EventHandler? StaticChanged
+                {
+                    add => _staticChanged += value;
+                    remove => _staticChanged -= value;
+                }
+
+                public event EventHandler? FieldLike;
+            }
+
+            public struct StructEventWholeMemberFixture
+            {
+                private EventHandler? _changed;
+
+                public event EventHandler? Changed
+                {
+                    add => _changed += value;
+                    remove => _changed -= value;
+                }
+            }
+
+            public interface IEventContract
+            {
+                event EventHandler? Changed;
+            }
+
+            public sealed class ExplicitEventFixture : IEventContract
+            {
+                event EventHandler? IEventContract.Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+
+            public class BaseEventFixture
+            {
+                private EventHandler? _changed;
+
+                public virtual event EventHandler? Changed
+                {
+                    add => _changed += value;
+                    remove => _changed -= value;
+                }
+            }
+
+            public sealed class OverrideEventFixture : BaseEventFixture
+            {
+                private EventHandler? _changed;
+
+                public override event EventHandler? Changed
+                {
+                    add => _changed += value;
+                    remove => _changed -= value;
+                }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "EventWholeMemberFixture"));
+            var customEvent = reader.GetEventDefinition(Assert.Single(
+                type.GetEvents(),
+                handle => reader.GetString(reader.GetEventDefinition(handle).Name) == "Changed"));
+            var fieldLikeEvent = reader.GetEventDefinition(Assert.Single(
+                type.GetEvents(),
+                handle => reader.GetString(reader.GetEventDefinition(handle).Name) == "FieldLike"));
+            var explicitType = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "ExplicitEventFixture"));
+            var explicitEvent = reader.GetEventDefinition(Assert.Single(explicitType.GetEvents()));
+            var overrideType = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "OverrideEventFixture"));
+            var overrideEvent = reader.GetEventDefinition(Assert.Single(overrideType.GetEvents()));
+
+            using var source = MetadataSource.Open(assemblyPath);
+            var wholeMember = FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                customEvent.GetAccessors().Adder,
+                targeted: true,
+                isPrimaryConstructor: false);
+            Assert.NotNull(wholeMember);
+            Assert.Contains("public event EventHandler Changed", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.Contains("add =>", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.Contains("Delegate.Combine(_changed, value)", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.Contains("remove =>", wholeMember.Value.Text, StringComparison.Ordinal);
+            Assert.Contains("Delegate.Remove(_changed, value)", wholeMember.Value.Text, StringComparison.Ordinal);
+
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                fieldLikeEvent.GetAccessors().Adder,
+                targeted: true,
+                isPrimaryConstructor: false));
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                explicitEvent.GetAccessors().Adder,
+                targeted: true,
+                isPrimaryConstructor: false));
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                overrideEvent.GetAccessors().Adder,
+                targeted: true,
+                isPrimaryConstructor: false));
+
+            var results = FidelityCheck.Evaluate(assemblyPath)
+                .Where(result => result.Type == "EventWholeMemberFixture"
+                    && result.Method is "add_Changed" or "remove_Changed"
+                        or "add_StaticChanged" or "remove_StaticChanged")
+                .ToList();
+
+            Assert.Equal(4, results.Count);
+            foreach (var result in results)
+            {
+                Assert.True(result.UsedProductWholeMember, result.Method);
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            }
+
+            var structResults = FidelityCheck.Evaluate(assemblyPath)
+                .Where(result => result.Type == "StructEventWholeMemberFixture"
+                    && result.Method is "add_Changed" or "remove_Changed")
+                .ToList();
+            Assert.Equal(2, structResults.Count);
+            foreach (var result in structResults)
+            {
+                Assert.True(result.UsedProductWholeMember, result.Method);
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            }
+
+            var targetedRemover = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "EventWholeMemberFixture",
+                    method => method.Method == "remove_Changed"));
+            Assert.True(targetedRemover.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, targetedRemover.Status);
+
+            var overrideResults = FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "OverrideEventFixture",
+                    method => method.Method is "add_Changed" or "remove_Changed")
+                .ToList();
+            Assert.Equal(2, overrideResults.Count);
+            foreach (var result in overrideResults)
+            {
+                Assert.False(result.UsedProductWholeMember, result.Method);
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void PropertyWholeMember_DeclinesExplicitImplementationsAndNonAutoStructs()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IValue
+            {
+                int Value { get; }
+            }
+
+            public sealed class ExplicitValue : IValue
+            {
+                int IValue.Value => 42;
+            }
+
+            public readonly struct ComputedValue
+            {
+                private readonly int _value;
+
+                public ComputedValue(int value) => _value = value;
+
+                public int Value => _value + 1;
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var explicitType = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == "ExplicitValue"));
+            var explicitAccessor = Assert.Single(
+                explicitType.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "IValue.get_Value");
+            var structType = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == "ComputedValue"));
+            var structAccessor = Assert.Single(
+                structType.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "get_Value");
+
+            using var source = MetadataSource.Open(assemblyPath);
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                explicitAccessor,
+                targeted: true,
+                isPrimaryConstructor: false));
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                structAccessor,
+                targeted: true,
+                isPrimaryConstructor: false));
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "ComputedValue",
+                    method => method.Method == "get_Value"));
+            Assert.False(result.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TargetApiIndex_PreservesDeclaringExtensionMethodEntry(
+        bool extensionDeclaredFirst)
+    {
+        const string widget = """
+            // Both source orderings are intentional: the extended-type projection
+            // and declaring method share one MethodDef token in either order.
+            public sealed class Widget
+            {
+                public int Value;
+            }
+            """;
+
+        const string extensions = """
+            public static class WidgetExtensions
+            {
+                public static int Twice(this Widget value) => value.Value * 2;
+            }
+            """;
+
+        var assemblyPath = CompileFixture(
+            extensionDeclaredFirst
+                ? $"{extensions}{Environment.NewLine}{widget}"
+                : $"{widget}{Environment.NewLine}{extensions}");
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "WidgetExtensions"));
+            var method = Assert.Single(
+                type.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "Twice");
+            using var source = MetadataSource.Open(assemblyPath);
+
+            var rendered = FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                method,
+                targeted: true,
+                isPrimaryConstructor: false);
+
+            Assert.NotNull(rendered);
+            Assert.Contains("Twice", rendered.Value.Text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void StructFalseAutoProperty_RemainsOnLegacyFallback()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "fixture.dll");
+        try
+        {
+            var assemblyName = new AssemblyName("FalseStructAutoProperty");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+            var typeBuilder = module.DefineType(
+                "FalseAutoStruct",
+                TypeAttributes.Public
+                    | TypeAttributes.Sealed
+                    | TypeAttributes.SequentialLayout,
+                typeof(ValueType));
+            var compilerGenerated = new CustomAttributeBuilder(
+                typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute)
+                    .GetConstructor(Type.EmptyTypes)!,
+                []);
+            var backingField = typeBuilder.DefineField(
+                "<Value>k__BackingField",
+                typeof(int),
+                FieldAttributes.Private);
+            backingField.SetCustomAttribute(compilerGenerated);
+            var getter = typeBuilder.DefineMethod(
+                "get_Value",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(int),
+                Type.EmptyTypes);
+            getter.SetCustomAttribute(compilerGenerated);
+            var il = getter.GetILGenerator();
+            il.Emit(OpCodes.Ldc_I4_S, (sbyte)42);
+            il.Emit(OpCodes.Ret);
+            typeBuilder
+                .DefineProperty("Value", PropertyAttributes.None, typeof(int), null)
+                .SetGetMethod(getter);
+            typeBuilder.CreateType();
+            assemblyBuilder.Save(assemblyPath);
+
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "FalseAutoStruct"));
+            var accessor = Assert.Single(
+                type.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "get_Value");
+            using var source = MetadataSource.Open(assemblyPath);
+
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                accessor,
+                targeted: true,
+                isPrimaryConstructor: false));
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "FalseAutoStruct",
+                    method => method.Method == "get_Value"));
+            Assert.False(result.UsedProductWholeMember);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void Evaluate_ReportsProductWholeMemberWhenConstructorRecompileFails()
     {
         var assemblyPath = CompileFixture("""
@@ -393,6 +952,7 @@ public class FidelityCheckGeneratedFilterTests
 
             Assert.True(ctor.Status == FidelityCheck.CompileBackStatus.Exact, ctor.Detail);
             Assert.True(getter.Status == FidelityCheck.CompileBackStatus.Exact, getter.Detail);
+            Assert.True(getter.UsedProductWholeMember);
             Assert.True(sum.Status == FidelityCheck.CompileBackStatus.Exact, sum.Detail);
         }
         finally

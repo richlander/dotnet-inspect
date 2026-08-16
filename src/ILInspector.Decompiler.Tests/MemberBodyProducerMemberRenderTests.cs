@@ -1,7 +1,11 @@
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.DecompilerHarness;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
@@ -66,6 +70,310 @@ public sealed class MemberBodyProducerMemberRenderTests
             Assert.Equal(single.Text, batched.Text);
             Assert.Equal(single.Namespaces, batched.Namespaces);
         }
+    }
+
+    [Fact]
+    public void ProduceMember_PreservesAccessorSpecificAccessibility()
+    {
+        var type = Specimen();
+        var property = Assert.Single(type.Members, member => member.Name == "Name");
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            property,
+            AssemblyPath,
+            pdbPath: null,
+            attributeMode: MemberRenderAttributeMode.CompilationRequired);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains("private set", rendered.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProduceMember_RendersCustomEventAccessorBodiesAndReturnAttributes()
+    {
+        var type = Specimen();
+        var eventMember = Assert.Single(type.Members, member => member.Name == "Changed");
+        var accessors = Assert.IsType<ApiSignature>(eventMember.SignatureModel).Accessors;
+        Assert.Equal(["add", "remove"], accessors.Select(accessor => accessor.Kind));
+        Assert.All(
+            accessors,
+            accessor => Assert.Equal(
+                ["ILInspector.Decompiler.Tests.SetterMarker"],
+                accessor.ReturnAttributes));
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            eventMember,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains("public event EventHandler? Changed", rendered.Text, StringComparison.Ordinal);
+        Assert.Contains(
+            "[return: ILInspector.Decompiler.Tests.SetterMarker] add",
+            rendered.Text,
+            StringComparison.Ordinal);
+        Assert.Contains("Delegate.Combine(_changed, value)", rendered.Text, StringComparison.Ordinal);
+        Assert.Contains(
+            "[return: ILInspector.Decompiler.Tests.SetterMarker] remove",
+            rendered.Text,
+            StringComparison.Ordinal);
+        Assert.Contains("Delegate.Remove(_changed, value)", rendered.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProduceMember_PreservesFieldLikeEventDeclaration()
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        var type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe).Types,
+            candidate => candidate.FullName == typeof(FieldLikeEventSpecimen).FullName);
+        var eventMember = Assert.Single(type.Members, member => member.Name == "Changed");
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            eventMember,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains("public event EventHandler Changed;", rendered.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(" add", rendered.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(" remove", rendered.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProduceMember_RendersStaticAutoPropertyWithoutRecursiveBodies()
+    {
+        var type = Specimen();
+        var property = Assert.Single(type.Members, member => member.Name == "StaticName");
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            property,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            "public static string StaticName { get; set; }",
+            rendered.Text,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("return StaticName", rendered.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProduceMember_DoesNotFoldUnrelatedCompilerGeneratedBackingField()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"member-render-false-auto-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var assemblyName = new AssemblyName("FalseAutoProperty");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+            var typeBuilder = module.DefineType(
+                "FalseAuto",
+                TypeAttributes.Public | TypeAttributes.Class);
+            var compilerGenerated = new CustomAttributeBuilder(
+                typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute)
+                    .GetConstructor(Type.EmptyTypes)!,
+                []);
+            var backingField = typeBuilder.DefineField(
+                "<Value>k__BackingField",
+                typeof(int),
+                FieldAttributes.Private);
+            backingField.SetCustomAttribute(compilerGenerated);
+            var getter = typeBuilder.DefineMethod(
+                "get_Value",
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(int),
+                Type.EmptyTypes);
+            getter.SetCustomAttribute(compilerGenerated);
+            var il = getter.GetILGenerator();
+            il.Emit(OpCodes.Ldc_I4, 42);
+            il.Emit(OpCodes.Ret);
+            typeBuilder
+                .DefineProperty("Value", PropertyAttributes.None, typeof(int), null)
+                .SetGetMethod(getter);
+            typeBuilder.CreateType();
+
+            string assemblyPath = Path.Combine(directory, "FalseAutoProperty.dll");
+            assemblyBuilder.Save(assemblyPath);
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.FullName == "FalseAuto");
+            var property = Assert.Single(type.Members, member => member.Name == "Value");
+
+            var rendered = MemberBodyProducer.ProduceMember(
+                type,
+                property,
+                assemblyPath,
+                pdbPath: null);
+
+            Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+            Assert.Contains("public static int Value => 42;", rendered.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("{ get; }", rendered.Text, StringComparison.Ordinal);
+
+            var fidelity = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "FalseAuto",
+                    method => method.Method == "get_Value"));
+            Assert.True(fidelity.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, fidelity.Status);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProduceMember_DeclinesClassicAsyncAccessorBody()
+    {
+        var type = new ApiType
+        {
+            Name = nameof(ClassicAsyncAccessorSpecimen),
+            Namespace = typeof(ClassicAsyncAccessorSpecimen).Namespace,
+            Kind = "class"
+        };
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            Accessibility = "public",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Threading.Tasks.Task<int>",
+                MemberName = "Value",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+        type.Members.Add(property);
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            property,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Failed, rendered.Status);
+        Assert.Contains(
+            "C# properties cannot carry an async accessor modifier.",
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProduceMember_DeclinesClassicAsyncEventAccessorBody()
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        var type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe).Types,
+            candidate => candidate.FullName == typeof(ClassicAsyncEventAccessorSpecimen).FullName);
+        var reader = pe.GetMetadataReader();
+        var typeDefinition = reader.GetTypeDefinition(Assert.Single(
+            reader.TypeDefinitions,
+            handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == nameof(ClassicAsyncEventAccessorSpecimen)));
+        var adder = Assert.Single(
+            typeDefinition.GetMethods(),
+            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "add_Changed");
+        var remover = Assert.Single(
+            typeDefinition.GetMethods(),
+            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "remove_Changed");
+        var eventMember = new ApiMember
+        {
+            Name = "Changed",
+            Kind = "event",
+            Accessibility = "public",
+            AdderToken = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(adder),
+            RemoverToken = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(remover),
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Changed",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "add" },
+                    new ApiAccessor { Kind = "remove" }
+                ]
+            }
+        };
+        type.Members.Add(eventMember);
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            eventMember,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Failed, rendered.Status);
+        Assert.Contains(
+            "C# events cannot carry an async accessor modifier.",
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProduceMember_PreservesSetterReturnAttributes()
+    {
+        var type = Specimen();
+        var property = Assert.Single(
+            type.Members,
+            member => member.Name == "AttributedValue");
+        var accessors = Assert.IsType<ApiSignature>(property.SignatureModel).Accessors;
+        Assert.All(
+            accessors,
+            accessor => Assert.Equal(
+                ["ILInspector.Decompiler.Tests.SetterMarker"],
+                accessor.ReturnAttributes));
+
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        var reader = pe.GetMetadataReader();
+        var typeDefinition = reader.GetTypeDefinition(Assert.Single(
+            reader.TypeDefinitions,
+            handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == nameof(MemberRenderSpecimen)));
+        var propertyDefinition = reader.GetPropertyDefinition(Assert.Single(
+            typeDefinition.GetProperties(),
+            handle => reader.GetString(reader.GetPropertyDefinition(handle).Name)
+                == "AttributedValue"));
+        var declaration = MetadataDeclarationQuery.GetProperty(
+            reader,
+            typeDefinition,
+            propertyDefinition);
+        Assert.All(
+            declaration.Signature.Accessors,
+            accessor => Assert.Equal(
+                ["ILInspector.Decompiler.Tests.SetterMarker"],
+                accessor.ReturnAttributes));
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            property,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            "[return: ILInspector.Decompiler.Tests.SetterMarker] get",
+            rendered.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[return: ILInspector.Decompiler.Tests.SetterMarker] set",
+            rendered.Text,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -424,6 +732,8 @@ public sealed class MemberBodyProducerMemberRenderTests
 #pragma warning disable CA1822 // members are instance to exercise real signatures
 public sealed class MemberRenderSpecimen
 {
+    EventHandler? _changed;
+
     [System.ComponentModel.Description("marker")]
     [System.Runtime.CompilerServices.SkipLocalsInit]
     public MemberRenderSpecimen(
@@ -432,7 +742,27 @@ public sealed class MemberRenderSpecimen
 
     public int Value { get; }
 
-    public string Name { get; set; } = "";
+    public string Name { get; private set; } = "";
+
+    public static string StaticName { get; set; } = "";
+
+    public int AttributedValue
+    {
+        [return: SetterMarker]
+        get;
+
+        [return: SetterMarker]
+        set;
+    }
+
+    public event EventHandler? Changed
+    {
+        [return: SetterMarker]
+        add => _changed += value;
+
+        [return: SetterMarker]
+        remove => _changed -= value;
+    }
 
     public int Increment(int n) => n + 1;
 
@@ -503,5 +833,36 @@ public sealed class MemberRenderSpecimen
 
 [AttributeUsage(AttributeTargets.Parameter)]
 public sealed class ParameterMarkerAttribute : Attribute;
+
+[AttributeUsage(AttributeTargets.ReturnValue)]
+public sealed class SetterMarkerAttribute : Attribute;
+
+public sealed class ClassicAsyncAccessorSpecimen
+{
+    public async Task<int> get_Value()
+    {
+        await Task.Yield();
+        return 42;
+    }
+}
+
+public sealed class ClassicAsyncEventAccessorSpecimen
+{
+    public async Task add_Changed(EventHandler value)
+    {
+        await Task.Yield();
+    }
+
+    public void remove_Changed(EventHandler value)
+    {
+    }
+}
+
+#pragma warning disable CS0067 // metadata fixture for field-like event reconstruction
+public sealed class FieldLikeEventSpecimen
+{
+    public event EventHandler? Changed;
+}
+#pragma warning restore CS0067
 
 #pragma warning restore CA1822

@@ -10,6 +10,9 @@ public enum MetadataTypeNameRejectionKind
     MissingNamespace,
     MissingSegments,
     MissingSegment,
+    InvalidSerializedName,
+    AssemblyQualifiedSerializedName,
+    NonDefinitionSerializedName,
 
     /// <summary>
     /// The namespace and segments together exceed
@@ -180,6 +183,72 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
 
         return new MetadataTypeDefinitionNameResult.Valid(
             new MetadataTypeDefinitionName(@namespace, segments));
+    }
+
+    /// <summary>
+    /// Parses a reflection-serialized type name into exact metadata definition
+    /// identity while rejecting assembly-qualified and constructed forms.
+    /// Gated by
+    /// <c>SerializedName_UsesRuntimeGrammarAndPreservesExactSegments</c>.
+    /// </summary>
+    public static MetadataTypeDefinitionNameResult ParseSerialized(
+        string serializedName)
+    {
+        ArgumentNullException.ThrowIfNull(serializedName);
+        if (serializedName.Length
+            > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        {
+            return Reject(
+                MetadataTypeNameRejectionKind.SegmentsTooLong);
+        }
+
+        var options = new TypeNameParseOptions
+        {
+            MaxNodes = MetadataSafetyPolicy.MaxRelationshipNodes,
+        };
+        if (!TypeName.TryParse(
+                serializedName,
+                out TypeName? parsed,
+                options))
+        {
+            return Reject(
+                MetadataTypeNameRejectionKind.InvalidSerializedName);
+        }
+        if (parsed.AssemblyName is not null)
+        {
+            return Reject(
+                MetadataTypeNameRejectionKind.AssemblyQualifiedSerializedName);
+        }
+        if (!parsed.IsSimple)
+        {
+            return Reject(
+                MetadataTypeNameRejectionKind.NonDefinitionSerializedName);
+        }
+
+        var segments = ImmutableArray.CreateBuilder<string>();
+        TypeName current = parsed;
+        while (true)
+        {
+            if (current.AssemblyName is not null || !current.IsSimple)
+            {
+                return Reject(
+                    MetadataTypeNameRejectionKind.NonDefinitionSerializedName);
+            }
+            segments.Add(current.Name);
+            if (!current.IsNested)
+                break;
+            current = current.DeclaringType;
+        }
+        var rootToLeaf =
+            ImmutableArray.CreateBuilder<string>(segments.Count);
+        for (int i = segments.Count - 1; i >= 0; i--)
+            rootToLeaf.Add(segments[i]);
+        return Create(current.Namespace, rootToLeaf.MoveToImmutable());
+
+        static MetadataTypeDefinitionNameResult Reject(
+            MetadataTypeNameRejectionKind kind) =>
+            new MetadataTypeDefinitionNameResult.Rejected(
+                new MetadataTypeNameRejection(kind));
     }
 
     public bool Equals(MetadataTypeDefinitionName? other)

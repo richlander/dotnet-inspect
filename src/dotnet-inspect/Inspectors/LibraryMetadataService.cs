@@ -301,7 +301,11 @@ internal static class LibraryMetadataService
                         inspection,
                         logger,
                         UnionTypesQuery.Execute(session));
-                    inspection.Apply(ScanClassifiedMethods(session, path, logger));
+                    ApplyClassifiedMethodsResult(
+                        path,
+                        inspection,
+                        logger,
+                        ClassifiedMethodsQuery.Execute(session));
                 }
 
                 catch (Exception ex)
@@ -332,6 +336,17 @@ internal static class LibraryMetadataService
                 }
             }
 
+            if ((needsAuditSignals
+                    || options.CollectIdentifierConfusionReferenceTree)
+                && inspection.AssemblyReferenceInspection
+                    is FindingInspection<AssemblyReference>.Failed)
+            {
+                IdentifierConfusionAuditFailureKind failure =
+                    inspection.AssemblyReferenceFailureKind
+                    ?? IdentifierConfusionAuditFailureKind.InspectionFailed;
+                inspection.IdentifierConfusionFailure = failure;
+            }
+
             // The query produces the flat direct-reference currency. Tree traversal remains a
             // path-owning CLI projection over that result.
             if (collectReferenceTree
@@ -349,6 +364,33 @@ internal static class LibraryMetadataService
                     logger,
                     deduplicate: true,
                     maxDepth: options.ReferenceTreeDepth);
+            }
+
+            if (options.CollectIdentifierConfusionReferenceTree
+                && inspection.AssemblyReferenceIdentities is { Count: > 0 } auditReferences)
+            {
+                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                visited.Add(
+                    inspection.AssemblyInfo.AssemblyName
+                    ?? Path.GetFileNameWithoutExtension(path));
+
+                try
+                {
+                    inspection.IdentifierConfusionReferenceClosure =
+                        BuildTransitiveReferences(
+                            auditReferences,
+                            path,
+                            visited,
+                            logger,
+                            deduplicate: true,
+                            failOnReadError: true);
+                }
+                catch (
+                    IdentifierConfusionReferenceTraversalException ex)
+                {
+                    inspection.IdentifierConfusionFailure =
+                        ex.FailureKind;
+                }
             }
 
             inspection.FileSize = pdbContext.FileSize;
@@ -419,6 +461,10 @@ internal static class LibraryMetadataService
             throw;
         }
         catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (IdentifierConfusionReferenceTraversalException)
         {
             throw;
         }
@@ -677,25 +723,50 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         int depth = 0,
         bool deduplicate = false,
-        Dictionary<string, int>? globalSeen = null,
-        int? maxDepth = null)
+        int? maxDepth = null,
+        bool failOnReadError = false)
     {
+        string fullAssemblyPath = Path.GetFullPath(assemblyPath);
+        StringComparer pathComparer = ReferenceTreePathComparer(
+            OperatingSystem.IsWindows());
         var bindingPolicies = new Dictionary<string, IAssemblyBindingPolicy>(
-            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-                ? StringComparer.OrdinalIgnoreCase
-                : StringComparer.Ordinal);
+            pathComparer);
         IAssemblyBindingPolicy bindingPolicy =
             ReferenceTreeBindingPolicyFor(assemblyPath, bindingPolicies);
+        var visitedPaths = new HashSet<string>(pathComparer)
+        {
+            fullAssemblyPath
+        };
+        if (deduplicate)
+        {
+            return BuildDeduplicatedTransitiveReferences(
+                references,
+                bindingPolicy,
+                bindingPolicies,
+                Path.GetDirectoryName(fullAssemblyPath)
+                    ?? throw new InvalidOperationException(
+                        "The assembly path has no containing directory."),
+                visited,
+                visitedPaths,
+                logger,
+                depth,
+                maxDepth,
+                failOnReadError);
+        }
+
         return BuildTransitiveReferences(
             references,
             bindingPolicy,
             bindingPolicies,
+            Path.GetDirectoryName(fullAssemblyPath)
+                ?? throw new InvalidOperationException(
+                    "The assembly path has no containing directory."),
             visited,
+            visitedPaths,
             logger,
             depth,
-            deduplicate,
-            globalSeen,
-            maxDepth);
+            maxDepth,
+            failOnReadError);
     }
 
     private static IAssemblyBindingPolicy ReferenceTreeBindingPolicyFor(
@@ -727,27 +798,240 @@ internal static class LibraryMetadataService
         return created;
     }
 
+    private sealed record DeduplicatedReferenceNode(
+        AssemblyReferenceNode Value)
+    {
+        public List<DeduplicatedReferenceNode> Children { get; } = [];
+    }
+
+    private readonly record struct PendingAssemblyReference(
+        AssemblyReferenceIdentity Reference,
+        IAssemblyBindingPolicy BindingPolicy,
+        string BindingScope,
+        int Depth,
+        DeduplicatedReferenceNode? Parent);
+
+    private static List<AssemblyReferenceNode>
+        BuildDeduplicatedTransitiveReferences(
+            IReadOnlyList<AssemblyReferenceIdentity> references,
+            IAssemblyBindingPolicy bindingPolicy,
+            Dictionary<string, IAssemblyBindingPolicy> bindingPolicies,
+            string bindingScope,
+            HashSet<string> visited,
+            HashSet<string> visitedPaths,
+            VerboseLogger logger,
+            int depth,
+            int? maxDepth,
+            bool failOnReadError)
+    {
+        List<DeduplicatedReferenceNode> roots = [];
+        var seen = new HashSet<AssemblyReferenceTraversalKey>(
+            AssemblyReferenceTraversalKeyComparer.Instance);
+        var pending = new Queue<PendingAssemblyReference>(
+            references
+                .OrderBy(reference => reference.Name)
+                .Select(
+                    reference =>
+                        new PendingAssemblyReference(
+                            reference,
+                            bindingPolicy,
+                            bindingScope,
+                            depth,
+                            Parent: null)));
+
+        while (pending.Count > 0)
+        {
+            PendingAssemblyReference next = pending.Dequeue();
+            AssemblyReferenceIdentity reference = next.Reference;
+            var node = new AssemblyReferenceNode
+            {
+                Name = reference.Name,
+                Version = reference.Version?.ToString() ?? "",
+                PublicKeyToken = reference.PublicKeyToken,
+                Depth = next.Depth,
+            };
+
+            AssemblyBindingSelection selection =
+                next.BindingPolicy.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(reference),
+                        AssemblyBindingOrigin.Global(),
+                        AssemblyResolutionScope.Any));
+            ResolvedAssemblyReference? resolved =
+                (selection as AssemblyBindingSelection.Selected)
+                    ?.Assembly;
+            if (selection is AssemblyBindingSelection.Unavailable
+                unavailable)
+            {
+                node.ResolutionFailure =
+                    AssemblyReferenceResolutionFailure.Unavailable;
+                IdentifierConfusionAuditFailureKind failure =
+                    ClassifyIdentifierConfusionBindingFailure(
+                        unavailable.Failure);
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        failure);
+                }
+                logger.LogWarning(
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(failure));
+            }
+            else if (selection is AssemblyBindingSelection.Rejected
+                rejected)
+            {
+                node.ResolutionFailure =
+                    AssemblyReferenceResolutionFailure.Rejected;
+                IdentifierConfusionAuditFailureKind failure =
+                    ClassifyIdentifierConfusionBindingFailure(
+                        rejected.Failure);
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        failure);
+                }
+                logger.LogWarning(
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(failure));
+            }
+
+            node.Path = resolved?.Path;
+            node.ResolvedFrom =
+                resolved?.Provenance
+                    is AssemblyResolutionProvenance.PlatformAsset
+                    ? "platform"
+                    : resolved is null
+                        ? null
+                        : "local";
+
+            string? resolvedPath =
+                resolved?.Path is { } selectedPath
+                    ? Path.GetFullPath(selectedPath)
+                    : null;
+            bool isRootCycle = resolved is not null
+                && (resolvedPath is not null
+                    ? visitedPaths.Contains(resolvedPath)
+                    : visited.Contains(resolved.Identity.Name));
+            if (isRootCycle)
+                continue;
+
+            AssemblyReferenceTraversalKey traversalKey =
+                resolvedPath is not null
+                    ? AssemblyReferenceTraversalKey.ForResolvedPath(
+                        resolvedPath)
+                    : AssemblyReferenceTraversalKey.ForReference(
+                        reference,
+                        next.BindingScope);
+            if (!seen.Add(traversalKey))
+                continue;
+
+            var treeNode = new DeduplicatedReferenceNode(node);
+            if (next.Parent is null)
+                roots.Add(treeNode);
+            else
+                next.Parent.Children.Add(treeNode);
+
+            if (resolved is null)
+                continue;
+
+            try
+            {
+                var (childReferences, company) =
+                    AssemblyInspector
+                        .ExtractReferenceIdentitiesAndCompany(
+                            resolved);
+                node.Company = company;
+                if (childReferences.Count == 0
+                    || (maxDepth is not null
+                        && next.Depth + 1 >= maxDepth.Value))
+                {
+                    continue;
+                }
+
+                IAssemblyBindingPolicy childBindingPolicy =
+                    resolved.Path is { } childPath
+                        ? ReferenceTreeBindingPolicyFor(
+                            childPath,
+                            bindingPolicies)
+                        : next.BindingPolicy;
+                string childBindingScope =
+                    resolvedPath is not null
+                        ? Path.GetDirectoryName(resolvedPath)
+                            ?? next.BindingScope
+                        : next.BindingScope;
+                foreach (AssemblyReferenceIdentity childReference in
+                    childReferences.OrderBy(
+                        childReference =>
+                            childReference.Name))
+                {
+                    pending.Enqueue(
+                        new PendingAssemblyReference(
+                            childReference,
+                            childBindingPolicy,
+                            childBindingScope,
+                            next.Depth + 1,
+                            treeNode));
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (IdentifierConfusionReferenceTraversalException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (
+                failOnReadError
+                || ex is IOException
+                    or UnauthorizedAccessException
+                    or BadImageFormatException)
+            {
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        ClassifyIdentifierConfusionReferenceFailure(ex),
+                        ex);
+                }
+
+                logger.LogWarning(
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(
+                        ClassifyIdentifierConfusionReferenceFailure(ex)));
+            }
+        }
+
+        List<AssemblyReferenceNode> flattened = [];
+        foreach (DeduplicatedReferenceNode root in roots)
+            FlattenDeduplicatedReferenceTree(root, flattened);
+        return flattened;
+    }
+
+    private static void FlattenDeduplicatedReferenceTree(
+        DeduplicatedReferenceNode node,
+        List<AssemblyReferenceNode> flattened)
+    {
+        flattened.Add(node.Value);
+        foreach (DeduplicatedReferenceNode child in node.Children)
+            FlattenDeduplicatedReferenceTree(child, flattened);
+    }
+
     private static List<AssemblyReferenceNode> BuildTransitiveReferences(
         IReadOnlyList<AssemblyReferenceIdentity> references,
         IAssemblyBindingPolicy bindingPolicy,
         Dictionary<string, IAssemblyBindingPolicy> bindingPolicies,
+        string bindingScope,
         HashSet<string> visited,
+        HashSet<string> visitedPaths,
         VerboseLogger logger,
         int depth,
-        bool deduplicate,
-        Dictionary<string, int>? globalSeen,
-        int? maxDepth)
+        int? maxDepth,
+        bool failOnReadError)
     {
-        globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<AssemblyReferenceNode> nodes = [];
 
         foreach (var reference in references.OrderBy(r => r.Name))
         {
-            if (deduplicate && globalSeen.TryGetValue(reference.Name, out int seenDepth) && seenDepth <= depth)
-            {
-                continue;
-            }
-
             var node = new AssemblyReferenceNode
             {
                 Name = reference.Name,
@@ -756,23 +1040,6 @@ internal static class LibraryMetadataService
                 Depth = depth
             };
 
-            if (visited.Contains(reference.Name))
-            {
-                if (!deduplicate)
-                {
-                    node.IsCyclic = true;
-                    nodes.Add(node);
-                }
-                continue;
-            }
-
-            if (deduplicate)
-            {
-                globalSeen[reference.Name] = depth;
-            }
-
-            visited.Add(reference.Name);
-
             AssemblyBindingSelection selection = bindingPolicy.Select(
                 new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(reference),
@@ -780,19 +1047,37 @@ internal static class LibraryMetadataService
                     AssemblyResolutionScope.Any));
             ResolvedAssemblyReference? resolved =
                 (selection as AssemblyBindingSelection.Selected)?.Assembly;
-            if (selection is AssemblyBindingSelection.Unavailable)
+            if (selection is AssemblyBindingSelection.Unavailable unavailable)
             {
                 node.ResolutionFailure =
                     AssemblyReferenceResolutionFailure.Unavailable;
+                IdentifierConfusionAuditFailureKind failure =
+                    ClassifyIdentifierConfusionBindingFailure(
+                        unavailable.Failure);
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        failure);
+                }
                 logger.LogWarning(
-                    "An assembly reference could not be resolved because a candidate was unavailable.");
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(failure));
             }
-            else if (selection is AssemblyBindingSelection.Rejected)
+            else if (selection is AssemblyBindingSelection.Rejected rejected)
             {
                 node.ResolutionFailure =
                     AssemblyReferenceResolutionFailure.Rejected;
+                IdentifierConfusionAuditFailureKind failure =
+                    ClassifyIdentifierConfusionBindingFailure(
+                        rejected.Failure);
+                if (failOnReadError)
+                {
+                    throw new IdentifierConfusionReferenceTraversalException(
+                        failure);
+                }
                 logger.LogWarning(
-                    "An assembly reference could not be resolved because binding was rejected.");
+                    "Could not inspect a resolved assembly reference: "
+                    + IdentifierConfusionAudit.DescribeFailure(failure));
             }
 
             node.Path = resolved?.Path;
@@ -801,6 +1086,21 @@ internal static class LibraryMetadataService
                 : resolved is null
                     ? null
                     : "local";
+
+            string? resolvedPath = resolved?.Path is { } selectedPath
+                ? Path.GetFullPath(selectedPath)
+                : null;
+            bool isCyclic = resolved is not null
+                && (resolvedPath is not null
+                    ? visitedPaths.Contains(resolvedPath)
+                    : visited.Contains(resolved.Identity.Name));
+            if (isCyclic)
+            {
+                node.IsCyclic = true;
+                nodes.Add(node);
+                continue;
+            }
+
             nodes.Add(node);
 
             if (resolved != null)
@@ -813,33 +1113,65 @@ internal static class LibraryMetadataService
                     if (childRefs.Count > 0
                         && (maxDepth is null || depth + 1 < maxDepth.Value))
                     {
-                        var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
+                        var branchVisited = new HashSet<string>(
+                            visited,
+                            StringComparer.OrdinalIgnoreCase)
+                        {
+                            resolved.Identity.Name
+                        };
+                        var branchVisitedPaths = new HashSet<string>(
+                            visitedPaths,
+                            visitedPaths.Comparer);
+                        if (resolvedPath is not null)
+                            branchVisitedPaths.Add(resolvedPath);
                         IAssemblyBindingPolicy childBindingPolicy =
-                            resolved.Path is { } resolvedPath
+                            resolved.Path is { } childPath
                                 ? ReferenceTreeBindingPolicyFor(
-                                    resolvedPath,
+                                    childPath,
                                     bindingPolicies)
                                 : bindingPolicy;
                         var childNodes = BuildTransitiveReferences(
                             childRefs,
                             childBindingPolicy,
                             bindingPolicies,
+                            resolvedPath is not null
+                                ? Path.GetDirectoryName(resolvedPath)
+                                    ?? bindingScope
+                                : bindingScope,
                             branchVisited,
+                            branchVisitedPaths,
                             logger,
                             depth + 1,
-                            deduplicate,
-                            globalSeen,
-                            maxDepth);
+                            maxDepth,
+                            failOnReadError);
                         nodes.AddRange(childNodes);
                     }
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (IdentifierConfusionReferenceTraversalException)
+                {
+                    throw;
+                }
                 catch (Exception ex) when (
-                    ex is IOException
+                    failOnReadError
+                    || ex is IOException
                         or UnauthorizedAccessException
                         or BadImageFormatException)
                 {
+                    if (failOnReadError)
+                    {
+                        throw new IdentifierConfusionReferenceTraversalException(
+                            ClassifyIdentifierConfusionReferenceFailure(ex),
+                            ex);
+                    }
+
                     logger.LogWarning(
-                        "A resolved assembly reference could not be read; its children were omitted.");
+                        "Could not inspect a resolved assembly reference: "
+                        + IdentifierConfusionAudit.DescribeFailure(
+                            ClassifyIdentifierConfusionReferenceFailure(ex)));
                 }
             }
         }
@@ -847,98 +1179,141 @@ internal static class LibraryMetadataService
         return nodes;
     }
 
-    /// <summary>
-    /// Scans an assembly for unsafe and P/Invoke methods.
-    /// </summary>
-    internal static ClassifiedMethodScan ScanClassifiedMethods(string path, VerboseLogger logger)
+    internal static StringComparer ReferenceTreePathComparer(bool isWindows) =>
+        isWindows
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
+    private readonly record struct AssemblyReferenceTraversalKey(
+        string? ResolvedPath,
+        AssemblyReferenceIdentity? Reference,
+        string? BindingScope)
     {
-        try
+        public static AssemblyReferenceTraversalKey ForResolvedPath(
+            string resolvedPath) =>
+            new(resolvedPath, null, null);
+
+        public static AssemblyReferenceTraversalKey ForReference(
+            AssemblyReferenceIdentity reference,
+            string bindingScope) =>
+            new(null, reference, bindingScope);
+    }
+
+    private sealed class AssemblyReferenceTraversalKeyComparer
+        : IEqualityComparer<AssemblyReferenceTraversalKey>
+    {
+        private static readonly StringComparer PathComparer =
+            ReferenceTreePathComparer(OperatingSystem.IsWindows());
+
+        public static AssemblyReferenceTraversalKeyComparer Instance
         {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanClassifiedMethods(session, path, logger);
+            get;
+        } = new();
+
+        public bool Equals(
+            AssemblyReferenceTraversalKey x,
+            AssemblyReferenceTraversalKey y)
+        {
+            if (x.ResolvedPath is not null
+                || y.ResolvedPath is not null)
+            {
+                return x.ResolvedPath is not null
+                    && y.ResolvedPath is not null
+                    && PathComparer.Equals(
+                        x.ResolvedPath,
+                        y.ResolvedPath);
+            }
+
+            return x.Reference is { } xReference
+                && y.Reference is { } yReference
+                && PathComparer.Equals(
+                    x.BindingScope,
+                    y.BindingScope)
+                && StringComparer.Ordinal.Equals(
+                    xReference.Name,
+                    yReference.Name)
+                && EqualityComparer<Version?>.Default.Equals(
+                    xReference.Version,
+                    yReference.Version)
+                && StringComparer.OrdinalIgnoreCase.Equals(
+                    xReference.Culture,
+                    yReference.Culture)
+                && StringComparer.OrdinalIgnoreCase.Equals(
+                    xReference.PublicKeyToken,
+                    yReference.PublicKeyToken);
         }
-        catch (Exception ex)
+
+        public int GetHashCode(AssemblyReferenceTraversalKey value)
         {
-            logger.LogWarning($"Error scanning classified methods in {path}: {ex.Message}");
-            return ClassifiedMethodScan.FromInspectionOnly(
-                FailedInspection<ClassifiedMethodObservation>(
-                    path, MetadataFindings.ClassifiedMethodDescriptor, ex));
+            var hash = new HashCode();
+            if (value.ResolvedPath is not null)
+            {
+                hash.Add(value.ResolvedPath, PathComparer);
+            }
+            else if (value.Reference is { } reference)
+            {
+                hash.Add(value.BindingScope, PathComparer);
+                hash.Add(
+                    reference.Name,
+                    StringComparer.Ordinal);
+                hash.Add(reference.Version);
+                hash.Add(
+                    reference.Culture,
+                    StringComparer.OrdinalIgnoreCase);
+                hash.Add(
+                    reference.PublicKeyToken,
+                    StringComparer.OrdinalIgnoreCase);
+            }
+            return hash.ToHashCode();
         }
     }
 
-    internal static ClassifiedMethodScan ScanClassifiedMethods(AssemblyInspectionSession session, string path, VerboseLogger logger)
-    {
-        try
+    private static IdentifierConfusionAuditFailureKind
+        ClassifyIdentifierConfusionBindingFailure(
+            AssemblyBindingFailure failure) =>
+        failure.CandidateFailureKind switch
         {
-            return ProjectClassifiedMethods(
-                session.ClassifiedMethods(),
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
+            CandidateOpenFailureKind.InvalidImage =>
+                IdentifierConfusionAuditFailureKind.InvalidAssemblyMetadata,
+            CandidateOpenFailureKind.Unreadable =>
+                IdentifierConfusionAuditFailureKind.AssemblyUnreadable,
+            CandidateOpenFailureKind.ResourceBudget =>
+                IdentifierConfusionAuditFailureKind.InspectionFailed,
+            _ => IdentifierConfusionAuditFailureKind.InspectionFailed,
+        };
+
+    private static IdentifierConfusionAuditFailureKind
+        ClassifyIdentifierConfusionReferenceFailure(Exception exception) =>
+        exception switch
         {
-            logger.LogWarning($"Error scanning classified methods in {path}: {ex.Message}");
-            return ClassifiedMethodScan.FromInspectionOnly(
-                FailedInspection<ClassifiedMethodObservation>(
-                    path, MetadataFindings.ClassifiedMethodDescriptor, ex));
-        }
-    }
+            BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException =>
+                IdentifierConfusionAuditFailureKind.InvalidAssemblyMetadata,
+            IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or ObjectDisposedException =>
+                IdentifierConfusionAuditFailureKind.AssemblyUnreadable,
+            _ => IdentifierConfusionAuditFailureKind.InspectionFailed,
+        };
 
-    static ClassifiedMethodScan ProjectClassifiedMethods(
-        List<ClassifiedMethodInfo> classified,
-        FindingSubject subject)
+    internal sealed class IdentifierConfusionReferenceTraversalException
+        : InvalidOperationException
     {
-        var inspection = MetadataFindings.InspectClassifiedMethods(classified, subject);
+        public IdentifierConfusionReferenceTraversalException(
+            IdentifierConfusionAuditFailureKind failureKind,
+            Exception? innerException = null)
+            : base(
+                "Identifier audit could not inspect assembly references: "
+                + IdentifierConfusionAudit.DescribeFailure(failureKind)
+                + ".",
+                innerException)
+        {
+            FailureKind = failureKind;
+        }
 
-        if (classified.Count == 0) return ClassifiedMethodScan.FromInspectionOnly(inspection);
-
-        var unsafe_ = classified
-            .Where(m => m.Classification == MethodClassification.Unsafe)
-            .Select(m => new ClassifiedMethodSummary
-            {
-                MethodName = m.MethodName,
-                DeclaringType = m.DeclaringType,
-                Signature = m.Signature
-            })
-            .OrderBy(m => m.DeclaringType)
-            .ThenBy(m => m.MethodName)
-            .ToList();
-
-        var pinvoke = classified
-            .Where(m => m.Classification == MethodClassification.PInvoke)
-            .Select(m => new ClassifiedMethodSummary
-            {
-                MethodName = m.MethodName,
-                DeclaringType = m.DeclaringType,
-                Signature = m.Signature,
-                ModuleName = m.ModuleName
-            })
-            .OrderBy(m => m.DeclaringType)
-            .ThenBy(m => m.MethodName)
-            .ToList();
-
-        var async = classified
-            .Where(m => m.Classification is MethodClassification.RuntimeAsync
-                                         or MethodClassification.StateMachineAsync)
-            .Select(m => new AsyncMethodSummary
-            {
-                MethodName = m.MethodName,
-                DeclaringType = m.DeclaringType,
-                Signature = m.Signature,
-                Kind = m.Classification == MethodClassification.RuntimeAsync
-                    ? AsyncMethodSummary.RuntimeKind
-                    : AsyncMethodSummary.StateMachineKind
-            })
-            // Runtime async first (sorts before "State machine"), then by type/name.
-            .OrderBy(m => m.Kind, StringComparer.Ordinal)
-            .ThenBy(m => m.DeclaringType)
-            .ThenBy(m => m.MethodName)
-            .ToList();
-
-        return new ClassifiedMethodScan(
-            inspection,
-            unsafe_.Count > 0 ? unsafe_ : null,
-            pinvoke.Count > 0 ? pinvoke : null,
-            async.Count > 0 ? async : null);
+        public IdentifierConfusionAuditFailureKind FailureKind { get; }
     }
 
     internal static List<UnsafeMemberSummary>? ScanUnsafeMembers(Func<Analysis.LibraryBodyIndex> openIndex, string path, VerboseLogger logger)
@@ -997,6 +1372,41 @@ internal static class LibraryMetadataService
     internal static bool IsGeneratedMethod(Analysis.MethodIdentity method, IReadOnlySet<string> generatedFrameworkTypes)
         => IsGeneratedMethod(method)
            || generatedFrameworkTypes.Contains(method.DeclaringType.ToQualifiedDisplayString());
+
+    internal static bool IncludePerformanceOpportunity(
+        Analysis.OptimizationOpportunity opportunity,
+        IReadOnlySet<string> generatedFrameworkTypes)
+        => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)
+            || opportunity.Shape == "generic-parameter-object-box"
+                && !IsInGeneratedFrameworkType(
+                    opportunity,
+                    generatedFrameworkTypes)
+                && IsSourceFunctionName(opportunity.Method.Name);
+
+    static bool IsInGeneratedFrameworkType(
+        Analysis.OptimizationOpportunity opportunity,
+        IReadOnlySet<string> generatedFrameworkTypes)
+    {
+        if (opportunity.SourceOwner is { } sourceOwner
+            && generatedFrameworkTypes.Contains(
+                sourceOwner.DeclaringType.ToQualifiedDisplayString()))
+        {
+            return true;
+        }
+
+        string name =
+            opportunity.Method.DeclaringType.ToQualifiedDisplayString();
+        if (generatedFrameworkTypes.Contains(name))
+            return true;
+
+        int generatedNested = name.IndexOf(".<>", StringComparison.Ordinal);
+        return generatedNested >= 0
+            && generatedFrameworkTypes.Contains(name[..generatedNested]);
+    }
+
+    static bool IsSourceFunctionName(string methodName)
+        => methodName.Contains(">g__", StringComparison.Ordinal)
+            || methodName.Contains(">b__", StringComparison.Ordinal);
 
     private static bool IsSystemTextJsonContextGeneratedMethod(Analysis.MethodIdentity method)
         => method.Name is "TryGetTypeInfoForRuntimeCustomConverter"
@@ -1123,7 +1533,9 @@ internal static class LibraryMetadataService
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             var rows = FilterAndOrderTriageOpportunities(
                     TriageOpportunities(index, options)
-                        .Where(opportunity => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)),
+                        .Where(opportunity => IncludePerformanceOpportunity(
+                            opportunity,
+                            generatedFrameworkTypes)),
                     options)
                 .Select(opportunity => new OptimizationOpportunitySummary
                 {
@@ -1137,6 +1549,7 @@ internal static class LibraryMetadataService
                     Token = FormatToken(opportunity.OperandToken),
                     Evidence = opportunity.Evidence,
                     Fix = opportunity.SafeFixDirection,
+                    Priority = TriagePriority(opportunity),
                     Confidence = opportunity.Confidence,
                     Loop = IteratesInLoop(opportunity) ? "loop" : "",
                     CallerLoop = FormatCallerLoop(opportunity.CallerLoop),
@@ -1291,20 +1704,58 @@ internal static class LibraryMetadataService
             _ => throw new ArgumentOutOfRangeException(nameof(confidence)),
         };
 
-    // Performance Triage ordering: surface pay-dirt first. In-loop (repeated, hot)
-    // allocations lead, then by confidence, then by call-graph leverage (root reach),
-    // then a stable structural tie-break. This is distinct from Top Leverage, which ranks
-    // purely by reach. Extracted so the ranking model is guarded by a labeled, non-vacuous
-    // test (analysis quality ladder #1623 rung 5), not only by self-consistent monotonicity.
+    // Performance Triage ordering separates static actionability from evidence confidence.
+    // Algorithmic amplification, avoidable cache-lookup factory allocations, and actionable
+    // high allocation weight lead. Escape-unknown small arrays and other generic repeated costs
+    // are medium priority; ordinary one-shot candidates are low. Confidence then ranks the
+    // certainty of the evidence/rewrite within that tier, followed by weight and call-graph reach.
     internal static IEnumerable<Analysis.OptimizationOpportunity> OrderByTriagePriority(IEnumerable<Analysis.OptimizationOpportunity> opportunities)
         => opportunities
-            .OrderByDescending(IteratesInLoop)
+            .OrderByDescending(TriagePriorityRank)
             .ThenByDescending(opportunity => ConfidenceRank(opportunity.Confidence))
+            .ThenByDescending(opportunity => WeightSortRank(opportunity.Weight))
             .ThenByDescending(opportunity => opportunity.RootReach)
             .ThenBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
             .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
             .ThenBy(opportunity => opportunity.ILOffset ?? -1)
             .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal);
+
+    internal static string TriagePriority(Analysis.OptimizationOpportunity opportunity)
+        => TriagePriorityRank(opportunity) switch
+        {
+            2 => "high",
+            1 => "medium",
+            _ => "low",
+        };
+
+    static int TriagePriorityRank(Analysis.OptimizationOpportunity opportunity)
+    {
+        if (opportunity.ColdPath)
+            return 0;
+
+        if (opportunity.Shape is
+                "allocation-hotspot"
+                or "cache-lookup-factory-delegate"
+                or "linq-scan-in-loop"
+                or "materialize-in-loop"
+                or "scan-method-in-loop-call"
+                or "string-build-in-loop"
+            || (opportunity.Weight == "high"
+                && opportunity.Shape != "small-array"))
+        {
+            return 2;
+        }
+
+        if (opportunity.Shape == "generic-parameter-object-box")
+            return IteratesInLoop(opportunity)
+                    ? 2
+                    : 1;
+
+        return IteratesInLoop(opportunity)
+            || opportunity.Weight == "medium"
+                ? 1
+                : 0;
+    }
 
     // Whether an allocation opportunity actually iterates as a hot loop, per the
     // semantic per-invocation multiplicity (#2127). A structural in-loop offset that
@@ -1422,6 +1873,15 @@ internal static class LibraryMetadataService
         if (PerformanceTriageOptions.IsNumericField(predicate.Field))
             return false;
 
+        if (predicate.Field == "Priority")
+        {
+            int expected = ConfidenceRank(predicate.Value);
+            if (expected == 0 && !predicate.Value.Equals("low", StringComparison.OrdinalIgnoreCase))
+                return false;
+            int compare = TriagePriorityRank(opportunity).CompareTo(expected);
+            return MatchCompare(compare, predicate.Operator);
+        }
+
         if (predicate.Field == "Confidence")
         {
             int expected = ConfidenceRank(predicate.Value);
@@ -1499,6 +1959,8 @@ internal static class LibraryMetadataService
         {
             return leftNumber.CompareTo(rightNumber);
         }
+        if (field == "Priority")
+            return TriagePriorityRank(left).CompareTo(TriagePriorityRank(right));
         if (field == "Confidence")
             return ConfidenceRank(left.Confidence).CompareTo(ConfidenceRank(right.Confidence));
         if (field == "Weight")
@@ -1525,6 +1987,7 @@ internal static class LibraryMetadataService
             "Token" => FormatToken(opportunity.OperandToken),
             "Evidence" => opportunity.Evidence,
             "Fix" => opportunity.SafeFixDirection,
+            "Priority" => TriagePriority(opportunity),
             "Confidence" => opportunity.Confidence,
             "Loop" => IteratesInLoop(opportunity) ? "loop" : "",
             "CallerLoop" => FormatCallerLoop(opportunity.CallerLoop),
@@ -1672,6 +2135,13 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                ClassifiedMethodsQuery.Definition,
+                out ClassifiedMethodsResult? classifiedMethods))
+        {
+            ApplyClassifiedMethodsResult(path, inspection, logger, classifiedMethods);
+        }
+
+        if (results.TryGet(
                 ExtensionMethodsQuery.Definition,
                 out ExtensionMethodsResult? extensionMethods))
         {
@@ -1814,6 +2284,7 @@ internal static class LibraryMetadataService
         {
             case AssemblyReferencesResult.Available available:
                 inspection.AssemblyReferenceIdentities = available.Identities;
+                inspection.AssemblyReferenceFailureKind = null;
                 if (inspection.AssemblyInfo is not null)
                 {
                     inspection.AssemblyInfo.References = available.References.IsEmpty
@@ -1829,6 +2300,9 @@ internal static class LibraryMetadataService
             case AssemblyReferencesResult.Failed failed:
                 logger.LogWarning(
                     $"Error reading assembly references of {path}: {failed.Error.Message}");
+                inspection.AssemblyReferenceFailureKind =
+                    ClassifyIdentifierConfusionReferenceFailure(
+                        failed.Error);
                 inspection.AssemblyReferenceInspection =
                     FailedInspection<AssemblyReference>(
                         path,
@@ -1872,6 +2346,89 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown extension-method result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyClassifiedMethodsResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        ClassifiedMethodsResult result)
+    {
+        switch (result)
+        {
+            case ClassifiedMethodsResult.Available available:
+                inspection.ClassifiedMethodInspection =
+                    MetadataFindings.InspectClassifiedMethods(
+                        available.Methods,
+                        FindingSubjectFor(path));
+
+                var unsafeMethods = available.Methods
+                    .Where(m => m.Classification == MethodClassification.Unsafe)
+                    .Select(m => new ClassifiedMethodSummary
+                    {
+                        MethodName = m.MethodName,
+                        DeclaringType = m.DeclaringType,
+                        Signature = m.Signature
+                    })
+                    .OrderBy(m => m.DeclaringType)
+                    .ThenBy(m => m.MethodName)
+                    .ToList();
+
+                var pinvokeMethods = available.Methods
+                    .Where(m => m.Classification == MethodClassification.PInvoke)
+                    .Select(m => new ClassifiedMethodSummary
+                    {
+                        MethodName = m.MethodName,
+                        DeclaringType = m.DeclaringType,
+                        Signature = m.Signature,
+                        ModuleName = m.ModuleName
+                    })
+                    .OrderBy(m => m.DeclaringType)
+                    .ThenBy(m => m.MethodName)
+                    .ToList();
+
+                var asyncMethods = available.Methods
+                    .Where(m => m.Classification is MethodClassification.RuntimeAsync
+                                                 or MethodClassification.StateMachineAsync)
+                    .Select(m => new AsyncMethodSummary
+                    {
+                        MethodName = m.MethodName,
+                        DeclaringType = m.DeclaringType,
+                        Signature = m.Signature,
+                        Kind = m.Classification == MethodClassification.RuntimeAsync
+                            ? AsyncMethodSummary.RuntimeKind
+                            : AsyncMethodSummary.StateMachineKind
+                    })
+                    .OrderBy(m => m.Kind, StringComparer.Ordinal)
+                    .ThenBy(m => m.DeclaringType)
+                    .ThenBy(m => m.MethodName)
+                    .ToList();
+
+                inspection.UnsafeMethods =
+                    unsafeMethods.Count > 0 ? unsafeMethods : null;
+                inspection.PInvokeMethods =
+                    pinvokeMethods.Count > 0 ? pinvokeMethods : null;
+                inspection.AsyncMethods =
+                    asyncMethods.Count > 0 ? asyncMethods : null;
+                break;
+
+            case ClassifiedMethodsResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning classified methods in {path}: {failed.Error.Message}");
+                inspection.ClassifiedMethodInspection =
+                    FailedInspection<ClassifiedMethodObservation>(
+                        path,
+                        MetadataFindings.ClassifiedMethodDescriptor,
+                        failed.Error);
+                inspection.UnsafeMethods = null;
+                inspection.PInvokeMethods = null;
+                inspection.AsyncMethods = null;
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown classified-methods result '{result.GetType().Name}'.");
         }
     }
 

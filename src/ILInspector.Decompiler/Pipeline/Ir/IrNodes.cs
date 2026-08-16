@@ -111,6 +111,14 @@ public sealed record MethodRef(
     public ParameterRefKindFacts ParameterRefKindsFacts { get; init; } = ParameterRefKindFacts.Unknown;
 
     /// <summary>
+    /// True when at least one parameter declaration is <c>ref readonly</c>.
+    /// Its call-site behavior is represented by <see cref="ArgumentRefKind.In"/>,
+    /// but declaration-producing raises must decline until their declaration
+    /// model can preserve the distinct keyword.
+    /// </summary>
+    public bool HasRefReadOnlyParameters { get; init; }
+
+    /// <summary>
     /// Per-parameter C# defaults (<c>[Optional]</c> + <c>Constant</c>), aligned
     /// 1:1 with <see cref="ParameterTypes"/>. Empty means the defaults were not
     /// resolved (the pipeline populates this only for same-assembly
@@ -512,7 +520,8 @@ public sealed class IrFunction : IrNode
         LoadLocalAddress address => address.Index == index,
         NullCoalescingAssignment nullCoalescing => nullCoalescing.LocalIndex == index,
         ForeachStatement foreachStatement => foreachStatement.LocalIndex == index,
-        UsingStatement usingStatement => usingStatement.LocalIndex == index,
+        UsingStatement usingStatement =>
+            usingStatement.DeclaresResourceVariable && usingStatement.LocalIndex == index,
         Fixed fixedStatement => !fixedStatement.LocalIsStackSlot && fixedStatement.LocalIndex == index,
         IsPattern isPattern => isPattern.LocalIndex == index,
         RecursivePropertyDeclarationPattern recursiveProperty => recursiveProperty.LocalIndex == index,
@@ -1345,8 +1354,15 @@ public sealed class Fixed : IrNode
 /// A raised <c>using</c> statement. Produced by <see cref="UsingStatementPass"/>
 /// from csc's reference-type disposal lowering: a resource local initialized
 /// immediately before a try/finally whose finally null-checks the resource and
-/// calls <c>IDisposable.Dispose</c>. <see cref="LocalIndex"/> is the resource
-/// slot declared by the using header.
+/// calls <c>IDisposable.Dispose</c>. <see cref="LocalIndex"/> identifies the
+/// consumed resource slot.
+/// <para>
+/// <see cref="DeclaresResourceVariable"/> is <see langword="false"/> when the
+/// resource local is disposed-only and carries no recovered source name. The
+/// idiomatic C# for that shape omits the local entirely — <c>using (expr)</c>
+/// rather than <c>using (T V_n = expr)</c> — while preserving any conversion
+/// the declaration applied (#3346).
+/// </para>
 /// </summary>
 public sealed class UsingStatement : IrNode
 {
@@ -1356,12 +1372,14 @@ public sealed class UsingStatement : IrNode
         IrExpression resource,
         BlockContainer body,
         bool isAwait = false,
-        ImmutableArray<MethodRef> consumedMemberRefs = default)
+        ImmutableArray<MethodRef> consumedMemberRefs = default,
+        bool declaresResourceVariable = true)
     {
         LocalIndex = localIndex;
         ResourceType = resourceType;
         IsAwait = isAwait;
         ConsumedMemberRefs = consumedMemberRefs.IsDefault ? [] : consumedMemberRefs;
+        DeclaresResourceVariable = declaresResourceVariable;
         AddChild(resource);
         AddChild(body);
     }
@@ -1370,6 +1388,7 @@ public sealed class UsingStatement : IrNode
     public TypeRef ResourceType { get; }
     public bool IsAwait { get; }
     public ImmutableArray<MethodRef> ConsumedMemberRefs { get; }
+    public bool DeclaresResourceVariable { get; }
     public IrExpression Resource => (IrExpression)Children[0];
     public BlockContainer Body => (BlockContainer)Children[1];
 
@@ -3003,6 +3022,11 @@ public sealed class Lambda : IrExpression
 
     public TypeRef DelegateType { get; }
     public ImmutableArray<Parameter> Parameters { get; }
+    /// <summary>
+    /// Ref-kind evidence for explicitly typed lambda parameters. Empty when no
+    /// parameter is by-ref. <c>LambdaRaisingPassTests</c> gates preservation.
+    /// </summary>
+    public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; init; } = [];
     public ImmutableArray<TypeRef> Locals { get; }
     public ImmutableArray<string?> LocalNames { get; }
     public bool UsesUpdatedMemorySafetyRules { get; }
@@ -3080,10 +3104,36 @@ public sealed class LocalFunctionStatement : IrNode
         bool usesUpdatedMemorySafetyRules,
         bool skipLocalsInit,
         BlockContainer body)
+        : this(
+            name,
+            returnType,
+            parameters,
+            [],
+            isStatic,
+            locals,
+            localNames,
+            usesUpdatedMemorySafetyRules,
+            skipLocalsInit,
+            body)
+    {
+    }
+
+    public LocalFunctionStatement(
+        string name,
+        TypeRef returnType,
+        ImmutableArray<Parameter> parameters,
+        ImmutableArray<ArgumentRefKind> parameterRefKinds,
+        bool isStatic,
+        ImmutableArray<TypeRef> locals,
+        ImmutableArray<string?> localNames,
+        bool usesUpdatedMemorySafetyRules,
+        bool skipLocalsInit,
+        BlockContainer body)
     {
         Name = name;
         ReturnType = returnType;
         Parameters = parameters;
+        ParameterRefKinds = parameterRefKinds;
         IsStatic = isStatic;
         Locals = locals;
         LocalNames = localNames;
@@ -3095,6 +3145,7 @@ public sealed class LocalFunctionStatement : IrNode
     public string Name { get; }
     public TypeRef ReturnType { get; }
     public ImmutableArray<Parameter> Parameters { get; }
+    public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; }
     public bool IsStatic { get; }
     public ImmutableArray<TypeRef> Locals { get; }
     public ImmutableArray<string?> LocalNames { get; }
@@ -3125,18 +3176,32 @@ public sealed class LocalFunctionStatement : IrNode
 public sealed class LocalFunctionInvocation : IrExpression
 {
     public LocalFunctionInvocation(string name, TypeRef returnType, IEnumerable<IrExpression> arguments)
+        : this(name, returnType, arguments, [], [])
+    {
+    }
+
+    public LocalFunctionInvocation(
+        string name,
+        TypeRef returnType,
+        IEnumerable<IrExpression> arguments,
+        ImmutableArray<TypeRef> parameterTypes,
+        ImmutableArray<ArgumentRefKind> parameterRefKinds)
     {
         Name = name;
         ReturnType = returnType;
+        ParameterTypes = parameterTypes;
+        ParameterRefKinds = parameterRefKinds;
         foreach (var argument in arguments)
             AddChild(argument);
     }
 
     public string Name { get; }
     public TypeRef ReturnType { get; }
+    public ImmutableArray<TypeRef> ParameterTypes { get; }
+    public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; }
     public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => ReturnType;
-    public override IEnumerable<TypeRef> DirectTypes => [ReturnType];
+    public override IEnumerable<TypeRef> DirectTypes => ParameterTypes.Append(ReturnType);
 
     public override string Describe() => $"LocalFunctionInvocation {Name}";
 }

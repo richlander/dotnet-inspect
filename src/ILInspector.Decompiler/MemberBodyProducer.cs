@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -5,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using CSharpText;
 using ILInspector.CSharp;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Text;
@@ -1133,10 +1135,17 @@ public static class MemberBodyProducer
                         foreach (var attribute in AttributeReader.RenderEventAttributes(
                             reader, typeHandle, member.Name, bodyNamespaces))
                             sb.AppendLf($"    [{attribute}]");
-                    string declaration = (attributeMode == MemberRenderAttributeMode.All
-                        ? TerminatedDeclarationFormatter
-                        : ShellTerminatedDeclarationFormatter).FormatMember(type, member);
-                    sb.AppendLf($"    {declaration}");
+                    ComposeEvent(
+                        sb,
+                        pipelineSource,
+                        reader,
+                        typeHandle,
+                        type,
+                        member,
+                        bodyNamespaces,
+                        printerOptions,
+                        attributeMode,
+                        failOnDiagnostic: only is not null);
                     break;
                 }
             }
@@ -1391,12 +1400,281 @@ public static class MemberBodyProducer
     static string ContainedIdentifier(string name) => Pipeline.CSharpNaming.ContainedIdentifier(name);
 
     /// <summary>An accessor that just passes through the auto-property backing field — `return this.Name;` or `this.Name = value;`.</summary>
-    static bool IsTrivialAutoAccessor(string keyword, string? body, string name)
+    static bool IsTrivialAutoAccessor(string keyword, string? body, string name, bool isStatic)
     {
         string escapedName = ContainedIdentifier(name);
+        string target = $"this.{escapedName}";
+        if (isStatic)
+        {
+            string? text = body?.Trim();
+            string? expression = keyword == "get"
+                && text?.StartsWith("return ", StringComparison.Ordinal) == true
+                && text.EndsWith(';')
+                    ? text[7..^1]
+                    : keyword != "get"
+                        && text?.EndsWith(" = value;", StringComparison.Ordinal) == true
+                            ? text[..^9]
+                            : null;
+            return expression == escapedName
+                || expression?.EndsWith($".{escapedName}", StringComparison.Ordinal) == true;
+        }
         return keyword == "get"
-            ? body?.Trim() == $"return this.{escapedName};"
-            : body?.Trim() == $"this.{escapedName} = value;";
+            ? body?.Trim() == $"return {target};"
+            : body?.Trim() == $"{target} = value;";
+    }
+
+    static bool IsCompilerGeneratedAutoProperty(
+        Pipeline.MetadataSource source,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        ApiMember member,
+        MethodDefinitionHandle? getterHandle,
+        MethodDefinitionHandle? setterHandle)
+    {
+        if (getterHandle is null && setterHandle is null)
+            return false;
+
+        foreach (var handle in new[] { getterHandle, setterHandle })
+        {
+            if (handle is not { } accessor)
+                continue;
+            var method = reader.GetMethodDefinition(accessor);
+            if (((method.Attributes & MethodAttributes.Static) != 0) != member.IsStatic
+                || !AttributeReader.HasAttribute(
+                    reader,
+                    method.GetCustomAttributes(),
+                    KnownAttributeNames.CompilerGeneratedAttribute))
+            {
+                return false;
+            }
+        }
+
+        var type = reader.GetTypeDefinition(typeHandle);
+        var genericContext = GenericContext.ForType(reader, type);
+        PropertyDefinitionHandle propertyHandle = default;
+        foreach (var candidateHandle in type.GetProperties())
+        {
+            var candidate = reader.GetPropertyDefinition(candidateHandle);
+            if (reader.GetString(candidate.Name) != member.Name)
+                continue;
+            var candidateAccessors = candidate.GetAccessors();
+            if (getterHandle is { } getter && candidateAccessors.Getter != getter
+                || setterHandle is { } setter && candidateAccessors.Setter != setter)
+            {
+                continue;
+            }
+            if (!propertyHandle.IsNil)
+                return false;
+            propertyHandle = candidateHandle;
+        }
+        if (propertyHandle.IsNil)
+            return false;
+
+        MethodSignature<string> propertySignature;
+        try
+        {
+            propertySignature = GuardedSignatureText.PropertyText(
+                reader,
+                reader.GetPropertyDefinition(propertyHandle),
+                genericContext);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return false;
+        }
+
+        FieldDefinitionHandle backingFieldHandle = default;
+        string backingFieldName = $"<{member.Name}>k__BackingField";
+        foreach (var fieldHandle in type.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (reader.GetString(field.Name) != backingFieldName)
+                continue;
+
+            string fieldType;
+            try
+            {
+                fieldType = GuardedSignatureText.FieldText(reader, field, genericContext);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                continue;
+            }
+
+            if ((field.Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.Private
+                && ((field.Attributes & FieldAttributes.Static) != 0) == member.IsStatic
+                && AttributeReader.HasAttribute(
+                    reader,
+                    field.GetCustomAttributes(),
+                    KnownAttributeNames.CompilerGeneratedAttribute)
+                && fieldType == propertySignature.ReturnType)
+            {
+                if (!backingFieldHandle.IsNil)
+                    return false;
+                backingFieldHandle = fieldHandle;
+            }
+        }
+        if (backingFieldHandle.IsNil)
+            return false;
+
+        return (getterHandle is null
+                || AccessorReferencesBackingField(
+                    source,
+                    typeHandle,
+                    getterHandle.Value,
+                    backingFieldHandle,
+                    member.IsStatic ? ILOpCode.Ldsfld : ILOpCode.Ldfld))
+            && (setterHandle is null
+                || AccessorReferencesBackingField(
+                    source,
+                    typeHandle,
+                    setterHandle.Value,
+                    backingFieldHandle,
+                    member.IsStatic ? ILOpCode.Stsfld : ILOpCode.Stfld));
+    }
+
+    static bool AccessorReferencesBackingField(
+        Pipeline.MetadataSource source,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle accessorHandle,
+        FieldDefinitionHandle backingFieldHandle,
+        ILOpCode expectedOpCode)
+    {
+        var method = source.Reader.GetMethodDefinition(accessorHandle);
+        if (method.RelativeVirtualAddress == 0)
+            return false;
+
+        var instructions = MethodInstructions.Decode(
+            source.Pe.GetMethodBody(method.RelativeVirtualAddress));
+        if (!instructions.IsComplete)
+            return false;
+
+        var fieldReferences = instructions.Instructions
+            .Where(instruction => instruction.Operand == OperandKind.InlineField)
+            .ToList();
+        return fieldReferences is [{ OpCode: var opCode, OperandValue: var operand }]
+            && opCode == expectedOpCode
+            && FieldOperandMatchesBackingField(
+                source.Reader,
+                typeHandle,
+                MetadataTokens.EntityHandle((int)operand),
+                backingFieldHandle);
+    }
+
+    static bool FieldOperandMatchesBackingField(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        EntityHandle operandHandle,
+        FieldDefinitionHandle backingFieldHandle)
+    {
+        if (operandHandle.Kind == HandleKind.FieldDefinition)
+            return operandHandle == backingFieldHandle;
+        if (operandHandle.Kind != HandleKind.MemberReference)
+            return false;
+
+        var typeParameters = ImmutableArray.CreateRange(
+            reader.GetTypeDefinition(typeHandle)
+                .GetGenericParameters()
+                .Select(handle => reader.GetString(reader.GetGenericParameter(handle).Name)));
+        var scope = new Pipeline.GenericScope(typeParameters, []);
+        var operand = Pipeline.IrImporter.ResolveField(reader, operandHandle, scope);
+        var backingField = Pipeline.IrImporter.ResolveField(reader, backingFieldHandle, scope);
+        var operandDeclaringType = operand.DeclaringType.Kind == Pipeline.TypeRefKind.GenericInstance
+            ? operand.DeclaringType.ElementType
+            : operand.DeclaringType;
+        return operand.Name == backingField.Name
+            && operand.Type.Equals(backingField.Type)
+            && operandDeclaringType?.Equals(backingField.DeclaringType) == true;
+    }
+
+    /// <summary>
+    /// Product-owned proof that an accessor belongs to a compiler auto-property
+    /// whose bodies are safe to replace with accessor semicolons. The compile-back
+    /// struct gate consumes this instead of reconstructing the proof; gated by
+    /// <c>StructFalseAutoProperty_RemainsOnLegacyFallback</c>.
+    /// </summary>
+    internal static bool IsCompilerGeneratedAutoPropertyAccessor(
+        Pipeline.MetadataSource source,
+        ApiMember member,
+        MethodDefinitionHandle accessorHandle)
+    {
+        try
+        {
+            var reader = source.Reader;
+            var typeHandle = reader.GetMethodDefinition(accessorHandle).GetDeclaringType();
+            var getterHandle = ResolveAccessorHandle(
+                reader,
+                typeHandle,
+                member.GetterToken,
+                $"get_{member.Name}");
+            var setterHandle = ResolveAccessorHandle(
+                reader,
+                typeHandle,
+                member.SetterToken,
+                $"set_{member.Name}");
+            if (accessorHandle != getterHandle && accessorHandle != setterHandle
+                || !IsCompilerGeneratedAutoProperty(
+                    source,
+                    reader,
+                    typeHandle,
+                    member,
+                    getterHandle,
+                    setterHandle))
+            {
+                return false;
+            }
+
+            var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+            if (getterHandle is { } getter)
+            {
+                string? body = DecompileAccessor(
+                    source,
+                    getter,
+                    "",
+                    "",
+                    bodyNamespaces,
+                    out _,
+                    out bool requiresAsync,
+                    out _,
+                    printerOptions: null,
+                    failOnDiagnostic: true);
+                if (requiresAsync
+                    || !IsTrivialAutoAccessor("get", body, member.Name, member.IsStatic))
+                {
+                    return false;
+                }
+            }
+
+            if (setterHandle is { } setter)
+            {
+                string keyword = member.SignatureModel?.Accessors.Any(
+                    accessor => accessor.Kind == "init") == true
+                        ? "init"
+                        : "set";
+                string? body = DecompileAccessor(
+                    source,
+                    setter,
+                    "",
+                    "",
+                    bodyNamespaces,
+                    out _,
+                    out bool requiresAsync,
+                    out _,
+                    printerOptions: null,
+                    failOnDiagnostic: true);
+                if (requiresAsync
+                    || !IsTrivialAutoAccessor(keyword, body, member.Name, member.IsStatic))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return false;
+        }
     }
 
     static void ComposeProperty(
@@ -1417,17 +1695,38 @@ public static class MemberBodyProducer
         var getterHandle = ResolveAccessorHandle(reader, typeHandle, member.GetterToken, $"get_{member.Name}");
         var setterHandle = ResolveAccessorHandle(reader, typeHandle, member.SetterToken, $"set_{member.Name}");
 
-        var accessors = new List<(string Keyword, string? Body, bool RequiresUnsafeContext, bool SingleReturnExpression)>();
+        var accessors = new List<(string Keyword, string Head, string? Body, bool RequiresUnsafeContext, bool RequiresAsyncContext, bool SingleReturnExpression)>();
         if (accessorList >= 0)
         {
             string list = signature[accessorList..];
             if (list.Contains("get;", StringComparison.Ordinal))
-                accessors.Add(("get", DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe, out var getSingleReturn, printerOptions, failOnDiagnostic), getRequiresUnsafe, getSingleReturn));
+                accessors.Add((
+                    "get",
+                    declarationFormatter.FormatAccessorHead(type, member, "get"),
+                    DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe, out var getRequiresAsync, out var getSingleReturn, printerOptions, failOnDiagnostic),
+                    getRequiresUnsafe,
+                    getRequiresAsync,
+                    getSingleReturn));
             if (list.Contains("set;", StringComparison.Ordinal))
-                accessors.Add(("set", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe, out var setSingleReturn, printerOptions, failOnDiagnostic), setRequiresUnsafe, setSingleReturn));
+                accessors.Add((
+                    "set",
+                    declarationFormatter.FormatAccessorHead(type, member, "set"),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe, out var setRequiresAsync, out var setSingleReturn, printerOptions, failOnDiagnostic),
+                    setRequiresUnsafe,
+                    setRequiresAsync,
+                    setSingleReturn));
             if (list.Contains("init;", StringComparison.Ordinal))
-                accessors.Add(("init", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe, out var initSingleReturn, printerOptions, failOnDiagnostic), initRequiresUnsafe, initSingleReturn));
+                accessors.Add((
+                    "init",
+                    declarationFormatter.FormatAccessorHead(type, member, "init"),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe, out var initRequiresAsync, out var initSingleReturn, printerOptions, failOnDiagnostic),
+                    initRequiresUnsafe,
+                    initRequiresAsync,
+                    initSingleReturn));
         }
+
+        if (accessors.Any(accessor => accessor.RequiresAsyncContext))
+            throw new InvalidOperationException("C# properties cannot carry an async accessor modifier.");
 
         if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext))
         {
@@ -1449,9 +1748,20 @@ public static class MemberBodyProducer
         // passthrough (the body printer de-mangled <Name>k__BackingField to
         // this.Name). Render `{ get; set; }` with no bodies — decompiling them
         // would recurse (a getter that returns the property itself).
-        if (accessors.All(a => IsTrivialAutoAccessor(a.Keyword, a.Body, member.Name)))
+        if (IsCompilerGeneratedAutoProperty(
+                pipelineSource,
+                reader,
+                typeHandle,
+                member,
+                getterHandle,
+                setterHandle)
+            && accessors.All(a => IsTrivialAutoAccessor(
+                a.Keyword,
+                a.Body,
+                member.Name,
+                member.IsStatic)))
         {
-            sb.AppendLf($"    {head} {{ {string.Join(" ", accessors.Select(a => $"{a.Keyword};"))} }}");
+            sb.AppendLf($"    {head} {{ {string.Join(" ", accessors.Select(a => $"{a.Head};"))} }}");
             return;
         }
 
@@ -1462,7 +1772,7 @@ public static class MemberBodyProducer
         // body is one multi-line 'return <expr>;' also folds to an expression
         // body (a raised switch return, issue #3088; a wrapped single expression,
         // issue #3084), gated on the printer's typed single-return signal.
-        if (accessors is [("get", { } loneGet, _, var loneGetSingleReturn)]
+        if (accessors is [("get", "get", { } loneGet, _, _, var loneGetSingleReturn)]
             && (loneGetSingleReturn || CSharpExpressionBody.FromSingleStatement(loneGet) is not null))
         {
             CSharpMemberLayout.Append(sb, head, loneGet, 4, WrapExpressionBodyArrow(printerOptions), loneGetSingleReturn, DisableSignatureWrapping(printerOptions));
@@ -1473,11 +1783,136 @@ public static class MemberBodyProducer
         sb.AppendLf("    {");
         for (int i = 0; i < accessors.Count; i++)
         {
-            var (keyword, body, _, singleReturn) = accessors[i];
+            var (_, accessorHead, body, _, _, singleReturn) = accessors[i];
             if (i > 0) sb.AppendLf();
-            CSharpMemberLayout.Append(sb, keyword, body, 8, WrapExpressionBodyArrow(printerOptions), singleReturn);
+            CSharpMemberLayout.Append(sb, accessorHead, body, 8, WrapExpressionBodyArrow(printerOptions), singleReturn);
         }
         sb.AppendLf("    }");
+    }
+
+    static void ComposeEvent(
+        StringBuilder sb, Pipeline.MetadataSource pipelineSource,
+        MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type, ApiMember member,
+        SortedSet<string> bodyNamespaces, Pipeline.PrinterOptions? printerOptions,
+        MemberRenderAttributeMode attributeMode, bool failOnDiagnostic)
+    {
+        var declarationFormatter = attributeMode == MemberRenderAttributeMode.All
+            ? DefaultDeclarationFormatter
+            : ShellDeclarationFormatter;
+        var terminatedDeclarationFormatter = attributeMode == MemberRenderAttributeMode.All
+            ? TerminatedDeclarationFormatter
+            : ShellTerminatedDeclarationFormatter;
+        var adderHandle = ResolveAccessorHandle(
+            reader,
+            typeHandle,
+            member.AdderToken,
+            $"add_{member.Name}");
+        var removerHandle = ResolveAccessorHandle(
+            reader,
+            typeHandle,
+            member.RemoverToken,
+            $"remove_{member.Name}");
+
+        if (member.IsAbstract
+            || adderHandle is not { } adder
+            || removerHandle is not { } remover
+            || reader.GetMethodDefinition(adder).RelativeVirtualAddress == 0
+            || reader.GetMethodDefinition(remover).RelativeVirtualAddress == 0
+            || HasMethodImplementationAccessor(reader, typeHandle, adder, remover)
+            || HasSameNamedEventField(reader, typeHandle, member))
+        {
+            sb.AppendLf($"    {terminatedDeclarationFormatter.FormatMember(type, member)}");
+            return;
+        }
+
+        string? adderBody = DecompileAccessor(
+            pipelineSource,
+            adder,
+            type.FullName,
+            $"add_{member.Name}",
+            bodyNamespaces,
+            out bool adderRequiresUnsafe,
+            out bool adderRequiresAsync,
+            out bool adderIsSingleExpression,
+            printerOptions,
+            failOnDiagnostic);
+        string? removerBody = DecompileAccessor(
+            pipelineSource,
+            remover,
+            type.FullName,
+            $"remove_{member.Name}",
+            bodyNamespaces,
+            out bool removerRequiresUnsafe,
+            out bool removerRequiresAsync,
+            out bool removerIsSingleExpression,
+            printerOptions,
+            failOnDiagnostic);
+
+        if (adderRequiresAsync || removerRequiresAsync)
+            throw new InvalidOperationException("C# events cannot carry an async accessor modifier.");
+        if (adderBody is null || removerBody is null)
+            throw new InvalidOperationException($"Event '{member.Name}' requires add and remove accessor bodies.");
+
+        var body = new CSharpEventBody(
+            CSharpAccessorBody.Block(adderBody),
+            CSharpAccessorBody.Block(removerBody))
+        {
+            RequiresUnsafeModifier = member.IsUnsafe
+                || adderRequiresUnsafe
+                || removerRequiresUnsafe
+        };
+        string declaration = declarationFormatter.FormatMemberWithBody(type, member, body);
+        sb.AppendLf($"    {declaration}");
+        sb.AppendLf("    {");
+        CSharpMemberLayout.Append(
+            sb,
+            declarationFormatter.FormatAccessorHead(type, member, "add"),
+            adderBody,
+            8,
+            WrapExpressionBodyArrow(printerOptions),
+            adderIsSingleExpression);
+        sb.AppendLf();
+        CSharpMemberLayout.Append(
+            sb,
+            declarationFormatter.FormatAccessorHead(type, member, "remove"),
+            removerBody,
+            8,
+            WrapExpressionBodyArrow(printerOptions),
+            removerIsSingleExpression);
+        sb.AppendLf("    }");
+    }
+
+    static bool HasMethodImplementationAccessor(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle adderHandle,
+        MethodDefinitionHandle removerHandle)
+    {
+        foreach (var implementationHandle in reader.GetTypeDefinition(typeHandle).GetMethodImplementations())
+        {
+            var body = reader.GetMethodImplementation(implementationHandle).MethodBody;
+            if (body.Kind == HandleKind.MethodDefinition
+                && ((MethodDefinitionHandle)body == adderHandle
+                    || (MethodDefinitionHandle)body == removerHandle))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool HasSameNamedEventField(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        ApiMember member)
+    {
+        var type = reader.GetTypeDefinition(typeHandle);
+        foreach (var fieldHandle in type.GetFields())
+        {
+            if (reader.GetString(reader.GetFieldDefinition(fieldHandle).Name) == member.Name)
+                return true;
+        }
+        return false;
     }
 
     static bool WrapExpressionBodyArrow(Pipeline.PrinterOptions? printerOptions)
@@ -1627,19 +2062,37 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? accessorHandle,
         string typeFullName, string accessorName,
         SortedSet<string> bodyNamespaces, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions,
+        out bool requiresAsyncContext, out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic)
+    {
         // Prefer the accessor's own handle (fixes indexer get_Item/set_Item
         // drift, where name+index:0 always selects the first indexer's
         // accessor). Fall back to the by-name path — accessors are non-public
         // special-name methods, counted across all visibilities — when no valid
         // handle is available.
-        => accessorHandle is { } handle
-            ? DecompileFunction(pipelineSource,
-                Pipeline.IrImporter.Import(pipelineSource, handle),
-                bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out _, printerOptions, failOnDiagnostic)
-            : DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
-            publicOnly: false, bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out _, printerOptions, failOnDiagnostic);
+        var function = accessorHandle is { } handle
+            ? Pipeline.IrImporter.Import(pipelineSource, handle)
+            : Pipeline.IrImporter.Import(
+                pipelineSource,
+                typeFullName,
+                accessorName,
+                overloadIndex: 0,
+                publicOnly: false);
+        var body = DecompileFunction(
+            pipelineSource,
+            function,
+            bodyNamespaces,
+            out _,
+            out requiresUnsafeContext,
+            out bodyIsSingleExpressionBody,
+            out _,
+            printerOptions,
+            failOnDiagnostic);
+        requiresAsyncContext = function is not null
+            && (function.RequiresAsyncBodyModifier
+                || function.IsRuntimeAsync == Pipeline.MetadataFactState.Yes);
+        return body;
+    }
 
     /// <summary>
     /// Imports one method to typed IR, runs the raising passes, and prints the
