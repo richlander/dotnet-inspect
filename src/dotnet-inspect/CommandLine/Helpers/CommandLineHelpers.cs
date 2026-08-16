@@ -107,8 +107,7 @@ public static class CommandLineHelpers
                 log: log,
                 sourceOptions: sourceOptions);
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException
-            or InvalidOperationException or TaskCanceledException)
+        catch (Exception ex) when (IsPrefixResolutionFailure(ex))
         {
             // The command cannot proceed honestly: it does not know which packages the prefix
             // named. Reported as a clean CLI error rather than an escaping stack trace, and never
@@ -131,6 +130,10 @@ public static class CommandLineHelpers
 
         return packageNames;
     }
+
+    internal static bool IsPrefixResolutionFailure(Exception error) =>
+        error is HttpRequestException or JsonException or InvalidOperationException
+            or TaskCanceledException or IOException or TimeoutException;
 
     /// <summary>
     /// Classifies a positional argument by file extension.

@@ -146,10 +146,15 @@ public readonly struct InertString : IEquatable<InertString>
     // Takes text already spelled by the encoder, so it asserts rather than establishes the
     // invariant. Internal because composition needs it: Join and the interpolation handler
     // build their result piecewise and would otherwise have to re-encode an encoded string.
-    internal InertString(string text, VisualForm forms, bool truncated = false)
+    internal InertString(
+        string text,
+        VisualForm forms,
+        TextConcern concerns,
+        bool truncated = false)
     {
         _text = text;
         Forms = forms;
+        Concerns = concerns;
         _truncated = truncated;
     }
 
@@ -179,7 +184,8 @@ public readonly struct InertString : IEquatable<InertString>
     /// <see cref="ToString"/> and <see cref="GetHashCode"/> about whether the zero value and
     /// <c>Encode("")</c> are the same value.
     /// </remarks>
-    public static InertString Empty { get; } = new(string.Empty, VisualForm.None);
+    public static InertString Empty { get; } =
+        new(string.Empty, VisualForm.None, TextConcern.None);
 
     /// <summary>
     /// Reconstructs an unbounded value from text previously returned by <see cref="ToString"/>.
@@ -197,8 +203,8 @@ public readonly struct InertString : IEquatable<InertString>
     public static InertString FromEncoded(TextPolicy policy, string encoded)
     {
         ArgumentNullException.ThrowIfNull(encoded);
-        VisualForm forms = VisualEncoder.ValidateEncoded(policy, encoded);
-        return new InertString(encoded, forms);
+        (VisualForm forms, TextConcern concerns) = VisualEncoder.ValidateEncoded(policy, encoded);
+        return new InertString(encoded, forms, concerns);
     }
 
     /// <summary>
@@ -208,8 +214,8 @@ public readonly struct InertString : IEquatable<InertString>
         TextPolicy policy,
         ReadOnlySpan<char> encoded)
     {
-        VisualForm forms = VisualEncoder.ValidateEncoded(policy, encoded);
-        return new InertString(encoded.ToString(), forms);
+        (VisualForm forms, TextConcern concerns) = VisualEncoder.ValidateEncoded(policy, encoded);
+        return new InertString(encoded.ToString(), forms, concerns);
     }
 
     /// <summary>The spellings <see cref="InertString"/> emitted while producing this value.</summary>
@@ -220,6 +226,16 @@ public readonly struct InertString : IEquatable<InertString>
     /// </remarks>
     public VisualForm Forms { get; }
 
+    /// <summary>The kinds of artifact-text concern that required visual containment.</summary>
+    /// <remarks>
+    /// Retained at construction and unioned through composition, so an audit can report why
+    /// containment occurred without decoding or retaining the untreated text. Literal
+    /// backslashes do not contribute a concern. The
+    /// <c>Concerns_SurviveCompositionRestorationAndBounding</c> and
+    /// <c>Concerns_RespectThePolicyThatProducedTheValue</c> tests gate this propagation.
+    /// </remarks>
+    public TextConcern Concerns { get; }
+
     /// <summary>
     /// Whether producing this value required containing text rather than merely disambiguating a
     /// literal backslash.
@@ -229,8 +245,7 @@ public readonly struct InertString : IEquatable<InertString>
     /// It reports what happened under the policy used to build this value; it is not a
     /// conformance check for a different policy. Use <see cref="EnsurePermitted"/> for that.
     /// </remarks>
-    public bool RequiredContainment =>
-        (Forms & ~VisualForm.Backslash) != VisualForm.None;
+    public bool RequiredContainment => Concerns != TextConcern.None;
 
     /// <summary>Whether raw rendering must run the visual encoding backwards.</summary>
     public bool NeedsRawDecoding => Forms != VisualForm.None;
@@ -364,7 +379,8 @@ public readonly struct InertString : IEquatable<InertString>
     private InertString Bound(int start, int end)
     {
         string text = Text;
-        (int from, int to, VisualForm forms) = VisualEncoder.WindowWithin(text, start, end);
+        (int from, int to, VisualForm forms, TextConcern concerns) =
+            VisualEncoder.WindowWithin(text, start, end);
 
         // An unbounded request keeps this value rather than rebuilding an identical one, so the
         // common case of a budget nobody is near costs nothing.
@@ -374,7 +390,7 @@ public readonly struct InertString : IEquatable<InertString>
         // Reaching here means the window is a proper subset, so this cut dropped something.
         // Or-ing with what the value already carried is why truncating an already-truncated
         // value cannot report the second cut as the only one.
-        return new InertString(text[from..to], forms, true);
+        return new InertString(text[from..to], forms, concerns, true);
     }
 
     /// <summary>
@@ -436,6 +452,7 @@ public readonly struct InertString : IEquatable<InertString>
         InertString encodedSeparator = VisualEncoder.Encode(policy, separator);
         StringBuilder builder = new();
         VisualForm forms = VisualForm.None;
+        TextConcern concerns = TextConcern.None;
         bool first = true;
 
         // A join whose parts were clipped is missing text, so the result cannot claim to be
@@ -450,16 +467,24 @@ public readonly struct InertString : IEquatable<InertString>
             // single-element join cannot report a form the output does not contain.
             if (!first)
             {
-                VisualEncoder.AppendForComposition(builder, encodedSeparator, ref forms);
+                VisualEncoder.AppendForComposition(
+                    builder,
+                    encodedSeparator,
+                    ref forms,
+                    ref concerns);
             }
 
             InertString conformed = value.EnsurePermitted(policy);
-            VisualEncoder.AppendForComposition(builder, conformed, ref forms);
+            VisualEncoder.AppendForComposition(builder, conformed, ref forms, ref concerns);
             truncated |= conformed.IsTruncated;
             first = false;
         }
 
-        return VisualEncoder.CompleteComposition(builder.ToString(), forms, truncated);
+        return VisualEncoder.CompleteComposition(
+            builder.ToString(),
+            forms,
+            concerns,
+            truncated);
     }
 
     /// <summary>Names the spellings this value contains, one line each.</summary>
@@ -603,7 +628,11 @@ public readonly struct InertString : IEquatable<InertString>
         // and re-spelling under a stricter policy makes the text longer, so a length compared
         // across the two can call a truncated value whole.
         return _truncated
-            ? new InertString(respelled.Text, respelled.Forms, truncated: true)
+            ? new InertString(
+                respelled.Text,
+                respelled.Forms,
+                respelled.Concerns,
+                truncated: true)
             : respelled;
     }
 
@@ -650,6 +679,7 @@ public ref struct InertStringHandler
     private readonly TextPolicy _policy;
     private readonly StringBuilder _builder;
     private VisualForm _forms;
+    private TextConcern _concerns;
     private bool _truncated;
 
     /// <summary>Called by the compiler for an interpolated string argument.</summary>
@@ -661,6 +691,7 @@ public ref struct InertStringHandler
         _policy = policy;
         _builder = new StringBuilder(literalLength + (formattedCount * 12));
         _forms = VisualForm.None;
+        _concerns = TextConcern.None;
     }
 
     /// <summary>Appends a literal part of the interpolated string.</summary>
@@ -733,7 +764,11 @@ public ref struct InertStringHandler
     public void AppendFormatted(InertString value)
     {
         InertString conformed = value.EnsurePermitted(_policy);
-        VisualEncoder.AppendForComposition(_builder, conformed, ref _forms);
+        VisualEncoder.AppendForComposition(
+            _builder,
+            conformed,
+            ref _forms,
+            ref _concerns);
 
         // Splicing a clipped value into a message leaves the message missing that text, so the
         // result carries the fact for the same reason Join does.
@@ -756,7 +791,11 @@ public ref struct InertStringHandler
     }
 
     internal InertString ToInertString() =>
-        VisualEncoder.CompleteComposition(_builder.ToString(), _forms, _truncated);
+        VisualEncoder.CompleteComposition(
+            _builder.ToString(),
+            _forms,
+            _concerns,
+            _truncated);
 
     private void Append(string? value)
     {
@@ -772,6 +811,10 @@ public ref struct InertStringHandler
             return;
 
         InertString encoded = VisualEncoder.Encode(_policy, value);
-        VisualEncoder.AppendForComposition(_builder, encoded, ref _forms);
+        VisualEncoder.AppendForComposition(
+            _builder,
+            encoded,
+            ref _forms,
+            ref _concerns);
     }
 }

@@ -104,7 +104,7 @@ public class FidelityGateTests
         // CharConditionalElementStore (#1784): the char ternary element store
         // spills to temps and recompiles to a different (valid) stream. Honest
         // over-render. Pre-existing slow-docket gap surfaced by running the gate
-        // locally — the lowered/sugared gates are Speed=Slow (Deep Inspect / publish only).
+        // locally — the lowered/sugared gates are Speed=Slow (Deep Inspect only).
         "CharConditionalElementStore",
         // PointerStoreUsesOriginalAddress (#2644): the raised source preserves
         // the original pointer address across the argument reassignment
@@ -252,6 +252,9 @@ public class FidelityGateTests
     /// </summary>
     static readonly string[] PinnedExact =
     {
+        // #3346 / #4113 review: the variable-less using resource keeps the
+        // explicit IDisposable conversion, so recompilation retains the box.
+        "BoxedDisposedOnlyUsingResource",
         // #3491: retired by the compiler-generated member correspondence. Every row
         // here differed only in a Roslyn state-machine ordinal — recompiling the
         // reconstructed fixture type renumbers `d__N`, and the constructor and field
@@ -505,6 +508,9 @@ public class FidelityGateTests
         // #4008: the terminal bare return is preserved as the switch join, so
         // recompilation restores csc's direct table-to-final-ret layout.
         "TerminalSwitchBreakToReturn",
+        // A loop switch whose source cases continue recompiles exactly after the
+        // post-switch tail moves into default and the other sections end in break.
+        "SwitchCaseContinueInLoop",
         "TwoLocalFunctionQuadrants",
     };
 

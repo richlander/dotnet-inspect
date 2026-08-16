@@ -338,7 +338,7 @@ public static class OutputFormatter
     /// rendered set - is what the map describes, so a requested section with no rows reports zero
     /// rather than disappearing, matching how a category renders.
     /// </remarks>
-    private static IReadOnlyList<string>? ResolveCountMapSections<TModel>(
+    internal static IReadOnlyList<string>? ResolveCountMapSections<TModel>(
         SectionPipeline<TModel> pipeline, HashSet<string>? includeSections, bool fixedOverview)
     {
         var requested = includeSections is { Count: > 0 }
@@ -358,7 +358,9 @@ public static class OutputFormatter
     {
         if (options.JsonOutput && !options.Count)
         {
-            return JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
+            return JsonSerializer.Serialize(
+                PackageInspectionJson.Create(result),
+                PackageInspectionJsonContext.Default.PackageInspectionJson);
         }
 
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
@@ -381,18 +383,6 @@ public static class OutputFormatter
             return CountOutput.RenderCountMapFromMarkdown(markdown, ordered);
 
         return CountOutput.CountMarkdownTableRows(markdown).ToString(CultureInfo.InvariantCulture);
-    }
-
-    public static void WritePackageResultsCount(
-        IReadOnlyList<InspectionResult> results,
-        InspectionOptions options,
-        SectionPipeline<InspectionResult> pipeline)
-    {
-        var renderOptions = options with { Count = false, JsonOutput = false };
-        CountOutput.WriteCount(
-            results.Sum(result => CountOutput.CountMarkdownTableRows(
-                FormatResult(result, renderOptions, pipeline))),
-            options.OutputPath);
     }
 
     /// <summary>
