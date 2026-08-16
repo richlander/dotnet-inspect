@@ -113,7 +113,11 @@ entry gate invalidates every later result, so run it first and report it.
    resolve to no runnable test because of test-case IDs, serialized `-run`
    selections, or explicit-test mode, and reports stale or malformed `-run`
    serializations directly. A misspelled targeted gate therefore fails instead
-   of reporting a successful zero-test or partial run.
+   of reporting a successful zero-test or partial run. Preflight discovery runs
+   in a short-lived child process so its serializer registration and disposable
+   theory data cannot alter the real runner process.
+   `ExplicitFilterGuardTests.TestHost_RejectsEveryUnmatchedExplicitFilter` is
+   the subprocess gate for both the rejection and isolation contracts.
 
 3. **IR invariant checks.** Every pass must leave a structurally valid tree.
    `IrPasses.Run` calls `function.CheckInvariant()` after each pass — armed by

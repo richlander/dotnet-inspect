@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Reflection;
+using System.Text;
 using Xunit.Runner.Common;
 using Xunit.Runner.InProc.SystemConsole;
 using Xunit.Sdk;
@@ -9,6 +11,15 @@ internal sealed record ExplicitFilter(string Option, string Query);
 
 internal static class ExplicitFilterGuard
 {
+    internal const string PreflightArgument =
+        "--internal-explicit-filter-preflight";
+
+    private const string ProtocolPrefix =
+        "__DOTNET_INSPECT_FILTER_PREFLIGHT__:";
+
+    private const string InfrastructureError =
+        "error: explicit xUnit filter preflight could not complete.";
+
     internal static IReadOnlyList<ExplicitFilter> FindIncludedFilters(IReadOnlyList<string> args)
     {
         var result = new List<ExplicitFilter>();
@@ -34,13 +45,99 @@ internal static class ExplicitFilterGuard
             return null;
         }
 
+        string assemblyPath = testAssembly.Location;
+        if (string.IsNullOrEmpty(assemblyPath))
+        {
+            return null;
+        }
+
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add(assemblyPath);
+        startInfo.ArgumentList.Add(PreflightArgument);
+        foreach (string arg in args)
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        try
+        {
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Failed to start filter preflight.");
+            Task<string> output = process.StandardOutput.ReadToEndAsync();
+            Task<string> error = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            await error;
+
+            if (process.ExitCode != 0)
+            {
+                return InfrastructureError;
+            }
+
+            PreflightResult? result = ParseProtocol(await output);
+            return result?.Outcome switch
+            {
+                PreflightOutcome.Pass or PreflightOutcome.Defer => null,
+                PreflightOutcome.Reject => result.Error,
+                _ => InfrastructureError,
+            };
+        }
+        catch (Exception)
+        {
+            return InfrastructureError;
+        }
+    }
+
+    internal static async ValueTask<int> RunPreflightAsync(
+        string[] args,
+        Assembly testAssembly)
+    {
+        PreflightResult result;
+        try
+        {
+            result = await ValidateInProcessAsync(args, testAssembly);
+        }
+        catch (Exception)
+        {
+            result = PreflightResult.Defer;
+        }
+
+        Console.Out.WriteLine(FormatProtocol(result));
+        return 0;
+    }
+
+    private static async ValueTask<PreflightResult> ValidateInProcessAsync(
+        string[] args,
+        Assembly testAssembly)
+    {
         var commandLine = new CommandLine(
             new ConsoleHelper(TextReader.Null, TextWriter.Null),
             testAssembly,
             args);
         if (commandLine.HelpRequested)
         {
-            return null;
+            return PreflightResult.Defer;
+        }
+
+        var registrationWarnings = new List<string>();
+        try
+        {
+            SerializationHelper.Instance.AddRegisteredSerializers(
+                testAssembly,
+                registrationWarnings);
+        }
+        catch (Exception)
+        {
+            return PreflightResult.Defer;
+        }
+
+        if (registrationWarnings.Count > 0)
+        {
+            return PreflightResult.Defer;
         }
 
         XunitProjectAssembly projectAssembly;
@@ -52,20 +149,20 @@ internal static class ExplicitFilterGuard
         {
             // The console runner repeats this parse and owns its diagnostic and
             // exit code. Do not replace either with a preflight failure.
-            return null;
+            return PreflightResult.Defer;
         }
 
         IReadOnlyList<ExplicitFilter> filters = FindIncludedFilters(
             projectAssembly.Configuration.Filters.ToXunit3Arguments().ToArray());
         if (filters.Count == 0)
         {
-            return null;
+            return PreflightResult.Defer;
         }
 
         if (projectAssembly.Project.Configuration.List is not null
             || projectAssembly.Project.Configuration.AssemblyInfoOrDefault)
         {
-            return null;
+            return PreflightResult.Defer;
         }
 
         projectAssembly.Configuration.PreEnumerateTheories ??= false;
@@ -82,7 +179,7 @@ internal static class ExplicitFilterGuard
             {
                 // As with parsing, the real runner owns discovery failures and will
                 // surface them through its normal reporter and exit code.
-                return null;
+                return PreflightResult.Defer;
             }
 
             string assemblyName = Path.GetFileNameWithoutExtension(projectAssembly.AssemblyFileName);
@@ -92,42 +189,27 @@ internal static class ExplicitFilterGuard
 
             if (unmatched.Length > 0)
             {
-                return "error: explicit xUnit filter matched no discovered tests:\n"
-                    + string.Join('\n', unmatched.Select(filter => $"  {filter.Option} \"{filter.Query}\""));
+                return PreflightResult.Reject(
+                    "error: explicit xUnit filter matched no discovered tests:\n"
+                    + string.Join(
+                        '\n',
+                        unmatched.Select(
+                            filter => $"  {filter.Option} \"{filter.Query}\"")));
             }
 
-            var serializationHelper = new PreflightSerializationHelper();
-            if (projectAssembly.TestCasesToRun.Count > 0)
-            {
-                var warnings = new List<string>();
-                try
-                {
-                    serializationHelper.AddRegisteredSerializers(testAssembly, warnings);
-                }
-                catch (Exception)
-                {
-                    return null;
-                }
-
-                if (warnings.Count > 0)
-                {
-                    return null;
-                }
-            }
-
-            DeserializedRunTests runSelection = DeserializeRunTestCases(
-                projectAssembly,
-                serializationHelper);
+            DeserializedRunTests runSelection = DeserializeRunTestCases(projectAssembly);
             try
             {
                 if (runSelection.InvalidCount > 0)
                 {
-                    return "error: one or more -run test-case serializations could not be deserialized.";
+                    return PreflightResult.Reject(
+                        "error: one or more -run test-case serializations could not be deserialized.");
                 }
 
                 if (!HasRunnableSelection(projectAssembly, testCases, runSelection.TestCases))
                 {
-                    return "error: the combined xUnit selectors matched no runnable tests.";
+                    return PreflightResult.Reject(
+                        "error: the combined xUnit selectors matched no runnable tests.");
                 }
             }
             finally
@@ -140,7 +222,7 @@ internal static class ExplicitFilterGuard
             await DisposeTestCasesAsync(testCases.Select(testCase => testCase.TestCase));
         }
 
-        return null;
+        return PreflightResult.Pass;
     }
 
     private static bool MightContainIncludedFilter(IReadOnlyList<string> args)
@@ -186,8 +268,7 @@ internal static class ExplicitFilterGuard
     }
 
     private static DeserializedRunTests DeserializeRunTestCases(
-        XunitProjectAssembly projectAssembly,
-        SerializationHelper serializationHelper)
+        XunitProjectAssembly projectAssembly)
     {
         var result = new List<ITestCase>();
         int invalidCount = 0;
@@ -195,7 +276,7 @@ internal static class ExplicitFilterGuard
         {
             try
             {
-                if (serializationHelper.Deserialize(serialization) is ITestCase testCase)
+                if (SerializationHelper.Instance.Deserialize(serialization) is ITestCase testCase)
                 {
                     result.Add(testCase);
                 }
@@ -267,9 +348,70 @@ internal static class ExplicitFilterGuard
         return matcher.Filter(assemblyName, testCase);
     }
 
+    private static string FormatProtocol(PreflightResult result)
+    {
+        string payload = result.Error is null
+            ? string.Empty
+            : Convert.ToBase64String(Encoding.UTF8.GetBytes(result.Error));
+        return $"{ProtocolPrefix}{result.Outcome}:{payload}";
+    }
+
+    private static PreflightResult? ParseProtocol(string output)
+    {
+        foreach (string line in output.Split('\n').Reverse())
+        {
+            string candidate = line.TrimEnd('\r');
+            if (!candidate.StartsWith(ProtocolPrefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string[] pieces = candidate[ProtocolPrefix.Length..].Split(':', 2);
+            if (pieces.Length != 2
+                || !Enum.TryParse(pieces[0], out PreflightOutcome outcome))
+            {
+                return null;
+            }
+
+            if (outcome != PreflightOutcome.Reject)
+            {
+                return new PreflightResult(outcome);
+            }
+
+            try
+            {
+                return PreflightResult.Reject(
+                    Encoding.UTF8.GetString(Convert.FromBase64String(pieces[1])));
+            }
+            catch (FormatException)
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
     private sealed record DeserializedRunTests(List<ITestCase> TestCases, int InvalidCount);
 
-    private sealed class PreflightSerializationHelper : SerializationHelper
+    private enum PreflightOutcome
     {
+        Pass,
+        Reject,
+        Defer,
+    }
+
+    private sealed record PreflightResult(
+        PreflightOutcome Outcome,
+        string? Error = null)
+    {
+        internal static PreflightResult Pass { get; } =
+            new(PreflightOutcome.Pass);
+
+        internal static PreflightResult Defer { get; } =
+            new(PreflightOutcome.Defer);
+
+        internal static PreflightResult Reject(string error) =>
+            new(PreflightOutcome.Reject, error);
     }
 }

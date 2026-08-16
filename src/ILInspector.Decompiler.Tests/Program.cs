@@ -61,7 +61,12 @@ internal static class Program
 
     public static int Main(string[] args)
     {
-        GateExpansion expansion = GateArgumentExpander.Expand(args, Presets);
+        bool isFilterPreflight =
+            args.Length > 0
+            && args[0] == ExplicitFilterGuard.PreflightArgument;
+        ReadOnlySpan<string> inputArgs = isFilterPreflight ? args.AsSpan(1) : args;
+
+        GateExpansion expansion = GateArgumentExpander.Expand(inputArgs.ToArray(), Presets);
         switch (expansion.Outcome)
         {
             case GateOutcome.Help:
@@ -73,6 +78,13 @@ internal static class Program
         }
 
         string[] runArgs = expansion.Args as string[] ?? expansion.Args.ToArray();
+
+        if (isFilterPreflight)
+        {
+            return ExplicitFilterGuard
+                .RunPreflightAsync(runArgs, typeof(Program).Assembly)
+                .GetAwaiter().GetResult();
+        }
 
         // Mirror the xUnit v3 auto-generated entry point: honor the Microsoft
         // Testing Platform server handshake, otherwise use the console runner.

@@ -1,6 +1,12 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using ILInspector.Decompiler.Tests.Gating;
 using Xunit.Sdk;
+
+[assembly: RegisterXunitSerializer(
+    typeof(ILInspector.Decompiler.Tests.FilterGuardCustomSerializer),
+    typeof(ILInspector.Decompiler.Tests.FilterGuardCustomValue))]
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -66,6 +72,27 @@ public class ExplicitFilterGuardTests
             "-explicit", "only");
         ProcessResult malformedQuery = await RunHostAsync(
             "-filter", "/((*)|(Foo))/*/*/*");
+        const string customSerializationMethod =
+            "ILInspector.Decompiler.Tests.ExplicitFilterGuardTests."
+            + "ProcessIsolatedPreflightPreservesCustomSerialization";
+        ProcessResult customSerializationList = await RunHostAsync(
+            "-preEnumerateTheories",
+            "-method",
+            customSerializationMethod,
+            "-list",
+            "discovery/json");
+        string customSerialization = JsonDocument
+            .Parse(customSerializationList.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)[0])
+            .RootElement
+            .GetProperty("Serialization")
+            .GetString()
+            ?? throw new InvalidOperationException("Discovery serialization was null.");
+        ProcessResult customSerializationRun = await RunHostAsync(
+            "-preEnumerateTheories",
+            "-method",
+            customSerializationMethod,
+            "-run",
+            customSerialization);
         string disposalMarker = Path.Combine(
             Path.GetTempPath(),
             $"filter-guard-disposal-{Guid.NewGuid():N}");
@@ -126,10 +153,40 @@ public class ExplicitFilterGuardTests
         Assert.Contains("Unexpected null filter", malformedQueryDiagnostic);
         Assert.DoesNotContain("Unhandled exception", malformedQueryDiagnostic);
 
+        Assert.Equal(0, customSerializationList.ExitCode);
+        Assert.Equal(0, customSerializationRun.ExitCode);
+        Assert.Contains("Total: 1,", customSerializationRun.Output);
+        Assert.DoesNotContain("already supported", customSerializationRun.Output);
+        Assert.DoesNotContain("already supported", customSerializationRun.Error);
+        Assert.DoesNotContain(
+            "custom serializer was constructed more than once",
+            customSerializationRun.Output + customSerializationRun.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "-run test-case serializations could not be deserialized",
+            customSerializationRun.Error);
+
         Assert.Equal(0, disposableTheory.ExitCode);
         Assert.Contains("Total: 1,", disposableTheory.Output);
         Assert.DoesNotContain("preflight discovery did not dispose", disposableTheory.Error);
     }
+
+    [Theory]
+    [MemberData(
+        nameof(CustomSerializedArguments),
+        DisableDiscoveryEnumeration = false)]
+    public void ProcessIsolatedPreflightPreservesCustomSerialization(
+        (FilterGuardCustomValue Value, int Number) argument)
+    {
+        Assert.Equal("custom", argument.Value.Text);
+        Assert.Equal(42, argument.Number);
+    }
+
+    public static TheoryData<(FilterGuardCustomValue, int)> CustomSerializedArguments =>
+        new()
+        {
+            (new FilterGuardCustomValue("custom"), 42),
+        };
 
     [Theory]
     [MemberData(nameof(DisposableArguments), DisableDiscoveryEnumeration = false)]
@@ -138,13 +195,16 @@ public class ExplicitFilterGuardTests
     {
         if (argument.MarkerPath is not null)
         {
+            Assert.False(
+                argument.IsDisposed,
+                "preflight disposed a cached theory argument in the runner process");
             Assert.True(
                 File.Exists(argument.MarkerPath),
                 "preflight discovery did not dispose its test case before execution");
         }
     }
 
-    public static TheoryData<FilterGuardDisposableArgument> DisposableArguments =>
+    public static TheoryData<FilterGuardDisposableArgument> DisposableArguments { get; } =
         new()
         {
             new FilterGuardDisposableArgument(
@@ -222,6 +282,8 @@ public sealed class FilterGuardDisposableArgument : IXunitSerializable, IDisposa
 
     public string? MarkerPath { get; private set; }
 
+    public bool IsDisposed { get; private set; }
+
     public void Deserialize(IXunitSerializationInfo info)
     {
         MarkerPath = info.GetValue<string>(nameof(MarkerPath));
@@ -229,6 +291,7 @@ public sealed class FilterGuardDisposableArgument : IXunitSerializable, IDisposa
 
     public void Dispose()
     {
+        IsDisposed = true;
         if (MarkerPath is not null)
         {
             File.WriteAllText(MarkerPath, "disposed");
@@ -242,4 +305,35 @@ public sealed class FilterGuardDisposableArgument : IXunitSerializable, IDisposa
             info.AddValue(nameof(MarkerPath), MarkerPath);
         }
     }
+}
+
+public sealed record FilterGuardCustomValue(string Text);
+
+public sealed class FilterGuardCustomSerializer : IXunitSerializer
+{
+    private static int s_constructorCount;
+
+    public FilterGuardCustomSerializer()
+    {
+        if (Interlocked.Increment(ref s_constructorCount) != 1)
+        {
+            throw new InvalidOperationException(
+                "The custom serializer was constructed more than once in one process.");
+        }
+    }
+
+    public object Deserialize(Type type, string serializedValue) =>
+        new FilterGuardCustomValue(serializedValue);
+
+    public bool IsSerializable(
+        Type type,
+        object? value,
+        [NotNullWhen(false)] out string? failureReason)
+    {
+        failureReason = null;
+        return value is FilterGuardCustomValue;
+    }
+
+    public string Serialize(object value) =>
+        ((FilterGuardCustomValue)value).Text;
 }
