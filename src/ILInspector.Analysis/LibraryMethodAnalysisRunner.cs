@@ -44,7 +44,13 @@ internal interface ILibraryMethodAnalysisInfrastructure
         IReadOnlyCollection<ExceptionRegion> exceptionRegions);
 
     IMethodCallResolver CreateCallResolver(
-        GenericScope scope);
+        GenericScope scope,
+        MethodIdentity caller);
+
+    MemberRef ResolveMethod(
+        int token,
+        GenericScope scope,
+        MethodDefinitionHandle caller);
 
     string? CalliReturnDetail(
         int token,
@@ -59,6 +65,13 @@ internal interface ILibraryMethodAnalysisInfrastructure
 
     bool HasCompilerGeneratedAttribute(
         CustomAttributeHandleCollection attributes);
+
+    bool TryResolveLiftedSourceOwner(
+        MethodDefinitionHandle liftedHandle,
+        MethodDefinition liftedMethod,
+        MethodIdentity liftedIdentity,
+        out MethodIdentity? sourceOwner,
+        out bool sourceGenerated);
 
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
@@ -200,10 +213,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                                 caller),
                         il,
                         body.ExceptionRegions,
-                        token => MemberResolver.ResolveMethod(
-                            reader,
-                            MetadataTokens.EntityHandle(token),
-                            scope),
+                        token => _infrastructure.ResolveMethod(
+                            token,
+                            scope,
+                            methodHandle),
                         token =>
                             LeakTriageAnalyzer.ResolveCatchTypeRef(
                                 reader,
@@ -260,13 +273,29 @@ internal sealed class LibraryMethodAnalysisRunner(
                 methodDefinition.GetCustomAttributes();
             if (includeOpportunities)
             {
+                bool sourceFunction =
+                    CompilerGeneratedNames.IsLocalFunctionOrLambda(
+                        caller.Name);
+                MethodIdentity? sourceOwner = null;
+                bool sourceOwnerGenerated = false;
+                bool hasSourceOwner = sourceFunction
+                    && _infrastructure.TryResolveLiftedSourceOwner(
+                        methodHandle,
+                        methodDefinition,
+                        caller,
+                        out sourceOwner,
+                        out sourceOwnerGenerated);
+                bool sourceGenerated =
+                    _infrastructure.HasGeneratedCodeAttribute(
+                        methodAttributes)
+                    || hasSourceOwner && sourceOwnerGenerated;
+                bool compilerGenerated =
+                    _infrastructure.HasCompilerGeneratedAttribute(
+                        methodAttributes)
+                    || sourceFunction;
                 if (!typeSourceGenerated
-                    && !_infrastructure
-                        .HasGeneratedCodeAttribute(
-                            methodAttributes)
-                    && !_infrastructure
-                        .HasCompilerGeneratedAttribute(
-                            methodAttributes)
+                    && !sourceGenerated
+                    && !compilerGenerated
                     && !IsBlazorRenderMethod(caller))
                 {
                     result.Opportunities =
@@ -276,6 +305,28 @@ internal sealed class LibraryMethodAnalysisRunner(
                 }
                 else
                 {
+                    if (!typeSourceGenerated
+                        && !sourceGenerated
+                        && compilerGenerated
+                        && hasSourceOwner
+                        && sourceOwner is not null
+                        && !IsBlazorRenderMethod(caller)
+                        && !IsBlazorRenderMethod(sourceOwner))
+                    {
+                        result.Opportunities =
+                        [
+                            .. OptimizationOpportunityAnalysis.Collect(
+                                allocationFacts,
+                                methodAnalysisResolver)
+                            .Where(static opportunity =>
+                                opportunity.Shape
+                                    == "generic-parameter-object-box")
+                            .Select(opportunity => opportunity with
+                            {
+                                SourceOwner = sourceOwner,
+                            }),
+                        ];
+                    }
                     result.Suppressed = true;
                 }
             }
@@ -296,7 +347,9 @@ internal sealed class LibraryMethodAnalysisRunner(
             }
             MethodCallAnalysis.Collect(
                 context,
-                _infrastructure.CreateCallResolver(scope),
+                _infrastructure.CreateCallResolver(
+                    scope,
+                    caller),
                 offset => allocationFacts.MultiplicityAt(offset),
                 calls,
                 evidence,
@@ -392,10 +445,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                     method,
                     body.GetILBytes() ?? [],
                     body.ExceptionRegions,
-                    token => MemberResolver.ResolveMethod(
-                        reader,
-                        MetadataTokens.EntityHandle(token),
-                        scope),
+                    token => _infrastructure.ResolveMethod(
+                        token,
+                        scope,
+                        methodHandle),
                     token =>
                         LeakTriageAnalyzer.ResolveCatchTypeRef(
                             reader,
@@ -412,7 +465,7 @@ internal sealed class LibraryMethodAnalysisRunner(
         return result;
     }
 
-    static MethodInstructions DecodeBody(
+    internal static MethodInstructions DecodeBody(
         byte[] il,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions)
     {
@@ -529,7 +582,7 @@ internal sealed class LibraryMethodAnalysisRunner(
         }
     }
 
-    static bool IsRecoverableMethodFailure(
+    internal static bool IsRecoverableMethodFailure(
         Exception ex) =>
         ex is BadImageFormatException
             or InvalidOperationException

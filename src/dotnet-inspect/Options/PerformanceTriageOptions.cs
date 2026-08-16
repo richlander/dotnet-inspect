@@ -40,6 +40,7 @@ public sealed record PerformanceTriageOptions
         "Token",
         "Evidence",
         "Fix",
+        "Priority",
         "Confidence",
         "Loop",
         "CallerLoop",
@@ -65,6 +66,7 @@ public sealed record PerformanceTriageOptions
     [
         "Triage",
         "RootReach",
+        "Priority",
         "Confidence",
         "Loop",
         "CallerLoop",
@@ -98,12 +100,15 @@ public sealed record PerformanceTriageOptions
         "allocation-fanout",
         "async-state-machine",
         "box-value-type",
+        "cache-lookup-factory-delegate",
         "capturing-delegate",
         "enumerator-allocation",
+        "generic-parameter-object-box",
         "instance-method-group-delegate",
         "linq-scan-in-loop",
         "materialize-in-loop",
         "scan-method-in-loop-call",
+        "scan-method-in-recursive-traversal",
         "small-array",
         "span-to-array-copy",
         "stackalloc-candidate",
@@ -283,7 +288,7 @@ public sealed record PerformanceTriageOptions
 
             if (op is RowOperator.GreaterOrEqual or RowOperator.LessOrEqual
                 && !IsNumericField(field)
-                && field is not ("Confidence" or "Weight"))
+                && field is not ("Priority" or "Confidence" or "Weight"))
             {
                 error = $"Field '{Contain(field)}' supports only = and != predicates.";
                 return false;
@@ -294,7 +299,7 @@ public sealed record PerformanceTriageOptions
                 error = $"Field '{Contain(field)}' expects an integer value in --where predicate '{Contain(expression)}'.";
                 return false;
             }
-            if (field is "Confidence" or "Weight" && !IsKnownConfidence(value))
+            if (field is "Priority" or "Confidence" or "Weight" && !IsKnownConfidence(value))
             {
                 error = $"Field '{Contain(field)}' expects one of low, medium, high in --where predicate '{Contain(expression)}'.";
                 return false;
