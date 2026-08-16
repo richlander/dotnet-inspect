@@ -74,11 +74,75 @@ public class InspectionViewDescriptorTests
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         Assert.Equal(hasBodyViews, ids.Contains(SectionNames.AnnotatedSource));
-        Assert.Equal(hasBodyViews, ids.Contains(SectionNames.CallGraph));
         Assert.Equal(hasBodyViews, ids.Contains(SectionNames.DecompiledSource));
         Assert.Equal(hasBodyViews, ids.Contains(SectionNames.Facts));
         Assert.Equal(hasBodyViews, ids.Contains(SectionNames.IL));
         Assert.Equal(hasBodyViews, ids.Contains(SectionNames.OriginalSource));
+    }
+
+    public static TheoryData<ApiMember, bool, bool> BodyAnalysisApplicabilityCases => new()
+    {
+        {
+            new ApiMember
+            {
+                Name = "Run",
+                Kind = "method",
+                MetadataToken = 0x06000001,
+                HasMethodBody = true
+            },
+            true,
+            true
+        },
+        {
+            new ApiMember
+            {
+                Name = "Extern",
+                Kind = "method",
+                MetadataToken = 0x06000002
+            },
+            true,
+            true
+        },
+        {
+            new ApiMember
+            {
+                Name = "Abstract",
+                Kind = "method",
+                MetadataToken = 0x06000003,
+                IsAbstract = true
+            },
+            false,
+            true
+        },
+        {
+            new ApiMember { Name = "Value", Kind = "field" },
+            false,
+            false
+        }
+    };
+
+    [Theory]
+    [MemberData(nameof(BodyAnalysisApplicabilityCases))]
+    public void MemberViews_ReflectBodyAnalysisTargetApplicability(
+        ApiMember member,
+        bool hasCallerViews,
+        bool hasUnsafeOperations)
+    {
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members = [member]
+        };
+
+        IReadOnlySet<string> ids = pipeline.GetInspectionViews(model)
+            .Select(view => view.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal(hasCallerViews, ids.Contains(SectionNames.Callers));
+        Assert.Equal(hasCallerViews, ids.Contains(SectionNames.CallGraph));
+        Assert.Equal(hasUnsafeOperations, ids.Contains(SectionNames.UnsafeOperations));
     }
 
     [Fact]

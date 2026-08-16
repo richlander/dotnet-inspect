@@ -444,6 +444,8 @@ public static class ApiSurfaceExtractor
             apiType.Members = [];
 
             var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+            var explicitInterfaceImplementationBodies =
+                GetExplicitInterfaceImplementationBodies(reader, typeDef);
             var accessorMethods = GetAccessorMethods(reader, typeDef);
 
             // Methods whose explicit `.override` MethodImpl targets
@@ -458,9 +460,10 @@ public static class ApiSurfaceExtractor
                 string methodName = reader.GetString(method.Name);
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
                 var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
-                var isQualifiedExplicitAccessor = isExplicitInterfaceImplementation
-                    && methodName.Contains('.', StringComparison.Ordinal);
-                if (accessorMethods.Contains(methodHandle) && !isQualifiedExplicitAccessor)
+                var isRetainedImplementationAccessor = isExplicitInterfaceImplementation
+                    && (methodName.Contains('.', StringComparison.Ordinal)
+                        || explicitInterfaceImplementationBodies.Contains(methodHandle));
+                if (accessorMethods.Contains(methodHandle) && !isRetainedImplementationAccessor)
                     continue;
                 if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
                     continue;
@@ -1309,6 +1312,56 @@ public static class ApiSurfaceExtractor
         }
 
         return handles;
+    }
+
+    internal static HashSet<MethodDefinitionHandle> GetExplicitInterfaceImplementationBodies(
+        MetadataReader reader, TypeDefinition typeDef)
+    {
+        HashSet<EntityHandle> implementedInterfaces = [];
+        foreach (var interfaceHandle in typeDef.GetInterfaceImplementations())
+        {
+            implementedInterfaces.Add(
+                reader.GetInterfaceImplementation(interfaceHandle).Interface);
+        }
+
+        HashSet<MethodDefinitionHandle> handles = [];
+        foreach (var implementationHandle in typeDef.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody.Kind == HandleKind.MethodDefinition
+                && IsInterfaceMethodDeclaration(
+                    reader,
+                    implementation.MethodDeclaration,
+                    implementedInterfaces))
+            {
+                handles.Add((MethodDefinitionHandle)implementation.MethodBody);
+            }
+        }
+
+        return handles;
+    }
+
+    private static bool IsInterfaceMethodDeclaration(
+        MetadataReader reader,
+        EntityHandle declaration,
+        IReadOnlySet<EntityHandle> implementedInterfaces)
+    {
+        EntityHandle declaringType = declaration.Kind switch
+        {
+            HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition((MethodDefinitionHandle)declaration).GetDeclaringType(),
+            HandleKind.MemberReference =>
+                reader.GetMemberReference((MemberReferenceHandle)declaration).Parent,
+            _ => default,
+        };
+
+        if (declaringType.Kind == HandleKind.TypeDefinition)
+        {
+            return (reader.GetTypeDefinition((TypeDefinitionHandle)declaringType).Attributes
+                & TypeAttributes.Interface) != 0;
+        }
+
+        return implementedInterfaces.Contains(declaringType);
     }
 
     /// <summary>

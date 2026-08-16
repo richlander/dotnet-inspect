@@ -261,6 +261,40 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void TypeSurface_PreservesUnqualifiedMethodImplAccessors()
+    {
+        string path = EmitUnqualifiedMethodImplAccessor();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            var reader = peReader.GetMetadataReader();
+            var typeHandle = GetTypeDefinitionHandle(reader, "UnqualifiedAccessor");
+            var queried = MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                typeHandle,
+                includeNonPublicMembers: true);
+            var extracted = Assert.Single(
+                ApiSurfaceExtractor.Extract(peReader, includeAll: true).Types,
+                type => type.FullName == "UnqualifiedAccessor");
+
+            Assert.Contains(
+                queried.Members,
+                member => member is { Name: "Read", Kind: "method" });
+            Assert.Contains(
+                extracted.Members,
+                member => member is
+                {
+                    Name: "Read",
+                    Kind: "explicit-interface-implementation"
+                });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void PrivateScopeAccessors_AreNotClassifiedAsPublic()
     {
         var methodAccessibility = typeof(MetadataDeclarationQuery).GetMethod(
@@ -486,6 +520,56 @@ public sealed class MetadataDeclarationQueryTests
         type.CreateType();
 
         string path = Path.Combine(Path.GetTempPath(), $"EventOther-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitUnqualifiedMethodImplAccessor()
+    {
+        var assemblyName = new AssemblyName("UnqualifiedMethodImplAccessor");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+
+        var interfaceBuilder = module.DefineType(
+            "IUnqualifiedAccessor",
+            TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+        var interfaceGetter = interfaceBuilder.DefineMethod(
+            "get_Value",
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(int),
+            Type.EmptyTypes);
+        interfaceBuilder
+            .DefineProperty("Value", PropertyAttributes.None, typeof(int), null)
+            .SetGetMethod(interfaceGetter);
+        var interfaceType = interfaceBuilder.CreateType();
+
+        var type = module.DefineType("UnqualifiedAccessor", TypeAttributes.Public);
+        type.AddInterfaceImplementation(interfaceType);
+        var getter = type.DefineMethod(
+            "Read",
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(int),
+            Type.EmptyTypes);
+        getter.GetILGenerator().Emit(OpCodes.Ldc_I4, 42);
+        getter.GetILGenerator().Emit(OpCodes.Ret);
+        type.DefineProperty("Value", PropertyAttributes.None, typeof(int), null)
+            .SetGetMethod(getter);
+        type.DefineMethodOverride(getter, interfaceType.GetMethod("get_Value")!);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"UnqualifiedMethodImplAccessor-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
     }

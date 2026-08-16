@@ -544,6 +544,14 @@ public static class ApiMemberSectionDescriptors
         member.HasMethodBody && IsBodyBacked(member);
 
     /// <summary>
+    /// True when body-oriented analysis can address the member even if the target itself has no
+    /// IL body. Inbound caller analysis accepts concrete extern/internal-call targets, while
+    /// abstract declarations remain excluded from the ordinary body-method projection.
+    /// </summary>
+    public static bool HasBodyAnalysisTarget(ApiMember member) =>
+        IsBodyBacked(member) && !member.IsAbstract;
+
+    /// <summary>
     /// True when a property/event member records at least one accessor method token
     /// (get/set/init for a property or indexer, add/remove for an event).
     /// </summary>
@@ -637,11 +645,11 @@ public static class ApiMemberOverloadSectionDescriptors
                 HasSingleBodyBackedMember,
                 HasSingleExecutableBodyMember)
             .Add<ApiMemberDetailSectionDescriptors.Callers>(
-                isViewApplicable: HasSingleExecutableBodyMember)
+                isViewApplicable: HasSingleBodyAnalysisTarget)
             .Add<ApiMemberDetailSectionDescriptors.CallGraph>(
-                isViewApplicable: HasSingleExecutableBodyMember)
+                isViewApplicable: HasSingleBodyAnalysisTarget)
             .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>(
-                isViewApplicable: HasSingleExecutableBodyMember)
+                isViewApplicable: HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.TopLeverage>(
                 HasSingleBodyBackedMember,
                 HasSingleExecutableBodyMember)
@@ -673,6 +681,10 @@ public static class ApiMemberOverloadSectionDescriptors
     private static bool HasSingleExecutableBodyMember(ApiType model)
         => model.Members.Count == 1
            && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
+
+    private static bool HasSingleBodyAnalysisTarget(ApiType model)
+        => model.Members.Count == 1
+           && model.Members.Any(ApiMemberSectionDescriptors.HasBodyAnalysisTarget);
 
     private static bool HasExecutableBodyMember(ApiType model)
         => model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
@@ -714,9 +726,9 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<ApiMemberSectionDescriptors.AllocationFacts>(isViewApplicable: HasExecutableBody)
             .Add<ApiMemberSectionDescriptors.SafetyFacts>(isViewApplicable: HasExecutableBody)
             .Add<ApiMemberSectionDescriptors.CostFacts>(isViewApplicable: HasExecutableBody)
-            .Add<Callers>(isViewApplicable: HasExecutableBody)
-            .Add<CallGraph>(isViewApplicable: HasExecutableBody)
-            .Add<UnsafeOperations>(isViewApplicable: HasExecutableBody)
+            .Add<Callers>(isViewApplicable: HasBodyAnalysisTarget)
+            .Add<CallGraph>(isViewApplicable: HasBodyAnalysisTarget)
+            .Add<UnsafeOperations>(isViewApplicable: HasBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.TopLeverage>(isViewApplicable: HasExecutableBody)
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(
                 isViewApplicable: HasExecutableBody)
@@ -733,6 +745,14 @@ public static class ApiMemberDetailSectionDescriptors
     private static bool HasExecutableBody(ApiType model)
         => model.Members.Count == 1
            && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
+
+    private static bool HasBodyAnalysisTarget(ApiType model)
+        => model.Members.Count == 1
+           && model.Members.Any(ApiMemberSectionDescriptors.HasBodyAnalysisTarget);
+
+    private static bool HasBodyBackedMember(ApiType model)
+        => model.Members.Count == 1
+           && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
 
     public sealed class Summary : ISectionDescriptor<ApiType>
     {

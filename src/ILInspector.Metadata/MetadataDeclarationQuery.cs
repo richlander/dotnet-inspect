@@ -109,6 +109,8 @@ public static class MetadataDeclarationQuery
         var accessorMethods = ApiSurfaceExtractor.GetAccessorMethods(reader, typeDef);
         var explicitImplementationBodies =
             ApiSurfaceExtractor.GetExplicitImplementationBodies(reader, typeDef);
+        var explicitInterfaceImplementationBodies =
+            ApiSurfaceExtractor.GetExplicitInterfaceImplementationBodies(reader, typeDef);
         foreach (var propertyHandle in typeDef.GetProperties())
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
@@ -220,9 +222,10 @@ public static class MetadataDeclarationQuery
         {
             var method = reader.GetMethodDefinition(methodHandle);
             var methodName = reader.GetString(method.Name);
-            var isQualifiedExplicitAccessor = explicitImplementationBodies.Contains(methodHandle)
-                && methodName.Contains('.', StringComparison.Ordinal);
-            if (accessorMethods.Contains(methodHandle) && !isQualifiedExplicitAccessor)
+            var isRetainedImplementationAccessor = explicitImplementationBodies.Contains(methodHandle)
+                && (methodName.Contains('.', StringComparison.Ordinal)
+                    || explicitInterfaceImplementationBodies.Contains(methodHandle));
+            if (accessorMethods.Contains(methodHandle) && !isRetainedImplementationAccessor)
                 continue;
             if (methodName.StartsWith('<'))
                 continue;
