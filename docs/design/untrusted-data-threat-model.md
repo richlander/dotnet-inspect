@@ -407,7 +407,8 @@ segment used to resolve an attribute type is also charged before SRM
 materializes it, including names inspected only to skip an accessor,
 compiler-generated field, or hidden member. This includes every enclosing
 TypeDef or TypeRef segment reached from a signature, skipped enum names scanned
-while formatting defaults, and forwarded type and target-assembly names.
+while formatting defaults, forwarded type and target-assembly names, and
+strong-name blobs read while proving a finalizer slot reaches the core library.
 TypeSpec-owned generic attribute constructors use the same guarded signature
 decoder and preserve bounded/unbounded parity. Enum-valued arguments build one
 charged type-name index per bounded extraction instead of rescanning every type
@@ -450,6 +451,8 @@ pre-decoding rejection.
 `HiddenAutoPropertySignature_StopsBeforeLargeAllocationAmplification`,
 `HugeParameterDefault_StopsBeforeLargeAllocationAmplification`,
 `EnumDefaultScan_ChargesSkippedEnclosingTypeNames`,
+`EnumDefaultScan_ChargesRejectedBaseTypeNames`,
+`FinalizerScan_ChargesCoreLibraryPublicKeyBeforeCopying`,
 `PropertyAccessorReturnAttribute_StopsBeforeLargeAllocationAmplification`,
 `EventAccessorReturnAttribute_StopsBeforeLargeAllocationAmplification`,
 `LargeVisibilityAttribute_StopsBeforeDecodingItsMessage`,

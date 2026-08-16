@@ -2010,7 +2010,11 @@ public static class ApiSurfaceExtractor
                 DecodeString(reader, assemblyRef.Name, beforeDecodeWork),
                 out byte[][]? expectedTokens))
             return false;
-        if (!TryComputeToken(reader, assemblyRef, out byte[] token))
+        if (!TryComputeToken(
+                reader,
+                assemblyRef,
+                beforeDecodeWork,
+                out byte[] token))
             return false;
         foreach (byte[] expected in expectedTokens)
         {
@@ -2029,11 +2033,17 @@ public static class ApiSurfaceExtractor
     /// hash of the public key, in reverse order. Returns false for a nil or
     /// wrong-length token blob.
     /// </summary>
-    private static bool TryComputeToken(MetadataReader reader, System.Reflection.Metadata.AssemblyReference assemblyRef, out byte[] token)
+    private static bool TryComputeToken(
+        MetadataReader reader,
+        System.Reflection.Metadata.AssemblyReference assemblyRef,
+        Action<int>? beforeDecodeWork,
+        out byte[] token)
     {
         token = [];
         if (assemblyRef.PublicKeyOrToken.IsNil)
             return false;
+        beforeDecodeWork?.Invoke(
+            reader.GetBlobReader(assemblyRef.PublicKeyOrToken).Length);
         byte[] blob = reader.GetBlobBytes(assemblyRef.PublicKeyOrToken);
         if ((assemblyRef.Flags & AssemblyFlags.PublicKey) != 0)
         {
@@ -3186,7 +3196,7 @@ public static class ApiSurfaceExtractor
             try
             {
                 var typeDef = reader.GetTypeDefinition(typeHandle);
-                if (!IsEnum(reader, typeDef))
+                if (!IsEnum(reader, typeDef, beforeDecodeWork))
                     continue;
 
                 if (MetadataTypeDefinitionNameReader.Read(
@@ -3346,10 +3356,16 @@ public static class ApiSurfaceExtractor
         surface.InspectionFailures.Add(retained);
     }
 
-    private static bool IsEnum(MetadataReader reader, TypeDefinition typeDef)
+    private static bool IsEnum(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        Action<int>? beforeDecodeWork = null)
         => !typeDef.BaseType.IsNil
-            && TypeResolver.ResolveTypeName(reader, typeDef.BaseType)
-                is MetadataTypeNameResult.Resolved { Value: "System.Enum" };
+            && TypeResolver.GetTypeName(
+                reader,
+                typeDef.BaseType,
+                context: null,
+                beforeMaterialize: beforeDecodeWork) == "System.Enum";
 
     private sealed class MetadataRowRejectedException
         : InvalidOperationException

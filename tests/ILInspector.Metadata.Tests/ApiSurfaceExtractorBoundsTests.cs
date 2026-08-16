@@ -649,6 +649,25 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void EnumDefaultScan_ChargesRejectedBaseTypeNames()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildEnumDefaultDecoyImage(
+                decoyTypeCount: 512,
+                defaultMethodCount: 32,
+                baseNameLength: 8_000));
+    }
+
+    [Fact]
+    public void FinalizerScan_ChargesCoreLibraryPublicKeyBeforeCopying()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildRepeatedFinalizerImage(
+                typeCount: 64,
+                publicKeyLength: 2_100_000));
+    }
+
+    [Fact]
     public void LargeVisibilityAttribute_StopsBeforeDecodingItsMessage()
     {
         byte[] image = BuildLargeObsoleteAttributeImage(messageLength: 40_000_000);
@@ -1822,6 +1841,112 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.GetOrAddString("One"),
             metadata.GetOrAddBlob(enumFieldSignature));
         metadata.AddConstant(literal, 1);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildEnumDefaultDecoyImage(
+        int decoyTypeCount,
+        int defaultMethodCount,
+        int baseNameLength)
+    {
+        var metadata = Metadata("EnumDefaultDecoyBomb");
+        AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle longBase = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString(new string('B', baseNameLength)));
+        AddModuleAndPublicType(metadata, "Host");
+        for (int index = 0; index < decoyTypeCount; index++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("Decoys"),
+                metadata.GetOrAddString($"D{index}"),
+                longBase,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(defaultMethodCount + 1));
+        }
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature().Parameters(
+            1,
+            returnType => returnType.Void(),
+            parameters => parameters.AddParameter().Type().Int32());
+        BlobHandle signatureHandle = metadata.GetOrAddBlob(signature);
+        for (int index = 0; index < defaultMethodCount; index++)
+        {
+            ParameterHandle parameter = metadata.AddParameter(
+                ParameterAttributes.Optional | ParameterAttributes.HasDefault,
+                metadata.GetOrAddString("value"),
+                sequenceNumber: 1);
+            metadata.AddConstant(parameter, 1);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.Abstract,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString($"M{index}"),
+                signatureHandle,
+                bodyOffset: -1,
+                parameter);
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildRepeatedFinalizerImage(
+        int typeCount,
+        int publicKeyLength)
+    {
+        var metadata = Metadata("FinalizerTokenBomb");
+        AssemblyReferenceHandle coreLibrary = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.CoreLib"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(new byte[publicKeyLength]),
+            AssemblyFlags.PublicKey,
+            default);
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            coreLibrary,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        for (int index = 0; index < typeCount; index++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString($"Finalizable{index}"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(index + 1));
+        }
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        BlobHandle signatureHandle = metadata.GetOrAddBlob(signature);
+        for (int index = 0; index < typeCount; index++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Finalize"),
+                signatureHandle,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        }
         return Serialize(metadata);
     }
 

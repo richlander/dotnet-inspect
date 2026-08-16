@@ -16,12 +16,44 @@ public static class AttributeDecoder
     internal sealed class MaterializationContext(Action<int> observe)
     {
         Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
+        ExceptionDispatchInfo? _typeDefinitionsByNameFailure;
+        bool _typeDefinitionsByNameObserverFailure;
 
         public void Observe(int characters) => observe(characters);
 
         public Dictionary<string, TypeDefinitionHandle> GetOrCreateTypeDefinitionsByName(
             Func<Dictionary<string, TypeDefinitionHandle>> create)
-            => _typeDefinitionsByName ??= create();
+        {
+            if (_typeDefinitionsByName is not null)
+                return _typeDefinitionsByName;
+            if (_typeDefinitionsByNameFailure is not null)
+            {
+                if (_typeDefinitionsByNameObserverFailure)
+                {
+                    throw new MaterializationObserverException(
+                        _typeDefinitionsByNameFailure);
+                }
+                _typeDefinitionsByNameFailure.Throw();
+            }
+
+            try
+            {
+                return _typeDefinitionsByName = create();
+            }
+            catch (MaterializationObserverException ex)
+            {
+                _typeDefinitionsByNameFailure = ex.Failure;
+                _typeDefinitionsByNameObserverFailure = true;
+                throw;
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                _typeDefinitionsByNameFailure =
+                    ExceptionDispatchInfo.Capture(ex);
+                throw;
+            }
+        }
     }
 
     /// <summary>
@@ -200,6 +232,7 @@ public static class AttributeDecoder
 
         Dictionary<string, TypeDefinitionHandle> BuildTypeDefinitionIndex()
         {
+            ObserveBeforeMaterialize(reader.TypeDefinitions.Count);
             var result = new Dictionary<string, TypeDefinitionHandle>(
                 reader.TypeDefinitions.Count,
                 StringComparer.Ordinal);
@@ -222,15 +255,19 @@ public static class AttributeDecoder
             }
             catch (Exception ex)
             {
-                throw new MaterializationObserverException(ex);
+                throw new MaterializationObserverException(
+                    ExceptionDispatchInfo.Capture(ex));
             }
         }
     }
 
-    sealed class MaterializationObserverException(Exception innerException) : Exception(null, innerException)
+    sealed class MaterializationObserverException(ExceptionDispatchInfo failure)
+        : Exception(null, failure.SourceException)
     {
+        public ExceptionDispatchInfo Failure { get; } = failure;
+
         public void Rethrow() =>
-            ExceptionDispatchInfo.Capture(InnerException!).Throw();
+            Failure.Throw();
     }
 
     /// <summary>Minimal signature provider that reports an enum's underlying primitive type code.</summary>
