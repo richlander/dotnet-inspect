@@ -130,7 +130,22 @@
 - Carries untrusted artifact text through typed inert-text boundaries and
   contains metadata and package-authored text before rendering. Malformed
   nuspec XML now produces a one-line location diagnostic, and descriptions
-  cannot impersonate tool headings or tables (#3679, #3772).
+  cannot impersonate tool headings or tables. Package projections expose
+  aggregate containment evidence while explicit document payloads remain
+  byte-preserving (#3679, #3772).
+- Reports that package aggregate in `Signals` as
+  `Artifact text containment`, with category-only evidence for control,
+  format/bidi, unpaired-surrogate, line-separator, and paragraph-separator
+  concerns. Literal backslashes do not trigger the concern.
+- Adds the explicit `Audit: Artifact Text` package section under `@Audit`,
+  listing package-model field locations and concern kinds without echoing
+  artifact values.
+- Adds an `Identifier confusion` Signal for package IDs, dependency IDs,
+  assembly names, and direct assembly references. Explicit package and library
+  audit sections report content-free locations, classifications, similarity,
+  and code points, including bounded Greek/Cyrillic homoglyph checks for
+  `System`, `Microsoft`, and `Azure`; the explicit library audit additionally
+  resolves the transitive reference closure.
 - **Breaking:** removes the hidden `--oneline` compatibility alias and
   `DOTNET_INSPECT_FORMAT=oneline`/`one-line`; use `--table`.
 - Builds Native AOT packages with `OptimizationPreference=Speed`, worth a
