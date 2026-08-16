@@ -187,12 +187,45 @@ For libraries, SourceLink presence and map usability are separate observations.
 `Non-normalized Paths` separately lists SourceLink document keys that do not use
 the deterministic `/_/` prefix.
 
+Package Signals also reports `Artifact text containment`. `None` means no
+package-model text needed visual containment; `Required` names only the Unicode
+category kinds that were contained (`Cc`, `Cf`, `Cs`, `Zl`, or `Zp`), never the
+artifact text itself. Select `Audit: Artifact Text` (or `@Audit`) for one
+content-free row per detected package-model field, with `Location` and
+`Concerns` columns. Literal backslashes do not count as a concern even when the
+invertible encoding must disambiguate them. Library Signals will gain the same
+row when the library presentation model carries `InertString` through its
+complete text surface; until then, the package row does not claim library
+coverage. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`,
+`PackageInspectionTextTests.RequiredContainment_CoversEveryPackageTextSourceIndividually`,
+`Package_MultiplePackages_SignalsIncludePackageFileConcerns`, and
+`PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gate the
+summary, single/multi-package parity, provenance, and listing.
+
+Library and package Signals also report `Identifier confusion` for assembly
+names and package IDs. Every non-ASCII identifier character is reported as an
+identity concern. Names whose leading characters exactly match `System`,
+`Microsoft`, or `Azure` after a bounded Greek/Cyrillic
+homoglyph fold receive the more specific `reserved-prefix homoglyph`
+classification. The summary reports only counts and matched prefixes. Select
+`Audit: Identifier Confusion` (or `@Audit`) for content-free locations,
+classifications, similarity, and code points; the Signal and audit rows never
+repeat the identifier value. This is separate from artifact-text containment:
+a homoglyph is ordinary graphic text and does not require `InertString`
+encoding, while an ASCII backslash triggers neither concern. Library Signals
+stays bounded to the selected assembly and its direct
+references. The explicit library audit additionally resolves and inspects the
+transitive reference closure.
+
 | Command | Scope | Signals |
 | ------- | ----- | ------- |
-| `library X -S Signals` | Metadata + provenance | Library metadata/provenance signals; a missing library PDB is acquired to resolve SourceLink. |
+| `library X -S Signals` | Metadata + provenance | Library metadata/provenance and identifier-confusion signals; a missing library PDB is acquired to resolve SourceLink. |
+| `library X -S "Audit: Identifier Confusion"` | Identifier audit | Adds content-free assembly-name, direct-reference, and resolved transitive-reference locations, classifications, similarity, and code points. |
 | `library X -S "Signals,SourceLink: Availability,SourceLink: Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
 | `library X -S "SourceLink: Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
-| `package X -S Signals` | Full package signals | Package and dependency signals, including known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
+| `package X -S Signals` | Full package signals | Package and dependency signals, including identifier confusion, artifact-text containment kinds, known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
+| `package X -S "Signals,Audit: Artifact Text"` | Artifact-text audit | Adds a content-free listing of the package-model field locations and Unicode concern kinds that required containment. |
+| `package X -S "Signals,Audit: Identifier Confusion"` | Identifier audit | Adds content-free package-ID and dependency-ID locations, classifications, similarity, and code points. |
 | `package X -S "SourceLink: Availability,SourceLink: Missing Files"` | Package SourceLink reachability | Audits the selected package libraries and retains library provenance on missing-file rows. |
 | `package X -S "SourceLink: Integrity"` | Package content verification (slow, opt-in) | Aggregates checksum results across selected package libraries; any mismatch exits non-zero. |
 
@@ -574,6 +607,7 @@ dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
+dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S @Package
 dotnet-inspect package System.Text.Json -S @Dependencies
 dotnet-inspect package System.Text.Json -S @Audit

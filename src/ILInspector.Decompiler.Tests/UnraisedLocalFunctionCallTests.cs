@@ -35,8 +35,10 @@ namespace ILInspector.Decompiler.Tests;
 public class UnraisedLocalFunctionCallTests
 {
     static (string Output, IrFunction Function) Raise(string methodName)
+        => Raise(typeof(UnraisedLocalFunctionSamples), methodName);
+
+    static (string Output, IrFunction Function) Raise(Type type, string methodName)
     {
-        var type = typeof(UnraisedLocalFunctionSamples);
         using var source = MetadataSource.Open(type.Assembly.Location);
         var function = IrImporter.Import(source, type.FullName!, methodName);
         Assert.NotNull(function);
@@ -45,6 +47,108 @@ public class UnraisedLocalFunctionCallTests
         Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
         Assert.NotNull(result.Output);
         return (result.Output!.ReplaceLineEndings("\n").Trim(), function!);
+    }
+
+    [Fact]
+    public void RaisedLocalFunctions_PreserveCallSiteRefKinds()
+    {
+        var type = typeof(LocalFunctionArgumentSamples);
+
+        var (refOutput, refFunction) = Raise(
+            type, nameof(LocalFunctionArgumentSamples.RefArgument));
+        Assert.Contains("return Read(ref value);", refOutput);
+        Assert.Contains("static int Read(ref int source)", refOutput);
+        AssertLocalRefKind(refFunction, ArgumentRefKind.Ref);
+        AssertFull(refFunction);
+
+        var (outOutput, outFunction) = Raise(
+            type, nameof(LocalFunctionArgumentSamples.OutArgument));
+        Assert.Contains("return Assign(out value);", outOutput);
+        Assert.Contains("static bool Assign(out int target)", outOutput);
+        Assert.Contains("TryValue(\"42\", out target)", outOutput);
+        AssertLocalRefKind(outFunction, ArgumentRefKind.Out);
+        AssertFull(outFunction);
+
+        var (inOutput, inFunction) = Raise(
+            type, nameof(LocalFunctionArgumentSamples.InArgument));
+        Assert.Contains("return Read(value);", inOutput);
+        Assert.Contains("static int Read(in int source)", inOutput);
+        Assert.DoesNotContain("Read(ref value)", inOutput);
+        AssertLocalRefKind(inFunction, ArgumentRefKind.In);
+        AssertFull(inFunction);
+
+        var (valueOutput, valueFunction) = Raise(
+            type, nameof(LocalFunctionArgumentSamples.ValueArgument));
+        Assert.Contains("return Read(value);", valueOutput);
+        Assert.Contains("static int Read(int source)", valueOutput);
+        Assert.DoesNotContain("Read(ref value)", valueOutput);
+        Assert.Empty(Assert.Single(valueFunction.Descendants.OfType<LocalFunctionInvocation>()).ParameterRefKinds);
+        Assert.Empty(Assert.Single(valueFunction.Descendants.OfType<LocalFunctionStatement>()).ParameterRefKinds);
+        AssertFull(valueFunction);
+    }
+
+    static void AssertLocalRefKind(IrFunction function, ArgumentRefKind expected)
+    {
+        Assert.Equal(
+            expected,
+            Assert.Single(Assert.Single(
+                function.Descendants.OfType<LocalFunctionInvocation>()).ParameterRefKinds));
+        Assert.Equal(
+            expected,
+            Assert.Single(Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>()).ParameterRefKinds));
+    }
+
+    static void AssertFull(IrFunction function)
+        => Assert.True(
+            function.Fidelity == DecompilationFidelity.Full,
+            string.Join(
+                Environment.NewLine,
+                FidelityRemarks.CollectCauses(function)
+                    .Select(cause => $"{cause.Code}/{cause.Discriminator} at {cause.Location}")));
+
+    [Fact]
+    public void UnknownByRefKind_DeclinesInsteadOfErasingTheUncertainty()
+    {
+        var type = typeof(LocalFunctionArgumentSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(LocalFunctionArgumentSamples.OutArgument));
+        Assert.NotNull(function);
+
+        var original = Assert.Single(
+            function!.Descendants.OfType<Call>(),
+            call => GeneratedCodeIdentity.IsSynthesizedLocalFunctionName(call.Callee.Name));
+        var arguments = original.DetachChildren().Cast<IrExpression>().ToList();
+        var replacement = new Call(
+            original.Callee with
+            {
+                ParameterRefKinds = [],
+                ParameterRefKindsFacts = ParameterRefKindFacts.Unknown,
+            },
+            original.IsVirtual,
+            arguments);
+        original.ReplaceWith(replacement);
+
+        var result = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Contains("_g__Assign_", result.Output);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RecursiveOptionalArgument_DeclinesWhenTheNestedPipelineElidesAnArgument()
+    {
+        var (output, function) = Raise(
+            typeof(LocalFunctionArgumentSamples),
+            nameof(LocalFunctionArgumentSamples.RecursiveOptionalArgument));
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Contains("_g__Read_", output);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
     [Theory]

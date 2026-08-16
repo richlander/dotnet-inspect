@@ -2,6 +2,8 @@ import { dotnet } from "./_framework/dotnet.js";
 
 let queryPackage;
 let queryPackageVersions;
+let resolvePackageDependencyVersion;
+let packageVersionSatisfiesDependencyRange;
 let getPackageDocument;
 let queryMemberSource;
 let queryMemberAnnotatedSource;
@@ -39,6 +41,8 @@ export async function initializeEngine(onStatus = () => {}) {
   const exports = await runtime.getAssemblyExports(config.mainAssemblyName);
   queryPackage = exports.BrowserInspectionEngine.QueryPackage;
   queryPackageVersions = exports.BrowserInspectionEngine.QueryPackageVersions;
+  resolvePackageDependencyVersion = exports.BrowserInspectionEngine.ResolvePackageDependencyVersion;
+  packageVersionSatisfiesDependencyRange = exports.BrowserInspectionEngine.PackageVersionSatisfiesDependencyRange;
   getPackageDocument = exports.BrowserInspectionEngine.GetPackageDocument;
   queryMemberSource = exports.BrowserInspectionEngine.QueryMemberSource;
   queryMemberAnnotatedSource = exports.BrowserInspectionEngine.QueryMemberAnnotatedSource;
@@ -155,6 +159,16 @@ export async function inspectPackageDependencies(request) {
     request.framework,
     request.assemblyId);
   return JSON.parse(json);
+}
+
+export async function resolveDependencyVersion(packageId, declaredRange) {
+  if (!resolvePackageDependencyVersion) throw new Error("The browser inspection engine is not initialized.");
+  return resolvePackageDependencyVersion(packageId, declaredRange || "");
+}
+
+export function dependencyVersionSatisfies(packageVersion, declaredRange) {
+  if (!packageVersionSatisfiesDependencyRange) throw new Error("The browser inspection engine is not initialized.");
+  return packageVersionSatisfiesDependencyRange(packageVersion, declaredRange || "");
 }
 
 export async function inspectPackageIntegrations(request) {

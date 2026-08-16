@@ -34,7 +34,7 @@ public sealed class CatchVariableScopePass : IIrPass
         // Traverse the function's own scope only: a nested lambda / local
         // function numbers its locals independently, so a slot index there is a
         // different variable and must not be conflated with this scope's locals.
-        var scope = DescendantsOutsideNestedFunctions(function.Body).ToList();
+        var scope = function.Body.DescendantsOutsideNestedFunctions.ToList();
         foreach (var clause in scope.OfType<CatchClause>())
         {
             if (clause.VariableIndex is not { } local)
@@ -56,7 +56,7 @@ public sealed class CatchVariableScopePass : IIrPass
 
     static bool LocalUsedOutsideClause(IReadOnlyList<IrNode> scope, CatchClause clause, int local)
     {
-        var inside = new HashSet<IrNode>(DescendantsOutsideNestedFunctions(clause));
+        var inside = new HashSet<IrNode>(clause.DescendantsOutsideNestedFunctions);
         foreach (var node in scope)
         {
             if (inside.Contains(node))
@@ -113,15 +113,4 @@ public sealed class CatchVariableScopePass : IIrPass
         }
     }
 
-    static IEnumerable<IrNode> DescendantsOutsideNestedFunctions(IrNode node)
-    {
-        foreach (var child in node.Children)
-        {
-            yield return child;
-            if (child is Lambda or LocalFunctionStatement)
-                continue;
-            foreach (var descendant in DescendantsOutsideNestedFunctions(child))
-                yield return descendant;
-        }
-    }
 }

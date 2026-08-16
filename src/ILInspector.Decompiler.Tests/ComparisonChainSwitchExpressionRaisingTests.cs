@@ -89,7 +89,12 @@ public class ComparisonChainSwitchExpressionRaisingTests
     // by the governing value's declared type. With <paramref name="extraTempRead"/>
     // the join reads the result temp a second time, so the temp is no longer the
     // single-read convergence signal a real switch expression produces.
-    static IrFunction BuildComparisonChainSwitch(TypeRef governingType, bool extraTempRead = false)
+    static IrFunction BuildComparisonChainSwitch(
+        TypeRef governingType,
+        bool extraTempRead = false,
+        bool nestedCaseEntry = false,
+        bool dispatchHeadCaseEntry = false,
+        bool nestedDispatchEntry = false)
     {
         var int32 = TypeRef.CoreLib("System", "Int32");
         LoadArgument V() => new(0, "v", governingType);
@@ -98,7 +103,16 @@ public class ComparisonChainSwitchExpressionRaisingTests
         Block ValueBlock(int offset, int result) =>
             AddAll(new Block(offset), new StoreLocal(0, int32, new Constant(result, int32)), new Branch(0x50));
 
-        var head = AddAll(new Block(0x00), new ConditionalBranch(Eq(0), 0x40));   // v == 0 => arm0
+        var head = new Block(nestedCaseEntry || nestedDispatchEntry ? 0x08 : 0x00);
+        if (dispatchHeadCaseEntry)
+        {
+            var enteringArm = AddAll(new Block(), new Branch(0x40));
+            head.Add(new IfStatement(
+                new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+                enteringArm,
+                elseArm: null));
+        }
+        head.Add(new ConditionalBranch(Eq(0), 0x40));   // v == 0 => arm0
         var test1 = AddAll(new Block(0x10), new ConditionalBranch(Eq(1), 0x30));  // v == 1 => arm1
         var defaultArm = ValueBlock(0x20, 30);
         var arm1 = ValueBlock(0x30, 20);
@@ -109,6 +123,18 @@ public class ComparisonChainSwitchExpressionRaisingTests
         join.Add(new Return(new LoadLocal(0, int32)));                     // (single read in the faithful shape)
 
         var container = new BlockContainer();
+        if (nestedCaseEntry || nestedDispatchEntry)
+        {
+            var enteringArm = AddAll(
+                new Block(),
+                new Branch(nestedDispatchEntry ? 0x10 : 0x40));
+            container.Add(AddAll(
+                new Block(0x00),
+                new IfStatement(
+                    new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+                    enteringArm,
+                    elseArm: null)));
+        }
         foreach (var block in new[] { head, test1, defaultArm, arm1, arm0, join })
             container.Add(block);
 
@@ -142,6 +168,39 @@ public class ComparisonChainSwitchExpressionRaisingTests
             BuildComparisonChainSwitch(TypeRef.CoreLib("System", "Int32"))));
         Assert.False(RaisesSwitchExpression(
             BuildComparisonChainSwitch(TypeRef.CoreLib("System", "Int32"), extraTempRead: true)));
+    }
+
+    [Fact]
+    [Trait("Area", "Pass")]
+    public void NestedBranchEnteringComparisonChainCase_DeclinesSwitchExpressionRaise()
+    {
+        var function = BuildComparisonChainSwitch(
+            TypeRef.CoreLib("System", "Int32"),
+            nestedCaseEntry: true);
+
+        Assert.False(RaisesSwitchExpression(function));
+    }
+
+    [Fact]
+    [Trait("Area", "Pass")]
+    public void DispatchHeadNestedBranchEnteringComparisonChainCase_DeclinesSwitchExpressionRaise()
+    {
+        var function = BuildComparisonChainSwitch(
+            TypeRef.CoreLib("System", "Int32"),
+            dispatchHeadCaseEntry: true);
+
+        Assert.False(RaisesSwitchExpression(function));
+    }
+
+    [Fact]
+    [Trait("Area", "Pass")]
+    public void NestedBranchEnteringSecondComparison_DeclinesSwitchExpressionRaise()
+    {
+        var function = BuildComparisonChainSwitch(
+            TypeRef.CoreLib("System", "Int32"),
+            nestedDispatchEntry: true);
+
+        Assert.False(RaisesSwitchExpression(function));
     }
 
     [Fact]
