@@ -277,6 +277,10 @@ public class StructuralCloneAnalysisTests
             BuildCalliTwinAssembly(
                 calli,
                 signature: [0x80, 0x00, 0x01]));
+        using PEReader zeroArityGenericImage = OpenImage(
+            BuildCalliTwinAssembly(
+                calli,
+                signature: [0x10, 0x00, 0x00, 0x01]));
 
         StructuralCloneComparison invalid =
             StructuralCloneAnalysis.Compare(
@@ -318,6 +322,7 @@ public class StructuralCloneAnalysisTests
         AssertFailedMetadataOperand(nestedPropertyImage);
         AssertFailedMetadataOperand(voidParameterImage);
         AssertFailedMetadataOperand(reservedHeaderImage);
+        AssertFailedMetadataOperand(zeroArityGenericImage);
         Assert.Equal(
             StructuralCloneRelation.Exact,
             StructuralCloneAnalysis.Compare(
@@ -461,6 +466,8 @@ public class StructuralCloneAnalysisTests
             { new byte[] { 0x40, 0x00, 0x01 } },
             { new byte[] { 0x10, 0x01, 0x00, 0x01 } },
             { new byte[] { 0x00, 0x00, 0x1B, 0x80, 0x00, 0x01 } },
+            { new byte[] { 0x10, 0x00, 0x00, 0x01 } },
+            { new byte[] { 0x00, 0x00, 0x1B, 0x10, 0x00, 0x00, 0x01 } },
         };
 
     public static TheoryData<byte[]> ValidMethodSignatures =>
@@ -857,7 +864,7 @@ public class StructuralCloneAnalysisTests
     [Theory]
     [InlineData("A", 1)]
     [InlineData("\u0100", 0)]
-    public void Compare_IncorrectUserStringSemanticFlagFails(
+    public void Compare_UserStringHintVariantsRemainSupported(
         string text,
         byte replacementTerminal)
     {
@@ -873,13 +880,31 @@ public class StructuralCloneAnalysisTests
                 MetadataTokens.MethodDefinitionHandle(2));
 
         Assert.Equal(
-            StructuralCloneDisposition.Failed,
-            comparison.Disposition);
-        Assert.Contains(
-            comparison.Blockers,
-            static blocker =>
-                blocker.Kind
-                    == StructuralCloneBlockerKind.InvalidMetadataOperand);
+            StructuralCloneRelation.Exact,
+            comparison.Relation);
+    }
+
+    [Fact]
+    public void Compare_CompilerProducedNonAsciiUserStringRemainsSupported()
+    {
+        using PEReader image = OpenFixture();
+        MetadataReader reader = image.GetMetadataReader();
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                Method(
+                    reader,
+                    nameof(
+                        StructuralCloneUserStringFixture.NonAsciiA)),
+                Method(
+                    reader,
+                    nameof(
+                        StructuralCloneUserStringFixture.NonAsciiB)));
+
+        Assert.Equal(
+            StructuralCloneRelation.Exact,
+            comparison.Relation);
     }
 
     [Fact]

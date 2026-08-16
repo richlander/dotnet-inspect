@@ -65,4 +65,14 @@ public static class StructuralCloneFixture
             GC.KeepAlive(value);
         }
     }
+
+}
+
+public static class StructuralCloneUserStringFixture
+{
+    public static string NonAsciiA()
+        => "café";
+
+    public static string NonAsciiB()
+        => "café";
 }

@@ -79,7 +79,8 @@ instruction bound applies before per-instruction metadata work.
 limits stop before metadata-operand validation and graph materialization.
 `Compare_MalformedModuleIdentityFailsWithoutThrowing`,
 `Compare_MalformedUserStringTrailerFails`,
-`Compare_IncorrectUserStringSemanticFlagFails`,
+`Compare_UserStringHintVariantsRemainSupported`,
+`Compare_CompilerProducedNonAsciiUserStringRemainsSupported`,
 `Compare_MethodDefinitionRequiresCompleteMethodSignature`, and
 `Compare_MalformedLocalSignatureFailsAndRetainsMeasuredReceiptCounts` gate the
 corresponding fail-closed metadata boundaries.

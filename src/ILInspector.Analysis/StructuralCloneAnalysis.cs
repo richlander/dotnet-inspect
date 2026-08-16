@@ -661,6 +661,8 @@ public static class StructuralCloneAnalysis
                         "The method signature is incomplete or has trailing data."));
             }
             if (HasInvalidMethodTypePosition(decodedSignature)
+                || methodSignatureHeader.IsGeneric
+                    && decodedSignature.GenericParameterCount == 0
                 || decodedSignature.GenericParameterCount
                     != methodGenericParameterCount
                 || decodedSignature.RequiredParameterCount
@@ -1174,21 +1176,9 @@ public static class StructuralCloneAnalysis
             return false;
         }
 
-        bool requiresSpecialHandling = false;
         for (int remaining = length - 1; remaining > 0; remaining -= 2)
-        {
-            ushort character = entry.ReadUInt16();
-            byte low = (byte)character;
-            requiresSpecialHandling |=
-                (character & 0xFF00) != 0
-                || low is >= 0x01 and <= 0x08
-                || low is >= 0x0E and <= 0x1F
-                || low is 0x27 or 0x2D or 0x7F;
-        }
-        byte expectedTerminal = requiresSpecialHandling
-            ? (byte)1
-            : (byte)0;
-        if (entry.ReadByte() != expectedTerminal)
+            entry.ReadUInt16();
+        if (entry.ReadByte() > 1)
             return false;
 
         reader.GetUserString(MetadataTokens.UserStringHandle(offset));
@@ -1354,7 +1344,8 @@ public static class StructuralCloneAnalysis
             reader.GetBlobReader(signature.Signature);
         SignatureHeader header = headerReader.ReadSignatureHeader();
         if (header.Kind != SignatureKind.Method
-            || HasInvalidMethodHeaderFlags(header))
+            || HasInvalidMethodHeaderFlags(header)
+            || header.IsGeneric)
             return MetadataOperandValidity.Invalid;
         if (!SignatureBlobGuard.IsSafeToDecode(
                 reader,
@@ -2782,7 +2773,9 @@ sealed class StructuralCloneSignatureTypeProvider
             || (signature.Header.RawValue
                     & StructuralCloneAnalysis.ExplicitThisSignatureFlag) != 0
                 && (signature.Header.RawValue
-                    & StructuralCloneAnalysis.HasThisSignatureFlag) == 0)
+                    & StructuralCloneAnalysis.HasThisSignatureFlag) == 0
+            || signature.Header.IsGeneric
+                && signature.GenericParameterCount == 0)
         {
             throw new BadImageFormatException(
                 "A function pointer does not have a method signature.");
