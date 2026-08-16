@@ -2066,7 +2066,6 @@ public class SectionPipelineTests
         {
             int exitCode = PackageCommand.WriteMultiPackageCount(
                 [Result("One"), Result("Two")],
-                rowSection: null,
                 new InspectionOptions
                 {
                     Count = true,
@@ -2130,7 +2129,6 @@ public class SectionPipelineTests
         {
             int exitCode = PackageCommand.WriteMultiPackageCount(
                 results,
-                rowSection: null,
                 options,
                 PackageSectionDescriptors.CreatePipeline());
             string output = File.ReadAllText(outputPath);
@@ -2164,7 +2162,6 @@ public class SectionPipelineTests
                         Version = "1.0.0",
                     },
                 ],
-                rowSection: null,
                 new InspectionOptions
                 {
                     Count = true,

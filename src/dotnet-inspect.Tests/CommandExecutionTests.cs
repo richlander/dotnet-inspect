@@ -12269,6 +12269,35 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Name: System.Text.Json", output);
     }
 
+    private static int CountMarkdownDataRows(string markdown)
+    {
+        var count = 0;
+        var afterSeparator = false;
+        foreach (string line in markdown.ReplaceLineEndings("\n").Split('\n'))
+        {
+            if (!line.StartsWith('|'))
+            {
+                afterSeparator = false;
+                continue;
+            }
+
+            bool isSeparator = line
+                .Split('|', StringSplitOptions.RemoveEmptyEntries)
+                .Select(cell => cell.Trim().Trim(':'))
+                .All(cell => cell.Length > 0 && cell.All(character => character == '-'));
+            if (isSeparator)
+            {
+                afterSeparator = true;
+                continue;
+            }
+
+            if (afterSeparator)
+                count++;
+        }
+
+        return count;
+    }
+
     [Fact]
     public async Task LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames()
     {
@@ -12291,7 +12320,7 @@ public partial class CommandExecutionTests
             Assert.Contains("IdentifierConfusionReferenceClosure[", output);
             Assert.Contains("U+0405→S", output);
             Assert.Contains("U+03BF→O", output);
-            Assert.Equal(2, CountOutput.CountMarkdownTableRows(output));
+            Assert.Equal(2, CountMarkdownDataRows(output));
         }
         finally
         {
@@ -12347,7 +12376,7 @@ public partial class CommandExecutionTests
             Assert.Empty(audit.Error);
             Assert.Equal(
                 1,
-                CountOutput.CountMarkdownTableRows(audit.Output));
+                CountMarkdownDataRows(audit.Output));
             Assert.Equal(0, tree.Exit);
             Assert.Empty(tree.Error);
             Assert.Equal(
@@ -12396,7 +12425,7 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             Assert.Equal(
                 2,
-                CountOutput.CountMarkdownTableRows(output));
+                CountMarkdownDataRows(output));
             Assert.Contains("U+039F→O", output);
             Assert.Contains("U+03BF→O", output);
         }
@@ -12507,7 +12536,7 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             Assert.Contains("AssemblyInfo.References[", output);
             Assert.DoesNotContain("IdentifierConfusionReferenceClosure[", output);
-            Assert.Equal(1, CountOutput.CountMarkdownTableRows(output));
+            Assert.Equal(1, CountMarkdownDataRows(output));
         }
         finally
         {
