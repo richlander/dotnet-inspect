@@ -1095,7 +1095,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.Contains("\"shape\": \"allocation-fanout\"", output);
         Assert.Contains("\"provenance\": \"aggregate\"", output);
         Assert.Contains("\"direct_sites\": 1", output);
@@ -1113,7 +1113,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.DoesNotContain("\"shape\": \"allocation-fanout\"", output);
     }
 
@@ -1227,7 +1227,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.Contains("\"shape\": \"box-value-type\"", output);
         Assert.Contains("\"allocation\": \"boxed System.Int32\"", output);
         Assert.Contains("\"path\": \"straight-line\"", output);
@@ -1247,7 +1247,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.Contains("\"candidate\": \"pt~", output);
         Assert.Contains("\"finding\": \"analysis.allocation\"", output);
         Assert.Contains("\"provenance\": \"exact\"", output);
@@ -1387,7 +1387,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, baseline.Exit);
-        Assert.Empty(baseline.Error);
+        AssertOnlyPerformanceAnalysisWarnings(baseline.Error);
         string token = FirstPerformanceRow(baseline.Output).GetProperty("token").GetString()!;
         string unpaddedToken = $"0x{token[2..].TrimStart('0')}";
 
@@ -1399,7 +1399,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, filtered.Exit);
-        Assert.Empty(filtered.Error);
+        AssertOnlyPerformanceAnalysisWarnings(filtered.Error);
         Assert.Contains($"\"token\": \"{token}\"", filtered.Output);
     }
 
@@ -1415,7 +1415,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.Contains("BoxInt(int)", output);
         Assert.Contains("\tbox-value-type\t", output);
     }
@@ -1433,7 +1433,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         using var document = JsonDocument.Parse(output.Trim());
         var boxing = document.RootElement.GetProperty("performance").GetProperty("boxing");
         Assert.Equal(1, boxing.GetArrayLength());
@@ -1453,7 +1453,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         var rows = output.TrimEnd().Split('\n');
         Assert.Single(rows.Skip(1));
     }
@@ -1470,7 +1470,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         var rows = PerformanceRows(output);
         Assert.NotEmpty(rows);
         Assert.All(rows, row => Assert.Equal(
@@ -1490,7 +1490,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.True(int.TryParse(output.Trim(), out var count), output);
         Assert.True(count > 1, $"expected post-filter count before --top, got {count}");
     }
@@ -1558,7 +1558,7 @@ public partial class CommandExecutionTests
             "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.Contains("## Performance: Async", output);
         Assert.Contains("CallsSyncSiblingFromAsync", output);
         Assert.Contains("ReadValueAsync", output);
@@ -1626,9 +1626,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Equal(
-            "This section (Performance: Async) produced no output.",
-            error.Trim());
+        AssertOnlyPerformanceAnalysisWarnings(
+            error,
+            "This section (Performance: Async) produced no output.");
     }
 
     [Fact]
@@ -13294,20 +13294,20 @@ public partial class CommandExecutionTests
             "library", TestAssemblyPath, "-D", "Performance", "--effective", "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.Contains("| Performance: Boxing | section", output);
         Assert.Contains("| Performance: Async | section", output);
 
         Assert.Equal(0, treeExit);
-        Assert.Empty(treeError);
+        AssertOnlyPerformanceAnalysisWarnings(treeError);
         Assert.Contains("└─ @Performance", treeOutput);
 
         Assert.Equal(0, countExit);
-        Assert.Empty(countError);
+        AssertOnlyPerformanceAnalysisWarnings(countError);
         Assert.Equal("10", countOutput.Trim());
 
         Assert.Equal(0, effectiveExit);
-        Assert.Empty(effectiveError);
+        AssertOnlyPerformanceAnalysisWarnings(effectiveError);
         Assert.Contains("| Performance: Boxing | section", effectiveOutput);
     }
 
@@ -15142,6 +15142,39 @@ public partial class CommandExecutionTests
 
         var marker = line.IndexOf("  section", StringComparison.Ordinal);
         return marker >= 0 ? line[..marker].TrimEnd() : line.TrimEnd();
+    }
+
+    private static void AssertOnlyPerformanceAnalysisWarnings(
+        string error,
+        string? terminalMessage = null)
+    {
+        string[] lines = error.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries
+                | StringSplitOptions.TrimEntries);
+        int warningCount = terminalMessage is null
+            ? lines.Length
+            : lines.Length - 1;
+
+        Assert.True(warningCount > 0, error);
+        if (terminalMessage is not null)
+        {
+            Assert.Equal(terminalMessage, lines[^1]);
+        }
+
+        Assert.All(
+            lines.Take(warningCount),
+            line =>
+            {
+                Assert.StartsWith(
+                    "Warning: performance analysis incomplete for ",
+                    line,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    ": BadImageFormatException: ",
+                    line,
+                    StringComparison.Ordinal);
+            });
     }
 
     private static JsonElement FirstPerformanceRow(string json)
