@@ -240,6 +240,20 @@ internal static partial class WorkflowContract
                 }
 
                 string key = $"{jobName}/{identity}";
+                if (key ==
+                    "test-windows/Run Research path cache test")
+                {
+                    RequireScalarValue(
+                        step,
+                        "run",
+                        "dotnet run --project " +
+                        "src/ILInspector.Research.Tests -c Release -- " +
+                        "-method ILInspector.Research.Tests." +
+                        "ResearchFactRegistryTests." +
+                        "AnalysisIndexCache_CaseDistinctPathsRetainDistinctEvidence " +
+                        "-failSkips",
+                        key);
+                }
                 ValidateOptionalStepValue(
                     step,
                     "if",
