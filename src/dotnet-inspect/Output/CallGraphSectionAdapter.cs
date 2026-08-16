@@ -78,7 +78,22 @@ internal static class CallGraphSectionAdapter
         foreach (var row in selectedRows)
         {
             var edge = row.Edge;
-            edges.Add(new Markout.GraphEdge(Key(edge.From), Key(edge.To)) { Label = edge.LoopLabel });
+            edges.Add(
+                new Markout.GraphEdge(
+                    Key(edge.From),
+                    Key(edge.To))
+                {
+                    Label = edge.AnyCallInLoop
+                        ? edge.CallSiteIds.IsEmpty
+                            && !string.IsNullOrEmpty(
+                                edge.LegacyLoopHint)
+                                ? edge.LegacyLoopHint
+                                : edge.Origin
+                                    == CallGraphEdgeOrigin.Callers
+                                    ? "loop call"
+                                    : "loop"
+                        : null,
+                });
         }
 
         return new Markout.Graph(nodes, edges, focusKey: Key(projection.Focus.Id));

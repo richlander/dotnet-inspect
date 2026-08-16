@@ -410,11 +410,12 @@ public static class InspectionCommandDefinitions
             // sections with -S; an explicit selection like -S "Top Leverage" must not silently gain
             // a second section and break single-section formats (--table/--tsv/--jsonl). When the
             // filter is a single --triage-shape that maps to one kind section, target that section
-            // directly so tabular output stays single-section; otherwise surface the @Performance
-            // group (via the "Performance Triage" category alias).
+            // directly. Otherwise select the homogeneous performance kind family, not the broader
+            // @Performance category (which also contains Top Leverage and Resource Triage and
+            // therefore cannot render as one tabular stream).
             if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
             {
-                var target = SectionNames.PerformanceTriage;
+                string[] targets = PerformanceKinds.Sections;
                 if (performanceTriage.Shapes is { Length: > 0 })
                 {
                     var kinds = performanceTriage.Shapes
@@ -422,9 +423,9 @@ public static class InspectionCommandDefinitions
                         .Distinct(StringComparer.Ordinal)
                         .ToArray();
                     if (kinds.Length == 1)
-                        target = kinds[0];
+                        targets = kinds;
                 }
-                select = [.. select ?? [], target];
+                select = [.. select ?? [], .. targets];
             }
 
             var options = new LibraryOptions

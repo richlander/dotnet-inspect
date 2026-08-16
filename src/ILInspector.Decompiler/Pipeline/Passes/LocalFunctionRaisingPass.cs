@@ -590,7 +590,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
     static bool CanPreserveParameterRefKinds(MethodRef method, int visibleParameterCount)
         => !method.ParameterTypes.Take(visibleParameterCount).Any(type => type.Kind == TypeRefKind.ByRef)
-            || method.ParameterRefKindsFacts == ParameterRefKindFacts.Known
+            || !method.HasRefReadOnlyParameters
+                && method.ParameterRefKindsFacts == ParameterRefKindFacts.Known
                 && method.ParameterRefKinds.Length == method.ParameterTypes.Length;
 
     static bool CanRewriteSelfCall(Call call)
