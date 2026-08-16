@@ -2973,7 +2973,7 @@ public static class CompileBackSourceComposer
         var targetParameters = MethodParameters(reader, method, signature);
         var targetTypeParameters = MethodTypeParameters(reader, method);
         bool targetHasOperatorIdentity = !isConstructor
-            && IsMetadataOperator(method, methodName);
+            && IsMetadataOperator(reader, method);
         bool targetOperatorIsRepresentable = targetHasOperatorIdentity
             && IsRepresentableOperator(
                 reader,
@@ -3490,10 +3490,8 @@ public static class CompileBackSourceComposer
                 reader,
                 reader.GetMethodDefinition(right));
 
-    static bool IsMetadataOperator(MethodDefinition method, string name)
-        => method.Attributes.HasFlag(MethodAttributes.SpecialName)
-            && method.GetGenericParameters().Count == 0
-            && OperatorNames.IsOperatorMethodName(name);
+    static bool IsMetadataOperator(MetadataReader reader, MethodDefinition method)
+        => ILInspector.Metadata.OperatorMetadata.IsMetadataOperator(reader, method);
 
     static bool IsRepresentableOperator(
         MetadataReader reader,
@@ -3504,55 +3502,13 @@ public static class CompileBackSourceComposer
         IReadOnlyList<CompileBackParameter> parameters,
         string? returnType)
     {
-        if (!IsMetadataOperator(method, name) || returnType is null)
-            return false;
-
-        bool isStatic = method.Attributes.HasFlag(MethodAttributes.Static);
-        bool isPublic = (method.Attributes & MethodAttributes.MemberAccessMask)
-            == MethodAttributes.Public;
-        if (OperatorNames.IsAssignmentOperatorMethodName(name))
-        {
-            return OperatorNames.IsCSharpInstanceAssignmentOperator(
-                    name,
-                    isStatic,
-                    isPublic,
-                    returnType,
-                    parameters.Count)
-                && parameters.All(parameter => parameter.Modifier is null);
-        }
-
-        int? expectedParameterCount = CSharpOperatorParameterCount(name);
-        if (!isStatic
-            || !isPublic
-            || returnType is "void" or "System.Void"
-            || expectedParameterCount is null
-            || parameters.Count != expectedParameterCount
-            || parameters.Any(parameter => parameter.Modifier is "ref" or "out"))
+        if (returnType is null
+            || !ILInspector.Metadata.OperatorMetadata.IsCSharpOperatorDeclaration(reader, method))
         {
             return false;
         }
 
         var declaringIdentity = CompileBackTypeIdentity.FromDefinition(reader, declaringType);
-        bool hasDeclaringOperand = parameters.Any(parameter =>
-            IsDeclaringTypeSpelling(parameter.Type.DisplayName, declaringIdentity));
-        if (IsConversionOperator(name))
-        {
-            if (!hasDeclaringOperand
-                && !IsDeclaringTypeSpelling(returnType, declaringIdentity))
-            {
-                return false;
-            }
-        }
-        else if (!hasDeclaringOperand)
-        {
-            return false;
-        }
-
-        if (name is "op_True" or "op_False"
-            && returnType is not ("bool" or "System.Boolean"))
-        {
-            return false;
-        }
         if (name is "op_Increment" or "op_Decrement"
             && !IsDeclaringTypeSpelling(returnType, declaringIdentity))
         {
@@ -3561,27 +3517,6 @@ public static class CompileBackSourceComposer
 
         return RequiredOperatorPair(name) is not { } pairName
             || HasOperatorPair(reader, declaringType, pairName, signature);
-    }
-
-    static int? CSharpOperatorParameterCount(string name)
-    {
-        if (IsConversionOperator(name))
-            return 1;
-
-        string uncheckedName = name.StartsWith("op_Checked", StringComparison.Ordinal)
-            ? $"op_{name["op_Checked".Length..]}"
-            : name;
-        return uncheckedName switch
-        {
-            "op_UnaryPlus" or "op_UnaryNegation" or "op_Increment" or "op_Decrement"
-                or "op_OnesComplement" or "op_True" or "op_False" or "op_LogicalNot" => 1,
-            "op_Addition" or "op_Subtraction" or "op_Multiply" or "op_Division"
-                or "op_Modulus" or "op_BitwiseAnd" or "op_BitwiseOr" or "op_ExclusiveOr"
-                or "op_LeftShift" or "op_RightShift" or "op_UnsignedRightShift"
-                or "op_Equality" or "op_Inequality" or "op_LessThan" or "op_GreaterThan"
-                or "op_LessThanOrEqual" or "op_GreaterThanOrEqual" => 2,
-            _ => null,
-        };
     }
 
     static bool IsConversionOperator(string name)
@@ -3625,7 +3560,7 @@ public static class CompileBackSourceComposer
         {
             var method = reader.GetMethodDefinition(methodHandle);
             if (reader.GetString(method.Name) != pairName
-                || !IsMetadataOperator(method, pairName))
+                || !IsMetadataOperator(reader, method))
             {
                 continue;
             }
@@ -5065,7 +5000,7 @@ public static class CompileBackSourceComposer
                 return null;
             }
             bool hasOperatorIdentity = !isConstructor
-                && IsMetadataOperator(method, name);
+                && IsMetadataOperator(reader, method);
             bool operatorIsRepresentable = hasOperatorIdentity
                 && IsRepresentableOperator(
                     reader,
