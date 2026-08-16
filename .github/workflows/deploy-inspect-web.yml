@@ -36,11 +36,17 @@ jobs:
         run: dotnet workload install wasm-experimental
 
       - name: Publish browser app
-        run: >
-          dotnet publish
-          prototypes/inspect-web/engine/InspectWeb.Engine.csproj
-          -c Release
-          --output artifacts/inspect-web-publish
+        shell: bash
+        run: |
+          version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
+          built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          dotnet publish \
+            prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+            -c Release \
+            --output artifacts/inspect-web-publish \
+            -p:VersionPrefix="$version" \
+            -p:SourceRevisionId="$GITHUB_SHA" \
+            -p:BuildTimestampUtc="$built_at"
 
       - name: Deploy to Azure Static Web Apps
         id: deploy

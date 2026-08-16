@@ -4,9 +4,11 @@ The `Signals` section reports package and library observations. It is an evidenc
 
 ```bash
 dotnet-inspect library System.Text.Json -S Signals
+dotnet-inspect library System.Text.Json -S "Signals,Audit: Identifier Confusion"
 dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
+dotnet-inspect package System.Text.Json -S "Signals,Audit: Identifier Confusion"
 dotnet-inspect package System.Text.Json -S "SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect package System.Text.Json -S "SourceLink: Integrity"
 ```
@@ -25,6 +27,183 @@ selected compatible/highest-TFM libraries and retain library provenance.
 
 See [SourceLink Exposure](sourcelink-exposure.md) for the product surfaces,
 PDB dependency, and network policy behind these sections.
+
+## Artifact text containment
+
+Package Signals includes an `Artifact text containment` row over the complete
+typed package presentation model.
+
+| Value | Meaning |
+| ----- | ------- |
+| `None` | No package-model scalar required visual containment. |
+| `Required` | At least one scalar required containment; Evidence lists its Unicode category kinds. |
+
+The reported kinds are control (`Cc`), format/bidi (`Cf`), unpaired surrogate
+(`Cs`), line separator (`Zl`), and paragraph separator (`Zp`). The row never
+echoes the concerning content. A literal backslash is not a concern: it may be
+rewritten solely to keep the visual encoding invertible, and that mechanical
+rewrite does not change the row to `Required`.
+
+Select `Audit: Artifact Text` for the detected cases, or select `@Audit` to
+include it with the other audit evidence:
+
+```bash
+dotnet-inspect package X -S "Signals,Audit: Artifact Text"
+dotnet-inspect package X -S @Audit
+```
+
+The detail table has `Location` and `Concerns` columns. A location is a stable
+package-model path such as `Owners[0]` or `PackageFiles[3].Path`; it is not the
+artifact value. One field produces one row containing all concern kinds found
+in that field. The section is explicit because package-file paths make its row
+count scale with package size. Markdown and JSONL use the same rows, and neither
+format includes the concerning content.
+
+The package result is gated by
+`PackageInspectionTextTests.RequiredContainment_CoversEveryPackageTextSourceIndividually`,
+which derives the expected text-source set from the package model and requires
+each source to contribute independently;
+`Package_MultiplePackages_SignalsIncludePackageFileConcerns` gates parity
+between single-package and survey-mode file-path evidence;
+`PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gates the
+content-free detail shapes, and
+`PackageSignals_ReportsNoArtifactTextConcernForBackslashes` gates the close
+negative. Library Signals does not yet report this row because the library
+presentation model still unwraps containment to bare strings at individual row
+properties rather than carrying `InertString` through the complete model.
+Reporting a library-wide result before that migration would overstate its
+coverage.
+
+## Identifier confusion
+
+Library and package Signals include an `Identifier confusion` row. The package
+scope covers the selected package ID, alternate package ID, dependency IDs,
+runtime dependency IDs, and RID companion-package IDs. Library Signals covers
+the selected assembly name and direct assembly-reference names. The explicit
+library audit additionally resolves and inspects the transitive reference
+closure; that unbounded traversal remains behind the explicit section gesture
+rather than entering Signals.
+
+| Value | Meaning |
+| ----- | ------- |
+| `None` | Every identifier inspected in that scope uses only ASCII characters. |
+| `Detected` | At least one inspected identifier contains a non-ASCII character. Evidence reports counts and any confirmed reserved prefixes. |
+| `Unavailable` | Required assembly-reference metadata could not be inspected. The command returns nonzero rather than claiming a clean identity scope. |
+
+The detector first applies a non-ASCII filter. It then compares the leading
+characters of each candidate with `System`, `Microsoft`, and `Azure`. The
+stronger `reserved-prefix homoglyph` classification is emitted only when every
+prefix character is either the corresponding ASCII character or maps to it
+through the bounded Greek/Cyrillic homoglyph catalog. The reported similarity
+is raw Levenshtein evidence, not a classification gate. This is a deliberately
+high-confidence catalog, not an implementation of the complete Unicode
+confusables table. Additional confirmed substitutions therefore cannot remove
+an otherwise exact folded reserved-prefix match.
+
+Select `Audit: Identifier Confusion` for the detected cases, or select
+`@Audit` to include them with the other audit evidence:
+
+```bash
+dotnet-inspect library X -S "Audit: Identifier Confusion"
+dotnet-inspect package X -S "Signals,Audit: Identifier Confusion"
+```
+
+For remotely acquired packages, the package audit performs bounded registry
+metadata acquisition so that alternate package IDs are part of the declared
+scope even when the identifier audit is selected by itself. When a valid feed
+advertises no deprecation metadata resource, local package identifiers remain
+authoritative and Signals discloses that the alternate-package scope was not
+available from that source.
+
+The detail table reports `Location`, `Kind`, `Concern`, `Reserved Prefix`,
+`Similarity`, and `Characters`. `Characters` contains code-point evidence such
+as `U+0405→S`; neither the Signal nor the audit rows repeat the identifier.
+Transitive rows use the audit-scoped
+`IdentifierConfusionReferenceClosure[index].Name` location rather than naming
+the separately selected public reference-tree projection.
+The filter is scoped to identifiers, so it does not reject ordinary non-English
+prose. An ASCII backslash is not non-ASCII and does not trigger this audit or
+artifact-text containment.
+
+`IdentifierConfusionDetectorTests` gates single and multiple confirmed
+homoglyphs, raw similarity evidence, generic non-ASCII cases, and ASCII close
+negatives.
+`DescribeCharacters_DeduplicatesRepeatedHomoglyphCodePoints` gates stable
+code-point rendering when one substitution occurs more than once.
+`PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent`
+gates the content-free Markdown and JSONL shapes, and
+`PackageAudit_InspectsPackageAndDependencyIdentifierLocations` plus
+`LibraryAudit_InspectsAssemblyAndReferenceNames` gate the typed identifier
+scopes. `LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames`
+gates the explicit library producer demand;
+`PackageAllLibrariesIdentifierConfusionAudit_CollectsTransitiveReferences`
+gates the survey-mode producer demand;
+`LibraryIdentifierConfusionAudit_FullEffectiveDiscoveryIncludesTransitiveOnlyConcern`
+gates full-effective discovery;
+`LibrarySignals_FullEffectiveDiscoveryPropagatesReferenceFailure`
+gates nonzero failure propagation when Signals effective discovery cannot
+inspect direct references;
+`LibraryIdentifierConfusionAudit_DoesNotRepeatDirectReferenceFromClosure`
+gates direct/closure identity deduplication;
+`LibraryAudit_PreservesCaseDistinctResolvedNames` gates case-distinct
+direct/closure suppression, while
+`LibraryIdentifierConfusionAudit_PreservesCaseDistinctUnresolvedReferences`
+gates preservation of those spellings through traversal;
+`LibraryIdentifierConfusionAudit_DeduplicatesDiamondClosure` gates one
+projection row per resolved identity when several reference paths converge;
+and
+`AssemblyReferenceTreeResolutionTests.DistinctSameNameReferences_DoNotSuppressResolvableIdentity`
+gates traversal of distinct typed AssemblyRefs that share a simple name;
+`LibraryIdentifierConfusionAudit_FailsWhenResolvedReferenceCannotBeRead`
+gates visible traversal failure for absolute and bare relative library paths.
+That test also gates preservation of healthy `@Audit` sections when the
+identifier-confusion member fails.
+`LibraryPackageIdentifierConfusionAudit_FailsWithoutPartialDocument` gates the
+same content-free hard failure for an exact package-backed library selection.
+`PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
+gates clean diagnostics, healthy partial results, and nonzero completion for
+survey-mode traversal failure.
+`LibraryCommand_TfmAll_PreservesHealthyIdentifierAuditResults` gates the same
+per-source outcome contract across target frameworks.
+`LibraryIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
+and
+`PackageAllLibrariesIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
+gate visible root AssemblyRef decode failure without a false `None` result.
+`LibraryReferenceTree_ReadFailureDiagnosticIsContentFree` gates the same
+content-free failure category on the public reference-tree projection.
+`PackagePipeline_IdentifierConfusionAudit_DemandsRegistrationMetadata` and
+`InspectAsync_IdentifierAuditMetadataIncludesAlternatePackageId` gate the
+alternate-package metadata demand, producer result, and moderated network cost.
+`InspectAsync_IdentifierAuditMetadataFailureRemainsVisible` gates an
+`Unavailable` result when that registry metadata cannot be established;
+`FetchAllMetadataAsync_FlatContainerOnlyCompletesOptionalMetadata` and
+`PackageCommand_FlatContainerOnlyPreservesLocalIdentifierDetection` gate that a
+feed which does not advertise optional deprecation endpoints is complete rather
+than failed;
+`FetchAllMetadataAsync_SearchDeprecationMustMatchRequestedVersion` gates
+version-specific authority for search deprecation metadata;
+`FetchAllMetadataAsync_DoesNotCacheMismatchedSearchVersion` gates retry after
+that mismatch, while
+`FetchAllMetadataAsync_CachesMatchingSearchVersionWithoutDeprecation` and
+`FetchAllMetadataAsync_CachesCatalogAuthorityDespiteSearchVersionMismatch`
+gate authoritative absence and catalog precedence;
+`FetchAllMetadataAsync_DoesNotCacheMismatchedInlineCatalogIdentity` and
+`FetchAllMetadataAsync_DoesNotCacheMismatchedFetchedCatalogIdentity` gate the
+same identity and retry contract for both catalog forms; and
+`FetchAllMetadataAsync_IgnoresMalformedCatalogReference` gates retry after a
+malformed catalog reference;
+`PackageCommand_IdentifierMetadataFailureIsNonzero` gates nonzero completion
+and content-free diagnostics for that failure;
+`MultiPackageCount_CountsSelectedAuditRows` gates scalar counts against the
+selected audit rows rather than unrelated package-info fields; and
+`MultiPackageCount_PreservesSelectedSectionMap` plus
+`MultiPackageCount_PreservesFixedOverviewMap` gate multi-section count maps.
+`Package_MultiplePackages_FixedOverviewCountPopulatesSections` gates the
+command path that supplies those fixed-overview sections, and
+`LibraryPackageSignals_FullEffectiveDiscoveryWarnsOnce` gates one diagnostic
+per package effective-discovery failure.
+`LibraryCommand_SelectedReferences_TreeDedupUsesShallowestPath` gates
+minimum-depth canonicalization under a bounded reference traversal.
 
 ## Build Audit Fields
 

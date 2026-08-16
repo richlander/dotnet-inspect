@@ -519,6 +519,53 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesExplicitInterfaceInitProperty()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IValue
+            {
+                int Value { get; init; }
+            }
+
+            public sealed class Holder : IValue
+            {
+                int IValue.Value { get; init; }
+            }
+            """);
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget(
+                "Holder",
+                "IValue.get_Value",
+                0);
+            var selected = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [target]));
+            var full = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [target],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.All(
+                [selected, full],
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.False(result.UsedCompileBackFloor, result.Detail);
+                    Assert.Contains(
+                        "int IValue.Value { get; init; }",
+                        result.Source,
+                        StringComparison.Ordinal);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_FullAutoInitPropertySiblingStaysSkeletonNotRecursive()
     {
         // Issue #3000: under Full, a non-target auto init-property sibling was enriched by
@@ -2951,8 +2998,7 @@ public class ReturnToSenderPrototypeTests
     public void CompileBackTargets_RoundTripsGenericExplicitInterfaceMethod()
     {
         // A generic method on a non-generic interface implemented explicitly keeps its method
-        // type parameters in the reconstructed `IBox.Wrap<T>(...)` header (constraints are
-        // inherited from the interface and must be omitted).
+        // type parameters in the reconstructed `IBox.Wrap<T>(...)` header.
         var assemblyPath = CompileFixture("""
             public sealed class ExplicitGenericFixture : IBox
             {
@@ -2982,6 +3028,49 @@ public class ReturnToSenderPrototypeTests
             Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.Contains("IBox.Wrap<T>(T value)", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain("IBox_Wrap", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsNullableGenericExplicitInterfaceMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            #nullable enable
+
+            public sealed class ExplicitNullableGenericFixture : INullableBox
+            {
+                T? INullableBox.Wrap<T>(T? value) where T : class
+                {
+                    return value;
+                }
+            }
+
+            public interface INullableBox
+            {
+                T? Wrap<T>(T? value) where T : class;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitNullableGenericFixture",
+                    "INullableBox.Wrap",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "T INullableBox.Wrap<T>(T value) where T : class",
+                result.Source,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -6820,6 +6909,76 @@ public class ReturnToSenderPrototypeTests
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains("public int Value { get; set; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsExplicitSetterOnlyProperties()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface ISetOnly
+            {
+                int Value { set; }
+                int this[int index] { set; }
+            }
+
+            public interface IInitOnly
+            {
+                int Value { init; }
+            }
+
+            public sealed class Holder : ISetOnly, IInitOnly
+            {
+                private static int _value;
+
+                int ISetOnly.Value
+                {
+                    set { _value = value; }
+                }
+
+                int ISetOnly.this[int index]
+                {
+                    set { _value = index + value; }
+                }
+
+                int IInitOnly.Value
+                {
+                    init { _value = value; }
+                }
+            }
+            """);
+        try
+        {
+            var targets = new[]
+            {
+                new ReturnToSender.RequestedTarget("Holder", "ISetOnly.set_Value", 0),
+                new ReturnToSender.RequestedTarget("Holder", "ISetOnly.set_Item", 0),
+                new ReturnToSender.RequestedTarget("Holder", "IInitOnly.set_Value", 0),
+            };
+
+            foreach (var target in targets)
+            {
+                var selected = Assert.Single(ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [target]));
+                var full = Assert.Single(ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [target],
+                    RoundTripScope.All,
+                    RoundTripBodyPolicy.Full));
+
+                Assert.All(
+                    [selected, full],
+                    result =>
+                    {
+                        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                        Assert.False(result.UsedCompileBackFloor, result.Detail);
+                    });
+            }
         }
         finally
         {

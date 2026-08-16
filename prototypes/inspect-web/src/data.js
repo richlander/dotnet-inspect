@@ -46,16 +46,14 @@ export function assemblyDescriptorForType(assemblies, type) {
     || assembly.name === `${bare}.dll`) ?? null;
 }
 
-export function uniqueCompatiblePackage(
-  packages,
-  packageId,
-  declaredRange,
-  versionSatisfies) {
-  const matches = packages.filter(candidate =>
-    !candidate.isRuntimePack
-    && candidate.id.toLowerCase() === packageId.toLowerCase()
-    && versionSatisfies(candidate.version, declaredRange));
-  return matches.length === 1 ? matches[0] : null;
+export function dependencyCoordinateCandidates(packages) {
+  return packages.map(candidate => ({
+    key: packageIdentityKey(candidate),
+    provenance: candidate.isRuntimePack ? "PlatformRuntime" : "NuGetPackage",
+    packageId: candidate.id,
+    version: candidate.version,
+    targetFramework: candidate.activeFramework
+  }));
 }
 
 export function dependencyGraphPackageKey(pkg) {
