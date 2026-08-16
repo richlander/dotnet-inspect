@@ -72,7 +72,8 @@ if (args is ["--validate-pin", ..])
     bool anyMalformed = false;
     foreach (string candidate in candidates)
     {
-        string? problem = ValidatePinFile(candidate);
+        string path = ResolvePathIdentity(candidate);
+        string? problem = ValidatePinFile(path);
         anyMalformed |= problem is not null;
         // One line per path, in the order given, and never more than one: the reason can
         // quote the file's own bytes (a parser error echoes the text it choked on), and a
@@ -80,8 +81,8 @@ if (args is ["--validate-pin", ..])
         // like a verdict. A caller matching output to input by position rather than by
         // parsing prose is then reading what this loop decided, not what a pin file wrote.
         Console.Out.WriteLine(OneLine(problem is null
-            ? $"Pin file '{candidate}' is well formed."
-            : $"Pin file '{candidate}' {problem}."));
+            ? $"Pin file '{path}' is well formed."
+            : $"Pin file '{path}' {problem}."));
     }
 
     Environment.ExitCode = anyMalformed ? 2 : 0;
@@ -1177,6 +1178,63 @@ static PackageSweepJsonContext SweepJsonContext() =>
 // occupies one line no matter what the file it describes contains.
 static string OneLine(string text) =>
     new([.. text.Select(c => char.IsControl(c) ? ' ' : c)]);
+
+/// <summary>
+/// Returns one absolute spelling for a filesystem identity by resolving every existing
+/// symbolic-link component.
+///
+/// <para><c>Directory.GetCurrentDirectory()</c> reports the physical path on macOS, while
+/// an absolute command-line argument can retain an alias such as <c>/var</c> for
+/// <c>/private/var</c>. The validator normalizes at its path-input boundary so it and the
+/// sweep proper report the same file alike. <c>EvilPoolPinTests</c> gates this with an
+/// explicit directory alias as well as the platform temporary-directory spelling.</para>
+/// </summary>
+static string ResolvePathIdentity(string path) =>
+    ResolvePathIdentityCore(path, linksRemaining: 40);
+
+static string ResolvePathIdentityCore(string path, int linksRemaining)
+{
+    string fullPath;
+    try
+    {
+        fullPath = Path.GetFullPath(path);
+    }
+    catch (Exception ex) when (ex is ArgumentException or NotSupportedException
+        or PathTooLongException)
+    {
+        return path;
+    }
+
+    string? root = Path.GetPathRoot(fullPath);
+    if (string.IsNullOrEmpty(root))
+        return fullPath;
+
+    string resolved = root;
+    foreach (string component in fullPath[root.Length..].Split(
+        [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+        StringSplitOptions.RemoveEmptyEntries))
+    {
+        string next = Path.Combine(resolved, component);
+        FileSystemInfo entry = Directory.Exists(next)
+            ? new DirectoryInfo(next)
+            : new FileInfo(next);
+
+        try
+        {
+            FileSystemInfo? target = entry.ResolveLinkTarget(returnFinalTarget: true);
+            resolved = target is not null && linksRemaining > 0
+                ? ResolvePathIdentityCore(target.FullName, linksRemaining - 1)
+                : next;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or NotSupportedException)
+        {
+            resolved = next;
+        }
+    }
+
+    return resolved;
+}
 
 // Reading and shape-checking a pin file in one place, so --validate-pin and the sweep
 // proper cannot disagree about what a well-formed pin is. Returns null when the file
