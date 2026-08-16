@@ -101,6 +101,95 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task PackageBoundary_ProjectsLoadedPackageAsGroupAndNode()
+    {
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            LibraryPackage());
+        using var client = new HttpClient(new FailingHandler());
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        InspectionGraphPackageBoundary boundary =
+            InspectionGraphPackageBoundary.Create(loaded);
+        InspectionGraphDocument document = boundary.Project(
+            InspectionGraphPackageBoundaryLens.Mixed);
+
+        Assert.Equal(3, document.Nodes.Length);
+        InspectionGraphGroup packageGroup =
+            Assert.Single(document.Groups);
+        Assert.Same(document.Nodes[0].Subject, packageGroup.Subject);
+        Assert.All(
+            document.Nodes.Skip(1),
+            node => Assert.Equal([packageGroup.Id], node.GroupIds));
+        Assert.All(
+            loaded.Members,
+            member =>
+            {
+                Assert.True(
+                    boundary.TryGetPackageSubject(
+                        member.Participant.Assembly.Registration,
+                        out InspectionGraphSubject.PackageSubject? owner));
+                Assert.Same(packageGroup.Subject, owner);
+            });
+    }
+
+    [Fact]
+    public async Task PackageBoundary_KeepsEffectiveTargetAcrossAssetFallback()
+    {
+        const string RequestedFramework = "net11.0";
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ($"lib/{Framework}/{Path.GetFileName(TargetPath)}",
+                    File.ReadAllBytes(TargetPath))));
+        using var client = new HttpClient(new FailingHandler());
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = RequestedFramework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        WorkspaceContextMember member = Assert.Single(loaded.Members);
+        var package =
+            Assert.IsType<RealizedMemberCoordinate.Package>(
+                member.Realized);
+        var provenance =
+            Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
+                member.Participant.Assembly.Provenance);
+        Assert.Equal(RequestedFramework, package.Framework);
+        Assert.Equal(Framework, provenance.Tfm);
+
+        InspectionGraphDocument document =
+            InspectionGraphPackageBoundary.Create(loaded)
+                .Project(InspectionGraphPackageBoundaryLens.PackageNodes);
+        var subject =
+            Assert.IsType<InspectionGraphSubject.PackageSubject>(
+                Assert.Single(document.Nodes).Subject);
+        Assert.Equal(
+            package,
+            Assert.IsType<InspectionGraphPackageIdentity.Realized>(
+                subject.Identity).Package);
+    }
+
+    [Fact]
     public async Task Group_BindsAnInContextReferenceToItsOwnDescriptor()
     {
         using var workspace = new InspectionWorkspace();

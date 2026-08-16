@@ -316,6 +316,9 @@ jobs:
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
 
+      - name: Run IL diff tests
+        run: dotnet run --project src/ILInspector.ILDiff.Tests -c Release
+
       - name: Run metadata tests
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
 
@@ -397,7 +400,7 @@ jobs:
   # Scope is deliberately reduced: the suites with an observed Windows-only
   # failure, plus the two cheap path-sensitive ones. Excluded on cost, not
   # principle: the slow decompiler gates and corpus sensor (the #3326 class),
-  # IL round-trip (its ilasm restore is a bash script), and packaging.
+  # the separate IL round-trip project, and packaging.
   #
   # Like every other job here, this one must never be named as a required
   # status check directly: it is path-gated and PR-only, and a required check
@@ -408,7 +411,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
@@ -432,6 +435,23 @@ jobs:
         id: build
         run: dotnet build dotnet-inspect.slnx -c Release
 
+      # GitHub's Windows image supplies Git Bash to `shell: bash`, but does not
+      # put that executable on the PATH inherited by .NET test processes.
+      # Publish its exact native path for IlToolsActivationTests rather than
+      # relying on the unrelated Windows Subsystem for Linux bash launcher.
+      #
+      # continue-on-error preserves the other Windows results during a feed
+      # outage. The terminal check below still makes loss of oracle coverage
+      # red after every suite has had a chance to report.
+      - name: Install ilasm/ildasm
+        id: iltools
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          printf 'ILTOOLS_BASH=%s\n' "$(cygpath -w "$(command -v bash)")" >> "$GITHUB_ENV"
+          eng/restore-iltools.sh --rid win-x64 --native-paths >> "$GITHUB_PATH"
+
       # Each suite below runs even when an earlier suite failed. The default
       # fail-fast behaviour reports the first broken suite and marks the rest
       # `skipped`, which reads as "fine" when it actually means "unknown" --
@@ -446,7 +466,6 @@ jobs:
       # `-trait- "Speed=Slow"` drops the entire class -- and both Windows-only
       # CLI regressions (#3519, #3445) lived in exactly that class. Filtering
       # here would faithfully reproduce the blind spot this leg exists to close.
-      # Some cases need ilasm/ildasm and skip when absent, which they are here.
       - name: Run CLI tests (all)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
@@ -481,6 +500,14 @@ jobs:
       - name: Run query tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
+
+      - name: Check ilasm/ildasm result
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.iltools.outcome != 'success' }}
+        shell: bash
+        run: |
+          echo "::error::Restoring ilasm/ildasm failed or timed out, so every Windows oracle test skipped." >&2
+          echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm' step." >&2
+          exit 1
 
   # net10.0 fallback build coverage. The official non-AOT "any" package targets
   # the net10.0 LTS floor (Directory.Build.props), but the full test lane builds

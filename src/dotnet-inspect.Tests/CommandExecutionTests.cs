@@ -8943,10 +8943,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        var replayed = JsonSerializer.Deserialize(
-            output,
-            ILInspector.Decompiler.AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument);
-        Assert.NotNull(replayed);
+        var replayed = ILInspector.Decompiler.AnnotatedSourceJson.DeserializeDocument(output);
 
         using var document = JsonDocument.Parse(output);
         var root = document.RootElement;
@@ -8954,6 +8951,7 @@ public partial class CommandExecutionTests
         // The document is a text buffer plus overlays: one canonical rendering,
         // and absolute spans into it. Lines and line ids are derived, not stored.
         string text = root.GetProperty("text").GetString()!;
+        Assert.Equal(text, replayed.Text);
         Assert.NotEmpty(text);
         Assert.False(root.TryGetProperty("lines", out _));
         Assert.False(root.TryGetProperty("placements", out _));
@@ -19692,6 +19690,34 @@ public partial class CommandExecutionTests
             output);
         Assert.DoesNotContain("<code>", output);
         Assert.DoesNotContain("`", output);
+    }
+
+    [Fact]
+    public async Task PInvokeMethods_LocalFixture_RendersMarkdownMachineRowAndCount()
+    {
+        var (markdownExit, markdown, markdownError) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--section", "P/Invoke Methods", "--tips", "q");
+        var (jsonlExit, jsonl, jsonlError) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--section", "P/Invoke Methods", "--jsonl", "--tips", "q");
+        var (countExit, count, countError) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--section", "P/Invoke Methods", "--count", "--tips", "q");
+
+        Assert.Equal(0, markdownExit);
+        Assert.Equal(0, jsonlExit);
+        Assert.Equal(0, countExit);
+        Assert.Empty(markdownError);
+        Assert.Empty(jsonlError);
+        Assert.Empty(countError);
+        Assert.Contains(
+            "| GetCurrentProcessId | `DotnetInspector.Tests.SamplePInvokeClass` | kernel32.dll | `int GetCurrentProcessId()` |",
+            markdown);
+        Assert.Equal(
+            "{\"name\":\"GetCurrentProcessId\",\"declaring_type\":\"DotnetInspector.Tests.SamplePInvokeClass\",\"module\":\"kernel32.dll\",\"signature\":\"int GetCurrentProcessId()\"}",
+            jsonl.Trim());
+        Assert.Equal("1", count.Trim());
     }
 
     [Fact]

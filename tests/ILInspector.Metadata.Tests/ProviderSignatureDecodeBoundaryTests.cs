@@ -10,8 +10,9 @@ namespace ILInspector.Metadata.Tests;
 /// stack for every nested element <em>before</em> the first provider callback,
 /// so a single over-deep blob overflows the stack in a way no managed
 /// <c>try/catch</c> can contain. Every top-level provider decode must therefore
-/// be prescanned with <c>SignatureBlobGuard.IsSafeToDecode</c>, and every nested
-/// cross-handle TypeSpec re-entry must be bounded by <c>TypeSpecGuard</c>.
+/// be prescanned with <c>SignatureBlobGuard.IsSafeToDecode</c> or its stronger
+/// complete-consumption form, and every nested cross-handle TypeSpec re-entry
+/// must be bounded by <c>TypeSpecGuard</c>.
 ///
 /// This census is a deny-list: any <c>Decode*Signature</c> invocation that is
 /// not one of the sanctioned guarded forms is a violation. A newly added
@@ -35,6 +36,7 @@ public class ProviderSignatureDecodeBoundaryTests
     {
         Path.Combine("src", "ILInspector.Metadata"),
         Path.Combine("src", "ILInspector.MetadataPrimitives"),
+        Path.Combine("src", "ILInspector.ILDiff"),
         Path.Combine("src", "ILInspector.Instructions"),
         Path.Combine("src", "ILInspector.Analysis"),
         Path.Combine("src", "ILInspector.Decompiler"),
@@ -1144,6 +1146,23 @@ public class ProviderSignatureDecodeBoundaryTests
             """
         },
         {
+            "complete prescan rejecting if",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                            reader,
+                            value.Signature,
+                            kind))
+                        return fallback;
+                    return value.DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
             "disposable TypeSpec scope",
             """
             class C
@@ -1414,7 +1433,7 @@ public class ProviderSignatureDecodeBoundaryTests
             && designation.Identifier.ValueText == scopeName;
     }
 
-    // `SignatureBlobGuard.IsSafeToDecode(reader, <recv>.Signature, ...) ?
+    // `SignatureBlobGuard.IsSafe[AndComplete]ToDecode(reader, <recv>.Signature, ...) ?
     // <recv>.Decode*Signature(...) : <fallback>`: some enclosing conditional
     // guards this decode in its true-branch with a prescan of the SAME
     // receiver's signature blob. Binding the guard to the decoded blob prevents
@@ -1548,7 +1567,8 @@ public class ProviderSignatureDecodeBoundaryTests
         InvocationExpressionSyntax invocation,
         string decodeReceiver)
         => invocation.Expression is MemberAccessExpressionSyntax member
-            && member.Name.Identifier.ValueText == "IsSafeToDecode"
+            && member.Name.Identifier.ValueText is
+                "IsSafeToDecode" or "IsSafeAndCompleteToDecode"
             && IsNamedExpression(member.Expression, "SignatureBlobGuard")
             && invocation.ArgumentList.Arguments.Any(argument =>
                 argument.Expression is MemberAccessExpressionSyntax blob
@@ -1979,7 +1999,11 @@ public class ProviderSignatureDecodeBoundaryTests
         {
             var dir = Path.Combine(root, assemblyRoot);
             if (!Directory.Exists(dir))
-                continue;
+            {
+                throw new DirectoryNotFoundException(
+                    $"Signature decode census root does not exist: {assemblyRoot}");
+            }
+
             foreach (var file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
                 yield return file;
         }
