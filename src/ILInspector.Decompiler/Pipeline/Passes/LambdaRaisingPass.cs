@@ -364,7 +364,8 @@ public sealed class LambdaRaisingPass : IIrPass
         bool hasByRefParameter =
             body.Signature.Parameters.Any(parameter => parameter.Type.Kind == TypeRefKind.ByRef);
         if (hasByRefParameter
-            && (creation.Method.ParameterRefKindsFacts != ParameterRefKindFacts.Known
+            && (creation.Method.HasRefReadOnlyParameters
+                || creation.Method.ParameterRefKindsFacts != ParameterRefKindFacts.Known
                 || creation.Method.ParameterRefKinds.Length != body.Signature.Parameters.Length))
         {
             return null;

@@ -166,8 +166,10 @@ required review shape.
   with any by-ref parameter carries the synthesized method's exact
   `ref`/`out`/`in` facts and renders the entire parameter list explicitly typed;
   unknown or misaligned ref-kind facts decline instead of defaulting to `ref`.
-  `LambdaRaisingPassTests` gates both the compiler-produced positive and the
-  emitted C# syntax.
+  `ref readonly` remains distinct metadata evidence and declines until the
+  declaration model can represent it rather than being misrendered as `in`.
+  `LambdaRaisingPassTests` gates the compiler-produced positives, decline
+  boundary, and emitted C# syntax.
 - **Pretty-but-wrong loses to ugly-but-correct — and it is usually free.** When
   a raise would emit prettier source but the shape is not *provably* the exact
   pattern, decline to the honest lowered scaffolding. On honest input the proof

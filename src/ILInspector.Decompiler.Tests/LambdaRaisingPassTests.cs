@@ -295,6 +295,28 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void RefReadonlyLambda_StaysLoweredUntilDeclarationKindIsRepresentable()
+    {
+        using var source = MetadataSource.Open(typeof(VoidLambdaRaisingSamples).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(VoidLambdaRaisingSamples).FullName!,
+            nameof(VoidLambdaRaisingSamples.RefReadonlyVoidLambda));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+
+        var creation = Assert.Single(function!.Descendants.OfType<DelegateCreation>());
+        Assert.Equal(ParameterRefKindFacts.Known, creation.Method.ParameterRefKindsFacts);
+        Assert.True(creation.Method.HasRefReadOnlyParameters);
+        Assert.DoesNotContain("=>", result.Output);
+        Assert.Contains("new RefReadonlyCallback", result.Output);
+    }
+
+    [Fact]
     public void ByRefLambdaWithUnknownRefKind_StaysLowered()
     {
         var holder = TypeRef.Definition("Synthetic", "Samples", "Outer+<>c");
@@ -718,6 +740,7 @@ public static class VoidLambdaRaisingSamples
 {
     public delegate void VoidCallback();
     public delegate void RefCallback(ref int value);
+    public delegate void RefReadonlyCallback(ref readonly int value);
 
     // The captured parameter is also consumed by the outer body, keeping the
     // display class in a local like NLOptNet.AddLessOrEqualZeroConstraints.
@@ -763,6 +786,9 @@ public static class VoidLambdaRaisingSamples
         => async task => await task;
 
     public static RefCallback ByRefVoidLambda() => (ref int value) => System.Console.WriteLine(value);
+
+    public static RefReadonlyCallback RefReadonlyVoidLambda()
+        => (ref readonly int value) => System.Console.WriteLine(value);
 
     static int Value() => 1;
 

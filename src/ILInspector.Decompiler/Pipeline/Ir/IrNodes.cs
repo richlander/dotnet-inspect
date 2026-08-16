@@ -111,6 +111,14 @@ public sealed record MethodRef(
     public ParameterRefKindFacts ParameterRefKindsFacts { get; init; } = ParameterRefKindFacts.Unknown;
 
     /// <summary>
+    /// True when at least one parameter declaration is <c>ref readonly</c>.
+    /// Its call-site behavior is represented by <see cref="ArgumentRefKind.In"/>,
+    /// but declaration-producing raises must decline until their declaration
+    /// model can preserve the distinct keyword.
+    /// </summary>
+    public bool HasRefReadOnlyParameters { get; init; }
+
+    /// <summary>
     /// Per-parameter C# defaults (<c>[Optional]</c> + <c>Constant</c>), aligned
     /// 1:1 with <see cref="ParameterTypes"/>. Empty means the defaults were not
     /// resolved (the pipeline populates this only for same-assembly
