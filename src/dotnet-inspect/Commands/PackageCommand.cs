@@ -904,7 +904,7 @@ public class PackageCommand
             {
                 if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
                 {
-                    WritePackageFilesJsonl(result, fileSection);
+                    WritePackageFilesJsonl(result, fileSection, options.Rows);
                     return PackageIntegrityExitCode(result);
                 }
 
@@ -2946,14 +2946,17 @@ public class PackageCommand
         });
     }
 
-    private static void WritePackageFilesJsonl(InspectionResult result, string section)
+    private static void WritePackageFilesJsonl(
+        InspectionResult result,
+        string section,
+        RowWindow? rows)
     {
         var text = new PackageInspectionText(result);
         var files = GetPackageFileTextRows(result, text, section);
         if (files.Count == 0)
             return;
 
-        foreach (var file in files)
+        foreach (var file in RowWindow.Apply(rows, files))
         {
             var row = new PackageFileJsonRow(file.Path, file.Size);
             Console.WriteLine(JsonSerializer.Serialize(row, PackageFileJsonRowContext.Default.PackageFileJsonRow));

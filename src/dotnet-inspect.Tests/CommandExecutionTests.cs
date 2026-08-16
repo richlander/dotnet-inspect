@@ -21672,6 +21672,63 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_SinglePackage_FilesJsonlWindowsRows()
+    {
+        var (package, directory) =
+            CreateLocalReadmePackage(
+                "Test.Jsonl.Single.Window",
+                "README.md",
+                "one");
+        try
+        {
+            var full = await RunAppAsync(
+                "package",
+                package,
+                "-S",
+                "Package files",
+                "--jsonl");
+            var windowed = await RunAppAsync(
+                "package",
+                package,
+                "-S",
+                "Package files",
+                "--jsonl",
+                "--rows",
+                "1");
+            var count = await RunAppAsync(
+                "package",
+                package,
+                "-S",
+                "Package files",
+                "--jsonl",
+                "--rows",
+                "1",
+                "--count");
+
+            Assert.Equal(0, full.Exit);
+            Assert.Equal(0, windowed.Exit);
+            Assert.Equal(0, count.Exit);
+            Assert.Empty(full.Error);
+            Assert.Empty(windowed.Error);
+            Assert.Empty(count.Error);
+            Assert.True(
+                full.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries).Length > 1);
+            string row = Assert.Single(
+                windowed.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+            using var _ = JsonDocument.Parse(row);
+            Assert.Equal("1", count.Output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_MultiplePackages_FilesJsonlWindowsCombinedRows()
     {
         var (firstPackage, firstDir) =
