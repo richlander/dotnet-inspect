@@ -18,7 +18,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// would need a labeled break) keeps it flat. Innermost loops wrap first, so
 /// nested do-whiles compose across the fixpoint. The entry and transfer
 /// boundaries are gated by <c>ExternalEntryToMultiBlockDoWhileHeader_Raises</c>,
-/// <c>ExternalEntryIntoMultiBlockDoWhileBody_StaysFlat</c>, and
+/// <c>ExternalEntryIntoMultiBlockDoWhileBody_StaysFlat</c>,
+/// <c>NestedExternalEntryToMultiBlockDoWhileHeader_Raises</c>,
+/// <c>NestedExternalEntryIntoMultiBlockDoWhileBody_StaysFlat</c>, and
 /// <c>SwitchOwnedBreakExitingLateDoWhileCandidate_StaysOwnedBySwitch</c>;
 /// <c>NestedSwitchBreakInsideDoWhileCandidate_KeepsOwnerAndRaises</c> pins the
 /// accepted locally owned boundary.
@@ -92,7 +94,7 @@ public sealed class DoWhileLoopPass : IIrPass
                 && StructuredTransferOwnership.ContainsBreakOrContinueTargetingOutside(blocks[source]))
                 return false;
 
-            foreach (var node in blocks[source].Children)
+            foreach (var node in blocks[source].DescendantsOutsideNestedFunctions)
             {
                 // EH control flow inside the loop is outside this slice.
                 if (sourceInside && node is Leave or EndFinally or EndFilter)
@@ -129,6 +131,7 @@ public sealed class DoWhileLoopPass : IIrPass
         Branch branch => [branch.TargetOffset],
         ConditionalBranch conditional => [conditional.TargetOffset],
         SwitchBranch sw => sw.TargetOffsets,
+        Leave leave => [leave.TargetOffset],
         _ => [],
     };
 

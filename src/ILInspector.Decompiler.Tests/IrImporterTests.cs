@@ -3618,6 +3618,36 @@ public class RaisingPassTests
         function.CheckInvariant();
     }
 
+    [Theory]
+    [InlineData(NestedEntryKind.Branch)]
+    [InlineData(NestedEntryKind.ConditionalBranch)]
+    [InlineData(NestedEntryKind.SwitchBranch)]
+    [InlineData(NestedEntryKind.Leave)]
+    public void NestedExternalEntryIntoMultiBlockDoWhileBody_StaysFlat(NestedEntryKind kind)
+    {
+        var function = ExternalEntryIntoMultiBlockLoop(entryTarget: 20, nestedEntry: kind);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Theory]
+    [InlineData(NestedEntryKind.Branch)]
+    [InlineData(NestedEntryKind.ConditionalBranch)]
+    [InlineData(NestedEntryKind.SwitchBranch)]
+    [InlineData(NestedEntryKind.Leave)]
+    public void NestedExternalEntryToMultiBlockDoWhileHeader_Raises(NestedEntryKind kind)
+    {
+        var function = ExternalEntryIntoMultiBlockLoop(entryTarget: 10, nestedEntry: kind);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
     [Fact]
     public void DecimalExternalHeaderEntry_RaisesOnEarlyPass()
     {
@@ -3712,14 +3742,49 @@ public class RaisingPassTests
         function.CheckInvariant();
     }
 
-    static IrFunction ExternalEntryIntoMultiBlockLoop(int entryTarget)
+    public enum NestedEntryKind
+    {
+        Branch,
+        ConditionalBranch,
+        SwitchBranch,
+        Leave,
+    }
+
+    static IrFunction ExternalEntryIntoMultiBlockLoop(
+        int entryTarget,
+        NestedEntryKind? nestedEntry = null)
     {
         var intType = TypeRef.CoreLib("System", "Int32");
         var boolType = TypeRef.CoreLib("System", "Boolean");
         var body = new BlockContainer();
 
         var entry = new Block(0);
-        entry.Add(new ConditionalBranch(new LoadArgument(0, "enterAtTarget", boolType), entryTarget));
+        if (nestedEntry is { } kind)
+        {
+            var then = new Block(0);
+            then.Add(kind switch
+            {
+                NestedEntryKind.Branch => new Branch(entryTarget),
+                NestedEntryKind.ConditionalBranch => new ConditionalBranch(
+                    new LoadArgument(0, "enterAtTarget", boolType),
+                    entryTarget),
+                NestedEntryKind.SwitchBranch => new SwitchBranch(
+                    new Constant(0, intType),
+                    [entryTarget]),
+                NestedEntryKind.Leave => new Leave(entryTarget),
+                _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+            });
+            entry.Add(new IfStatement(
+                new LoadArgument(0, "enterAtTarget", boolType),
+                then,
+                null));
+        }
+        else
+        {
+            entry.Add(new ConditionalBranch(
+                new LoadArgument(0, "enterAtTarget", boolType),
+                entryTarget));
+        }
         body.Add(entry);
 
         var preheader = new Block(5);
