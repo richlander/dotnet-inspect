@@ -678,6 +678,20 @@ public class LibraryBodyIndexTests
                     == "sync-call-in-async"
                 && candidate.Method.MetadataToken
                     == opportunity.Method.MetadataToken);
+        var generatedTypeScoped =
+            LibraryBodyIndex.Open(
+                path,
+                bodyTypeScope:
+                    type => type.Name.Contains(
+                        ">d__",
+                        StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            generatedTypeScoped
+                .OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == "sync-call-in-async"
+                && candidate.Method.MetadataToken
+                    == opportunity.Method.MetadataToken);
 
         Assert.DoesNotContain(
             index.OptimizationOpportunities,
@@ -1354,6 +1368,28 @@ public class LibraryBodyIndexTests
                 BuildMethodImplAsyncSourceAssembly(
                     includeMethodImpl: true,
                     inheritedMethodImpl: true,
+                    inheritedMethodImplBodyName:
+                        "CoreAsync",
+                    unrelatedSourceMethodImpl: true,
+                    incompatibleSourceMethodImpl:
+                        true));
+            var incompatibleSourceMethodImpl =
+                LibraryBodyIndex.Open(path);
+            Assert.DoesNotContain(
+                incompatibleSourceMethodImpl
+                    .OptimizationOpportunities,
+                opportunity => opportunity.Shape
+                        == "sync-call-in-async"
+                    && opportunity.Method.Name
+                        == "AnalyzeAsync");
+            Assert.Empty(
+                incompatibleSourceMethodImpl.Diagnostics);
+
+            File.WriteAllBytes(
+                path,
+                BuildMethodImplAsyncSourceAssembly(
+                    includeMethodImpl: true,
+                    inheritedMethodImpl: true,
                     sourceStartsNewSlot: true));
             var inheritedNewSlot =
                 LibraryBodyIndex.Open(path);
@@ -1707,7 +1743,8 @@ public class LibraryBodyIndexTests
         bool unrelatedSourceMethodImpl = false,
         bool runtimeAsyncSource = false,
         bool malformedSourceMethodImpl = false,
-        bool sourceImplementsOtherInterface = true)
+        bool sourceImplementsOtherInterface = true,
+        bool incompatibleSourceMethodImpl = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1863,6 +1900,17 @@ public class LibraryBodyIndexTests
                 0x12,
                 (byte)CodedIndex.TypeDefOrRefOrSpec(task),
             });
+        BlobHandle taskIntSignature =
+            metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    siblingSignatureHeader,
+                    0x01,
+                    0x12,
+                    (byte)CodedIndex.TypeDefOrRefOrSpec(
+                        task),
+                    0x08,
+                });
         MethodAttributes interfaceMethod =
             MethodAttributes.Public
             | MethodAttributes.Virtual
@@ -1956,7 +2004,9 @@ public class LibraryBodyIndexTests
                 interfaceMethod,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("OtherAsync"),
-                taskSignature,
+                incompatibleSourceMethodImpl
+                    ? taskIntSignature
+                    : taskSignature,
                 -1,
                 MetadataTokens.ParameterHandle(1));
         if (includeMethodImpl)

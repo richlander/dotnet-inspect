@@ -1537,6 +1537,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         TypeRef sourceDeclaringType,
         ResolvedMethodImplBody body)
     {
+        MemberRef source =
+            MemberResolver.ResolveMethod(
+                _reader,
+                sourceHandle,
+                sourceScope);
         foreach (var handle
             in sourceType.GetMethodImplementations())
         {
@@ -1556,6 +1561,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     sourceScope,
                     sourceMethod.GetDeclaringType(),
                     sourceDeclaringType,
+                    source,
                     body.Member);
             if (relation != TypeRelation.No)
             {
@@ -1569,11 +1575,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             return TypeRelation.No;
         }
 
-        MemberRef source =
-            MemberResolver.ResolveMethod(
-                _reader,
-                sourceHandle,
-                sourceScope);
         if (!SameVirtualSignature(source, body.Member))
             return TypeRelation.No;
 
@@ -1590,6 +1591,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         GenericScope sourceScope,
         TypeDefinitionHandle sourceType,
         TypeRef sourceDeclaringType,
+        MemberRef sourceBody,
         MemberRef target)
     {
         MemberRef declaration =
@@ -1598,6 +1600,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 declarationHandle,
                 sourceScope);
         if (!HasSupportedAsyncSiblingSignature(
+                declaration))
+        {
+            return TypeRelation.Unknown;
+        }
+        if (!SameMethodImplSignature(
+                sourceBody,
                 declaration))
         {
             return TypeRelation.Unknown;
@@ -1669,6 +1677,23 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             ? TypeRelation.Yes
             : TypeRelation.No;
     }
+
+    static bool SameMethodImplSignature(
+        MemberRef body,
+        MemberRef declaration)
+        => body.HasThis == declaration.HasThis
+            && body.GenericArity
+                == declaration.GenericArity
+            && body.SignatureHeader
+                == declaration.SignatureHeader
+            && body.RequiredParameterCount
+                == declaration.RequiredParameterCount
+            && AsyncSiblingTypesMatch(
+                body.ParameterTypes,
+                declaration.ParameterTypes)
+            && AsyncSiblingTypesMatch(
+                body.ReturnType,
+                declaration.ReturnType);
 
     ResolvedMethodImplBody? ResolveMethodImplBody(
         MetadataReader reader,

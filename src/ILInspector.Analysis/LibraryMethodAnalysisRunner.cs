@@ -206,16 +206,21 @@ internal sealed class LibraryMethodAnalysisRunner(
             {
                 return result;
             }
-            if (bodyTypeScope is not null
-                && !bodyTypeScope(caller.DeclaringType)
-                && !(plan.TypeScopeEvidenceSources
+            if (bodyTypeScope is not null)
+            {
+                TypeRef? sourceType = null;
+                bool mappedEvidence =
+                    plan.TypeScopeEvidenceSources
                         ?.TryGetValue(
                             caller.MetadataToken,
-                            out TypeRef? sourceType)
-                    == true
-                    && bodyTypeScope(sourceType)))
-            {
-                return result;
+                            out sourceType)
+                    == true;
+                TypeRef scopedType =
+                    mappedEvidence
+                        ? sourceType!
+                        : caller.DeclaringType;
+                if (!bodyTypeScope(scopedType))
+                    return result;
             }
             var body = _infrastructure.PeReader.GetMethodBody(
                 methodDefinition.RelativeVirtualAddress);
