@@ -5,7 +5,7 @@ name read from metadata can therefore be cyclic, pathologically deep, or chosen
 to amplify a small artifact into unbounded CPU, memory, or output.
 
 This design establishes one safety model for metadata traversal without
-collapsing the distinct output models owned by Metadata, Instructions,
+collapsing the distinct output models owned by Metadata, Instructions, ILDiff,
 Analysis, and Decompiler.
 
 ## Problem

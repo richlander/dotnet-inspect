@@ -198,14 +198,18 @@ API.
 
 ## When to extend the boundary
 
-Prefer extending the substrate only when a measured fixture or corpus case shows
-that current rows are too noisy or too weak for a product consumer. Likely
-extensions should remain Instructions-owned:
+Prefer extending ILDiff's typed row model only when a measured fixture or corpus
+case shows that current rows are too noisy or too weak for a product consumer.
+Diff-facing extensions should remain ILDiff-owned:
 
 - explicit EH availability/shape rows;
 - improved local/argument identity beyond raw slots;
 - unsupported-boundary diagnostics when a row is intentionally approximate;
 - more precise failure row kinds when a new unsupported boundary is measured.
+
+When an extension needs richer decoded evidence that benefits consumers beyond
+diffing, add that neutral evidence to Instructions separately without moving the
+diff row or policy into the substrate.
 
 Research, RTS, and CLI consumers should request or preserve these typed rows
 rather than synthesizing their own IL wording.
