@@ -679,6 +679,21 @@ Research overlay bridge, and the application layer:
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
 - **CSharp** owns model-bound C# spelling through `CSharpFormatter` and exact typed-request composition through `CSharpTypePrinter`, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes. It does not depend on Decompiler or Research.
 - **CSharpText** owns dependency-free, model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source ranges. It has no metadata, SRM, PDB, SourceLink, acquisition, decompiler, or presentation dependency and does not claim to be a parser.
+  `DeclarationIndexBuilder` owns the single forward token traversal, scope and
+  trust state, and linear span finalization.
+  `DeclarationHeaderGrammar` owns pure header truncation, classification,
+  declarator splitting, operator and delegate naming, and extension-scope
+  recognition over an immutable enclosing-scope snapshot. It owns no traversal
+  or span state.
+  `DeclarationIndexTests.EveryDeclarationRoslynReports_IsReportedIdenticallyByTheIndex`
+  gates corpus-level projection parity.
+  `DeclarationIndexTests.EachDeclaratorCarriesItsOwnInitializerFact`,
+  `DeclarationIndexTests.ACheckedOperator_IsNamedForItsSymbolAlone`,
+  `DeclarationIndexTests.DelegatesFunctionPointersAndDestructors_AreClassifiedApart`,
+  `DeclarationIndexTests.AConstructorNamedExtension_IsNotAnExtensionBlock`,
+  and
+  `DeclarationIndexTests.AGenericExtensionBlock_IsTransparentJustLikeAPlainOne`
+  gate the header grammar's focused positive and close-negative cases.
 - **Metadata** owns PE/PDB extraction and raw typed correlations. It does not know SourceLink maps, GUIDs, URLs, or provenance and does not expose its readers.
 - **SourceLink** owns map extraction and processing, canonical source paths, URL decoration, provenance, high-level resolution, source Findings, and SourceLink-aware audits. SourceLinkFetch remains the single map/provenance grammar owner and does not depend on Metadata.
 - **ReturnToSender** remains tools-only and owns closure discovery, cluster membership, synthesis, accessibility flattening, and body-policy selection. It passes typed requests to CSharp rather than maintaining a parallel declaration model.
