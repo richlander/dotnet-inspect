@@ -6,9 +6,12 @@
 
 - `find --json` now composes with `--columns` and `--fields`, emitting a
   projected JSON document with the same rows, windows, compactness, and
-  snake_case field vocabulary as the tabular formats. Invalid, duplicate, and
-  overlapping projections fail before command execution instead of producing
-  lossy output (#3536).
+  snake_case field vocabulary as TSV and JSONL output (#3536).
+- **Breaking:** Explicit empty projection values and duplicate
+  `--columns`/`--fields` entries are now rejected at parse time for every
+  command and format. Overlapping wildcard patterns resolve each source column
+  once, while a name matching no column continues to fail closed during
+  rendering (#3536).
 - Multi-package inspection now renders and counts `Signature`, package fields,
   and file projections consistently across Markdown, count, TSV, and JSONL
   output, including global row windows and empty package rows (#4004).
@@ -24,11 +27,15 @@
 
 ### Safety and acquisition
 
-- Package `Signals` and `Audit: Artifact Text` now identify package-model fields
-  containing control, format, surrogate, line-separator, or paragraph-separator
-  text without echoing the artifact content (#4090).
-- Package and library `Signals` and `Audit: Identifier Confusion` now report
-  non-ASCII identifiers and reserved-prefix homoglyphs with content-free
+- Package presentation now carries containment evidence across every package
+  text source through a typed boundary. Aggregate projections report whether
+  containment was required while explicit document payloads remain
+  byte-preserving (#3831).
+- Package `Signals` now summarizes the Unicode concern kinds found in
+  package-model text. `Audit: Artifact Text` adds content-free field locations
+  and concern kinds without echoing the artifact content (#4090).
+- Package and library `Signals` now summarize non-ASCII identifiers and
+  reserved-prefix homoglyphs. `Audit: Identifier Confusion` adds content-free
   locations, classifications, similarity, and code points (#4090).
 - PDB and SourceLink acquisition now handles pathless and content-shaped
   responses while preserving visible diagnostics for rejected evidence
@@ -43,8 +50,8 @@
 ### Experimental decompilation
 
 - Adds complete opt-in `var` spelling and a configurable
-  explicit-versus-target-typed object-creation style, with byte-divergence
-  disclosure in annotated output (#4220, #4252).
+  explicit-versus-target-typed object-creation style. Both choices are
+  byte-neutral (#4220, #4252).
 - Expands whole-member compile-back coverage for constructors, properties, and
   events; recovers variable-less `using` statements; preserves local-function
   argument ref kinds; and fixes several control-flow ownership, stack-merge,
@@ -181,9 +188,7 @@
 - Carries untrusted artifact text through typed inert-text boundaries and
   contains metadata and package-authored text before rendering. Malformed
   nuspec XML now produces a one-line location diagnostic, and descriptions
-  cannot impersonate tool headings or tables. Package projections expose
-  aggregate containment evidence while explicit document payloads remain
-  byte-preserving (#3679, #3772).
+  cannot impersonate tool headings or tables (#3679, #3772).
 - **Breaking:** removes the hidden `--oneline` compatibility alias and
   `DOTNET_INSPECT_FORMAT=oneline`/`one-line`; use `--table`.
 - Builds Native AOT packages with `OptimizationPreference=Speed`, worth a

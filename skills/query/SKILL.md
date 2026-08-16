@@ -39,7 +39,7 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 On `find`, plain `--json` retains the typed result shape. Adding
 `--columns` or `--fields` requests projected JSON instead: the result is a
 JSON document containing the same selected rows and snake_case fields as the
-tabular formats.
+`--tsv` and `--jsonl` formats.
 
 For `member -S "Call Graph"`, default Markdown is an edge table. Choose the
 view for the task without changing the graph or its ordered edge rows:

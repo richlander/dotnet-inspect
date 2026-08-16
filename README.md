@@ -545,7 +545,7 @@ Default output is Markdown. Use Markdown for evidence and narrative, `--table` f
 
 On `find`, plain `--json` retains the typed result shape. Add `--columns` or
 `--fields` to emit projected JSON with the same selected rows and snake_case
-fields as the tabular formats.
+fields as `--tsv` and `--jsonl`.
 
 Call Graph edge rows use the machine field names `from`, `from_group`,
 `to`, `to_group`, and `label` under `--tsv` and `--jsonl`. Markdown and
