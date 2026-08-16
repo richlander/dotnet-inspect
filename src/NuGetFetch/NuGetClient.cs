@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net.Http.Headers;
+using System.Text.Json;
 using NuGet.Versioning;
 
 namespace NuGetFetch;
@@ -147,7 +148,7 @@ public class NuGetClient(HttpClient client)
                     return version;
                 }
             }
-            catch (HttpRequestException)
+            catch (Exception ex) when (ex is HttpRequestException or JsonException)
             {
                 // Try next source
             }
