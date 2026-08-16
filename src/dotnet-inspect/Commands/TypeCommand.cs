@@ -105,9 +105,9 @@ public static class TypeCommand
                 var api = loaded.Api;
                 var pdbLookupPath = loaded.PdbLookupPath;
 
-                // --columns Description implicitly enables doc enrichment (local XML only)
+                // A projection that selects Description implicitly enables local XML enrichment.
                 var listOptions = options;
-                if (options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true)
+                if (ProjectionDiagnostics.MatchesAny(options.Columns, "Description"))
                     listOptions = options with { ShowDocs = true };
 
                 if (pdbLookupPath != null && listOptions.ShowDocs)

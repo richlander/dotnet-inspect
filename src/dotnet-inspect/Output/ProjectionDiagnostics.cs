@@ -222,6 +222,10 @@ public static class ProjectionDiagnostics
         return matched;
     }
 
+    internal static bool MatchesAny(string[]? requestedNames, params string[] candidates)
+        => requestedNames is { Length: > 0 }
+            && MatchedRequests(requestedNames, candidates).Count > 0;
+
     private static void ReportMissing(string[] missing, string kind)
     {
         if (missing.Length == 0)

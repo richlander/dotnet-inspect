@@ -127,8 +127,7 @@ public static class ApiOutputFormatter
                 view.Description = "*This is a type-forwarding library. Types shown are resolved from target libraries.*";
 
             var showDocs = options.ShowDocs
-                || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)
-                    || c.Equals("Kind", StringComparison.OrdinalIgnoreCase)) == true;
+                || ProjectionDiagnostics.MatchesAny(options.Columns, "Description", "Kind");
             PopulateTypeSections(view, api.Types, showDocs, sortRows: options.JsonOutput);
         }
 
@@ -886,7 +885,7 @@ public static class ApiOutputFormatter
             .ToList();
 
         bool docsRequested = options.ShowDocs
-            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+            || ProjectionDiagnostics.MatchesAny(options.Columns, "Description");
         bool hasDocs = docsRequested && allMembers.Any(m => m.Documentation.Summary != null);
         bool abbreviate = ShouldAbbreviateMemberSignatures(options);
         bool showSelect = false;
@@ -1009,7 +1008,7 @@ public static class ApiOutputFormatter
         var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
 
         var docsRequested = options.ShowDocs
-            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+            || ProjectionDiagnostics.MatchesAny(options.Columns, "Description");
         var description = docsRequested ? member.Documentation.Summary : null;
 
         view.SignatureRows =
@@ -2920,7 +2919,7 @@ public static class ApiOutputFormatter
         }
 
         bool showDescription = options.ShowDocs
-            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+            || ProjectionDiagnostics.MatchesAny(options.Columns, "Description");
 
         var rows = types
             .OrderBy(t => GetTypeKindSortOrder(t.Kind))

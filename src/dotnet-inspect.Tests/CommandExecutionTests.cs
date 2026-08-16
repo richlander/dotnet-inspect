@@ -6273,6 +6273,32 @@ public partial class CommandExecutionTests
         Assert.Equal(expected, actual);
     }
 
+    [Theory]
+    [InlineData("*")]
+    [InlineData("K*")]
+    public async Task TypeListing_WildcardProjectedJsonColumns_MatchJsonl(string columns)
+    {
+        var json = await RunAppAsync(
+            "type", "--platform", "System.Runtime", "-S", "Interfaces",
+            "--columns", columns, "--json", "--rows", "1", "--compact");
+        var jsonl = await RunAppAsync(
+            "type", "--platform", "System.Runtime", "-S", "Interfaces",
+            "--columns", columns, "--jsonl", "--rows", "1");
+
+        Assert.Equal(0, json.Exit);
+        Assert.Equal(0, jsonl.Exit);
+
+        using var jsonDocument = JsonDocument.Parse(json.Output);
+        var actual = Assert.Single(
+            jsonDocument.RootElement.GetProperty("interfaces").EnumerateArray());
+        using var jsonlDocument = JsonDocument.Parse(jsonl.Output);
+        Assert.Equal(
+            jsonlDocument.RootElement.EnumerateObject()
+                .Select(property => (property.Name, property.Value.GetString())),
+            actual.EnumerateObject()
+                .Select(property => (property.Name, property.Value.GetString())));
+    }
+
     [Fact]
     public async Task TypeListing_QuietFieldUnderProjectedJsonUsesApiInfo()
     {
