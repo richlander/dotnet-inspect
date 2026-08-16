@@ -24,29 +24,53 @@ dotnet "$DLL" --generated-fixtures alloc --json  # grade a subset (id/prefix/tag
 dotnet "$DLL" --generated-fixtures exception.unsuffixed.external --keep  # keep temp projects
 ```
 
-The structural clone relationship corpus is a separate product/harness
-boundary:
+The structural clone corpus is a separate product/harness boundary and the
+first exact-discovery demo:
 
 ```bash
 dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll
 dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll --json
 ```
 
+The text demo reports direct comparison and discovery independently:
+
+```text
+Structural clone relationship corpus: 6/6 passed
+PASS banal.authored.exact: expected Completed/Exact, actual Completed/Exact (Unique correspondence)
+...
+PASS closed-world exact discovery: expected 4 clusters, actual 4 clusters, disposition Completed
+  ...::ExactPositiveA = ...::ExactPositiveB
+  ...::MetadataOperandsA = ...::MetadataOperandsB
+  ...::SignatureHazardByte = ...::SignatureHazardUInt
+  ...::SignatureHazardObject = ...::SignatureHazardString
+```
+
 The committed
-`corpus/structural-clone-relationships.json` ledger supplies candidate pairs
-and separately expected disposition/relation. It also records orthogonal
-difficulty, intent, actionability, and tag axes. The harness resolves the
-declared type and method names to SRM handles, then grades only
-`StructuralCloneAnalysis.Compare`; it owns no clone normalization,
-correspondence, or verification logic.
+`corpus/structural-clone-relationships.json` ledger supplies candidate pairs,
+separate expected disposition/relation, and an explicit closed-world discovery
+population. It also records orthogonal difficulty, intent, actionability, and
+tag axes. The harness derives expected exact connected components only from
+the ledger's expected relations. It then resolves the declared identities to
+SRM handles, grades `StructuralCloneAnalysis.Compare`, runs
+`StructuralCloneAnalysis.Discover`, and requires the complete discovered
+clusters to equal those components. A missed family or an undeclared
+cross-component merge fails the discovery card.
+
+The harness owns no candidate fingerprint, clone normalization,
+correspondence, clustering, or verification logic. Negative cluster membership
+is graded only after discovery reports `Completed` with no suppressed buckets.
+Unsupported direct-comparison cases remain visible direct gates and do not
+downgrade an otherwise complete discovery pass.
 
 The ledger is strict: missing or unknown fields, integer enum values, schema
 versions, duplicate IDs, unknown axis values, incomplete identities, and
 relation/disposition contradictions fail instead of silently shrinking
-coverage. An explicitly supplied `--relationship-ledger` must name a file;
-it never falls back to the committed corpus. `StructuralCloneCorpusTests` also
-requires every public method in the dedicated fixture type to appear in the
-ledger, preventing fixture or relationship inventory drift.
+coverage. The discovery population must contain each distinct relationship
+method exactly once. An explicitly supplied `--relationship-ledger` must name
+a file; it never falls back to the committed corpus.
+`StructuralCloneCorpusTests` also requires every public method in the dedicated
+fixture type to appear in both ledger views, preventing fixture, relationship,
+or discovery-population drift.
 
 Each fixture builds in isolation: a consumer assembly (the inspected one) plus, when the
 fixture is cross-assembly, a referenced external assembly (with an extern alias for the
