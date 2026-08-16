@@ -23,9 +23,10 @@ Resume consolidation in `ILInspector.MetadataPrimitives`, but consolidate
   byte accounting with the shared `TypeSpecGuard`.
 - Provider-facing wrappers remain local when they turn the same mechanical
   rejection into different owner-specific outcomes.
-- The remaining `ILInspector.Metadata` namespaces in the
-  `ILInspector.MetadataPrimitives` project should move to
-  `ILInspector.MetadataPrimitives` in a dedicated mechanical slice.
+- Existing forwarded public identities in the `ILInspector.Metadata` namespace
+  remain compatibility-pinned. A source census should make that legacy family
+  explicit and require new neutral currencies to use
+  `ILInspector.MetadataPrimitives`.
 
 This document records the decision only. It does not authorize combining the
 implementation slices or changing failure behavior without the focused
@@ -33,9 +34,17 @@ evidence described below.
 
 ## Why the previous stop decision expired
 
-The old decision's decisive cost was that adopting shared primitives would
-give Analysis its first project reference and spend its zero-dependency
-independence. That premise no longer exists.
+The old decision tested the proposed adoption against its first real Analysis
+consumer. It correctly concluded that Analysis needed a semantic `TypeRef`, not
+Metadata's display-oriented decoder, and that sharing the remaining
+attribute-name walk would delete only about 15 stable lines. That
+coupling-to-payoff result still holds.
+
+What expired is the assumption that steps 4 and 5 were one all-or-nothing
+choice. Analysis and Decompiler have since adopted several neutral mechanics,
+and each now contains both the shared TypeSpec guard and an older local
+TypeSpec policy. The new evidence is a concrete policy split below the semantic
+models, not a reason to revisit the models themselves.
 
 At `607bc830f`:
 
@@ -43,12 +52,15 @@ At `607bc830f`:
   Metadata and MetadataPrimitives.
 - Decompiler directly references Metadata, MetadataPrimitives, Instructions,
   ControlFlow, CSharp, Findings, ILDiff, Text, and CSharpText.
-- Analysis and Decompiler already consume shared
-  `MetadataRelationshipTraversal`, `MetadataTypeDefinitionName`,
-  `AssemblyReferenceIdentity`, `SignatureBlobGuard`, and related rejection
-  types.
-- ILDiff is another direct MetadataPrimitives consumer for structural
-  signatures and exact identity mechanics.
+- Analysis and Decompiler already consume MetadataPrimitives-owned
+  `MetadataRelationshipTraversal`, `SignatureBlobGuard`, and related rejection
+  types. `StructuralCloneAnalysis` and `IrImporter` also call
+  `TypeSpecGuard.TryEnter` directly.
+- Both separately consume Metadata-owned `MetadataTypeDefinitionName` and
+  `AssemblyReferenceIdentity`; those are product identity currencies, not
+  evidence of MetadataPrimitives adoption.
+- ILDiff is another direct MetadataPrimitives consumer for
+  `MethodStructuralSignature` keys and bounded metadata mechanics.
 - Nineteen product `ISignatureTypeProvider<,>` implementations exist across
   the repository. The number is not itself a defect: the SRM provider pattern
   is how each owner projects one signature walk into its own result.
@@ -60,8 +72,9 @@ which differences are intentional policy.
 
 ## Current boundary
 
-`ILInspector.MetadataPrimitives` is an SRM-only leaf with no project
-references:
+`ILInspector.MetadataPrimitives` is currently an SRM-only leaf with no project
+references. That property is **not gated**; the first implementation slice must
+add a project-closure gate before citing it as enforced.
 
 ```text
                      ILInspector.MetadataPrimitives
@@ -154,8 +167,15 @@ Analysis and Decompiler currently duplicate:
 
 MetadataPrimitives already owns `TypeSpecGuard`, with a 256-entry and
 4,096-cumulative-byte contract plus the shared structural prescan. The local
-decoders therefore implement a second policy and can accept or reject different
-legal inputs from Metadata, Instructions, and ILDiff.
+decoders match those limits but add a 1,024-byte per-TypeSpec cap. They can
+therefore only reject more input than the shared policy; they do not accept
+anything the shared guard rejects.
+
+The repository's existing shared contract intentionally allows one shallow
+TypeSpec to consume the full 4,096-byte closure budget. Converging the semantic
+decoders on that contract is therefore an explicit acceptance change:
+well-formed, structurally bounded TypeSpecs from 1,025 through 4,096 bytes may
+change from `Unsupported` to a decoded Analysis or Decompiler shape.
 
 The first implementation slice should:
 
@@ -165,7 +185,8 @@ The first implementation slice should:
    disposable scope;
 3. map rejection into each owner's existing unsupported/incomplete result;
 4. remove the local counters and the separate 1,024-byte policy;
-5. preserve each decoder's successful structural projection byte-for-byte.
+5. preserve each decoder's successful structural projection byte-for-byte
+   outside the named 1,025–4,096-byte acceptance band.
 
 `ProviderSignatureDecodeBoundaryTests` is the existing anti-ratchet gate for
 top-level provider decodes and nested TypeSpec entry. The implementation slice
@@ -173,6 +194,12 @@ must update that gate so its accepted Analysis/Decompiler pattern is the shared
 `TypeSpecGuard`, then mutation-prove that bypassing the guard in either decoder
 fails. `TypeRefDecoderRecursionTests` in both owner suites must cover matching
 close negative cases and the shared cumulative budget.
+
+The evidence must include a shallow legal fixture inside the 1,025–4,096-byte
+band, close negatives immediately above 4,096 bytes and above the structural
+limits, and an allocation/output-budget canary for the newly admitted shape.
+The PR must report the before/after result for both owners rather than describe
+the change as behavior-neutral.
 
 Until that slice lands, identical legal-input acceptance across the semantic
 decoders is **not verified**.
@@ -190,6 +217,13 @@ Those outcomes are intentionally different. Do not move fallback construction
 or throwing behavior into MetadataPrimitives merely to delete similarly shaped
 methods. The shared owner is the prescan and TypeSpec admission mechanism;
 the consuming owner decides what rejection means.
+
+`StringSignatureDecodeBoundaryTests` currently scans Metadata and
+MetadataPrimitives only. Decompiler's requirement that string-producing
+decodes pass through its `GuardedSignatureText` and `GetValueOrThrow` policy is
+therefore **not verified**. The first implementation slice must extend the gate
+to Decompiler and mutation-prove that a new prescanned direct use still fails
+when it bypasses the owner gateway.
 
 A generic decode helper belongs in MetadataPrimitives only if at least three
 consumers need the same typed outcome contract. Line-count reduction alone is
@@ -210,28 +244,34 @@ A focused ILDiff cleanup may rename them to make the two projections obvious
 and may share genuinely byte-identical primitive spelling helpers, but it must
 preserve their distinct failure and normalization contracts.
 
-### 4. Finish namespace ownership
+### 4. Make the namespace split deliberate
 
 Most files in `ILInspector.MetadataPrimitives` still declare
 `namespace ILInspector.Metadata`, while newer neutral currencies use
-`ILInspector.MetadataPrimitives`. The mismatch was accepted as transitional in
-the original migration. With multiple direct consumers, it now hides assembly
-ownership at call sites and makes imports ambiguous.
+`ILInspector.MetadataPrimitives`. The mismatch began as transitional, but some
+old full type names are now explicit compatibility contracts:
 
-A dedicated namespace slice should:
+- `ILInspector.Metadata` forwards
+  `ILInspector.Metadata.SignatureBlobGuard` and
+  `ILInspector.Metadata.MethodStructuralSignature` to the primitives assembly;
+- `SignatureDecoderSafetyTests.SignatureBlobGuard_OldAssemblyIdentity_IsForwarded`
+  gates the former identity;
+- a CLR type forwarder cannot preserve an old full type name while changing its
+  namespace.
 
-1. move every MetadataPrimitives-owned public type to
-   `ILInspector.MetadataPrimitives`;
-2. update consumers explicitly rather than relying on transitive imports;
-3. avoid type forwarding or compatibility wrappers unless a real shipped
-   consumer is identified;
-4. add a source census that keeps project path, assembly owner, and namespace
-   aligned.
+A blanket namespace move would therefore be a breaking identity change, not a
+mechanical cleanup. The dedicated namespace slice should instead:
 
-Internal product libraries have no external API-stability commitment, but the
-slice still requires a full consumer build and focused tests because namespace
-movement is broad source churn. The namespace alignment property is currently
-**not gated**.
+1. inventory every public primitive as compatibility-pinned legacy namespace
+   or owner-native `ILInspector.MetadataPrimitives`;
+2. retain the old namespace for forwarded identities unless a separate
+   decision explicitly retires the compatibility gate;
+3. require new neutral currencies to use the owner-native namespace;
+4. add a source/forwarder census that fails on an unclassified public type or a
+   stale forwarding contract.
+
+This makes the mixed namespace deliberate without adding duplicate wrapper
+types. The classification property is currently **not gated**.
 
 ## Existing safety enforcement
 
@@ -239,12 +279,15 @@ The current boundary is protected by:
 
 - `ProviderSignatureDecodeBoundaryTests` for guarded provider decodes and
   bounded nested TypeSpec re-entry;
-- `StringSignatureDecodeBoundaryTests` for string-producing signature paths;
+- `StringSignatureDecodeBoundaryTests` for Metadata and MetadataPrimitives
+  string-producing signature paths; Decompiler policy is not yet covered;
 - `MetadataRelationshipTraversalTests` for bounded relationship mechanics;
 - `SignatureBlobGuardTests` and `SignatureDecoderSafetyTests` for malformed and
   adversarial signature shapes;
 - `LayeringTests.MetadataNameMatching_DoesNotDependOnFindingBackedText` for the
   MetadataPrimitives owner of neutral name matching.
+
+No current gate enforces that MetadataPrimitives has zero project references.
 
 An implementation that changes a stated safety or ownership property must
 extend the owning gate rather than relying on a green broad suite.
@@ -253,16 +296,18 @@ extend the owning gate rather than relying on a green broad suite.
 
 Keep the work in independently reviewable slices:
 
-1. **TypeSpec admission convergence** — Analysis and Decompiler consume the
-   shared guard; update the anti-ratchet and recursion gates.
-2. **Namespace ownership** — move the remaining primitive types and add the
-   namespace census after active consumers can absorb the mechanical churn.
+1. **TypeSpec admission and boundary gates** — add the leaf and Decompiler
+   string-gateway gates, converge Analysis and Decompiler on the shared guard,
+   and evidence the explicit 1,025–4,096-byte acceptance change.
+2. **Namespace ownership classification** — inventory legacy forwarded
+   identities and owner-native types, then add the source/forwarder census.
 3. **Optional local clarity** — rename ILDiff's two providers if the names
    continue to obscure their distinct projections.
 
 Do not combine these slices with a `TypeRef` redesign, provider-policy rewrite,
 or rendering change. Each slice must preserve product output and failure
-visibility.
+visibility except for the TypeSpec acceptance change explicitly owned by slice
+1.
 
 ## Non-goals
 
@@ -275,12 +320,14 @@ visibility.
   Analysis.
 - Deduplicating provider classes solely because they implement the same SRM
   interface.
+- A blanket namespace rename that breaks existing forwarded full type names.
 
 ## Superseded decision
 
 The June 2026 "stop after step 3" decision correctly rejected a unified
-display-oriented `TypeRef`, but it coupled that conclusion to an obsolete
-zero-dependency premise and treated all further adoption as one choice.
+display-oriented `TypeRef` and declined to share a two-consumer
+attribute-name walk whose payoff was only about 15 lines. It treated all
+further adoption as one choice.
 
 The durable part remains: semantic models stay local and consumers pull only
 demonstrably shared primitives downward. The superseded part is the prohibition
