@@ -333,8 +333,8 @@ public class StyleOptionCatalogTests
     {
         // A two-state knob's key = false is the keyed value's
         // SetSelected(false) path: it deselects that value and selects its sibling.
-        // This covers ordinary default-off booleans and the target-typed-new
-        // editorconfig preference, whose keyed value is the default-on value.
+        // Descriptor-level ConfigKey exposes only default-off knobs, so Get and
+        // ConfigKey retain the same polarity for generic hosts.
         foreach (var o in Options.Where(o => o.Values.Count == 2 && o.ConfigKey is not null))
         {
             var keyedValue = o.Values.Single(v => v.ConfigKey is not null);
@@ -668,6 +668,10 @@ public class StyleOptionCatalogTests
         Assert.Equal(
             "csharp_style_implicit_object_creation_when_type_is_apparent",
             targetTyped.ConfigKey);
+        // The key controls the default-on value, so the descriptor-level
+        // ConfigKey/Get convenience pair deliberately does not expose it with
+        // inverted polarity. Config resolution still consumes the value key.
+        Assert.Null(style.ConfigKey);
         Assert.False(style.OracleEndorsed);
         Assert.False(style.CorpusEndorsed);
         Assert.DoesNotContain(StyleOptionCatalog.OracleEndorsedOptions, o => o.Id == style.Id);

@@ -311,15 +311,18 @@ public sealed record StyleOptionDescriptor
     public bool CorpusEndorsed => CorpusEndorsedValue is not null;
 
     /// <summary>
-    /// The config key that controls the second value of a two-state knob, or
-    /// <see langword="null"/> for an API-only or multi-value knob. Multi-value
+    /// The config key that selects the sole non-default value of a two-state
+    /// knob, or <see langword="null"/> when the key belongs to the default value,
+    /// the knob is API-only, or the axis has more than two values. Multi-value
     /// axes may use either per-value keys or <see cref="ValueConfigKey"/>.
-    /// Convenience for the common boolean case
-    /// so a host recording a two-state taste choice can name the key without
-    /// walking <see cref="Values"/>.
+    /// Keeping this convenience aligned with <see cref="Get"/> lets a host persist
+    /// <c>ConfigKey = Get(options)</c> without inverting a default-on preference.
     /// </summary>
     public string? ConfigKey =>
-        Values.Count == 2 ? Values[1].ConfigKey : null;
+        Values.Count == 2
+            && !string.Equals(Values[1].Token, DefaultValue, StringComparison.Ordinal)
+                ? Values[1].ConfigKey
+                : null;
 
     /// <summary>
     /// The token of the value currently selected on <paramref name="options"/> —

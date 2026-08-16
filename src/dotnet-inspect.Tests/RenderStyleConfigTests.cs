@@ -1021,7 +1021,9 @@ public class RenderStyleConfigTests
         // reachable through the file vocabulary; a made-up key still warns. The
         // whitespace-only wrappers are the standing API-only examples (the
         // synthesis tier's slot-local-names is file-reachable under a tool-owned key).
-        var apiOnly = StyleOptionCatalog.Options.Where(o => o.ConfigKey is null).ToArray();
+        var apiOnly = StyleOptionCatalog.Options
+            .Where(o => o.ValueConfigKey is null && o.Values.All(v => v.ConfigKey is null))
+            .ToArray();
         Assert.Contains(apiOnly, o => o.Id == "wrap-splittable-expressions");
         Assert.Contains(apiOnly, o => o.Id == "disable-one-liner-wrapping");
 
