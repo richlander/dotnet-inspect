@@ -17448,6 +17448,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_GenericContainingTypeAndGenericMethod_ResolvesTheMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Collections.Generic.List<T>.ConvertAll<TOutput>",
+            "--platform", "System.Collections",
+            "-S", "Signature", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_SourcelessGenericShiftOperator_ResolvesTheMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Numerics.Vector<T>.operator<<",
+            "-S", SectionNames.Signature, "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Member_GenericTypeName_DoesNotAdmitMemberDetailSections()
     {
         var (exit, output, error) = await RunAppAsync(

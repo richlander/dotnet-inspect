@@ -157,4 +157,21 @@ public class TypeMatcherTests
         Assert.NotNull(result.Match);
         Assert.Equal("System.Action`2", result.Match);
     }
+
+    [Fact]
+    public void Lookup_prefers_exact_nested_segment_arities()
+    {
+        var candidates = new[]
+        {
+            "Example.ShiftedSiblingOuter`1.Inner`2",
+            "Example.ShiftedSiblingOuter`1.Inner`3"
+        };
+
+        var result = TypeMatcher.Lookup(
+            candidates,
+            "Example.ShiftedSiblingOuter<T>.Inner<A,B,C>");
+
+        Assert.Equal("Example.ShiftedSiblingOuter`1.Inner`3", result.Match);
+        Assert.Empty(result.Suggestions);
+    }
 }

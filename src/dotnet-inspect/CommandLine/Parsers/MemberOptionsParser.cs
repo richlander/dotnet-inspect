@@ -249,7 +249,7 @@ public static class MemberOptionsParser
         var ctorOnly = parseResult.GetValue(args.CtorOption);
 
         // Process dotted syntax and overload shorthand
-        var (dottedTypeFilter, shorthandIndex, memberDigest, memberGenericArity, memberKindFilter) = SharedParsers.ProcessMemberArguments(allMembers);
+        var (dottedTypeFilter, shorthandIndex, memberDigest, memberGenericArity, memberGenericArityConflict, memberKindFilter) = SharedParsers.ProcessMemberArguments(allMembers);
 
         // Use extracted type name if no explicit type was provided
         if (dottedTypeFilter != null && string.IsNullOrEmpty(typeName))
@@ -259,6 +259,10 @@ public static class MemberOptionsParser
         var (memberFilter, memberLimit) = BuildMemberFilter(allMembers, ctorOnly, out var clearShorthand);
         if (clearShorthand)
             shorthandIndex = null;
+        if (memberGenericArityConflict)
+            return new VersionError("A member selection cannot combine different generic arities.");
+        if (memberGenericArity.HasValue && memberFilter.Count != 1)
+            return new VersionError("A generic arity selector requires exactly one member name.");
 
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);

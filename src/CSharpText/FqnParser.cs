@@ -129,14 +129,37 @@ public static class FqnParser
         if (angleIdx <= 0)
             return typeName;
 
-        var closeIdx = typeName.LastIndexOf('>');
-        if (closeIdx <= angleIdx)
-            return typeName;
+        var normalized = new System.Text.StringBuilder(typeName.Length);
+        var segmentStart = 0;
+        while (angleIdx > 0)
+        {
+            var closeIdx = FindMatchingAngleBracket(typeName, angleIdx);
+            if (closeIdx < 0)
+                return typeName;
 
-        var baseName = typeName[..angleIdx];
-        int arity = CountTypeParameters(typeName.AsSpan((angleIdx + 1)..closeIdx));
-        var suffix = closeIdx + 1 < typeName.Length ? typeName[(closeIdx + 1)..] : "";
-        return $"{baseName}`{arity}{suffix}";
+            normalized.Append(typeName, segmentStart, angleIdx - segmentStart);
+            normalized.Append('`');
+            normalized.Append(CountTypeParameters(typeName.AsSpan((angleIdx + 1)..closeIdx)));
+            segmentStart = closeIdx + 1;
+            angleIdx = typeName.IndexOf('<', segmentStart);
+        }
+
+        normalized.Append(typeName, segmentStart, typeName.Length - segmentStart);
+        return normalized.ToString();
+    }
+
+    private static int FindMatchingAngleBracket(string value, int openIndex)
+    {
+        var depth = 0;
+        for (var i = openIndex; i < value.Length; i++)
+        {
+            if (value[i] == '<')
+                depth++;
+            else if (value[i] == '>' && --depth == 0)
+                return i;
+        }
+
+        return -1;
     }
 
     /// <summary>
@@ -151,6 +174,19 @@ public static class FqnParser
             var closeIdx = memberName.LastIndexOf('>');
             if (closeIdx > angleIdx && closeIdx == memberName.Length - 1)
                 memberName = memberName[..angleIdx];
+        }
+        else
+        {
+            var backtickIdx = memberName.LastIndexOf('`');
+            if (backtickIdx > 0
+                && backtickIdx < memberName.Length - 1
+                && memberName.AsSpan((backtickIdx + 1)..).IndexOfAnyExceptInRange('0', '9') < 0
+                && int.TryParse(
+                    memberName.AsSpan((backtickIdx + 1)..),
+                    System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out _))
+                memberName = memberName[..backtickIdx];
         }
 
         return NormalizeOperatorOrSpecialMemberName(memberName);

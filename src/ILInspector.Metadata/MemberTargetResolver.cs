@@ -110,6 +110,15 @@ public sealed record MemberTargetSelector(
 
     static int? TryGetGenericArity(string value)
     {
+        var backtick = value.LastIndexOf('`');
+        if (backtick > 0
+            && int.TryParse(
+                value.AsSpan((backtick + 1)..),
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var metadataArity))
+            return metadataArity;
+
         var angleStart = value.IndexOf('<');
         if (angleStart <= 0)
             return null;

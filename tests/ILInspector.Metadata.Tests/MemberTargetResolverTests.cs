@@ -7,6 +7,7 @@ public class MemberTargetResolverTests
     [InlineData("Name:2", "Name", 2, null, null, null)]
     [InlineData("Name~abc123", "Name", null, "abc123", null, null)]
     [InlineData("M<T>", "M", null, null, null, 1)]
+    [InlineData("M`1", "M", null, null, null, 1)]
     [InlineData("M<TKey,TValue>:3", "M", 3, null, null, 2)]
     [InlineData(".ctor", ".ctor", null, null, null, null)]
     [InlineData(".cctor", ".cctor", null, null, null, null)]
