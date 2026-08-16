@@ -31,67 +31,12 @@ internal static class AuditSignalBuilder
         DependencySignalSummary DependencySignals);
 
     /// <summary>
-    /// Signals derived from classified methods (unsafe public signatures, async kind) read
-    /// <see cref="LibraryInspection.ClassifiedMethodInspection"/>. The Signals section declares
-    /// <c>ClassifiedMethodsQuery</c>; typed query results are applied before this CLI-owned
-    /// composition scanner runs.
+    /// Applies typed assembly audit metadata, then composes it with the current CLI model.
+    /// Query facts remain metadata-owned; signal selection and presentation remain CLI-owned.
     /// </summary>
-    public static void PopulateLibraryAudit(string assemblyPath, LibraryInspection inspection, VerboseLogger logger)
-    {
-        AssemblyAuditMetadata? metadata = null;
-
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(assemblyPath);
-            metadata = session.AuditMetadata();
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning audit metadata in {assemblyPath}: {ex.Message}");
-        }
-
-        ApplyLibraryAudit(inspection, metadata);
-    }
-
-    /// <inheritdoc cref="PopulateLibraryAudit(string, LibraryInspection, VerboseLogger)"/>
-    public static void PopulateLibraryAudit(
-        AssemblyInspectionSession session,
-        string assemblyPath,
+    internal static void ApplyLibraryAudit(
         LibraryInspection inspection,
-        VerboseLogger logger)
-    {
-        AssemblyAuditMetadata? metadata = null;
-
-        try
-        {
-            metadata = session.AuditMetadata();
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning audit metadata in {assemblyPath}: {ex.Message}");
-        }
-
-        ApplyLibraryAudit(inspection, metadata);
-    }
-
-    /// <summary>
-    /// Recomputes audit signals after a later pass has added evidence, reusing the metadata the
-    /// audit scanner already captured. Falls back to a full populate when no scanner captured any
-    /// — an unopenable assembly, or a caller that bypassed the scanner registry — so this is safe
-    /// to call unconditionally.
-    /// </summary>
-    public static void RefreshLibraryAudit(string path, LibraryInspection inspection, VerboseLogger logger)
-    {
-        if (inspection.AuditMetadata is null)
-        {
-            PopulateLibraryAudit(path, inspection, logger);
-            return;
-        }
-
-        RefreshLibraryAuditSignals(inspection);
-    }
-
-    private static void ApplyLibraryAudit(LibraryInspection inspection, AssemblyAuditMetadata? metadata)
+        AssemblyAuditMetadata? metadata)
     {
         inspection.AuditMetadata = metadata;
         RefreshLibraryAuditSignals(inspection);
@@ -101,11 +46,10 @@ internal static class AuditSignalBuilder
     /// Recomputes audit signals from already-captured metadata plus the current model, without
     /// reopening the assembly.
     ///
-    /// The source-audit and integrity passes run after the scanners and add evidence that signals
+    /// The source-audit and integrity passes run after the query and add evidence that signals
     /// depend on, so signals have to be recomputed once each pass lands. Only the model-derived
-    /// half of the computation changes; reopening the assembly to redo the other half wasted up to
-    /// three extra opens and reintroduced the window the shared session closes, since those opens
-    /// happen after the scanner context is disposed.
+    /// half of the computation changes; assembly metadata remains the typed query result captured
+    /// from the command-owned image.
     ///
     /// Gated by <c>AuditSignalRefresh_DoesNotReopenTheAssembly</c>.
     /// </summary>
