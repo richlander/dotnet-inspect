@@ -73,6 +73,20 @@ public class CallerLoopFixture
         int depth)
         => System.Linq.Enumerable.Where(values, value => value < depth);
 
+    public Delegate LoadScanFunctionDuringTraversal(int[] values, int depth)
+    {
+        foreach (int value in values)
+        {
+            if (depth > 0)
+                _ = LoadScanFunctionDuringTraversal(values, depth - 1);
+        }
+        return new Func<
+            System.Collections.Generic.IEnumerable<int>,
+            int,
+            System.Collections.Generic.IEnumerable<int>>(
+                GetChildrenOutsideTraversal);
+    }
+
     public static int EnumerateChildrenOnce(int[] values, int depth)
     {
         int result = 0;

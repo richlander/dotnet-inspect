@@ -3032,6 +3032,29 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_FunctionLoadIsNotARecursiveInvocation()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+
+        Assert.Contains(
+            index.DirectCalls,
+            call =>
+                call.Caller.Name
+                    == "LoadScanFunctionDuringTraversal"
+                && call.Callee.Name
+                    == "GetChildrenOutsideTraversal"
+                && call.Kind == CallKind.LoadFunction);
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity =>
+                opportunity.Method.Name
+                    == "GetChildrenOutsideTraversal"
+                && opportunity.Shape
+                    == "scan-method-in-recursive-traversal");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_FlagsImmediateLazyQueryTerminalInvokedInCallerLoop()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -4744,8 +4767,30 @@ public class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce()
     {
-        const int referenceCount = 100;
-        const int parameterCount = 2_000;
+        byte[] image = EmitLiftedMemberReferenceReplayAssembly(
+            referenceCount: 100,
+            ownerCount: 1,
+            parameterCount: 2_000);
+
+        Assert.Equal(1, CountMethodReferenceResolutions(image));
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies()
+    {
+        byte[] image = EmitLiftedMemberReferenceReplayAssembly(
+            referenceCount: 1,
+            ownerCount: 100,
+            parameterCount: 2_000);
+
+        Assert.Equal(1, CountMethodReferenceResolutions(image));
+    }
+
+    static byte[] EmitLiftedMemberReferenceReplayAssembly(
+        int referenceCount,
+        int ownerCount,
+        int parameterCount)
+    {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             0,
@@ -4815,14 +4860,18 @@ public class LibraryBodyIndexTests
         ownerSignature.WriteByte(0);
         ownerSignature.WriteByte(0);
         ownerSignature.WriteByte(1);
-        MethodDefinitionHandle owner =
+        BlobHandle ownerSignatureHandle =
+            metadata.GetOrAddBlob(ownerSignature);
+        for (int i = 0; i < ownerCount; i++)
+        {
             metadata.AddMethodDefinition(
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Owner"),
-                metadata.GetOrAddBlob(ownerSignature),
+                ownerSignatureHandle,
                 ownerBody,
                 MetadataTokens.ParameterHandle(1));
+        }
         metadata.AddMethodDefinition(
             MethodAttributes.Private | MethodAttributes.Static,
             MethodImplAttributes.IL,
@@ -4839,7 +4888,12 @@ public class LibraryBodyIndexTests
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         pe.Serialize(image);
-        using var stream = new MemoryStream(image.ToArray());
+        return image.ToArray();
+    }
+
+    static int CountMethodReferenceResolutions(byte[] image)
+    {
+        using var stream = new MemoryStream(image);
         using var peReader = new PEReader(stream);
         MetadataReader reader = peReader.GetMetadataReader();
         int resolved = 0;
@@ -4848,25 +4902,23 @@ public class LibraryBodyIndexTests
             reader,
             peReader,
             resolver: null,
-            methodReferenceResolved: (method, _) =>
-            {
-                if (method == owner)
-                    resolved++;
-            });
+            methodReferenceResolved: (_, _) =>
+                Interlocked.Increment(ref resolved));
 
         _ = builder.Build(LibraryBodyAnalysisPlan.Create(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities,
             methodScope: null,
             typeScope: null));
-
-        Assert.Equal(1, resolved);
+        return resolved;
     }
 
     [Theory]
-    [InlineData(0x0F)]
-    [InlineData(0xFF)]
+    [InlineData(0x0F, 0x00)]
+    [InlineData(0xFF, 0x00)]
+    [InlineData(0x1E, 0x7F)]
     public void OptimizationOpportunities_MalformedMethodSpecCannotAuthenticateOwner(
-        byte malformedType)
+        byte malformedType,
+        byte genericParameterIndex)
     {
         byte[] image = File.ReadAllBytes(
             typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -4922,6 +4974,7 @@ public class LibraryBodyIndexTests
             Assert.Equal(4, image[blob]);
             Assert.Equal(0x1E, image[blob + 3]);
             image[blob + 3] = malformedType;
+            image[blob + 4] = genericParameterIndex;
         }
 
         LibraryBodyIndex index =
@@ -4940,6 +4993,62 @@ public class LibraryBodyIndexTests
                         .GenericObjectEqualsLocalFunction),
                     StringComparison.Ordinal));
         Assert.NotEmpty(index.Diagnostics);
+    }
+
+    [Fact]
+    public void LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope()
+    {
+        byte[] image = EmitAssembly(
+            "SameName",
+            metadata =>
+            {
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Sample"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+                AssemblyReferenceHandle external =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString("SameName"),
+                        new Version(2, 0, 0, 0),
+                        default,
+                        metadata.GetOrAddBlob(
+                            new byte[]
+                            {
+                                0, 17, 34, 51,
+                                68, 85, 102, 119,
+                            }),
+                        default,
+                        default);
+                metadata.AddTypeReference(
+                    external,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Sample"));
+            });
+        using var stream = new MemoryStream(image);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle localHandle =
+            reader.TypeDefinitions.Last();
+        TypeReferenceHandle externalHandle =
+            reader.TypeReferences.Single();
+        TypeRef local = TypeRefDecoder.Instance.GetTypeFromDefinition(
+            reader,
+            localHandle,
+            0);
+        TypeRef external = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            externalHandle,
+            0);
+
+        Assert.Equal(local, external);
+        Assert.False(
+            LibraryBodyAnalysisBuilder
+                .SameMethodReferenceDeclaringType(
+                    local,
+                    external));
     }
 
     [Fact]

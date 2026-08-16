@@ -44,7 +44,13 @@ internal interface ILibraryMethodAnalysisInfrastructure
         IReadOnlyCollection<ExceptionRegion> exceptionRegions);
 
     IMethodCallResolver CreateCallResolver(
-        GenericScope scope);
+        GenericScope scope,
+        MethodIdentity caller);
+
+    MemberRef ResolveMethod(
+        int token,
+        GenericScope scope,
+        MethodDefinitionHandle caller);
 
     string? CalliReturnDetail(
         int token,
@@ -207,10 +213,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                                 caller),
                         il,
                         body.ExceptionRegions,
-                        token => MemberResolver.ResolveMethod(
-                            reader,
-                            MetadataTokens.EntityHandle(token),
-                            scope),
+                        token => _infrastructure.ResolveMethod(
+                            token,
+                            scope,
+                            methodHandle),
                         token =>
                             LeakTriageAnalyzer.ResolveCatchTypeRef(
                                 reader,
@@ -341,7 +347,9 @@ internal sealed class LibraryMethodAnalysisRunner(
             }
             MethodCallAnalysis.Collect(
                 context,
-                _infrastructure.CreateCallResolver(scope),
+                _infrastructure.CreateCallResolver(
+                    scope,
+                    caller),
                 offset => allocationFacts.MultiplicityAt(offset),
                 calls,
                 evidence,
@@ -437,10 +445,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                     method,
                     body.GetILBytes() ?? [],
                     body.ExceptionRegions,
-                    token => MemberResolver.ResolveMethod(
-                        reader,
-                        MetadataTokens.EntityHandle(token),
-                        scope),
+                    token => _infrastructure.ResolveMethod(
+                        token,
+                        scope,
+                        methodHandle),
                     token =>
                         LeakTriageAnalyzer.ResolveCatchTypeRef(
                             reader,

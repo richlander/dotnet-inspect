@@ -58,6 +58,29 @@ internal sealed class LibraryBodyAnalysisBuilder :
             new(SignatureIdentityComparer.Instance);
     readonly ConcurrentDictionary<
         MethodDefinitionHandle,
+        Lazy<MemberRef>>
+        _resolvedMethodDefinitions = new();
+    // These assembly-owned caches are gated by
+    // OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce and
+    // OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies.
+    readonly ConcurrentDictionary<
+        MemberReferenceMetadataKey,
+        Lazy<MemberRef>>
+        _resolvedMemberReferences = new();
+    readonly ConcurrentDictionary<
+        MethodSpecificationResolutionKey,
+        Lazy<MemberRef>>
+        _resolvedMethodSpecifications = new();
+    readonly ConcurrentDictionary<
+        MemberReferenceParentKey,
+        Lazy<TypeRef>>
+        _memberReferenceDeclaringTypes = new();
+    readonly ConcurrentDictionary<
+        GenericScope,
+        GenericScopeIdentity>
+        _genericScopeIdentities = new();
+    readonly ConcurrentDictionary<
+        MethodDefinitionHandle,
         Lazy<bool>>
         _stableReceiverGetters = new();
     readonly ConcurrentDictionary<
@@ -69,6 +92,7 @@ internal sealed class LibraryBodyAnalysisBuilder :
     readonly Dictionary<TypeDefinitionHandle, bool>
         _sourceGeneratedTypes = new();
     long _methodReferenceSignatureWork;
+    long _methodReferenceDecodeWork;
 
     internal LibraryBodyAnalysisBuilder(
         string path,
@@ -154,10 +178,21 @@ internal sealed class LibraryBodyAnalysisBuilder :
 
     IMethodCallResolver
         ILibraryMethodAnalysisInfrastructure.CreateCallResolver(
-            GenericScope scope) =>
+            GenericScope scope,
+            MethodIdentity caller) =>
         new CallResolver(
             this,
-            scope);
+            scope,
+            caller);
+
+    MemberRef ILibraryMethodAnalysisInfrastructure.ResolveMethod(
+        int token,
+        GenericScope scope,
+        MethodDefinitionHandle caller) =>
+        ResolveMethod(
+            MetadataTokens.EntityHandle(token),
+            scope,
+            caller);
 
     string? ILibraryMethodAnalysisInfrastructure.CalliReturnDetail(
         int token,
@@ -793,37 +828,92 @@ internal sealed class LibraryBodyAnalysisBuilder :
 
     sealed record SignatureIdentity(byte[] Bytes, int HashCode);
 
+    // TypeRef shape equality deliberately excludes resolution provenance. Lifted-owner
+    // authentication cannot: LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope
+    // gates this narrower identity.
+    sealed class ScopeAwareTypeIdentity : IEquatable<ScopeAwareTypeIdentity>
+    {
+        readonly int _hashCode;
+
+        public ScopeAwareTypeIdentity(TypeRef type)
+        {
+            Type = type;
+            _hashCode = ScopeAwareTypeHashCode(type);
+        }
+
+        public TypeRef Type { get; }
+
+        public bool Equals(ScopeAwareTypeIdentity? other) =>
+            other is not null
+            && ScopeAwareTypeEquals(Type, other.Type);
+
+        public override bool Equals(object? obj) =>
+            Equals(obj as ScopeAwareTypeIdentity);
+
+        public override int GetHashCode() => _hashCode;
+    }
+
+    sealed class GenericScopeIdentity : IEquatable<GenericScopeIdentity>
+    {
+        readonly int _hashCode;
+
+        public GenericScopeIdentity(GenericScope scope)
+        {
+            TypeParameters = scope.TypeParameters;
+            MethodParameters = scope.MethodParameters;
+            var hash = new HashCode();
+            foreach (string parameter in TypeParameters)
+                hash.Add(parameter, StringComparer.Ordinal);
+            hash.Add(TypeParameters.Length);
+            foreach (string parameter in MethodParameters)
+                hash.Add(parameter, StringComparer.Ordinal);
+            hash.Add(MethodParameters.Length);
+            _hashCode = hash.ToHashCode();
+        }
+
+        public ImmutableArray<string> TypeParameters { get; }
+        public ImmutableArray<string> MethodParameters { get; }
+
+        public bool Equals(GenericScopeIdentity? other) =>
+            ReferenceEquals(this, other)
+            || other is not null
+            && _hashCode == other._hashCode
+            && TypeParameters.SequenceEqual(
+                other.TypeParameters,
+                StringComparer.Ordinal)
+            && MethodParameters.SequenceEqual(
+                other.MethodParameters,
+                StringComparer.Ordinal);
+
+        public override bool Equals(object? obj) =>
+            Equals(obj as GenericScopeIdentity);
+
+        public override int GetHashCode() => _hashCode;
+    }
+
     readonly record struct MethodReferenceKey(
         string Name,
-        TypeRef DeclaringType,
+        ScopeAwareTypeIdentity DeclaringType,
         SignatureIdentity Signature);
 
     readonly record struct MemberReferenceMetadataKey(
-        TypeRef DeclaringType,
+        ScopeAwareTypeIdentity DeclaringType,
         string Name,
-        SignatureIdentity Signature);
+        SignatureIdentity Signature,
+        GenericScopeIdentity Scope);
 
-    sealed class MemberReferenceMetadataKeyComparer
-        : IEqualityComparer<MemberReferenceMetadataKey>
-    {
-        public static MemberReferenceMetadataKeyComparer Instance
-        {
-            get;
-        } = new();
+    readonly record struct MemberReferenceParentKey(
+        EntityHandle Parent,
+        GenericScopeIdentity Scope);
 
-        public bool Equals(
-            MemberReferenceMetadataKey x,
-            MemberReferenceMetadataKey y) =>
-            x.DeclaringType.Equals(y.DeclaringType)
-            && StringComparer.Ordinal.Equals(x.Name, y.Name)
-            && SignatureIdentityEquals(x.Signature, y.Signature);
+    readonly record struct MethodTargetIdentity(
+        int MethodDefinitionToken,
+        MemberReferenceMetadataKey? MemberReference);
 
-        public int GetHashCode(MemberReferenceMetadataKey obj) =>
-            HashCode.Combine(
-                obj.DeclaringType,
-                StringComparer.Ordinal.GetHashCode(obj.Name),
-                obj.Signature.HashCode);
-    }
+    readonly record struct MethodSpecificationResolutionKey(
+        MethodTargetIdentity Target,
+        SignatureIdentity Signature,
+        GenericScopeIdentity Scope);
 
     sealed class SignatureIdentityComparer
         : IEqualityComparer<SignatureIdentity>
@@ -858,6 +948,50 @@ internal sealed class LibraryBodyAnalysisBuilder :
                 obj.DeclaringType,
                 obj.Signature.HashCode);
     }
+
+    static bool ScopeAwareTypeEquals(TypeRef left, TypeRef right)
+    {
+        if (!left.Equals(right)
+            || !Equals(left.Resolution, right.Resolution))
+        {
+            return false;
+        }
+        if (left.ElementType is { } leftElement)
+        {
+            if (right.ElementType is not { } rightElement
+                || !ScopeAwareTypeEquals(leftElement, rightElement))
+            {
+                return false;
+            }
+        }
+        for (int i = 0; i < left.TypeArguments.Length; i++)
+        {
+            if (!ScopeAwareTypeEquals(
+                    left.TypeArguments[i],
+                    right.TypeArguments[i]))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static int ScopeAwareTypeHashCode(TypeRef type)
+    {
+        var hash = new HashCode();
+        hash.Add(type);
+        hash.Add(type.Resolution);
+        if (type.ElementType is { } element)
+            hash.Add(ScopeAwareTypeHashCode(element));
+        foreach (TypeRef argument in type.TypeArguments)
+            hash.Add(ScopeAwareTypeHashCode(argument));
+        return hash.ToHashCode();
+    }
+
+    internal static bool SameMethodReferenceDeclaringType(
+        TypeRef left,
+        TypeRef right) =>
+        ScopeAwareTypeEquals(left, right);
 
     static bool SignatureIdentityEquals(
         SignatureIdentity x,
@@ -1013,7 +1147,8 @@ internal sealed class LibraryBodyAnalysisBuilder :
         string ownerName = liftedName[1..close];
         var member = new MethodReferenceKey(
             liftedIdentity.Name,
-            liftedIdentity.DeclaringType,
+            new ScopeAwareTypeIdentity(
+                liftedIdentity.DeclaringType),
             Signature(liftedMethod.Signature));
         LiftedOwnerGroupEvidence ownerGroup =
             LiftedOwnerGroup(ownerType, ownerName);
@@ -1243,22 +1378,6 @@ internal sealed class LibraryBodyAnalysisBuilder :
         var referencedDefinitions = new HashSet<int>();
         var referencedMembers = new HashSet<MethodReferenceKey>(
             MethodReferenceKeyComparer.Instance);
-        var memberReferencesByIdentity =
-            new Dictionary<
-                MemberReferenceMetadataKey,
-                MethodReferenceKey>(
-                    MemberReferenceMetadataKeyComparer.Instance);
-        var unsupportedMemberReferenceOperands = new HashSet<int>();
-        var unsupportedMemberReferences =
-            new HashSet<MemberReferenceMetadataKey>(
-                MemberReferenceMetadataKeyComparer.Instance);
-        var declaringTypesByParent =
-            new Dictionary<EntityHandle, TypeRef>();
-        var methodSpecificationValidations =
-            new Dictionary<
-                SignatureIdentity,
-                ExceptionDispatchInfo?>(
-                    SignatureIdentityComparer.Instance);
         var validDefinitionOperands = new HashSet<int>();
         var invalidDefinitionOperands =
             new Dictionary<int, ExceptionDispatchInfo>();
@@ -1294,10 +1413,16 @@ internal sealed class LibraryBodyAnalysisBuilder :
             {
                 if (validDefinitionOperands.Add(operandToken))
                 {
-                    ValidateMethodSpecification(
-                        operandToken,
-                        scope,
-                        methodSpecificationValidations);
+                    EntityHandle operand =
+                        MetadataTokens.EntityHandle(operandToken);
+                    if (operand.Kind
+                        == HandleKind.MethodSpecification)
+                    {
+                        _ = ResolveMethod(
+                            operand,
+                            scope,
+                            methodHandle);
+                    }
                 }
                 int definitionToken =
                     PeelToDefinitionToken(operandToken);
@@ -1317,13 +1442,8 @@ internal sealed class LibraryBodyAnalysisBuilder :
                 continue;
             }
 
-            MemberReferenceHandle memberHandle = default;
-            MemberReferenceMetadataKey? referenceIdentity = null;
             try
             {
-                if (unsupportedMemberReferenceOperands.Contains(operandToken))
-                    continue;
-
                 EntityHandle handle =
                     MetadataTokens.EntityHandle(operandToken);
                 if (handle.Kind == HandleKind.MethodSpecification)
@@ -1332,66 +1452,31 @@ internal sealed class LibraryBodyAnalysisBuilder :
                         (MethodSpecificationHandle)handle).Method;
                 }
                 if (handle.Kind != HandleKind.MemberReference)
-                {
-                    unsupportedMemberReferenceOperands.Add(operandToken);
-                    continue;
-                }
-                memberHandle = (MemberReferenceHandle)handle;
-                MemberReference memberReference =
-                    _reader.GetMemberReference(memberHandle);
-                if (!declaringTypesByParent.TryGetValue(
-                        memberReference.Parent,
-                        out TypeRef? declaringType))
-                {
-                    declaringType = ResolveMemberReferenceDeclaringType(
-                        memberReference.Parent,
-                        scope);
-                    declaringTypesByParent.Add(
-                        memberReference.Parent,
-                        declaringType);
-                }
-                referenceIdentity = new MemberReferenceMetadataKey(
-                    declaringType,
-                    _reader.GetString(memberReference.Name),
-                    Signature(memberReference.Signature));
-                if (memberReferencesByIdentity.TryGetValue(
-                        referenceIdentity.Value,
-                        out MethodReferenceKey cachedMember))
-                {
-                    referencedMembers.Add(cachedMember);
-                    continue;
-                }
-                if (unsupportedMemberReferences.Contains(
-                        referenceIdentity.Value))
                     continue;
 
-                _methodReferenceResolved?.Invoke(
-                    methodHandle,
-                    MetadataTokens.GetToken(memberHandle));
-                MemberRef target = MemberResolver.ResolveMethod(
-                    _reader,
+                MemberReferenceHandle memberHandle =
+                    (MemberReferenceHandle)handle;
+                MemberReferenceMetadataKey referenceIdentity =
+                    MemberReferenceIdentity(
+                        memberHandle,
+                        scope);
+                MemberRef target = ResolveMethod(
                     memberHandle,
-                    scope);
+                    scope,
+                    methodHandle);
                 TypeRef targetDefinition =
                     target.DeclaringType.Kind == TypeRefKind.GenericInstance
                         ? target.DeclaringType.ElementType!
                         : target.DeclaringType;
-                var member = new MethodReferenceKey(
+                referencedMembers.Add(new MethodReferenceKey(
                     target.Name,
-                    targetDefinition,
-                    referenceIdentity.Value.Signature);
-                memberReferencesByIdentity.Add(
-                    referenceIdentity.Value,
-                    member);
-                referencedMembers.Add(member);
+                    new ScopeAwareTypeIdentity(targetDefinition),
+                    referenceIdentity.Signature));
             }
             catch (Exception ex)
                 when (LibraryMethodAnalysisRunner
                     .IsRecoverableMethodFailure(ex))
             {
-                unsupportedMemberReferenceOperands.Add(operandToken);
-                if (referenceIdentity is { } failedIdentity)
-                    unsupportedMemberReferences.Add(failedIdentity);
                 referenceFailure ??= ExceptionDispatchInfo.Capture(ex);
             }
         }
@@ -1426,55 +1511,251 @@ internal sealed class LibraryBodyAnalysisBuilder :
             identity);
     }
 
+    MemberReferenceMetadataKey MemberReferenceIdentity(
+        MemberReferenceHandle handle,
+        GenericScope scope)
+    {
+        MemberReference reference =
+            _reader.GetMemberReference(handle);
+        TypeRef declaringType =
+            ResolveMemberReferenceDeclaringType(
+                reference.Parent,
+                scope);
+        return new(
+            new ScopeAwareTypeIdentity(declaringType),
+            _reader.GetString(reference.Name),
+            Signature(reference.Signature),
+            MemberReferenceScope(
+                reference.Parent,
+                scope));
+    }
+
     TypeRef ResolveMemberReferenceDeclaringType(
         EntityHandle parent,
         GenericScope scope)
+        => _memberReferenceDeclaringTypes.GetOrAdd(
+            new(
+                parent,
+                MemberReferenceScope(
+                    parent,
+                    scope)),
+            key => new Lazy<TypeRef>(
+                () => key.Parent.Kind switch
+                {
+                    HandleKind.TypeDefinition =>
+                        TypeRefDecoder.Instance.GetTypeFromDefinition(
+                            _reader,
+                            (TypeDefinitionHandle)key.Parent,
+                            0),
+                    HandleKind.TypeReference =>
+                        TypeRefDecoder.Instance.GetTypeFromReference(
+                            _reader,
+                            (TypeReferenceHandle)key.Parent,
+                            0),
+                    HandleKind.TypeSpecification =>
+                        TypeRefDecoder.Instance.GetTypeFromSpecification(
+                            _reader,
+                            scope,
+                            (TypeSpecificationHandle)key.Parent,
+                            0),
+                    _ => TypeRef.Unsupported(
+                        $"member parent kind {key.Parent.Kind}"),
+                },
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    GenericScopeIdentity MemberReferenceScope(
+        EntityHandle parent,
+        GenericScope scope) =>
+        ScopeIdentity(
+            parent.Kind == HandleKind.TypeSpecification
+                ? scope
+                : GenericScope.Empty);
+
+    GenericScopeIdentity ScopeIdentity(GenericScope scope) =>
+        _genericScopeIdentities.GetOrAdd(
+            scope,
+            static value => new(value));
+
+    MemberRef ResolveMethod(
+        EntityHandle handle,
+        GenericScope scope,
+        MethodDefinitionHandle caller)
     {
-        TypeRef type = parent.Kind switch
+        return handle.Kind switch
         {
-            HandleKind.TypeDefinition =>
-                TypeRefDecoder.Instance.GetTypeFromDefinition(
-                    _reader,
-                    (TypeDefinitionHandle)parent,
-                    0),
-            HandleKind.TypeReference =>
-                TypeRefDecoder.Instance.GetTypeFromReference(
-                    _reader,
-                    (TypeReferenceHandle)parent,
-                    0),
-            HandleKind.TypeSpecification =>
-                TypeRefDecoder.Instance.GetTypeFromSpecification(
-                    _reader,
+            HandleKind.MethodDefinition =>
+                _resolvedMethodDefinitions.GetOrAdd(
+                    (MethodDefinitionHandle)handle,
+                    method => new Lazy<MemberRef>(
+                        () => MemberResolver.ResolveMethod(
+                            _reader,
+                            method,
+                            scope),
+                        LazyThreadSafetyMode.ExecutionAndPublication)).Value,
+            HandleKind.MemberReference =>
+                ResolveMemberReference(
+                    (MemberReferenceHandle)handle,
                     scope,
-                    (TypeSpecificationHandle)parent,
-                    0),
-            _ => TypeRef.Unsupported(
-                $"member parent kind {parent.Kind}"),
+                    caller),
+            HandleKind.MethodSpecification =>
+                ResolveMethodSpecification(
+                    (MethodSpecificationHandle)handle,
+                    scope,
+                    caller),
+            _ => MemberRef.Unsupported(
+                $"callee handle kind {handle.Kind}"),
         };
-        return type.Kind == TypeRefKind.GenericInstance
-            ? type.ElementType!
-            : type;
+    }
+
+    MemberRef ResolveMemberReference(
+        MemberReferenceHandle handle,
+        GenericScope scope,
+        MethodDefinitionHandle caller)
+    {
+        MemberReferenceMetadataKey identity =
+            MemberReferenceIdentity(handle, scope);
+        return _resolvedMemberReferences.GetOrAdd(
+            identity,
+            _ => new Lazy<MemberRef>(
+                () =>
+                {
+                    ReserveMethodReferenceDecodeWork(
+                        identity.Signature.Bytes.Length);
+                    _methodReferenceResolved?.Invoke(
+                        caller,
+                        MetadataTokens.GetToken(handle));
+                    return MemberResolver.ResolveMethod(
+                        _reader,
+                        handle,
+                        scope);
+                },
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+    }
+
+    MemberRef ResolveMethodSpecification(
+        MethodSpecificationHandle handle,
+        GenericScope scope,
+        MethodDefinitionHandle caller)
+    {
+        MethodSpecification specification =
+            _reader.GetMethodSpecification(handle);
+        MemberRef target = ResolveMethod(
+            specification.Method,
+            scope,
+            caller);
+        MethodTargetIdentity targetIdentity =
+            specification.Method.Kind switch
+            {
+                HandleKind.MethodDefinition => new(
+                    MetadataTokens.GetToken(specification.Method),
+                    null),
+                HandleKind.MemberReference => new(
+                    0,
+                    MemberReferenceIdentity(
+                        (MemberReferenceHandle)specification.Method,
+                        scope)),
+                _ => throw new BadImageFormatException(
+                    "The MethodSpec target is not a method definition or reference."),
+            };
+        var key = new MethodSpecificationResolutionKey(
+            targetIdentity,
+            Signature(specification.Signature),
+            ScopeIdentity(scope));
+        return _resolvedMethodSpecifications.GetOrAdd(
+            key,
+            _ => new Lazy<MemberRef>(
+                () =>
+                {
+                    ReserveMethodReferenceDecodeWork(
+                        key.Signature.Bytes.Length);
+                    return DecodeMethodSpecification(
+                        specification,
+                        target,
+                        scope);
+                },
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+    }
+
+    MemberRef DecodeMethodSpecification(
+        MethodSpecification specification,
+        MemberRef target,
+        GenericScope scope)
+    {
+        if (!SignatureBlobGuard.IsSafeToDecode(
+                _reader,
+                specification.Signature,
+                SignatureBlobGuard.Kind.MethodSpecification))
+        {
+            throw new BadImageFormatException(
+                "The MethodSpec signature exceeds its structural limits.");
+        }
+
+        ImmutableArray<TypeRef> arguments =
+            specification.DecodeSignature(
+                TypeRefDecoder.Instance,
+                scope);
+        if (target.Kind == MemberKind.Unsupported
+            || target.GenericArity == 0
+            || arguments.Length != target.GenericArity
+            || arguments.Any(argument =>
+                ContainsMalformedMethodSpecificationType(
+                    argument,
+                    scope)))
+        {
+            throw new BadImageFormatException(
+                "The MethodSpec signature is invalid for its target and caller scope.");
+        }
+
+        return target with
+        {
+            TypeArguments = arguments,
+            ReturnType = target.ReturnType.Instantiate(
+                [],
+                arguments),
+            ParameterTypes =
+            [
+                .. target.ParameterTypes.Select(
+                    parameter => parameter.Instantiate(
+                        [],
+                        arguments)),
+            ],
+        };
     }
 
     void ReserveMethodReferenceSignatureWork(int charge)
+        => ReserveMethodReferenceWork(
+            ref _methodReferenceSignatureWork,
+            charge,
+            "Method-reference signature identity work exceeds the assembly budget.");
+
+    void ReserveMethodReferenceDecodeWork(int charge)
+        => ReserveMethodReferenceWork(
+            ref _methodReferenceDecodeWork,
+            Math.Max(charge, 1),
+            "Method-reference decoding work exceeds the assembly budget.");
+
+    static void ReserveMethodReferenceWork(
+        ref long work,
+        int charge,
+        string failure)
     {
         while (true)
         {
             long current = Volatile.Read(
-                ref _methodReferenceSignatureWork);
+                ref work);
             if (current < 0
                 || charge
                     > MetadataSafetyPolicy.MaxStructuralSignatureWorkChars
                         - current)
             {
                 Interlocked.Exchange(
-                    ref _methodReferenceSignatureWork,
+                    ref work,
                     -1);
                 throw new BadImageFormatException(
-                    "Lifted owner reference signatures exceed the structural work budget.");
+                    failure);
             }
             if (Interlocked.CompareExchange(
-                    ref _methodReferenceSignatureWork,
+                    ref work,
                     current + charge,
                     current)
                 == current)
@@ -1484,87 +1765,57 @@ internal sealed class LibraryBodyAnalysisBuilder :
         }
     }
 
-    void ValidateMethodSpecification(
-        int operandToken,
-        GenericScope scope,
-        IDictionary<SignatureIdentity, ExceptionDispatchInfo?>
-            validations)
+    static bool ContainsMalformedMethodSpecificationType(
+        TypeRef type,
+        GenericScope scope)
     {
-        EntityHandle handle = MetadataTokens.EntityHandle(operandToken);
-        if (handle.Kind != HandleKind.MethodSpecification)
-            return;
-
-        MethodSpecification specification =
-            _reader.GetMethodSpecification(
-                (MethodSpecificationHandle)handle);
-        SignatureIdentity identity =
-            Signature(specification.Signature);
-        if (validations.TryGetValue(
-                identity,
-                out ExceptionDispatchInfo? cached))
+        if (type.Kind == TypeRefKind.GenericParameter
+            && (type.GenericParameterIndex < 0
+                || type.GenericParameterIndex
+                    >= scope.TypeParameters.Length)
+            || type.Kind == TypeRefKind.MethodGenericParameter
+                && (type.GenericParameterIndex < 0
+                    || type.GenericParameterIndex
+                        >= scope.MethodParameters.Length))
         {
-            cached?.Throw();
-            return;
+            return true;
         }
-        try
-        {
-            if (!SignatureBlobGuard.IsSafeToDecode(
-                    _reader,
-                    specification.Signature,
-                    SignatureBlobGuard.Kind.MethodSpecification))
-            {
-                throw new BadImageFormatException(
-                    "The MethodSpec signature exceeds its structural limits.");
-            }
-
-            ImmutableArray<TypeRef> arguments =
-                specification.DecodeSignature(
-                    TypeRefDecoder.Instance,
-                    scope);
-            if (arguments.Any(
-                    ContainsMalformedMethodSpecificationType))
-            {
-                throw new BadImageFormatException(
-                    "The MethodSpec signature is malformed.");
-            }
-            validations.Add(identity, null);
-        }
-        catch (Exception ex)
-            when (LibraryMethodAnalysisRunner
-                .IsRecoverableMethodFailure(ex))
-        {
-            var failure = ExceptionDispatchInfo.Capture(ex);
-            validations.Add(identity, failure);
-            failure.Throw();
-        }
-    }
-
-    static bool ContainsMalformedMethodSpecificationType(TypeRef type)
-    {
         if (type.Kind == TypeRefKind.Unsupported)
         {
             if (type.UnmodifiedType is { } unmodified)
             {
-                return ContainsMalformedMethodSpecificationType(unmodified)
+                return ContainsMalformedMethodSpecificationType(
+                        unmodified,
+                        scope)
                     || (type.ModifierType is { } modifier
-                        && ContainsMalformedMethodSpecificationType(modifier));
+                        && ContainsMalformedMethodSpecificationType(
+                            modifier,
+                            scope));
             }
             if (type.FunctionPointerSignature is { } function)
             {
                 return ContainsMalformedMethodSpecificationType(
-                        function.ReturnType)
+                        function.ReturnType,
+                        scope)
                     || function.ParameterTypes.Any(
-                        ContainsMalformedMethodSpecificationType);
+                        parameter =>
+                            ContainsMalformedMethodSpecificationType(
+                                parameter,
+                                scope));
             }
             return true;
         }
         if (type.ElementType is { } element
-            && ContainsMalformedMethodSpecificationType(element))
+            && ContainsMalformedMethodSpecificationType(
+                element,
+                scope))
         {
             return true;
         }
         return type.TypeArguments.Any(
-            ContainsMalformedMethodSpecificationType);
+            argument => ContainsMalformedMethodSpecificationType(
+                argument,
+                scope));
     }
 
     bool TryGetAsyncStateMachineType(
@@ -1700,10 +1951,12 @@ internal sealed class LibraryBodyAnalysisBuilder :
             => owner.ResolveTypeToken(token, scope);
 
         public MemberRef ResolveMember(int token)
-            => MemberResolver.ResolveMethod(
-                owner._reader,
+            => owner.ResolveMethod(
                 MetadataTokens.EntityHandle(token),
-                scope);
+                scope,
+                (MethodDefinitionHandle)
+                    MetadataTokens.EntityHandle(
+                        caller.MetadataToken));
 
         public NewObjectConstructionKind ClassifyConstruction(
             int operandToken,
@@ -1753,14 +2006,17 @@ internal sealed class LibraryBodyAnalysisBuilder :
     // ownership and the established malformed-metadata behavior.
     sealed class CallResolver(
         LibraryBodyAnalysisBuilder owner,
-        GenericScope scope)
+        GenericScope scope,
+        MethodIdentity caller)
         : IMethodCallResolver
     {
         public MemberRef ResolveMember(int token)
-            => MemberResolver.ResolveMethod(
-                owner._reader,
+            => owner.ResolveMethod(
                 MetadataTokens.EntityHandle(token),
-                scope);
+                scope,
+                (MethodDefinitionHandle)
+                    MetadataTokens.EntityHandle(
+                        caller.MetadataToken));
 
         public MemberRef ResolveIndirectCall(int signatureToken)
             => owner.ResolveCalliMember(signatureToken, scope);

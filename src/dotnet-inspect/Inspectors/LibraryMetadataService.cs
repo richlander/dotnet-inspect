@@ -1373,12 +1373,10 @@ internal static class LibraryMetadataService
 
         if (opportunity.Shape == "generic-parameter-object-box")
             return IteratesInLoop(opportunity)
-                || opportunity.CallerLoop is not null
                     ? 2
                     : 1;
 
         return IteratesInLoop(opportunity)
-            || opportunity.CallerLoop is not null
             || opportunity.Weight == "medium"
                 ? 1
                 : 0;

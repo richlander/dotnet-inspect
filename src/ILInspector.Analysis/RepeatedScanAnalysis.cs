@@ -134,6 +134,9 @@ internal static class RepeatedScanAnalysis
             new Dictionary<(int MethodToken, int NextOffset), string>();
         foreach (var call in directCalls)
         {
+            if (!IsInvocation(call))
+                continue;
+
             if (IsLinqMembershipScan(
                     call.Callee,
                     out var membershipOperation))
@@ -241,7 +244,8 @@ internal static class RepeatedScanAnalysis
         var emitted = new HashSet<int>();
         foreach (var call in directCalls)
         {
-            if (!call.InLoop)
+            if (!IsInvocation(call)
+                || !call.InLoop)
                 continue;
             int calleeToken = call.CalleeDefinitionToken;
             if (!scanningMethods.TryGetValue(
@@ -271,7 +275,9 @@ internal static class RepeatedScanAnalysis
         foreach (var call in directCalls)
         {
             int calleeToken = call.CalleeDefinitionToken;
-            if (!recursiveTraversalTokens.Contains(call.Caller.MetadataToken)
+            if (!IsInvocation(call)
+                || !recursiveTraversalTokens.Contains(
+                    call.Caller.MetadataToken)
                 || !scanningMethods.TryGetValue(calleeToken, out var operation)
                 || !methodByToken.TryGetValue(calleeToken, out var method)
                 || suppressedMethodTokens.Contains(calleeToken)
@@ -296,6 +302,12 @@ internal static class RepeatedScanAnalysis
 
         return opportunities.ToImmutable();
     }
+
+    static bool IsInvocation(DirectCall call) =>
+        call.Kind is
+            CallKind.Call
+            or CallKind.CallVirtual
+            or CallKind.NewObject;
 
     static bool IsEnumerableDefinition(TypeRef type)
         => FrameworkIdentity.IsKnownFrameworkType(

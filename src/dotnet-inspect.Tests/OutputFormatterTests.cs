@@ -802,6 +802,39 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void TriagePriority_CallerLoopEvidenceDoesNotChangeRanking()
+    {
+        var baseline = Opp(
+            "GenericEquals",
+            inLoop: false,
+            confidence: "medium",
+            rootReach: 100,
+            shape: "generic-parameter-object-box");
+        var callerLoop = baseline with
+        {
+            CallerLoop = new CallerLoopEvidence(
+                1,
+                []),
+        };
+
+        Assert.Equal(
+            LibraryMetadataService.TriagePriority(baseline),
+            LibraryMetadataService.TriagePriority(callerLoop));
+
+        var ordinary = baseline with
+        {
+            Shape = "capturing-delegate",
+        };
+        Assert.Equal(
+            LibraryMetadataService.TriagePriority(ordinary),
+            LibraryMetadataService.TriagePriority(
+                ordinary with
+                {
+                    CallerLoop = callerLoop.CallerLoop,
+                }));
+    }
+
+    [Fact]
     public void FilterAndOrderTriageOpportunities_AllowsOperatorsInsidePredicateValues()
     {
         var opportunities = new[]
