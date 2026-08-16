@@ -18,6 +18,12 @@ public class TypeMatcherTests
             "Outer<T>.Inner<T1, T2>",
             TypeResolver.FormatDisplayName(["Outer`1", "Inner`2"]));
 
+    [Fact]
+    public void FormatDisplayName_DoesNotParseDecorationInsideExactSegments()
+        => Assert.Equal(
+            "Widget`1[]",
+            TypeResolver.FormatDisplayName(["Widget`1[]"]));
+
     /// <summary>
     /// #4217: search keys are built from the canonical arity grammar, so a
     /// backtick that is name text is not deleted. The old prefix-digit grammar

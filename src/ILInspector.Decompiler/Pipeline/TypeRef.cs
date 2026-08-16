@@ -517,6 +517,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
             || Assembly != other.Assembly
             || Namespace != other.Namespace
             || Name != other.Name
+            || Kind == TypeRefKind.Definition
+                && !SameSegments(
+                    MetadataNameSegments(),
+                    other.MetadataNameSegments())
             || Rank != other.Rank
             || GenericParameterIndex != other.GenericParameterIndex
             || UnsupportedReason != other.UnsupportedReason
@@ -550,7 +554,17 @@ public sealed class TypeRef : IEquatable<TypeRef>
         hash.Add(Kind);
         hash.Add(Assembly);
         hash.Add(Namespace);
-        hash.Add(Name);
+        if (Kind == TypeRefKind.Definition)
+        {
+            IReadOnlyList<string> segments = MetadataNameSegments();
+            hash.Add(segments.Count);
+            foreach (string segment in segments)
+                hash.Add(segment);
+        }
+        else
+        {
+            hash.Add(Name);
+        }
         hash.Add(Rank);
         hash.Add(GenericParameterIndex);
         hash.Add(CallingConvention);
@@ -593,18 +607,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     bool IsPrivateImplementationDetails
         => Kind == TypeRefKind.Definition
-            && (Name == "<PrivateImplementationDetails>"
-                || Name.StartsWith("<PrivateImplementationDetails>+", StringComparison.Ordinal));
+            && MetadataNameSegments()[0] == "<PrivateImplementationDetails>";
 
     string DisplayName()
     {
         if (Assembly == CoreLibrary && Namespace == "System" && PrimitiveTypeNames.TryToKeywordForSystemType(Name, out var keyword))
             return keyword;
-        // Nested types carry the metadata `Outer+Inner` name; C# refers to
-        // them by the innermost simple name (the namespace-stripping
-        // convention extended inward), so `Interop+Error` renders `Error`.
-        int nested = Name.LastIndexOf('+');
-        string innermost = nested < 0 ? Name : Name[(nested + 1)..];
+        IReadOnlyList<string> segments = MetadataNameSegments();
+        string innermost = segments[^1];
         return CSharpNaming.TypeNameSegment(innermost);
     }
 
@@ -619,7 +629,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     string RenderDefinition(TypeRef? scope)
     {
         if (scope is not null
-            && Name.Contains('+')
+            && MetadataNameSegments().Count > 1
             && !IsPrivateImplementationDetails
             && !DefinitionEnclosingInScope(scope))
         {
@@ -635,15 +645,16 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// </summary>
     bool DefinitionEnclosingInScope(TypeRef scope)
     {
-        int lastPlus = Name.LastIndexOf('+');
-        if (lastPlus < 0)
+        IReadOnlyList<string> segments = MetadataNameSegments();
+        if (segments.Count < 2)
             return true;
         var scopeDefinition = scope.Kind == TypeRefKind.GenericInstance ? scope.ElementType! : scope;
-        string enclosing = Name[..lastPlus];
         return Assembly == scopeDefinition.Assembly
             && Namespace == scopeDefinition.Namespace
-            && (enclosing == scopeDefinition.Name
-                || scopeDefinition.Name.StartsWith(enclosing + "+", StringComparison.Ordinal));
+            && StartsWithSegments(
+                scopeDefinition.MetadataNameSegments(),
+                segments,
+                segments.Count - 1);
     }
 
     /// <summary>
@@ -656,7 +667,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     string RenderNestedDefinition()
     {
         var parts = new List<string>();
-        foreach (var segment in Name.Split('+'))
+        foreach (string segment in MetadataNameSegments())
         {
             string name = StripArity(segment);
             int arity = ArityOf(segment);
@@ -684,14 +695,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
     string RenderGenericInstance(TypeRef? scope = null)
     {
         if (scope is not null
-            && ElementType!.Name.Contains('+')
+            && ElementType!.MetadataNameSegments().Count > 1
             && !EnclosingInScope(scope)
             && RenderNestedGenericInstance(scope) is { } qualified)
         {
             return qualified;
         }
-        int nested = ElementType!.Name.LastIndexOf('+');
-        string innermost = nested < 0 ? ElementType.Name : ElementType.Name[(nested + 1)..];
+        IReadOnlyList<string> segments = ElementType!.MetadataNameSegments();
+        string innermost = segments[^1];
         int ownArity = ArityOf(innermost);
         string simpleName = ElementType.DisplayName();
         if (ownArity == 0)
@@ -713,16 +724,17 @@ public sealed class TypeRef : IEquatable<TypeRef>
     bool EnclosingInScope(TypeRef scope)
     {
         var scopeDefinition = scope.Kind == TypeRefKind.GenericInstance ? scope.ElementType! : scope;
-        string name = ElementType!.Name;
-        string enclosing = name[..name.LastIndexOf('+')];
+        IReadOnlyList<string> segments = ElementType!.MetadataNameSegments();
         if (ElementType.Assembly != scopeDefinition.Assembly
             || ElementType.Namespace != scopeDefinition.Namespace
-            || (enclosing != scopeDefinition.Name
-                && !scopeDefinition.Name.StartsWith(enclosing + "+", StringComparison.Ordinal)))
+            || !StartsWithSegments(
+                scopeDefinition.MetadataNameSegments(),
+                segments,
+                segments.Count - 1))
         {
             return false;
         }
-        int innermostArity = ArityOf(name[(name.LastIndexOf('+') + 1)..]);
+        int innermostArity = ArityOf(segments[^1]);
         int enclosingArguments = TypeArguments.Length - innermostArity;
         for (int i = 0; i < enclosingArguments; i++)
         {
@@ -743,17 +755,17 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// </summary>
     string? RenderNestedGenericInstance(TypeRef? scope)
     {
-        var segments = ElementType!.Name.Split('+');
-        var arities = Array.ConvertAll(segments, ArityOf);
+        IReadOnlyList<string> segments = ElementType!.MetadataNameSegments();
+        var arities = segments.Select(ArityOf).ToArray();
         int total = 0;
         foreach (int arity in arities)
             total += arity;
         if (total != TypeArguments.Length)
             return null;
 
-        var parts = new List<string>(segments.Length);
+        var parts = new List<string>(segments.Count);
         int argIndex = 0;
-        for (int i = 0; i < segments.Length; i++)
+        for (int i = 0; i < segments.Count; i++)
         {
             string name = CSharpNaming.TypeNameSegment(segments[i]);
             int arity = arities[i];
@@ -767,6 +779,39 @@ public sealed class TypeRef : IEquatable<TypeRef>
         }
         return string.Join(".", parts);
     }
+
+    internal IReadOnlyList<string> MetadataNameSegments()
+    {
+        if (DefinitionName is { } exactName)
+            return exactName.Segments;
+        return Name.Split('+');
+    }
+
+    static bool StartsWithSegments(
+        IReadOnlyList<string> value,
+        IReadOnlyList<string> prefix,
+        int prefixCount)
+    {
+        if (value.Count < prefixCount)
+            return false;
+        for (int index = 0; index < prefixCount; index++)
+        {
+            if (!string.Equals(
+                    value[index],
+                    prefix[index],
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool SameSegments(
+        IReadOnlyList<string> left,
+        IReadOnlyList<string> right)
+        => left.Count == right.Count
+            && StartsWithSegments(left, right, right.Count);
 
     /// <summary>
     /// A function pointer in C# spelling: <c>delegate*&lt;p1, …, returnType&gt;</c>,

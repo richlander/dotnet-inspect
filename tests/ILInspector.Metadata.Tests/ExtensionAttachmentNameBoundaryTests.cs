@@ -96,6 +96,43 @@ public sealed class ExtensionAttachmentNameBoundaryTests
                 && member.Name == "AsMemory");
     }
 
+    public static TheoryData<PrimitiveTypeCode, string> LocalPrimitiveDefinitions =>
+        new()
+        {
+            { PrimitiveTypeCode.Void, "Void" },
+            { PrimitiveTypeCode.Boolean, "Boolean" },
+            { PrimitiveTypeCode.Char, "Char" },
+            { PrimitiveTypeCode.SByte, "SByte" },
+            { PrimitiveTypeCode.Byte, "Byte" },
+            { PrimitiveTypeCode.Int16, "Int16" },
+            { PrimitiveTypeCode.UInt16, "UInt16" },
+            { PrimitiveTypeCode.Int32, "Int32" },
+            { PrimitiveTypeCode.UInt32, "UInt32" },
+            { PrimitiveTypeCode.Int64, "Int64" },
+            { PrimitiveTypeCode.UInt64, "UInt64" },
+            { PrimitiveTypeCode.Single, "Single" },
+            { PrimitiveTypeCode.Double, "Double" },
+            { PrimitiveTypeCode.String, "String" },
+            { PrimitiveTypeCode.Object, "Object" },
+            { PrimitiveTypeCode.IntPtr, "IntPtr" },
+            { PrimitiveTypeCode.UIntPtr, "UIntPtr" },
+            { PrimitiveTypeCode.TypedReference, "TypedReference" },
+        };
+
+    [Theory]
+    [MemberData(nameof(LocalPrimitiveDefinitions))]
+    public void LocalPrimitiveReceiverDefinitions_MapToTheirCoreLibraryTypes(
+        PrimitiveTypeCode typeCode,
+        string expectedName)
+    {
+        MetadataTypeDefinitionName definition = Assert.IsType<
+            MetadataTypeDefinitionName>(
+                ApiSurfaceExtractor.GetLocalPrimitiveDefinition(typeCode));
+
+        Assert.Equal("System", definition.Namespace);
+        Assert.Equal([expectedName], definition.Segments);
+    }
+
     static byte[] BuildImage()
     {
         var metadata = new MetadataBuilder();

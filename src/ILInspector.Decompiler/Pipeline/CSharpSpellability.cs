@@ -384,7 +384,7 @@ internal static class CSharpSpellability
                 // valid C# spelling even when the innermost name is fine. Keyword
                 // segments are spellable via @ escaping, so use the keyword-tolerant
                 // identifier predicate.
-                foreach (var segment in type.Name.Split('+'))
+                foreach (string segment in type.MetadataNameSegments())
                 {
                     string simpleSegment = StripArity(segment);
                     if (!CSharpNaming.IsEscapableIdentifier(simpleSegment))

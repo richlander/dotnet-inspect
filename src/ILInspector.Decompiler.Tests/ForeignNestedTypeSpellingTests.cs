@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -105,5 +106,43 @@ public class ForeignNestedTypeSpellingTests
         Assert.Equal("Outer`Literal.Inner<>", nested.ToDisplayString(foreignScope));
         Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(
             new LoadArgument(0, "x", nested)));
+    }
+
+    [Fact]
+    public void ExactSegments_DistinguishLiteralPlusFromNestedType()
+    {
+        TypeRef literal = ExactDefinition("A+B", "A+B");
+        TypeRef nested = ExactDefinition("A+B", "A", "B");
+        TypeRef legacyNested = TypeRef.Definition("Asm", "N", "A+B");
+        var foreignScope = TypeRef.Definition("Asm", "N", "Other");
+
+        Assert.NotEqual(literal, nested);
+        Assert.NotEqual(literal, legacyNested);
+        Assert.Equal(nested, legacyNested);
+        Assert.Equal(nested.GetHashCode(), legacyNested.GetHashCode());
+        Assert.Equal(2, new HashSet<TypeRef> { literal, nested }.Count);
+        Assert.Equal("A_B", literal.ToDisplayString(foreignScope));
+        Assert.Equal("A.B", nested.ToDisplayString(foreignScope));
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(
+            new LoadArgument(0, "x", literal)));
+        Assert.False(CSharpSpellability.HasUnrepresentableMetadataName(
+            new LoadArgument(0, "x", nested)));
+    }
+
+    static TypeRef ExactDefinition(
+        string flattenedName,
+        params string[] segments)
+    {
+        var valid = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("N", [.. segments]));
+        return TypeRef.DefinitionWithResolution(
+            "Asm",
+            "N",
+            flattenedName,
+            ValueTypeHint.Unknown,
+            MetadataFactState.Unknown,
+            enclosingType: null,
+            valid.Name,
+            resolutionAssembly: null);
     }
 }

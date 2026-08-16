@@ -558,16 +558,25 @@ public static class TypeResolver
             plusIsBoundary: false);
     }
 
-    static bool LooksCompilerGenerated(string metadataName)
-        => metadataName.Length > 1
-            && metadataName[0] == '<'
-            && metadataName.IndexOf('>') > 0;
+    static bool LooksCompilerGenerated(
+        string metadataName,
+        bool hasTypeDecoration = true)
+    {
+        int boundary = metadataName.LastIndexOfAny(['.', '+']);
+        ReadOnlySpan<char> leaf = metadataName.AsSpan(boundary + 1);
+        if (hasTypeDecoration)
+            leaf = leaf[..TypeDecorationStart(leaf)];
+        return leaf.Length > 1
+            && leaf[0] == '<'
+            && leaf.IndexOf('>') > 0;
+    }
 
     /// <summary>
     /// Renders a generic instantiation from exact root-to-leaf metadata-name
     /// segments. Arguments are consumed by each segment's declared arity, and a
-    /// count mismatch preserves the raw segmented spelling rather than partially
-    /// rewriting it into a different type identity.
+    /// count mismatch preserves the raw segmented spelling except for a
+    /// compiler-generated terminal segment whose partial argument list is
+    /// completed with bounded placeholders.
     /// </summary>
     public static string ApplyGenericArguments(
         IReadOnlyList<string> metadataNameSegments,
@@ -580,12 +589,22 @@ public static class TypeResolver
         foreach (string segment in metadataNameSegments)
         {
             ArgumentNullException.ThrowIfNull(segment);
-            declaredArity += ArityWithDecoration(segment);
+            declaredArity += MetadataNameArity.OfSegment(segment);
         }
 
         string rawName = string.Join('.', metadataNameSegments);
-        if (declaredArity != typeArguments.Count)
+        bool completeCompilerGeneratedName =
+            typeArguments.Count > 0
+            && typeArguments.Count < declaredArity
+            && declaredArity <= MaxDisplayedPlaceholders
+            && LooksCompilerGenerated(
+                metadataNameSegments[^1],
+                hasTypeDecoration: false);
+        if (declaredArity != typeArguments.Count
+            && !completeCompilerGeneratedName)
+        {
             return rawName;
+        }
 
         int argIndex = 0;
         var result = new StringBuilder(rawName.Length + 16);
@@ -603,13 +622,17 @@ public static class TypeResolver
                     {
                         if (k > 0)
                             builder.Append(", ");
-                        builder.Append(typeArguments[argIndex++]);
+                        builder.Append(argIndex < typeArguments.Count
+                            ? typeArguments[argIndex]
+                            : $"T{argIndex + 1}");
+                        argIndex++;
                     }
                     builder.Append('>');
                     return true;
                 },
                 dotIsBoundary: false,
-                plusIsBoundary: false));
+                plusIsBoundary: false,
+                hasTypeDecoration: false));
         }
 
         return result.ToString();
@@ -682,7 +705,8 @@ public static class TypeResolver
                     return true;
                 },
                 dotIsBoundary: false,
-                plusIsBoundary: false));
+                plusIsBoundary: false,
+                hasTypeDecoration: false));
         }
 
         return result.ToString();
@@ -696,7 +720,7 @@ public static class TypeResolver
     /// text, so a larger arity keeps its raw <c>`N</c> spelling: the name stays
     /// visible and bounded instead of being rendered or silently dropped.
     /// </summary>
-    internal const int MaxDisplayedPlaceholders = 64;
+    public const int MaxDisplayedPlaceholders = 64;
 
     /// <summary>
     /// Rewrites canonical generic-arity suffixes using the caller-supplied
@@ -709,7 +733,8 @@ public static class TypeResolver
         string name,
         Func<int, StringBuilder, bool> render,
         bool dotIsBoundary = true,
-        bool plusIsBoundary = true)
+        bool plusIsBoundary = true,
+        bool hasTypeDecoration = true)
     {
         var result = new StringBuilder(name.Length + 16);
         foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(
@@ -718,7 +743,9 @@ public static class TypeResolver
             plusIsBoundary))
         {
             ReadOnlySpan<char> text = name.AsSpan(component.Start, component.Length);
-            ReadOnlySpan<char> decoration = text[TypeDecorationStart(text)..];
+            ReadOnlySpan<char> decoration = hasTypeDecoration
+                ? text[TypeDecorationStart(text)..]
+                : [];
             ReadOnlySpan<char> metadataName = text[..^decoration.Length];
 
             if (MetadataNameArity.TryReadSuffix(metadataName, out int arity, out int simpleNameLength))
@@ -767,15 +794,6 @@ public static class TypeResolver
         }
 
         return arity != 0;
-    }
-
-    static int ArityWithDecoration(string segment)
-    {
-        ReadOnlySpan<char> text = segment;
-        ReadOnlySpan<char> metadataName = text[..TypeDecorationStart(text)];
-        return MetadataNameArity.TryReadSuffix(metadataName, out int arity, out _)
-            ? arity
-            : 0;
     }
 
     /// <summary>

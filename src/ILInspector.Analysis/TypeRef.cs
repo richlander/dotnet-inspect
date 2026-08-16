@@ -360,15 +360,44 @@ public sealed class TypeRef : IEquatable<TypeRef>
         long totalArity = 0;
         foreach (string segment in segments)
             totalArity += ArityOf(segment);
-        if (totalArity != arguments.Count)
+        int ownArity = ArityOf(segments[^1]);
+        bool completeCompilerGeneratedName =
+            arguments.Count > 0
+            && arguments.Count < totalArity
+            && totalArity <= TypeResolver.MaxDisplayedPlaceholders
+            && IsCompilerGeneratedName(segments[^1]);
+        if (totalArity != arguments.Count
+            && !completeCompilerGeneratedName)
+        {
             return false;
+        }
 
         string typeName = string.Join('.', segments.Select(StripArity));
-        int ownArity = ArityOf(segments[^1]);
-        display = ownArity == 0
-            ? typeName
-            : $"{typeName}<{string.Join(", ", arguments.Skip(arguments.Count - ownArity))}>";
+        if (ownArity == 0)
+        {
+            display = typeName;
+            return true;
+        }
+
+        int outerArity = checked((int)totalArity - ownArity);
+        var ownArguments = new string[ownArity];
+        for (int index = 0; index < ownArguments.Length; index++)
+        {
+            int argumentIndex = outerArity + index;
+            ownArguments[index] = argumentIndex < arguments.Count
+                ? arguments[argumentIndex]
+                : $"T{argumentIndex + 1}";
+        }
+        display = $"{typeName}<{string.Join(", ", ownArguments)}>";
         return true;
+    }
+
+    static bool IsCompilerGeneratedName(string name)
+    {
+        string simpleName = StripArity(name);
+        return simpleName.Length > 1
+            && simpleName[0] == '<'
+            && simpleName.IndexOf('>') > 0;
     }
 
     static bool TryInferNestedSegments(

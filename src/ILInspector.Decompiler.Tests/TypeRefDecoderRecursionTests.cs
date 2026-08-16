@@ -110,6 +110,55 @@ public class TypeRefDecoderRecursionTests
     }
 
     [Fact]
+    public void DefinitionIdentity_DistinguishesLiteralPlusFromNestedSegments()
+    {
+        TypeDefinitionHandle literalHandle = default;
+        TypeDefinitionHandle nestedHandle = default;
+        var reader = BuildMetadata(metadata =>
+        {
+            literalHandle = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("A+B"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle outerHandle = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("A"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            nestedHandle = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("B"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddNestedType(nestedHandle, outerHandle);
+            return default(EntityHandle);
+        });
+
+        TypeRef literal = TypeRefDecoder.Instance.GetTypeFromDefinition(
+            reader,
+            literalHandle,
+            0);
+        TypeRef nested = TypeRefDecoder.Instance.GetTypeFromDefinition(
+            reader,
+            nestedHandle,
+            0);
+
+        Assert.Equal("A+B", literal.Name);
+        Assert.Equal("A+B", nested.Name);
+        Assert.Equal(["A+B"], literal.DefinitionName!.Segments);
+        Assert.Equal(["A", "B"], nested.DefinitionName!.Segments);
+        Assert.NotEqual(literal, nested);
+        Assert.Equal(2, new HashSet<TypeRef> { literal, nested }.Count);
+    }
+
+    [Fact]
     public void OverBudgetResolutionScope_PreservesNodeBudgetFailure()
     {
         var reader = BuildMetadata(metadata =>

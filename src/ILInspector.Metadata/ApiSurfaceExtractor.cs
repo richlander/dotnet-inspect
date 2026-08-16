@@ -3003,13 +3003,41 @@ public static class ApiSurfaceExtractor
         }
     }
 
+    internal static MetadataTypeDefinitionName? GetLocalPrimitiveDefinition(
+        PrimitiveTypeCode typeCode)
+    {
+        if (typeCode is not (
+            PrimitiveTypeCode.Void
+            or PrimitiveTypeCode.Boolean
+            or PrimitiveTypeCode.Char
+            or PrimitiveTypeCode.SByte
+            or PrimitiveTypeCode.Byte
+            or PrimitiveTypeCode.Int16
+            or PrimitiveTypeCode.UInt16
+            or PrimitiveTypeCode.Int32
+            or PrimitiveTypeCode.UInt32
+            or PrimitiveTypeCode.Int64
+            or PrimitiveTypeCode.UInt64
+            or PrimitiveTypeCode.Single
+            or PrimitiveTypeCode.Double
+            or PrimitiveTypeCode.String
+            or PrimitiveTypeCode.Object
+            or PrimitiveTypeCode.IntPtr
+            or PrimitiveTypeCode.UIntPtr
+            or PrimitiveTypeCode.TypedReference))
+        {
+            return null;
+        }
+
+        return ((MetadataTypeDefinitionNameResult.Valid)
+            MetadataTypeDefinitionName.Create(
+                "System",
+                [typeCode.ToString()])).Name;
+    }
+
     sealed class ExtensionReceiverDefinitionProvider :
         ISignatureTypeProvider<MetadataTypeDefinitionName?, GenericContext?>
     {
-        static readonly MetadataTypeDefinitionName SystemString =
-            ((MetadataTypeDefinitionNameResult.Valid)
-                MetadataTypeDefinitionName.Create("System", ["String"])).Name;
-
         readonly bool primitivesAreLocal;
 
         ExtensionReceiverDefinitionProvider(bool primitivesAreLocal) =>
@@ -3116,8 +3144,8 @@ public static class ApiSurfaceExtractor
 
         public MetadataTypeDefinitionName? GetPrimitiveType(
             PrimitiveTypeCode typeCode)
-            => primitivesAreLocal && typeCode == PrimitiveTypeCode.String
-                ? SystemString
+            => primitivesAreLocal
+                ? GetLocalPrimitiveDefinition(typeCode)
                 : null;
     }
 

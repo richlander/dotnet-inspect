@@ -144,6 +144,36 @@ public class TypeRefAritySpellingTests
     }
 
     [Fact]
+    public void GenericInstance_CompletesExactCompilerGeneratedTerminalArity()
+    {
+        Assert.Equal(
+            "N.Outer.<M>d__3<int, T3>",
+            TypeRef.GenericInstance(
+                ResolvedDefinition(
+                    "Outer`1+<M>d__3`2",
+                    "Outer`1",
+                    "<M>d__3`2"),
+                [
+                    TypeRef.CoreLib("System", "String"),
+                    TypeRef.CoreLib("System", "Int32"),
+                ])
+            .ToQualifiedDisplayString());
+
+        Assert.Equal(
+            "N.Outer`1.Widget`2",
+            TypeRef.GenericInstance(
+                ResolvedDefinition(
+                    "Outer`1+Widget`2",
+                    "Outer`1",
+                    "Widget`2"),
+                [
+                    TypeRef.CoreLib("System", "String"),
+                    TypeRef.CoreLib("System", "Int32"),
+                ])
+            .ToQualifiedDisplayString());
+    }
+
+    [Fact]
     public void GenericInstance_QualifiedDisplayKeepsTheDefinitionNamespace()
     {
         var dictionary = TypeRef.GenericInstance(

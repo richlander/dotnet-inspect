@@ -171,6 +171,26 @@ public sealed class MetadataTypeNameFormatterTests
                 ]));
     }
 
+    [Fact]
+    public void ApplyGenericArguments_CompletesNestedCompilerGeneratedArity()
+    {
+        Assert.Equal(
+            "Outer+<M>d__3<TStateMachine, T2>",
+            TypeResolver.ApplyGenericArguments(
+                "Outer+<M>d__3`2",
+                ["TStateMachine"]));
+        Assert.Equal(
+            "Outer<TOuter>.<M>d__3<TStateMachine, T3>",
+            TypeResolver.ApplyGenericArguments(
+                ["Outer`1", "<M>d__3`2"],
+                ["TOuter", "TStateMachine"]));
+        Assert.Equal(
+            "<M>d__3`65",
+            TypeResolver.ApplyGenericArguments(
+                ["<M>d__3`65"],
+                ["TStateMachine"]));
+    }
+
     /// <summary>
     /// A namespace is passed beside the type-name chain, never inside it, so
     /// namespace text is not rewritten by name formatting.
@@ -200,11 +220,16 @@ public sealed class MetadataTypeNameFormatterTests
     [Fact]
     public void FormatGenericTypeName_PreservesTypeSuffixesWithTypeParameters()
     {
-        var displayName = TypeResolver.ApplyGenericArguments(
-            ["Outer`1", "Inner`2[]"],
-            ["TOuter", "TInnerKey", "TInnerValue"]);
-
-        Assert.Equal("Outer<TOuter>.Inner<TInnerKey, TInnerValue>[]", displayName);
+        Assert.Equal(
+            "Inner<TInnerKey, TInnerValue>[]",
+            TypeResolver.ApplyGenericArguments(
+                "Inner`2[]",
+                ["TInnerKey", "TInnerValue"]));
+        Assert.Equal(
+            "Outer`1.Inner`2[]",
+            TypeResolver.ApplyGenericArguments(
+                ["Outer`1", "Inner`2[]"],
+                ["TOuter", "TInnerKey", "TInnerValue"]));
     }
 
     static MetadataTypeDefinitionName ExactName(string ns, params string[] segments)
