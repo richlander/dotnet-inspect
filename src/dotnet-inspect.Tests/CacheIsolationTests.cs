@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.Versioning;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -7,6 +8,8 @@ namespace DotnetInspector.Tests;
 
 public sealed class CacheIsolationTests
 {
+    const string HostileCliType = "DotnetInspector.Tests.HostileCli";
+
     [Fact]
     public void ConsoleCollection_IsAssemblyExclusive()
     {
@@ -49,31 +52,74 @@ public sealed class CacheIsolationTests
     }
 
     [Fact]
-    public void CacheIsolationScan_RejectsDirectAndDelegatedUnisolatedOwners()
+    public void CacheIsolationScan_RejectsCompilationAndOwnershipEvasions()
     {
         CacheIsolationScanResult result = Scan(
         [
             new(
+                "GlobalUsings.cs",
+                """
+                global using CacheAlias = DotnetInspector.Packages.NuGetCache;
+                global using static DotnetInspector.Core.CoreCache;
+                """),
+            new(
                 "Synthetic.cs",
                 """
-                using CacheAlias = DotnetInspector.Packages.NuGetCache;
-                using static DotnetInspector.Core.CoreCache;
+                namespace DotnetInspector.Tests;
 
                 [CollectionDefinition("Exclusive", DisableParallelization = true)]
                 public sealed class ExclusiveCollection;
 
+                [CollectionDefinition(ParallelCollection.Name)]
+                public sealed class ParallelCollection
+                {
+                    public const string Name = "Parallel";
+                }
+
                 [Collection("Exclusive")]
                 public sealed class Safe
                 {
+                    [Fact]
                     public void Run() => NuGetCache.Initialize("safe");
                 }
 
                 public sealed class Unsafe
                 {
+                    [Fact]
                     public void Run() => CoreCache.Initialize("unsafe");
+
+                    [Fact]
                     public void Alias() => CacheAlias.Initialize("alias");
+
+                    [Fact]
                     public void StaticImport() => Initialize("static");
+
+                    [Fact]
                     public void Delegate() => HostileCli.RunAsync();
+
+                #if NET
+                    [Fact]
+                    public void Conditional() => CacheAlias.Initialize("conditional");
+                #endif
+                }
+
+                [Collection("Exclusive")]
+                internal static class LaunderingHelper
+                {
+                    public static void Run() => NuGetCache.Initialize("laundered");
+                }
+
+                public sealed class LaunderingCaller
+                {
+                    [Fact]
+                    public void Run() => LaunderingHelper.Run();
+                }
+
+                [Collection(ParallelCollection.Name)]
+                public sealed class ParallelTests
+                {
+                    [Fact]
+                    public void Run() => NuGetCache.Initialize("parallel");
                 }
 
                 internal static class HostileCli
@@ -82,79 +128,118 @@ public sealed class CacheIsolationTests
                         NuGetCache.Initialize("delegated");
                 }
                 """),
+            new(
+                "PartialA.cs",
+                """
+                namespace DotnetInspector.Tests;
+
+                [Collection("Exclusive")]
+                public sealed partial class PartialSafe;
+                """),
+            new(
+                "PartialB.cs",
+                """
+                namespace DotnetInspector.Tests;
+
+                public sealed partial class PartialSafe
+                {
+                    [Fact]
+                    public void Run() => NuGetCache.Initialize("partial");
+                }
+                """),
         ]);
 
-        Assert.Equal(5, result.InitializerCount);
+        Assert.Equal(9, result.InitializerCount);
         Assert.Equal(1, result.DelegatedCallCount);
-        Assert.Equal(4, result.Offenders.Length);
+        Assert.Equal(7, result.Offenders.Length);
         Assert.Contains(result.Offenders, offender => offender.Contains("Unsafe.Run"));
         Assert.Contains(result.Offenders, offender => offender.Contains("Unsafe.Alias"));
         Assert.Contains(result.Offenders, offender => offender.Contains("Unsafe.StaticImport"));
         Assert.Contains(result.Offenders, offender => offender.Contains("Unsafe.Delegate"));
+        Assert.Contains(result.Offenders, offender => offender.Contains("Unsafe.Conditional"));
+        Assert.Contains(result.Offenders, offender => offender.Contains("LaunderingHelper.Run"));
+        Assert.Contains(result.Offenders, offender => offender.Contains("ParallelTests.Run"));
     }
 
     static CacheIsolationScanResult Scan(IReadOnlyCollection<SourceFile> sources)
     {
-        var trees = sources
-            .Select(source => (
-                source.Path,
-                Tree: CSharpSyntaxTree.ParseText(source.Content, path: source.Path)))
-            .ToArray();
-        HashSet<string> exclusiveCollections = trees
-            .SelectMany(source => source.Tree.GetRoot()
-                .DescendantNodes()
-                .OfType<TypeDeclarationSyntax>())
-            .SelectMany(type => type.AttributeLists
-                .SelectMany(list => list.Attributes))
-            .Where(attribute => AttributeName(attribute) == "CollectionDefinition")
-            .Where(attribute => NamedBooleanArgument(
-                attribute,
-                "DisableParallelization"))
-            .Select(CollectionName)
-            .OfType<string>()
-            .ToHashSet(StringComparer.Ordinal);
+        CSharpParseOptions parseOptions = CSharpParseOptions.Default
+            .WithLanguageVersion(LanguageVersion.Preview)
+            .WithPreprocessorSymbols(ProjectPreprocessorSymbols());
+        SyntaxTree[] trees =
+        [
+            CSharpSyntaxTree.ParseText(
+                """
+                global using System;
+                global using System.Collections.Generic;
+                global using System.IO;
+                global using System.Linq;
+                global using System.Net.Http;
+                global using System.Threading;
+                global using System.Threading.Tasks;
+                global using Xunit;
+                global using DotnetInspector.Core;
+                global using DotnetInspector.Packages;
+                global using ILInspector.Instructions;
+                global using ILInspector.SourceLink;
+                """,
+                parseOptions,
+                "__CacheIsolationGlobalUsings.g.cs"),
+            .. sources.Select(source =>
+                CSharpSyntaxTree.ParseText(
+                    source.Content,
+                    parseOptions,
+                    source.Path)),
+        ];
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "CacheIsolationCensus",
+            trees,
+            CompilationReferences(),
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                allowUnsafe: true));
+        HashSet<string> exclusiveCollectionNames =
+            ExclusiveCollectionNames(compilation);
         List<string> offenders = [];
         int initializers = 0;
         int delegatedCalls = 0;
 
-        foreach ((string path, SyntaxTree tree) in trees)
+        foreach (SyntaxTree tree in trees.Skip(1))
         {
-            SyntaxNode root = tree.GetRoot();
-            HashSet<string> cacheTypeNames = CacheTypeNames(root);
-            bool importsCacheStatically = ImportsCacheStatically(root);
-            foreach (InvocationExpressionSyntax invocation in root
+            SemanticModel model = compilation.GetSemanticModel(tree);
+            foreach (InvocationExpressionSyntax invocation in tree.GetRoot()
                 .DescendantNodes()
                 .OfType<InvocationExpressionSyntax>())
             {
-                if (IsCacheInitializer(
-                    invocation,
-                    cacheTypeNames,
-                    importsCacheStatically))
+                IMethodSymbol[] targets = InvokedMethods(model, invocation);
+                IMethodSymbol? initializer =
+                    targets.FirstOrDefault(IsCacheInitializer);
+                if (initializer is not null)
                 {
                     initializers++;
-                    TypeDeclarationSyntax? owner =
-                        invocation.FirstAncestorOrSelf<TypeDeclarationSyntax>();
-                    if (owner is null
-                        || IsAssemblyExclusive(owner, exclusiveCollections)
-                        || owner.Identifier.ValueText == nameof(HostileCli))
-                    {
+                    IMethodSymbol? owner = EnclosingMethod(model, invocation);
+                    if (IsExactHostileCliRunAsync(owner))
                         continue;
-                    }
 
-                    offenders.Add(Describe(path, invocation, owner));
+                    if (!IsAssemblyExclusiveTestClass(
+                        owner?.ContainingType,
+                        exclusiveCollectionNames))
+                    {
+                        offenders.Add(Describe(invocation, owner));
+                    }
                     continue;
                 }
 
-                if (!IsHostileCliCall(invocation))
+                if (!targets.Any(IsExactHostileCliRunAsync))
                     continue;
 
                 delegatedCalls++;
-                TypeDeclarationSyntax? caller =
-                    invocation.FirstAncestorOrSelf<TypeDeclarationSyntax>();
-                if (caller is null
-                    || !IsAssemblyExclusive(caller, exclusiveCollections))
+                IMethodSymbol? caller = EnclosingMethod(model, invocation);
+                if (!IsAssemblyExclusiveTestClass(
+                    caller?.ContainingType,
+                    exclusiveCollectionNames))
                 {
-                    offenders.Add(Describe(path, invocation, caller));
+                    offenders.Add(Describe(invocation, caller));
                 }
             }
         }
@@ -165,160 +250,219 @@ public sealed class CacheIsolationTests
             delegatedCalls);
     }
 
-    static bool IsAssemblyExclusive(
-        TypeDeclarationSyntax type,
-        IReadOnlySet<string> exclusiveCollections)
+    static IEnumerable<MetadataReference> CompilationReferences()
     {
-        string? collection = type.AttributeLists
-            .SelectMany(list => list.Attributes)
-            .Where(attribute => AttributeName(attribute) == "Collection")
-            .Select(CollectionName)
-            .FirstOrDefault(name => name is not null);
-        return collection is not null
-            && exclusiveCollections.Contains(collection);
+        string testAssembly = typeof(CacheIsolationTests).Assembly.Location;
+        IEnumerable<string> platformAssemblies =
+            ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
+            .Split(Path.PathSeparator);
+        IEnumerable<string> projectAssemblies = Directory
+            .EnumerateFiles(AppContext.BaseDirectory, "*.dll")
+            .Where(path => !string.Equals(
+                path,
+                testAssembly,
+                StringComparison.OrdinalIgnoreCase));
+
+        return platformAssemblies
+            .Concat(projectAssemblies)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(path => MetadataReference.CreateFromFile(path));
     }
 
-    static bool IsCacheInitializer(
-        InvocationExpressionSyntax invocation,
-        IReadOnlySet<string> cacheTypeNames,
-        bool importsCacheStatically) =>
-        invocation.Expression switch
-        {
-            MemberAccessExpressionSyntax
-            {
-                Name.Identifier.ValueText: "Initialize",
-            } member =>
-                cacheTypeNames.Any(name =>
-                    EndsWithIdentifier(member.Expression, name)),
-            IdentifierNameSyntax
-            {
-                Identifier.ValueText: "Initialize",
-            } =>
-                importsCacheStatically,
-            _ => false,
-        };
-
-    static HashSet<string> CacheTypeNames(SyntaxNode root)
+    static IEnumerable<string> ProjectPreprocessorSymbols()
     {
-        HashSet<string> names =
-            ["CoreCache", "NuGetCache"];
-        foreach (UsingDirectiveSyntax directive in root
-            .DescendantNodes()
-            .OfType<UsingDirectiveSyntax>())
+        HashSet<string> symbols = new(StringComparer.Ordinal);
+        string? constants = typeof(CacheIsolationTests).Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .SingleOrDefault(attribute =>
+                attribute.Key == "DefineConstants")
+            ?.Value;
+        if (constants is not null)
         {
-            string? alias = directive.Alias?.Name.Identifier.ValueText;
-            if (alias is not null
-                && IsCacheTypeName(directive.Name?.ToString()))
+            symbols.UnionWith(constants.Split(
+                [';', ','],
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
+        }
+
+        var framework = new FrameworkName(
+            AppContext.TargetFrameworkName
+                ?? throw new InvalidOperationException(
+                    "The test target framework is unavailable."));
+        if (framework.Identifier == ".NETCoreApp")
+        {
+            symbols.Add("NET");
+            symbols.Add("NETCOREAPP");
+            symbols.Add(
+                $"NET{framework.Version.Major}_{framework.Version.Minor}");
+            for (int major = 5; major <= framework.Version.Major; major++)
+                symbols.Add($"NET{major}_0_OR_GREATER");
+        }
+
+        return symbols;
+    }
+
+    static HashSet<string> ExclusiveCollectionNames(
+        CSharpCompilation compilation) =>
+        AllTypes(compilation.Assembly.GlobalNamespace)
+            .SelectMany(type => type.GetAttributes())
+            .Where(IsExclusiveCollectionDefinition)
+            .Select(attribute =>
+                attribute.ConstructorArguments.FirstOrDefault().Value as string)
+            .OfType<string>()
+            .ToHashSet(StringComparer.Ordinal);
+
+    static IEnumerable<INamedTypeSymbol> AllTypes(INamespaceSymbol scope)
+    {
+        foreach (INamedTypeSymbol type in scope.GetTypeMembers())
+        {
+            yield return type;
+            foreach (INamedTypeSymbol nested in AllTypes(type))
+                yield return nested;
+        }
+        foreach (INamespaceSymbol child in scope.GetNamespaceMembers())
+        {
+            foreach (INamedTypeSymbol type in AllTypes(child))
+                yield return type;
+        }
+    }
+
+    static IEnumerable<INamedTypeSymbol> AllTypes(INamedTypeSymbol scope)
+    {
+        foreach (INamedTypeSymbol type in scope.GetTypeMembers())
+        {
+            yield return type;
+            foreach (INamedTypeSymbol nested in AllTypes(type))
+                yield return nested;
+        }
+    }
+
+    static bool IsExclusiveCollectionDefinition(AttributeData attribute) =>
+        IsXunitAttribute(attribute, "CollectionDefinitionAttribute")
+        && attribute.NamedArguments.Any(argument =>
+            argument.Key == "DisableParallelization"
+            && argument.Value.Value is true);
+
+    static bool IsAssemblyExclusiveTestClass(
+        INamedTypeSymbol? type,
+        IReadOnlySet<string> exclusiveCollectionNames)
+    {
+        if (type is null || !IsTestClass(type))
+            return false;
+
+        foreach (AttributeData attribute in type.GetAttributes()
+            .Where(attribute =>
+                IsXunitAttribute(attribute, "CollectionAttribute")))
+        {
+            TypedConstant argument =
+                attribute.ConstructorArguments.FirstOrDefault();
+            if (argument.Value is string name
+                && exclusiveCollectionNames.Contains(name))
             {
-                names.Add(alias);
+                return true;
+            }
+            if (argument.Kind == TypedConstantKind.Type
+                && argument.Value is INamedTypeSymbol definition
+                && definition.GetAttributes().Any(
+                    IsExclusiveCollectionDefinition))
+            {
+                return true;
             }
         }
-        return names;
+
+        AttributeData? genericCollection = type.GetAttributes()
+            .FirstOrDefault(attribute =>
+                attribute.AttributeClass is { IsGenericType: true } attributeType
+                && IsXunitAttribute(
+                    attribute,
+                    "CollectionAttribute")
+                && attributeType.TypeArguments[0]
+                    is INamedTypeSymbol definition
+                && definition.GetAttributes().Any(
+                    IsExclusiveCollectionDefinition));
+        return genericCollection is not null;
     }
 
-    static bool ImportsCacheStatically(SyntaxNode root) =>
-        root.DescendantNodes()
-            .OfType<UsingDirectiveSyntax>()
-            .Any(directive =>
-                !directive.StaticKeyword.IsKind(SyntaxKind.None)
-                && IsCacheTypeName(directive.Name?.ToString()));
+    static bool IsTestClass(INamedTypeSymbol type) =>
+        type.GetMembers()
+            .OfType<IMethodSymbol>()
+            .Any(method => method.GetAttributes().Any(IsTestAttribute));
 
-    static bool IsCacheTypeName(string? name) =>
-        name is not null
-        && (name.EndsWith(".CoreCache", StringComparison.Ordinal)
-            || name.EndsWith(".NuGetCache", StringComparison.Ordinal)
-            || name is "CoreCache" or "NuGetCache");
-
-    static bool IsHostileCliCall(InvocationExpressionSyntax invocation) =>
-        invocation.Expression is MemberAccessExpressionSyntax
-        {
-            Name.Identifier.ValueText: "RunAsync",
-        } member
-        && EndsWithIdentifier(member.Expression, nameof(HostileCli));
-
-    static bool EndsWithIdentifier(ExpressionSyntax expression, string name) =>
-        expression switch
-        {
-            IdentifierNameSyntax identifier =>
-                identifier.Identifier.ValueText == name,
-            MemberAccessExpressionSyntax member =>
-                member.Name.Identifier.ValueText == name,
-            _ => false,
-        };
-
-    static string AttributeName(AttributeSyntax attribute) =>
-        attribute.Name switch
-        {
-            IdentifierNameSyntax identifier =>
-                TrimAttributeSuffix(identifier.Identifier.ValueText),
-            QualifiedNameSyntax qualified =>
-                TrimAttributeSuffix(qualified.Right.Identifier.ValueText),
-            AliasQualifiedNameSyntax alias =>
-                TrimAttributeSuffix(alias.Name.Identifier.ValueText),
-            _ => TrimAttributeSuffix(attribute.Name.ToString()),
-        };
-
-    static string TrimAttributeSuffix(string name) =>
-        name.EndsWith("Attribute", StringComparison.Ordinal)
-            ? name[..^"Attribute".Length]
-            : name;
-
-    static string? CollectionName(AttributeSyntax attribute)
+    static bool IsTestAttribute(AttributeData attribute)
     {
-        AttributeArgumentSyntax? argument = attribute.ArgumentList?.Arguments
-            .FirstOrDefault(candidate =>
-                candidate.NameEquals is null
-                && candidate.NameColon is null);
-        return argument?.Expression switch
+        for (INamedTypeSymbol? type = attribute.AttributeClass;
+             type is not null;
+             type = type.BaseType)
         {
-            LiteralExpressionSyntax literal
-                when literal.IsKind(SyntaxKind.StringLiteralExpression) =>
-                literal.Token.ValueText,
-            IdentifierNameSyntax
-                {
-                    Identifier.ValueText: nameof(ConsoleCollection.Name),
-                } =>
-                ConsoleCollection.Name,
-            MemberAccessExpressionSyntax
-                {
-                    Expression: IdentifierNameSyntax
-                    {
-                        Identifier.ValueText: nameof(ConsoleCollection),
-                    },
-                    Name.Identifier.ValueText: nameof(ConsoleCollection.Name),
-                } =>
-                ConsoleCollection.Name,
-            _ => null,
-        };
+            if (type.ContainingNamespace.ToDisplayString() == "Xunit"
+                && type.Name is "FactAttribute" or "TheoryAttribute")
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
-    static bool NamedBooleanArgument(
-        AttributeSyntax attribute,
+    static bool IsXunitAttribute(
+        AttributeData attribute,
         string name) =>
-        attribute.ArgumentList?.Arguments.Any(argument =>
-            argument.NameEquals?.Name.Identifier.ValueText == name
-            && argument.Expression.IsKind(SyntaxKind.TrueLiteralExpression))
-        == true;
+        attribute.AttributeClass is { } type
+        && type.ContainingNamespace.ToDisplayString() == "Xunit"
+        && type.OriginalDefinition.Name == name;
+
+    static IMethodSymbol[] InvokedMethods(
+        SemanticModel model,
+        InvocationExpressionSyntax invocation)
+    {
+        SymbolInfo info = model.GetSymbolInfo(invocation);
+        return info.Symbol is IMethodSymbol method
+            ? [method]
+            : [.. info.CandidateSymbols.OfType<IMethodSymbol>()];
+    }
+
+    static IMethodSymbol? EnclosingMethod(
+        SemanticModel model,
+        InvocationExpressionSyntax invocation)
+    {
+        ISymbol? owner = model.GetEnclosingSymbol(invocation.SpanStart);
+        while (owner is not null and not IMethodSymbol)
+            owner = owner.ContainingSymbol;
+        var method = owner as IMethodSymbol;
+        while (method?.MethodKind is
+            MethodKind.AnonymousFunction or MethodKind.LocalFunction)
+        {
+            owner = method.ContainingSymbol;
+            while (owner is not null and not IMethodSymbol)
+                owner = owner.ContainingSymbol;
+            method = owner as IMethodSymbol;
+        }
+        return method;
+    }
+
+    static bool IsCacheInitializer(IMethodSymbol? method) =>
+        method is
+        {
+            Name: "Initialize",
+            ContainingType: { } type,
+        }
+        && type.ToDisplayString() is
+            "DotnetInspector.Core.CoreCache"
+            or "DotnetInspector.Packages.NuGetCache";
+
+    static bool IsExactHostileCliRunAsync(IMethodSymbol? method) =>
+        method?.Name == "RunAsync"
+        && method.ContainingType?.ToDisplayString() == HostileCliType;
 
     static string Describe(
-        string path,
         InvocationExpressionSyntax invocation,
-        TypeDeclarationSyntax? type)
+        IMethodSymbol? method)
     {
-        string member = invocation
-            .FirstAncestorOrSelf<MemberDeclarationSyntax>() switch
-        {
-            MethodDeclarationSyntax method =>
-                method.Identifier.ValueText,
-            ConstructorDeclarationSyntax constructor =>
-                constructor.Identifier.ValueText,
-            _ => "<member>",
-        };
         FileLinePositionSpan line = invocation
             .GetLocation()
             .GetLineSpan();
-        return $"{path}:{line.StartLinePosition.Line + 1} "
-            + $"{type?.Identifier.ValueText ?? "<type>"}.{member}";
+        return $"{line.Path}:{line.StartLinePosition.Line + 1} "
+            + $"{method?.ContainingType?.Name ?? "<type>"}."
+            + $"{method?.Name ?? "<member>"}";
     }
 
     static bool IsGeneratedPath(string relativePath) =>
