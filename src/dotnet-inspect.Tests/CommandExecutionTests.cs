@@ -6055,6 +6055,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_BodylessAccessor_MetadataSectionDoesNotEnableFactsAnalysis()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            "Facts,Custom Attributes",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("has no IL body", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Member_OriginalSource_MemberWithBody_DoesNotClaimTheMemberIsBodyless()
     {
         // Close negative: a member that does have a body still renders its authored source, so

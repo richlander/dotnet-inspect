@@ -1589,6 +1589,24 @@ public static class ApiOutputFormatter
         // one method so a read/write property's two accessor bodies don't overwrite each
         // other. Without an explicit selection they still aggregate across all overloads.
         var bodyMethods = overloadIndex.HasValue ? singleMethodList : methods;
+        bool selectedBodylessAccessor = overloadIndex.HasValue
+            && type.Members is [{ } owner]
+            && ApiMemberSectionDescriptors.HasAccessorTokens(owner)
+            && bodyMethods is [{ HasMethodBody: false }];
+        if (selectedBodylessAccessor)
+        {
+            request = request with
+            {
+                DecompiledSource = false,
+                AnnotatedSource = false,
+                SourceDocument = false,
+                CostOverlay = false,
+                SemanticsOverlay = false,
+                IL = false,
+                Facts = false,
+                AppliedTaste = false,
+            };
+        }
 
         if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {
