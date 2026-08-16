@@ -1,5 +1,7 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Reflection;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 
 using ILInspector.Analysis.StructuralCloneFixtures;
@@ -22,6 +24,35 @@ public class StructuralCloneCorpusTests
             report.Success,
             StructuralCloneCorpus.Format(report));
         Assert.Equal(6, report.Total);
+    }
+
+    [Fact]
+    public void Run_RejectsMalformedManagedMetadata()
+    {
+        byte[] bytes =
+            File.ReadAllBytes(typeof(StructuralCloneFixture).Assembly.Location);
+        using (var image = new PEReader(new MemoryStream(bytes)))
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                bytes.AsSpan(
+                    image.PEHeaders.CorHeaderStartOffset
+                        + 3 * sizeof(uint)),
+                uint.MaxValue);
+        }
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"structural-clone-malformed-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, bytes);
+
+            Assert.Throws<InvalidDataException>(
+                () => StructuralCloneCorpus.Run(path, LoadCorpus()));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

@@ -107,11 +107,29 @@ public static class StructuralCloneCorpus
 
         using PEReader image =
             new(File.OpenRead(Path.GetFullPath(assemblyPath)));
-        if (!image.HasMetadata)
+        MetadataReader reader;
+        try
+        {
+            if (!image.HasMetadata)
+            {
+                throw new InvalidDataException(
+                    $"The clone corpus target is not a managed assembly: "
+                        + assemblyPath);
+            }
+            reader = image.GetMetadataReader();
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException
+                or OverflowException)
+        {
             throw new InvalidDataException(
-                $"The clone corpus target is not a managed assembly: {assemblyPath}");
-
-        MetadataReader reader = image.GetMetadataReader();
+                $"The clone corpus target has invalid managed metadata: "
+                    + assemblyPath,
+                ex);
+        }
         ImmutableArray<StructuralCloneCorpusCaseResult>.Builder results =
             ImmutableArray.CreateBuilder<StructuralCloneCorpusCaseResult>(
                 corpus.Cases.Length);

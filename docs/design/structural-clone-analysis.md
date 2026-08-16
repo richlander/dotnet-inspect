@@ -77,6 +77,7 @@ counts, including edges.
 instruction bound applies before per-instruction metadata work.
 `Compare_EdgeLimitPrecedesMetadataOperandValidation` gates that measured edge
 limits stop before metadata-operand validation and graph materialization.
+`Compare_MalformedMetadataDirectoryFailsWithoutThrowing`,
 `Compare_MalformedMetadataRootFailsWithoutThrowing`,
 `Compare_MalformedModuleIdentityFailsWithoutThrowing`,
 `Compare_MalformedUserStringTrailerFails`,

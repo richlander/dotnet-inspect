@@ -255,17 +255,37 @@ public static class StructuralCloneAnalysis
         StructuralCloneComparisonLimits? limits = null)
     {
         ArgumentNullException.ThrowIfNull(image);
-        if (!image.HasMetadata)
-            throw new ArgumentException(
-                "Structural clone comparison requires a managed metadata image.",
-                nameof(image));
-
         ValidateLimits(limits ??= new StructuralCloneComparisonLimits());
 
         MetadataMethodAddress leftAddress =
             new(Guid.Empty, left);
         MetadataMethodAddress rightAddress =
             new(Guid.Empty, right);
+        bool hasMetadata;
+        try
+        {
+            hasMetadata = image.HasMetadata;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException and not ObjectDisposedException
+                or OverflowException)
+        {
+            return MetadataReadFailure(
+                leftAddress,
+                rightAddress,
+                "metadata directory",
+                ex);
+        }
+        if (!hasMetadata)
+        {
+            throw new ArgumentException(
+                "Structural clone comparison requires a managed metadata image.",
+                nameof(image));
+        }
+
         MetadataReader reader;
         try
         {

@@ -956,6 +956,57 @@ public class StructuralCloneAnalysisTests
     }
 
     [Fact]
+    public void Compare_MalformedMetadataDirectoryFailsWithoutThrowing()
+    {
+        byte[] bytes = BuildTwinAssembly([0x2A]);
+        using (PEReader validImage = OpenImage(bytes))
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                bytes.AsSpan(
+                    validImage.PEHeaders.CorHeaderStartOffset
+                        + 3 * sizeof(uint)),
+                uint.MaxValue);
+        }
+        using PEReader image = OpenImage(bytes);
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            StructuralCloneDisposition.Failed,
+            comparison.Disposition);
+        Assert.Null(comparison.Relation);
+        Assert.Contains(
+            comparison.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneBlockerKind.MetadataReadFailure);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2),
+                new StructuralCloneComparisonLimits(
+                    MaximumInstructions: 0)));
+    }
+
+    [Fact]
+    public void Compare_DisposedImageStillThrows()
+    {
+        PEReader image = OpenImage(BuildTwinAssembly([0x2A]));
+        image.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(
+            () => StructuralCloneAnalysis.Compare(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2)));
+    }
+
+    [Fact]
     public void Compare_EdgeLimitPrecedesMetadataOperandValidation()
     {
         using PEReader image = OpenImage(
