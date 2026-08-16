@@ -14,7 +14,7 @@
 # Diagnostics go to stderr and PATH entries to stdout, one per line, so the
 # output can be consumed directly:
 #
-#   CI:     eng/restore-iltools.sh >> "$GITHUB_PATH"
+#   CI:     eng/restore-iltools.sh --native-paths >> "$GITHUB_PATH"
 #   local:  source eng/activate-iltools.sh --mdv
 #
 # Do not assemble PATH from this script's output by hand. A child process
@@ -40,14 +40,17 @@ DOTNET_TOOLS_FEED=https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-too
 
 rid=""
 want_mdv=0
+native_paths=0
 
 usage() {
     cat >&2 <<'EOF'
-Usage: eng/restore-iltools.sh [--rid <rid>] [--mdv]
+Usage: eng/restore-iltools.sh [--rid <rid>] [--mdv] [--native-paths]
 
-  --rid <rid>  Runtime identifier to restore ilasm/ildasm for
-               (default: the host RID reported by `dotnet --info`).
-  --mdv        Also install the `mdv` global tool.
+  --rid <rid>     Runtime identifier to restore ilasm/ildasm for
+                  (default: the host RID reported by `dotnet --info`).
+  --mdv           Also install the `mdv` global tool.
+  --native-paths  Emit native paths for consumers such as $GITHUB_PATH
+                  instead of paths for the current shell.
 
 Prints the directories to add to PATH, one per line.
 EOF
@@ -62,6 +65,10 @@ while [ $# -gt 0 ]; do
             ;;
         --mdv)
             want_mdv=1
+            shift
+            ;;
+        --native-paths)
+            native_paths=1
             shift
             ;;
         -h|--help)
@@ -89,14 +96,20 @@ root="$(git rev-parse --show-toplevel)"
 packages_dir="$root/artifacts/iltools/packages"
 
 # On Git Bash, `git rev-parse --show-toplevel` reports a Windows path
-# (C:/src/repo). Emitting that verbatim would break the documented
-# newline-to-colon PATH assembly, because the drive colon reads as a PATH
-# separator and splits every directory into "C" and "/src/repo/...". Emit MSYS
-# form (/c/src/repo) where cygpath exists; elsewhere this is a no-op.
+# (C:/src/repo). Interactive activation needs MSYS form (/c/src/repo), because
+# the drive colon would split a shell PATH. Native consumers such as
+# $GITHUB_PATH need Windows form instead. The caller chooses explicitly because
+# GitHub exports GITHUB_PATH to every step, including interactive activation
+# that still needs shell-form paths. cygpath owns both conversions; elsewhere
+# the path is already host-native.
 emit_path() {
     local emitted
     if [ -n "$cygpath" ]; then
-        emitted="$("$cygpath" -u "$1")"
+        if [ "$native_paths" -eq 1 ]; then
+            emitted="$("$cygpath" -w "$1")"
+        else
+            emitted="$("$cygpath" -u "$1")"
+        fi
     else
         emitted="$1"
     fi
@@ -113,22 +126,6 @@ emit_path() {
 }
 
 cygpath="$(command -v cygpath 2> /dev/null || true)"
-
-# The MSYS form above is right for a shell and wrong for a GitHub Actions lane.
-# $GITHUB_PATH feeds PATH for *every* later step, including pwsh steps and the
-# .NET processes they spawn, and Win32 CreateProcess cannot resolve /c/... -- so
-# the tools would be unfindable and every oracle test would skip, green. No
-# Windows lane exists today (the test matrix is linux-x64 only), so rather than
-# ship an unexercised native-path mode, refuse loudly: whoever adds that lane
-# gets this message instead of a silently uncompared run.
-if [ -n "$cygpath" ] && [ -n "${GITHUB_PATH:-}" ]; then
-    echo "error: refusing to write MSYS-style paths to \$GITHUB_PATH." >&2
-    echo "  This script emits /c/... form on Git Bash, which .NET cannot resolve" >&2
-    echo "  when a later pwsh step spawns a process. Adding a Windows CI lane" >&2
-    echo "  requires emitting native paths here first; see the emit_path comment" >&2
-    echo "  above for why the MSYS form exists (drive colons split a PATH)." >&2
-    exit 1
-fi
 
 # The package payload's extension follows the RID being restored, not the host:
 # restoring win-x64 from Linux still yields ilasm.exe.

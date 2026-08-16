@@ -19,7 +19,7 @@ family.
 
 - `ILInspector.Decompiler` owns C# body diff production and display rows through
   `CSharpBodyDiff` and `CSharpDiffPrinter`.
-- `ILInspector.Instructions` owns IL/body diff production and display rows
+- `ILInspector.ILDiff` owns IL/body diff production and display rows
   through `IlBodyDiff`, `IlAssemblyDiff`, and `IlDiffPrinter`.
 - `ILInspector.Research` owns the join. `ImplementationDiff` compares assemblies
   with decompiled C# and IL/body mechanisms, accepts checksum-gated authored
@@ -54,12 +54,15 @@ evidence, not a conclusion inferred from C# text.
 `CSharpStructuralDiffPrinter` projects that one result into complete-body caret
 overlays and compact rich-diff rows. It performs no correspondence. The
 DecompilerHarness `--structural-review` mode owns Markdown orchestration and
-consumes the same result for both presentations. This model exists only for
-node/span structure that the line-oriented `CSharpDiffRow` cannot represent; it
-does not introduce another generic diff-row hierarchy. Ordinary indented spans
-reuse the annotation comment gutter and its stacking rules. A span too close to
-the left edge for that gutter uses an exact gutter-free caret row instead; it is
-never shifted, widened, clipped, or silently dropped.
+consumes the same result for both presentations. It reads untrusted input
+through Decompiler-owned `AnnotatedSourceJson`, so the CLI document writer and
+harness reader share one model-owned contract while retaining separate writer
+and strict-reader policies. This model exists only for node/span structure that
+the line-oriented `CSharpDiffRow` cannot represent; it does not introduce
+another generic diff-row hierarchy. Ordinary indented spans reuse the
+annotation comment gutter and its stacking rules. A span too close to the left
+edge for that gutter uses an exact gutter-free caret row instead; it is never
+shifted, widened, clipped, or silently dropped.
 
 ## Research comparison model
 
@@ -129,14 +132,14 @@ produced:
   Metadata layer.
 - **Body-substrate rows** are produced below member selection: they compare one
   already-resolved body's operation or signal stream and hold no member
-  identity. `IlDiffRow`/`CanonicalIlOperation` in `ILInspector.Instructions`
+  identity. `IlDiffRow`/`CanonicalIlOperation` in `ILInspector.ILDiff`
   carries only `HunkId`, `IlDiffKind` polarity, the operation, and a
   producer-owned `Message`; analysis/body-signal facts sit at the same altitude.
   The caller that already resolved the enclosing member supplies the stable
   currency by wrapping — `IlAssemblyDiff.CompareMembers` returns an
   `IlMemberDiffSubject`, and Research attaches a `ResearchSubjectKey` from
   `ResearchMemberIdentity.SubjectFromMethod`. This is altitude, not a
-  Metadata-dependency ban: `ILInspector.Instructions` already references
+  Metadata-dependency ban: `ILInspector.ILDiff` already references
   `MetadataPrimitives`, so it *could* embed a `MemberAnchor`; it deliberately
   does not, because a body substrate that diffs a single pre-resolved body pair
   has no member to name and the enclosing member subject already owns that fact.

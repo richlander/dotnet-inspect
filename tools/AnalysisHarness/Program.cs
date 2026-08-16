@@ -22,9 +22,19 @@ const string Usage =
           surfaces as a loop+high triage candidate. Exit nonzero on a missing site (recall
           regression). Defaults to corpus/paydirt-reference.json.
 
+      --historical-performance-recall [<file>]
+          Acquire the exact NuGet before/after cells in the committed historical performance
+          reference and verify their member+shape counts. This explicit mode uses the network
+          when packages are not cached. Defaults to corpus/historical-performance-reference.json.
+
       --precision-sample <assembly> [--top N] [--json]
           Layer 3 precision: emit the top-N triage candidates as a labeling worksheet for sampled
           true/false-positive judgement. No automatic oracle.
+
+      --clone-corpus <assembly> [--relationship-ledger <file>] [--json]
+          Grade product-owned structural clone comparison and exact discovery against the
+          committed closed-world corpus. The harness resolves typed metadata identities and does
+          not reconstruct candidate retrieval, normalization, correspondence, or verification.
 
       --allocation-readout <file> [--top N] [--json]
           Sweep a corpus list and aggregate allocation occurrence/opportunity metadata
@@ -97,8 +107,13 @@ bool json = false;
 bool keep = false;
 bool list = false;
 string? recallAssembly = null;
+string? historicalPerformanceReference = null;
 string? referenceFile = null;
 string? precisionAssembly = null;
+string? cloneCorpusAssembly = null;
+string? relationshipLedger = null;
+bool cloneCorpusSpecified = false;
+bool relationshipLedgerSpecified = false;
 string? allocationReadoutList = null;
 string? callerLoopCensusList = null;
 string? deferredCallbackCensusList = null;
@@ -137,8 +152,24 @@ for (int i = 0; i < args.Length; i++)
         case "--paydirt-recall":
             recallAssembly = NextValue(args, ref i);
             break;
+        case "--historical-performance-recall":
+            historicalPerformanceReference =
+                NextPathValue(args, ref i)
+                ?? Path.Combine(
+                    AppContext.BaseDirectory,
+                    "corpus",
+                    "historical-performance-reference.json");
+            break;
         case "--precision-sample":
             precisionAssembly = NextValue(args, ref i);
+            break;
+        case "--clone-corpus":
+            cloneCorpusSpecified = true;
+            cloneCorpusAssembly = NextPathValue(args, ref i);
+            break;
+        case "--relationship-ledger":
+            relationshipLedgerSpecified = true;
+            relationshipLedger = NextPathValue(args, ref i);
             break;
         case "--allocation-readout":
             allocationReadoutList = NextValue(args, ref i);
@@ -210,6 +241,23 @@ for (int i = 0; i < args.Length; i++)
     }
 }
 
+if (cloneCorpusSpecified && cloneCorpusAssembly is null)
+{
+    Console.Error.WriteLine("--clone-corpus requires an assembly path.");
+    return 2;
+}
+if (relationshipLedgerSpecified && relationshipLedger is null)
+{
+    Console.Error.WriteLine("--relationship-ledger requires a file path.");
+    return 2;
+}
+if (relationshipLedgerSpecified && !cloneCorpusSpecified)
+{
+    Console.Error.WriteLine(
+        "--relationship-ledger requires --clone-corpus.");
+    return 2;
+}
+
 // --tsv/--jsonl are tabular-format selectors for the leak cards; other modes use --json.
 // Reject them elsewhere rather than silently accepting-and-ignoring them.
 if ((tsv || jsonl) && leakTriageList is null && leakActionabilityList is null && memoryPoolLifecycleList is null)
@@ -221,8 +269,15 @@ if ((tsv || jsonl) && leakTriageList is null && leakActionabilityList is null &&
 if (recallAssembly is not null)
     return RunRecall(recallAssembly, referenceFile);
 
+if (historicalPerformanceReference is not null)
+    return await HistoricalPerformanceRecall.RunAsync(
+        historicalPerformanceReference);
+
 if (precisionAssembly is not null)
     return RunPrecision(precisionAssembly, top);
+
+if (cloneCorpusAssembly is not null)
+    return RunCloneCorpus(cloneCorpusAssembly, relationshipLedger, json);
 
 if (allocationReadoutList is not null)
     return RunAllocationReadout(allocationReadoutList, top, json);
@@ -283,6 +338,38 @@ static int RunPrecision(string assembly, int top)
     if (!File.Exists(assembly)) { Console.Error.WriteLine($"Assembly not found: {assembly}"); return 2; }
     Console.WriteLine(PrecisionRecall.ToJson(PrecisionRecall.Sample(assembly, top)));
     return 0;
+}
+
+static int RunCloneCorpus(
+    string assembly,
+    string? relationshipLedger,
+    bool json)
+{
+    if (!File.Exists(assembly))
+    {
+        Console.Error.WriteLine($"Assembly not found: {assembly}");
+        return 2;
+    }
+    string ledger =
+        relationshipLedger
+        ?? Path.Combine(
+            AppContext.BaseDirectory,
+            "corpus",
+            "structural-clone-relationships.json");
+    if (!File.Exists(ledger))
+    {
+        Console.Error.WriteLine($"Relationship ledger not found: {ledger}");
+        return 2;
+    }
+
+    StructuralCloneCorpusReport report = StructuralCloneCorpus.Run(
+        assembly,
+        StructuralCloneCorpus.Load(File.ReadAllText(ledger)));
+    Console.Write(
+        json
+            ? StructuralCloneCorpus.ToJson(report) + Environment.NewLine
+            : StructuralCloneCorpus.Format(report));
+    return report.Success ? 0 : 1;
 }
 
 static int RunAllocationReadout(string corpusList, int top, bool json)
