@@ -3,7 +3,7 @@ using System.Reflection.Metadata;
 
 using ILInspector.Findings;
 
-namespace ILInspector.Instructions.Tests;
+namespace ILInspector.ILDiff.Tests;
 
 /// <summary>
 /// Pilot gates for the finding spine (#2564/#2585): the domain-free alignment engine, the atom
