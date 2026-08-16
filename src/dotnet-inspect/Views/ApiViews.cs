@@ -1170,42 +1170,75 @@ public record UnsafeMemberRow(
 [MarkoutSerializable]
 public record OptimizationOpportunityRow(
     string Member,
-    [property: MarkoutSkipNull] string? Candidate,
-    [property: MarkoutSkipNull] string? Finding,
-    [property: MarkoutSkipNull] string? Provenance,
+    string? Candidate,
+    string? Finding,
+    string? Provenance,
     string RootReach,
     string Shape,
-    [property: MarkoutSkipNull] string? Operation,
-    [property: MarkoutSkipNull] string? Token,
+    string? Operation,
+    string? Token,
     string Evidence,
     string Fix,
+    string Priority,
     string Confidence,
     string Loop,
-    [property: MarkoutSkipNull] string? CallerLoop,
-    [property: MarkoutSkipNull] string? CallerLoopDepth,
-    [property: MarkoutSkipNull] string? CallerLoopWitness,
-    [property: MarkoutSkipNull] string? Allocation,
-    [property: MarkoutSkipNull] string? Path,
-    [property: MarkoutSkipNull] string? PathConfidence,
-    [property: MarkoutPropertyName("Post Dominance")]
-    [property: MarkoutSkipNull] string? PostDominance,
-    [property: MarkoutSkipNull] string? IL,
-    [property: MarkoutSkipNull] string? Weight,
-    [property: MarkoutPropertyName("Direct Sites")]
-    [property: MarkoutSkipNull] string? DirectSites,
-    [property: MarkoutPropertyName("Once Paths")]
-    [property: MarkoutSkipNull] string? OncePaths,
-    [property: MarkoutPropertyName("Conditional Paths")]
-    [property: MarkoutSkipNull] string? ConditionalPaths,
-    [property: MarkoutPropertyName("Repeated Paths")]
-    [property: MarkoutSkipNull] string? RepeatedPaths,
-    [property: MarkoutPropertyName("Unknown Paths")]
-    [property: MarkoutSkipNull] string? UnknownPaths,
-    [property: MarkoutPropertyName("Cached Sites")]
-    [property: MarkoutSkipNull] string? CachedSites,
-    [property: MarkoutPropertyName("Opaque Paths")]
-    [property: MarkoutSkipNull] string? OpaquePaths,
-    [property: MarkoutSkipNull] string? Saturated);
+    string? CallerLoop,
+    string? CallerLoopDepth,
+    string? CallerLoopWitness,
+    string? Allocation,
+    string? Path,
+    string? PathConfidence,
+    string? PostDominance,
+    string? IL,
+    string? Weight,
+    string? DirectSites,
+    string? OncePaths,
+    string? ConditionalPaths,
+    string? RepeatedPaths,
+    string? UnknownPaths,
+    string? CachedSites,
+    string? OpaquePaths,
+    string? Saturated)
+{
+    public string Member { get; init; } = Member;
+    [MarkoutSkipNull] public string? Candidate { get; init; } = Candidate;
+    [MarkoutSkipNull] public string? Finding { get; init; } = Finding;
+    [MarkoutSkipNull] public string? Provenance { get; init; } = Provenance;
+    public string RootReach { get; init; } = RootReach;
+    public string Shape { get; init; } = Shape;
+    [MarkoutSkipNull] public string? Operation { get; init; } = Operation;
+    [MarkoutSkipNull] public string? Token { get; init; } = Token;
+    public string Evidence { get; init; } = Evidence;
+    public string Fix { get; init; } = Fix;
+    public string Priority { get; init; } = LibraryViewText.Contain(Priority);
+    public string Confidence { get; init; } = Confidence;
+    public string Loop { get; init; } = Loop;
+    [MarkoutSkipNull] public string? CallerLoop { get; init; } = CallerLoop;
+    [MarkoutSkipNull] public string? CallerLoopDepth { get; init; } = CallerLoopDepth;
+    [MarkoutSkipNull] public string? CallerLoopWitness { get; init; } = CallerLoopWitness;
+    [MarkoutSkipNull] public string? Allocation { get; init; } = Allocation;
+    [MarkoutSkipNull] public string? Path { get; init; } = Path;
+    [MarkoutSkipNull] public string? PathConfidence { get; init; } = PathConfidence;
+    [MarkoutPropertyName("Post Dominance")]
+    [MarkoutSkipNull] public string? PostDominance { get; init; } = PostDominance;
+    [MarkoutSkipNull] public string? IL { get; init; } = IL;
+    [MarkoutSkipNull] public string? Weight { get; init; } = Weight;
+    [MarkoutPropertyName("Direct Sites")]
+    [MarkoutSkipNull] public string? DirectSites { get; init; } = DirectSites;
+    [MarkoutPropertyName("Once Paths")]
+    [MarkoutSkipNull] public string? OncePaths { get; init; } = OncePaths;
+    [MarkoutPropertyName("Conditional Paths")]
+    [MarkoutSkipNull] public string? ConditionalPaths { get; init; } = ConditionalPaths;
+    [MarkoutPropertyName("Repeated Paths")]
+    [MarkoutSkipNull] public string? RepeatedPaths { get; init; } = RepeatedPaths;
+    [MarkoutPropertyName("Unknown Paths")]
+    [MarkoutSkipNull] public string? UnknownPaths { get; init; } = UnknownPaths;
+    [MarkoutPropertyName("Cached Sites")]
+    [MarkoutSkipNull] public string? CachedSites { get; init; } = CachedSites;
+    [MarkoutPropertyName("Opaque Paths")]
+    [MarkoutSkipNull] public string? OpaquePaths { get; init; } = OpaquePaths;
+    [MarkoutSkipNull] public string? Saturated { get; init; } = Saturated;
+}
 
 [MarkoutSerializable]
 public record TopLeverageRow(
