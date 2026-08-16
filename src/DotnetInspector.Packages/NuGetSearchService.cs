@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using NuGetFetch;
@@ -153,10 +154,17 @@ public static class NuGetSearchService
             Exception? lastFailure = null;
             string? lastSearchUrl = null;
             TimeSpan sourceTimeout = GetSearchSourceTimeout(sourceClient);
+            long sourceTimeoutStarted = Stopwatch.GetTimestamp();
             using var sourceSearchTimeout = new CancellationTokenSource(
                 sourceTimeout);
             foreach (string searchUrl in searchUrls.Take(MaxEquivalentSearchEndpoints))
             {
+                if (Stopwatch.GetElapsedTime(sourceTimeoutStarted) >= sourceTimeout)
+                {
+                    lastFailure = CreateSourceTimeoutException(sourceTimeout);
+                    break;
+                }
+
                 lastSearchUrl = searchUrl;
                 var auth = NuGetCredentialScope.AuthFor(source, searchUrl, log);
                 log?.Invoke(
@@ -192,12 +200,10 @@ public static class NuGetSearchService
                     or IOException or TimeoutException)
                 {
                     lastFailure = ex;
-                    if (sourceSearchTimeout.IsCancellationRequested)
+                    if (sourceSearchTimeout.IsCancellationRequested
+                        || Stopwatch.GetElapsedTime(sourceTimeoutStarted) >= sourceTimeout)
                     {
-                        lastFailure = new TimeoutException(
-                            "The search's source-level HttpClient.Timeout budget of "
-                            + $"{sourceTimeout.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture)} "
-                            + "seconds elapsed.");
+                        lastFailure = CreateSourceTimeoutException(sourceTimeout);
                         break;
                     }
                 }
@@ -276,6 +282,12 @@ public static class NuGetSearchService
             || client.Timeout > HttpClientFactoryOptions.BaselineTimeout
                 ? HttpClientFactoryOptions.BaselineTimeout
                 : client.Timeout;
+
+    private static TimeoutException CreateSourceTimeoutException(TimeSpan timeout) =>
+        new(
+            "The search's source-level HttpClient.Timeout budget of "
+            + $"{timeout.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture)} "
+            + "seconds elapsed.");
 
     private static string DescribeServiceIndexFailure(
         NuGetSource source,
