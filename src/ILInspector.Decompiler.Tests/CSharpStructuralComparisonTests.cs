@@ -151,6 +151,82 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void RenderAnnotatedBody_LongTransitionFallsBackSymmetrically()
+    {
+        const string beforeText = "void M() { Call(value); }";
+        string afterInvocation = $"Call({new string('x', 121)});";
+        string afterText = $"void M() {{ {afterInvocation} }}";
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            Document(beforeText, "InvocationExpression", "Call(value);"),
+            Document(afterText, "InvocationExpression", afterInvocation),
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+        string afterBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.After);
+
+        Assert.Contains("raise: InvocationExpression; text changed", beforeBody, StringComparison.Ordinal);
+        Assert.Contains("raise: InvocationExpression; text changed", afterBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("changed from Call(value);", afterBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenderAnnotatedBody_WrappingWhitespaceRunFallsBackWithoutChangingText()
+    {
+        string beforeInvocation = $"Call(\"{new string('a', 70)}  b\");";
+        string afterInvocation = $"Call(\"{new string('c', 70)}  d\");";
+        string beforeText = $"void M()\n{{\n    {beforeInvocation}\n}}";
+        string afterText = $"void M()\n{{\n    {afterInvocation}\n}}";
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            Document(beforeText, "InvocationExpression", beforeInvocation),
+            Document(afterText, "InvocationExpression", afterInvocation),
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+        string afterBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.After);
+
+        Assert.Contains("raise: InvocationExpression; text changed", beforeBody, StringComparison.Ordinal);
+        Assert.Contains("raise: InvocationExpression; text changed", afterBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("changed to Call(", beforeBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("changed from Call(", afterBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenderAnnotatedBody_CounterpartLineSeparatorFallsBackWithoutFlatteningText()
+    {
+        const string beforeText = "void M()\n{\n    Call(\"a\");\n}";
+        const string afterInvocation = "Call(\"x\u2028y\");";
+        const string afterText = "void M()\n{\n    Call(\"x\u2028y\");\n}";
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            Document(beforeText, "InvocationExpression", "Call(\"a\");"),
+            Document(afterText, "InvocationExpression", afterInvocation),
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+
+        Assert.Contains("raise: InvocationExpression; text changed", beforeBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("changed to Call(\"x y\");", beforeBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CompareStructure_ReportsAddedRemovedChangedAndMovedDeterministically()
     {
         const string beforeText = """

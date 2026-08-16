@@ -193,21 +193,33 @@ public static class CSharpStructuralDiffPrinter
         if (row.BeforeSpans.Length != 1 || row.AfterSpans.Length != 1)
             return "; text changed";
 
-        string beforeText = SelectText(comparison.Before, row.BeforeSpans[0]);
-        string afterText = SelectText(comparison.After, row.AfterSpans[0]);
-        string counterpart = side == CSharpStructuralSide.Before
-            ? afterText
-            : beforeText;
-        if (counterpart.IndexOfAny(['\r', '\n']) >= 0
-            || counterpart.Length > MaximumInlineTransitionLength)
+        var beforeSpan = row.BeforeSpans[0];
+        var afterSpan = row.AfterSpans[0];
+        if (beforeSpan.Length > MaximumInlineTransitionLength
+            || afterSpan.Length > MaximumInlineTransitionLength)
         {
             return "; text changed";
         }
+
+        string beforeText = SelectText(comparison.Before, beforeSpan);
+        string afterText = SelectText(comparison.After, afterSpan);
+        if (!CanRenderExactInline(beforeText) || !CanRenderExactInline(afterText))
+            return "; text changed";
+
+        string counterpart = side == CSharpStructuralSide.Before
+            ? afterText
+            : beforeText;
 
         return side == CSharpStructuralSide.Before
             ? $"; changed to {Contain(counterpart)}"
             : $"; changed from {Contain(counterpart)}";
     }
+
+    static bool CanRenderExactInline(string text)
+        => string.Equals(text, Contain(text), StringComparison.Ordinal)
+            && !text.StartsWith(' ')
+            && !text.EndsWith(' ')
+            && !text.Contains("  ", StringComparison.Ordinal);
 
     static string SelectText(
         AnnotatedSourceDocument document,
