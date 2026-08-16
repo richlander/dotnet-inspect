@@ -16,13 +16,35 @@ public static class NuGetApi
             DefaultOptions,
             cancellationToken);
 
-    internal static ValueTask<ServiceIndex?> DeserializeServiceIndexAsync(
+    internal static async ValueTask<ServiceIndex?> DeserializeServiceIndexAsync(
         Stream json,
-        CancellationToken cancellationToken) =>
-        JsonSerializer.DeserializeAsync(
+        CancellationToken cancellationToken)
+    {
+        ServiceIndex? index = await JsonSerializer.DeserializeAsync(
             json,
             NuGetJsonContext.Default.ServiceIndex,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
+
+        if (index is null)
+        {
+            return null;
+        }
+
+        if (index.Resources is null)
+        {
+            throw InvalidMetadata("service index", "resources");
+        }
+
+        foreach (ServiceResource resource in index.Resources)
+        {
+            if (resource is null || resource.Id is null || resource.Type is null)
+            {
+                throw InvalidMetadata("service index", "resources");
+            }
+        }
+
+        return index;
+    }
 
     public static ValueTask<VersionIndex?> GetVersionIndexAsync(
         Stream json,
@@ -33,13 +55,27 @@ public static class NuGetApi
             DefaultOptions,
             cancellationToken);
 
-    internal static ValueTask<VersionIndex?> DeserializeVersionIndexAsync(
+    internal static async ValueTask<VersionIndex?> DeserializeVersionIndexAsync(
         Stream json,
-        CancellationToken cancellationToken) =>
-        JsonSerializer.DeserializeAsync(
+        CancellationToken cancellationToken)
+    {
+        VersionIndex? index = await JsonSerializer.DeserializeAsync(
             json,
             NuGetJsonContext.Default.VersionIndex,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
+
+        if (index is null)
+        {
+            return null;
+        }
+
+        if (index.Versions is null || index.Versions.Any(static version => version is null))
+        {
+            throw InvalidMetadata("version index", "versions");
+        }
+
+        return index;
+    }
 
     /// <summary>
     /// Deserializes a NuGet V3 search response.
@@ -62,11 +98,45 @@ public static class NuGetApi
 
     internal static async ValueTask<SearchResponse?> DeserializeSearchResponseAsync(
         Stream json,
-        CancellationToken cancellationToken) =>
-        await JsonSerializer.DeserializeAsync(
+        CancellationToken cancellationToken)
+    {
+        SearchResponse? response = await JsonSerializer.DeserializeAsync(
             json,
             NuGetJsonContext.Default.SearchResponse,
             cancellationToken).ConfigureAwait(false);
+
+        if (response is null)
+        {
+            return null;
+        }
+
+        if (response.Data is null)
+        {
+            throw InvalidMetadata("search response", "data");
+        }
+
+        foreach (SearchResult result in response.Data)
+        {
+            if (result is null || result.Id is null || result.Version is null)
+            {
+                throw InvalidMetadata("search response", "data");
+            }
+
+            if (result.Versions is not null
+                && result.Versions.Any(static version =>
+                    version is null || version.Version is null))
+            {
+                throw InvalidMetadata("search response", "data[].versions");
+            }
+        }
+
+        return response;
+    }
+
+    private static JsonException InvalidMetadata(
+        string document,
+        string member) =>
+        new($"NuGet {document} is missing required member '{member}'.");
 }
 
 // Feeds disagree about whether a JSON number is a number. Azure DevOps Artifacts
