@@ -16420,7 +16420,8 @@ public partial class CommandExecutionTests
         var options = new LibraryOptions
         {
             IncludeSections = [SectionNames.ArrayPoolEscapes],
-            ExactIncludeSections = [SectionNames.ArrayPoolEscapes],
+            ExactIncludeSectionsOverride =
+                [SectionNames.ArrayPoolEscapes],
         };
 
         bool rejected = false;

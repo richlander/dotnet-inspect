@@ -1194,7 +1194,7 @@ public sealed class LeakTriageAnalyzerTests
                         tryLength: 14,
                         handlerOffset: 14,
                         handlerLength: 2,
-                        catchType: 0x01000001),
+                        0x01000001),
                 ],
                 ResolveSyntheticMember,
                 _ => throw new BadImageFormatException(
@@ -1240,10 +1240,6 @@ public sealed class LeakTriageAnalyzerTests
 
     [Theory]
     [InlineData(MethodImplAttributes.IL, true)]
-    [InlineData(
-        MethodImplAttributes.IL
-            | MethodImplAttributes.Managed,
-        true)]
     [InlineData(MethodImplAttributes.Native, false)]
     [InlineData(
         MethodImplAttributes.Native
