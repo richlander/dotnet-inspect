@@ -27,7 +27,11 @@ public readonly record struct PrintedExtent(
 /// </param>
 /// <param name="Kind">The stable rendered-syntax kind for these characters, e.g. <c>ObjectCreationExpression</c>.</param>
 /// <param name="Extent">The exact characters the node printed.</param>
-public readonly record struct PrintedNodeSpan(int Id, string Kind, PrintedExtent Extent);
+public readonly record struct PrintedNodeSpan(int Id, string Kind, PrintedExtent Extent)
+{
+    /// <summary>Product-owned IL provenance retained by this rendered C# node.</summary>
+    public AnnotatedSourceNodeProvenance? Provenance { get; init; }
+}
 
 /// <summary>
 /// One fact, positioned at the characters it is about.
@@ -291,7 +295,9 @@ public sealed record PrintedBodyMap
     {
         ArgumentNullException.ThrowIfNull(ranges);
 
-        var (lines, nodes, regions, nodeIds) = Project(ranges);
+        var (lines, nodes, regions, nodeIds) = Project(
+            ranges,
+            includeNodeProvenance: annotations is not null);
 
         var facts = new List<PrintedAnnotationSpan>();
         if (annotations is not null)
@@ -355,7 +361,9 @@ public sealed record PrintedBodyMap
         string[] Lines,
         PrintedNodeSpan[] Nodes,
         List<PrintedRegion> Regions,
-        Dictionary<IrNode, int> NodeIds) Project(PrintedRangeMap ranges)
+        Dictionary<IrNode, int> NodeIds) Project(
+            PrintedRangeMap ranges,
+            bool includeNodeProvenance)
     {
         string[] lines = ranges.Output.Length == 0
             ? []
@@ -384,6 +392,7 @@ public sealed record PrintedBodyMap
 
         var nodes = new List<PrintedNodeSpan>(recorded.Count);
         var nodeIds = new Dictionary<IrNode, int>(recorded.Count, ReferenceEqualityComparer.Instance);
+        var contributors = new List<List<IrNode>>(recorded.Count);
         foreach (var (node, kind, extent, _) in recorded)
         {
             int id;
@@ -397,8 +406,58 @@ public sealed record PrintedBodyMap
             {
                 id = nodes.Count;
                 nodes.Add(new PrintedNodeSpan(id, kind, extent));
+                contributors.Add([]);
             }
             nodeIds[node] = id;
+            contributors[id].Add(node);
+        }
+
+        if (includeNodeProvenance)
+        {
+            var offsetsByNode = new int[nodes.Count][];
+            for (int id = 0; id < nodes.Count; id++)
+            {
+                offsetsByNode[id] =
+                [
+                    .. contributors[id]
+                        .SelectMany(static node => node.Descendants.Prepend(node))
+                        .Select(static node => node.SourceOffset)
+                        .Where(static offset => offset >= 0)
+                        .Distinct()
+                        .Order()
+                ];
+            }
+
+            for (int id = 0; id < nodes.Count; id++)
+            {
+                int[] offsets = offsetsByNode[id];
+                if (offsets.Length == 0)
+                    continue;
+
+                int sameOriginDepth = int.MaxValue;
+                foreach (var contributor in contributors[id])
+                {
+                    int depth = 0;
+                    var counted = new HashSet<int>();
+                    for (var ancestor = contributor.Parent; ancestor is not null; ancestor = ancestor.Parent)
+                    {
+                        if (!nodeIds.TryGetValue(ancestor, out int ancestorId)
+                            || ancestorId == id
+                            || !counted.Add(ancestorId)
+                            || !offsets.SequenceEqual(offsetsByNode[ancestorId]))
+                        {
+                            continue;
+                        }
+                        depth++;
+                    }
+                    sameOriginDepth = Math.Min(sameOriginDepth, depth);
+                }
+
+                nodes[id] = nodes[id] with
+                {
+                    Provenance = new AnnotatedSourceNodeProvenance(offsets, sameOriginDepth)
+                };
+            }
         }
 
         var regions = new List<PrintedRegion>(ranges.PrintedRegions.Count);
@@ -426,7 +485,9 @@ public sealed record PrintedBodyMap
         ArgumentNullException.ThrowIfNull(function);
         ArgumentNullException.ThrowIfNull(annotations);
 
-        var (lines, nodes, regions, nodeIds) = Project(ranges);
+        var (lines, nodes, regions, nodeIds) = Project(
+            ranges,
+            includeNodeProvenance: true);
         var printedNodes = AnnotationAnchor.ComputePrintedNodes(annotations, function, ranges);
         var statementSpans = AnnotationAnchor.ComputeSpans(function);
         var facts = new List<PrintedAnnotationSpan>(annotations.Count);

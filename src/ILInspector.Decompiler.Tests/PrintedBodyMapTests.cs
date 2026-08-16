@@ -1461,7 +1461,8 @@ public class PrintedBodyMapTests
             Assert.True(
                 property.PropertyType == typeof(string)
                     || property.PropertyType == typeof(int)
-                    || property.PropertyType == typeof(PrintedExtent));
+                    || property.PropertyType == typeof(PrintedExtent)
+                    || property.PropertyType == typeof(AnnotatedSourceNodeProvenance));
 
         // Enums are permitted: they carry no reference and serialise by value.
         foreach (var property in typeof(PrintedAnnotationSpan).GetProperties())

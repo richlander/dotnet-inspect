@@ -3,6 +3,134 @@ using ILInspector.Decompiler.Annotations;
 namespace ILInspector.Decompiler;
 
 /// <summary>
+/// Product-owned IL provenance for one rendered C# syntax node.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <see cref="IlOffsets"/> is the sorted, distinct set of imported IL offsets
+/// retained by the contributing IR subtree. <see cref="SameOriginDepth"/>
+/// distinguishes nested rendered nodes that own the same offset set by counting
+/// their rendered IR ancestors with that same evidence. Neither value is a
+/// source-text coordinate or display-derived identity.
+/// </para>
+/// <para>
+/// The pair is correspondence evidence, not a universal node identity. The
+/// correspondence issuer uses it only inside two documents proven to describe
+/// the same physical method body, and only when the pair is unique on both
+/// sides.
+/// </para>
+/// </remarks>
+public sealed record AnnotatedSourceNodeProvenance
+{
+    /// <summary>Creates validated node provenance.</summary>
+    public AnnotatedSourceNodeProvenance(
+        IReadOnlyList<int> IlOffsets,
+        int SameOriginDepth)
+    {
+        ArgumentNullException.ThrowIfNull(IlOffsets);
+        ArgumentOutOfRangeException.ThrowIfNegative(SameOriginDepth);
+
+        var offsets = IlOffsets.ToArray();
+        if (offsets.Length == 0)
+            throw new ArgumentException("IL provenance must contain at least one offset.", nameof(IlOffsets));
+        for (int index = 0; index < offsets.Length; index++)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(offsets[index], nameof(IlOffsets));
+            if (index > 0 && offsets[index - 1] >= offsets[index])
+            {
+                throw new ArgumentException(
+                    "IL provenance offsets must be strictly increasing.",
+                    nameof(IlOffsets));
+            }
+        }
+
+        this.IlOffsets = Array.AsReadOnly(offsets);
+        this.SameOriginDepth = SameOriginDepth;
+    }
+
+    /// <summary>Sorted, distinct imported IL offsets retained by the rendered node.</summary>
+    public IReadOnlyList<int> IlOffsets { get; }
+
+    /// <summary>Number of rendered IR ancestors carrying the same offset set.</summary>
+    public int SameOriginDepth { get; }
+
+    /// <inheritdoc/>
+    public bool Equals(AnnotatedSourceNodeProvenance? other)
+        => other is not null
+            && SameOriginDepth == other.SameOriginDepth
+            && IlOffsets.SequenceEqual(other.IlOffsets);
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(SameOriginDepth);
+        foreach (int offset in IlOffsets)
+            hash.Add(offset);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>
+/// Physical method-body provenance for one annotated-source document.
+/// </summary>
+/// <remarks>
+/// MVID and MethodDef token provide the durable metadata address; the body
+/// fingerprint closes the documented MVID-collision boundary. Correspondence
+/// requires this value to be present and exactly equal on both documents.
+/// </remarks>
+public sealed record AnnotatedSourceDocumentSource
+{
+    /// <summary>Creates validated physical method provenance.</summary>
+    public AnnotatedSourceDocumentSource(
+        string AssemblyName,
+        Guid ModuleVersionId,
+        int MethodToken,
+        string BodyFingerprint,
+        string Subject)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(AssemblyName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(BodyFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(Subject);
+        if ((MethodToken & unchecked((int)0xFF000000)) != 0x06000000
+            || (MethodToken & 0x00FFFFFF) == 0)
+        {
+            throw new ArgumentException(
+                $"Method token 0x{MethodToken:X8} is not a MethodDef token.",
+                nameof(MethodToken));
+        }
+        if (BodyFingerprint.Length != 64
+            || BodyFingerprint.Any(static character => !Uri.IsHexDigit(character)))
+        {
+            throw new ArgumentException(
+                "Body fingerprint must be a 64-character SHA-256 hexadecimal value.",
+                nameof(BodyFingerprint));
+        }
+
+        this.AssemblyName = AssemblyName;
+        this.ModuleVersionId = ModuleVersionId;
+        this.MethodToken = MethodToken;
+        this.BodyFingerprint = BodyFingerprint.ToUpperInvariant();
+        this.Subject = Subject;
+    }
+
+    /// <summary>Simple assembly name.</summary>
+    public string AssemblyName { get; }
+
+    /// <summary>Physical module MVID.</summary>
+    public Guid ModuleVersionId { get; }
+
+    /// <summary>MethodDef token within the physical module.</summary>
+    public int MethodToken { get; }
+
+    /// <summary>SHA-256 fingerprint of the exact method signature and body.</summary>
+    public string BodyFingerprint { get; }
+
+    /// <summary>Owner-issued source-facing member label.</summary>
+    public string Subject { get; }
+}
+
+/// <summary>
 /// One contiguous run of characters in an <see cref="AnnotatedSourceDocument"/>'s
 /// text buffer.
 /// </summary>
@@ -80,7 +208,8 @@ public sealed record AnnotatedSourceNode
         string Kind,
         SourceLineKind Medium,
         IReadOnlyList<AnnotatedSourceSpan> Spans,
-        int? IlOffset = null)
+        int? IlOffset = null,
+        AnnotatedSourceNodeProvenance? Provenance = null)
     {
         ArgumentNullException.ThrowIfNull(Kind);
         ArgumentNullException.ThrowIfNull(Spans);
@@ -114,12 +243,19 @@ public sealed record AnnotatedSourceNode
                 $"Node {Id} is {Kind}, not an {InstructionKind}, so it cannot carry an IL offset.",
                 nameof(IlOffset));
         }
+        if (Medium == SourceLineKind.Il && Provenance is not null)
+        {
+            throw new ArgumentException(
+                $"Node {Id} is IL text, so it cannot carry C# node provenance.",
+                nameof(Provenance));
+        }
 
         this.Id = Id;
         this.Kind = Kind;
         this.Medium = Medium;
         this.Spans = AnnotatedSourceSpans.Snapshot(Spans, nameof(Spans));
         this.IlOffset = IlOffset;
+        this.Provenance = Provenance;
     }
 
     /// <summary>This node's identity within its document: contiguous from <c>0</c> in list order.</summary>
@@ -137,6 +273,9 @@ public sealed record AnnotatedSourceNode
     /// <summary>The IL offset these characters disassemble, or <see langword="null"/> when the node is not an IL instruction. Non-null exactly on <see cref="SourceLineKind.Il"/> nodes whose <see cref="Kind"/> is <see cref="InstructionKind"/>.</summary>
     public int? IlOffset { get; }
 
+    /// <summary>Product-owned IL provenance for this rendered C# node, when available.</summary>
+    public AnnotatedSourceNodeProvenance? Provenance { get; }
+
     /// <inheritdoc/>
     public bool Equals(AnnotatedSourceNode? other)
         => other is not null
@@ -144,6 +283,7 @@ public sealed record AnnotatedSourceNode
             && Kind == other.Kind
             && Medium == other.Medium
             && IlOffset == other.IlOffset
+            && Provenance == other.Provenance
             && Spans.SequenceEqual(other.Spans);
 
     /// <inheritdoc/>
@@ -154,6 +294,7 @@ public sealed record AnnotatedSourceNode
         hash.Add(Kind);
         hash.Add(Medium);
         hash.Add(IlOffset);
+        hash.Add(Provenance);
         foreach (var span in Spans)
             hash.Add(span);
         return hash.ToHashCode();
@@ -327,7 +468,8 @@ public sealed record AnnotatedSourceDocument
         IReadOnlyList<AnnotatedSourceNode> Nodes,
         IReadOnlyList<AnnotatedSourceRegion> Regions,
         IReadOnlyList<AnnotatedSourceFact> Facts,
-        IReadOnlyList<AnnotatedSourceTarget> Targets)
+        IReadOnlyList<AnnotatedSourceTarget> Targets,
+        AnnotatedSourceDocumentSource? Source = null)
     {
         ArgumentNullException.ThrowIfNull(Text);
         ArgumentNullException.ThrowIfNull(Nodes);
@@ -357,6 +499,7 @@ public sealed record AnnotatedSourceDocument
         this.Regions = Array.AsReadOnly(regions);
         this.Facts = Array.AsReadOnly(facts);
         this.Targets = Array.AsReadOnly(targets);
+        this.Source = Source;
     }
 
     /// <summary>The rendered interleaved C#/IL text: the canonical artifact every span indexes. Always well-formed UTF-16.</summary>
@@ -374,6 +517,9 @@ public sealed record AnnotatedSourceDocument
     /// <summary>Which node each fact is about; a fact with no row here is unanchored.</summary>
     public IReadOnlyList<AnnotatedSourceTarget> Targets { get; }
 
+    /// <summary>Physical method-body provenance, when the producer can issue it.</summary>
+    public AnnotatedSourceDocumentSource? Source { get; }
+
     /// <summary>An empty annotated source document.</summary>
     public static AnnotatedSourceDocument Empty { get; } = new("", [], [], [], []);
 
@@ -384,7 +530,8 @@ public sealed record AnnotatedSourceDocument
             && Nodes.SequenceEqual(other.Nodes)
             && Regions.SequenceEqual(other.Regions)
             && Facts.SequenceEqual(other.Facts)
-            && Targets.SequenceEqual(other.Targets);
+            && Targets.SequenceEqual(other.Targets)
+            && Source == other.Source;
 
     /// <inheritdoc/>
     public override int GetHashCode()
@@ -399,6 +546,7 @@ public sealed record AnnotatedSourceDocument
             hash.Add(fact);
         foreach (var target in Targets)
             hash.Add(target);
+        hash.Add(Source);
         return hash.ToHashCode();
     }
 

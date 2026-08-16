@@ -57,24 +57,26 @@ Assert the IR invariant on accepted and declined results.
 ### Review evidence
 
 For the real witness, acquire exact base/head `AnnotatedSourceDocument` values
-with `-S "Annotated Source Document"`. When a product owner can also issue real
-cross-document node correspondence, generate the full-body structural review
-introduced by #4092 from one `CSharpStructuralComparison` and paste its
-Before/After caret overlays and structural rows verbatim.
+with `-S "Annotated Source Document"`, save them separately, and pass both
+product documents to `DecompilerHarness --structural-review`. The decompiler
+issuer binds correspondence to the exact document revisions and the exact
+physical method body. It matches only unique product-owned IL-origin evidence,
+then feeds the full-body structural review introduced by #4092 from one
+`CSharpStructuralComparison`. Paste its Before/After caret overlays,
+structural rows, and any correspondence gaps verbatim.
 
-PR #4092 currently supplies the comparison and presentation consumer, not a
-producer that maps base-render C# node ids to head-render C# node ids. Until
-such a producer exists, record `Not generated — no product correspondence
-issuer` and retain the standalone Before and After bodies. Never hand-place
-carets or recover correspondence from equal ids, coordinates, text, labels, or
-display order merely to satisfy the template.
+Never hand-place carets or recover correspondence from equal ids, coordinates,
+text, labels, or display order. When the documents predate provenance support,
+describe different method bodies, or leave the changed nodes unsupported or
+ambiguous, record
+`Not generated — unsupported or ambiguous product correspondence: {detail}`
+and retain the standalone Before and After bodies.
 
 The structural review explains *what changed*; it is not a correctness oracle.
 Keep the independent validity, correctness, compile-back fidelity, and exact
-revision verdicts beside it. The current correspondence-producer gap does not
-change an otherwise supported raise verdict; it changes only which
-presentation artifact is honest. Do not manufacture a persuasive substitute in
-the harness.
+revision verdicts beside it. An unsupported correspondence result does not change an otherwise supported
+raise verdict; it changes only which presentation artifact is honest. Do not
+manufacture a persuasive substitute in the harness.
 
 Render A/B and corpus evidence remain population checks. Report stable
 changed-method loss/gain identities and classify every changed method; aggregate

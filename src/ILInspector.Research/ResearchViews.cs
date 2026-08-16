@@ -1,4 +1,6 @@
 using System.Text;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
@@ -463,7 +465,22 @@ public static partial class ResearchViews
 
         var stream = CorrelatePortableSource(imported, csText, printedRanges, annotations, ilLines);
         var csharpMap = PrintedBodyMap.Create(printedRanges, imported, annotations);
-        return MakeDocument(stream, csharpMap, headerFacts);
+        AnnotatedSourceDocumentSource? documentSource = null;
+        if (methodToken is { } token)
+        {
+            var entity = MetadataTokens.EntityHandle(token);
+            if (entity.Kind == HandleKind.MethodDefinition)
+            {
+                var handle = (MethodDefinitionHandle)entity;
+                documentSource = new AnnotatedSourceDocumentSource(
+                    source.AssemblyName,
+                    source.ModuleVersionId,
+                    token,
+                    CSharpBodyDiff.ComputeBodyFingerprint(source, handle),
+                    $"{type}.{method} (0x{token:X8})");
+            }
+        }
+        return MakeDocument(stream, csharpMap, headerFacts, documentSource);
     }
 
     internal static string RequireSuccessfulDocumentOutput(DecompilerResult result)
@@ -609,7 +626,8 @@ public static partial class ResearchViews
     static AnnotatedSourceDocument MakeDocument(
         IReadOnlyList<BoundSourceLine> stream,
         PrintedBodyMap csharpMap,
-        IReadOnlyList<ResearchHeaderFact> headerFacts)
+        IReadOnlyList<ResearchHeaderFact> headerFacts,
+        AnnotatedSourceDocumentSource? source)
     {
         int csharpLineCount = stream.Count(line => line.Kind == SourceLineKind.CSharp);
         if (csharpLineCount != csharpMap.Lines.Count)
@@ -636,7 +654,14 @@ public static partial class ResearchViews
 
         var nodes = new List<AnnotatedSourceNode>(csharpMap.Nodes.Count + stream.Count - csharpLineCount);
         foreach (var node in csharpMap.Nodes)
-            nodes.Add(new AnnotatedSourceNode(node.Id, node.Kind, SourceLineKind.CSharp, ToSpans(node.Extent)));
+        {
+            nodes.Add(new AnnotatedSourceNode(
+                node.Id,
+                node.Kind,
+                SourceLineKind.CSharp,
+                ToSpans(node.Extent),
+                Provenance: node.Provenance));
+        }
 
         var instructionNodes = new Dictionary<int, int>(stream.Count - csharpLineCount);
         for (int index = 0; index < stream.Count; index++)
@@ -738,7 +763,7 @@ public static partial class ResearchViews
             return c != 0 ? c : a.NodeId.CompareTo(b.NodeId);
         });
 
-        return new AnnotatedSourceDocument(text, nodes, regions, facts, targets);
+        return new AnnotatedSourceDocument(text, nodes, regions, facts, targets, source);
 
         IReadOnlyList<AnnotatedSourceSpan> ToSpans(PrintedExtent extent)
         {

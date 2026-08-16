@@ -1,5 +1,10 @@
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Annotations;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
+using ILInspector.Research;
+using System.Reflection.Metadata.Ecma335;
+using System.Text.Json;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -446,6 +451,279 @@ public class CSharpStructuralComparisonTests
             [new CSharpNodeCorrespondence(0, 0)])));
     }
 
+    [Fact]
+    public void IssueCorrespondence_BindsChangedNodeToExactDocumentRevisions()
+    {
+        var before = TrustedDocument(
+            "return;",
+            new NodeSpec("ReturnStatement", "return;", [0x10], 0));
+        var after = TrustedDocument(
+            "    break;",
+            new NodeSpec("BreakStatement", "break;", [0x10], 0));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        var match = Assert.Single(issued.Matches);
+        Assert.NotEqual(issued.BeforeRevision, issued.AfterRevision);
+        Assert.Equal(issued.BeforeRevision, match.Before.Document);
+        Assert.Equal(issued.AfterRevision, match.After.Document);
+        Assert.Equal(CSharpNodeMatchProvenance.IlOriginSet, match.Provenance);
+        Assert.Equal([0x10], match.Evidence.IlOffsets);
+        Assert.Empty(issued.UnmatchedBefore);
+        Assert.Empty(issued.UnmatchedAfter);
+
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+        var row = Assert.Single(comparison.Rows);
+        Assert.Equal(CSharpStructuralChangeKind.Changed, row.Change);
+        Assert.Equal("ReturnStatement", row.BeforeKind);
+        Assert.Equal("BreakStatement", row.AfterKind);
+        Assert.Equal("return;", comparison.Before.Text);
+        Assert.Equal("    break;", comparison.After.Text);
+
+        Assert.Throws<ArgumentException>(() => CSharpBodyDiff.CompareStructure(
+            issued with
+            {
+                BeforeRevision = new CSharpDocumentRevision(new string('B', 64))
+            }));
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotMatchEqualLocalIdsTextOrCoordinates()
+    {
+        var before = TrustedDocument(
+            "Call();",
+            new NodeSpec("InvocationExpression", "Call()", [0x10], 0));
+        var after = TrustedDocument(
+            "Call();",
+            new NodeSpec("InvocationExpression", "Call()", [0x20], 0));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Empty(issued.Matches);
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.NoCounterpart,
+            Assert.Single(issued.UnmatchedBefore).Reason);
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.NoCounterpart,
+            Assert.Single(issued.UnmatchedAfter).Reason);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_PreservesAmbiguousDuplicateEvidence()
+    {
+        var before = TrustedDocument(
+            "Call(); Call();",
+            new NodeSpec("InvocationExpression", "Call()", [0x10], 0),
+            new NodeSpec("InvocationExpression", "Call()", [0x10], 0, Occurrence: 1));
+        var after = TrustedDocument(
+            "Call();",
+            new NodeSpec("InvocationExpression", "Call()", [0x10], 0));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Empty(issued.Matches);
+        Assert.All(
+            issued.UnmatchedBefore,
+            node => Assert.Equal(CSharpUnmatchedNodeReason.Ambiguous, node.Reason));
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.Ambiguous,
+            Assert.Single(issued.UnmatchedAfter).Reason);
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+        Assert.Empty(comparison.Rows);
+        Assert.False(comparison.IsExact);
+        Assert.False(comparison.IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DistinguishesNestedNodesWithSameIlOrigins()
+    {
+        var before = TrustedDocument(
+            "Call();",
+            new NodeSpec("ExpressionStatement", "Call();", [0x10], 0),
+            new NodeSpec("InvocationExpression", "Call()", [0x10], 1));
+        var after = TrustedDocument(
+            "await Call();",
+            new NodeSpec("ExpressionStatement", "await Call();", [0x10], 0),
+            new NodeSpec("AwaitExpression", "await Call()", [0x10], 1));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Equal(2, issued.Matches.Length);
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+        Assert.Equal(2, comparison.Rows.Length);
+        Assert.All(comparison.Rows, row =>
+            Assert.True(row.Change.HasFlag(CSharpStructuralChangeKind.Changed)));
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotShiftMatchesWhenSameOriginWrapperIsInserted()
+    {
+        var before = TrustedDocument(
+            "Call();",
+            new NodeSpec("ExpressionStatement", "Call();", [0x10], 0),
+            new NodeSpec("InvocationExpression", "Call()", [0x10], 1));
+        var after = TrustedDocument(
+            "await Call();",
+            new NodeSpec("ExpressionStatement", "await Call();", [0x10], 0),
+            new NodeSpec("AwaitExpression", "await Call()", [0x10], 1),
+            new NodeSpec("InvocationExpression", "Call()", [0x10], 2));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Empty(issued.Matches);
+        Assert.All(
+            issued.UnmatchedBefore,
+            node => Assert.Equal(CSharpUnmatchedNodeReason.Ambiguous, node.Reason));
+        Assert.All(
+            issued.UnmatchedAfter,
+            node => Assert.Equal(CSharpUnmatchedNodeReason.Ambiguous, node.Reason));
+        Assert.Empty(CSharpBodyDiff.CompareStructure(issued).Rows);
+    }
+
+    [Fact]
+    public void IssuedCorrespondence_RoundTripsDocumentNodeProvenanceAndUnmatchedNodes()
+    {
+        var before = TrustedDocument(
+            "A(); B();",
+            new NodeSpec("InvocationExpression", "A()", [0x10], 0),
+            new NodeSpec("InvocationExpression", "B()", [0x20], 0));
+        var after = TrustedDocument(
+            "A();",
+            new NodeSpec("InvocationExpression", "A()", [0x10], 0));
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        string json = JsonSerializer.Serialize(
+            issued,
+            AnnotatedSourceDocumentJsonContext.Default.CSharpNodeCorrespondenceResult);
+        var replayed = JsonSerializer.Deserialize(
+            json,
+            AnnotatedSourceDocumentJsonContext.Default.CSharpNodeCorrespondenceResult);
+
+        Assert.NotNull(replayed);
+        Assert.Equal(issued.BeforeRevision, replayed.BeforeRevision);
+        Assert.Equal(issued.AfterRevision, replayed.AfterRevision);
+        Assert.Equal(issued.Matches, replayed.Matches);
+        Assert.Equal(issued.UnmatchedBefore, replayed.UnmatchedBefore);
+        Assert.Equal(issued.UnmatchedAfter, replayed.UnmatchedAfter);
+        Assert.Single(CSharpBodyDiff.CompareStructure(replayed).Rows);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_RequiresEqualPhysicalMethodProvenance()
+    {
+        var withoutSource = Document("return;", "ReturnStatement", "return;");
+        var trusted = TrustedDocument(
+            "return;",
+            new NodeSpec("ReturnStatement", "return;", [0x10], 0));
+
+        Assert.Throws<ArgumentException>(() =>
+            CSharpBodyDiff.IssueCorrespondence(withoutSource, trusted));
+
+        var relabeled = new AnnotatedSourceDocument(
+            trusted.Text,
+            trusted.Nodes,
+            trusted.Regions,
+            trusted.Facts,
+            trusted.Targets,
+            new AnnotatedSourceDocumentSource(
+                "Different display assembly",
+                trusted.Source!.ModuleVersionId,
+                trusted.Source.MethodToken,
+                trusted.Source.BodyFingerprint,
+                "Different display subject"));
+        Assert.Single(CSharpBodyDiff.IssueCorrespondence(trusted, relabeled).Matches);
+
+        var different = new AnnotatedSourceDocument(
+            trusted.Text,
+            trusted.Nodes,
+            trusted.Regions,
+            trusted.Facts,
+            trusted.Targets,
+            new AnnotatedSourceDocumentSource(
+                trusted.Source!.AssemblyName,
+                trusted.Source.ModuleVersionId,
+                0x06000002,
+                trusted.Source.BodyFingerprint,
+                trusted.Source.Subject));
+        Assert.Throws<ArgumentException>(() =>
+            CSharpBodyDiff.IssueCorrespondence(trusted, different));
+    }
+
+    [Fact]
+    public void IssuedComparison_ProjectsInterleavedIlWithoutInferringFromText()
+    {
+        const string beforeText = "return;\nIL_0000: ret";
+        const string afterText = "break;\nIL_0000: ret";
+        var source = Source();
+        var provenance = new AnnotatedSourceNodeProvenance([0], 0);
+        var before = new AnnotatedSourceDocument(
+            beforeText,
+            [
+                new AnnotatedSourceNode(0, "ReturnStatement", SourceLineKind.CSharp, [new(0, 7)], Provenance: provenance),
+                new AnnotatedSourceNode(1, AnnotatedSourceNode.InstructionKind, SourceLineKind.Il, [new(8, 12)], 0),
+            ],
+            [],
+            [],
+            [],
+            source);
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [
+                new AnnotatedSourceNode(0, "BreakStatement", SourceLineKind.CSharp, [new(0, 6)], Provenance: provenance),
+                new AnnotatedSourceNode(1, AnnotatedSourceNode.InstructionKind, SourceLineKind.Il, [new(7, 12)], 0),
+            ],
+            [],
+            [],
+            [],
+            source);
+
+        var comparison = CSharpBodyDiff.CompareStructure(
+            CSharpBodyDiff.IssueCorrespondence(before, after));
+
+        Assert.Equal("return;\n", comparison.Before.Text);
+        Assert.Equal("break;\n", comparison.After.Text);
+        Assert.Single(comparison.Rows);
+        Assert.DoesNotContain("IL_0000", CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RealProductDocuments_IssueChangedStructuralCorrespondence()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var reader = source.Reader;
+        var method = reader.MethodDefinitions.Single(handle =>
+            reader.GetString(reader.GetMethodDefinition(handle).Name)
+                == nameof(CfgSampleClass.CallsKeywordInstanceMethod));
+        int token = MetadataTokens.GetToken(method);
+
+        AnnotatedSourceDocument Project(PrinterOptions? options)
+            => ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+                source,
+                typeof(CfgSampleClass).FullName!,
+                nameof(CfgSampleClass.CallsKeywordInstanceMethod),
+                AnnotatedStage: AnnotationStage.Raised,
+                MethodToken: token,
+                PrinterOptions: options,
+                SourceDocument: true)).SourceDocument!;
+
+        var before = Project(options: null);
+        var after = Project(new PrinterOptions { QualifyMethodAccess = true });
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+
+        Assert.NotNull(before.Source);
+        Assert.NotNull(after.Source);
+        Assert.NotEmpty(issued.Matches);
+        Assert.Contains(comparison.Rows, row =>
+            row.BeforeNodeId is not null
+            && row.AfterNodeId is not null
+            && row.Change.HasFlag(CSharpStructuralChangeKind.Changed));
+        Assert.Contains("this.@event", comparison.After.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("IL_", comparison.After.Text, StringComparison.Ordinal);
+    }
+
     static AnnotatedSourceDocument Document(
         string text,
         string kind,
@@ -486,4 +764,45 @@ public class CSharpStructuralComparisonTests
         Assert.Equal(source.Length, caretLine.Count(character => character == '^'));
         Assert.Contains(label, caretLine, StringComparison.Ordinal);
     }
+
+    static AnnotatedSourceDocument TrustedDocument(
+        string text,
+        params NodeSpec[] nodes)
+    {
+        var sourceNodes = nodes
+            .Select((node, id) =>
+            {
+                int start = -1;
+                for (int occurrence = 0; occurrence <= node.Occurrence; occurrence++)
+                {
+                    start = text.IndexOf(node.Text, start + 1, StringComparison.Ordinal);
+                }
+                Assert.True(start >= 0);
+                return new AnnotatedSourceNode(
+                    id,
+                    node.Kind,
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(start, node.Text.Length)],
+                    Provenance: new AnnotatedSourceNodeProvenance(
+                        node.IlOffsets,
+                        node.SameOriginDepth));
+            })
+            .ToArray();
+        return new AnnotatedSourceDocument(text, sourceNodes, [], [], [], Source());
+    }
+
+    static AnnotatedSourceDocumentSource Source()
+        => new(
+            "Fixture",
+            new Guid("11111111-2222-3333-4444-555555555555"),
+            0x06000001,
+            new string('A', 64),
+            "Fixture.M");
+
+    readonly record struct NodeSpec(
+        string Kind,
+        string Text,
+        IReadOnlyList<int> IlOffsets,
+        int SameOriginDepth,
+        int Occurrence = 0);
 }

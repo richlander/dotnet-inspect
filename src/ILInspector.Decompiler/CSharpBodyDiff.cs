@@ -950,6 +950,11 @@ public static partial class CSharpBodyDiff
         return System.Convert.ToHexString(token).ToLowerInvariant();
     }
 
+    internal static string ComputeBodyFingerprint(
+        MetadataSource source,
+        MethodDefinitionHandle method)
+        => BodyFingerprint(source, source.Reader.GetMethodDefinition(method));
+
     static string BodyFingerprint(MetadataSource source, MethodDefinition method)
     {
         var reader = source.Reader;

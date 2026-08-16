@@ -1,6 +1,12 @@
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Annotations;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Research;
 using System.Diagnostics;
 using System.Reflection;
+using System.Reflection.Metadata.Ecma335;
+using System.Text.Json;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -90,6 +96,108 @@ public class AuthoredCorpusHarnessProcessTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_IssuesStructuralReviewFromTwoProductDocuments()
+    {
+        string beforePath = Path.Combine(Path.GetTempPath(), $"structural-before-{Guid.NewGuid():N}.json");
+        string afterPath = Path.Combine(Path.GetTempPath(), $"structural-after-{Guid.NewGuid():N}.json");
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var reader = source.Reader;
+        var method = reader.MethodDefinitions.Single(handle =>
+            reader.GetString(reader.GetMethodDefinition(handle).Name)
+                == nameof(CfgSampleClass.CallsKeywordInstanceMethod));
+        int token = MetadataTokens.GetToken(method);
+
+        AnnotatedSourceDocument Project(PrinterOptions? options)
+            => ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+                source,
+                typeof(CfgSampleClass).FullName!,
+                nameof(CfgSampleClass.CallsKeywordInstanceMethod),
+                AnnotatedStage: AnnotationStage.Raised,
+                MethodToken: token,
+                PrinterOptions: options,
+                SourceDocument: true)).SourceDocument!;
+
+        var before = Project(options: null);
+        var after = Project(new PrinterOptions { QualifyMethodAccess = true });
+        File.WriteAllText(
+            beforePath,
+            JsonSerializer.Serialize(
+                before,
+                AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument));
+        File.WriteAllText(
+            afterPath,
+            JsonSerializer.Serialize(
+                after,
+                AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument));
+
+        try
+        {
+            var run = RunHarness("--structural-review", beforePath, afterPath);
+
+            Assert.Equal(0, run.ExitCode);
+            Assert.Contains("@event(value)", run.Output, StringComparison.Ordinal);
+            Assert.Contains("this.@event(value)", run.Output, StringComparison.Ordinal);
+            Assert.Contains("Changed", run.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("IL_", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(beforePath);
+            File.Delete(afterPath);
+        }
+    }
+
+    [Fact]
+    public void Harness_AcceptsProductDocumentFactWithoutDetail()
+    {
+        string beforePath = Path.Combine(Path.GetTempPath(), $"structural-before-{Guid.NewGuid():N}.json");
+        string afterPath = Path.Combine(Path.GetTempPath(), $"structural-after-{Guid.NewGuid():N}.json");
+        var source = new AnnotatedSourceDocumentSource(
+            "Fixture",
+            new Guid("11111111-2222-3333-4444-555555555555"),
+            0x06000001,
+            new string('A', 64),
+            "Fixture.M");
+        var document = new AnnotatedSourceDocument(
+            "return;",
+            [new AnnotatedSourceNode(
+                0,
+                "ReturnStatement",
+                SourceLineKind.CSharp,
+                [new(0, 7)],
+                Provenance: new AnnotatedSourceNodeProvenance([0x10], 0))],
+            [],
+            [new AnnotatedSourceFact(
+                0,
+                "test",
+                "Semantics",
+                AnnotationConditionality.Always,
+                Detail: null,
+                SourceOffset: 0x10,
+                AnnotatedSourceFactOrigin.Body)],
+            [new AnnotatedSourceTarget(0, 0)],
+            source);
+        string json = JsonSerializer.Serialize(
+            document,
+            AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument);
+        File.WriteAllText(beforePath, json);
+        File.WriteAllText(afterPath, json);
+
+        try
+        {
+            var run = RunHarness("--structural-review", beforePath, afterPath);
+
+            Assert.Equal(0, run.ExitCode);
+            Assert.Contains("No structural changes.", run.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(beforePath);
+            File.Delete(afterPath);
         }
     }
 
