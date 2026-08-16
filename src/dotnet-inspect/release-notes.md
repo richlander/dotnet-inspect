@@ -1,5 +1,53 @@
 # Release Notes
 
+## v0.19.0
+
+### Inspection and output
+
+- `find --json` now composes with `--columns` and `--fields`, emitting a
+  projected JSON document with the same rows, windows, compactness, and
+  snake_case field vocabulary as the tabular formats. Invalid, duplicate, and
+  overlapping projections fail before command execution instead of producing
+  lossy output (#3536).
+- Multi-package inspection now renders and counts `Signature`, package fields,
+  and file projections consistently across Markdown, count, TSV, and JSONL
+  output, including global row windows and empty package rows (#4004).
+- Quiet .NET platform type listings use a compact shared-runtime metadata path,
+  avoiding full extraction while preserving forwarded type and extension method
+  counts. Rich, ASP.NET Core, pinned reference-pack, and structured output paths
+  retain full extraction (#4175).
+- Static and instance call-graph members now have distinct opaque selectors, so
+  close signatures no longer collide during remapping (#4219).
+
+### Safety and acquisition
+
+- Package `Signals` and `Audit: Artifact Text` now identify package-model fields
+  containing control, format, surrogate, line-separator, or paragraph-separator
+  text without echoing the artifact content (#4090).
+- Package and library `Signals` and `Audit: Identifier Confusion` now report
+  non-ASCII identifiers and reserved-prefix homoglyphs with content-free
+  locations, classifications, similarity, and code points (#4090).
+- PDB and SourceLink acquisition now handles pathless and content-shaped
+  responses while preserving visible diagnostics for rejected evidence
+  (#4138).
+- NuGet metadata acquisition now bounds response bodies, attributes failures to
+  their source, and reports malformed service indexes and version metadata
+  instead of silently treating them as absent (#4134, #4247).
+- Signature decoding and classification now enforce cumulative work budgets,
+  keeping deeply nested or broadly repeated metadata from multiplying
+  inspection cost without bound (#4170, #4188).
+
+### Experimental decompilation
+
+- Adds complete opt-in `var` spelling and a configurable
+  explicit-versus-target-typed object-creation style, with byte-divergence
+  disclosure in annotated output (#4220, #4252).
+- Expands whole-member compile-back coverage for constructors, properties, and
+  events; recovers variable-less `using` statements; preserves local-function
+  argument ref kinds; and fixes several control-flow ownership, stack-merge,
+  and structuring fidelity failures (#4070, #4198, #4244, #4113, #4204, #4192,
+  #4101, #4255).
+
 ## v0.18.0
 
 ### Inspection correctness
@@ -133,19 +181,6 @@
   cannot impersonate tool headings or tables. Package projections expose
   aggregate containment evidence while explicit document payloads remain
   byte-preserving (#3679, #3772).
-- Reports that package aggregate in `Signals` as
-  `Artifact text containment`, with category-only evidence for control,
-  format/bidi, unpaired-surrogate, line-separator, and paragraph-separator
-  concerns. Literal backslashes do not trigger the concern.
-- Adds the explicit `Audit: Artifact Text` package section under `@Audit`,
-  listing package-model field locations and concern kinds without echoing
-  artifact values.
-- Adds an `Identifier confusion` Signal for package IDs, dependency IDs,
-  assembly names, and direct assembly references. Explicit package and library
-  audit sections report content-free locations, classifications, similarity,
-  and code points, including bounded Greek/Cyrillic homoglyph checks for
-  `System`, `Microsoft`, and `Azure`; the explicit library audit additionally
-  resolves the transitive reference closure.
 - **Breaking:** removes the hidden `--oneline` compatibility alias and
   `DOTNET_INSPECT_FORMAT=oneline`/`one-line`; use `--table`.
 - Builds Native AOT packages with `OptimizationPreference=Speed`, worth a

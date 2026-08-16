@@ -543,6 +543,10 @@ renders its coverage as a caveat.
 
 Default output is Markdown. Use Markdown for evidence and narrative, `--table` for compact human scanning, `--tsv` for normalized tab-separated rows for agents and scripts, `--jsonl` for one JSON object per table row, and `--json` for structured object graphs. Use `--plaintext` for plain text, `--bare` for one undecorated payload without changing the selected shape, `--value` for one scalar, `--urls` for URL lists, `--paths` for path lists, `--print` to materialize one selected-section document (`--row N|first|last` chooses a displayed row), `--json-array` to emit projected rows as one JSON array, `--rows N` to cap rendered table rows (`2..10` is inclusive, `2+10` is start plus count, and `10..` is open-ended), `--count` to reduce a selected section/vector to a row count, and `--mermaid` for diagrams. On `member -S "Call Graph"`, `--tree` and `--mermaid` are standalone formats; pair `--mermaid` with `--markdown` to embed the diagram in a Markdown document. Verbosity is `-v:q`, `-v:m`, `-v:n`, or `-v:d`. Markdown and JSON can represent multi-section documents; `--table`, `--tsv`, and `--jsonl` render one table/section at a time, so pair them with a specific `-S` selection when querying sectioned output.
 
+On `find`, plain `--json` retains the typed result shape. Add `--columns` or
+`--fields` to emit projected JSON with the same selected rows and snake_case
+fields as the tabular formats.
+
 Call Graph edge rows use the machine field names `from`, `from_group`,
 `to`, `to_group`, and `label` under `--tsv` and `--jsonl`. Markdown and
 `--table` retain the human headings `From`, `From Group`, `To`, `To Group`, and
@@ -554,6 +558,7 @@ Sections and fields are queryable without a template language:
 dotnet-inspect library System.Net.Security -S "Async*"
 dotnet-inspect member JsonSerializer --package System.Text.Json -D
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
+dotnet-inspect find JsonSerializer --platform System.Text.Json --columns Type,Library --json
 dotnet-inspect type --package System.Text.Json --columns Kind,Name
 dotnet-inspect library System.Text.Json -S Symbols --fields "PDB*;SourceLink"
 dotnet-inspect library System.Text.Json -S @Audit
