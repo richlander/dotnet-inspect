@@ -17,6 +17,27 @@ Decompilation is a many-to-one transform twice over: the compiler collapses many
 
 That framing turns style questions into a single question: *which member of the equivalence class do we print?*
 
+Disposed-only `using` resources illustrate the distinction between a faithful
+member of an equivalence class and its canonical endpoint. For synchronous
+compiler lowering whose resource slot is read only by the generated disposal
+machinery, and for which the PDB supplies no source local name, render
+`using (resource)` rather than inventing `using (T V_n = resource)`. Positive
+PDB declaration evidence or a body read retains the declaration. Required
+resource conversions remain explicit, so choosing the higher-altitude spelling
+does not erase boxing or disposal semantics; `UsingStatementPassTests` and
+`FidelityGateTests.PinnedFixesStayExact` enforce those boundaries.
+
+The declared runtime oracle is silent on this choice:
+`csharp_prefer_simple_using_statement = false:none` governs using statements
+versus using declarations, not expression-form resources versus unused named
+resources ([`.editorconfig` lines 86–95](https://github.com/dotnet/runtime/blob/0cfd4076fba54a30ee789fa8d8ad6ed13b9f9f5c/.editorconfig#L86-L95)).
+The revealed oracle uses the expression form in production, including
+[`ComposablePartCatalogCollection`](https://github.com/dotnet/runtime/blob/0cfd4076fba54a30ee789fa8d8ad6ed13b9f9f5c/src/libraries/System.ComponentModel.Composition/src/System/ComponentModel/Composition/Hosting/ComposablePartCatalogCollection.cs#L56-L75)
+and
+[`ChainPal.OpenSsl`](https://github.com/dotnet/runtime/blob/0cfd4076fba54a30ee789fa8d8ad6ed13b9f9f5c/src/libraries/System.Security.Cryptography/src/System/Security/Cryptography/X509Certificates/ChainPal.OpenSsl.cs#L105-L108).
+That revealed convention selects the canonical form; it is not an analyzer
+prescription.
+
 ## The style oracle: dotnet/runtime's `.editorconfig`
 
 Where one IL shape admits several C# spellings, render the form that **dotnet/runtime's `.editorconfig` and enabled IDE analyzers (code fixers) encourage**.

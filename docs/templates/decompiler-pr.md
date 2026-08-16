@@ -10,6 +10,11 @@ status, Before, After, and Fully raised. Before and After must each show a
 concrete C# example. After records this PR's output; Fully raised records the
 intended endpoint.
 
+Glossary: **IL fidelity** judges whether the rendered C# recompiles to the
+original contract body; **fully raised** judges whether that faithful rendering
+has reached the preferred source idiom. A `Full`-fidelity render can still be
+short of the fully raised endpoint.
+
 Under Before and After, record independent verdicts on the shown C# so the
 assessment sits next to the code it judges:
 
