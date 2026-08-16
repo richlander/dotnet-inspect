@@ -8,12 +8,36 @@ namespace NuGetFetch;
 /// <summary>
 /// Searches the NuGet Search API for packages by keyword or prefix.
 /// </summary>
-public partial class SearchService(HttpClient client, string? searchUrl = null)
+public partial class SearchService
 {
     private const int PrefixSearchPageSize = 100;
     private const int MaxPrefixSearchPages = 32;
     private static readonly TimeSpan PrefixSearchTimeout = TimeSpan.FromSeconds(30);
-    private readonly string _searchUrl = searchUrl ?? NuGetClient.NuGetOrgSearchUrl;
+    private readonly HttpClient _client;
+    private readonly NuGetFetchOptions _options;
+    private readonly string _searchUrl;
+
+    /// <summary>
+    /// Creates a NuGet search client with default metadata response limits.
+    /// </summary>
+    public SearchService(HttpClient client, string? searchUrl = null)
+        : this(client, searchUrl, new NuGetFetchOptions())
+    {
+    }
+
+    /// <summary>
+    /// Creates a NuGet search client with configured metadata response limits.
+    /// </summary>
+    public SearchService(
+        HttpClient client,
+        string? searchUrl,
+        NuGetFetchOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        _client = client;
+        _searchUrl = searchUrl ?? NuGetClient.NuGetOrgSearchUrl;
+        _options = NuGetFetchOptions.Validate(options);
+    }
 
     /// <summary>
     /// Searches NuGet for packages matching the given query.
@@ -63,17 +87,25 @@ public partial class SearchService(HttpClient client, string? searchUrl = null)
                 "The search endpoint is not a usable absolute HTTP or HTTPS URL.");
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using HttpRequestMessage request =
+            NuGetMetadataReader.CreateGetRequest(url);
         if (auth is not null)
         {
             request.Headers.Authorization = auth;
         }
 
-        using HttpResponseMessage response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await _client.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        SearchResponse? parsed = await NuGetApi.GetSearchResponseAsync(stream, cancellationToken).ConfigureAwait(false);
+        SearchResponse? parsed = await NuGetMetadataReader.ReadResponseAsync(
+            response,
+            NuGetApi.DeserializeSearchResponseAsync,
+            _options,
+            _client.Timeout,
+            cancellationToken).ConfigureAwait(false);
 
         // A null document is not an empty result set. Reporting it as one would
         // hide the failure behind a successful-looking zero-result search. The
@@ -127,45 +159,56 @@ public partial class SearchService(HttpClient client, string? searchUrl = null)
             cancellationToken);
         timeout.CancelAfter(PrefixSearchTimeout);
 
-        for (int pageNumber = 0;
-            pageNumber < MaxPrefixSearchPages && matches.Count < take;
-            pageNumber++)
+        try
         {
-            IReadOnlyList<SearchResult> page = await SearchPageAsync(
-                prefix,
-                skip,
-                PrefixSearchPageSize,
-                prerelease,
-                auth,
-                timeout.Token).ConfigureAwait(false);
-            if (page.Count == 0)
-                return matches;
-
-            bool madeProgress = false;
-            foreach (SearchResult result in page)
+            for (int pageNumber = 0;
+                pageNumber < MaxPrefixSearchPages && matches.Count < take;
+                pageNumber++)
             {
-                madeProgress |= observedResults.Add(
-                    $"{result.Id.Length}:{result.Id}{result.Version}");
-                if (result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                    && matchedIds.Add(result.Id))
+                IReadOnlyList<SearchResult> page = await SearchPageAsync(
+                    prefix,
+                    skip,
+                    PrefixSearchPageSize,
+                    prerelease,
+                    auth,
+                    timeout.Token).ConfigureAwait(false);
+                if (page.Count == 0)
+                    return matches;
+
+                bool madeProgress = false;
+                foreach (SearchResult result in page)
                 {
-                    matches.Add(result);
-                    if (matches.Count == take)
-                        break;
+                    madeProgress |= observedResults.Add(
+                        $"{result.Id.Length}:{result.Id}{result.Version}");
+                    if (result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                        && matchedIds.Add(result.Id))
+                    {
+                        matches.Add(result);
+                        if (matches.Count == take)
+                            break;
+                    }
                 }
+
+                if (!madeProgress)
+                    throw new InvalidOperationException(
+                        "NuGet search pagination repeated a page without making progress.");
+
+                skip += page.Count;
             }
 
-            if (!madeProgress)
+            if (matches.Count < take)
                 throw new InvalidOperationException(
-                    "NuGet search pagination repeated a page without making progress.");
+                    $"NuGet search pagination exceeded {MaxPrefixSearchPages} pages.");
 
-            skip += page.Count;
+            return matches;
         }
-
-        if (matches.Count < take)
-            throw new InvalidOperationException(
-                $"NuGet search pagination exceeded {MaxPrefixSearchPages} pages.");
-
-        return matches;
+        catch (OperationCanceledException ex)
+            when (!cancellationToken.IsCancellationRequested
+                && timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"NuGet prefix search did not complete within {PrefixSearchTimeout}.",
+                ex);
+        }
     }
 }

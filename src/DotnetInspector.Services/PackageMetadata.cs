@@ -12,6 +12,8 @@ public class PackageMetadata
     public long? PackageSize { get; set; }
     public bool? IsVerified { get; set; }
     public List<string>? Owners { get; set; }
+    public bool DeprecationMetadataSupported { get; set; }
+    public bool DeprecationMetadataAvailable { get; set; }
     public PackageDeprecation? Deprecation { get; set; }
     public List<PackageVulnerability>? Vulnerabilities { get; set; }
 }

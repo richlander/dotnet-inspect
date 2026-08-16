@@ -380,6 +380,69 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchAsync_BodyFailures_AreAttributedPerSource()
+    {
+        const string goodIndex = "https://good.example/v3/index.json";
+        const string goodSearch = "https://good.example/v3/query";
+        const string oversizeIndex = "https://oversize.example/v3/index.json";
+        const string oversizeSearch = "https://oversize.example/v3/query";
+        const string timeoutIndex = "https://timeout.example/v3/index.json";
+        const string timeoutSearch = "https://timeout.example/v3/query";
+        const string resetIndex = "https://reset.example/v3/index.json";
+        const string resetSearch = "https://reset.example/v3/query";
+
+        var handler = new RouteHandler
+        {
+            [goodIndex] = ServiceIndex(goodSearch),
+            [goodSearch] = """{"data":[{"id":"Good.Package","version":"1.0.0"}]}""",
+            [oversizeIndex] = ServiceIndex(oversizeSearch),
+            [timeoutIndex] = ServiceIndex(timeoutSearch),
+            [resetIndex] = ServiceIndex(resetSearch),
+        };
+        handler.RespondWithContent(
+            oversizeSearch,
+            () => new AdvertisedLengthContent(
+                NuGetFetchOptions.DefaultMaxMetadataResponseBytes + 1));
+        handler.Throw(
+            timeoutSearch,
+            new TimeoutException("test transport timeout"));
+        handler.RespondWithContent(
+            resetSearch,
+            () => new FailingBodyContent());
+        using var client = new HttpClient(handler);
+        using var config = new TempNuGetConfig(
+            [
+                ("good", goodIndex),
+                ("oversize", oversizeIndex),
+                ("timeout", timeoutIndex),
+                ("reset", resetIndex),
+            ]);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "q",
+            sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path });
+
+        Assert.Equal("Good.Package", Assert.Single(outcome.Results).PackageId);
+        Assert.Equal(3, outcome.Failures.Count);
+        Assert.Contains(
+            outcome.Failures,
+            failure => failure.Contains(
+                nameof(NuGetMetadataResponseTooLargeException),
+                StringComparison.Ordinal));
+        Assert.Contains(
+            outcome.Failures,
+            failure => failure.Contains(
+                nameof(TimeoutException),
+                StringComparison.Ordinal));
+        Assert.Contains(
+            outcome.Failures,
+            failure => failure.Contains(
+                nameof(IOException),
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task SearchAsync_SemanticallyEquivalentVersionsAcrossSources_ReturnedOnce()
     {
         const string indexA = "https://a.example/v3/index.json";
@@ -1593,6 +1656,10 @@ public class NuGetSearchSourcesTests
     {
         private readonly Dictionary<string, (HttpStatusCode Status, string Body)> _routes =
             new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Func<HttpContent>> _contentRoutes =
+            new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Exception> _exceptions =
+            new(StringComparer.OrdinalIgnoreCase);
         private readonly List<(string Url, AuthenticationHeaderValue? Auth)> _requests = [];
 
         public string this[string url] { set => _routes[url] = (HttpStatusCode.OK, value); }
@@ -1602,6 +1669,12 @@ public class NuGetSearchSourcesTests
         public void RespondWith(string url, HttpStatusCode status, string body = "") =>
             _routes[url] = (status, body);
 
+        public void RespondWithContent(string url, Func<HttpContent> content) =>
+            _contentRoutes[url] = content;
+
+        public void Throw(string url, Exception exception) =>
+            _exceptions[url] = exception;
+
         public AuthenticationHeaderValue? AuthFor(string url) =>
             _requests.FirstOrDefault(r => WithoutQuery(r.Url).Equals(url, StringComparison.OrdinalIgnoreCase)).Auth;
 
@@ -1610,6 +1683,10 @@ public class NuGetSearchSourcesTests
         {
             string url = request.RequestUri!.ToString();
             _requests.Add((url, request.Headers.Authorization));
+            string routeUrl = WithoutQuery(url);
+
+            if (_exceptions.TryGetValue(routeUrl, out Exception? exception))
+                return Task.FromException<HttpResponseMessage>(exception);
 
             bool laterSearchPage = request.RequestUri.Query
                 .TrimStart('?')
@@ -1622,8 +1699,15 @@ public class NuGetSearchSourcesTests
                 {
                     Content = new StringContent("""{"data":[]}""")
                 }
+                : _contentRoutes.TryGetValue(
+                    routeUrl,
+                    out Func<HttpContent>? content)
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = content()
+                }
                 : _routes.TryGetValue(
-                    WithoutQuery(url),
+                    routeUrl,
                     out (HttpStatusCode Status, string Body) route)
                 ? new HttpResponseMessage(route.Status) { Content = new StringContent(route.Body) }
                 : new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("") };
@@ -1688,6 +1772,107 @@ public class NuGetSearchSourcesTests
                 RequestMessage = request,
             };
         }
+    }
+
+    private sealed class AdvertisedLengthContent : HttpContent
+    {
+        public AdvertisedLengthContent(long length)
+        {
+            Headers.ContentLength = length;
+        }
+
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context) =>
+            Task.FromException(
+                new InvalidOperationException("Oversized content must not be read."));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = Headers.ContentLength!.Value;
+            return true;
+        }
+    }
+
+    private sealed class FailingBodyContent : HttpContent
+    {
+        protected override Task<Stream> CreateContentReadStreamAsync() =>
+            Task.FromResult<Stream>(new PrefixThenFailStream());
+
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context) =>
+            Task.FromException(
+                new InvalidOperationException(
+                    "Headers-first metadata must read the response stream."));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
+    private sealed class PrefixThenFailStream : Stream
+    {
+        private static readonly byte[] Prefix =
+            """{"data":"""u8.ToArray();
+        private int _offset;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            Read(buffer.AsSpan(offset, count));
+
+        public override int Read(Span<byte> buffer)
+        {
+            if (buffer.IsEmpty)
+                return 0;
+
+            if (_offset == Prefix.Length)
+                throw new IOException("Simulated response reset.");
+
+            int count = Math.Min(buffer.Length, Prefix.Length - _offset);
+            Prefix.AsSpan(_offset, count).CopyTo(buffer);
+            _offset += count;
+            return count;
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                return ValueTask.FromResult(Read(buffer.Span));
+            }
+            catch (IOException ex)
+            {
+                return ValueTask.FromException<int>(ex);
+            }
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 
     private sealed class PrefixPagingHandler(

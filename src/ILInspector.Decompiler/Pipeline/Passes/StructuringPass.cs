@@ -504,7 +504,7 @@ public sealed class StructuringPass : IIrPass
 
         for (int source = candidate.Start; source < candidate.Merge; source++)
         {
-            foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(ctx.Blocks[source]))
+            foreach (var node in ctx.Blocks[source].DescendantsOutsideNestedFunctions)
             {
                 if (node is TryCatch or TryFinally or Leave or EndFinally or EndFilter)
                     return "retained-eh-unsupported";
@@ -575,7 +575,7 @@ public sealed class StructuringPass : IIrPass
 
     static IEnumerable<int> TransferTargets(Block block)
     {
-        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(block))
+        foreach (var node in block.DescendantsOutsideNestedFunctions)
         {
             switch (node)
             {
@@ -700,6 +700,17 @@ public sealed class StructuringPass : IIrPass
             // (continueTarget == i) so the body walk does not re-enter the loop.
             if (continueTarget != i && FindInfiniteLoopShape(ctx, i, stop) is { } latch)
             {
+                if (ProspectiveLoopOwnershipIsUnsafe(
+                    ctx,
+                    i,
+                    latch + 1,
+                    blocks[i].StartOffset,
+                    cloneContinueTarget: i,
+                    breakTargetOffsets: null))
+                {
+                    ctx.Recorder?.Record("loop-changes-control-flow-owner");
+                    return false;
+                }
                 if (!Validate(ctx, i, latch + 1, joinIndex: latch + 1, breakTarget: latch + 1, continueTarget: i))
                     return false;
                 i = latch + 1;
@@ -797,6 +808,22 @@ public sealed class StructuringPass : IIrPass
                         var loopRegionExitBreakTarget = LoopExitReachesRegionExit(ctx, loop.ContinueAt, stop)
                             ? loop.ContinueAt
                             : (int?)null;
+                        var breakTargetOffsets = new HashSet<int>();
+                        if (loop.ContinueAt < blocks.Count)
+                            breakTargetOffsets.Add(blocks[loop.ContinueAt].StartOffset);
+                        if (loopRegionExitBreakTarget is not null && ctx.RegionExitLeaveTarget is { } regionExitTarget)
+                            breakTargetOffsets.Add(regionExitTarget);
+                        if (ProspectiveLoopOwnershipIsUnsafe(
+                            ctx,
+                            i + 1,
+                            branchTarget,
+                            blocks[branchTarget].StartOffset,
+                            cloneContinueTarget: continueTarget,
+                            breakTargetOffsets))
+                        {
+                            ctx.Recorder?.Record("loop-changes-control-flow-owner");
+                            return false;
+                        }
                         if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget, loopRegionExitBreakTarget))
                             return false;
                         i = loop.ContinueAt;
@@ -949,6 +976,119 @@ public sealed class StructuringPass : IIrPass
             }
         }
         return true;
+    }
+
+    static bool ProspectiveLoopOwnershipIsUnsafe(
+        Ctx ctx,
+        int start,
+        int stop,
+        int retryTargetOffset,
+        int? cloneContinueTarget,
+        HashSet<int>? breakTargetOffsets)
+    {
+        var blocks = ctx.Blocks;
+        for (int index = start; index < stop; index++)
+        {
+            var root = blocks[index];
+            if (LoopBodyOwnershipIsUnsafe(root, retryTargetOffset, breakTargetOffsets))
+                return true;
+
+            if (root.Children.Count == 0
+                || root.Children[^1] is not ConditionalBranch branch
+                || !ctx.FlowFacts.OffsetToIndex.TryGetValue(branch.TargetOffset, out int target)
+                || target <= stop)
+            {
+                continue;
+            }
+
+            if (IsInlinableTerminator(ctx, target))
+            {
+                var clonedSnapshot = CloneTerminatorSnapshot(
+                    ctx,
+                    target,
+                    blocks[target].StartOffset);
+                if (LoopBodyOwnershipIsUnsafe(clonedSnapshot, retryTargetOffset, breakTargetOffsets))
+                    return true;
+                continue;
+            }
+
+            if (cloneContinueTarget is { } cloneLoopHead
+                && IsLeaveRetryLoopHead(ctx, cloneLoopHead)
+                && TryClonePastRegionTerminator(ctx, target, out var clonedTerminator))
+            {
+                if (LoopBodyOwnershipIsUnsafe(clonedTerminator, retryTargetOffset, breakTargetOffsets))
+                    return true;
+                continue;
+            }
+
+            if (TryBuildPastRegionTarget(ctx, target, out var pastRegion, out int inlinedStop)
+                && CanDuplicatePastRegionBody(ctx, target, inlinedStop, index, pastRegion)
+                && LoopBodyOwnershipIsUnsafe(pastRegion, retryTargetOffset, breakTargetOffsets))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool LoopBodyOwnershipIsUnsafe(
+        IrNode root,
+        int retryTargetOffset,
+        HashSet<int>? breakTargetOffsets)
+    {
+        foreach (var node in root.DescendantsOutsideNestedFunctions)
+        {
+            if (node is Continue)
+            {
+                if (!HasOwnerBeforeRoot(
+                    node,
+                    root,
+                    static ancestor => ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
+                {
+                    return true;
+                }
+                continue;
+            }
+            if (node is Break)
+            {
+                if (!HasOwnerBeforeRoot(
+                    node,
+                    root,
+                    static ancestor => ancestor is Switch or WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
+                {
+                    return true;
+                }
+                continue;
+            }
+            if (node is not Leave leave || !CanRaiseRetryLeave(leave))
+                continue;
+
+            if (leave.TargetOffset == retryTargetOffset
+                && HasOwnerBeforeRoot(
+                    leave,
+                    root,
+                    static ancestor => ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
+            {
+                return true;
+            }
+            if (breakTargetOffsets?.Contains(leave.TargetOffset) == true
+                && HasOwnerBeforeRoot(
+                    leave,
+                    root,
+                    static ancestor => ancestor is Switch or WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool HasOwnerBeforeRoot(IrNode node, IrNode root, Func<IrNode, bool> isOwner)
+    {
+        for (var ancestor = node.Parent; ancestor is not null && !ReferenceEquals(ancestor, root); ancestor = ancestor.Parent)
+            if (isOwner(ancestor))
+                return true;
+        return false;
     }
 
     /// <summary>
@@ -1809,6 +1949,14 @@ public sealed class StructuringPass : IIrPass
     static bool IsInlinableTerminator(Ctx ctx, int index) =>
         ctx.TerminatorSnapshots.ContainsKey(index);
 
+    static Block CloneTerminatorSnapshot(Ctx ctx, int index, int startOffset)
+    {
+        var clone = new Block(startOffset);
+        foreach (var statement in ctx.TerminatorSnapshots[index])
+            clone.Add(statement.Clone());
+        return clone;
+    }
+
     /// <summary>Whether control reaching the end of this block continues into its successor (vs. returning, throwing, or branching away).</summary>
     static bool FallsThrough(Block block) =>
         block.Children.Count == 0
@@ -1993,9 +2141,7 @@ public sealed class StructuringPass : IIrPass
                     // from the pre-mutation snapshot.
                     if (target > i && IsInlinableTerminator(ctx, target))
                     {
-                        var guardArm = new Block(block.StartOffset);
-                        foreach (var statement in ctx.TerminatorSnapshots[target])
-                            guardArm.Add(statement.Clone());
+                        var guardArm = CloneTerminatorSnapshot(ctx, target, block.StartOffset);
                         result.Add(new IfStatement(condition, guardArm, null));
                         i++;
                         break;
@@ -2117,7 +2263,7 @@ public sealed class StructuringPass : IIrPass
 
     static void ReplaceRetryLeavesWithContinues(IrNode root, int targetOffset)
     {
-        foreach (var leave in RaisableLeavesTargeting(root, targetOffset))
+        foreach (var leave in RaisableLeavesTargeting(root, targetOffset, replacementIsContinue: true))
         {
             var next = new Continue();
             next.InheritSourceOffset(leave);
@@ -2127,7 +2273,7 @@ public sealed class StructuringPass : IIrPass
 
     static void ReplaceRetryLeavesWithBreaks(IrNode root, int targetOffset)
     {
-        foreach (var leave in RaisableLeavesTargeting(root, targetOffset))
+        foreach (var leave in RaisableLeavesTargeting(root, targetOffset, replacementIsContinue: false))
         {
             var next = new Break();
             next.InheritSourceOffset(leave);
@@ -2138,13 +2284,30 @@ public sealed class StructuringPass : IIrPass
     // Raisable descendant Leave nodes targeting a given offset, materialized so the tree can be
     // rewritten during iteration. Collected in one pooled-DFS pass with inline filtering, avoiding
     // the per-call closure/delegate/iterator allocations of the equivalent LINQ chain.
-    static List<Leave> RaisableLeavesTargeting(IrNode root, int targetOffset)
+    static List<Leave> RaisableLeavesTargeting(
+        IrNode root,
+        int targetOffset,
+        bool replacementIsContinue)
     {
         var result = new List<Leave>();
-        foreach (var node in root.Descendants)
+        foreach (var node in root.DescendantsOutsideNestedFunctions)
         {
-            if (node is Leave leave && leave.TargetOffset == targetOffset && CanRaiseRetryLeave(leave))
-                result.Add(leave);
+            if (node is not Leave leave
+                || leave.TargetOffset != targetOffset
+                || !CanRaiseRetryLeave(leave))
+            {
+                continue;
+            }
+            if (HasOwnerBeforeRoot(
+                leave,
+                root,
+                replacementIsContinue
+                    ? static ancestor => ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement
+                    : static ancestor => ancestor is Switch or WhileLoop or DoWhileLoop or ForLoop or ForeachStatement))
+            {
+                continue;
+            }
+            result.Add(leave);
         }
         return result;
     }

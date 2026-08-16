@@ -187,7 +187,9 @@ public static class NuGetSearchService
                             sourceSearchTimeout.Token);
                     break;
                 }
-                catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
+                catch (Exception ex) when (ex is HttpRequestException or JsonException
+                    or InvalidOperationException or TaskCanceledException
+                    or IOException or TimeoutException)
                 {
                     lastFailure = ex;
                     if (sourceSearchTimeout.IsCancellationRequested)

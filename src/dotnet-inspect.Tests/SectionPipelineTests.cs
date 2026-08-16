@@ -5,6 +5,7 @@ using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -318,7 +319,7 @@ public class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(53 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(54 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
@@ -1307,6 +1308,7 @@ public class SectionPipelineTests
                 SectionNames.NonNormalizedPaths,
                 SectionNames.SourceLinkDiagnostics,
                 SectionNames.Signals,
+                SectionNames.IdentifierConfusion,
                 SectionNames.Symbols
             ],
             sections);
@@ -1985,7 +1987,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void PackageIntegrityExitCode_FailsOnlyForMismatches()
+    public async Task PackageIntegrityExitCode_FailsForMismatchesAndAuditFailures()
     {
         var clean = new InspectionResult
         {
@@ -2004,11 +2006,184 @@ public class SectionPipelineTests
         {
             SourceIntegrity = clean.SourceIntegrity with { Mismatched = 1 },
         };
+        var auditFailure = new InspectionResult
+        {
+            IdentifierConfusionFailure =
+                IdentifierConfusionAuditFailureKind
+                    .PackageMetadataUnavailable,
+        };
 
-        Assert.Equal(0, PackageCommand.PackageIntegrityExitCode(clean));
-        Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(clean, mismatch));
-        Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(1, clean));
-        Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(0, mismatch));
+        var (_, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            Assert.Equal(0, PackageCommand.PackageIntegrityExitCode(clean));
+            Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(clean, mismatch));
+            Assert.Equal(
+                1,
+                PackageCommand.PackageIntegrityExitCode(
+                    clean,
+                    auditFailure));
+            Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(1, clean));
+            Assert.Equal(7, PackageCommand.PackageIntegrityExitCode(7, clean));
+            Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(0, mismatch));
+        });
+
+        Assert.Equal(
+            "Warning: Identifier audit failed for package input #2: "
+            + "package registry metadata unavailable"
+            + Environment.NewLine,
+            error);
+    }
+
+    [Theory]
+    [InlineData(PackageSections.AuditIdentifierConfusion)]
+    [InlineData(PackageSections.AuditArtifactText)]
+    public void MultiPackageCount_CountsSelectedAuditRows(
+        string section)
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-audit-count-{Guid.NewGuid():N}.txt");
+        InspectionResult Result(string suffix) =>
+            section == PackageSections.AuditIdentifierConfusion
+                ? new InspectionResult
+                {
+                    PackageName = $"\u0405ystem.{suffix}",
+                    Version = "1.0.0",
+                }
+                : new InspectionResult
+                {
+                    PackageName = $"Package.{suffix}",
+                    Version = "1.0.0",
+                    PackageFiles =
+                    [
+                        new PackageFile(
+                            $"lib/{suffix}\u001b.dll",
+                            1),
+                    ],
+                };
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                [Result("One"), Result("Two")],
+                rowSection: null,
+                new InspectionOptions
+                {
+                    Count = true,
+                    JsonOutput = true,
+                    IncludeSections =
+                        new HashSet<string>(
+                            StringComparer.OrdinalIgnoreCase)
+                        {
+                            section,
+                        },
+                    OutputPath = outputPath,
+                },
+                PackageSectionDescriptors.CreatePipeline());
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal(
+                "2",
+                File.ReadAllText(outputPath).Trim());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void MultiPackageCount_PreservesSelectedSectionMap()
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-count-map-{Guid.NewGuid():N}.txt");
+        var options = new InspectionOptions
+        {
+            Count = true,
+            JsonOutput = true,
+            IncludeSections =
+                new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    PackageSections.PackageInfo,
+                    PackageSections.TargetFrameworks,
+                },
+            OutputPath = outputPath,
+        };
+        var results = new[]
+        {
+            new InspectionResult
+            {
+                PackageName = "One",
+                Version = "1.0.0",
+                TargetFrameworks = ["net8.0"],
+            },
+            new InspectionResult
+            {
+                PackageName = "Two",
+                Version = "1.0.0",
+            },
+        };
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                results,
+                rowSection: null,
+                options,
+                PackageSectionDescriptors.CreatePipeline());
+            string output = File.ReadAllText(outputPath);
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("| Section | Count |", output);
+            Assert.Contains("| Package Info |", output);
+            Assert.Contains("| Target Frameworks | 1 |", output);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void MultiPackageCount_PreservesFixedOverviewMap()
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-fixed-count-map-{Guid.NewGuid():N}.txt");
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                [
+                    new InspectionResult
+                    {
+                        PackageName = "One",
+                        Version = "1.0.0",
+                    },
+                ],
+                rowSection: null,
+                new InspectionOptions
+                {
+                    Count = true,
+                    JsonOutput = true,
+                    FixedOverview = true,
+                    OutputPath = outputPath,
+                },
+                pipeline);
+            string output = File.ReadAllText(outputPath);
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("| Section | Count |", output);
+            foreach (string section in pipeline.BareSelectSectionNames)
+                Assert.Contains($"| {section} |", output);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
     }
 
     [Fact]
@@ -2053,6 +2228,192 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void MultiPackageCount_AggregatesSelectedSignatureRows()
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-signature-count-{Guid.NewGuid():N}.txt");
+        var signature = new SignatureVerificationResult
+        {
+            AuthorVerified = true,
+            Publisher = "Publisher",
+            Repository = "nuget.org",
+            RepositoryVerified = true,
+        };
+        var options = new InspectionOptions
+        {
+            Count = true,
+            JsonOutput = true,
+            OutputPath = outputPath,
+            IncludeSections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                PackageSections.Signature,
+            },
+        };
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                [
+                    new InspectionResult
+                    {
+                        PackageName = "First",
+                        SignatureResult = signature,
+                    },
+                    new InspectionResult
+                    {
+                        PackageName = "Second",
+                        SignatureResult = signature,
+                    },
+                ],
+                null,
+                options,
+                PackageSectionDescriptors.CreatePipeline());
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal("10", File.ReadAllText(outputPath).Trim());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void MultiPackageCount_AppliesRowWindowToCombinedPackageInfoRows()
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-info-count-{Guid.NewGuid():N}.txt");
+        var options = new InspectionOptions
+        {
+            Count = true,
+            OutputPath = outputPath,
+            Rows = RowWindow.Head(1),
+            IncludeSections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                PackageSections.PackageInfo,
+            },
+        };
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                [
+                    new InspectionResult { PackageName = "First" },
+                    new InspectionResult { PackageName = "Second" },
+                ],
+                null,
+                options,
+                PackageSectionDescriptors.CreatePipeline());
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal("1", File.ReadAllText(outputPath).Trim());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void MultiPackageCount_JsonFileSelectionUsesCombinedRowShape()
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-file-count-{Guid.NewGuid():N}.txt");
+        var options = new InspectionOptions
+        {
+            Count = true,
+            JsonOutput = true,
+            OutputPath = outputPath,
+            Rows = RowWindow.Head(1),
+            IncludeSections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                PackageSections.FilesReadme,
+            },
+        };
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                [
+                    new InspectionResult { PackageName = "First" },
+                    new InspectionResult { PackageName = "Second" },
+                ],
+                null,
+                options,
+                PackageSectionDescriptors.CreatePipeline());
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal("1", File.ReadAllText(outputPath).Trim());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void MultiPackageCount_AggregatesMultipleSelectedSections()
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-section-counts-{Guid.NewGuid():N}.txt");
+        var signature = new SignatureVerificationResult
+        {
+            AuthorVerified = true,
+            Publisher = "Publisher",
+            Repository = "nuget.org",
+            RepositoryVerified = true,
+        };
+        var options = new InspectionOptions
+        {
+            Count = true,
+            JsonOutput = true,
+            OutputPath = outputPath,
+            IncludeSections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                PackageSections.PackageInfo,
+                PackageSections.Signature,
+            },
+        };
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                [
+                    new InspectionResult
+                    {
+                        PackageName = "First",
+                        SignatureResult = signature,
+                    },
+                    new InspectionResult
+                    {
+                        PackageName = "Second",
+                        SignatureResult = signature,
+                    },
+                ],
+                null,
+                options,
+                PackageSectionDescriptors.CreatePipeline());
+
+            Assert.Equal(0, exitCode);
+            string output = File.ReadAllText(outputPath);
+            Assert.Contains("| Package Info |", output);
+            Assert.Contains("| Signature | 10 |", output);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
     public void LibraryReferencesSection_DemandsTypedAssemblyReferencesQuery()
     {
         var pipeline = LibrarySections.CreatePipeline();
@@ -2065,6 +2426,23 @@ public class SectionPipelineTests
         HashSet<InspectionQueryDefinition> required = pipeline.GetRequiredQueries(
             Verbosity.Minimal,
             references);
+
+        Assert.Equal([AssemblyReferencesQuery.Definition], required);
+    }
+
+    [Fact]
+    public void LibraryIdentifierConfusionSection_DemandsTypedAssemblyReferencesQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        HashSet<string> identifierAudit =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.IdentifierConfusion,
+            };
+
+        HashSet<InspectionQueryDefinition> required = pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            identifierAudit);
 
         Assert.Equal([AssemblyReferencesQuery.Definition], required);
     }
@@ -3894,6 +4272,7 @@ public class SectionPipelineTests
             "Metadata: TypeDef",
             "Metadata: TypeRef",
             "Metadata: TypeSpec",
+            SectionNames.IdentifierConfusion,
             SectionNames.SourceLinkAvailability,
             SectionNames.SourceLinkFiles,
             SectionNames.SourceLinkIntegrity,
@@ -5162,6 +5541,8 @@ public class SectionPipelineTests
         Assert.Equal(
             [
                 PackageSections.Signals,
+                PackageSections.AuditArtifactText,
+                PackageSections.AuditIdentifierConfusion,
                 PackageSections.Signature,
                 PackageSections.Vulnerabilities,
                 PackageSections.SourceLinkAvailability,
@@ -5169,6 +5550,46 @@ public class SectionPipelineTests
                 PackageSections.SourceLinkIntegrity
             ],
             categories[SectionCategoryNames.Audit]);
+    }
+
+    [Theory]
+    [InlineData("ordinary text", false)]
+    [InlineData("C:\\tmp\\package", false)]
+    [InlineData("literal \\u202E text", false)]
+    [InlineData("concerning\u202Etext", true)]
+    public void PackagePipeline_ArtifactTextAuditEffectivenessUsesTypedConcerns(
+        string packageName,
+        bool expected)
+    {
+        var model = new InspectionResult
+        {
+            PackageName = packageName,
+            Version = "1.0.0",
+        };
+
+        Assert.Equal(
+            expected,
+            PackageSectionDescriptors.AuditArtifactText.CanRender(model));
+    }
+
+    [Theory]
+    [InlineData("Contoso.Utilities", false)]
+    [InlineData("C:\\tmp\\package", false)]
+    [InlineData("Δelta.Tools", true)]
+    [InlineData("Ѕystem.Text.Json", true)]
+    public void PackagePipeline_IdentifierConfusionEffectivenessUsesTypedConcerns(
+        string packageName,
+        bool expected)
+    {
+        var model = new InspectionResult
+        {
+            PackageName = packageName,
+            Version = "1.0.0",
+        };
+
+        Assert.Equal(
+            expected,
+            PackageSectionDescriptors.AuditIdentifierConfusion.CanRender(model));
     }
 
     [Fact]
@@ -5232,7 +5653,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(18, pipeline.AllSectionNames.Length);
+        Assert.Equal(20, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -5245,6 +5666,8 @@ public class SectionPipelineTests
         Assert.Contains("Package Info", names);
         Assert.Contains("Package README file", names);
         Assert.Contains("Signals", names);
+        Assert.Contains(PackageSections.AuditArtifactText, names);
+        Assert.Contains(PackageSections.AuditIdentifierConfusion, names);
         Assert.Contains("Target Frameworks", names);
         Assert.Contains("Package nuspec file", names);
         Assert.Contains("Statistics", names);
@@ -5258,6 +5681,31 @@ public class SectionPipelineTests
         Assert.Contains("Vulnerabilities", names);
         Assert.Contains("Manifest", names);
         Assert.Contains("Runtime Dependencies", names);
+    }
+
+    [Fact]
+    public void SigningSection_FieldCatalogMatchesCombinedRows()
+    {
+        var schema = InspectionContext.Default
+            .GetSchemaInfo<InspectionResultView>()!
+            .ToDocumentSchema()
+            .GetSection(PackageSections.Signature);
+        var section = new SigningSection
+        {
+            AuthorVerified = "Yes",
+            Publisher = "Publisher",
+            Repository = "Repository",
+            RepositoryVerified = "Yes",
+            Signed = "Yes",
+            Status = "Status",
+        };
+
+        Assert.Equal(
+            SigningSection.FieldNames,
+            section.ToMarkoutFields().Select(field => field.Key));
+        Assert.Equal(
+            SigningSection.FieldNames,
+            schema!.Items.Select(item => item.Name));
     }
 
     [Fact]
@@ -5460,6 +5908,38 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void PackagePipeline_IdentifierConfusionAudit_DemandsRegistrationMetadata()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var options = new InspectionOptions
+        {
+            IncludeSections =
+            [
+                PackageSections.AuditIdentifierConfusion,
+            ],
+        };
+
+        Assert.True(
+            PackageCommand.RequiresPackageMetadata(options, pipeline));
+        Assert.True(
+            PackageCommand.AllowsVulnerabilityTraffic(options));
+        Assert.Equal(
+            Verbosity.Detailed,
+            pipeline.GetRequiredVerbosity(options.IncludeSections));
+        Assert.True(
+            PackageCommand.RequiresPackageMetadata(
+                options with
+                {
+                    IncludeSections = null,
+                    Discover =
+                    [
+                        PackageSections.AuditIdentifierConfusion,
+                    ],
+                },
+                pipeline));
+    }
+
+    [Fact]
     public void PackagePipeline_VerbosityAutoPromote_ForPackage()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
@@ -5540,6 +6020,7 @@ public class SectionPipelineTests
         {
             AssemblyInfo = new AssemblyInfo
             {
+                AssemblyName = "Ѕystem.Test",
                 References = [new AssemblyReference("System.Runtime", "1.0.0.0", null, null)],
                 TransitiveReferences = [new AssemblyReferenceNode { Name = "System.Runtime", Version = "1.0.0.0" }]
             },
@@ -5652,6 +6133,7 @@ public class SectionPipelineTests
         {
             PackageName = "Test",
             Version = "1.0.0",
+            Owners = ["audit\u202Ecase"],
             PackageReadmeFile = "README.md",
             PackageFiles =
             [
@@ -5669,7 +6151,7 @@ public class SectionPipelineTests
             LibraryFiles = ["lib/net8.0/Test.dll"],
             SourceFiles = [new PackageSourceFileInfo("lib/net8.0/Test.dll", "T", "https://example.com/T.cs")],
             SignatureResult = new SignatureVerificationResult { AuthorVerified = true, Publisher = "test" },
-            DependencyGroups = [new DependencyGroup { TargetFramework = "net8.0", Dependencies = [new PackageDependency { Id = "Dep", Version = "1.0" }] }],
+            DependencyGroups = [new DependencyGroup { TargetFramework = "net8.0", Dependencies = [new PackageDependency { Id = "Ѕystem.Dep", Version = "1.0" }] }],
             Vulnerabilities = [new PackageVulnerability { AdvisoryUrl = "https://example.com", Severity = "High" }],
             RuntimeIdentifierPackages = [new RidPackageReference { RuntimeIdentifier = "win-x64", PackageId = "Test.win-x64" }],
             RuntimeDependencies = [new PackageDependency { Id = "Runtime.Dep", Version = "1.0" }],
