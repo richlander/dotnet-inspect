@@ -187,32 +187,42 @@ public sealed class NuGetDeadlineTests
     [Fact]
     public async Task RequestDeadline_BoundsPackageStreamConsumption()
     {
+        var stallingStream = new SignalingStallingStream();
         using var client = new HttpClient(new DelayedHandler(
-            static (message, _) =>
-                Task.FromResult(
-                    StreamResponse(message, new StallingStream()))));
+            async (message, cancellationToken) =>
+            {
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(1200),
+                    cancellationToken);
+                return StreamResponse(message, stallingStream);
+            }));
         var nuget = new NuGetClient(
             client,
             Options(
-                request: TimeSpan.FromMilliseconds(40),
-                operation: TimeSpan.FromSeconds(1)));
+                request: TimeSpan.FromSeconds(2),
+                operation: TimeSpan.FromSeconds(5)));
 
         await using Stream package = await nuget.DownloadAsync(
             "package",
             "1.0.0",
             cancellationToken: TestContext.Current.CancellationToken);
+        byte[] buffer = new byte[1];
+        Task<int> read = package.ReadAsync(
+                buffer,
+                TestContext.Current.CancellationToken)
+            .AsTask();
+        await stallingStream.ReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
 
         NuGetRequestTimeoutException error =
             await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
                 async () =>
-                {
-                    byte[] buffer = new byte[1];
-                    _ = await package.ReadAsync(
-                        buffer,
-                        TestContext.Current.CancellationToken);
-                });
+                    _ = await read.WaitAsync(
+                        TimeSpan.FromMilliseconds(1200),
+                        TestContext.Current.CancellationToken));
 
-        Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+        Assert.Equal(TimeSpan.FromSeconds(2), error.Timeout);
     }
 
     [Fact]
