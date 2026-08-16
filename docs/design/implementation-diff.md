@@ -54,12 +54,15 @@ evidence, not a conclusion inferred from C# text.
 `CSharpStructuralDiffPrinter` projects that one result into complete-body caret
 overlays and compact rich-diff rows. It performs no correspondence. The
 DecompilerHarness `--structural-review` mode owns Markdown orchestration and
-consumes the same result for both presentations. This model exists only for
-node/span structure that the line-oriented `CSharpDiffRow` cannot represent; it
-does not introduce another generic diff-row hierarchy. Ordinary indented spans
-reuse the annotation comment gutter and its stacking rules. A span too close to
-the left edge for that gutter uses an exact gutter-free caret row instead; it is
-never shifted, widened, clipped, or silently dropped.
+consumes the same result for both presentations. It reads untrusted input
+through Decompiler-owned `AnnotatedSourceJson`, so the CLI document writer and
+harness reader share one model-owned contract while retaining separate writer
+and strict-reader policies. This model exists only for node/span structure that
+the line-oriented `CSharpDiffRow` cannot represent; it does not introduce
+another generic diff-row hierarchy. Ordinary indented spans reuse the
+annotation comment gutter and its stacking rules. A span too close to the left
+edge for that gutter uses an exact gutter-free caret row instead; it is never
+shifted, widened, clipped, or silently dropped.
 
 ## Research comparison model
 
