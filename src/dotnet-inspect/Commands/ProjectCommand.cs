@@ -1,4 +1,5 @@
 using System.Globalization;
+using DotnetInspector.Core;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -159,11 +160,11 @@ public class ProjectCommand
         if (!TryFilterDependencies(dependencies, options.PackageFilter, out var focusedDependencies))
             return 1;
 
-        bool deferDocumentContent =
-            options.Count
-            || options.Paths
-            || options.Print
-            || ShouldPrintBareDocument(options);
+        bool deferDocumentContent = !ShouldReadDocumentMetadata(
+            options,
+            schema,
+            candidateSections,
+            selectedValueField);
         ProjectQueryContext queryContext = new(
             () => ReadSkills(
                 assetsPath,
@@ -603,7 +604,60 @@ public class ProjectCommand
             rows: options.Rows,
             outputPath: options.OutputPath,
             applyLineWindow: options.Rows is null,
+            showHeader: !options.NoHeader,
             tabularExplicitlySet: options.Tabular);
+    }
+
+    static bool ShouldReadDocumentMetadata(
+        ProjectOptions options,
+        DocumentSchema schema,
+        IReadOnlyCollection<string> candidateSections,
+        string? selectedValueField)
+    {
+        if (options.Discover is not null
+            || options.Count
+            || options.Paths
+            || options.Print
+            || ShouldPrintBareDocument(options))
+        {
+            return false;
+        }
+
+        if (options.Value)
+        {
+            return selectedValueField is "name" or "description";
+        }
+
+        string[] requested =
+        [
+            .. options.Columns ?? [],
+            .. options.Fields ?? [],
+        ];
+        if (requested.Length == 0)
+            return true;
+
+        foreach (string section in candidateSections)
+        {
+            if (section is not ProjectSectionNames.Skills
+                and not ProjectSectionNames.AgentGuidance)
+            {
+                continue;
+            }
+
+            string[] resolved = schema.ValidateProjection(section, requested)
+                .Resolved;
+            if (resolved.Contains(
+                    "Name",
+                    StringComparer.OrdinalIgnoreCase)
+                || resolved.Contains(
+                    "Description",
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     static bool TryResolveValueField(
@@ -1175,6 +1229,12 @@ public class ProjectCommand
                             item.Package,
                             item.Path)
                         : item.Content;
+                    if (content is not null)
+                    {
+                        InfoTracker.SetDetail(
+                            "readme",
+                            $"{item.Path} ({item.Size.ToString(CultureInfo.InvariantCulture)} B)");
+                    }
                     return content is null
                         ? null
                         : Printable(

@@ -31,6 +31,7 @@ public static class DiscoverOutput
         RowWindow? rows = null,
         string? outputPath = null,
         bool applyLineWindow = false,
+        bool? showHeader = null,
         bool tabularExplicitlySet = false)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
@@ -125,7 +126,7 @@ public static class DiscoverOutput
         {
             OutputFormatter.WriteProjectedTable(
                 output,
-                showHeader: tsv,
+                showHeader: showHeader ?? tsv,
                 tsv,
                 jsonl,
                 projectedColumns,
@@ -158,6 +159,7 @@ public static class DiscoverOutput
         RowWindow? rows = null,
         string? outputPath = null,
         bool applyLineWindow = false,
+        bool? showHeader = null,
         bool tabularExplicitlySet = false)
     {
         // Build a filtered schema with only effective sections
@@ -219,6 +221,7 @@ public static class DiscoverOutput
             rows,
             outputPath,
             applyLineWindow,
+            showHeader,
             tabularExplicitlySet);
     }
 

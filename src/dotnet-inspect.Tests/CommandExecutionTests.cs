@@ -19645,6 +19645,106 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("Skills", "skills/locked/SKILL.md")]
+    [InlineData("Agent Guidance", "AGENTS.md")]
+    public async Task Project_BoundedMetadataProjection_DoesNotReadDocumentContent(
+        string section,
+        string relativePath)
+    {
+        const string id = "Test.Project.Metadata.Locked";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                id,
+                "1.0.0",
+                "README.md",
+                "readme",
+                "guidance",
+                [new ProjectSkillDoc(
+                    "skills/locked/SKILL.md",
+                    "skill")]));
+        string lockedPath = Path.Combine(
+            tempDir,
+            "packages",
+            id.ToLowerInvariant(),
+            "1.0.0",
+            relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+        try
+        {
+            using var locked = new FileStream(
+                lockedPath,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None);
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", section,
+                "--columns", "Package,Path",
+                "--tsv",
+                "--no-header");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(id, output);
+            Assert.Contains(relativePath, output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_EffectiveDiscovery_DoesNotReadBoundedDocumentContent()
+    {
+        const string id = "Test.Project.Discovery.Locked";
+        const string skillPath = "skills/locked/SKILL.md";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                id,
+                "1.0.0",
+                "README.md",
+                "readme",
+                "guidance",
+                [new ProjectSkillDoc(skillPath, "skill")]));
+        string packagePath = Path.Combine(
+            tempDir,
+            "packages",
+            id.ToLowerInvariant(),
+            "1.0.0");
+
+        try
+        {
+            using var lockedSkill = new FileStream(
+                Path.Combine(
+                    packagePath,
+                    skillPath.Replace('/', Path.DirectorySeparatorChar)),
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None);
+            using var lockedGuidance = new FileStream(
+                Path.Combine(packagePath, "AGENTS.md"),
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None);
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-D",
+                "--effective",
+                "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(ProjectSectionNames.Skills, output);
+            Assert.Contains(ProjectSectionNames.AgentGuidance, output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Project_FocusedPackageDocsCount_ReportsZeroWhenDocumentIsAbsent()
     {
@@ -21288,6 +21388,41 @@ public partial class CommandExecutionTests
         Assert.Contains("Package", lines);
     }
 
+    [Theory]
+    [InlineData("--tsv", "--no-header", false)]
+    [InlineData("--table", null, true)]
+    public async Task Project_Discover_HonorsHeaderPolicy(
+        string format,
+        string? headerOption,
+        bool expectHeader)
+    {
+        var arguments = new List<string>
+        {
+            "project",
+            "missing-project",
+            "-D",
+            format,
+        };
+        if (headerOption is not null)
+            arguments.Add(headerOption);
+
+        var (exit, output, error) = await RunAppAsync([.. arguments]);
+
+        Assert.Equal(0, exit);
+        string firstLine = output.ReplaceLineEndings("\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)[0];
+        if (expectHeader)
+        {
+            Assert.Contains("Name", firstLine);
+            Assert.Contains("Kind", firstLine);
+        }
+        else
+        {
+            Assert.Equal("@Project\tcategory", firstLine);
+        }
+        Assert.Empty(error);
+    }
+
     [Fact]
     public async Task Project_Discover_RejectsProjectionAgainstEmptyIntersection()
     {
@@ -21871,6 +22006,65 @@ public partial class CommandExecutionTests
             Assert.Contains("# README body", output);
             Assert.DoesNotContain("# Agent guidance", output);
             Assert.DoesNotContain("# PROJECT body", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Readme_InfoReportsSelectedDocument()
+    {
+        const string id = "Test.Project.Readme.Info";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                id,
+                "1.0.0",
+                "README.md",
+                "readme"));
+        string packagesRoot = Path.Combine(tempDir, "packages");
+
+        try
+        {
+            var startInfo = new ProcessStartInfo("dotnet")
+            {
+                WorkingDirectory = Path.GetDirectoryName(projectPath)!,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            startInfo.ArgumentList.Add(
+                typeof(CommandLineBuilder).Assembly.Location);
+            foreach (string argument in new[]
+                     {
+                         "project",
+                         projectPath,
+                         "--readme",
+                         id,
+                         "--info",
+                         "-n",
+                         "1",
+                     })
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+            startInfo.Environment["NUGET_PACKAGES"] = packagesRoot;
+
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException(
+                    "Failed to start the test process.");
+            CancellationToken cancellationToken =
+                TestContext.Current.CancellationToken;
+            string output = await process.StandardOutput.ReadToEndAsync(
+                cancellationToken);
+            string error = await process.StandardError.ReadToEndAsync(
+                cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+
+            Assert.Equal(0, process.ExitCode);
+            Assert.Equal("readme", output);
+            Assert.Contains("| Readme | README.md (6 B) |", error);
         }
         finally
         {
