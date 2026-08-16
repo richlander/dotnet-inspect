@@ -117,8 +117,21 @@ async function loadEngineModule() {
 
 function waitForHomePaint() {
   if (document.visibilityState === "hidden") return Promise.resolve();
+  if (globalThis.PerformanceObserver?.supportedEntryTypes?.includes("paint")) {
+    if (performance.getEntriesByName("first-contentful-paint", "paint").length) {
+      return Promise.resolve();
+    }
+    return new Promise(resolve => {
+      const observer = new PerformanceObserver(list => {
+        if (!list.getEntries().some(entry => entry.name === "first-contentful-paint")) return;
+        observer.disconnect();
+        resolve();
+      });
+      observer.observe({ type: "paint", buffered: true });
+    });
+  }
   return new Promise(resolve =>
-    requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    requestAnimationFrame(() => setTimeout(resolve, 0)));
 }
 
 function loadStoredTaste() {

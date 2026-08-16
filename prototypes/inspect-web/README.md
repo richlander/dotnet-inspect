@@ -368,10 +368,10 @@ Open `http://127.0.0.1:5198`. Create a deployable static bundle with
 `dotnet publish -c Release`. Remote addresses require HTTPS because the .NET
 loader uses secure-context browser APIs.
 
-On a bare visit, `app.js` renders the home page before dynamically importing
-`engine.js`. Search and demo controls remain inert behind a loading indicator
-until the Wasm engine is ready; package and shared-workspace deep links retain
-the full loading interstitial. The
+On a bare visit, `app.js` waits for the home page's first contentful paint
+before dynamically importing `engine.js`. Search and demo controls remain
+inert behind a loading indicator until the Wasm engine is ready; package and
+shared-workspace deep links retain the full loading interstitial. The
 `bare home paints before wasm engine download` JavaScript test gates this
 startup boundary.
 

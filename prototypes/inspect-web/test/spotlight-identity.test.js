@@ -177,7 +177,10 @@ test("bare home paints before wasm engine download", () => {
     /async function loadEngineModule\(\)[\s\S]*await import\("\/engine\.js"\)/);
   assert.match(
     appSource,
-    /function waitForHomePaint\(\)[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)/);
+    /function waitForHomePaint\(\)[\s\S]*first-contentful-paint[\s\S]*observer\.observe\(\{ type: "paint", buffered: true \}\)/);
+  assert.match(
+    appSource,
+    /requestAnimationFrame\(\(\) => setTimeout\(resolve, 0\)\)/);
   assert.match(
     appSource,
     /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*if \(state\.home\) await waitForHomePaint\(\);[\s\S]*await loadEngineModule\(\)/);
@@ -236,13 +239,22 @@ test("home keeps a viewport-bounded scroll region and reachable footer", () => {
     /(?:^|\n)\s*min-height:/);
   assert.match(
     homeRule,
-    /(?:^|\n)\s*grid-template-rows: auto minmax\(0, 1fr\) auto;/);
+    /(?:^|\n)\s*grid-template-rows: auto auto minmax\(0, 1fr\) auto;/);
   assert.match(
     homeHeroRule,
     /(?:^|\n)\s*min-height: 0;/);
   assert.match(
     homeHeroRule,
     /(?:^|\n)\s*overflow-y: auto;/);
+  assert.match(
+    stylesSource,
+    /\.home > \.query-notice\s*\{\s*grid-row: 2;\s*\}/);
+  assert.match(
+    homeHeroRule,
+    /(?:^|\n)\s*grid-row: 3;/);
+  assert.match(
+    stylesSource,
+    /\.home-foot\s*\{[^}]*grid-row: 4;/s);
 });
 
 test("all dependency navigation paths use one product-owned coordinate matcher", () => {
