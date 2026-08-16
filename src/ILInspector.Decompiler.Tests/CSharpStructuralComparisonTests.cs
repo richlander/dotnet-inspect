@@ -227,6 +227,78 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void RenderAnnotatedBody_SurrogateSplittingSpanFallsBackWithoutReplacementText()
+    {
+        const string beforeText = "void M()\n{\n    Call(a);\n}";
+        const string afterText = "void M()\n{\n    Call(\"x😀y\");\n}";
+        int beforeStart = beforeText.IndexOf("Call(a)", StringComparison.Ordinal);
+        int afterStart = afterText.IndexOf("Call(\"x", StringComparison.Ordinal);
+        int splitLength = "Call(\"x".Length + 1;
+        var before = new AnnotatedSourceDocument(
+            beforeText,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "InvocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(beforeStart, "Call(a)".Length)])
+            ],
+            [],
+            [],
+            []);
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "InvocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(afterStart, splitLength)])
+            ],
+            [],
+            [],
+            []);
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+
+        Assert.Contains("raise: InvocationExpression; text changed", beforeBody, StringComparison.Ordinal);
+        Assert.DoesNotContain('\uFFFD', beforeBody);
+    }
+
+    [Fact]
+    public void RenderAnnotatedBody_WrappedExactTransitionReconstructsCounterpart()
+    {
+        const string beforeInvocation = "Call(value);";
+        const string afterInvocation =
+            "Call(alpha + beta + gamma + delta + epsilon + zeta + eta + theta + iota + kappa);";
+        string beforeText = $"void M()\n{{\n    {beforeInvocation}\n}}";
+        string afterText = $"void M()\n{{\n    {afterInvocation}\n}}";
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            Document(beforeText, "InvocationExpression", beforeInvocation),
+            Document(afterText, "InvocationExpression", afterInvocation),
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+        string actual = ReconstructAnnotation(beforeBody, "raise: InvocationExpression");
+
+        Assert.Equal($"raise: InvocationExpression; changed to {afterInvocation}", actual);
+    }
+
+    [Fact]
     public void CompareStructure_ReportsAddedRemovedChangedAndMovedDeterministically()
     {
         const string beforeText = """
@@ -1177,6 +1249,18 @@ public class CSharpStructuralComparisonTests
         Assert.Equal(lines[sourceLine].IndexOf(source, StringComparison.Ordinal), caretLine.IndexOf('^'));
         Assert.Equal(source.Length, caretLine.Count(character => character == '^'));
         Assert.Contains(label, caretLine, StringComparison.Ordinal);
+    }
+
+    static string ReconstructAnnotation(string body, string prefix)
+    {
+        string[] lines = body.Split('\n');
+        int lineIndex = Array.FindIndex(lines, line => line.Contains(prefix, StringComparison.Ordinal));
+        Assert.True(lineIndex >= 0);
+        int start = lines[lineIndex].IndexOf(prefix, StringComparison.Ordinal);
+        var chunks = new List<string> { lines[lineIndex][start..] };
+        while (++lineIndex < lines.Length && lines[lineIndex].StartsWith("//", StringComparison.Ordinal))
+            chunks.Add(lines[lineIndex][2..].TrimStart());
+        return string.Join(' ', chunks);
     }
 
     static AnnotatedSourceDocument TrustedDocument(

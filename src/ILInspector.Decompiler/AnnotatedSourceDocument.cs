@@ -736,6 +736,23 @@ static class AnnotatedSourceText
         // Producers already contain this before a document exists: ILStringEscaper
         // spells an unpaired code unit as visible ASCII \uXXXX, and the portable
         // fact escaping does the same.
+        int index = IndexOfUnpairedSurrogate(value);
+        if (index >= 0)
+        {
+            char c = value[index];
+            string half = char.IsHighSurrogate(c) ? "high" : "low";
+            throw new ArgumentException(
+                $"{valueName} must be well-formed UTF-16, but carries an unpaired {half} surrogate U+{(int)c:X4} at index {index}; "
+                    + "exact JSON replay would substitute U+FFFD for it.",
+                parameterName);
+        }
+    }
+
+    internal static bool IsWellFormedUtf16(ReadOnlySpan<char> value)
+        => IndexOfUnpairedSurrogate(value) < 0;
+
+    static int IndexOfUnpairedSurrogate(ReadOnlySpan<char> value)
+    {
         for (int index = 0; index < value.Length; index++)
         {
             char c = value[index];
@@ -748,13 +765,9 @@ static class AnnotatedSourceText
                 index++;
                 continue;
             }
-
-            string half = char.IsHighSurrogate(c) ? "high" : "low";
-            throw new ArgumentException(
-                $"{valueName} must be well-formed UTF-16, but carries an unpaired {half} surrogate U+{(int)c:X4} at index {index}; "
-                    + "exact JSON replay would substitute U+FFFD for it.",
-                parameterName);
+            return index;
         }
+        return -1;
     }
 }
 

@@ -89,6 +89,8 @@ presentation evidence and never participates in identity. Multiline,
 multi-span, long, display-unsafe, and whitespace-lossy transitions use the
 bounded `text changed` label symmetrically rather than allocating or injecting
 unbounded or inexact text into an annotation. It performs no correspondence.
+`CSharpStructuralComparisonTests.RenderAnnotatedBody_WrappedExactTransitionReconstructsCounterpart`
+gates the lossless wrapped-text claim.
 The DecompilerHarness `--structural-review before.json after.json` mode owns
 Markdown orchestration, invokes the product issuer, and consumes the same result
 for both presentations. Unsupported and ambiguous nodes remain a separate

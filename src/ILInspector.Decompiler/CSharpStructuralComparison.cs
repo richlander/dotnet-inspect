@@ -673,6 +673,29 @@ public static partial class CSharpBodyDiff
         return true;
     }
 
+    internal static bool SelectedTextEqual(
+        AnnotatedSourceDocument beforeDocument,
+        ImmutableArray<AnnotatedSourceSpan> beforeSpans,
+        AnnotatedSourceDocument afterDocument,
+        ImmutableArray<AnnotatedSourceSpan> afterSpans)
+    {
+        if (beforeSpans.Length != afterSpans.Length)
+            return false;
+
+        for (int index = 0; index < beforeSpans.Length; index++)
+        {
+            var beforeSpan = beforeSpans[index];
+            var afterSpan = afterSpans[index];
+            if (!beforeDocument.Text.AsSpan(beforeSpan.Start, beforeSpan.Length)
+                .SequenceEqual(afterDocument.Text.AsSpan(afterSpan.Start, afterSpan.Length)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     static CSharpStructuralDiffRow CreateRow(
         CSharpStructuralChangeKind change,
         AnnotatedSourceDocument? beforeDocument,

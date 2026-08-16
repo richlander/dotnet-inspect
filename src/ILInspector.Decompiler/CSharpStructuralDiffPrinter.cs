@@ -216,7 +216,8 @@ public static class CSharpStructuralDiffPrinter
     }
 
     static bool CanRenderExactInline(string text)
-        => string.Equals(text, Contain(text), StringComparison.Ordinal)
+        => AnnotatedSourceText.IsWellFormedUtf16(text)
+            && string.Equals(text, Contain(text), StringComparison.Ordinal)
             && !text.StartsWith(' ')
             && !text.EndsWith(' ')
             && !text.Contains("  ", StringComparison.Ordinal);
