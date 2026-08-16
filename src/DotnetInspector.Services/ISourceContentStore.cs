@@ -4,6 +4,9 @@ namespace DotnetInspector.Services;
 
 /// <summary>
 /// Host-owned cache for checksum-verified SourceLink document bytes.
+/// Backend failures may use any exception appropriate to the implementation;
+/// callers preserve cancellation and fatal runtime exceptions while converting
+/// other failures to typed source-acquisition evidence.
 /// </summary>
 public interface ISourceContentStore
 {

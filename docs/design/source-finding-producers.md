@@ -155,7 +155,12 @@ process-local memory cache, so an identical retry cannot silently change from
 failure to authored success. The compatibility `CoreCache` adapter retains its
 pre-existing best-effort persistence semantics.
 `AssemblyContextSourceQueryTests.SourceStoreFailure_FallsBackRepeatablyWithoutPublishingMemoryEntry`
-gates both repeatability and fallback.
+gates both repeatability and fallback. Store-specific non-cancellation,
+non-fatal exceptions are also typed as storage failures rather than suppressing
+Decompiler fallback; cancellation remains exceptional.
+`AssemblyContextSourceQueryTests.SourceStoreOperationalFailure_PreservesAuthoredFailureAndFallback`
+and `AssemblyContextSourceQueryTests.SourceStoreCancellation_Propagates` gate
+those boundaries.
 Portable-PDB acquisition and validation failures follow the same composition:
 the failed authored attempt remains visible while member or type decompilation
 continues, and cancellation still propagates.
@@ -212,3 +217,10 @@ beside a successful decompiled result, and neither producer succeeding yields
 `AuthoredAndDecompiledUnavailable`, not empty output. The pathless authored,
 fallback, integrity-failure, and neither-available cases are gated by
 `AssemblyContextSourceQueryTests`.
+
+Portable-PDB type and member correlation is independent of SourceLink URL
+decoration. When a PDB has no SourceLink map, an explicitly enabled local-source
+read may still use its exact document path and checksum; repository and network
+acquisition remain unavailable without a mapped URL.
+`AssemblyContextSourceQueryTests.LocalPdbSource_DoesNotRequireSourceLinkMap`
+gates both member and type acquisition at that boundary.

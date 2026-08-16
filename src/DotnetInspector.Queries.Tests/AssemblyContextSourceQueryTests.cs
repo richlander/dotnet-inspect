@@ -17,6 +17,9 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class AssemblyContextSourceQueryTests
 {
+    static readonly Guid SourceLinkKind =
+        new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
+
     [Fact]
     public void RequestFromLegacyApiType_RequiresUnambiguousMetadataName()
     {
@@ -93,6 +96,62 @@ public sealed class AssemblyContextSourceQueryTests
                     assembly.Assembly,
                     static session =>
                         session.ApiSurface().Types.Count));
+    }
+
+    [Fact]
+    public async Task LocalPdbSource_DoesNotRequireSourceLinkMap()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        byte[] pdbBytes =
+            RemoveSourceLinkCustomDebugInformation(
+                assembly.PdbPath);
+        using var host =
+            QueryHost.WithPdb(
+                Path.GetFileName(assembly.PdbPath),
+                pdbBytes,
+                sourceBytes: [],
+                allowLocalSourceReads: true);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceEntry memberResult =
+            await AssemblyContextSourceQuery.ExecuteMemberAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Describe)),
+                host.Context,
+                TestContext.Current.CancellationToken);
+        AssemblyTypeSourceEntry typeResult =
+            await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(
+                    typeof(SourceFixture).Name),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var member =
+            Assert.IsType<AssemblyMemberSource.Authored>(
+                Assert.IsType<
+                    AssemblyMemberSourceEntry.Available>(
+                        memberResult)
+                    .Source);
+        var type =
+            Assert.IsType<AssemblyTypeSource.Authored>(
+                Assert.IsType<
+                    AssemblyTypeSourceEntry.Available>(
+                        typeResult)
+                    .Source);
+        Assert.Equal(
+            SourceChecksumVerification.Exact,
+            member.Inspection.ChecksumVerification);
+        Assert.Equal(
+            SourceChecksumVerification.Exact,
+            type.Inspection.ChecksumVerification);
+        Assert.Empty(host.SourceRequests);
     }
 
     [Fact]
@@ -289,6 +348,88 @@ public sealed class AssemblyContextSourceQueryTests
 
         Assert.Equal(2, store.StoreAttempts);
         Assert.Equal(2, host.SourceRequests.Count);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SourceStoreOperationalFailure_PreservesAuthoredFailureAndFallback(
+        bool failRead)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        var store =
+            new OperationalFailureSourceContentStore(
+                failRead);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            store);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyTypeSourceEntry result =
+            await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(
+                    typeof(SourceFixture).Name),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var decompiled =
+            Assert.IsType<AssemblyTypeSource.Decompiled>(
+                Assert.IsType<
+                    AssemblyTypeSourceEntry.Available>(
+                        result)
+                    .Source);
+        var failed =
+            Assert.IsType<FindingInspection<string>.Failed>(
+                decompiled.AuthoredAttempt.Lines.Value);
+        Assert.Contains(
+            "source-content store failed",
+            failed.Error.Reason,
+            StringComparison.Ordinal);
+        Assert.Equal(1, store.ReadAttempts);
+        Assert.Equal(failRead ? 0 : 1, store.StoreAttempts);
+        Assert.Equal(failRead ? 0 : 1, host.SourceRequests.Count);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SourceStoreCancellation_Propagates(
+        bool cancelRead)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        using var cancellation = new CancellationTokenSource();
+        var store =
+            new CancelingSourceContentStore(
+                cancellation,
+                cancelRead);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            store);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(
+                    typeof(SourceFixture).Name),
+                host.Context,
+                cancellation.Token));
+
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.Equal(1, store.ReadAttempts);
+        Assert.Equal(cancelRead ? 0 : 1, store.StoreAttempts);
+        Assert.Equal(cancelRead ? 0 : 1, host.SourceRequests.Count);
     }
 
     [Fact]
@@ -661,6 +802,67 @@ public sealed class AssemblyContextSourceQueryTests
                     == DebugDirectoryEntryType
                         .EmbeddedPortablePdb);
         bytes[embedded.DataPointer] ^= 0xff;
+        return bytes;
+    }
+
+    static byte[] RemoveSourceLinkCustomDebugInformation(
+        string pdbPath)
+    {
+        byte[] bytes = File.ReadAllBytes(pdbPath);
+        int kindOffset;
+        using (var provider =
+               MetadataReaderProvider.FromPortablePdbStream(
+                   new MemoryStream(
+                       bytes,
+                       writable: false),
+                   MetadataStreamOptions.PrefetchMetadata))
+        {
+            MetadataReader reader =
+                provider.GetMetadataReader();
+            CustomDebugInformationHandle informationHandle =
+                Assert.Single(
+                    reader.GetCustomDebugInformation(
+                        EntityHandle.ModuleDefinition),
+                    handle =>
+                        reader.GetGuid(
+                            reader
+                                .GetCustomDebugInformation(
+                                    handle)
+                                .Kind)
+                        == SourceLinkKind);
+            CustomDebugInformation information =
+                reader.GetCustomDebugInformation(
+                    informationHandle);
+            kindOffset =
+                MetadataTokens.GetHeapOffset(
+                    information.Kind);
+        }
+
+        int guidOffset =
+            FindMetadataStreamOffset(bytes, "#GUID");
+        bytes[
+            checked(
+                guidOffset
+                + ((kindOffset - 1) * 16))] ^= 0xff;
+
+        using var mutatedProvider =
+            MetadataReaderProvider.FromPortablePdbStream(
+                new MemoryStream(
+                    bytes,
+                    writable: false),
+                MetadataStreamOptions.PrefetchMetadata);
+        MetadataReader mutatedReader =
+            mutatedProvider.GetMetadataReader();
+        Assert.DoesNotContain(
+            mutatedReader.GetCustomDebugInformation(
+                EntityHandle.ModuleDefinition),
+            handle =>
+                mutatedReader.GetGuid(
+                    mutatedReader
+                        .GetCustomDebugInformation(
+                            handle)
+                        .Kind)
+                == SourceLinkKind);
         return bytes;
     }
 
@@ -1260,7 +1462,8 @@ public sealed class AssemblyContextSourceQueryTests
             SymbolPackageHandler symbolHandler,
             SourceHandler sourceHandler,
             ISourceContentStore? sourceContentStore = null,
-            IPdbStore? pdbStore = null)
+            IPdbStore? pdbStore = null,
+            bool allowLocalSourceReads = false)
         {
             _symbolClient = new HttpClient(symbolHandler);
             _sourceClient = new HttpClient(sourceHandler);
@@ -1273,7 +1476,11 @@ public sealed class AssemblyContextSourceQueryTests
                 new SourceFetcher(
                     _sourceClient,
                     sourceContentStore
-                        ?? new InMemorySourceContentStore()));
+                        ?? new InMemorySourceContentStore()))
+            {
+                AllowLocalSourceReads =
+                    allowLocalSourceReads,
+            };
             SymbolRequests = symbolHandler.RequestUris;
             SourceRequests = sourceHandler.RequestUris;
         }
@@ -1307,13 +1514,16 @@ public sealed class AssemblyContextSourceQueryTests
         internal static QueryHost WithPdb(
             string pdbFileName,
             byte[] pdbBytes,
-            byte[] sourceBytes)
+            byte[] sourceBytes,
+            bool allowLocalSourceReads = false)
             => new(
                 new SymbolPackageHandler(
                     BuildSnupkg(
                         pdbFileName,
                         pdbBytes)),
-                new SourceHandler(sourceBytes));
+                new SourceHandler(sourceBytes),
+                allowLocalSourceReads:
+                    allowLocalSourceReads);
 
         internal static QueryHost WithoutPdb()
             => new(
@@ -1428,6 +1638,84 @@ public sealed class AssemblyContextSourceQueryTests
             Interlocked.Increment(ref _storeAttempts);
             throw new IOException(
                 "Synthetic source-content store failure.");
+        }
+    }
+
+    sealed class OperationalFailureSourceContentStore(
+        bool failRead)
+        : ISourceContentStore
+    {
+        int _readAttempts;
+        int _storeAttempts;
+
+        internal int ReadAttempts =>
+            Volatile.Read(ref _readAttempts);
+        internal int StoreAttempts =>
+            Volatile.Read(ref _storeAttempts);
+
+        public ValueTask<byte[]?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _readAttempts);
+            if (failRead)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic source-content store read failure.");
+            }
+
+            return ValueTask.FromResult<byte[]?>(null);
+        }
+
+        public ValueTask StoreAsync(
+            string key,
+            ReadOnlyMemory<byte> content,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _storeAttempts);
+            throw new InvalidOperationException(
+                "Synthetic source-content store write failure.");
+        }
+    }
+
+    sealed class CancelingSourceContentStore(
+        CancellationTokenSource source,
+        bool cancelRead)
+        : ISourceContentStore
+    {
+        int _readAttempts;
+        int _storeAttempts;
+
+        internal int ReadAttempts =>
+            Volatile.Read(ref _readAttempts);
+        internal int StoreAttempts =>
+            Volatile.Read(ref _storeAttempts);
+
+        public ValueTask<byte[]?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _readAttempts);
+            if (cancelRead)
+            {
+                source.Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            return ValueTask.FromResult<byte[]?>(null);
+        }
+
+        public ValueTask StoreAsync(
+            string key,
+            ReadOnlyMemory<byte> content,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _storeAttempts);
+            source.Cancel();
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.CompletedTask;
         }
     }
 

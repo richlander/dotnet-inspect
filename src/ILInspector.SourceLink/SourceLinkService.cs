@@ -350,6 +350,7 @@ public sealed class SourceLinkService : IDisposable
         }
         finally
         {
+            _resolver = new SourceLinkResolver(_context, _map);
             _observedPdbVersion = _context.PdbVersion;
         }
     }

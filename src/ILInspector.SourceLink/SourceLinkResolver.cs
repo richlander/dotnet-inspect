@@ -10,7 +10,7 @@ namespace ILInspector.SourceLink;
 public sealed class SourceLinkResolver
 {
     readonly PdbContext _context;
-    readonly SLF.SourceLinkResolver _map;
+    readonly SLF.SourceLinkResolver? _map;
     IReadOnlyList<string>? _documentPaths;
     Dictionary<string, List<string>>? _docsByFirstSegment;
     Dictionary<int, PdbDocumentInfo>? _documentsByRowId;
@@ -21,7 +21,7 @@ public sealed class SourceLinkResolver
 
     internal SourceLinkResolver(
         PdbContext context,
-        SLF.SourceLinkResolver map)
+        SLF.SourceLinkResolver? map)
     {
         _context = context;
         _map = map;
@@ -196,7 +196,7 @@ public sealed class SourceLinkResolver
             ? null
             : new MethodSourceInfo(
                 raw.FilePath,
-                _map.ResolveUrl(raw.FilePath),
+                _map?.ResolveUrl(raw.FilePath),
                 raw.StartLine,
                 raw.EndLine,
                 raw.Checksum,
@@ -207,7 +207,7 @@ public sealed class SourceLinkResolver
     }
 
     public string? ApplySourceLinkMapping(string filePath)
-        => _map.ResolveUrl(filePath);
+        => _map?.ResolveUrl(filePath);
 
     IReadOnlyList<string> DocumentPaths
         => _documentPaths ??= [.. _context.EnumeratePdbDocumentPaths()];
@@ -281,7 +281,7 @@ public sealed class SourceLinkResolver
 
     PartialSourceFile Decorate(string filePath)
     {
-        string? url = _map.ResolveUrl(filePath);
+        string? url = _map?.ResolveUrl(filePath);
         EnsureDocumentIndexes();
         _uniqueDocumentsByPath!.TryGetValue(filePath, out PdbDocumentInfo? document);
         return new PartialSourceFile(
@@ -294,7 +294,7 @@ public sealed class SourceLinkResolver
 
     PartialSourceFile Decorate(PdbDocumentReference reference)
     {
-        string? url = _map.ResolveUrl(reference.FilePath);
+        string? url = _map?.ResolveUrl(reference.FilePath);
         EnsureDocumentIndexes();
         _documentsByRowId!.TryGetValue(reference.DocumentRowId, out PdbDocumentInfo? document);
         if (document is not null

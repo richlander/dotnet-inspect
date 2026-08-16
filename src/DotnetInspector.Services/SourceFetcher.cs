@@ -101,8 +101,7 @@ public class SourceFetcher
                     url,
                     cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is IOException
-            or UnauthorizedAccessException)
+        catch (Exception ex) when (IsContentStoreFailure(ex))
         {
             return new SourceFetchBytesResult(
                 null,
@@ -149,8 +148,7 @@ public class SourceFetcher
                     bytes,
                     cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is IOException
-                or UnauthorizedAccessException)
+            catch (Exception ex) when (IsContentStoreFailure(ex))
             {
                 return new SourceFetchBytesResult(
                     null,
@@ -169,6 +167,12 @@ public class SourceFetcher
             return new SourceFetchBytesResult(null, SourceFetchFailureKind.Unavailable);
         }
     }
+
+    static bool IsContentStoreFailure(Exception exception)
+        => exception is not (OperationCanceledException
+            or OutOfMemoryException
+            or StackOverflowException
+            or AccessViolationException);
 
     /// <summary>
     /// Extracts a named region from source content.
