@@ -167,6 +167,8 @@ test("ready status shows versioned linked build provenance", () => {
 });
 
 test("bare home paints before wasm engine download", () => {
+  const homePaintWait =
+    appSource.match(/function waitForHomePaint\(\)[\s\S]*?\n}\n\nfunction loadStoredTaste/)?.[0] ?? "";
   const errorPackageRecovery =
     appSource.match(/function openPackageFromError[\s\S]*?\n}\n\nfunction renderLoading/)?.[0] ?? "";
   const loadingView =
@@ -176,10 +178,10 @@ test("bare home paints before wasm engine download", () => {
     appSource,
     /async function loadEngineModule\(\)[\s\S]*await import\("\/engine\.js"\)/);
   assert.match(
-    appSource,
-    /function waitForHomePaint\(\)[\s\S]*first-contentful-paint[\s\S]*observer\.observe\(\{ type: "paint", buffered: true \}\)/);
+    homePaintWait,
+    /first-contentful-paint[\s\S]*observer\.observe\(\{ type: "paint", buffered: true \}\)/);
   assert.match(
-    appSource,
+    homePaintWait,
     /requestAnimationFrame\(\(\) => setTimeout\(resolve, 0\)\)/);
   assert.match(
     appSource,
