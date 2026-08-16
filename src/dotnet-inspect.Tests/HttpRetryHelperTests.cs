@@ -870,7 +870,12 @@ public class HttpRetryHelperTests
         string? result = await HttpRetryHelper.GetStringWithRetryAsync(
             client,
             "https://example.test/index.json",
-            cancellationToken: TestContext.Current.CancellationToken);
+            cancellationToken: TestContext.Current.CancellationToken,
+            configureRequest: static request =>
+                request.Options.Set(
+                    new HttpRequestOptionsKey<bool>(
+                        "WebAssemblyEnableStreamingResponse"),
+                    false));
 
         Assert.Equal("source", result);
         Assert.True(handler.StreamingRequested);
