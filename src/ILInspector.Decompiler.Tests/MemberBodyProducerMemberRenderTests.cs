@@ -90,6 +90,60 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Fact]
+    public void ProduceMember_RendersCustomEventAccessorBodiesAndReturnAttributes()
+    {
+        var type = Specimen();
+        var eventMember = Assert.Single(type.Members, member => member.Name == "Changed");
+        var accessors = Assert.IsType<ApiSignature>(eventMember.SignatureModel).Accessors;
+        Assert.Equal(["add", "remove"], accessors.Select(accessor => accessor.Kind));
+        Assert.All(
+            accessors,
+            accessor => Assert.Equal(
+                ["ILInspector.Decompiler.Tests.SetterMarker"],
+                accessor.ReturnAttributes));
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            eventMember,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains("public event EventHandler? Changed", rendered.Text, StringComparison.Ordinal);
+        Assert.Contains(
+            "[return: ILInspector.Decompiler.Tests.SetterMarker] add",
+            rendered.Text,
+            StringComparison.Ordinal);
+        Assert.Contains("Delegate.Combine(_changed, value)", rendered.Text, StringComparison.Ordinal);
+        Assert.Contains(
+            "[return: ILInspector.Decompiler.Tests.SetterMarker] remove",
+            rendered.Text,
+            StringComparison.Ordinal);
+        Assert.Contains("Delegate.Remove(_changed, value)", rendered.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProduceMember_PreservesFieldLikeEventDeclaration()
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        var type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe).Types,
+            candidate => candidate.FullName == typeof(FieldLikeEventSpecimen).FullName);
+        var eventMember = Assert.Single(type.Members, member => member.Name == "Changed");
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            eventMember,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains("public event EventHandler Changed;", rendered.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(" add", rendered.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(" remove", rendered.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ProduceMember_RendersStaticAutoPropertyWithoutRecursiveBodies()
     {
         var type = Specimen();
@@ -216,6 +270,57 @@ public sealed class MemberBodyProducerMemberRenderTests
         Assert.Equal(MemberBodyProductionStatus.Failed, rendered.Status);
         Assert.Contains(
             "C# properties cannot carry an async accessor modifier.",
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProduceMember_DeclinesClassicAsyncEventAccessorBody()
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        var type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe).Types,
+            candidate => candidate.FullName == typeof(ClassicAsyncEventAccessorSpecimen).FullName);
+        var reader = pe.GetMetadataReader();
+        var typeDefinition = reader.GetTypeDefinition(Assert.Single(
+            reader.TypeDefinitions,
+            handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == nameof(ClassicAsyncEventAccessorSpecimen)));
+        var adder = Assert.Single(
+            typeDefinition.GetMethods(),
+            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "add_Changed");
+        var remover = Assert.Single(
+            typeDefinition.GetMethods(),
+            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "remove_Changed");
+        var eventMember = new ApiMember
+        {
+            Name = "Changed",
+            Kind = "event",
+            Accessibility = "public",
+            AdderToken = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(adder),
+            RemoverToken = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(remover),
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Changed",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "add" },
+                    new ApiAccessor { Kind = "remove" }
+                ]
+            }
+        };
+        type.Members.Add(eventMember);
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            eventMember,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Failed, rendered.Status);
+        Assert.Contains(
+            "C# events cannot carry an async accessor modifier.",
             rendered.Text,
             StringComparison.Ordinal);
     }
@@ -627,6 +732,8 @@ public sealed class MemberBodyProducerMemberRenderTests
 #pragma warning disable CA1822 // members are instance to exercise real signatures
 public sealed class MemberRenderSpecimen
 {
+    EventHandler? _changed;
+
     [System.ComponentModel.Description("marker")]
     [System.Runtime.CompilerServices.SkipLocalsInit]
     public MemberRenderSpecimen(
@@ -646,6 +753,15 @@ public sealed class MemberRenderSpecimen
 
         [return: SetterMarker]
         set;
+    }
+
+    public event EventHandler? Changed
+    {
+        [return: SetterMarker]
+        add => _changed += value;
+
+        [return: SetterMarker]
+        remove => _changed -= value;
     }
 
     public int Increment(int n) => n + 1;
@@ -729,5 +845,24 @@ public sealed class ClassicAsyncAccessorSpecimen
         return 42;
     }
 }
+
+public sealed class ClassicAsyncEventAccessorSpecimen
+{
+    public async Task add_Changed(EventHandler value)
+    {
+        await Task.Yield();
+    }
+
+    public void remove_Changed(EventHandler value)
+    {
+    }
+}
+
+#pragma warning disable CS0067 // metadata fixture for field-like event reconstruction
+public sealed class FieldLikeEventSpecimen
+{
+    public event EventHandler? Changed;
+}
+#pragma warning restore CS0067
 
 #pragma warning restore CA1822

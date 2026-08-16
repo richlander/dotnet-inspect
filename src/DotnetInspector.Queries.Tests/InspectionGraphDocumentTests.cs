@@ -1,7 +1,10 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.Fixtures;
+using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -30,6 +33,36 @@ public sealed class InspectionGraphDocumentTests
             [],
             TypeRef.CoreLib("System", "Void"),
             MemberKind.Method);
+
+    static MethodIdentity Method(MemberRef member, int token) =>
+        new(
+            member.DeclaringType.Assembly,
+            new Guid("11111111-1111-1111-1111-111111111111"),
+            member.DeclaringType,
+            member.Name,
+            member.ParameterTypes,
+            member.ReturnType,
+            token,
+            IsStatic: true);
+
+    static DirectCall Call(
+        MemberRef caller,
+        MemberRef callee,
+        int offset,
+        CallKind kind = CallKind.Call,
+        bool inLoop = false) =>
+        new(
+            Method(caller, 0x06000001),
+            callee,
+            offset,
+            0x06000002,
+            0x06000002,
+            kind,
+            inLoop)
+        {
+            ExactTarget = kind is CallKind.Call
+                or CallKind.NewObject,
+        };
 
     static CallTreeNode Node(
         MemberRef member,
@@ -178,6 +211,243 @@ public sealed class InspectionGraphDocumentTests
                     occurrence.TargetSubject)));
         Assert.Single(projection.Rows);
         Assert.Equal("Callee", projection.Nodes[1].Member.Name);
+    }
+
+    [Fact]
+    public void CallAdapter_RetainsPhysicalSitesAndTypedAggregates()
+    {
+        MemberRef focus = Member("Focus");
+        MemberRef callee = Member("Callee");
+        DirectCall first = Call(
+            focus,
+            callee,
+            offset: 4,
+            kind: CallKind.CallVirtual);
+        DirectCall second = Call(
+            focus,
+            callee,
+            offset: 12,
+            inLoop: true);
+        CallTreeNode calleeNode =
+            Node(callee, CallTreeStatus.Leaf) with
+            {
+                ParentEdgeCallSites = [first, second],
+            };
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                Node(
+                    focus,
+                    CallTreeStatus.Expanded,
+                    calleeNode));
+
+        InspectionGraphDocument document =
+            CallGraphInspectionGraphAdapter.Create(projection);
+
+        Assert.Equal(2, projection.CallSites.Length);
+        CallGraphEdge projectedEdge =
+            Assert.Single(projection.Edges);
+        Assert.Equal([0, 1], projectedEdge.CallSiteIds);
+        Assert.True(projectedEdge.AnyCallInLoop);
+        InspectionGraphEdge edge = Assert.Single(document.Edges);
+        Assert.Equal([0, 1], edge.OccurrenceIds);
+        Assert.Equal(2, document.Occurrences.Length);
+        Assert.All(
+            document.Occurrences,
+            occurrence => Assert.IsType<CallGraphCallSiteEvidence>(
+                occurrence.Evidence));
+        Assert.DoesNotContain(
+            document.Limits,
+            limit => ReferenceEquals(
+                limit.Descriptor,
+                CallGraphInspectionGraphCatalog
+                    .PhysicalOccurrencesUnavailable));
+
+        AssertCharacteristic(
+            document,
+            CallGraphInspectionGraphCatalog
+                .OccurrenceCallKind,
+            InspectionGraphTarget.Occurrence(0),
+            new InspectionGraphValue.Token("callvirt"));
+        AssertCharacteristic(
+            document,
+            CallGraphInspectionGraphCatalog
+                .OccurrenceDispatchKind,
+            InspectionGraphTarget.Occurrence(0),
+            new InspectionGraphValue.Token("virtual"));
+        AssertCharacteristic(
+            document,
+            CallGraphInspectionGraphCatalog
+                .OccurrenceInLoop,
+            InspectionGraphTarget.Occurrence(1),
+            new InspectionGraphValue.Boolean(true));
+        AssertCharacteristic(
+            document,
+            CallGraphInspectionGraphCatalog
+                .EdgeCallSiteMultiplicity,
+            InspectionGraphTarget.Edge(0),
+            new InspectionGraphValue.Integer(2));
+        AssertCharacteristic(
+            document,
+            CallGraphInspectionGraphCatalog.EdgeAnyInLoop,
+            InspectionGraphTarget.Edge(0),
+            new InspectionGraphValue.Boolean(true));
+        AssertCharacteristic(
+            document,
+            CallGraphInspectionGraphCatalog.EdgeCallKinds,
+            InspectionGraphTarget.Edge(0),
+            new InspectionGraphValue.TokenSet(
+                ["callvirt", "call"]));
+        AssertCharacteristic(
+            document,
+            CallGraphInspectionGraphCatalog.EdgeDispatchKinds,
+            InspectionGraphTarget.Edge(0),
+            new InspectionGraphValue.TokenSet(
+                ["virtual", "direct"]));
+    }
+
+    [Fact]
+    public void CallAdapter_TreatsPartialPhysicalEvidenceAsIncomplete()
+    {
+        MemberRef focus = Member("Focus");
+        MemberRef firstPeer = Member("FirstPeer");
+        MemberRef secondPeer = Member("SecondPeer");
+        DirectCall looped = Call(
+            focus,
+            firstPeer,
+            offset: 4,
+            inLoop: true);
+        DirectCall plain = Call(
+            focus,
+            firstPeer,
+            offset: 12);
+        CallTreeNode callerRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            Node(
+                firstPeer,
+                CallTreeStatus.Expanded,
+                Node(
+                    focus,
+                    CallTreeStatus.AlreadyShown) with
+                {
+                    ParentEdgeCallSites = [looped],
+                }));
+        CallTreeNode calleeRoot = Node(
+            focus,
+            CallTreeStatus.Expanded,
+            Node(
+                secondPeer,
+                CallTreeStatus.Leaf) with
+            {
+                ParentEdgeCallSites = [looped, plain],
+            });
+        CallGraphProjection projection =
+            CallGraphProjection.Create(callerRoot, calleeRoot);
+        int partialEdgeId = Assert.Single(
+            projection.Rows,
+            row => row.Edge.From == projection.Focus.Id
+                && projection.Nodes[row.Edge.To].Member
+                    == secondPeer).Number - 1;
+
+        InspectionGraphDocument document =
+            CallGraphInspectionGraphAdapter.Create(projection);
+
+        InspectionGraphEdge partial =
+            document.Edges[partialEdgeId];
+        int occurrenceId = Assert.Single(partial.OccurrenceIds);
+        var evidence = Assert.IsType<CallGraphCallSiteEvidence>(
+            document.Occurrences[occurrenceId].Evidence);
+        Assert.Equal(plain.ILOffset, evidence.ILOffset);
+        Assert.Contains(
+            document.Limits,
+            limit => ReferenceEquals(
+                    limit.Descriptor,
+                    CallGraphInspectionGraphCatalog
+                        .PhysicalOccurrencesUnavailable)
+                && limit.Target
+                    == InspectionGraphTarget.Edge(partialEdgeId));
+        Assert.DoesNotContain(
+            document.Characteristics,
+            characteristic =>
+                characteristic.Target
+                    == InspectionGraphTarget.Edge(partialEdgeId));
+        Assert.Contains(
+            document.Characteristics,
+            characteristic =>
+                characteristic.Target
+                    == InspectionGraphTarget.Occurrence(occurrenceId));
+    }
+
+    [Fact]
+    public void CallAdapter_PreservesAcquisitionDistinctReceipts()
+    {
+        string path =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+
+        CallTreeNode MakeTree()
+        {
+            LibraryBodyIndex index = LibraryBodyIndex.Open(path);
+            MethodIdentity method = index.DeclaredMethods.Single(
+                candidate =>
+                    candidate.DeclaringType.Name
+                        == "InstanceRecursionApi"
+                    && candidate.Name == "IsEven");
+            ResolvedAssemblyReference assembly =
+                ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local(
+                        "inspection graph acquisition test"));
+            using var scope = new CatalogCallGraphScope(
+                new AssemblyDependencyResolver(
+                    new AssemblyDependencyResolutionOptions(path)),
+                [new CatalogCallGraphParticipant(index, assembly)]);
+            return scope.Detach(
+                scope.BuildCallerTree(
+                    index,
+                    method.MetadataToken));
+        }
+
+        CallTreeNode first = MakeTree();
+        CallTreeNode second = MakeTree();
+        CallTreeNode combined = first with
+        {
+            Children = [.. first.Children, .. second.Children],
+        };
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallers(combined);
+
+        InspectionGraphDocument document =
+            CallGraphInspectionGraphAdapter.Create(projection);
+
+        Assert.Equal(4, projection.CallSites.Length);
+        Assert.Equal(4, document.Occurrences.Length);
+        Assert.Equal(
+            InspectionGraphDocumentScope.SessionBound,
+            document.Scope);
+        Assert.Equal(
+            4,
+            document.Occurrences
+                .Select(occurrence =>
+                    Assert.IsType<CallGraphCallSiteEvidence>(
+                        occurrence.Evidence).Identity)
+                .Distinct()
+                .Count());
+    }
+
+    static void AssertCharacteristic(
+        InspectionGraphDocument document,
+        InspectionGraphCharacteristicDescriptor descriptor,
+        InspectionGraphTarget target,
+        InspectionGraphValue expected)
+    {
+        InspectionGraphCharacteristic characteristic =
+            Assert.Single(
+                document.Characteristics,
+                item => ReferenceEquals(
+                        item.Descriptor,
+                        descriptor)
+                    && item.Target == target);
+        Assert.Equal(expected, characteristic.Value);
     }
 
     [Fact]

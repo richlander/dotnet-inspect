@@ -7,7 +7,8 @@ namespace ILInspector.Decompiler.Pipeline;
 
 internal readonly record struct ParameterRefKindResult(
     ImmutableArray<ArgumentRefKind> Kinds,
-    ParameterRefKindFacts State);
+    ParameterRefKindFacts State,
+    bool HasRefReadOnlyParameters = false);
 
 internal static class MethodDefinitionFacts
 {
@@ -23,6 +24,7 @@ internal static class MethodDefinitionFacts
             return new ParameterRefKindResult([], ParameterRefKindFacts.NotRequired);
 
         var kinds = new ArgumentRefKind[parameterTypes.Length];
+        bool hasRefReadOnly = false;
         for (int i = 0; i < kinds.Length; i++)
             kinds[i] = parameterTypes[i].Kind == TypeRefKind.ByRef ? ArgumentRefKind.Ref : ArgumentRefKind.Value;
         foreach (var handle in method.GetParameters())
@@ -31,9 +33,24 @@ internal static class MethodDefinitionFacts
             int index = parameter.SequenceNumber - 1;  // sequence 0 is the return parameter
             if (index < 0 || index >= kinds.Length || parameterTypes[index].Kind != TypeRefKind.ByRef)
                 continue;
-            kinds[index] = ClassifyByRefParameter(reader, parameter);
+            if (HasAttribute(
+                reader,
+                parameter.GetCustomAttributes(),
+                "System.Runtime.CompilerServices",
+                "RequiresLocationAttribute"))
+            {
+                kinds[index] = ArgumentRefKind.In;
+                hasRefReadOnly = true;
+            }
+            else
+            {
+                kinds[index] = ClassifyByRefParameter(reader, parameter);
+            }
         }
-        return new ParameterRefKindResult(ImmutableArray.Create(kinds), ParameterRefKindFacts.Known);
+        return new ParameterRefKindResult(
+            ImmutableArray.Create(kinds),
+            ParameterRefKindFacts.Known,
+            hasRefReadOnly);
     }
 
     internal static bool HasRequiresUnsafeAttribute(MetadataReader reader, MethodDefinition method)
@@ -161,8 +178,7 @@ internal static class MethodDefinitionFacts
     }
 
     static bool HasReadOnlyRefAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
-        => HasAttribute(reader, attributes, "System.Runtime.CompilerServices", "IsReadOnlyAttribute")
-            || HasAttribute(reader, attributes, "System.Runtime.CompilerServices", "RequiresLocationAttribute");
+        => HasAttribute(reader, attributes, "System.Runtime.CompilerServices", "IsReadOnlyAttribute");
 
     static bool HasAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes, string ns, string name)
     {

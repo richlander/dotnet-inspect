@@ -748,7 +748,8 @@ public sealed partial class CSharpPrinter
                 if (ReferenceEquals(statement, _chainStatement) || _fieldInitStores.Contains(statement))
                     continue;   // lifted to the signature initializer / field declarations
                 bool isLastStatement = ReferenceEquals(statement, lastStatementBeforeTrailingLocalFunctions);
-                bool statementOwnsLabel = statement.SourceOffset >= 0
+                bool statementOwnsLabel = statement.OwnsSourceLabel
+                    && statement.SourceOffset >= 0
                     && _labelTargets.Contains(statement.SourceOffset);
                 if (isLastStatement && !labeledReturnOnly && !statementOwnsLabel
                     && statement is Return { Value: null })
@@ -1609,7 +1610,9 @@ public sealed partial class CSharpPrinter
             return false;
         return block.Children.Skip(statement.ChildIndex + 1)
             .SelectMany(node => node.DescendantsAndSelfOutsideNestedFunctions)
-            .Any(n => n.SourceOffset >= 0 && _labelTargets.Contains(n.SourceOffset));
+            .Any(n => n.OwnsSourceLabel
+                && n.SourceOffset >= 0
+                && _labelTargets.Contains(n.SourceOffset));
     }
 
     static bool ReferencesLocal(IrNode node, int index)
@@ -1688,7 +1691,9 @@ public sealed partial class CSharpPrinter
     {
         if (store.Type.Kind == TypeRefKind.ByRef)
             return false;
-        if (store.SourceOffset >= 0 && _labelTargets.Contains(store.SourceOffset))
+        if (store.OwnsSourceLabel
+            && store.SourceOffset >= 0
+            && _labelTargets.Contains(store.SourceOffset))
             return false;
         if (storeElement.Value is not Call { Callee: { HasThis: true, Name: "ToString" } callee, Arguments: [LoadLocalAddress receiver] } call
             || receiver.Index != store.Index
@@ -2672,7 +2677,9 @@ public sealed partial class CSharpPrinter
 
     void AppendStatementLabel(StringBuilder sb, IrNode statement, int indent)
     {
-        if (statement.SourceOffset >= 0 && _labelTargets.Contains(statement.SourceOffset))
+        if (statement.OwnsSourceLabel
+            && statement.SourceOffset >= 0
+            && _labelTargets.Contains(statement.SourceOffset))
             AppendLabel(sb, new string(' ', indent * 4), statement.SourceOffset);
     }
 
@@ -5105,7 +5112,8 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string? TargetTypedNewText(IrExpression value, TypeRef? target)
     {
-        if (target is null
+        if (!_options.PreferImplicitObjectCreation
+            || target is null
             || value is not NewObject creation
             || MultiDimArrayCreationText(creation) is not null
             || IsSystemObjectType(creation.Constructor.DeclaringType)
