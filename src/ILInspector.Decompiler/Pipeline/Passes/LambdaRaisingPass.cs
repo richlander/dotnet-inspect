@@ -30,6 +30,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <para>In all cases the body must carry compiler-generated metadata evidence
 /// and be a single <c>return expr;</c>, a void expression, or a simple block
 /// ending in a return.
+/// By-ref parameters require exact metadata ref-kind facts so the printer can
+/// emit an explicitly typed <c>ref</c>/<c>out</c>/<c>in</c> parameter list.
 /// Captured outer locals still keep the zero-local guard: local-bearing lambda
 /// bodies print in a nested lambda scope, where an outer local slot would be
 /// ambiguous. A no-op when the seam is absent (stage dumps, the
@@ -357,9 +359,17 @@ public sealed class LambdaRaisingPass : IIrPass
     {
         if (!allowLocals && !body.Locals.IsEmpty)
             return null;
-        if (body.RequiresAsyncBodyModifier
-            || body.Signature.Parameters.Any(parameter => parameter.Type.Kind == TypeRefKind.ByRef))
+        if (body.RequiresAsyncBodyModifier)
             return null;
+        bool hasByRefParameter =
+            body.Signature.Parameters.Any(parameter => parameter.Type.Kind == TypeRefKind.ByRef);
+        if (hasByRefParameter
+            && (creation.Method.HasRefReadOnlyParameters
+                || creation.Method.ParameterRefKindsFacts != ParameterRefKindFacts.Known
+                || creation.Method.ParameterRefKinds.Length != body.Signature.Parameters.Length))
+        {
+            return null;
+        }
         if (body.Descendants.OfType<UnsupportedNode>().Any())
             return null;
         if (!IsPrintableBody(body, allowLocals))
@@ -393,6 +403,7 @@ public sealed class LambdaRaisingPass : IIrPass
             container)
         {
             ReturnsVoid = returnsVoid,
+            ParameterRefKinds = hasByRefParameter ? creation.Method.ParameterRefKinds : [],
         };
         lambda.InheritSourceOffset(provenance);
         return lambda;

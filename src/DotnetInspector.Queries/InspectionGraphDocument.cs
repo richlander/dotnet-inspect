@@ -45,6 +45,30 @@ public abstract record InspectionGraphAssemblyIdentity
 
     public abstract bool IsPortable { get; }
 
+    /// <summary>
+    /// One assembly participant while its acquisition registration remains
+    /// authoritative.
+    /// </summary>
+    /// <remarks>
+    /// <c>InspectionGraphPackageBoundaryTests.PackageGroupsLens_DoesNotCollapseMatchingAssemblyMetadata</c>
+    /// gates acquisition-distinct identity.
+    /// </remarks>
+    public sealed record Acquired : InspectionGraphAssemblyIdentity
+    {
+        internal Acquired(ResolvedAssemblyReference assembly)
+        {
+            ArgumentNullException.ThrowIfNull(assembly);
+            Registration = assembly.Registration;
+            Assembly = assembly.Identity;
+            Provenance = assembly.Provenance;
+        }
+
+        public AssemblyAcquisitionRegistration Registration { get; }
+        public AssemblyReferenceIdentity Assembly { get; }
+        public AssemblyResolutionProvenance Provenance { get; }
+        public override bool IsPortable => false;
+    }
+
     public sealed record Metadata : InspectionGraphAssemblyIdentity
     {
         public Metadata(AssemblyReferenceIdentity assembly)
@@ -107,6 +131,10 @@ public abstract record InspectionGraphSubject
     public static InspectionGraphSubject ForAssembly(
         InspectionGraphAssemblyIdentity identity) =>
         new AssemblySubject(identity);
+
+    public static InspectionGraphSubject ForAcquiredAssembly(
+        ResolvedAssemblyReference assembly) =>
+        ForAssembly(new InspectionGraphAssemblyIdentity.Acquired(assembly));
 
     public static InspectionGraphSubject ForMetadataAssembly(
         AssemblyReferenceIdentity assembly) =>

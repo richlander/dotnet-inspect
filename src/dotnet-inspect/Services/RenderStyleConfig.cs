@@ -48,11 +48,8 @@ internal static class RenderStyleConfig
     // The recognized style keys and how they set PrinterOptions come from the
     // library-owned StyleOptionCatalog — the single source of truth — so this
     // resolver never drifts from the option surface. Every catalog VALUE with a
-    // config key is honored here (the four byte-preserving this.-qualification
-    // spellings, the oracle-endorsed conditional-expression lens value, and the
-    // tool-owned branchless "bool hack" value); values with no config key — the
-    // off/default value of a knob and any API-only knob — simply do not appear in
-    // the file vocabulary. A key = true selects its value; key = false deselects
+    // config key is honored here; values with no config key simply do not appear
+    // in the file vocabulary. A key = true selects its value; key = false deselects
     // it (setting only that value's own backing state, so, exactly as before, two
     // members of a multi-value axis set independently and the printer resolves any
     // overlap deterministically).

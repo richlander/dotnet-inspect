@@ -444,6 +444,24 @@ This is gated by
 `NuGetMetadataLimitTests.DirectNuGetApiReadersUseTheDefaultLimit`, and
 `NuGetMetadataLimitTests.PackagePayloadIsNotSubjectToTheMetadataLimit`.
 
+### Malformed NuGet metadata fails visibly
+
+The `NuGetApi` readers propagate service-index, version-index, and search documents with invalid
+JSON or missing required data as `JsonException` rather than representing them as an absent
+resource, empty version list, or empty search. A top-level JSON `null` remains an explicit null
+document. The multi-source client isolates `JsonException` to the source that supplied the
+malformed document and continues to later sources, while metadata response limits and body
+timeouts remain fatal.
+
+This is gated by `NuGetApiTests.GetServiceIndexAsync_MalformedJson_Throws`,
+`NuGetApiTests.GetServiceIndexAsync_InvalidRequiredData_Throws`,
+`NuGetApiTests.GetVersionIndexAsync_MalformedJson_Throws`,
+`NuGetApiTests.GetVersionIndexAsync_InvalidRequiredData_Throws`,
+`NuGetApiTests.GetSearchResponseAsync_MalformedJson_Throws`,
+`NuGetApiTests.GetSearchResponseAsync_InvalidRequiredData_Throws`,
+`NuGetApiTests.MetadataReaders_TopLevelNull_RemainsNull`, and
+`NuGetClientTests.LatestVersion_MalformedSourceContinuesToHealthySource`.
+
 ### SourceLink provenance is read off the URL source is fetched from
 
 SourceLink map presence is not reported as successful usability. The

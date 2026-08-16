@@ -6,22 +6,16 @@ using ILInspector.Metadata;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// The opt-in apparent-type <c>var</c> bucket
-/// (<see cref="PrinterOptions.PreferVarWhenTypeApparent"/>,
-/// <c>csharp_style_var_when_type_is_apparent</c>): when the declared type is apparent
-/// from the initializer (object creation of the exact type, an array creation, or an
-/// explicit reference cast) and is not a C# built-in keyword type, the declaration is
-/// spelled <c>var</c> instead of its explicit type.
+/// The three opt-in <c>var</c> spelling buckets: built-in types, apparent
+/// non-built-in types, and elsewhere.
 ///
 /// <para>
 /// <c>var</c> is byte-neutral — a compile-time inference with no IL consequence — so
 /// this is a spelling choice, not a lens: the emitted <c>var</c> form recompiles to
-/// the exact same IL as the explicit form, because apparency guarantees the
-/// initializer's static type <em>is</em> the declared type. These tests pin the
-/// default (explicit, byte-stable), the opt-in rewrite for each apparent shape, the
-/// either/or interaction with the target-typed-<c>new</c> shortener (never
-/// <c>var x = new()</c>, which is CS8754), and the two decline cases (built-in type,
-/// non-apparent initializer).
+/// the exact same IL as the explicit form when the initializer's rendered natural
+/// type is exactly the declared type. These tests pin the three-way partition, exact
+/// positives, the either/or interaction with target-typed <c>new</c>, and close
+/// conversion/contextual negatives.
 /// </para>
 /// </summary>
 [Trait("Area", "RoundTrip")]
@@ -29,7 +23,12 @@ public sealed class VarWhenApparentTests
 {
     static string AssemblyPath => typeof(VarWhenApparentTests).Assembly.Location;
 
+    static readonly PrinterOptions VarForBuiltInTypes = new() { PreferVarForBuiltInTypes = true };
     static readonly PrinterOptions VarWhenApparent = new() { PreferVarWhenTypeApparent = true };
+    static readonly PrinterOptions VarElsewhere = new() { PreferVarElsewhere = true };
+    static readonly PrinterOptions ExplicitObjectCreation = new() { PreferImplicitObjectCreation = false };
+    static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef String = TypeRef.CoreLib("System", "String");
 
     static ApiType Specimen()
     {
@@ -46,6 +45,38 @@ public sealed class VarWhenApparentTests
         Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
         Assert.NotNull(rendered.Text);
         return rendered.Text!;
+    }
+
+    static string RenderSynthetic(TypeRef localType, IrExpression initializer, PrinterOptions options)
+    {
+        var block = new Block();
+        block.Add(new StoreLocal(0, localType, initializer));
+        block.Add(new Return(new LoadLocal(0, localType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "VarSpelling"),
+            new MethodSignature(localType, [], HasThis: false, GenericParameterCount: 0),
+            [localType],
+            body);
+        return CSharpPrinter.Print(function, options).Output!;
+    }
+
+    static string RenderSyntheticStackSlot(TypeRef slotType, IrExpression initializer, PrinterOptions options)
+    {
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, initializer));
+        block.Add(new Return(new LoadStackSlot(0, slotType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "VarSpelling"),
+            new MethodSignature(slotType, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+        return CSharpPrinter.Print(function, options).Output!;
     }
 
     [Fact]
@@ -66,6 +97,33 @@ public sealed class VarWhenApparentTests
         Assert.Contains("var ", text);
         // Either/or: spelling `var` suppresses the shortener, so the RHS keeps its
         // explicit `new List<int>()`. A bare `var x = new()` would be CS8754.
+        Assert.Contains("= new List<int>();", text);
+        Assert.DoesNotContain("new();", text);
+    }
+
+    [Fact]
+    public void ObjectCreation_ExplicitOption_KeepsExplicitTypeOnBothSides()
+    {
+        var text = Render(nameof(VarWhenApparentSpecimen.ObjectCreation), ExplicitObjectCreation);
+
+        Assert.Contains("List<int>", text);
+        Assert.Contains("= new List<int>();", text);
+        Assert.DoesNotContain("var ", text);
+        Assert.DoesNotContain("= new();", text);
+    }
+
+    [Fact]
+    public void ObjectCreation_VarAndExplicitOptions_StillUseVarWithExplicitNew()
+    {
+        var text = Render(
+            nameof(VarWhenApparentSpecimen.ObjectCreation),
+            new PrinterOptions
+            {
+                PreferVarWhenTypeApparent = true,
+                PreferImplicitObjectCreation = false,
+            });
+
+        Assert.Contains("var ", text);
         Assert.Contains("= new List<int>();", text);
         Assert.DoesNotContain("new();", text);
     }
@@ -111,6 +169,16 @@ public sealed class VarWhenApparentTests
     }
 
     [Fact]
+    public void BuiltInObjectCreation_BuiltInBucket_SpellsVarAndKeepsExplicitNew()
+    {
+        var text = Render(nameof(VarWhenApparentSpecimen.BuiltInObjectCreation), VarForBuiltInTypes);
+
+        Assert.Contains("var ", text);
+        Assert.Contains("= new string('x', 3);", text);
+        Assert.DoesNotContain("new('x', 3)", text);
+    }
+
+    [Fact]
     public void NotApparent_VarOn_Declines()
     {
         // The initializer is a plain call, so the type is not apparent — the bucket
@@ -119,6 +187,122 @@ public sealed class VarWhenApparentTests
         var text = Render(nameof(VarWhenApparentSpecimen.NotApparent), VarWhenApparent);
         Assert.Equal(defaultText, text);
         Assert.Contains("List<int> ", text);
+        Assert.DoesNotContain("var ", text);
+    }
+
+    [Fact]
+    public void NotApparent_ElsewhereBucket_SpellsVar()
+    {
+        var text = Render(nameof(VarWhenApparentSpecimen.NotApparent), VarElsewhere);
+
+        Assert.Contains("var ", text);
+        Assert.Contains("= Make();", text);
+        Assert.DoesNotContain("List<int> ", text);
+    }
+
+    [Fact]
+    public void ElsewhereBucket_SpellsVarForDeclaringStackSlot()
+    {
+        var array = TypeRef.SzArray(Int32);
+        var owner = TypeRef.Definition("Synthetic", "", "VarSpelling");
+        var make = new MethodRef(owner, "Make", array, [], HasThis: false);
+        var text = RenderSyntheticStackSlot(array, new Call(make, isVirtual: false, []), VarElsewhere);
+
+        Assert.Contains("var S_0 = Make();", text);
+        Assert.DoesNotContain("int[] S_0", text);
+    }
+
+    [Theory]
+    [InlineData(nameof(VarWhenApparentSpecimen.BuiltInNumericWidening), "long ")]
+    [InlineData(nameof(VarWhenApparentSpecimen.BuiltInConstantConversion), "byte ")]
+    public void BuiltInBucket_DeclinesWhenInitializerWouldInferDifferentType(string method, string declaration)
+    {
+        var defaultText = Render(method);
+        var text = Render(method, VarForBuiltInTypes);
+
+        Assert.Equal(defaultText, text);
+        Assert.Contains(declaration, text);
+        Assert.DoesNotContain("var ", text);
+    }
+
+    [Fact]
+    public void ElsewhereBucket_DeclinesReferenceConversion()
+    {
+        var defaultText = Render(nameof(VarWhenApparentSpecimen.ElsewhereReferenceWidening));
+        var text = Render(nameof(VarWhenApparentSpecimen.ElsewhereReferenceWidening), VarElsewhere);
+
+        Assert.Equal(defaultText, text);
+        Assert.Contains("IReadOnlyCollection<int> ", text);
+        Assert.DoesNotContain("var ", text);
+    }
+
+    [Fact]
+    public void ElsewhereBucket_DeclinesContextuallyTypedTupleElements()
+    {
+        var defaultText = Render(nameof(VarWhenApparentSpecimen.TupleElementConversion));
+        var text = Render(nameof(VarWhenApparentSpecimen.TupleElementConversion), VarElsewhere);
+
+        Assert.Equal(defaultText, text);
+        Assert.DoesNotContain("var ", text);
+    }
+
+    [Theory]
+    [InlineData(nameof(VarWhenApparentSpecimen.DynamicParameterToObject))]
+    [InlineData(nameof(VarWhenApparentSpecimen.DynamicReturnToObject))]
+    public void BuiltInBucket_DeclinesDynamicErasedAsObject(string method)
+    {
+        var defaultText = Render(method);
+        var text = Render(method, VarForBuiltInTypes);
+
+        Assert.Equal(defaultText, text);
+        Assert.Contains("object ", text);
+        Assert.DoesNotContain("var ", text);
+    }
+
+    [Theory]
+    [InlineData(nameof(VarWhenApparentSpecimen.NestedDynamicParameterToObjects), "List<object> ")]
+    [InlineData(nameof(VarWhenApparentSpecimen.NestedDynamicReturnToObjects), "List<object> ")]
+    [InlineData(nameof(VarWhenApparentSpecimen.NestedDynamicArrayToObjects), "object[] ")]
+    public void ElsewhereBucket_DeclinesDynamicErasedInsideTypeShape(string method, string declaration)
+    {
+        var defaultText = Render(method);
+        var text = Render(method, VarElsewhere);
+
+        Assert.Equal(defaultText, text);
+        Assert.Contains(declaration, text);
+        Assert.DoesNotContain("var ", text);
+    }
+
+    [Fact]
+    public void ApparentBucket_AllowsNestedObjectWhenSyntaxProvesStaticType()
+    {
+        var text = Render(nameof(VarWhenApparentSpecimen.NestedObjectCreation), VarWhenApparent);
+
+        Assert.Contains("var ", text);
+        Assert.Contains("= new List<object>();", text);
+        Assert.DoesNotContain("List<object> values", text);
+    }
+
+    [Fact]
+    public void BuiltInBucket_DeclinesNull()
+    {
+        var text = RenderSynthetic(String, new Constant(null, String), VarForBuiltInTypes);
+
+        Assert.Contains("string V_0 = null;", text);
+        Assert.DoesNotContain("var ", text);
+    }
+
+    [Fact]
+    public void ElsewhereBucket_DeclinesTargetTypedCollectionExpression()
+    {
+        var array = TypeRef.SzArray(Int32);
+        var collection = new CollectionExpression(
+            Int32,
+            array,
+            [new Constant(1, Int32), new Constant(2, Int32)]);
+        var text = RenderSynthetic(array, collection, VarElsewhere);
+
+        Assert.Contains("int[] V_0 = [1, 2];", text);
         Assert.DoesNotContain("var ", text);
     }
 }
