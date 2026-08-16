@@ -152,6 +152,18 @@ public sealed record PrinterOptions
     public bool PreferVarElsewhere { get; init; }
 
     /// <summary>
+    /// When set, an eligible object creation whose constructed type is already
+    /// apparent from its assignment/declaration target renders as target-typed
+    /// <c>new(args)</c> instead of repeating the type in <c>new T(args)</c>.
+    /// On by default, preserving the shipped output and matching dotnet/runtime's
+    /// <c>csharp_style_implicit_object_creation_when_type_is_apparent = true</c>.
+    /// Setting it to <see langword="false"/> is a byte-neutral explicit-spelling
+    /// opt-out; compile-back identity is enforced by
+    /// <c>ByteNeutralityGateTests.CompileBackValue_On_RecompilesToTheSameIlAsOff</c>.
+    /// </summary>
+    public bool PreferImplicitObjectCreation { get; init; } = true;
+
+    /// <summary>
     /// When set, a guarded boolean return the default view must render as a flat
     /// <c>if (c) return A; return B;</c> — because no short-circuit fold is
     /// opcode-faithful for that shape (see <c>ShortCircuitFidelity</c> / #3114) —
