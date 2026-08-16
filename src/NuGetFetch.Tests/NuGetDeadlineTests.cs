@@ -1486,6 +1486,60 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task ExpiredRequestReadAsync_DoesNotBlockOnCleanup()
+    {
+        var body = new CoordinatedDisposeStream();
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(StreamResponse(message, body))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(5),
+                operation: TimeSpan.FromSeconds(10)));
+        using var cancellation = new CancellationTokenSource();
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: cancellation.Token);
+        Task cancel = Task.Run(
+            cancellation.Cancel,
+            TestContext.Current.CancellationToken);
+        await body.DisposeStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        Task<ValueTask<int>> invocation = Task.Run(
+            () => package.ReadAsync(
+                new byte[1].AsMemory(),
+                TestContext.Current.CancellationToken),
+            TestContext.Current.CancellationToken);
+        try
+        {
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(100),
+                TestContext.Current.CancellationToken);
+            Assert.True(invocation.IsCompleted);
+            ValueTask<int> read = await invocation;
+            Assert.False(read.IsCompleted);
+
+            body.ReleaseDispose();
+            await cancel.WaitAsync(
+                TimeSpan.FromSeconds(2),
+                TestContext.Current.CancellationToken);
+            OperationCanceledException error =
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                    async () => _ = await read);
+            Assert.Equal(cancellation.Token, error.CancellationToken);
+        }
+        finally
+        {
+            body.ReleaseDispose();
+        }
+    }
+
+    [Fact]
     public async Task DisposeAsync_DoesNotBlockOnAbortCleanup()
     {
         var body = new CoordinatedDisposeStream();
