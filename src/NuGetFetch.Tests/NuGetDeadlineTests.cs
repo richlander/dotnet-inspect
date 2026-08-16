@@ -370,6 +370,76 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task PreCancelledPerReadToken_PrecedesExpiredRequestDeadline()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    StreamResponse(message, new StallingStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(40),
+                operation: TimeSpan.FromSeconds(1)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(80),
+            TestContext.Current.CancellationToken);
+        using var readCancellation = new CancellationTokenSource();
+        readCancellation.Cancel();
+
+        OperationCanceledException error =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
+                {
+                    byte[] buffer = new byte[1];
+                    _ = await package.ReadAsync(
+                        buffer,
+                        readCancellation.Token);
+                });
+
+        Assert.Equal(readCancellation.Token, error.CancellationToken);
+        Assert.IsNotType<NuGetRequestTimeoutException>(error);
+        Assert.IsNotType<NuGetOperationTimeoutException>(error);
+    }
+
+    [Fact]
+    public async Task PreCancelledPerReadToken_PrecedesEmptyRead()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (message, _) =>
+                Task.FromResult(
+                    StreamResponse(message, new StallingStream()))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(1),
+                operation: TimeSpan.FromSeconds(2)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        using var readCancellation = new CancellationTokenSource();
+        readCancellation.Cancel();
+
+        OperationCanceledException error =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
+                {
+                    _ = await package.ReadAsync(
+                        Memory<byte>.Empty,
+                        readCancellation.Token);
+                });
+
+        Assert.Equal(readCancellation.Token, error.CancellationToken);
+    }
+
+    [Fact]
     public async Task CompletedPackageStream_RemainsAtEofAfterDeadline()
     {
         byte[] payload = [42];

@@ -617,6 +617,7 @@ public static class HttpRetryHelper
             () =>
             {
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Options.Set(BrowserStreamingResponse, true);
                 if (auth != null)
                     request.Headers.Authorization = auth;
                 configureRequest?.Invoke(request);

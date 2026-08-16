@@ -189,6 +189,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             Memory<byte> buffer,
             CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ThrowIfDeadlineExpired();
             if (buffer.IsEmpty)
                 return 0;

@@ -861,6 +861,21 @@ public class HttpRetryHelperTests
         Assert.True(handler.StreamingRequested);
     }
 
+    [Fact]
+    public async Task StringBodyRead_RequiresBrowserStreamingResponse()
+    {
+        var handler = new BrowserStreamingOptionHandler();
+        using var client = new HttpClient(handler);
+
+        string? result = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("source", result);
+        Assert.True(handler.StreamingRequested);
+    }
+
     [Theory]
     [InlineData(RetryFailureMode.NonRetryableStatus)]
     [InlineData(RetryFailureMode.NonRetryableSocket)]
