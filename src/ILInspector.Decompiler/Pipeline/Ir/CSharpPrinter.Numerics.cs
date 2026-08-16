@@ -1593,7 +1593,7 @@ public sealed partial class CSharpPrinter
         if (kind is ComparisonKind.Equal or ComparisonKind.NotEqual
             && (left is Box || right is Box))
         {
-            return $"{BoxedReferenceOperand(left)} {ComparisonOperator(kind)} {BoxedReferenceOperand(right)}";
+            return $"{ObjectReferenceOperand(left)} {ComparisonOperator(kind)} {ObjectReferenceOperand(right)}";
         }
         // The `cgt.un`/`clt.un` against null idiom csc emits for a reference
         // inequality (`ldnull; cgt.un` = `obj != null`): an unsigned ordering of a
@@ -1705,11 +1705,12 @@ public sealed partial class CSharpPrinter
     bool NeedsReferenceIdentityCast(ComparisonKind kind, IrExpression left, IrExpression right)
         => IsKnownReferenceComparison(left, right)
             && (!IsOperatorFreeReferenceOperand(left, kind)
-                || !IsOperatorFreeReferenceOperand(right, kind));
+                || !IsOperatorFreeReferenceOperand(right, kind)
+                || !BareReferenceEqualityBinds(left.ResultType, right.ResultType));
 
     bool IsOperatorFreeReferenceOperand(IrExpression operand, ComparisonKind kind)
     {
-        if (IsDynamicTypedReceiver(operand))
+        if (RendersAsDynamic(operand))
             return false;
         var type = operand.ResultType;
         if (type is null)
@@ -1724,8 +1725,27 @@ public sealed partial class CSharpPrinter
             : _function.InequalityOperatorFreeTypes.Contains(definition);
     }
 
-    string BoxedReferenceOperand(IrExpression operand)
-        => operand is Box box ? $"(object){Operand(box.Operand)}" : Operand(operand);
+    static bool BareReferenceEqualityBinds(TypeRef? left, TypeRef? right)
+        => left is not null
+            && right is not null
+            && (left.Equals(right) || IsObject(left) || IsObject(right));
+
+    static bool IsObject(TypeRef type)
+        => type is
+        {
+            Kind: TypeRefKind.Definition,
+            Assembly: TypeRef.CoreLibrary,
+            Namespace: "System",
+            Name: "Object",
+        };
+
+    static bool RendersAsDynamic(IrExpression operand)
+        => operand is DynamicGetMember || IsDynamicTypedReceiver(operand);
+
+    string ObjectReferenceOperand(IrExpression operand)
+        => operand is Box box
+            ? $"(object){Operand(box.Operand)}"
+            : $"(object){Operand(operand)}";
 
     string? IsInstanceNullTestText(IrExpression operand, bool isNotNull)
     {

@@ -21,6 +21,14 @@ public class BoxedReferenceEqualityTests
     }
 
     [Fact]
+    public void DynamicMemberReferenceEquality_PreservesObjectComparison()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.DynamicMemberReferenceEquals));
+
+        Assert.Contains("return (object)(value.Member) == (object)right;", output);
+    }
+
+    [Fact]
     public void UserOperatorReferenceInequality_PreservesObjectComparison()
     {
         string output = Print(nameof(BoxedReferenceEqualitySpecimens.UserReferenceNotEquals));
@@ -42,6 +50,14 @@ public class BoxedReferenceEqualityTests
         string output = Print(nameof(BoxedReferenceEqualitySpecimens.DelegateReferenceNotEquals));
 
         Assert.Contains("return (object)left != (object)right;", output);
+    }
+
+    [Fact]
+    public void MixedBoxedReferenceEquality_CastsBothOperands()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.MixedBoxedReferenceEquals));
+
+        Assert.Contains("return (object)left == (object)right;", output);
     }
 
     [Fact]
@@ -78,6 +94,14 @@ public class BoxedReferenceEqualityTests
 
         Assert.Contains("return left == right;", output);
         Assert.DoesNotContain("(object)left", output);
+    }
+
+    [Fact]
+    public void UnrelatedOperatorFreeReferenceEquality_CastsBothOperands()
+    {
+        string output = Print(nameof(BoxedReferenceEqualitySpecimens.UnrelatedReferenceEquals));
+
+        Assert.Contains("return (object)left == (object)right;", output);
     }
 
     [Fact]
@@ -153,6 +177,9 @@ public static class BoxedReferenceEqualitySpecimens
     public static bool DynamicReferenceEquals(dynamic left, dynamic right)
         => (object)left == (object)right;
 
+    public static bool DynamicMemberReferenceEquals(dynamic value, object right)
+        => (object)value.Member == right;
+
     public static bool UserReferenceNotEquals(UserEquality left, UserEquality right)
         => (object)left != right;
 
@@ -161,6 +188,9 @@ public static class BoxedReferenceEqualitySpecimens
 
     public static bool DelegateReferenceNotEquals(EventHandler left, EventHandler right)
         => (object)left != right;
+
+    public static bool MixedBoxedReferenceEquals<T>(T left, MixedEquality right)
+        => (object?)left == (object)right;
 
     public static bool UserOperatorEquals(UserEquality left, UserEquality right)
         => left == right;
@@ -175,6 +205,11 @@ public static class BoxedReferenceEqualitySpecimens
         System.Text.StringBuilder left,
         System.Text.StringBuilder right)
         => (object)left == right;
+
+    public static bool UnrelatedReferenceEquals(
+        FirstPlainReference left,
+        SecondPlainReference right)
+        => (object)left == (object)right;
 
     public static bool StringIsNull(string value)
         => value is null;
@@ -226,3 +261,22 @@ public class BaseEquality
 }
 
 public sealed class DerivedEquality : BaseEquality;
+
+public sealed class MixedEquality
+{
+    public static bool operator ==(object? left, MixedEquality? right)
+        => false;
+
+    public static bool operator !=(object? left, MixedEquality? right)
+        => true;
+
+    public override bool Equals(object? obj)
+        => false;
+
+    public override int GetHashCode()
+        => 0;
+}
+
+public sealed class FirstPlainReference;
+
+public sealed class SecondPlainReference;

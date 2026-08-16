@@ -531,65 +531,65 @@ public sealed class MetadataSource : IDisposable
             "op_Inequality" => _inequalityOperatorTypes!,
             _ => throw new ArgumentOutOfRangeException(nameof(methodName)),
         };
-        var memo = new Dictionary<TypeRef, MetadataFactState>();
-        var visiting = new HashSet<TypeRef>();
-
-        MetadataFactState Resolve(TypeRef current)
+        bool unresolved = false;
+        var seen = new HashSet<TypeRef>();
+        var pending = new Stack<TypeRef>();
+        pending.Push(type);
+        while (pending.Count > 0 && seen.Count < 256)
         {
-            if (NamedDefinition(current) is not { } currentDefinition)
-                return MetadataFactState.Unknown;
-            if (currentDefinition.Assembly != self)
-                return CrossAssembly.HasOperatorInBindingHierarchy(current, methodName);
-            if (memo.TryGetValue(currentDefinition, out var cached))
-                return cached;
-            if (!visiting.Add(currentDefinition))
-                return MetadataFactState.Unknown;
+            var current = pending.Pop();
+            if (NamedDefinition(current) is not { } currentDefinition
+                || !seen.Add(currentDefinition))
+            {
+                continue;
+            }
 
-            MetadataFactState result;
+            if (currentDefinition.Assembly != self)
+            {
+                var crossAssembly = CrossAssembly.HasOperatorInBindingHierarchy(current, methodName);
+                if (crossAssembly == MetadataFactState.Yes)
+                {
+                    _operatorHierarchyFacts.TryAdd(cacheKey, MetadataFactState.Yes);
+                    return MetadataFactState.Yes;
+                }
+                if (crossAssembly == MetadataFactState.Unknown)
+                    unresolved = true;
+                continue;
+            }
+
             if (operatorTypes.Contains(currentDefinition))
             {
-                result = MetadataFactState.Yes;
+                _operatorHierarchyFacts.TryAdd(cacheKey, MetadataFactState.Yes);
+                return MetadataFactState.Yes;
             }
-            else if (_interfaces!.Contains(currentDefinition))
+
+            if (_interfaces!.Contains(currentDefinition))
             {
-                result = MetadataFactState.No;
                 foreach (var baseInterface in _interfaceImpls![currentDefinition])
                 {
-                    var instantiated = current.Kind == TypeRefKind.GenericInstance
+                    pending.Push(current.Kind == TypeRefKind.GenericInstance
                         ? baseInterface.Instantiate(current.TypeArguments, [])
-                        : baseInterface;
-                    var baseFact = Resolve(instantiated);
-                    if (baseFact == MetadataFactState.Yes)
-                    {
-                        result = MetadataFactState.Yes;
-                        break;
-                    }
-                    if (baseFact == MetadataFactState.Unknown)
-                        result = MetadataFactState.Unknown;
+                        : baseInterface);
                 }
-            }
-            else if (!_baseTypes!.TryGetValue(currentDefinition, out var baseType))
-            {
-                result = MetadataFactState.Unknown;
-            }
-            else if (baseType is null || IsObject(baseType))
-            {
-                result = MetadataFactState.No;
-            }
-            else
-            {
-                var instantiated = current.Kind == TypeRefKind.GenericInstance
-                    ? baseType.Instantiate(current.TypeArguments, [])
-                    : baseType;
-                result = Resolve(instantiated);
+                continue;
             }
 
-            visiting.Remove(currentDefinition);
-            memo[currentDefinition] = result;
-            return result;
+            if (!_baseTypes!.TryGetValue(currentDefinition, out var baseType))
+            {
+                unresolved = true;
+                continue;
+            }
+            if (baseType is not null && !IsObject(baseType))
+            {
+                pending.Push(current.Kind == TypeRefKind.GenericInstance
+                    ? baseType.Instantiate(current.TypeArguments, [])
+                    : baseType);
+            }
         }
 
-        var result = Resolve(type);
+        var result = !unresolved && pending.Count == 0
+            ? MetadataFactState.No
+            : MetadataFactState.Unknown;
         _operatorHierarchyFacts.TryAdd(cacheKey, result);
         return result;
     }

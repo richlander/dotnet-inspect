@@ -7904,6 +7904,84 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesMixedAndUnrelatedReferenceIdentity()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(object left, Row right) => false;
+                public static bool operator !=(object left, Row right) => true;
+                public override bool Equals(object obj) => false;
+                public override int GetHashCode() => 0;
+            }
+
+            public sealed class A;
+            public sealed class B;
+
+            public static class Cases
+            {
+                public static bool Mixed<T>(T left, Row right) => (object)left == (object)right;
+                public static bool Unrelated(A left, B right) => (object)left == (object)right;
+                public static bool DynamicMember(dynamic value, object right) => (object)value.Member == right;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Cases", "Mixed", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "Unrelated", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicMember", 0),
+                ]);
+
+            Assert.All(results, result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)left == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)(value.Member) == (object)right;",
+                StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DeepReferenceHierarchyFallsBackConservatively()
+    {
+        string hierarchy = string.Join(
+            Environment.NewLine,
+            Enumerable.Range(0, 300).Select(index =>
+                index == 0
+                    ? "public class C0 { }"
+                    : $"public class C{index} : C{index - 1} {{ }}"));
+        var assemblyPath = CompileFixture($$"""
+            {{hierarchy}}
+
+            public static class Cases
+            {
+                public static bool Same(C299 left, C299 right) => (object)left == right;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Cases", "Same", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("return (object)left == (object)right;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_PreservesRecordGeneratedVirtualHelperShells()
     {
         var assemblyPath = CompileFixture("""
