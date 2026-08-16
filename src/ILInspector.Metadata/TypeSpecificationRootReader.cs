@@ -154,10 +154,11 @@ internal readonly record struct TypeSpecificationRoot(
                         frame.Handle,
                         ValidationState.Active);
                     cumulativeBytes += blobLength;
-                    if (!SignatureBlobGuard
-                            .IsCompleteTypeSpecification(
-                                reader.GetBlobReader(signature),
-                                MaxAuthenticationSignatureDepth))
+                    if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                            reader,
+                            signature,
+                            SignatureBlobGuard.Kind.TypeSpecification,
+                            MaxAuthenticationSignatureDepth))
                     {
                         return false;
                     }

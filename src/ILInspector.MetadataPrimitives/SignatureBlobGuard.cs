@@ -87,19 +87,18 @@ public static class SignatureBlobGuard
     }
 
     /// <summary>
-    /// Returns whether a TypeSpec is bounded and contains exactly one complete
-    /// type signature with no trailing bytes.
+    /// Returns whether the entire blob is structurally shallow and consumed by
+    /// the declared signature grammar. Unlike <see cref="IsSafeToDecode(BlobReader, Kind, int)"/>,
+    /// truncation and trailing bytes return <see langword="false"/>.
     /// </summary>
-    public static bool IsCompleteTypeSpecification(
+    public static bool IsSafeAndCompleteToDecode(
         BlobReader blob,
+        Kind kind,
         int maxDepth = DefaultMaxDepth)
     {
         try
         {
-            return !ExceedsDepth(
-                    ref blob,
-                    Kind.TypeSpecification,
-                    maxDepth)
+            return !ExceedsDepth(ref blob, kind, maxDepth)
                 && blob.RemainingBytes == 0;
         }
         catch (BadImageFormatException)
@@ -107,6 +106,21 @@ public static class SignatureBlobGuard
             return false;
         }
     }
+
+    /// <summary>
+    /// Convenience overload that requires the entire metadata blob to match
+    /// the declared signature grammar.
+    /// </summary>
+    public static bool IsSafeAndCompleteToDecode(
+        MetadataReader reader,
+        BlobHandle signature,
+        Kind kind,
+        int maxDepth = DefaultMaxDepth)
+        => !signature.IsNil
+            && IsSafeAndCompleteToDecode(
+                reader.GetBlobReader(signature),
+                kind,
+                maxDepth);
 
     static bool ExceedsDepth(
         ref BlobReader blob,

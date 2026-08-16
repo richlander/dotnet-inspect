@@ -1,6 +1,5 @@
 using DotnetInspector.Models;
 using ILInspector.Findings;
-using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Inspectors;
@@ -18,26 +17,6 @@ namespace DotnetInspector.Inspectors;
 // which is where it will be deleted once L1 owns the queries.
 
 /// <summary>
-/// Method classification census, plus the three per-classification projections derived from it.
-/// All four come from one pass over the same classified-method list, so they are produced together;
-/// splitting them into separate scanners would re-walk the assembly three more times.
-/// </summary>
-internal readonly record struct ClassifiedMethodScan(
-    FindingInspection<ClassifiedMethodObservation> Inspection,
-    List<ClassifiedMethodSummary>? UnsafeMethods,
-    List<ClassifiedMethodSummary>? PInvokeMethods,
-    List<AsyncMethodSummary>? AsyncMethods)
-{
-    /// <summary>
-    /// The census alone, with no projections. Used on the failure path, where there is nothing to
-    /// project from.
-    /// </summary>
-    public static ClassifiedMethodScan FromInspectionOnly(
-        FindingInspection<ClassifiedMethodObservation> inspection)
-        => new(inspection, null, null, null);
-}
-
-/// <summary>
 /// Resource lifecycle findings, plus the actionable triage rows projected from them. The triage
 /// projection needs member drill coordinates, so it is computed here rather than by the view.
 /// </summary>
@@ -53,14 +32,6 @@ internal readonly record struct ResourceTriageScan(
 /// </summary>
 internal static class LibraryScanApply
 {
-    public static void Apply(this LibraryInspection inspection, ClassifiedMethodScan scan)
-    {
-        inspection.ClassifiedMethodInspection = scan.Inspection;
-        inspection.UnsafeMethods = scan.UnsafeMethods;
-        inspection.PInvokeMethods = scan.PInvokeMethods;
-        inspection.AsyncMethods = scan.AsyncMethods;
-    }
-
     public static void Apply(this LibraryInspection inspection, ResourceTriageScan scan)
     {
         inspection.ResourceLifecycleInspection = scan.Inspection;
