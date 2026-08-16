@@ -1073,6 +1073,7 @@ add to the step-4 plan:
    evidence. The migration also makes pinned `valid` → invalid and fully-raised
    → residual method transitions non-offsettable
    (`Compare_PinnedValidityLossCannotBeOffsetByGain` and
-   `Compare_PinnedFullyRaisedLossCannotBeOffsetByGain`). Baseline activation
-   waits for #4238 to restore the regressions exposed by the first attempted
-   migration rather than accepting them as the new floor.
+   `Compare_PinnedFullyRaisedLossCannotBeOffsetByGain`). #4238 restored the
+   regressions exposed by the first attempted migration before the schema-v6
+   baselines were activated, rather than accepting those regressions as the new
+   floor.
