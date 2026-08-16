@@ -29,6 +29,22 @@ public class LineLimitingTextWriterTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ZeroLineLimit_DiscardsEveryWrite(bool useWriteLine)
+    {
+        var output = new StringWriter();
+        var writer = new LineLimitingTextWriter(output, maxLines: 0);
+
+        if (useWriteLine)
+            writer.WriteLine("first");
+        else
+            writer.Write("first\n");
+
+        Assert.Empty(output.ToString());
+    }
+
+    [Theory]
     [InlineData("first\nsecond\nthird\n", "second\nthird\n")]
     [InlineData("first\r\nsecond\r\nthird\r\n", "second\r\nthird\r\n")]
     public void Tail_PreservesSelectedLineFramingWithoutDuplicatingCarriageReturns(

@@ -149,6 +149,9 @@ public class LibraryCommand
                     catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
                     listedCategoryDoors: pipeline.GetListedCategoryDoors(),
                     projection: options,
+                    rows: options.Rows,
+                    outputPath: options.OutputPath,
+                    applyLineWindow: options.Rows is null,
                     tabularExplicitlySet: options.Tabular);
             }
         }
@@ -2190,6 +2193,9 @@ public class LibraryCommand
             catalogHiddenSections: EffectiveCatalogHidden(pipeline),
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
             projection: options,
+            rows: options.Rows,
+            outputPath: options.OutputPath,
+            applyLineWindow: options.Rows is null,
             tabularExplicitlySet: options.Tabular);
         return Math.Max(
             discoveryExitCode,
@@ -2353,6 +2359,9 @@ public class LibraryCommand
             catalogHiddenSections: EffectiveCatalogHidden(pipeline),
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
             projection: options,
+            rows: options.Rows,
+            outputPath: options.OutputPath,
+            applyLineWindow: options.Rows is null,
             tabularExplicitlySet: options.Tabular);
     }
 

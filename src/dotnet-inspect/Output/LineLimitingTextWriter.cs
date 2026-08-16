@@ -17,6 +17,7 @@ internal sealed class LineLimitingTextWriter : TextWriter
     {
         _inner = inner;
         _maxLines = maxLines;
+        _limitReached = maxLines <= 0;
     }
 
     public override Encoding Encoding => _inner.Encoding;

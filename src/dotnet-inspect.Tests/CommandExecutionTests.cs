@@ -17691,6 +17691,33 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task PackageLibraryMode_DiscoveryHonorsOutputPathAndRowWindow()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        string outputPath = Path.Combine(tempDir, "library-discovery.jsonl");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library",
+                "-D", "--schema", "--jsonl",
+                "--rows", "1",
+                "--out", outputPath,
+                "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            Assert.Single(
+                File.ReadAllText(outputPath)
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("--urls", "selected section has no URL values")]
     [InlineData("--paths", "selected section has no path values")]
@@ -20143,6 +20170,9 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--jsonl");
+            var projected = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills",
+                "--jsonl", "--fields", "Package,Path,Size");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -20152,11 +20182,31 @@ public partial class CommandExecutionTests
             using var queryDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Skills.Query")));
             Assert.Equal("Test.Project.Skills.Query", queryDocument.RootElement.GetProperty("package").GetString());
             Assert.Equal("skills/query/SKILL.md", queryDocument.RootElement.GetProperty("path").GetString());
+            Assert.Equal(
+                JsonValueKind.Number,
+                queryDocument.RootElement.GetProperty("size").ValueKind);
             Assert.Equal("Query guidance", queryDocument.RootElement.GetProperty("name").GetString());
             Assert.Equal("Find APIs from restored dependencies.", queryDocument.RootElement.GetProperty("description").GetString());
 
             using var sourceDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Skills.Source")));
             Assert.Equal("skills/source/SKILL.md", sourceDocument.RootElement.GetProperty("path").GetString());
+
+            Assert.Equal(0, projected.Exit);
+            Assert.Empty(projected.Error);
+            foreach (string projectedRow in projected.Output.Split(
+                         '\n',
+                         StringSplitOptions.RemoveEmptyEntries))
+            {
+                using var document = JsonDocument.Parse(projectedRow);
+                JsonProperty[] properties =
+                    [.. document.RootElement.EnumerateObject()];
+                Assert.Equal(
+                    ["package", "path", "size"],
+                    properties.Select(property => property.Name));
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    properties[2].Value.ValueKind);
+            }
         }
         finally
         {
@@ -20542,6 +20592,40 @@ public partial class CommandExecutionTests
             Assert.Single(lines);
             using var document = JsonDocument.Parse(lines[0]);
             Assert.Equal("selected", document.RootElement.GetProperty("content").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_PrintRejectsTableFieldProjection()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Print.Fields",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [new ProjectSkillDoc(
+                    "skills/fields/SKILL.md",
+                    "---\nname: selected\n---\nbody")]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "--print",
+                "--fields", "Name");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "--fields/--columns cannot be combined with --print",
+                error);
         }
         finally
         {
@@ -21859,6 +21943,37 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, canonical.Exit);
             Assert.Equal(canonical, alias);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_PackageDocsJsonl_EmitsNumericSize()
+    {
+        const string id = "Test.Project.PackageDocs.Jsonl";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(id, "1.0.0", "README.md", "readme"));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package Docs",
+                "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(
+                Assert.Single(
+                    output.Split(
+                        '\n',
+                        StringSplitOptions.RemoveEmptyEntries)));
+            Assert.Equal(
+                JsonValueKind.Number,
+                document.RootElement.GetProperty("size").ValueKind);
         }
         finally
         {

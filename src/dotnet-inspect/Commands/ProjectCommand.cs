@@ -253,7 +253,8 @@ public class ProjectCommand
             string output = ProjectOutputFormatter.Render(
                 inspection,
                 options,
-                renderedSections);
+                renderedSections,
+                schema);
             WriteOutput(
                 output,
                 options.OutputPath,
@@ -347,6 +348,15 @@ public class ProjectCommand
             CommandError.Write(
                 "--rows cannot be combined with --print; "
                 + "use --row N|first|last to choose a printed row.");
+            return false;
+        }
+
+        if (options.Print
+            && (options.Columns is { Length: > 0 }
+                || options.Fields is { Length: > 0 }))
+        {
+            CommandError.Write(
+                "--fields/--columns cannot be combined with --print.");
             return false;
         }
 
@@ -719,6 +729,11 @@ public class ProjectCommand
                     MarkdownContent.ParseYamlFrontmatter(content);
                 frontmatter.TryGetValue("name", out string? skillName);
                 frontmatter.TryGetValue("description", out string? description);
+                contentStore.Add(
+                    ProjectSectionNames.Skills,
+                    file.PackageName,
+                    file.Path,
+                    file.FullPath);
                 skills.Add(new ProjectSkillData(
                     file.PackageName,
                     file.Version,
@@ -726,7 +741,7 @@ public class ProjectCommand
                     size,
                     skillName ?? "",
                     description ?? "",
-                    content));
+                    ""));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -789,13 +804,18 @@ public class ProjectCommand
                     MarkdownContent.ParseYamlFrontmatter(content);
                 frontmatter.TryGetValue("name", out string? name);
                 frontmatter.TryGetValue("description", out string? description);
+                contentStore.Add(
+                    ProjectSectionNames.AgentGuidance,
+                    dependency.PackageName,
+                    relativePath,
+                    fullPath);
                 guidance.Add(new ProjectAgentGuidanceData(
                     dependency.PackageName,
                     dependency.Version,
                     relativePath,
                     name ?? "",
                     description ?? "",
-                    content));
+                    ""));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
