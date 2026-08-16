@@ -408,11 +408,6 @@ public static class IrPasses
         // reconstructed `x++` would inline to an invalid `1++`; see the pass
         // doc and #2379 piece 1 census).
         new ExpressionInliningPass(slotsOnly: true),
-        // Collapse proof-backed synthetic slot copies (`S_dst = S_src`) that
-        // survive the slots-only inliner only because the use sits across
-        // control-flow blocks. This keeps copy carriers out of the printer's
-        // residual unifier while preserving the source slot's live value.
-        new StackSlotCopyPropagationPass(),
         // A decided in-domain slot (one testified type, all stores at it or
         // renderably coercible) is a finished variable: materialize it as a
         // typed local BEFORE insertion, so its minted locals are coerced at
@@ -423,9 +418,9 @@ public static class IrPasses
         // same operation as unbox.any T; normalize it to the universal value
         // cast so the printer spells (T)o and reserves the ref-only
         // Unsafe.Unbox<T> intrinsic for genuine ref/out/write places. This runs
-        // AFTER the final slot-collapsing passes (ExpressionInliningPass /
-        // StackSlotCopyPropagationPass): a spilled `ref T S = unbox o` slot only
-        // collapses to LoadIndirect(Unbox) once those inline it, so an earlier
+        // AFTER the final slots-only ExpressionInliningPass: a spilled
+        // `ref T S = unbox o` slot only collapses to LoadIndirect(Unbox) once
+        // that pass inlines it, so an earlier
         // run would leave that re-formed value read spelled as the CS0453
         // intrinsic. It stays BEFORE CoercionInsertionPass so the minted
         // UnboxAny value is coerced at its sink like any other.

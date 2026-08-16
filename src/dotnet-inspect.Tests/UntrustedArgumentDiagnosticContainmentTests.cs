@@ -271,11 +271,9 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
     /// inside a package archive.
     /// </summary>
     /// <remarks>
-    /// The --info view was cleared by one reviewer as carrying only counts and
-    /// durations. It also carries the readme path, which comes out of the
-    /// .nupkg, so a bidi override in an entry name reached stderr as raw bytes.
-    /// Two sink leaks in one round is why the sink set is now pinned by name
-    /// rather than reasoned about per review.
+    /// The Package Info scalar projection reads the declared readme path from
+    /// the .nupkg without rendering the package section that normally contains
+    /// it, so it independently gates that projection-only sink.
     /// </remarks>
     /// <remarks>
     /// Only the hazards XML 1.0 can carry are exercised. A nuspec holding
@@ -286,7 +284,7 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
     [InlineData(Bidi)]
     [InlineData(LineSeparator)]
     [InlineData(ParagraphSeparator)]
-    public void HostilePackageReadmePath_IsContainedInTheInfoView(string hazard)
+    public void HostilePackageReadmePath_IsContainedInTheValueProjection(string hazard)
     {
         string directory = Path.Combine(Path.GetTempPath(), "readme-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -308,11 +306,12 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
                 WriteEntry(archive, "lib/net8.0/Hostile.Readme.dll", "MZ");
             }
 
-            var (output, error) = RunCli(["package", package, "-S", "Package README file", "--print", "--info"]);
+            var (output, error) = RunCli(
+                ["package", package, "-S", "Package Info", "--fields", "Readme", "--value", "--info"]);
             string combined = output + error;
 
-            HostileOutputAssert.MarkersRendered(combined, "info-readme", "INJECTEDREADME");
-            HostileOutputAssert.NoRenderingHazard(combined, "info-readme");
+            HostileOutputAssert.MarkersRendered(combined, "value-readme", "INJECTEDREADME");
+            HostileOutputAssert.NoRenderingHazard(combined, "value-readme");
             HostileOutputAssert.NoLineSplit(combined, "INJECTEDREADME");
         }
         finally

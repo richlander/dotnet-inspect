@@ -21,8 +21,16 @@ public class CommandContext
     /// Creates a new command context with the specified verbosity.
     /// </summary>
     public CommandContext(bool verbose)
+        : this(verbose, HttpClientFactory.Shared)
+    {
+    }
+
+    internal CommandContext(
+        bool verbose,
+        HttpClient httpClient)
     {
         Logger = new VerboseLogger(verbose);
-        HttpClient = HttpClientFactory.Shared;
+        HttpClient = httpClient
+            ?? throw new ArgumentNullException(nameof(httpClient));
     }
 }
