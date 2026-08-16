@@ -13769,29 +13769,30 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_IlOffsetsFile_PrefersExactOperationIdentity()
     {
-        static (int Token, int Offset) Coordinate(Type type, string methodName, byte opcode)
+        static (int Token, int Offset) Coordinate(Type type, string methodName, ILOpCode opcode)
         {
             var method = type.GetMethod(
                 methodName,
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly)!;
-            var il = method.GetMethodBody()!.GetILAsByteArray()!;
-            var offset = Array.IndexOf(il, opcode);
-            Assert.True(offset >= 0, $"opcode 0x{opcode:X2} not found in {methodName}");
-            return (method.MetadataToken, offset);
+            var instruction = InstructionDecoder
+                .Decode(method.GetMethodBody()!.GetILAsByteArray()!)
+                .FirstOrDefault(candidate => candidate.OpCode == opcode);
+            Assert.NotNull(instruction);
+            return (method.MetadataToken, instruction.Offset);
         }
 
         var (allSignalsToken, virtualCallOffset) = Coordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x6F);
+            ILOpCode.Callvirt);
         var (_, allocationOffset) = Coordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x8D);
+            ILOpCode.Newarr);
         var (unsafeToken, unsafeCallOffset) = Coordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.UnsafeAs),
-            0x28);
+            ILOpCode.Call);
 
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllLinesAsync(
