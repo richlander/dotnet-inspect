@@ -1461,7 +1461,8 @@ public class PrintedBodyMapTests
             Assert.True(
                 property.PropertyType == typeof(string)
                     || property.PropertyType == typeof(int)
-                    || property.PropertyType == typeof(PrintedExtent));
+                    || property.PropertyType == typeof(PrintedExtent)
+                    || property.PropertyType == typeof(AnnotatedSourceNodeProvenance));
 
         // Enums are permitted: they carry no reference and serialise by value.
         foreach (var property in typeof(PrintedAnnotationSpan).GetProperties())
@@ -1908,6 +1909,41 @@ public class PrintedBodyMapTests
             [],
             [],
             []));
+    }
+
+    [Fact]
+    public void AnnotatedSourceDocumentSourceRejectsTextThatCannotHashOrReplayExactly()
+    {
+        static AnnotatedSourceDocumentSource Make(string assemblyName, string subject)
+            => new(
+                assemblyName,
+                Guid.Parse("11111111-2222-3333-4444-555555555555"),
+                0x06000001,
+                new string('A', 64),
+                subject);
+
+        var assembly = Assert.Throws<ArgumentException>(() => Make("\ud800", "Fixture.M"));
+        Assert.Equal("AssemblyName", assembly.ParamName);
+        Assert.Contains("U+D800", assembly.Message, StringComparison.Ordinal);
+
+        var subject = Assert.Throws<ArgumentException>(() => Make("Fixture", "\udc00"));
+        Assert.Equal("Subject", subject.ParamName);
+        Assert.Contains("U+DC00", subject.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnnotatedSourceDocumentSourceRejectsMissingPhysicalModuleIdentity()
+    {
+        var error = Assert.Throws<ArgumentException>(() =>
+            new AnnotatedSourceDocumentSource(
+                "Fixture",
+                Guid.Empty,
+                0x06000001,
+                new string('A', 64),
+                "Fixture.M"));
+
+        Assert.Equal("ModuleVersionId", error.ParamName);
+        Assert.Contains("non-empty MVID", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
