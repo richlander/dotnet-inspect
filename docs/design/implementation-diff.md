@@ -86,9 +86,11 @@ overlays and compact rich-diff rows. For a changed single-span node, each caret
 annotation reads the exact counterpart text from the already-corresponded
 document and names it as `changed to` or `changed from`. Text remains
 presentation evidence and never participates in identity. Multiline,
-multi-span, long, display-unsafe, and whitespace-lossy transitions use the
+multi-span, long, ill-formed UTF-16, and whitespace-lossy transitions use the
 bounded `text changed` label symmetrically rather than allocating or injecting
-unbounded or inexact text into an annotation. It performs no correspondence.
+unbounded or inexact text into an annotation. A display-unsafe counterpart also
+uses that fallback; rendering a document whose own source is display-unsafe
+remains rejected by the existing safety gate. It performs no correspondence.
 `CSharpStructuralComparisonTests.RenderAnnotatedBody_WrappedExactTransitionReconstructsCounterpart`
 gates the lossless wrapped-text claim.
 The DecompilerHarness `--structural-review before.json after.json` mode owns

@@ -271,7 +271,7 @@ public class CSharpStructuralComparisonTests
             CSharpStructuralSide.Before);
 
         Assert.Contains("raise: InvocationExpression; text changed", beforeBody, StringComparison.Ordinal);
-        Assert.DoesNotContain('\uFFFD', beforeBody);
+        Assert.DoesNotContain('\uD83D', beforeBody);
     }
 
     [Fact]
@@ -295,6 +295,8 @@ public class CSharpStructuralComparisonTests
             CSharpStructuralSide.Before);
         string actual = ReconstructAnnotation(beforeBody, "raise: InvocationExpression");
 
+        Assert.True(beforeBody.Split('\n').Count(line =>
+            line.StartsWith("//", StringComparison.Ordinal)) > 1);
         Assert.Equal($"raise: InvocationExpression; changed to {afterInvocation}", actual);
     }
 
