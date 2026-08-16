@@ -4,6 +4,7 @@ import {
   callGraphTargetTypeId,
   createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
+  dependencyCoordinateCandidates,
   dependencyGroupSelectionMessage,
   dependencyGraphGroupSelectionIndex,
   dependencyGraphExternalKey,
@@ -33,12 +34,11 @@ import {
   spotlightCandidateKey,
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
-  uniqueCompatiblePackage,
   workspaceCoordinatesMatch
 } from "./data.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { dependencyVersionSatisfies, initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectListStyleTiers, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPackageVersions, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource, resolveDependencyVersion } from "/engine.js";
+import { initializeEngine, inspectBuildIdentity, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectListStyleTiers, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPackageVersions, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource, matchPackageDependencyCoordinate, resolveDependencyVersion } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -232,7 +232,8 @@ const state = {
   errorTitle: "",
   errorDetail: "",
   retryAction: null,
-  diag: null
+  diag: null,
+  buildIdentity: null
 };
 
 const nav = { stack: [], index: -1 };
@@ -1315,6 +1316,7 @@ function render() {
           </article>
           <footer class="statusbar">
             <span class="ready-dot"></span><span>browser wasm ready</span>
+            ${buildIdentityHtml()}
             ${state.diag ? `
             <span class="diag" title="Framework assets fetched over the wire — compressed → uncompressed, across ${state.diag.assets} files">↓ download ${fmtMs(state.diag.downloadMs)} · ${fmtBytes(state.diag.transfer)}${state.diag.decoded ? ` → ${fmtBytes(state.diag.decoded)}` : ""}</span>
             <span class="diag" title="Runtime instantiation after assets arrived: WASM compile + module init + runMain">⚙ startup ${fmtMs(state.diag.startupMs)}</span>
@@ -1621,6 +1623,16 @@ function assemblyReferencesSectionHtml(data) {
     </section>`;
 }
 
+function uniqueCompatiblePackage(packages, packageId, declaredRange) {
+  const match = matchPackageDependencyCoordinate(
+    packageId,
+    declaredRange,
+    dependencyCoordinateCandidates(packages));
+  if (match.outcome !== "Unique") return null;
+  return packages.find(candidate =>
+    packageIdentityKey(candidate) === match.candidateKey) || null;
+}
+
 // The NuGet dependency list for the selected TFM. Extracted so a framework switch can
 // replace just this section in place instead of re-rendering the whole page (which would
 // reset the dependency graph container to its loader and flash the diagram).
@@ -1635,8 +1647,7 @@ function dependencyListSectionHtml(groups, selectedGroupIndex) {
             const open = uniqueCompatiblePackage(
               state.packages,
               dependency.id,
-              dependency.versionRange,
-              dependencyVersionSatisfies);
+              dependency.versionRange);
             const attrs = open
               ? `data-dep-open="${escapeHtml(packageIdentityKey(open))}" title="Switch to ${escapeHtml(dependency.id)}"`
               : `data-dep-load="${escapeHtml(dependency.id)}" data-dep-version="${escapeHtml(dependency.versionRange || "")}" title="Open ${escapeHtml(dependency.id)} in a new tab"`;
@@ -5630,6 +5641,7 @@ function renderHomeView() {
       </main>
       <footer class="home-foot">
         <span class="ready-dot"></span><span>browser wasm ready</span>
+        ${buildIdentityHtml()}
         ${state.diag ? `<span class="diag">⚙ ready in ${fmtMs(state.diag.totalMs)}</span>` : ""}
       </footer>
     </div>`;
@@ -6269,8 +6281,7 @@ function buildDependencyGraphMermaid() {
     const open = uniqueCompatiblePackage(
       state.packages,
       dependency.id,
-      dependency.versionRange,
-      dependencyVersionSatisfies);
+      dependency.versionRange);
     if (open) return openPackageNode(open);
 
     const versionRange = dependency.versionRange || "";
@@ -6366,8 +6377,7 @@ function buildDependencyGraphMermaid() {
           packageIdentityKey(uniqueCompatiblePackage(
             state.packages,
             dependency.id,
-            dependency.versionRange,
-            dependencyVersionSatisfies)) === target.packageKey)) {
+            dependency.versionRange)) === target.packageKey)) {
           const caller = openPackageNode(pkg);
             if (!caller) break;
             addEdge(caller, target);
@@ -6516,8 +6526,7 @@ async function openDependencyPackage(packageId, versionRange) {
   const existing = uniqueCompatiblePackage(
     state.packages,
     packageId,
-    versionRange,
-    dependencyVersionSatisfies);
+    versionRange);
   if (existing) {
     switchToPackageForDependencies(packageIdentityKey(existing));
     return;
@@ -8165,6 +8174,7 @@ async function bootstrap() {
       state.loadingMessage = message;
       render();
     });
+    state.buildIdentity = inspectBuildIdentity();
     const tEngine = performance.now();
     try {
       [state.styleTiers, state.styleOptions] = await Promise.all([
@@ -8225,6 +8235,31 @@ function computeDiagnostics(tStart, tEngine, tReady) {
 function fmtMs(ms) {
   if (ms == null) return "—";
   return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`;
+}
+
+function buildIdentityHtml() {
+  const identity = state.buildIdentity;
+  if (!identity?.version) return "";
+
+  const commit = identity.commit || "";
+  const shortCommit = commit.slice(0, 7);
+  const commitHtml = identity.commitUrl && shortCommit
+    ? `<a href="${escapeHtml(identity.commitUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortCommit)}</a>`
+    : escapeHtml(shortCommit);
+  const parsedTimestamp = Date.parse(identity.builtAtUtc || "");
+  const builtAt = Number.isFinite(parsedTimestamp)
+    ? new Date(parsedTimestamp).toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "medium",
+        timeZone: "UTC"
+      })
+    : "";
+  const title = [
+    `dotnet-inspect ${identity.version}`,
+    commit ? `commit ${commit}` : "",
+    builtAt ? `built ${builtAt} UTC` : ""
+  ].filter(Boolean).join(" · ");
+  return `<span class="build-identity" title="${escapeHtml(title)}">v${escapeHtml(identity.version)}${shortCommit ? ` · ${commitHtml}` : ""}${builtAt ? ` · built ${escapeHtml(builtAt)} UTC` : ""}</span>`;
 }
 
 function refreshPackageStats() {

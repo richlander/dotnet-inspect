@@ -419,6 +419,31 @@ The coverage is not yet complete, and the gaps are on the feed path specifically
 source-generated context that does not reject duplicates. `runfaster` also still parses its trace
 inputs directly. Nothing gates the invariant, which is why the gaps persisted; see open work below.
 
+### NuGet metadata response bodies are bounded
+
+NuGetFetch reads service indexes, version indexes, and search responses headers-first, rejects an
+advertised `Content-Length` above the configured ceiling, and counts the bytes actually consumed
+when the length is absent or false. The default ceiling is 16 MiB. A separate body-phase timeout
+defaults to 30 seconds and never exceeds a shorter configured `HttpClient.Timeout`, because that
+client timeout stops applying once a headers-first request returns. Metadata requests also require
+Browser/Wasm streaming-response mode so the browser transport cannot buffer an unbounded body
+before the counting stream sees it.
+
+Oversize and body-timeout failures have dedicated exception types. They are not represented as
+`JsonException`, `HttpRequestException`, a null document, or an empty result, so existing malformed
+JSON handling and multi-source fallback cannot turn a resource-limit failure into success-shaped
+output. Direct `NuGetApi` stream consumers pass through the same bounded reader. Package payload
+streams (`.nupkg` and `.snupkg`) are deliberately excluded; their larger download policy belongs to
+the acquisition layer.
+
+This is gated by
+`NuGetMetadataLimitTests.Search_AdvertisedOversizeRejectsBeforeReadingTheBody`,
+`NuGetMetadataLimitTests.Search_UnderreportedLengthCannotBypassTheActualByteLimit`,
+`NuGetMetadataLimitTests.MetadataGets_RequestBrowserStreaming`,
+`NuGetMetadataLimitTests.StalledBodyUsesTheBodyPhaseTimeout`,
+`NuGetMetadataLimitTests.DirectNuGetApiReadersUseTheDefaultLimit`, and
+`NuGetMetadataLimitTests.PackagePayloadIsNotSubjectToTheMetadataLimit`.
+
 ### SourceLink provenance is read off the URL source is fetched from
 
 SourceLink map presence is not reported as successful usability. The
@@ -987,6 +1012,118 @@ structure and must not interpret inspected text as authority.
 > is deliberate — containment is a safety property the library owes every
 > caller, while refusing is a policy only a caller can choose — but it means the
 > trust axis currently exists only where a command line can express it.
+
+The package inspection path now has the enabling boundary and a bounded audit
+summary, but not the refusal policy:
+`PackageInspectionText` carries every package-model text field to Markdown,
+direct JSON, and focused package table/JSONL metadata as `InertString`;
+content-output rows do the same for their package, version, and path framing.
+`InspectionResultView.RequiredContainment` reports the inspection model's
+aggregate before a sink unwraps it, and package `Signals` reports whether that
+aggregate is empty plus its `TextConcern` category kinds. The explicit
+`Audit: Artifact Text` section lists package-model field locations and concern
+kinds, but never the field values. It is not the scalar-by-scalar refusal survey
+mode described below: it reports one row per contained presentation field and
+does not change rendering policy. Explicit document payloads remain raw by
+contract. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`
+and `Package_MultiplePackages_SignalsIncludePackageFileConcerns` gate the
+summary across single-package and survey modes;
+`PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gates the
+detail reporting boundary. This is intentionally not a global CLI signal.
+Other commands and projections still have their own presentation models, so
+adopting the flags at the root today would claim coverage they do not have.
+
+Identifier confusion is a separate semantic risk from rendering. Package IDs
+and assembly names containing non-ASCII characters remain safe to carry as
+graphic text, so `TextConcern` correctly stays empty. Package Signals and
+library Signals over the selected assembly plus direct references nevertheless
+report those identifiers for review, and a bounded exact homoglyph fold
+confirms Greek/Cyrillic lookalikes in the ecosystem prefixes `System`,
+`Microsoft`, and `Azure`. The explicit library
+`Audit: Identifier Confusion` section additionally resolves the transitive
+reference closure; the unbounded traversal requires that explicit gesture. The
+section exposes model locations, classifications, matched prefixes, similarity,
+and code points without echoing identifier content.
+`IdentifierConfusionDetectorTests` gates the detector boundary, including
+monotone classification when several confirmed homoglyphs compose one reserved
+prefix,
+`DescribeCharacters_DeduplicatesRepeatedHomoglyphCodePoints` gates stable
+code-point rendering when one substitution occurs more than once,
+`LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames`
+gates the direct library producer demand,
+`PackageAllLibrariesIdentifierConfusionAudit_CollectsTransitiveReferences`
+gates survey-mode demand,
+`LibraryIdentifierConfusionAudit_FullEffectiveDiscoveryIncludesTransitiveOnlyConcern`
+gates full-effective discovery,
+`LibrarySignals_FullEffectiveDiscoveryPropagatesReferenceFailure`
+gates nonzero failure propagation through Signals effective discovery,
+`LibraryIdentifierConfusionAudit_DoesNotRepeatDirectReferenceFromClosure`
+gates direct/closure identity deduplication,
+`LibraryAudit_PreservesCaseDistinctResolvedNames` gates case-distinct
+direct/closure suppression, while
+`LibraryIdentifierConfusionAudit_PreservesCaseDistinctUnresolvedReferences`
+gates preservation of those spellings through traversal,
+`LibraryIdentifierConfusionAudit_DeduplicatesDiamondClosure` gates one
+projection row per resolved identity when several reference paths converge,
+`AssemblyReferenceTreeResolutionTests.DistinctSameNameReferences_DoNotSuppressResolvableIdentity`
+gates distinct typed AssemblyRefs that share a simple name,
+`LibraryIdentifierConfusionAudit_FailsWhenResolvedReferenceCannotBeRead`
+gates visible traversal failure for absolute and bare relative library paths,
+including preservation of the other selected `@Audit` sections,
+`LibraryPackageIdentifierConfusionAudit_FailsWithoutPartialDocument` gates the
+same content-free hard failure for an exact package-backed library selection,
+`PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
+gates clean diagnostics, healthy partial results, and nonzero completion for
+survey-mode traversal failure,
+`LibraryCommand_TfmAll_PreservesHealthyIdentifierAuditResults` gates the same
+per-source outcome contract across target frameworks, and
+`LibraryIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
+plus
+`PackageAllLibrariesIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
+gate visible root AssemblyRef decode failure without a success-shaped clean
+result. Traversal diagnostics retain caller-known command context, while survey
+warnings identify the package-relative library and a bounded failure category;
+neither repeats the AssemblyRef value, product-owned extraction path, or inner
+exception message.
+`LibraryReferenceTree_ReadFailureDiagnosticIsContentFree` gates that same
+diagnostic contract on the public reference-tree projection.
+`PackagePipeline_IdentifierConfusionAudit_DemandsRegistrationMetadata` plus
+`InspectAsync_IdentifierAuditMetadataIncludesAlternatePackageId` gate the
+alternate-package metadata demand, producer result, and moderated network
+cost. `InspectAsync_IdentifierAuditMetadataFailureRemainsVisible` gates an
+`Unavailable` result when registry acquisition cannot establish
+alternate-package metadata; a failed acquisition is not interpreted as an
+absent alternate ID.
+`FetchAllMetadataAsync_FlatContainerOnlyCompletesOptionalMetadata` and
+`PackageCommand_FlatContainerOnlyPreservesLocalIdentifierDetection` gate the
+complement: absence of optional deprecation resources in a valid service index
+is not an acquisition failure.
+`FetchAllMetadataAsync_SearchDeprecationMustMatchRequestedVersion` gates
+version-specific authority for search deprecation metadata;
+`FetchAllMetadataAsync_DoesNotCacheMismatchedSearchVersion` gates retry after
+that mismatch, while
+`FetchAllMetadataAsync_CachesMatchingSearchVersionWithoutDeprecation` and
+`FetchAllMetadataAsync_CachesCatalogAuthorityDespiteSearchVersionMismatch`
+gate authoritative absence and catalog precedence;
+`FetchAllMetadataAsync_DoesNotCacheMismatchedInlineCatalogIdentity` and
+`FetchAllMetadataAsync_DoesNotCacheMismatchedFetchedCatalogIdentity` gate the
+same identity and retry contract for both catalog forms; and
+`FetchAllMetadataAsync_IgnoresMalformedCatalogReference` gates retry after a
+malformed catalog reference.
+`PackageCommand_IdentifierMetadataFailureIsNonzero` gates nonzero completion
+and content-free diagnostics for that failure.
+`MultiPackageCount_CountsSelectedAuditRows` gates scalar counts against the
+selected audit rows rather than unrelated package-info fields;
+`MultiPackageCount_PreservesSelectedSectionMap` plus
+`MultiPackageCount_PreservesFixedOverviewMap` gate multi-section count maps;
+`Package_MultiplePackages_FixedOverviewCountPopulatesSections` gates the
+command path that supplies those fixed-overview sections;
+`LibraryPackageSignals_FullEffectiveDiscoveryWarnsOnce` gates one diagnostic
+per package effective-discovery failure;
+`LibraryCommand_SelectedReferences_TreeDedupUsesShallowestPath` gates
+minimum-depth canonicalization under a bounded reference traversal; and
+`PackageIdentifierConfusionAudit_ListsClassificationWithoutIdentifierContent`
+gates content-free Markdown and structured output.
 
 Presentation is **two orthogonal decisions**, and collapsing them into one flag
 is a design error.

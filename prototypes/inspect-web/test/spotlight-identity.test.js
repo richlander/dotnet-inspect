@@ -9,6 +9,7 @@ import {
   callGraphTargetTypeId,
   createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
+  dependencyCoordinateCandidates,
   dependencyGroupSelectionMessage,
   dependencyGraphGroupSelectionIndex,
   dependencyGraphExternalKey,
@@ -36,7 +37,6 @@ import {
   spotlightCandidateKey,
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
-  uniqueCompatiblePackage,
   workspaceCoordinatesMatch
 } from "../src/data.js";
 
@@ -47,42 +47,32 @@ const packageAt = (version, framework, types = 1) => ({
   types: Array.from({ length: types }, (_, index) => ({ id: `Type${index}` }))
 });
 
-test("dependency coordinates require one compatible open package", () => {
-  const packages = [
-    packageAt("1.0.0", "net8.0"),
-    packageAt("2.0.0", "net8.0"),
-    packageAt("2.0.0", "net9.0")
-  ];
-  const satisfies = (version, range) =>
-    range === "2.*" ? version.startsWith("2.") : version === range;
-
-  assert.equal(
-    uniqueCompatiblePackage(packages, "example.package", "1.0.0", satisfies),
-    packages[0]);
-  assert.equal(
-    uniqueCompatiblePackage(packages, "Example.Package", "2.*", satisfies),
-    null);
-  assert.equal(
-    uniqueCompatiblePackage(packages, "Example.Package", "3.0.0", satisfies),
-    null);
-});
-
-test("runtime pseudo-packages do not satisfy NuGet dependency coordinates", () => {
-  const runtimePack = {
+test("dependency candidates carry typed package provenance to the product engine", () => {
+  const packageCandidate = packageAt("2.0.0", "net8.0");
+  const runtimeCandidate = {
     ...packageAt("10.0.10", "net10.0"),
     id: "Microsoft.NETCore.App",
     isRuntimePack: true
   };
-  const satisfies = (version, minimum) =>
-    version.localeCompare(minimum, undefined, { numeric: true }) >= 0;
 
-  assert.equal(
-    uniqueCompatiblePackage(
-      [runtimePack],
-      "Microsoft.NETCore.App",
-      "1.0.5",
-      satisfies),
-    null);
+  assert.deepEqual(
+    dependencyCoordinateCandidates([packageCandidate, runtimeCandidate]),
+    [
+      {
+        key: packageIdentityKey(packageCandidate),
+        provenance: "NuGetPackage",
+        packageId: "Example.Package",
+        version: "2.0.0",
+        targetFramework: "net8.0"
+      },
+      {
+        key: packageIdentityKey(runtimeCandidate),
+        provenance: "PlatformRuntime",
+        packageId: "Microsoft.NETCore.App",
+        version: "10.0.10",
+        targetFramework: "net10.0"
+      }
+    ]);
 });
 
 test("dependency graph keys preserve complete coordinates and declared ranges", () => {
@@ -117,6 +107,12 @@ test("dependency graph node insertion is bounded", () => {
 });
 
 const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+const engineSource = readFileSync(
+  new URL("../engine/wwwroot/engine.js", import.meta.url),
+  "utf8");
+const deploySource = readFileSync(
+  new URL("../../../.github/workflows/deploy-inspect-web.yml", import.meta.url),
+  "utf8");
 
 test("dependency graph render identity includes truncation and navigation", () => {
   const graph = {
@@ -150,6 +146,34 @@ test("dependency graph render identity includes truncation and navigation", () =
         }
       ]])
     }));
+});
+
+test("ready status shows versioned linked build provenance", () => {
+  assert.match(appSource, /state\.buildIdentity = inspectBuildIdentity\(\)/);
+  assert.match(
+    appSource,
+    /class="statusbar"[\s\S]{0,200}\$\{buildIdentityHtml\(\)\}/);
+  assert.match(
+    appSource,
+    /class="home-foot"[\s\S]{0,200}\$\{buildIdentityHtml\(\)\}/);
+  assert.match(
+    appSource,
+    /identity\.commitUrl[\s\S]*target="_blank" rel="noopener noreferrer"/);
+  assert.match(appSource, /built \$\{escapeHtml\(builtAt\)\} UTC/);
+  assert.match(
+    deploySource,
+    /-getProperty:VersionPrefix[\s\S]*-p:VersionPrefix="\$version"[\s\S]*-p:SourceRevisionId="\$GITHUB_SHA"[\s\S]*-p:BuildTimestampUtc="\$built_at"/);
+});
+
+test("all dependency navigation paths use one product-owned coordinate matcher", () => {
+  assert.equal(
+    [...appSource.matchAll(/uniqueCompatiblePackage\(/g)].length,
+    5);
+  assert.match(
+    engineSource,
+    /MatchPackageDependencyCoordinate[\s\S]*JSON\.stringify\(candidates\)/);
+  assert.doesNotMatch(engineSource, /PackageVersionSatisfiesDependencyRange/);
+  assert.doesNotMatch(appSource, /dependencyVersionSatisfies/);
 });
 
 test("empty dependency graph invalidates an in-flight render", () => {
@@ -208,7 +232,11 @@ test("dependency navigation reserves identity and surfaces resolution failures",
     /if \(navigationSeq !== state\.navigationSeq\) return;\s+state\.loading = false;\s+appendQueryNotice/);
   assert.match(
     appSource,
-    /packageIdentityKey\(uniqueCompatiblePackage\(\s+state\.packages,\s+dependency\.id,\s+dependency\.versionRange,\s+dependencyVersionSatisfies\)\) === target\.packageKey/);
+    /packageIdentityKey\(uniqueCompatiblePackage\(\s+state\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
+  assert.match(
+    appSource,
+    /matchPackageDependencyCoordinate\(\s+packageId,\s+declaredRange,\s+dependencyCoordinateCandidates\(packages\)\)/);
+  assert.doesNotMatch(appSource, /dependencyVersionSatisfies/);
 });
 
 test("spotlight candidate identity includes version and framework", () => {
