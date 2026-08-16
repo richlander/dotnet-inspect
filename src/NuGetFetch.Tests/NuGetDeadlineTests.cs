@@ -114,7 +114,7 @@ public sealed class NuGetDeadlineTests
                     versionLookupStarted.TrySetResult();
                 await Task.Delay(
                     currentRequest == 1
-                        ? TimeSpan.FromMilliseconds(100)
+                        ? TimeSpan.FromMilliseconds(1200)
                         : Timeout.InfiniteTimeSpan,
                     cancellationToken);
                 return JsonResponse(
@@ -147,7 +147,10 @@ public sealed class NuGetDeadlineTests
 
         NuGetOperationTimeoutException error =
             await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
-                () => versions);
+                async () =>
+                    _ = await versions.WaitAsync(
+                        TimeSpan.FromMilliseconds(1200),
+                        TestContext.Current.CancellationToken));
 
         Assert.Equal(TimeSpan.FromSeconds(2), error.Timeout);
         Assert.Equal(2, request);
@@ -215,12 +218,51 @@ public sealed class NuGetDeadlineTests
     [Fact]
     public async Task RequestDeadline_BoundsSynchronousPackageStreamConsumption()
     {
+        var stallingStream = new DisposeAwareStallingStream();
         using var client = new HttpClient(new DelayedHandler(
-            static (message, _) =>
+            (message, _) =>
                 Task.FromResult(
                     StreamResponse(
                         message,
-                        new DisposeAwareStallingStream()))));
+                        stallingStream))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(500),
+                operation: TimeSpan.FromSeconds(2)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        byte[] buffer = new byte[1];
+        Task<int> read = Task.Run(
+            () => package.Read(buffer, 0, buffer.Length),
+            TestContext.Current.CancellationToken);
+        await stallingStream.ReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                async () =>
+                    _ = await read.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(500), error.Timeout);
+    }
+
+    [Fact]
+    public async Task RequestDeadline_TranslatesHttpRequestAbort()
+    {
+        var abortStream = new HttpRequestAbortStream();
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(
+                    StreamResponse(
+                        message,
+                        abortStream))));
         var nuget = new NuGetClient(
             client,
             Options(
@@ -232,8 +274,12 @@ public sealed class NuGetDeadlineTests
             "1.0.0",
             cancellationToken: TestContext.Current.CancellationToken);
         byte[] buffer = new byte[1];
-        Task<int> read = Task.Run(
-            () => package.Read(buffer, 0, buffer.Length),
+        Task<int> read = package.ReadAsync(
+                buffer,
+                TestContext.Current.CancellationToken)
+            .AsTask();
+        await abortStream.ReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
             TestContext.Current.CancellationToken);
 
         NuGetRequestTimeoutException error =
@@ -247,52 +293,20 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
-    public async Task RequestDeadline_TranslatesHttpRequestAbort()
-    {
-        using var client = new HttpClient(new DelayedHandler(
-            static (message, _) =>
-                Task.FromResult(
-                    StreamResponse(
-                        message,
-                        new HttpRequestAbortStream()))));
-        var nuget = new NuGetClient(
-            client,
-            Options(
-                request: TimeSpan.FromMilliseconds(40),
-                operation: TimeSpan.FromSeconds(1)));
-
-        await using Stream package = await nuget.DownloadAsync(
-            "package",
-            "1.0.0",
-            cancellationToken: TestContext.Current.CancellationToken);
-
-        NuGetRequestTimeoutException error =
-            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
-                async () =>
-                {
-                    byte[] buffer = new byte[1];
-                    _ = await package.ReadAsync(
-                        buffer,
-                        TestContext.Current.CancellationToken);
-                });
-
-        Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
-    }
-
-    [Fact]
     public async Task RequestDeadline_TranslatesSynchronousHttpRequestAbort()
     {
+        var abortStream = new HttpRequestAbortStream();
         using var client = new HttpClient(new DelayedHandler(
-            static (message, _) =>
+            (message, _) =>
                 Task.FromResult(
                     StreamResponse(
                         message,
-                        new HttpRequestAbortStream()))));
+                        abortStream))));
         var nuget = new NuGetClient(
             client,
             Options(
-                request: TimeSpan.FromMilliseconds(40),
-                operation: TimeSpan.FromSeconds(1)));
+                request: TimeSpan.FromMilliseconds(500),
+                operation: TimeSpan.FromSeconds(2)));
 
         await using Stream package = await nuget.DownloadAsync(
             "package",
@@ -302,12 +316,18 @@ public sealed class NuGetDeadlineTests
         Task<int> read = Task.Run(
             () => package.Read(buffer, 0, buffer.Length),
             TestContext.Current.CancellationToken);
+        await abortStream.ReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
 
         NuGetRequestTimeoutException error =
             await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
-                async () => _ = await read);
+                async () =>
+                    _ = await read.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
 
-        Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+        Assert.Equal(TimeSpan.FromMilliseconds(500), error.Timeout);
     }
 
     [Fact]
@@ -578,14 +598,18 @@ public sealed class NuGetDeadlineTests
     {
         var stallingStream = new SignalingStallingStream();
         using var client = new HttpClient(new DelayedHandler(
-            (message, _) =>
-                Task.FromResult(
-                StreamResponse(message, stallingStream))));
+            async (message, cancellationToken) =>
+            {
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(600),
+                    cancellationToken);
+                return StreamResponse(message, stallingStream);
+            }));
         var nuget = new NuGetClient(
             client,
             Options(
                 request: TimeSpan.FromSeconds(5),
-                operation: TimeSpan.FromMilliseconds(500)));
+                operation: TimeSpan.FromSeconds(1)));
 
         await using Stream package = await nuget.DownloadAsync(
             "package",
@@ -604,10 +628,10 @@ public sealed class NuGetDeadlineTests
             await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
                 async () =>
                     _ = await read.WaitAsync(
-                        TimeSpan.FromSeconds(2),
+                        TimeSpan.FromMilliseconds(700),
                         TestContext.Current.CancellationToken));
 
-        Assert.Equal(TimeSpan.FromMilliseconds(500), error.Timeout);
+        Assert.Equal(TimeSpan.FromSeconds(1), error.Timeout);
     }
 
     [Fact]
@@ -647,12 +671,13 @@ public sealed class NuGetDeadlineTests
     [Fact]
     public async Task SynchronousPackageCallerCancellation_RemainsCancellation()
     {
+        var stallingStream = new DisposeAwareStallingStream();
         using var client = new HttpClient(new DelayedHandler(
-            static (message, _) =>
+            (message, _) =>
                 Task.FromResult(
                     StreamResponse(
                         message,
-                        new DisposeAwareStallingStream()))));
+                        stallingStream))));
         var nuget = new NuGetClient(
             client,
             Options(
@@ -668,11 +693,17 @@ public sealed class NuGetDeadlineTests
         Task<int> read = Task.Run(
             () => package.Read(buffer, 0, buffer.Length),
             TestContext.Current.CancellationToken);
+        await stallingStream.ReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
         cancellation.Cancel();
 
         OperationCanceledException error =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                async () => _ = await read);
+                async () =>
+                    _ = await read.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
 
         Assert.Equal(cancellation.Token, error.CancellationToken);
         Assert.IsNotType<NuGetRequestTimeoutException>(error);
@@ -824,6 +855,8 @@ public sealed class NuGetDeadlineTests
     {
         private readonly TaskCompletionSource _disposed =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _readStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public override bool CanRead => true;
         public override bool CanSeek => false;
@@ -835,8 +868,11 @@ public sealed class NuGetDeadlineTests
             set => throw new NotSupportedException();
         }
 
+        public Task ReadStarted => _readStarted.Task;
+
         public override int Read(byte[] buffer, int offset, int count)
         {
+            _readStarted.TrySetResult();
             _disposed.Task.GetAwaiter().GetResult();
             throw new HttpRequestException("Simulated HTTP stream abort.");
         }
@@ -845,6 +881,7 @@ public sealed class NuGetDeadlineTests
             Memory<byte> buffer,
             CancellationToken cancellationToken = default)
         {
+            _readStarted.TrySetResult();
             await _disposed.Task;
             throw new HttpRequestException("Simulated HTTP stream abort.");
         }
