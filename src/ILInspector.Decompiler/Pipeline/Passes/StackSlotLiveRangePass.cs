@@ -75,7 +75,7 @@ public sealed class StackSlotLiveRangePass : IIrPass
             return false;
 
         var blocks = function.Body.Blocks;
-        if (HasUnmodeledControlTransfer(blocks))
+        if (!HasUniqueBlockOffsets(blocks) || HasUnmodeledControlTransfer(blocks))
             return false;
 
         var edges = Cfg.Build(blocks);
@@ -227,6 +227,9 @@ public sealed class StackSlotLiveRangePass : IIrPass
             block.Children.SkipLast(1).Any(IsControlTransfer)
             || block.Children.SelectMany(CoercionSinks.ScopeNodes).Any(IsControlTransfer));
 
+    static bool HasUniqueBlockOffsets(IReadOnlyList<Block> blocks)
+        => blocks.Select(block => block.StartOffset).Distinct().Count() == blocks.Count;
+
     static bool IsControlTransfer(IrNode node)
         => node is Branch or ConditionalBranch or SwitchBranch
             or Leave or EndFinally or EndFilter;
@@ -296,12 +299,14 @@ public sealed class StackSlotLiveRangePass : IIrPass
             .Any(statement => statement.Descendants.Prepend(statement)
                 .OfType<LoadStackSlot>()
                 .Any(load => load.Slot == slot));
-        if (!hasPriorLoad || !ReferenceEquals(block.Parent, function.Body))
+        if (!hasPriorLoad)
             return false;
+        if (!ReferenceEquals(block.Parent, function.Body))
+            return IsWithinStructuredLoop(block);
 
         var blocks = function.Body.Blocks;
         if (HasUnmodeledControlTransfer(blocks)
-            || blocks.Select(candidate => candidate.StartOffset).Distinct().Count() != blocks.Count)
+            || !HasUniqueBlockOffsets(blocks))
         {
             return true;
         }
@@ -334,6 +339,16 @@ public sealed class StackSlotLiveRangePass : IIrPass
 
             foreach (int successor in edges[candidate].Successors)
                 pending.Push(successor);
+        }
+        return false;
+    }
+
+    static bool IsWithinStructuredLoop(Block block)
+    {
+        for (var current = block.Parent; current is not null; current = current.Parent)
+        {
+            if (current is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement)
+                return true;
         }
         return false;
     }

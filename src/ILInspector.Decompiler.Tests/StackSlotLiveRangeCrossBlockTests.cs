@@ -401,6 +401,23 @@ public class StackSlotLiveRangeCrossBlockTests
     }
 
     [Fact]
+    public void StructuredLoopCarriedBlockLocalRange_StaysUnsplit()
+    {
+        var loopBody = BlockOf(
+            10,
+            Load(Int32),
+            Store("loop"),
+            Load(String));
+        var entry = BlockOf(
+            0,
+            Store(1),
+            new WhileLoop(new LoadArgument(0, "again", Boolean), loopBody),
+            new Return(null));
+
+        Assert.False(Split(Run(entry)));
+    }
+
+    [Fact]
     public void CrossBlockSplit_DoesNotEnableLoopCarriedBlockLocalSplit()
     {
         var loopHeadLoad = Load(Int32);
@@ -474,6 +491,18 @@ public class StackSlotLiveRangeCrossBlockTests
         var use = BlockOf(20, Load(String), new Branch(0xFF));
 
         Assert.False(Split(Run(entry, redefine, use)));
+    }
+
+    [Fact]
+    public void DuplicateBlockOffsets_StayUnsplit()
+    {
+        var entry = BlockOf(0, Store(1), new Branch(10));
+        var firstAtOffset = BlockOf(10, Store("first"), new Branch(30));
+        var secondAtOffset = BlockOf(10, new Branch(20));
+        var redefine = BlockOf(20, Store("second"), new Branch(30));
+        var use = BlockOf(30, Load(String), new Return(null));
+
+        Assert.False(Split(Run(entry, firstAtOffset, secondAtOffset, redefine, use)));
     }
 
     [Fact]
