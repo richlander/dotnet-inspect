@@ -130,7 +130,9 @@
 - Carries untrusted artifact text through typed inert-text boundaries and
   contains metadata and package-authored text before rendering. Malformed
   nuspec XML now produces a one-line location diagnostic, and descriptions
-  cannot impersonate tool headings or tables (#3679, #3772).
+  cannot impersonate tool headings or tables. Package projections expose
+  aggregate containment evidence while explicit document payloads remain
+  byte-preserving (#3679, #3772).
 - **Breaking:** removes the hidden `--oneline` compatibility alias and
   `DOTNET_INSPECT_FORMAT=oneline`/`one-line`; use `--table`.
 - Builds Native AOT packages with `OptimizationPreference=Speed`, worth a

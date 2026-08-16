@@ -1013,6 +1013,16 @@ structure and must not interpret inspected text as authority.
 > caller, while refusing is a policy only a caller can choose — but it means the
 > trust axis currently exists only where a command line can express it.
 
+The package inspection path now has the enabling boundary, but not the policy:
+`PackageInspectionText` carries every package-model text field to Markdown,
+direct JSON, and focused package table/JSONL metadata as `InertString`;
+content-output rows do the same for their package, version, and path framing.
+`InspectionResultView.RequiredContainment` reports the inspection model's
+aggregate before a sink unwraps it. Explicit document payloads remain raw by
+contract. This is intentionally not a global CLI signal. Other commands and
+projections still have their own presentation models, so adopting the flags at
+the root today would claim coverage they do not have.
+
 Presentation is **two orthogonal decisions**, and collapsing them into one flag
 is a design error.
 

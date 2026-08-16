@@ -63,6 +63,84 @@ public class InspectionResultTests
     }
 
     [Fact]
+    public void PackageSourceLinkSections_ContainTextOnceAndKeepFieldOrder()
+    {
+        const string Hazard = "\u202E";
+        var result = new InspectionResult
+        {
+            SourceAvailability = new PackageSourceAvailability(
+                2,
+                1,
+                3,
+                2,
+                1,
+                [new($"lib/net8.0/Missing{Hazard}.dll", $"/src/Missing{Hazard}.cs")],
+                [new($"lib/net9.0/Unavailable{Hazard}.dll", $"unavailable{Hazard}")],
+                [new($"lib/net9.0/Failed{Hazard}.dll", $"failed{Hazard}")]),
+            SourceIntegrity = new PackageSourceIntegrity(
+                2,
+                1,
+                1,
+                1,
+                1,
+                1,
+                [new($"lib/net8.0/Mismatch{Hazard}.dll", $"/src/Changed{Hazard}.cs")],
+                [new($"lib/net9.0/Unchecked{Hazard}.dll", $"unchecked{Hazard}")],
+                [new($"lib/net9.0/Error{Hazard}.dll", $"error{Hazard}")]),
+        };
+
+        string output = MarkoutSerializer.Serialize(
+            new InspectionResultView(result),
+            InspectionContext.Default);
+
+        Assert.DoesNotContain(Hazard, output, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"\\u202E", output, StringComparison.Ordinal);
+        Assert.Contains(@"Failed\u202E.dll", output, StringComparison.Ordinal);
+        Assert.Contains(@"failed\u202E", output, StringComparison.Ordinal);
+        Assert.Contains(@"Mismatch\u202E.dll: /src/Changed\u202E.cs", output, StringComparison.Ordinal);
+
+        AssertFieldsInOrder(
+            Section(output, "SourceLink: Availability"),
+            "Audited Libraries",
+            "Embedded",
+            "Failed Libraries",
+            "Missing",
+            "Source Files",
+            "Status",
+            "Unavailable Libraries");
+        AssertFieldsInOrder(
+            Section(output, "SourceLink: Integrity"),
+            "Checked Libraries",
+            "CR/LF Mismatch",
+            "Failed Libraries",
+            "Mismatched",
+            "Mismatched Files",
+            "Status",
+            "Unavailable Libraries",
+            "Unverifiable",
+            "Verified");
+
+        static string Section(string output, string name)
+        {
+            int start = output.IndexOf($"## {name}", StringComparison.Ordinal);
+            Assert.True(start >= 0, $"Section '{name}' was not rendered.");
+            int end = output.IndexOf("## ", start + 3, StringComparison.Ordinal);
+            return end >= 0 ? output[start..end] : output[start..];
+        }
+
+        static void AssertFieldsInOrder(string section, params string[] fields)
+        {
+            int previous = -1;
+            foreach (string field in fields)
+            {
+                int current = section.IndexOf($"| {field} |", StringComparison.Ordinal);
+                Assert.True(current > previous, $"Field '{field}' is missing or out of order.");
+                previous = current;
+            }
+        }
+    }
+
+    [Fact]
     public void PackageSourceLinkResults_SerializeWithStableWireNames()
     {
         var result = new InspectionResult
@@ -211,6 +289,18 @@ public class InspectionResultTests
         Assert.Contains("| TFM |", output);
         Assert.DoesNotContain("| TFM | net10.0 |", output);
         Assert.DoesNotContain("| Target Frameworks | 3 |", output);
+    }
+
+    [Fact]
+    public void PackageInfo_HighestTfm_RemainsIndependentOfSelectionOverride()
+    {
+        var result = new InspectionResult
+        {
+            TargetFrameworks = ["net8.0", "net10.0"],
+            Tfm = "net8.0",
+        };
+
+        Assert.Equal("net10.0", new InspectionResultView(result).HighestTfm);
     }
 
     [Fact]
