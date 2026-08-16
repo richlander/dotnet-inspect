@@ -67,7 +67,7 @@ public static class SignatureBlobGuard
     {
         try
         {
-            return !ExceedsDepth(blob, kind, maxDepth);
+            return !ExceedsDepth(ref blob, kind, maxDepth);
         }
         catch (BadImageFormatException)
         {
@@ -86,7 +86,46 @@ public static class SignatureBlobGuard
         return IsSafeToDecode(reader.GetBlobReader(signature), kind, maxDepth);
     }
 
-    static bool ExceedsDepth(BlobReader blob, Kind kind, int maxDepth)
+    /// <summary>
+    /// Returns whether the entire blob is structurally shallow and consumed by
+    /// the declared signature grammar. Unlike <see cref="IsSafeToDecode(BlobReader, Kind, int)"/>,
+    /// truncation and trailing bytes return <see langword="false"/>.
+    /// </summary>
+    public static bool IsSafeAndCompleteToDecode(
+        BlobReader blob,
+        Kind kind,
+        int maxDepth = DefaultMaxDepth)
+    {
+        try
+        {
+            return !ExceedsDepth(ref blob, kind, maxDepth)
+                && blob.RemainingBytes == 0;
+        }
+        catch (BadImageFormatException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Convenience overload that requires the entire metadata blob to match
+    /// the declared signature grammar.
+    /// </summary>
+    public static bool IsSafeAndCompleteToDecode(
+        MetadataReader reader,
+        BlobHandle signature,
+        Kind kind,
+        int maxDepth = DefaultMaxDepth)
+        => !signature.IsNil
+            && IsSafeAndCompleteToDecode(
+                reader.GetBlobReader(signature),
+                kind,
+                maxDepth);
+
+    static bool ExceedsDepth(
+        ref BlobReader blob,
+        Kind kind,
+        int maxDepth)
     {
         // Work items are read strictly left-to-right; the stack only tracks *what* to read next and
         // at what depth, so recursion lives on the heap and can never overflow the native stack.
