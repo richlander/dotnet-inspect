@@ -172,6 +172,29 @@ public class SkeletonEmitTests
                 + result.Annotated);
     }
 
+    [Theory]
+    [InlineData("get_Item")]
+    [InlineData("set_Item")]
+    [InlineData("add_Changed")]
+    [InlineData("remove_Changed")]
+    public void SkeletonRetainsCrossAssemblyIndexerAndEventOverrides(
+        string methodName)
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(CrossAssemblyAccessorCompileBackFixture)
+                .Assembly.Location,
+            type => type ==
+                "ILInspector.Decompiler.Tests."
+                    + "CrossAssemblyAccessorCompileBackFixture",
+            method => method.Method == methodName));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Status}: {result.Detail}{Environment.NewLine}"
+                + result.Annotated);
+        Assert.True(result.UsedProductWholeMember);
+    }
+
     [Fact]
     public void SkeletonCompilesSameAssemblyProtectedPropertyOverride()
     {
@@ -210,6 +233,15 @@ public class SkeletonEmitTests
             result.Status == FidelityCheck.CompileBackStatus.Exact,
             $"{result.Status}: {result.Detail}{Environment.NewLine}"
                 + result.Annotated);
+        if (methodName.EndsWith(
+                ".get_Value",
+                StringComparison.Ordinal)
+            || methodName.EndsWith(
+                ".add_Changed",
+                StringComparison.Ordinal))
+        {
+            Assert.True(result.UsedProductWholeMember);
+        }
     }
 
     [Fact]

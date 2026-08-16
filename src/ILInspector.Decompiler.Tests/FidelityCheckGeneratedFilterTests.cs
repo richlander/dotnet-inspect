@@ -1093,7 +1093,7 @@ public class FidelityCheckGeneratedFilterTests
                 fieldLikeEvent.GetAccessors().Adder,
                 targeted: true,
                 isPrimaryConstructor: false));
-            Assert.Null(FidelityCheck.TryRenderTargetMember(
+            Assert.NotNull(FidelityCheck.TryRenderTargetMember(
                 pe,
                 source,
                 explicitEvent.GetAccessors().Adder,
@@ -1130,6 +1130,19 @@ public class FidelityCheckGeneratedFilterTests
                 Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             }
 
+            var explicitResults = FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "ExplicitEventFixture",
+                    method => method.Method is "IEventContract.add_Changed"
+                        or "IEventContract.remove_Changed")
+                .ToList();
+            Assert.Equal(2, explicitResults.Count);
+            foreach (var result in explicitResults)
+            {
+                Assert.True(result.UsedProductWholeMember, result.Method);
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            }
+
             var targetedRemover = Assert.Single(
                 FidelityCheck.Evaluate(
                     assemblyPath,
@@ -1157,7 +1170,7 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    public void PropertyWholeMember_DeclinesExplicitImplementationsAndNonAutoStructs()
+    public void PropertyWholeMember_RendersExplicitImplementationsAndDeclinesNonAutoStructs()
     {
         var assemblyPath = CompileFixture("""
             public interface IValue
@@ -1198,7 +1211,7 @@ public class FidelityCheckGeneratedFilterTests
                 handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "get_Value");
 
             using var source = MetadataSource.Open(assemblyPath);
-            Assert.Null(FidelityCheck.TryRenderTargetMember(
+            Assert.NotNull(FidelityCheck.TryRenderTargetMember(
                 pe,
                 source,
                 explicitAccessor,
@@ -1210,6 +1223,16 @@ public class FidelityCheckGeneratedFilterTests
                 structAccessor,
                 targeted: true,
                 isPrimaryConstructor: false));
+
+            var explicitResult = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "ExplicitValue",
+                    method => method.Method == "IValue.get_Value"));
+            Assert.True(explicitResult.UsedProductWholeMember);
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                explicitResult.Status);
 
             var result = Assert.Single(
                 FidelityCheck.Evaluate(

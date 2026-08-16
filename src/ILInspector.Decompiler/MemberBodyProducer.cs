@@ -1606,12 +1606,12 @@ public static class MemberBodyProducer
                 reader,
                 typeHandle,
                 member.GetterToken,
-                $"get_{member.Name}");
+                AccessorMetadataName(member.Name, "get_"));
             var setterHandle = ResolveAccessorHandle(
                 reader,
                 typeHandle,
                 member.SetterToken,
-                $"set_{member.Name}");
+                AccessorMetadataName(member.Name, "set_"));
             if (accessorHandle != getterHandle && accessorHandle != setterHandle
                 || !IsCompilerGeneratedAutoProperty(
                     source,
@@ -1692,8 +1692,16 @@ public static class MemberBodyProducer
         string head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         bool requiresUnsafeContext = member.IsUnsafe || signature.Contains('*', StringComparison.Ordinal);
 
-        var getterHandle = ResolveAccessorHandle(reader, typeHandle, member.GetterToken, $"get_{member.Name}");
-        var setterHandle = ResolveAccessorHandle(reader, typeHandle, member.SetterToken, $"set_{member.Name}");
+        var getterHandle = ResolveAccessorHandle(
+            reader,
+            typeHandle,
+            member.GetterToken,
+            AccessorMetadataName(member.Name, "get_"));
+        var setterHandle = ResolveAccessorHandle(
+            reader,
+            typeHandle,
+            member.SetterToken,
+            AccessorMetadataName(member.Name, "set_"));
 
         var accessors = new List<(string Keyword, string Head, string? Body, bool RequiresUnsafeContext, bool RequiresAsyncContext, bool SingleReturnExpression)>();
         if (accessorList >= 0)
@@ -1703,7 +1711,7 @@ public static class MemberBodyProducer
                 accessors.Add((
                     "get",
                     declarationFormatter.FormatAccessorHead(type, member, "get"),
-                    DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe, out var getRequiresAsync, out var getSingleReturn, printerOptions, failOnDiagnostic),
+                    DecompileAccessor(pipelineSource, getterHandle, typeFullName, AccessorMetadataName(member.Name, "get_"), bodyNamespaces, out var getRequiresUnsafe, out var getRequiresAsync, out var getSingleReturn, printerOptions, failOnDiagnostic),
                     getRequiresUnsafe,
                     getRequiresAsync,
                     getSingleReturn));
@@ -1711,7 +1719,7 @@ public static class MemberBodyProducer
                 accessors.Add((
                     "set",
                     declarationFormatter.FormatAccessorHead(type, member, "set"),
-                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe, out var setRequiresAsync, out var setSingleReturn, printerOptions, failOnDiagnostic),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, AccessorMetadataName(member.Name, "set_"), bodyNamespaces, out var setRequiresUnsafe, out var setRequiresAsync, out var setSingleReturn, printerOptions, failOnDiagnostic),
                     setRequiresUnsafe,
                     setRequiresAsync,
                     setSingleReturn));
@@ -1719,7 +1727,7 @@ public static class MemberBodyProducer
                 accessors.Add((
                     "init",
                     declarationFormatter.FormatAccessorHead(type, member, "init"),
-                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe, out var initRequiresAsync, out var initSingleReturn, printerOptions, failOnDiagnostic),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, AccessorMetadataName(member.Name, "set_"), bodyNamespaces, out var initRequiresUnsafe, out var initRequiresAsync, out var initSingleReturn, printerOptions, failOnDiagnostic),
                     initRequiresUnsafe,
                     initRequiresAsync,
                     initSingleReturn));
@@ -1806,19 +1814,18 @@ public static class MemberBodyProducer
             reader,
             typeHandle,
             member.AdderToken,
-            $"add_{member.Name}");
+            AccessorMetadataName(member.Name, "add_"));
         var removerHandle = ResolveAccessorHandle(
             reader,
             typeHandle,
             member.RemoverToken,
-            $"remove_{member.Name}");
+            AccessorMetadataName(member.Name, "remove_"));
 
         if (member.IsAbstract
             || adderHandle is not { } adder
             || removerHandle is not { } remover
             || reader.GetMethodDefinition(adder).RelativeVirtualAddress == 0
             || reader.GetMethodDefinition(remover).RelativeVirtualAddress == 0
-            || HasMethodImplementationAccessor(reader, typeHandle, adder, remover)
             || HasSameNamedEventField(reader, typeHandle, member))
         {
             sb.AppendLf($"    {terminatedDeclarationFormatter.FormatMember(type, member)}");
@@ -1829,7 +1836,7 @@ public static class MemberBodyProducer
             pipelineSource,
             adder,
             type.FullName,
-            $"add_{member.Name}",
+            AccessorMetadataName(member.Name, "add_"),
             bodyNamespaces,
             out bool adderRequiresUnsafe,
             out bool adderRequiresAsync,
@@ -1840,7 +1847,7 @@ public static class MemberBodyProducer
             pipelineSource,
             remover,
             type.FullName,
-            $"remove_{member.Name}",
+            AccessorMetadataName(member.Name, "remove_"),
             bodyNamespaces,
             out bool removerRequiresUnsafe,
             out bool removerRequiresAsync,
@@ -1880,25 +1887,6 @@ public static class MemberBodyProducer
             WrapExpressionBodyArrow(printerOptions),
             removerIsSingleExpression);
         sb.AppendLf("    }");
-    }
-
-    static bool HasMethodImplementationAccessor(
-        MetadataReader reader,
-        TypeDefinitionHandle typeHandle,
-        MethodDefinitionHandle adderHandle,
-        MethodDefinitionHandle removerHandle)
-    {
-        foreach (var implementationHandle in reader.GetTypeDefinition(typeHandle).GetMethodImplementations())
-        {
-            var body = reader.GetMethodImplementation(implementationHandle).MethodBody;
-            if (body.Kind == HandleKind.MethodDefinition
-                && ((MethodDefinitionHandle)body == adderHandle
-                    || (MethodDefinitionHandle)body == removerHandle))
-            {
-                return true;
-            }
-        }
-        return false;
     }
 
     static bool HasSameNamedEventField(
@@ -2056,6 +2044,14 @@ public static class MemberBodyProducer
         if (reader.GetString(reader.GetMethodDefinition(handle).Name) != accessorName)
             return null;
         return handle;
+    }
+
+    static string AccessorMetadataName(string memberName, string accessorPrefix)
+    {
+        int separator = memberName.LastIndexOf('.');
+        return separator < 0
+            ? $"{accessorPrefix}{memberName}"
+            : $"{memberName[..(separator + 1)]}{accessorPrefix}{memberName[(separator + 1)..]}";
     }
 
     static string? DecompileAccessor(

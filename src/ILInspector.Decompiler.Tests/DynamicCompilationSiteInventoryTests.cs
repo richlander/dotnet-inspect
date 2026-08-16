@@ -125,9 +125,9 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #3903 adds SkeletonEmitTests.cs (1 site): constructs two same-named
     //     external bases, removes the referenced definition, and gates
     //     fail-closed compile-back identity handling.
-    //   Combined: 41 files, 51 sites.
-    const int ExpectedDynamicFiles = 41;
-    const int ExpectedDynamicSites = 51;
+    //   Combined: 42 files, 52 sites.
+    const int ExpectedDynamicFiles = 42;
+    const int ExpectedDynamicSites = 52;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

@@ -13,6 +13,18 @@ public class CrossAssemblyAccessorCompileBackFixture
     : CrossAssemblyAccessorBase
 {
     public sealed override int Value => base.Value + 1;
+
+    public override int this[int index]
+    {
+        get => base[index];
+        set => base[index] = value;
+    }
+
+    public override event EventHandler? Changed
+    {
+        add => base.Changed += value;
+        remove => base.Changed -= value;
+    }
 }
 
 public sealed class CrossAssemblyNeedsArgumentCompileBackFixture

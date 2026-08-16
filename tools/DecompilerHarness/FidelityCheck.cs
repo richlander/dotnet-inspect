@@ -3855,7 +3855,12 @@ static class FidelityCheck
                 preserveExternalOverrides,
                 requireAutoProperty: kind == TypeKind.Struct);
         var orderedTargetEvents = new Dictionary<MethodDefinitionHandle, EventDefinitionHandle>();
-        IndexTargetEvents(reader, typeDef, targets, orderedTargetEvents);
+        IndexTargetEvents(
+            reader,
+            typeDef,
+            targets,
+            preserveExternalOverrides,
+            orderedTargetEvents);
         if (kind is TypeKind.Class or TypeKind.Struct)
         {
             EmitExplicitInterfaceEvents(
@@ -3887,6 +3892,7 @@ static class FidelityCheck
                             typeDef,
                             targetEvent,
                             targets,
+                            preserveExternalOverrides,
                             resolver,
                             sb,
                             pad + "    ");
@@ -4215,8 +4221,9 @@ static class FidelityCheck
                 if (!accessibility.CanSpellProperty(reader, prop, typeContext))
                     continue;
                 var sig = prop.DecodeSignature(SignatureDecoder.Instance, typeContext);
-                if (sig.ParameterTypes.Length > 0)
-                    continue; // indexer — needs this[...] syntax
+                bool isIndexer = sig.ParameterTypes.Length > 0;
+                if (isIndexer && pname != "Item")
+                    continue;
                 string ret = Clean(sig.ReturnType);
                 if (ret.Contains('&'))
                     continue; // ref-return property
@@ -4333,7 +4340,9 @@ static class FidelityCheck
                     : MethodAccessibility(accessorMethod.Attributes);
                 string emittedName = isExplicit
                     ? EscapeMetadataTypeName(pname)
-                    : Identifier(pname);
+                    : isIndexer
+                        ? $"this[{PropertyParameters(reader, accessorMethod, sig)}]"
+                        : Identifier(pname);
                 sb.AppendLine($"{pad}{accessibilityPrefix}{modifier}{unsafeMod}{ret} {emittedName} {{{body} }}");
                 if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
                 if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
@@ -4380,13 +4389,23 @@ static class FidelityCheck
         MetadataReader reader,
         TypeDefinition typeDef,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        bool preserveExternalOverrides,
         Dictionary<MethodDefinitionHandle, EventDefinitionHandle> orderedTargetEvents)
     {
         foreach (var eventHandle in typeDef.GetEvents())
         {
             var eventDefinition = reader.GetEventDefinition(eventHandle);
             var accessors = eventDefinition.GetAccessors();
-            if (!TryGetProductWholeEvent(accessors, targets, out _, out _))
+            bool hasProductWhole =
+                TryGetProductWholeEvent(accessors, targets, out _, out _);
+            bool isExternalOverride =
+                preserveExternalOverrides
+                && !accessors.Adder.IsNil
+                && reader.GetMethodDefinition(accessors.Adder)
+                    .Attributes.HasFlag(MethodAttributes.Virtual)
+                && !reader.GetMethodDefinition(accessors.Adder)
+                    .Attributes.HasFlag(MethodAttributes.NewSlot);
+            if (!hasProductWhole && !isExternalOverride)
                 continue;
             if (!accessors.Adder.IsNil)
                 orderedTargetEvents[accessors.Adder] = eventHandle;
@@ -4559,6 +4578,7 @@ static class FidelityCheck
         TypeDefinition typeDef,
         EventDefinitionHandle handle,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        bool preserveExternalOverrides,
         CompilerReferenceResolver resolver,
         StringBuilder sb,
         string pad)
@@ -4599,10 +4619,65 @@ static class FidelityCheck
         bool isStatic =
             reader.GetMethodDefinition(accessors.Adder)
                 .Attributes.HasFlag(MethodAttributes.Static);
+        MethodDefinition adderMethod =
+            reader.GetMethodDefinition(accessors.Adder);
+        string metadataName = reader.GetString(eventDefinition.Name);
+        bool isExplicit = metadataName.Contains('.');
+        bool emitOverride =
+            preserveExternalOverrides
+            && !isStatic
+            && adderMethod.Attributes.HasFlag(MethodAttributes.Virtual)
+            && !adderMethod.Attributes.HasFlag(MethodAttributes.NewSlot);
+        string accessibilityPrefix = isExplicit
+            ? ""
+            : MethodAccessibility(adderMethod.Attributes);
+        string modifier = isExplicit
+            ? isStatic ? "static " : ""
+            : isStatic
+                ? "static "
+                : emitOverride
+                    ? adderMethod.Attributes.HasFlag(MethodAttributes.Final)
+                        ? "sealed override "
+                        : "override "
+                    : "";
         sb.AppendLine(
-            $"{pad}{(isStatic ? "static " : "")}event {eventType} "
-                + $"{ExplicitMemberName(reader.GetString(eventDefinition.Name), explicitAlias)} "
+            $"{pad}{accessibilityPrefix}{modifier}event {eventType} "
+                + $"{ExplicitMemberName(metadataName, explicitAlias)} "
                 + $"{{{addBody}{removeBody} }}");
+    }
+
+    static string PropertyParameters(
+        MetadataReader reader,
+        MethodDefinition accessor,
+        MethodSignature<string> signature)
+    {
+        var names = new Dictionary<int, string>();
+        var refKinds = new Dictionary<int, ByRefParameterInfo>();
+        foreach (ParameterHandle parameterHandle in accessor.GetParameters())
+        {
+            var parameter = reader.GetParameter(parameterHandle);
+            if (parameter.SequenceNumber >= 1)
+            {
+                names[parameter.SequenceNumber - 1] = reader.GetString(parameter.Name);
+                refKinds[parameter.SequenceNumber - 1] =
+                    new ByRefParameterInfo(
+                        parameter.Attributes,
+                        HasIsReadOnlyAttribute(
+                            reader,
+                            parameter.GetCustomAttributes()));
+            }
+        }
+
+        return string.Join(
+            ", ",
+            signature.ParameterTypes.Select((type, index) =>
+            {
+                string name = names.TryGetValue(index, out string? value)
+                    && value.Length > 0
+                        ? value
+                        : $"arg{index}";
+                return $"{ByRefKeyword(type, refKinds.GetValueOrDefault(index))} {Identifier(name)}";
+            }));
     }
 
     static string? EventTypeName(
@@ -4865,20 +4940,19 @@ static class FidelityCheck
                             else
                                 index[token] = (type, member);
                         }
-                        if (member.Kind == "property"
-                            && !member.Name.Contains('.', StringComparison.Ordinal))
+                        if (member.Kind == "property")
                         {
                             if (member.GetterToken is { } getterToken)
-                                index.TryAdd(getterToken, (type, member));
+                                index[getterToken] = (type, member);
                             if (member.SetterToken is { } setterToken)
-                                index.TryAdd(setterToken, (type, member));
+                                index[setterToken] = (type, member);
                         }
                         if (member.Kind == "event")
                         {
                             if (member.AdderToken is { } adderToken)
-                                index.TryAdd(adderToken, (type, member));
+                                index[adderToken] = (type, member);
                             if (member.RemoverToken is { } removerToken)
-                                index.TryAdd(removerToken, (type, member));
+                                index[removerToken] = (type, member);
                         }
                     }
             }
@@ -4970,8 +5044,8 @@ static class FidelityCheck
     /// because the scaffold already applies the
     /// decompiler's separately captured lifted field initializers to reconstructed
     /// fields, while property and event renders own both accessor declarations and bodies.
-    /// Field-like and explicit-interface events, and finalizers that cannot be
-    /// recovered as destructors, remain on their existing fallback paths.
+    /// Field-like events and finalizers that cannot be recovered as destructors
+    /// remain on their existing fallback paths.
     /// Non-essential custom attributes are omitted because the skeleton does not
     /// reproduce arbitrary attribute inheritance; compilation-required attributes
     /// such as <c>SkipLocalsInit</c> remain.
@@ -5000,11 +5074,6 @@ static class FidelityCheck
                 or "event"
                 or "explicit-interface-implementation"))
             return null;
-        if (entry.Member.ExplicitInterfaceProvenance is not null
-            && IsPropertyAccessor(pe.GetMetadataReader(), mh))
-        {
-            return null;
-        }
         if (entry.Member.Kind == "property"
             && entry.Type.Kind == "struct"
             && !MemberBodyProducer.IsCompilerGeneratedAutoPropertyAccessor(
@@ -5014,10 +5083,12 @@ static class FidelityCheck
         {
             return null;
         }
-        if (entry.Member.Kind == "event" && entry.Member.IsOverride)
+        if (entry.Member.Kind == "event"
+            && entry.Member.IsOverride
+            && entry.Type.BaseTypeResolution is null)
         {
-            // The compile-back skeleton does not reconstruct non-target base events.
-            // An override event therefore cannot bind until event stubs exist.
+            // Same-image base event stubs are not reconstructed yet. External
+            // authenticated bases remain present as compiler references.
             return null;
         }
 
@@ -5051,27 +5122,6 @@ static class FidelityCheck
             return null;
         }
         return (result.Text, new HashSet<string>(result.Namespaces, StringComparer.Ordinal));
-    }
-
-    static bool IsPropertyAccessor(
-        MetadataReader reader,
-        MethodDefinitionHandle methodHandle)
-    {
-        TypeDefinition declaringType = reader.GetTypeDefinition(
-            reader.GetMethodDefinition(methodHandle).GetDeclaringType());
-        foreach (PropertyDefinitionHandle propertyHandle
-            in declaringType.GetProperties())
-        {
-            PropertyAccessors accessors =
-                reader.GetPropertyDefinition(propertyHandle).GetAccessors();
-            if (accessors.Getter == methodHandle
-                || accessors.Setter == methodHandle)
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     static MemberRenderResult? RenderTargetMember(ApiType type, ApiMember member, MetadataSource source)

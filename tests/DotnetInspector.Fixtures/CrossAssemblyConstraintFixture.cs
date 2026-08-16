@@ -12,6 +12,18 @@ public abstract class ExternalDerivedFromGeneric
 public abstract class CrossAssemblyAccessorBase
 {
     public virtual int Value => 1;
+
+    public virtual int this[int index]
+    {
+        get => index;
+        set { }
+    }
+
+    public virtual event EventHandler? Changed
+    {
+        add { }
+        remove { }
+    }
 }
 
 public abstract class CrossAssemblyNeedsArgumentBase
