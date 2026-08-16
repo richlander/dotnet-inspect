@@ -225,7 +225,7 @@ public sealed class StructuringPass : IIrPass
         public required HashSet<int> ScatteredReturnDispatchTargets { get; init; }
         public int? RegionExitLeaveTarget { get; init; }
         public int? RetainedMergeIndex { get; init; }
-        public bool LoopOwnershipUnsafe { get; set; }
+        public bool CandidateOwnershipUnsafe { get; set; }
 
         /// <summary>
         /// First-wins recorder for the deepest direct stop reason, populated only
@@ -403,7 +403,7 @@ public sealed class StructuringPass : IIrPass
             joinIndex: buildBlocks.Count,
             breakTarget: null,
             continueTarget: null);
-        if (buildCtx.LoopOwnershipUnsafe
+        if (buildCtx.CandidateOwnershipUnsafe
             || HasDanglingInternalLeaveTarget(
                 buildCtx,
                 structured,
@@ -478,7 +478,7 @@ public sealed class StructuringPass : IIrPass
                 joinIndex: range.Merge,
                 breakTarget: null,
                 continueTarget: null);
-            if (buildContexts[rangeIndex].LoopOwnershipUnsafe
+            if (buildContexts[rangeIndex].CandidateOwnershipUnsafe
                 || HasDanglingInternalLeaveTarget(
                     buildContexts[rangeIndex],
                     built,
@@ -689,7 +689,7 @@ public sealed class StructuringPass : IIrPass
             joinIndex: candidate.Merge,
             breakTarget: null,
             continueTarget: null);
-        return !ctx.LoopOwnershipUnsafe
+        return !ctx.CandidateOwnershipUnsafe
             && !HasDanglingInternalLeaveTarget(ctx, built, candidate.Start, candidate.Merge);
     }
 
@@ -1475,7 +1475,7 @@ public sealed class StructuringPass : IIrPass
 
         body = BuildRegion(inlineCtx, 0, 1, joinIndex: 1, breakTarget: null, continueTarget: null);
         SuppressClonedSourceLabels(body);
-        return !inlineCtx.LoopOwnershipUnsafe;
+        return !inlineCtx.CandidateOwnershipUnsafe;
     }
 
     static bool TryBuildPastRegionTarget(Ctx ctx, int target, out Block body, out int inlinedStop)
@@ -1499,7 +1499,7 @@ public sealed class StructuringPass : IIrPass
                 continue;
 
             body = BuildRegion(inlineCtx, 0, clonedBlocks.Count, joinIndex: clonedBlocks.Count, breakTarget: null, continueTarget: null);
-            if (inlineCtx.LoopOwnershipUnsafe)
+            if (inlineCtx.CandidateOwnershipUnsafe)
                 continue;
             SuppressClonedSourceLabels(body);
             inlinedStop = stop;
@@ -2066,7 +2066,7 @@ public sealed class StructuringPass : IIrPass
                     blocks[i].StartOffset,
                     breakTargetOffsets: null))
                 {
-                    ctx.LoopOwnershipUnsafe = true;
+                    ctx.CandidateOwnershipUnsafe = true;
                 }
                 ReplaceRetryLeavesWithContinues(loopBody, blocks[i].StartOffset);
                 if (fallthroughExits)
@@ -2183,7 +2183,7 @@ public sealed class StructuringPass : IIrPass
                             blocks[branchTarget].StartOffset,
                             breakTargetOffsets))
                         {
-                            ctx.LoopOwnershipUnsafe = true;
+                            ctx.CandidateOwnershipUnsafe = true;
                         }
                         ReplaceRetryLeavesWithContinues(body, blocks[branchTarget].StartOffset);
                         if (loop.ContinueAt < blocks.Count)
@@ -2207,7 +2207,7 @@ public sealed class StructuringPass : IIrPass
                     if (ctx.RetainedMergeIndex == branchTarget)
                     {
                         if (i + 1 != stop)
-                            ctx.LoopOwnershipUnsafe = true;
+                            ctx.CandidateOwnershipUnsafe = true;
                         result.Add(last);
                         i++;
                         break;
