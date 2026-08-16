@@ -22293,8 +22293,15 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Contains("| Package nuspec file | 2 |", output);
-            Assert.Contains("| Signature | 6 |", output);
+            using var document = JsonDocument.Parse(output);
+            var counts = document.RootElement
+                .EnumerateArray()
+                .ToDictionary(
+                    row => row.GetProperty("section").GetString()!,
+                    row => row.GetProperty("count").GetInt32(),
+                    StringComparer.Ordinal);
+            Assert.Equal(2, counts["Package nuspec file"]);
+            Assert.Equal(6, counts["Signature"]);
         }
         finally
         {

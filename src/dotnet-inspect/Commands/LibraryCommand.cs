@@ -637,8 +637,6 @@ public class LibraryCommand
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
-                if (TryWriteLibrarySingletonCount(inspection, options))
-                    return IntegrityExitCode(inspection);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -776,11 +774,6 @@ public class LibraryCommand
                                 inspectedContentHash,
                             reportIdentifierFailures:
                                 !identifierAuditIncomplete));
-                if (TryWriteLibrarySingletonCount(inspections[0], options))
-                    return IntegrityExitCode(
-                        identifierAuditExitCode,
-                        !identifierAuditIncomplete,
-                        inspections[0]);
                 if (options.Print)
                     return IntegrityExitCode(
                         Math.Max(
@@ -902,8 +895,6 @@ public class LibraryCommand
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
-                if (TryWriteLibrarySingletonCount(inspection, options))
-                    return IntegrityExitCode(inspection);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -1318,18 +1309,6 @@ public class LibraryCommand
         SectionNames.CostContext
     ];
 
-    private static readonly string[] ILCoordinateSingletonSections =
-    [
-        SectionNames.ILOffset,
-        SectionNames.MemberContext,
-        SectionNames.InstructionContext,
-        SectionNames.CallsiteContext,
-        SectionNames.ReturnAddressContext,
-        SectionNames.AllocationContext,
-        SectionNames.SafetyContext,
-        SectionNames.CostContext
-    ];
-
     private static bool HasILOffsetCoordinate(LibraryOptions options)
         => !string.IsNullOrWhiteSpace(options.ILOffsetParameter);
 
@@ -1606,41 +1585,6 @@ public class LibraryCommand
         => string.IsNullOrEmpty(options.PlatformAssembly)
             && !string.IsNullOrEmpty(options.PackagePath)
             && string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase);
-
-    private static bool TryWriteLibrarySingletonCount(
-        LibraryInspection inspection,
-        LibraryOptions options)
-    {
-        if (!options.Count
-            || options.IncludeSections is not { Count: 1 } sections
-            || !sections.Overlaps(ILCoordinateSingletonSections))
-        {
-            return false;
-        }
-
-        var section = sections.Single();
-        var hasRow = section switch
-        {
-            SectionNames.ILOffset => inspection.ILOffset != null,
-            SectionNames.MemberContext =>
-                inspection.ILOffset?.MemberContext != null,
-            SectionNames.InstructionContext =>
-                inspection.ILOffset?.InstructionContext != null,
-            SectionNames.CallsiteContext =>
-                inspection.ILOffset?.CallsiteContext != null,
-            SectionNames.ReturnAddressContext =>
-                inspection.ILOffset?.ReturnAddressContext != null,
-            SectionNames.AllocationContext =>
-                inspection.ILOffset?.AllocationContext is { Count: > 0 },
-            SectionNames.SafetyContext =>
-                inspection.ILOffset?.SafetyContext is { Count: > 0 },
-            SectionNames.CostContext =>
-                inspection.ILOffset?.CostContext is { Count: > 0 },
-            _ => false
-        };
-        CountOutput.WriteCount(hasRow ? 1 : 0);
-        return true;
-    }
 
     private static int WriteLibraryShapeProjection(LibraryInspection inspection, LibraryOptions options)
     {
