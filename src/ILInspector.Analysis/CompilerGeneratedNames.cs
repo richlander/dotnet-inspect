@@ -36,4 +36,9 @@ internal static class CompilerGeneratedNames
         => type is not null
             && LeafName(type)
                 .StartsWith(DisplayClassPrefix, StringComparison.Ordinal);
+
+    /// <summary>Source-authored local-function and lambda method bodies.</summary>
+    internal static bool IsLocalFunctionOrLambda(string methodName)
+        => methodName.Contains(">g__", StringComparison.Ordinal)
+            || methodName.Contains(">b__", StringComparison.Ordinal);
 }

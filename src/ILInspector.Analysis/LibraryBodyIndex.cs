@@ -346,7 +346,9 @@ public sealed class LibraryBodyIndex
         {
             Finding<AllocationOccurrence>? allocation = null;
             Finding<DirectCall>? callSite = null;
-            if (opportunity.ILOffset is { } offset)
+            bool attachFinding =
+                opportunity.Shape != "generic-parameter-object-box";
+            if (attachFinding && opportunity.ILOffset is { } offset)
             {
                 int methodToken = opportunity.Method.MetadataToken;
                 if (_allocationOccurrences.TryGetValue(methodToken, out var occurrences))

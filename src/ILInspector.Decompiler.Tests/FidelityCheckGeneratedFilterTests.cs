@@ -1,3 +1,4 @@
+using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
@@ -270,6 +271,99 @@ public class FidelityCheckGeneratedFilterTests
         {
             DeleteFixture(assemblyPath);
         }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Evaluate_UsesProductWholeMemberForFinalizer()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class FinalizerWholeMemberFixture
+            {
+                private static bool _finalized;
+
+                ~FinalizerWholeMemberFixture() => _finalized = true;
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "FinalizerWholeMemberFixture"));
+            var finalizer = Assert.Single(
+                type.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "Finalize");
+
+            using var source = MetadataSource.Open(assemblyPath);
+            var wholeMember = FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                finalizer,
+                targeted: true,
+                isPrimaryConstructor: false);
+
+            Assert.NotNull(wholeMember);
+            Assert.IsType<Microsoft.CodeAnalysis.CSharp.Syntax.DestructorDeclarationSyntax>(
+                Microsoft.CodeAnalysis.CSharp.SyntaxFactory.ParseMemberDeclaration(
+                    wholeMember.Value.Text));
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "FinalizerWholeMemberFixture",
+                    method => method.Method == "Finalize"));
+            Assert.True(result.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+
+            var batchResult = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "FinalizerWholeMemberFixture"),
+                candidate => candidate.Method == "Finalize");
+            Assert.True(batchResult.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, batchResult.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Evaluate_DeclinesProductLiteralWholeMemberForVbFinalizer()
+    {
+        string assemblyPath = FixtureCatalog.DecompilerVbFinalizer.AssemblyPath();
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var reader = pe.GetMetadataReader();
+        var type = reader.GetTypeDefinition(Assert.Single(
+            reader.TypeDefinitions,
+            handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == "Handle"));
+        var finalizer = Assert.Single(
+            type.GetMethods(),
+            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "Finalize");
+
+        using var source = MetadataSource.Open(assemblyPath);
+        var wholeMember = FidelityCheck.TryRenderTargetMember(
+            pe,
+            source,
+            finalizer,
+            targeted: true,
+            isPrimaryConstructor: false);
+
+        Assert.Null(wholeMember);
+
+        var result = Assert.Single(
+            FidelityCheck.Evaluate(
+                assemblyPath,
+                typeName => typeName == "Handle",
+                method => method.Method == "Finalize"));
+        Assert.False(result.UsedProductWholeMember);
+        Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+        Assert.Contains("CS0250", result.Detail);
     }
 
     [Fact]

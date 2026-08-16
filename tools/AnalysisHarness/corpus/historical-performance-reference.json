@@ -1,0 +1,169 @@
+{
+  "methodologyVersion": 1,
+  "references": [
+    {
+      "id": "runtime-80437-json-cache-factory",
+      "pullRequest": 80437,
+      "author": "Stephen Toub",
+      "classification": "il-visible",
+      "currentStatus": "found",
+      "beforeCommit": "368a064fb3359f10467ae12bba009c8aed1c3458",
+      "afterCommit": "4881062511705e731a49ad56ce42642a3f906a97",
+      "rationale": "A new instance value-factory delegate was allocated on every cache lookup; the fixed package removes the construction.",
+      "before": {
+        "package": "System.Text.Json",
+        "version": "7.0.0",
+        "assemblyPath": "lib/net7.0/System.Text.Json.dll",
+        "type": "System.Text.Json.JsonSerializerOptions.CachingContext",
+        "methodContains": "GetOrAddJsonTypeInfo",
+        "shape": "cache-lookup-factory-delegate",
+        "expectedCount": 1
+      },
+      "after": {
+        "package": "System.Text.Json",
+        "version": "7.0.2",
+        "assemblyPath": "lib/net7.0/System.Text.Json.dll",
+        "type": "System.Text.Json.JsonSerializerOptions.CachingContext",
+        "methodContains": "GetOrAddJsonTypeInfo",
+        "shape": "cache-lookup-factory-delegate",
+        "expectedCount": 0
+      }
+    },
+    {
+      "id": "runtime-66797-xml-cache-closure",
+      "pullRequest": 66797,
+      "author": "Stephen Toub",
+      "classification": "il-visible",
+      "currentStatus": "found",
+      "beforeCommit": "c7edb61f66445bc63b5a3a7bbef7540f45b3f28b",
+      "afterCommit": "dd59341331994980fe217d60068f723ae041771b",
+      "rationale": "A captured delegate was constructed for a type-dynamic cache path and is absent after the fix.",
+      "before": {
+        "package": "Microsoft.NETCore.App.Runtime.linux-x64",
+        "version": "6.0.3",
+        "assemblyPath": "runtimes/linux-x64/lib/net6.0/System.Private.Xml.dll",
+        "type": "System.Xml.Serialization.DynamicAssemblies",
+        "methodContains": "IsTypeDynamic",
+        "shape": "capturing-delegate",
+        "expectedCount": 1
+      },
+      "after": {
+        "package": "Microsoft.NETCore.App.Runtime.linux-x64",
+        "version": "7.0.10",
+        "assemblyPath": "runtimes/linux-x64/lib/net7.0/System.Private.Xml.dll",
+        "type": "System.Xml.Serialization.DynamicAssemblies",
+        "methodContains": "IsTypeDynamic",
+        "shape": "capturing-delegate",
+        "expectedCount": 0
+      }
+    },
+    {
+      "id": "runtime-68370-regex-generic-box",
+      "pullRequest": 68370,
+      "author": "Stephen Toub",
+      "classification": "il-visible",
+      "currentStatus": "found",
+      "beforeCommit": "3e3e14d2e8745d18012feb00ab6d90cdb7501675",
+      "afterCommit": "4c667f113f1eeec9bdd5f62bd438cb3038f56d2d",
+      "rationale": "Unconstrained generic equality boxed a struct-backed set for object.Equals on every newline; the released fix constrains typed equality.",
+      "before": {
+        "package": "Microsoft.NETCore.App.Runtime.linux-x64",
+        "version": "7.0.0-preview.3.22175.4",
+        "assemblyPath": "runtimes/linux-x64/lib/net7.0/System.Text.RegularExpressions.dll",
+        "type": "System.Text.RegularExpressions.Symbolic.SymbolicRegexMatcher",
+        "methodContains": "GetCharKindWithAnchor",
+        "shape": "generic-parameter-object-box",
+        "expectedCount": 2
+      },
+      "after": {
+        "package": "Microsoft.NETCore.App.Runtime.linux-x64",
+        "version": "7.0.10",
+        "assemblyPath": "runtimes/linux-x64/lib/net7.0/System.Text.RegularExpressions.dll",
+        "type": "System.Text.RegularExpressions.Symbolic.SymbolicRegexMatcher",
+        "methodContains": "GetCharKindWithAnchor",
+        "shape": "generic-parameter-object-box",
+        "expectedCount": 0
+      }
+    },
+    {
+      "id": "runtime-91303-datetime-failure-box",
+      "pullRequest": 91303,
+      "author": "Stephen Toub",
+      "classification": "il-visible",
+      "currentStatus": "partial",
+      "beforeCommit": "808c523fd2127abb53292ff199cb8b01752d0b54",
+      "afterCommit": "b22827ce059a7ee22731d07eb8383ce42531016f",
+      "rationale": "Coarse boxing symptoms surface, but equivalent rows survive the fix, so the analyzer does not yet isolate the failure-path regression."
+    },
+    {
+      "id": "runtime-67045-xml-qualified-name",
+      "pullRequest": 67045,
+      "author": "Stephen Toub",
+      "classification": "il-visible",
+      "currentStatus": "missed",
+      "beforeCommit": "f846c970bd8c9ab54569f7d209b53902358cd11e",
+      "afterCommit": "6a7050ea35ca2078837a02ed93934683c9205370",
+      "rationale": "The temporary XmlQualifiedName allocation is not represented by a sufficiently specific current discriminator."
+    },
+    {
+      "id": "runtime-112350-type-name-strings",
+      "pullRequest": 112350,
+      "author": "Adam Sitnik",
+      "classification": "il-visible",
+      "currentStatus": "missed",
+      "beforeCommit": "ff604c23939bc59f856ef67f1f3d18dd685ff7a2",
+      "afterCommit": "b2e0f969b7d402192a52e5db9266c5783d39e731",
+      "rationale": "Intermediate type-name string construction is currently missed; generic string-allocation reporting would be too noisy without a consumer-specific shape."
+    },
+    {
+      "id": "runtime-66912-stackalloc-bool-array",
+      "pullRequest": 66912,
+      "author": "Stephen Toub",
+      "classification": "il-visible",
+      "currentStatus": "missed",
+      "beforeCommit": "103fb847f66f53557b0e3179599365b65de02ce4",
+      "afterCommit": "f846c970bd8c9ab54569f7d209b53902358cd11e",
+      "rationale": "The bool array length is not recovered as a stable local stackalloc candidate by the current constant and escape analysis."
+    },
+    {
+      "id": "runtime-66914-generated-serializer-array",
+      "pullRequest": 66914,
+      "author": "Stephen Toub",
+      "classification": "generated-artifact",
+      "currentStatus": "generated-artifact",
+      "beforeCommit": "47601dc175badb61870461134f54a698fab09ed2",
+      "afterCommit": "1f90082fd433cdec4bbe45318d4301a344a82313",
+      "rationale": "The relevant allocation appears in a generated serializer consumer, so library-only inspection cannot own this cell without materializing that artifact."
+    },
+    {
+      "id": "runtime-45962-cache-entry-layout",
+      "pullRequest": 45962,
+      "author": "Adam Sitnik",
+      "classification": "object-layout",
+      "currentStatus": "out-of-scope",
+      "beforeCommit": "34cae7461f96a9c1a7574c72c436e309bf4031f4",
+      "afterCommit": "9b189eb3f7d4a2432d22a7e8736277e6b8008993",
+      "rationale": "Object layout reduction is intentionally outside allocation-site triage; it requires retained-size or layout evidence."
+    },
+    {
+      "id": "runtime-130590-enum-hasflag",
+      "pullRequest": 130590,
+      "author": "Tanner Gooding",
+      "classification": "jit-only",
+      "currentStatus": "out-of-scope",
+      "beforeCommit": "765607ffe0626c525985044ddf30242ac8b2e20b",
+      "afterCommit": "3f008ad5f1e502de866f271f1b0e6687b7f226b4",
+      "rationale": "The source and IL retain a box shape whose allocation is removed by JIT optimization; static IL triage intentionally does not claim it."
+    },
+    {
+      "id": "runtime-131333-base64-simd",
+      "pullRequest": 131333,
+      "author": "Tanner Gooding",
+      "classification": "simd",
+      "currentStatus": "out-of-scope",
+      "beforeCommit": "dad8c23384924cd46ba8d4482131416443b06445",
+      "afterCommit": "2f9fa247a5888c5545535ee583049a45fd97bd45",
+      "rationale": "SIMD algorithm selection is a separate performance-analysis class and intentionally excluded from allocation-oriented triage."
+    }
+  ]
+}

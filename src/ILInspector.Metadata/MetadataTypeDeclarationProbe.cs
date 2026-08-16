@@ -6,6 +6,94 @@ namespace ILInspector.Metadata;
 /// <summary>Answers how one readable metadata image declares one exact type name.</summary>
 public static class MetadataTypeDeclarationProbe
 {
+    /// <summary>
+    /// Finds one exact TypeDef in the current image without considering exports
+    /// or forwarders. Its cumulative name-comparison budget is gated by
+    /// <c>ProbeDefinition_RejectsRepeatedLongLeafWork</c>.
+    /// </summary>
+    public static TypeDeclarationResult ProbeDefinition(
+        MetadataReader reader,
+        MetadataTypeDefinitionName name)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(name);
+
+        var candidates = new List<PendingCandidate>();
+        int leafUtf8Length =
+            System.Text.Encoding.UTF8.GetByteCount(name.Segments[^1]);
+        long comparisonWork =
+            System.Text.Encoding.UTF8.GetByteCount(name.Namespace);
+        foreach (string segment in name.Segments)
+        {
+            comparisonWork +=
+                System.Text.Encoding.UTF8.GetByteCount(segment);
+        }
+        comparisonWork = Math.Max(comparisonWork, 1);
+        if (comparisonWork
+            > MetadataSafetyPolicy.MaxStructuralSignatureWorkChars)
+        {
+            return new TypeDeclarationResult.Rejected(
+                MetadataTypeNameFailure.Malformed(
+                    default,
+                    "The exact TypeDef name exceeds the structural-name "
+                    + "work budget."));
+        }
+
+        long remainingWork =
+            MetadataSafetyPolicy.MaxStructuralSignatureWorkChars;
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            try
+            {
+                TypeDefinition definition =
+                    reader.GetTypeDefinition(handle);
+                if (reader.GetBlobReader(definition.Name).Length
+                    == leafUtf8Length)
+                {
+                    remainingWork -= comparisonWork;
+                    if (remainingWork < 0)
+                    {
+                        return new TypeDeclarationResult.Rejected(
+                            MetadataTypeNameFailure.Malformed(
+                                handle,
+                                "The exact TypeDef lookup exceeded its "
+                                + "structural-name work budget."));
+                    }
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                return new TypeDeclarationResult.Rejected(
+                    MetadataTypeNameFailure.Malformed(
+                        handle,
+                        ex.Message));
+            }
+
+            MetadataTypeDefinitionNameMatch match =
+                MetadataTypeDefinitionNameReader.Matches(
+                    reader,
+                    handle,
+                    name,
+                    out MetadataTypeNameFailure? failure);
+            if (match == MetadataTypeDefinitionNameMatch.Rejected)
+                return new TypeDeclarationResult.Rejected(failure!);
+            if (match == MetadataTypeDefinitionNameMatch.Match)
+            {
+                candidates.Add(
+                    new PendingValue(
+                        new TypeDeclarationCandidate.Definition(
+                            TypeDefinitionToken.FromHandle(
+                                reader,
+                                handle))));
+                if (candidates.Count == 2)
+                    return Complete(candidates);
+            }
+        }
+        return Complete(candidates);
+    }
+
     public static TypeDeclarationResult Probe(
         MetadataReader reader,
         MetadataTypeDefinitionName name)
