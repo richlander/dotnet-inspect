@@ -91,4 +91,26 @@ public class StructuringFlowFactsTests
         Assert.Equal([3], facts.ClonePredecessorIndices[0x90]);
         Assert.Equal([0x50, 0x60, 0x70, 0x80, 0x90], facts.BranchTargets.Order());
     }
+
+    [Fact]
+    public void Collect_NestedTransfersReserveCanonicalTargetLabels()
+    {
+        var nested = new Block(0x00);
+        var arm = new Block();
+        arm.Add(new Branch(0x40));
+        arm.Add(new ConditionalBranch(new Constant(true, Boolean), 0x50));
+        arm.Add(new SwitchBranch(new Constant(0, Int32), [0x60, 0x70]));
+        nested.Add(new IfStatement(new Constant(true, Boolean), arm, elseArm: null));
+
+        var facts = StructuringFlowFacts.Collect([nested]);
+
+        Assert.Equal([0x40, 0x50, 0x60, 0x70], facts.PreservedTargets.Order());
+        Assert.Equal([0], facts.ClonePredecessorIndices[0x40]);
+        Assert.Equal([0], facts.ClonePredecessorIndices[0x50]);
+        Assert.Equal([0], facts.ClonePredecessorIndices[0x60]);
+        Assert.Equal([0], facts.ClonePredecessorIndices[0x70]);
+        Assert.Empty(facts.UnconditionalTargets);
+        Assert.Empty(facts.ConditionalTargetCounts);
+        Assert.Empty(facts.JumpPredecessorIndices);
+    }
 }

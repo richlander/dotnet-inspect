@@ -498,8 +498,9 @@ public static class DiscoverOutput
         yield return new DiscoveryRow("Triage desc", "default-order");
         foreach (var step in new[]
         {
-            "Loop desc",
+            "Priority desc (high > medium > low)",
             "Confidence desc (high > medium > low)",
+            "Weight desc (high > medium > low > none)",
             "RootReach desc",
             "Member asc",
             "IL asc",
