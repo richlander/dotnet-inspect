@@ -1937,6 +1937,18 @@ public sealed class TypeResolutionContext : IDisposable
                                     kind =
                                         MetadataTypeDefinitionKind
                                             .Unknown;
+                                    kindResolutionFailure =
+                                        new TypeResolutionFailure
+                                            .KindDependencyCycle(
+                                                new AssemblyBindingTarget
+                                                    .AssemblyReference(
+                                                        dependency.Reference),
+                                                AssemblyBindingOrigin
+                                                    .FromAssembly(
+                                                        current.Assembly),
+                                                dependency.Scope);
+                                    kindResolutionDependencyAssembly =
+                                        dependency.Reference;
                                 }
                                 else if (_outcomes.TryGetValue(
                                         dependencyKey,

@@ -1490,7 +1490,7 @@ public static class ResearchDiff
                 assemblies.Where(
                     assembly =>
                         assembly.Identity
-                            == reference.Identity)
+                            .IsEquivalentTo(reference.Identity))
                     .ToImmutableArray();
             return matches.Length switch
             {

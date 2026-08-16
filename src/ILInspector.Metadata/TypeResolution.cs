@@ -331,6 +331,11 @@ public abstract class TypeResolutionFailure
                 Target:
                     AssemblyBindingTarget.AssemblyReference target,
             } => target.Identity,
+            KindDependencyCycle
+            {
+                Target:
+                    AssemblyBindingTarget.AssemblyReference target,
+            } => target.Identity,
             KindDependencyTypeNotFound notFound =>
                 notFound.Assembly.Assembly.Identity,
             KindDependencyAmbiguous
@@ -477,6 +482,27 @@ public abstract class TypeResolutionFailure
         public AssemblyBindingOrigin Origin { get; }
         public AssemblyResolutionScope Scope { get; }
         public AssemblyBindingFailure Failure { get; }
+    }
+
+    /// <summary>
+    /// A dependency needed to authenticate a declaration kind re-entered an
+    /// active kind-authentication request.
+    /// </summary>
+    public sealed class KindDependencyCycle : TypeResolutionFailure
+    {
+        internal KindDependencyCycle(
+            AssemblyBindingTarget target,
+            AssemblyBindingOrigin origin,
+            AssemblyResolutionScope scope)
+        {
+            Target = target;
+            Origin = origin;
+            Scope = scope;
+        }
+
+        public AssemblyBindingTarget Target { get; }
+        public AssemblyBindingOrigin Origin { get; }
+        public AssemblyResolutionScope Scope { get; }
     }
 
     /// <summary>

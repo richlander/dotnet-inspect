@@ -545,6 +545,9 @@ internal static class TypeParameterKindClassifier
                 TypeResolutionFailure.KindDependencyUnavailable unavailable =>
                     "A transitive generic-constraint dependency assembly "
                         + $"was unavailable: '{unavailable.Failure.Kind}'.",
+                TypeResolutionFailure.KindDependencyCycle =>
+                    "Transitive generic-constraint kind authentication "
+                        + "contains a cycle.",
                 TypeResolutionFailure.KindDependencyTypeNotFound notFound =>
                     "Transitive generic-constraint dependency "
                         + $"'{notFound.Type.ToMetadataFullName()}' was not "

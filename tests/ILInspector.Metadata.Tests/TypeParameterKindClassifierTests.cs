@@ -908,6 +908,18 @@ public class TypeParameterKindClassifierTests
                 TypeParameterTypeKind.Undetermined,
                 Assert.Single(Assert.Single(surface.Types).TypeParameters)
                     .TypeKind);
+            Assert.Contains(
+                surface.InspectionFailures,
+                failure =>
+                    failure.Operation
+                        == ApiSurface.ConstraintResolutionOperation
+                    && failure.Detail.Contains(
+                        "cycle",
+                        StringComparison.OrdinalIgnoreCase));
+            ApiDiff diff =
+                ApiDiffAnalyzer.Compare(surface, surface);
+            Assert.False(diff.IsEmpty);
+            Assert.NotEmpty(diff.InspectionFailures);
         }
         finally
         {

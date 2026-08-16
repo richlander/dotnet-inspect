@@ -690,6 +690,54 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void Compare_AssemblyGroupUsesMetadataIdentityEquivalence()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string dependencyPath = Path.Combine(
+            Path.GetTempPath(),
+            $"ResearchDependency{suffix}.dll");
+        string exactPath = Path.Combine(
+            Path.GetTempPath(),
+            $"ResearchConsumerExact{suffix}.dll");
+        string equivalentPath = Path.Combine(
+            Path.GetTempPath(),
+            $"ResearchConsumerEquivalent{suffix}.dll");
+        try
+        {
+            File.WriteAllBytes(
+                dependencyPath,
+                BuildResearchDependency("Dependency"));
+            File.WriteAllBytes(
+                exactPath,
+                BuildResearchConstraintConsumer(
+                    $"ResearchConsumer{suffix}",
+                    "Dependency"));
+            File.WriteAllBytes(
+                equivalentPath,
+                BuildResearchConstraintConsumer(
+                    $"ResearchConsumer{suffix}",
+                    "dependency",
+                    culture: "neutral"));
+
+            ResearchComparison comparison = ResearchDiff.Compare(
+                ResearchDiffInput.FromAssemblies(
+                    [exactPath, dependencyPath]),
+                ResearchDiffInput.FromAssemblies(
+                    [equivalentPath, dependencyPath]),
+                new ResearchDiffOptions(
+                    ResearchChangeMechanism.Api));
+
+            Assert.Empty(comparison.Changes);
+        }
+        finally
+        {
+            File.Delete(dependencyPath);
+            File.Delete(exactPath);
+            File.Delete(equivalentPath);
+        }
+    }
+
+    [Fact]
     public void FromApiDiff_ScopesInspectionFailureToSourceImage()
     {
         var apiDiff = new ApiDiff
@@ -2163,6 +2211,110 @@ public class ResearchDiffTests
                 methodList:
                     MetadataTokens.MethodDefinitionHandle(1));
         }
+    }
+
+    static byte[] BuildResearchDependency(string assemblyName)
+    {
+        MetadataBuilder metadata = NewResearchMetadata(assemblyName);
+        AddResearchModuleType(metadata);
+        AddResearchType(metadata, "Base");
+        return SerializeResearchMetadata(metadata);
+    }
+
+    static byte[] BuildResearchConstraintConsumer(
+        string assemblyName,
+        string dependencyName,
+        string? culture = null)
+    {
+        MetadataBuilder metadata = NewResearchMetadata(assemblyName);
+        AssemblyReferenceHandle reference =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(dependencyName),
+                new Version(1, 0, 0, 0),
+                culture is null
+                    ? default
+                    : metadata.GetOrAddString(culture),
+                default,
+                default,
+                default);
+        TypeReferenceHandle dependency =
+            metadata.AddTypeReference(
+                reference,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base"));
+        AddResearchModuleType(metadata);
+        TypeDefinitionHandle consumer =
+            AddResearchType(metadata, "Consumer`1");
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            dependency);
+        return SerializeResearchMetadata(metadata);
+    }
+
+    static MetadataBuilder NewResearchMetadata(string assemblyName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid:
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        return metadata;
+    }
+
+    static void AddResearchModuleType(MetadataBuilder metadata) =>
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+
+    static TypeDefinitionHandle AddResearchType(
+        MetadataBuilder metadata,
+        string name) =>
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(name),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+
+    static byte[] SerializeResearchMetadata(
+        MetadataBuilder metadata)
+    {
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
 }
