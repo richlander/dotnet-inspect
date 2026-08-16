@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 
+using ILInspector.Analysis;
 using ILInspector.Analysis.StructuralCloneFixtures;
 using ILInspector.AnalysisHarness;
 
@@ -24,6 +25,12 @@ public class StructuralCloneCorpusTests
             report.Success,
             StructuralCloneCorpus.Format(report));
         Assert.Equal(6, report.Total);
+        Assert.True(report.Discovery.Passed);
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.Completed,
+            report.Discovery.Disposition);
+        Assert.Equal(4, report.Discovery.ExpectedClusters.Length);
+        Assert.Equal(4, report.Discovery.ActualClusters.Length);
     }
 
     [Fact]
@@ -84,6 +91,65 @@ public class StructuralCloneCorpusTests
         ];
 
         Assert.Equal(fixtureMethods, corpusMethods);
+        string[] discoveryMethods =
+        [
+            .. corpus.Discovery.Population
+                .Select(static method =>
+                    $"{method.Type}.{method.Method}")
+                .Order(StringComparer.Ordinal),
+        ];
+        Assert.Equal(fixtureMethods, discoveryMethods);
+    }
+
+    [Fact]
+    public void Run_ClosedWorldDiscoveryRejectsUndeclaredMerge()
+    {
+        StructuralCloneCorpusDocument corpus = LoadCorpus();
+        StructuralCloneCorpusCase exact = corpus.Cases.Single(
+            static item => item.Id == "banal.authored.exact");
+        StructuralCloneCorpusDocument altered = corpus with
+        {
+            Cases = corpus.Cases.Replace(
+                exact,
+                exact with
+                {
+                    ExpectedRelation = StructuralCloneRelation.Different,
+                }),
+        };
+
+        StructuralCloneCorpusReport report = StructuralCloneCorpus.Run(
+            typeof(StructuralCloneFixture).Assembly.Location,
+            altered);
+
+        Assert.False(report.Discovery.Passed);
+        Assert.Equal(3, report.Discovery.ExpectedClusters.Length);
+        Assert.Equal(4, report.Discovery.ActualClusters.Length);
+    }
+
+    [Fact]
+    public void Run_ClosedWorldDiscoveryRejectsMissedFamily()
+    {
+        StructuralCloneCorpusDocument corpus = LoadCorpus();
+        StructuralCloneCorpusCase different = corpus.Cases.Single(
+            static item =>
+                item.Id == "challenging.edge-role.negative");
+        StructuralCloneCorpusDocument altered = corpus with
+        {
+            Cases = corpus.Cases.Replace(
+                different,
+                different with
+                {
+                    ExpectedRelation = StructuralCloneRelation.Exact,
+                }),
+        };
+
+        StructuralCloneCorpusReport report = StructuralCloneCorpus.Run(
+            typeof(StructuralCloneFixture).Assembly.Location,
+            altered);
+
+        Assert.False(report.Discovery.Passed);
+        Assert.Equal(5, report.Discovery.ExpectedClusters.Length);
+        Assert.Equal(4, report.Discovery.ActualClusters.Length);
     }
 
     [Fact]
@@ -92,7 +158,7 @@ public class StructuralCloneCorpusTests
         const string Invalid =
             """
             {
-              "schemaVersion": 1,
+              "schemaVersion": 2,
               "cases": [{
                 "id": "invalid",
                 "left": { "type": "T", "method": "A" },
@@ -103,7 +169,13 @@ public class StructuralCloneCorpusTests
                 "intent": "unsupported-boundary",
                 "actionability": "none",
                 "tags": []
-              }]
+              }],
+              "discovery": {
+                "population": [
+                  { "type": "T", "method": "A" },
+                  { "type": "T", "method": "B" }
+                ]
+              }
             }
             """;
 
