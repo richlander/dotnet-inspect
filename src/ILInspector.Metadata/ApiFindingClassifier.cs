@@ -43,8 +43,10 @@ public static class ApiFindingClassifier
 
         var changesByType = new Dictionary<string, List<ApiChange>>(StringComparer.Ordinal);
         var wholeTypeTransition = BuildWholeTypeTransitionSets(typesComplete);
-        bool oldIdentityIncomplete = oldSurface.InspectionFailures.Count > 0;
-        bool newIdentityIncomplete = newSurface.InspectionFailures.Count > 0;
+        bool oldIdentityIncomplete =
+            ApiDiffAnalyzer.HasIncompleteTypeIdentity(oldSurface);
+        bool newIdentityIncomplete =
+            ApiDiffAnalyzer.HasIncompleteTypeIdentity(newSurface);
 
         ClassifyTypes(typesComplete, options, oldIdentityIncomplete, newIdentityIncomplete, changesByType);
         ClassifyMembers(membersComplete, options, wholeTypeTransition, changesByType);
@@ -403,7 +405,13 @@ public static class ApiFindingClassifier
                     failure.SubjectToken,
                     failure.Mechanism,
                     failure.Kind,
-                    failure.Detail)),
+                    failure.Detail,
+                    failure.SubjectAssembly,
+                    failure.DependencyAssembly)
+                {
+                    SourceAssemblyPath =
+                        failure.SourceAssemblyPath,
+                }),
             .. newSurface.InspectionFailures.Select(failure =>
                 new ApiDiffInspectionFailure(
                     "new",
@@ -411,6 +419,12 @@ public static class ApiFindingClassifier
                     failure.SubjectToken,
                     failure.Mechanism,
                     failure.Kind,
-                    failure.Detail)),
+                    failure.Detail,
+                    failure.SubjectAssembly,
+                    failure.DependencyAssembly)
+                {
+                    SourceAssemblyPath =
+                        failure.SourceAssemblyPath,
+                }),
         ];
 }

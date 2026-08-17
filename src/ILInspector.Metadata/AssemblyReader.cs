@@ -12,6 +12,42 @@ namespace ILInspector.Metadata;
 public static class AssemblyReader
 {
     /// <summary>
+    /// Extracts an API surface only when the selected managed PE is a module
+    /// without an assembly manifest.
+    /// </summary>
+    public static ApiSurface? ExtractModuleApiSurface(
+        string path,
+        bool includeAll = false,
+        bool typesOnly = false)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            if (!peReader.HasMetadata
+                || peReader.GetMetadataReader().IsAssembly)
+            {
+                return null;
+            }
+
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                peReader,
+                includeAll,
+                typesOnly);
+            SetSourceAssemblyPath(surface, path);
+            return surface;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Extracts the public API surface from a DLL file on disk.
     /// Returns null if the file cannot be read or has no metadata.
     /// </summary>
@@ -22,12 +58,10 @@ public static class AssemblyReader
             using var stream = File.OpenRead(dllPath);
             var surface = ExtractApiSurface(stream, includeAll, typesOnly);
             if (surface != null)
-            {
-                foreach (var type in surface.Types)
-                    type.SourceAssemblyPath = dllPath;
-            }
+                SetSourceAssemblyPath(surface, dllPath);
             return surface;
         }
+
         catch (IOException)
         {
             return null;
@@ -37,6 +71,11 @@ public static class AssemblyReader
             return null;
         }
     }
+
+    static void SetSourceAssemblyPath(
+        ApiSurface surface,
+        string path) =>
+        surface.SetInspectionSourceAssemblyPath(path);
 
     /// <summary>
     /// Extracts the public API surface from a stream containing a PE image.

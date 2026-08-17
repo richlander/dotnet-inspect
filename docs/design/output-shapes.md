@@ -140,6 +140,12 @@ observe those selected rows without writing text; rendered Markdown is never
 parsed back into rows. Producers outside Markout, such as metadata tables, expose
 cardinality from the same typed row builders their renderer consumes.
 
+An incomplete comparison is not narrowed into a clean result. Diff document
+formats include typed inspection-failure rows. Single-shape diff formats
+(`--table`, `--tsv`, `--jsonl`, and `--name-only`) cannot append a second
+failure table, so they emit an explicit incomplete-comparison diagnostic and
+exit nonzero.
+
 ## How dotnet-inspect flags select a shape
 
 Flags are how the user (or an agent) walks the ladder. The important distinction

@@ -75,7 +75,6 @@ public static class TypeCommand
             ProjectAssetsPath = projectAssetsPath,
         };
         bool inspectionIncomplete = false;
-
         try
         {
             if (string.IsNullOrEmpty(typeName))
@@ -95,7 +94,7 @@ public static class TypeCommand
                         logger)
                     : ApiServices.LoadFullApi(
                         searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                        apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
+                        apiSource, apiVersion, selectedTfm, logger, options);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -129,7 +128,10 @@ public static class TypeCommand
                 var listExitCode = ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
                 if (listExitCode != 0)
                     return listExitCode;
-                inspectionIncomplete = api.InspectionFailures.Count > 0;
+                inspectionIncomplete = api.InspectionFailures.Any(
+                    static failure =>
+                        failure.Operation
+                            != ApiSurface.ConstraintResolutionOperation);
 
                 if (!loaded.IsSummary && !options.FormatExplicitlySet && !options.IsRawOutput)
                 {
@@ -163,7 +165,7 @@ public static class TypeCommand
             {
                 var loaded = ApiServices.LoadFullApi(
                     searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                    apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
+                    apiSource, apiVersion, selectedTfm, logger, options);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -280,6 +282,11 @@ public static class TypeCommand
                             return 1;
                     }
 
+                    int selectedSurfaceExitCode =
+                        ApiCommand.WriteSelectedSurfaceDiagnostics(
+                        api,
+                        apiType,
+                        effectiveOptions.MemberFilter);
                     if (tabularProjection)
                     {
                         // Capture output so we can warn when a requested column produced no data
@@ -343,6 +350,9 @@ public static class TypeCommand
 
                         Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
                     }
+
+                    if (selectedSurfaceExitCode != 0)
+                        return selectedSurfaceExitCode;
                 }
                 else if (options.EffectiveDiscovery)
                 {
@@ -559,7 +569,8 @@ public static class TypeCommand
             return null;
 
         var api = await BuildPlatformPrefixSurfaceAsync(query, options, context, logger);
-        if (api == null || api.Types.Count == 0)
+        if (api is null
+            || !HasPlatformPrefixBrowseResult(api))
             return null;
 
         var browseOptions = options with
@@ -599,6 +610,12 @@ public static class TypeCommand
 
         return ApiCommand.WriteFullApiOutput(api, browseOptions);
     }
+
+    internal static bool HasPlatformPrefixBrowseResult(
+        ApiSurface? api) =>
+        api is not null
+        && (api.Types.Count > 0
+            || api.InspectionFailures.Count > 0);
 
     private static string ToFindPrefixPattern(string query)
         => query.EndsWith('*') ? query : $"{query}*";
@@ -689,7 +706,9 @@ public static class TypeCommand
                 continue;
             }
 
-            var api = AssemblyReader.ExtractApiSurface(assemblyPath, options.IncludeAll);
+            var api = AssemblySetSurfaceBuilder.Build(
+                [assemblyPath],
+                options.IncludeAll);
             if (api == null)
                 continue;
 
@@ -701,11 +720,22 @@ public static class TypeCommand
                 isPlatformAssembly: true,
                 options);
 
-            foreach (var type in api.Types.Where(t => fullNames.Contains(t.FullName)))
+            List<ApiType> selectedTypes =
+            [
+                .. api.Types.Where(type =>
+                    fullNames.Contains(type.FullName)),
+            ];
+            foreach (ApiType type in selectedTypes)
             {
                 type.SourceAssemblyPath ??= assemblyPath;
                 merged.Types.Add(type);
             }
+            MergeSelectedInspectionFailures(
+                merged,
+                api,
+                selectedTypes,
+                fullNames,
+                assemblyPath);
         }
 
         merged.Types = merged.Types
@@ -715,6 +745,98 @@ public static class TypeCommand
 
         RecomputeSurfaceCounts(merged);
         return merged;
+    }
+
+    internal static void MergeSelectedInspectionFailures(
+        ApiSurface destination,
+        ApiSurface source,
+        IReadOnlyList<ApiType> selectedTypes,
+        IReadOnlySet<string> selectedTypeNames,
+        string defaultSourcePath)
+    {
+        var selectedSubjects =
+            new HashSet<ApiSurfaceInspectionSubject>();
+        var selectedSourcePaths =
+            new HashSet<string>(
+                OperatingSystem.IsWindows()
+                    ? StringComparer.OrdinalIgnoreCase
+                    : StringComparer.Ordinal);
+        foreach (ApiType type in selectedTypes)
+        {
+            string sourcePath =
+                type.SourceAssemblyPath ?? defaultSourcePath;
+            selectedSourcePaths.Add(sourcePath);
+            Add(type.MetadataToken);
+            foreach (ApiMember member in type.Members)
+            {
+                Add(member.MetadataToken);
+                Add(member.GetterToken);
+                Add(member.SetterToken);
+                Add(member.AdderToken);
+                Add(member.RemoverToken);
+            }
+
+            void Add(int? token)
+            {
+                if (token is int value)
+                {
+                    selectedSubjects.Add(
+                        new ApiSurfaceInspectionSubject(
+                            sourcePath,
+                            value));
+                }
+            }
+        }
+        destination.MergeInspectionFailuresFrom(
+            source,
+            selectedSubjects.Contains,
+            includeNonConstraintFailures: false);
+        foreach (ApiSurfaceInspectionFailure failure
+            in source.InspectionFailures)
+        {
+            if (failure.Operation
+                    == ApiSurfaceInspectionFailure
+                        .GenericParameterConstraintResolutionOperation
+                || !IncludesFailure(failure))
+            {
+                continue;
+            }
+
+            destination.InspectionFailures.Add(failure);
+        }
+
+        bool IncludesFailure(
+            ApiSurfaceInspectionFailure failure)
+        {
+            if (failure.OwningTypeDefinition is { } owner)
+            {
+                return selectedTypeNames.Contains(
+                    owner.ToMetadataFullName());
+            }
+            if (!failure.AffectedTypeDefinitions.IsDefaultOrEmpty)
+            {
+                return failure.AffectedTypeDefinitions.Any(
+                    affected =>
+                        selectedTypeNames.Contains(
+                            affected.ToMetadataFullName()));
+            }
+
+            string? sourcePath =
+                failure.SourceAssemblyPath;
+            if (failure.SubjectToken == 0)
+            {
+                return selectedTypes.Count == 0
+                    || (sourcePath is not null
+                        && selectedSourcePaths.Contains(
+                            sourcePath));
+            }
+
+            return selectedSubjects.Contains(
+                new ApiSurfaceInspectionSubject(
+                    sourcePath,
+                    failure.OwningTypeToken
+                        ?? failure.SubjectToken));
+        }
     }
 
     private static int? TryWritePrefixBrowse(
