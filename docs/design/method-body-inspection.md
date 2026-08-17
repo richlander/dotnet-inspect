@@ -296,7 +296,14 @@ evidence, and diagnostics surviving a later recoverable failure;
 `LibraryBodyIndex_PrefetchedImageScopeSkipsMalformedUnselectedBody` gates
 scoped decode with an excluded malformed-body close negative. The assembly
 builder retains the metadata-ordered work list, parallel scheduling,
-assembly-level projections, and result aggregation.
+and service lifetime composition. `LibraryBodyAnalysisAccumulator` receives
+the completed method-local result array in metadata order, merges all topic
+collections and partial diagnostics, computes the call-derived non-heap and
+exception-type assembly projections, and constructs the immutable
+`LibraryBodyAnalysisResult`.
+`ParallelBuild_IsOrderStable_AcrossRepeatedOpens` gates deterministic ordered
+output, while `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` also
+gates partial-result accumulation.
 `LibraryBodyPrimaryMetadataResolver` owns primary-image method identity,
 unsafe/generated attribute judgments, token/member/type/field/calli/value-type
 and delegate facts, async-state-machine caching, and the narrow resolver
