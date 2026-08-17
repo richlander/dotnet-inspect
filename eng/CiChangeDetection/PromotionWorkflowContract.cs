@@ -7,13 +7,20 @@ internal static class PromotionWorkflowContract
 {
     internal static void AssertMutations(string repository)
     {
-        string path = Path.Combine(
+        string promotionPath = Path.Combine(
             repository,
             ".github",
             "workflows",
             "promote-inspect-web.yml");
-        string workflow = File.ReadAllText(path);
-        Validate(workflow);
+        string stagingPath = Path.Combine(
+            repository,
+            ".github",
+            "workflows",
+            "deploy-inspect-web.yml");
+        string promotionWorkflow = File.ReadAllText(promotionPath);
+        string stagingWorkflow = File.ReadAllText(stagingPath);
+        ValidatePromotion(promotionWorkflow);
+        ValidateStaging(stagingWorkflow);
 
         const string trustedCheckout =
             """
@@ -31,27 +38,40 @@ internal static class PromotionWorkflowContract
 
                   - name: Setup .NET
             """;
-        string mutated = workflow.Replace(
+        string mutatedPromotion = promotionWorkflow.Replace(
             trustedCheckout,
             candidateCheckout,
             StringComparison.Ordinal);
-        if (mutated == workflow)
+        if (mutatedPromotion == promotionWorkflow)
             throw new InvalidOperationException("Promotion checkout mutation did not apply.");
-
-        try
-        {
-            Validate(mutated);
-        }
-        catch (InvalidOperationException)
-        {
-            return;
-        }
-
-        throw new InvalidOperationException(
+        ExpectFailure(
+            () => ValidatePromotion(mutatedPromotion),
             "Promotion workflow contract accepted candidate-controlled production checkout.");
+
+        const string stagingDownload =
+            """
+                steps:
+                  - name: Download staged site artifact
+            """;
+        const string stagingCheckout =
+            """
+                steps:
+                  - uses: actions/checkout@v6
+
+                  - name: Download staged site artifact
+            """;
+        string mutatedStaging = stagingWorkflow.Replace(
+            stagingDownload,
+            stagingCheckout,
+            StringComparison.Ordinal);
+        if (mutatedStaging == stagingWorkflow)
+            throw new InvalidOperationException("Staging checkout mutation did not apply.");
+        ExpectFailure(
+            () => ValidateStaging(mutatedStaging),
+            "Staging workflow contract accepted candidate code in the deployment job.");
     }
 
-    private static void Validate(string workflow)
+    private static void ValidatePromotion(string workflow)
     {
         using TextReader reader = new StringReader(workflow);
         YamlStream yaml = [];
@@ -145,6 +165,128 @@ internal static class PromotionWorkflowContract
             "uses",
             "Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1",
             "production deploy step");
+    }
+
+    private static void ValidateStaging(string workflow)
+    {
+        using TextReader reader = new StringReader(workflow);
+        YamlStream yaml = [];
+        yaml.Load(reader);
+        if (yaml.Documents.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"Expected one staging workflow document, found {yaml.Documents.Count}.");
+        }
+
+        YamlMappingNode root = RequireMapping(
+            yaml.Documents[0].RootNode,
+            "staging workflow root");
+        YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "staging workflow");
+        YamlMappingNode build = GetRequiredMapping(jobs, "build", "staging jobs");
+        RequireAbsent(build, "environment", "jobs.build");
+        YamlMappingNode buildOutputs =
+            GetRequiredMapping(build, "outputs", "jobs.build");
+        RequireScalarValue(
+            buildOutputs,
+            "artifact_id",
+            "${{ steps.site.outputs.artifact-id }}",
+            "jobs.build.outputs");
+        YamlSequenceNode buildSteps = GetRequiredSequence(build, "steps", "jobs.build");
+        YamlMappingNode upload = RequireNamedStep(
+            buildSteps,
+            "Upload staged site artifact",
+            "jobs.build");
+        RequireScalarValue(upload, "id", "site", "staging artifact upload step");
+        RequireScalarValue(
+            upload,
+            "uses",
+            "actions/upload-artifact@v7",
+            "staging artifact upload step");
+
+        YamlMappingNode deploy = GetRequiredMapping(jobs, "deploy", "staging jobs");
+        RequireScalarValue(deploy, "needs", "build", "jobs.deploy");
+        YamlMappingNode environment =
+            GetRequiredMapping(deploy, "environment", "jobs.deploy");
+        RequireScalarValue(
+            environment,
+            "name",
+            "inspect-web-staging",
+            "jobs.deploy.environment");
+        YamlSequenceNode deploySteps =
+            GetRequiredSequence(deploy, "steps", "jobs.deploy");
+        if (deploySteps.Children.Count != 3)
+        {
+            throw new InvalidOperationException(
+                "Staging deployment must contain only artifact download, " +
+                "artifact verification, and deploy steps.");
+        }
+
+        YamlMappingNode download =
+            RequireStep(deploySteps, 0, "Download staged site artifact");
+        RequireScalarValue(
+            download,
+            "uses",
+            "actions/download-artifact@v8",
+            "staging artifact download step");
+        YamlMappingNode downloadWith =
+            GetRequiredMapping(download, "with", "staging artifact download step");
+        RequireScalarValue(
+            downloadWith,
+            "artifact-ids",
+            "${{ needs.build.outputs.artifact_id }}",
+            "staging artifact download step.with");
+        RequireScalarValue(
+            downloadWith,
+            "digest-mismatch",
+            "error",
+            "staging artifact download step.with");
+
+        YamlMappingNode verify =
+            RequireStep(deploySteps, 1, "Verify staged site artifact");
+        RequireScalarValue(
+            verify,
+            "run",
+            "test -f artifacts/inspect-web-publish/wwwroot/index.html",
+            "staging artifact verification step");
+
+        YamlMappingNode deployStep =
+            RequireStep(deploySteps, 2, "Deploy to staging");
+        RequireScalarValue(
+            deployStep,
+            "uses",
+            "Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1",
+            "staging deploy step");
+    }
+
+    private static YamlMappingNode RequireNamedStep(
+        YamlSequenceNode steps,
+        string name,
+        string context)
+    {
+        YamlMappingNode[] matches = steps.Children
+            .Select((node, index) => RequireMapping(node, $"{context} step {index}"))
+            .Where(step => GetOptionalScalar(step, "name") == name)
+            .ToArray();
+        if (matches.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"{context} contains {matches.Length} '{name}' steps; expected one.");
+        }
+        return matches[0];
+    }
+
+    private static void ExpectFailure(Action action, string message)
+    {
+        try
+        {
+            action();
+        }
+        catch (InvalidOperationException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(message);
     }
 
     private static YamlMappingNode RequireStep(

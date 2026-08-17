@@ -20,13 +20,12 @@ env:
   DOTNET_SDK_VERSION: '11.0.100-preview.6.26359.118'
 
 jobs:
-  deploy:
-    name: Publish staging
+  build:
+    name: Build staging artifact
     if: github.ref == 'refs/heads/main'
-    environment:
-      name: inspect-web-staging
-      url: https://dotnet-inspect.ca
     runs-on: ubuntu-26.04
+    outputs:
+      artifact_id: ${{ steps.site.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v6
 
@@ -52,6 +51,7 @@ jobs:
             -p:BuildTimestampUtc="$built_at"
 
       - name: Upload staged site artifact
+        id: site
         uses: actions/upload-artifact@v7
         with:
           name: inspect-web-site
@@ -59,8 +59,27 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  deploy:
+    name: Publish staging
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: inspect-web-staging
+      url: https://dotnet-inspect.ca
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Download staged site artifact
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: artifacts/inspect-web-publish/wwwroot
+          digest-mismatch: error
+
+      - name: Verify staged site artifact
+        shell: bash
+        run: test -f artifacts/inspect-web-publish/wwwroot/index.html
+
       - name: Deploy to staging
-        id: deploy
         uses: Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1 # v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_STAGING }}

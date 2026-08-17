@@ -456,8 +456,10 @@ not answer report the engine's failure rather than fixture results.
 
 `.github/workflows/deploy-inspect-web.yml` publishes every `main` commit,
 archives the resulting `wwwroot` as the run-scoped `inspect-web-site` GitHub
-artifact, and deploys it to the public staging site at
-`https://dotnet-inspect.ca`. The separate `inspect-web-staging` GitHub
+artifact, then uses a fresh environment-gated job to download that artifact by
+ID with digest mismatch configured as an error and deploy it to the public
+staging site at `https://dotnet-inspect.ca`. Candidate build code never runs in
+the staging deployment job. The separate `inspect-web-staging` GitHub
 environment accepts only `main` and holds a deployment token scoped to the
 staging Azure Static Web App.
 
@@ -471,10 +473,11 @@ the run attempt, commit, artifact identity, and digest, downloads the exact
 artifact ID with digest mismatch configured as an error, and deploys the
 archived staging files. `validate-inspect-web-promotion.cs --self-test`, run
 by inspect-web CI, gates the evidence discriminator and close negative cases;
-the CI change-detection workflow contract gate keeps production revalidation
-on the trusted dispatch revision and ahead of candidate artifact download.
-Manual staging runs remain useful for recovery but are deliberately not
-promotable.
+the CI change-detection workflow contract gate keeps both deployment jobs free
+of candidate code, keeps production revalidation on the trusted dispatch
+revision, and orders each artifact download before only verification and
+deployment. Manual staging runs remain useful for recovery but are deliberately
+not promotable.
 
 Both deployment workflows pin the Azure deployment action to an exact commit
 and disable Azure's own app build. The staging publish step embeds the CLI's
