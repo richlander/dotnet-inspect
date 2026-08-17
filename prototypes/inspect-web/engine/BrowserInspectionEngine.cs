@@ -928,34 +928,12 @@ public static partial class BrowserInspectionEngine
             BrowserJsonContext.Default.BrowserDependencyCoordinateMatch);
     }
 
-    // The library-owned StyleOptionCatalog is the single source of truth for the decompiler style
-    // taxonomy. These records carry its data across the Wasm boundary; the host retains no labels,
-    // summaries, or ordering of its own. Neither listing inspects an artifact.
+    // Vocabulary is product-owned static data. The browser receives the same section/field/value
+    // document as the CLI and retains no separate labels, ordering, defaults, or query semantics.
     [JSExport]
-    public static string ListStyleTiers() => JsonSerializer.Serialize(
-        Pipeline.StyleOptionCatalog.Tiers
-            .Select(tier => new BrowserStyleTier(
-                tier.Id.ToString(),
-                tier.Title,
-                tier.Summary,
-                tier.Order,
-                tier.ByteDivergent))
-            .ToArray(),
-        BrowserJsonContext.Default.BrowserStyleTierArray);
-
-    [JSExport]
-    public static string ListStyleOptions() => JsonSerializer.Serialize(
-        Pipeline.StyleOptionCatalog.Choices
-            .Select(choice => new BrowserStyleOption(
-                choice.Id,
-                choice.Title,
-                choice.Summary,
-                choice.Tier.ToString(),
-                choice.ByteDivergent,
-                choice.OracleEndorsed,
-                choice.ConflictGroup))
-            .ToArray(),
-        BrowserJsonContext.Default.BrowserStyleOptionArray);
+    public static string ListVocabulary() =>
+        DotnetInspector.Vocabulary.VocabularyJson.Serialize(
+            DotnetInspector.Vocabulary.VocabularyCatalog.Document);
 
     /// <summary>
     /// Resolves one exact package/version/framework coordinate, reuses its workspace, and returns
