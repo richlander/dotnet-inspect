@@ -32,8 +32,7 @@ dnx dotnet-inspect -y -- <command>
 
 ## Member lookup
 
-Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list overloads.
-Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload
+Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list overloads. Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload
 defaults to `Signature`. A fully-qualified `Namespace.Type.Member` needs no scope.
 
 ```bash
