@@ -25,8 +25,11 @@ internal static class PerformanceTriageCandidateId
             fingerprintLength,
             MaximumFingerprintLength);
 
+        int evidenceMethodToken =
+            opportunity.EvidenceMethodToken
+                ?? opportunity.Method.MetadataToken;
         string coordinate = opportunity.ILOffset is { } offset
-            ? $"0x{opportunity.Method.MetadataToken:X8}+0x{offset:X4}"
+            ? $"0x{evidenceMethodToken:X8}+0x{offset:X4}"
             : $"0x{opportunity.Method.MetadataToken:X8}";
         string source = descriptor is null || findingKey is null
             ? "performance"
