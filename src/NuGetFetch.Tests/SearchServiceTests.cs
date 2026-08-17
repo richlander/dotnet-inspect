@@ -82,6 +82,23 @@ public class SearchServiceTests
     }
 
     [Fact]
+    public async Task SearchAsync_AuthorityOnlyEndpoint_SendsTheRootPath()
+    {
+        var handler = new CapturingHandler("""{"data":[]}""");
+        using var client = new HttpClient(handler);
+        var service = new SearchService(client, "https://feed.example");
+
+        await service.SearchAsync(
+            "q",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.StartsWith(
+            "https://feed.example/?",
+            handler.LastRequest!.RequestUri!.AbsoluteUri,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SearchAsync_WithAuth_SendsAuthorizationHeader()
     {
         var handler = new CapturingHandler("""{"data":[]}""");
@@ -128,6 +145,30 @@ public class SearchServiceTests
     }
 
     [Fact]
+    public async Task SearchAsync_UnicodePackageIds_ReturnResults()
+    {
+        var handler = new CapturingHandler("""
+            {
+              "data": [
+                {"id":"日本語サンプルデータ","version":"1.2.3","versions":[]},
+                {"id":"Contoso.P\u0430ckage","version":"1.2.3","versions":[]},
+                {"id":"Pkg\u0301","version":"1.2.3","versions":[]}
+              ]
+            }
+            """);
+        using var client = new HttpClient(handler);
+        var service = new SearchService(client, SearchUrl);
+
+        IReadOnlyList<SearchResult> results = await service.SearchAsync(
+            "日本語",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ["日本語サンプルデータ", "Contoso.P\u0430ckage", "Pkg\u0301"],
+            results.Select(result => result.Id));
+    }
+
+    [Fact]
     public async Task SearchAsync_MalformedBody_Throws()
     {
         var handler = new CapturingHandler("<html>login required</html>");
@@ -160,8 +201,7 @@ public class SearchServiceTests
     [InlineData("""{"data":[{"id":" Contoso.Package","version":"1.0.0"}]}""", false)]
     [InlineData("""{"data":[{"id":"Contoso..Package","version":"1.0.0"}]}""", false)]
     [InlineData("""{"data":[{"id":"Contoso/Package","version":"1.0.0"}]}""", false)]
-    [InlineData("{\"data\":[{\"id\":\"Contoso.P\\u0430ckage\",\"version\":\"1.0.0\"}]}", false)]
-    [InlineData("{\"data\":[{\"id\":\"Pkg\\u0301\",\"version\":\"1.0.0\"}]}", false)]
+    [InlineData("{\"data\":[{\"id\":\"Contoso.Package\\u200B\",\"version\":\"1.0.0\"}]}", false)]
     [InlineData("""{"data":[{"id":"Contoso.Package","version":"not-a-version"}]}""", false)]
     [InlineData("""{"data":[{"id":"Contoso.Package","version":" 1.0.0"}]}""", false)]
     [InlineData("{\"data\":[{\"id\":\"Contoso.Package\\n\",\"version\":\"1.0.0\"}]}", false)]

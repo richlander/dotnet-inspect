@@ -153,6 +153,18 @@ public class SearchRequestUriTests
             QueryParameters(new Uri(url)).GetValueOrDefault("q"));
     }
 
+    [Fact]
+    public void TryCompose_AddsTheImplicitRootPathToAnAuthorityOnlyEndpoint()
+    {
+        Assert.True(
+            SearchRequestUri.TryCompose(
+                "https://feed.test",
+                [("q", "sample")],
+                out string url));
+
+        Assert.Equal("https://feed.test/?q=sample", url);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

@@ -39,11 +39,13 @@ the highest supported capability.
 Feed-declared search endpoints may contain signed query parameters. Unrelated path and query text
 is sent byte-for-byte as declared, including percent escapes, while product-owned `q`, `skip`,
 `take`, `prerelease`, and `semVerLevel` parameters are replaced case-insensitively and appended
-exactly once. Diagnostics redact the declared query. `SearchRequestUriTests`,
+exactly once. An authority-only endpoint receives the HTTP root path rather than an invalid empty
+request target. Diagnostics redact the declared query on success and failure paths.
+`SearchRequestUriTests`,
 `SearchServiceTests.SearchAsync_PreservesEncodedSignedQueryBytes`,
 `NuGetSearchSourcesTests.GetSearchQueryServiceAsync_PreservesDeclaredQueryBytes`, and
-`PackageMetadataServiceTests.FetchAllMetadataAsync_UsesConfiguredServiceIndexResources` gate this
-contract.
+`PackageMetadataServiceTests.FetchAllMetadataAsync_UsesConfiguredServiceIndexResources` plus
+`FetchAllMetadataAsync_SearchFailureRedactsDeclaredQuery` gate this contract.
 `NuGetSearchSourcesTests.SearchAsync_EquivalentEndpointFailover_IsBounded` and
 `NuGetSearchSourcesTests.SearchAsync_EquivalentEndpointFailover_SharesOperationCeiling` gate those
 bounds; `SearchTimeoutOptions_DeriveFourRequestDeadlines` and
@@ -107,6 +109,9 @@ entry; the next request retries them.
 **Notes:**
 
 - Feed implementations vary; aggregate fields that are absent remain unavailable
+- Package IDs are validated against NuGet's Unicode word-character grammar rather than a narrower
+  ASCII subset; `SearchServiceTests.SearchAsync_UnicodePackageIds_ReturnResults` gates the live-feed
+  case
 - Results are paged until the exact package ID is found or 1,000 candidates have been examined
 - Best source for: deprecation, downloads, verified status, owners
 - Returns data for latest version only (not version-specific deprecation)

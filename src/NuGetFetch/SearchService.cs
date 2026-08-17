@@ -137,13 +137,7 @@ public partial class SearchService
         IReadOnlyList<SearchResult> results = parsed?.Data
             ?? throw new InvalidOperationException(
                 "The search response was not a valid NuGet search document.");
-        if (results.Any(result =>
-                result is null
-                || !IsValidPackageId(result.Id)
-                || !IsValidPackageVersion(result.Version)
-                || result.Versions is not null
-                    && result.Versions.Any(version =>
-                        !IsValidPackageVersion(version.Version))))
+        if (results.Any(result => !IsValidResult(result)))
         {
             throw new InvalidOperationException(
                 "The search response contained an invalid result identity.");
@@ -151,6 +145,15 @@ public partial class SearchService
 
         return results;
     }
+
+    private static bool IsValidResult(SearchResult? result) =>
+        result is not null
+        && IsValidPackageId(result.Id)
+        && IsValidPackageVersion(result.Version)
+        && (result.Versions is null
+            || result.Versions.All(version =>
+                version is not null
+                && IsValidPackageVersion(version.Version)));
 
     private static bool IsValidPackageId(string? packageId) =>
         packageId is { Length: > 0 and <= 100 }
@@ -162,7 +165,7 @@ public partial class SearchService
         && NuGetVersion.TryParse(version, out _);
 
     [GeneratedRegex(
-        @"^[A-Za-z0-9_]+(?:[.-][A-Za-z0-9_]+)*\z",
+        @"^\w+(?:[.-]\w+)*\z",
         RegexOptions.CultureInvariant)]
     private static partial Regex PackageIdPattern();
 

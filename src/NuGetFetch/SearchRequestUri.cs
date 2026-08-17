@@ -70,6 +70,12 @@ internal static class SearchRequestUri
         string root = queryDelimiter < 0
             ? withoutFragment
             : withoutFragment[..queryDelimiter];
+        int authorityStart = root.IndexOf("://", StringComparison.Ordinal) + 3;
+        if (root.IndexOf('/', authorityStart) < 0)
+        {
+            root += "/";
+        }
+
         string existing = queryDelimiter < 0
             ? ""
             : withoutFragment[(queryDelimiter + 1)..];

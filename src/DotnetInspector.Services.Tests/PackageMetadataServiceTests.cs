@@ -325,6 +325,48 @@ public class PackageMetadataServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task FetchAllMetadataAsync_SearchFailureRedactsDeclaredQuery()
+    {
+        const string source = "https://private.example/v3/index.json";
+        const string packageId = "Signed.Endpoint.Failure";
+        var handler = new RoutingHandler(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/v3/index.json" => Json("""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
+                    { "@id": "https://private.example/query?s%69g=SUPERSECRETSIG", "@type": "SearchQueryService/3.5.0" }
+                  ]
+                }
+                """),
+            "/registration/signed.endpoint.failure/1.0.0.json" =>
+                Json("""{ "published": "2024-01-02T03:04:05Z" }"""),
+            "/query" => Json("<html>SUPERSECRETEXCEPTION</html>"),
+            _ => new HttpResponseMessage(System.Net.HttpStatusCode.NotFound),
+        });
+        var log = new List<string>();
+
+        PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
+            new HttpClient(handler),
+            packageId,
+            "1.0.0",
+            log.Add,
+            forceLatest: true,
+            sourceOptions: new NuGetSourceOptions { Sources = [source] });
+
+        Assert.NotNull(result.Published);
+        Assert.Contains(
+            log,
+            message => message.Contains(
+                "Error fetching search metadata",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            log,
+            message => message.Contains("SUPERSECRET", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task FetchAllMetadataAsync_AuthoritativeAbsenceFallsBackInSourceOrder()
     {
         const string sourceA = "https://a.example/v3/index.json";

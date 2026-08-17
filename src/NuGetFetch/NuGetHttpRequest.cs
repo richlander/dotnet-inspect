@@ -34,6 +34,7 @@ internal static class NuGetHttpRequest
         preserved = null;
         if (!Uri.TryCreate(requestUri, UriKind.Absolute, out Uri? validated)
             || validated.Scheme is not ("http" or "https")
+            || string.IsNullOrEmpty(validated.Host)
             || !HasValidRawText(requestUri))
         {
             return false;

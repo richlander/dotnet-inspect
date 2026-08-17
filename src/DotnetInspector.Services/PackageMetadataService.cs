@@ -451,7 +451,9 @@ public static class PackageMetadataService
                 {
                     log?.Invoke(
                         $"Error fetching search metadata from "
-                        + $"{searchQueryService.Id}: {ex.Message}");
+                        + NetworkRequestObservation.RedactSensitiveUrlText(
+                            searchQueryService.Id)
+                        + $" ({ex.GetType().Name})");
                 }
             }
         }
