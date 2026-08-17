@@ -35,6 +35,32 @@ public sealed class TupleIdentityTests
     private static string Canonical(string methodName) =>
         ApiMemberIdentity.GetCanonicalSignature(SampleType, Method(methodName));
 
+    [Fact]
+    public void ExtensionReceiverIdentity_IsTupleErasedAndNullabilityFree()
+    {
+        ApiType type = Surface.Types.Single(
+            candidate => candidate.Name == nameof(ExtensionReceiverIdentityFixture));
+
+        Assert.Equal(
+            "string",
+            Assert.Single(
+                type.Members,
+                member => member.Name == nameof(ExtensionReceiverIdentityFixture.Nullable))
+                .ExtendedType);
+        Assert.Equal(
+            "T[]",
+            Assert.Single(
+                type.Members,
+                member => member.Name == nameof(ExtensionReceiverIdentityFixture.NullableArray))
+                .ExtendedType);
+        Assert.Equal(
+            "System.ValueTuple<int, string>",
+            Assert.Single(
+                type.Members,
+                member => member.Name == nameof(ExtensionReceiverIdentityFixture.Tuple))
+                .ExtendedType);
+    }
+
     // --- TypeNode.RenderCanonical: structural, name-insensitive spelling -----
 
     private static GenericTypeNode Tuple(params TypeNode[] args) =>
@@ -254,5 +280,20 @@ public sealed class TupleIdentityTests
         Assert.NotEqual(
             ApiMemberIdentity.GetCanonicalSignature(SampleType, genuine),
             ApiMemberIdentity.GetCanonicalSignature(SampleType, invalid));
+    }
+}
+
+public static class ExtensionReceiverIdentityFixture
+{
+    public static void Nullable(this string? value)
+    {
+    }
+
+    public static void NullableArray<T>(this T[]? value)
+    {
+    }
+
+    public static void Tuple(this (int Count, string Name) value)
+    {
     }
 }
