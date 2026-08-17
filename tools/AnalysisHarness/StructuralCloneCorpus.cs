@@ -351,8 +351,7 @@ public static class StructuralCloneCorpus
                     && actual.Rank <= expectation.MaximumRank
                     && contrasts.Length == expectation.RanksAbove.Length
                     && contrasts.All(contrast =>
-                        actual.Similarity.Score
-                            > contrast.Similarity.Score);
+                        actual.Rank < contrast.Rank);
                 expectations.Add(
                     new StructuralCloneCorpusRetrievalExpectationResult(
                         expectation,

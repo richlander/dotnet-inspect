@@ -116,6 +116,9 @@ public class StructuralCloneRetrievalTests
             result.Disposition);
         Assert.Empty(result.Candidates);
         Assert.Equal(0, result.Receipt.BodyProductions);
+        Assert.Equal(
+            Population().Length - 1,
+            result.Receipt.SuppressedCandidates);
         Assert.Contains(
             result.Blockers,
             static blocker =>
@@ -245,6 +248,30 @@ public class StructuralCloneRetrievalTests
             comparison.Relation);
     }
 
+    [Fact]
+    public void RetrieveSimilar_RanksZeroScoreEligibleCandidate()
+    {
+        using var image = new PEReader(
+            new MemoryStream(BuildZeroScoreAssembly()));
+        MethodDefinitionHandle seed =
+            MetadataTokens.MethodDefinitionHandle(1);
+        MethodDefinitionHandle candidate =
+            MetadataTokens.MethodDefinitionHandle(2);
+
+        StructuralCloneRetrievalResult result =
+            StructuralCloneAnalysis.RetrieveSimilar(
+                image,
+                seed,
+                [seed, candidate]);
+
+        StructuralCloneRetrievalCandidate ranked =
+            Assert.Single(result.Candidates);
+        Assert.Equal(candidate, ranked.Method.Handle);
+        Assert.Equal(1, ranked.Rank);
+        Assert.Equal(0, ranked.Similarity.Score);
+        Assert.Equal(1, result.Receipt.RankedCandidates);
+    }
+
     static PEReader OpenFixture()
         => new(File.OpenRead(
             typeof(StructuralCloneFixture).Assembly.Location));
@@ -288,4 +315,96 @@ public class StructuralCloneRetrievalTests
         => $"{candidate.Rank}:"
             + $"{MetadataTokens.GetToken(candidate.Method.Handle):X8}:"
             + $"{candidate.Similarity.Score}";
+
+    static byte[] BuildZeroScoreAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString("ZeroScore.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("39BC1613-D15A-4792-B023-E875D0F24891")),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ZeroScore"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Fixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        AddSyntheticMethod(
+            metadata,
+            encoder,
+            "Seed",
+            [0x2A],
+            [0x07, 0x01, 0x08]);
+        AddSyntheticMethod(
+            metadata,
+            encoder,
+            "Candidate",
+            [0x2B, 0x00, 0x14, 0x7A],
+            [0x07, 0x01, 0x0E]);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static void AddSyntheticMethod(
+        MetadataBuilder metadata,
+        MethodBodyStreamEncoder bodies,
+        string name,
+        byte[] il,
+        byte[] localSignature)
+    {
+        StandaloneSignatureHandle locals =
+            metadata.AddStandaloneSignature(
+                metadata.GetOrAddBlob(localSignature));
+        var code = new BlobBuilder(il.Length);
+        code.WriteBytes(il);
+        int body = bodies.AddMethodBody(
+            new InstructionEncoder(code),
+            maxStack: 1,
+            localVariablesSignature: locals,
+            attributes: MethodBodyAttributes.InitLocals);
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 0,
+                returnType => returnType.Void(),
+                parameters => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(name),
+            metadata.GetOrAddBlob(signature),
+            body,
+            MetadataTokens.ParameterHandle(1));
+    }
 }

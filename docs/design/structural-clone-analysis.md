@@ -241,8 +241,9 @@ correspondence. Callers use `Compare` to verify a selected pair.
 
 The product produces each admitted body once and compares compact feature
 multisets. Only candidates with the same normalized method-signature shape as
-the seed enter the ranking. The integer score ranges from zero through 10,000
-and combines:
+the seed enter the ranking, including candidates that share no scored features
+and therefore score zero. The integer score ranges from zero through 10,000 and
+combines:
 
 - normalized operation identity, including same-reader operands and local type;
 - opcode and operand-category positions within blocks;
@@ -263,8 +264,9 @@ disposition and blockers; candidates from completed methods remain available,
 but their ranks explicitly exclude suppressed methods and cannot prove
 negative recall. `MaximumResults` bounds returned rows after all eligible
 candidates are scored, and the receipt distinguishes ranked, returned, and
-suppressed rows. Seed unsupported, limit, and failure states remain separate
-retrieval dispositions.
+suppressed rows. Atomic admission or seed failure suppresses the unprocessed
+candidate population. Seed unsupported, limit, and failure states remain
+separate retrieval dispositions.
 
 `StructuralCloneRetrievalTests` gates exact and near recall, contrastive
 ordering, input-order determinism, visible top-K suppression, partial-ranking

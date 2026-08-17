@@ -155,6 +155,8 @@ public static partial class StructuralCloneAnalysis
 
         limits ??= new StructuralCloneRetrievalLimits();
         ValidateRetrievalLimits(limits);
+        int potentialCandidates =
+            methods.Length - (methods.Contains(seed) ? 1 : 0);
         StructuralCloneComparisonLimits comparisonLimits =
             limits.ComparisonLimits
             ?? new StructuralCloneComparisonLimits();
@@ -165,6 +167,7 @@ public static partial class StructuralCloneAnalysis
             return EmptyRetrieval(
                 seed,
                 methods.Length,
+                potentialCandidates,
                 StructuralCloneRetrievalDisposition.LimitReached,
                 new StructuralCloneRetrievalBlocker(
                     StructuralCloneRetrievalBlockerKind.MethodLimit,
@@ -192,7 +195,11 @@ public static partial class StructuralCloneAnalysis
                 out MetadataReader reader,
                 out StructuralCloneMetadataFailure metadataFailure))
         {
-            return FailedRetrieval(seed, methods.Length, metadataFailure);
+            return FailedRetrieval(
+                seed,
+                methods.Length,
+                potentialCandidates,
+                metadataFailure);
         }
         ValidateHandle(reader, seed, nameof(seed));
         foreach (MethodDefinitionHandle method in orderedMethods)
@@ -202,7 +209,11 @@ public static partial class StructuralCloneAnalysis
                 out Guid moduleVersionId,
                 out metadataFailure))
         {
-            return FailedRetrieval(seed, methods.Length, metadataFailure);
+            return FailedRetrieval(
+                seed,
+                methods.Length,
+                potentialCandidates,
+                metadataFailure);
         }
 
         MetadataMethodAddress seedAddress = new(moduleVersionId, seed);
@@ -251,7 +262,7 @@ public static partial class StructuralCloneAnalysis
                 new StructuralCloneRetrievalReceipt(
                     methods.Length,
                     ProcessedMethods: 0,
-                    SuppressedCandidates: 0,
+                    SuppressedCandidates: potentialCandidates,
                     EligibleMethods: 0,
                     UnsupportedMethods: 0,
                     LimitReachedMethods: 0,
@@ -300,14 +311,11 @@ public static partial class StructuralCloneAnalysis
                     }
                     StructuralCloneSimilarityEvidence similarity =
                         Similarity(seedProfile, profile);
-                    if (similarity.Score > 0)
-                    {
-                        ranked.Add(
-                            new StructuralCloneRetrievalCandidate(
-                                Rank: 0,
-                                address,
-                                similarity));
-                    }
+                    ranked.Add(
+                        new StructuralCloneRetrievalCandidate(
+                            Rank: 0,
+                            address,
+                            similarity));
                     break;
                 case StructuralCloneDisposition.Unsupported:
                     unsupported++;
@@ -380,8 +388,7 @@ public static partial class StructuralCloneAnalysis
             blockers.ToImmutable(),
             new StructuralCloneRetrievalReceipt(
                 methods.Length,
-                orderedMethods.Length
-                    - (orderedMethods.Contains(seed) ? 1 : 0),
+                potentialCandidates,
                 SuppressedCandidates:
                     orderedCandidates.Length
                     - candidates.Length
@@ -469,6 +476,7 @@ public static partial class StructuralCloneAnalysis
     static StructuralCloneRetrievalResult EmptyRetrieval(
         MethodDefinitionHandle seed,
         int inputMethods,
+        int potentialCandidates,
         StructuralCloneRetrievalDisposition disposition,
         StructuralCloneRetrievalBlocker blocker)
     {
@@ -486,7 +494,7 @@ public static partial class StructuralCloneAnalysis
             new StructuralCloneRetrievalReceipt(
                 inputMethods,
                 ProcessedMethods: 0,
-                SuppressedCandidates: 0,
+                SuppressedCandidates: potentialCandidates,
                 EligibleMethods: 0,
                 UnsupportedMethods: 0,
                 LimitReachedMethods: 0,
@@ -499,6 +507,7 @@ public static partial class StructuralCloneAnalysis
     static StructuralCloneRetrievalResult FailedRetrieval(
         MethodDefinitionHandle seed,
         int inputMethods,
+        int potentialCandidates,
         StructuralCloneMetadataFailure failure)
     {
         MetadataMethodAddress address = new(Guid.Empty, seed);
@@ -520,7 +529,7 @@ public static partial class StructuralCloneAnalysis
             new StructuralCloneRetrievalReceipt(
                 inputMethods,
                 ProcessedMethods: 0,
-                SuppressedCandidates: 0,
+                SuppressedCandidates: potentialCandidates,
                 EligibleMethods: 0,
                 UnsupportedMethods: 0,
                 LimitReachedMethods: 0,

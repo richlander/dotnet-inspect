@@ -108,7 +108,7 @@ precision label; source review remains independent evidence.
 The 2026-08-17 CoreLib worksheet canary used the same pinned
 `System.Private.CoreLib.dll` documented by the exact census below and seeded
 `System.Reflection.EventInfo::op_Equality`. Retrieval processed all 44,801
-methods in 3.0 seconds, ranked 7,667 signature-compatible candidates, and
+methods in 3.6 seconds, ranked 7,668 signature-compatible candidates, and
 returned the eight other reflection equality operators first, each at 10,000.
 Those peers are independently verified by the exact census family. Seven
 unrelated oversized methods retained the overall `LimitReached` disposition,

@@ -174,8 +174,9 @@ public class StructuralCloneCorpusTests
                 static item => item.Id == "near-constant-peer");
         StructuralCloneCorpusRetrievalExpectation expectation =
             Assert.Single(query.Expectations);
-        StructuralCloneCorpusMethod hardNegative =
-            expectation.RanksAbove[0];
+        StructuralCloneCorpusMethod lowerRankedCandidate = new(
+            expectation.Candidate.Type,
+            nameof(StructuralCloneFixture.NearReorderedA));
         StructuralCloneCorpusDocument altered = corpus with
         {
             Retrieval = corpus.Retrieval with
@@ -188,7 +189,7 @@ public class StructuralCloneCorpusTests
                         [
                             expectation with
                             {
-                                Candidate = hardNegative,
+                                Candidate = lowerRankedCandidate,
                                 RanksAbove = [expectation.Candidate],
                             },
                         ],

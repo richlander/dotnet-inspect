@@ -84,6 +84,39 @@ public class StructuralCloneWorksheetTests
     }
 
     [Fact]
+    public async Task Command_RejectsBlankSeed()
+    {
+        var start = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add(
+            typeof(StructuralCloneWorksheet).Assembly.Location);
+        start.ArgumentList.Add("--clone-worksheet");
+        start.ArgumentList.Add(
+            typeof(StructuralCloneFixture).Assembly.Location);
+        start.ArgumentList.Add("--seed");
+        start.ArgumentList.Add("");
+
+        using Process process = Process.Start(start)!;
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        Task<string> standardError =
+            process.StandardError.ReadToEndAsync(cancellationToken);
+        Task<string> standardOutput =
+            process.StandardOutput.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+
+        Assert.Equal(2, process.ExitCode);
+        Assert.Contains(
+            "--clone-worksheet requires a non-empty --seed.",
+            await standardError);
+        Assert.Equal("", await standardOutput);
+    }
+
+    [Fact]
     public async Task Command_RunsProductWorksheet()
     {
         var start = new ProcessStartInfo("dotnet")

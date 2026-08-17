@@ -491,6 +491,13 @@ if (cloneWorksheetSpecified && !cloneCensusSeedSpecified)
         "--clone-worksheet requires --seed.");
     return 2;
 }
+if (cloneWorksheetSpecified
+    && string.IsNullOrWhiteSpace(cloneCensusSeed))
+{
+    Console.Error.WriteLine(
+        "--clone-worksheet requires a non-empty --seed.");
+    return 2;
+}
 if (maxDepthSpecified
     && !selectedModes.Contains("--caller-loop-census")
     && !selectedModes.Contains("--deferred-callback-census")
