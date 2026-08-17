@@ -136,13 +136,16 @@ relationship.
 Enumeration remains exhaustive within explicit candidate-index-work,
 candidate, exact-verification-work, alternative, and block-affected-element
 limits. Index construction and lookup consume the index budget; each attempted
-exact-restoring candidate and each witness-search step consumes the aggregate
-verification budget. The alignment receipt reports both kinds of work. Every
-distinct restoring alternative is returned in deterministic order. Multiple
-alternatives, or ambiguity in any restoring exact correspondence, makes the
-alignment `Ambiguous`; the comparator does not choose a preferred edit by
-layout or search order. If any limit prevents complete enumeration, the result
-is `LimitReached`, never partial `Near` or unproven `Different`.
+exact-restoring candidate charges its body-rebuild work before it runs, every
+exact-refinement round charges its structural element work before rebuilding
+keys, and each witness-search step consumes the remaining aggregate
+verification budget. The alignment receipt reports both index and verification
+charges. Every distinct restoring alternative is returned in deterministic
+order. Multiple alternatives, or ambiguity in any restoring exact
+correspondence, makes the alignment `Ambiguous`; the comparator does not choose
+a preferred edit by layout or search order. If any limit prevents complete
+enumeration, the result is `LimitReached`, never partial `Near` or unproven
+`Different`.
 
 Signature shape, `InitLocals`, and the local-type multiset remain hard
 discriminators. Multi-edit contrasts remain `Different`. Exact results do not

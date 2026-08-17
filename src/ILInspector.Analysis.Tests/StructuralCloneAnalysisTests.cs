@@ -1712,6 +1712,19 @@ public class StructuralCloneAnalysisTests
         AssertNearOperationChange(reverse);
         Assert.InRange(forward.AlignmentReceipt!.Candidates, 1, 4);
         Assert.InRange(reverse.AlignmentReceipt!.Candidates, 1, 4);
+        Assert.True(forward.AlignmentReceipt.VerificationSteps > 10_000);
+        Assert.True(reverse.AlignmentReceipt.VerificationSteps > 10_000);
+
+        StructuralCloneComparison limited =
+            StructuralCloneAnalysis.Compare(
+                left,
+                right,
+                new StructuralCloneComparisonLimits(
+                    MaximumNearAlignmentVerificationSteps: 1_000));
+        AssertLimit(
+            limited,
+            StructuralCloneBlockerKind
+                .NearAlignmentVerificationStepLimit);
     }
 
     [Fact]

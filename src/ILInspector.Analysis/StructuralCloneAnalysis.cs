@@ -536,26 +536,30 @@ public static partial class StructuralCloneAnalysis
             right,
             limits,
             includeNear: true,
-            witnessConstraints: null);
+            witnessConstraints: null,
+            verificationBudget: null);
 
     internal static StructuralCloneComparison CompareExact(
         StructuralCloneBodyFacts left,
         StructuralCloneBodyFacts right,
         StructuralCloneComparisonLimits? limits = null,
-        StructuralCloneWitnessConstraints? witnessConstraints = null)
+        StructuralCloneWitnessConstraints? witnessConstraints = null,
+        NearAlignmentVerificationBudget? verificationBudget = null)
         => CompareBodies(
             left,
             right,
             limits,
             includeNear: false,
-            witnessConstraints);
+            witnessConstraints,
+            verificationBudget);
 
     static StructuralCloneComparison CompareBodies(
         StructuralCloneBodyFacts left,
         StructuralCloneBodyFacts right,
         StructuralCloneComparisonLimits? limits,
         bool includeNear,
-        StructuralCloneWitnessConstraints? witnessConstraints)
+        StructuralCloneWitnessConstraints? witnessConstraints,
+        NearAlignmentVerificationBudget? verificationBudget)
     {
         ArgumentNullException.ThrowIfNull(left);
         ArgumentNullException.ThrowIfNull(right);
@@ -599,15 +603,12 @@ public static partial class StructuralCloneAnalysis
                 : different;
         }
 
-        RefinedColors colors = Refine(left, right);
-        WitnessResult witness =
-            FindWitness(
-                left,
-                right,
-                colors,
-                limits.MaximumVerificationSteps,
-                witnessConstraints);
-        if (witness.LimitReached)
+        RefinedColors colors = Refine(
+            left,
+            right,
+            verificationBudget,
+            out bool refinementLimitReached);
+        if (refinementLimitReached)
         {
             return StructuralCloneComparison.NotCompleted(
                 left.Method,
@@ -617,7 +618,64 @@ public static partial class StructuralCloneAnalysis
                     new StructuralCloneBlocker(
                         StructuralCloneBlockerKind.VerificationStepLimit,
                         StructuralCloneSide.Both,
-                        $"Exact witness search exceeded {limits.MaximumVerificationSteps} steps."),
+                        "Exact refinement exhausted the near-alignment "
+                            + "verification budget."),
+                ],
+                Receipt(
+                    left,
+                    right,
+                    colors.Rounds,
+                    0,
+                    false,
+                    false));
+        }
+        int witnessLimit = verificationBudget is null
+            ? limits.MaximumVerificationSteps
+            : Math.Min(
+                limits.MaximumVerificationSteps,
+                verificationBudget.Remaining);
+        if (witnessLimit < 1)
+        {
+            return StructuralCloneComparison.NotCompleted(
+                left.Method,
+                right.Method,
+                StructuralCloneDisposition.LimitReached,
+                [
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.VerificationStepLimit,
+                        StructuralCloneSide.Both,
+                        "Exact witness search exhausted the near-alignment "
+                            + "verification budget."),
+                ],
+                Receipt(
+                    left,
+                    right,
+                    colors.Rounds,
+                    0,
+                    false,
+                    false));
+        }
+        WitnessResult witness =
+            FindWitness(
+                left,
+                right,
+                colors,
+                witnessLimit,
+                witnessConstraints);
+        bool aggregateWitnessLimit =
+            verificationBudget is not null
+            && !verificationBudget.TryCharge(witness.Steps);
+        if (witness.LimitReached || aggregateWitnessLimit)
+        {
+            return StructuralCloneComparison.NotCompleted(
+                left.Method,
+                right.Method,
+                StructuralCloneDisposition.LimitReached,
+                [
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.VerificationStepLimit,
+                        StructuralCloneSide.Both,
+                        $"Exact witness search exceeded {witnessLimit} steps."),
                 ],
                 Receipt(
                     left,
@@ -1840,7 +1898,9 @@ public static partial class StructuralCloneAnalysis
 
     static RefinedColors Refine(
         StructuralCloneBodyFacts left,
-        StructuralCloneBodyFacts right)
+        StructuralCloneBodyFacts right,
+        NearAlignmentVerificationBudget? verificationBudget,
+        out bool limitReached)
     {
         int[] leftBlocks = new int[left.Graph.Blocks.Length];
         int[] rightBlocks = new int[right.Graph.Blocks.Length];
@@ -1852,6 +1912,19 @@ public static partial class StructuralCloneAnalysis
 
         for (int ceiling = 0; ceiling < maximumRounds; ceiling++)
         {
+            if (verificationBudget is not null
+                && !verificationBudget.TryCharge(
+                    RefinementElementWork(left)
+                    + RefinementElementWork(right)))
+            {
+                limitReached = true;
+                return new RefinedColors(
+                    leftBlocks,
+                    rightBlocks,
+                    leftLocals,
+                    rightLocals,
+                    rounds);
+            }
             (int[] nextLeftBlocks, int[] nextRightBlocks) = AssignColors(
                 BuildBlockKeys(left, leftBlocks, leftLocals),
                 BuildBlockKeys(right, rightBlocks, rightLocals));
@@ -1872,6 +1945,7 @@ public static partial class StructuralCloneAnalysis
                 break;
         }
 
+        limitReached = false;
         return new RefinedColors(
             leftBlocks,
             rightBlocks,

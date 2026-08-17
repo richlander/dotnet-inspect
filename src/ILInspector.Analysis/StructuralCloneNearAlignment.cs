@@ -67,13 +67,12 @@ public static partial class StructuralCloneAnalysis
         var alternatives =
             new SortedDictionary<string, StructuralCloneAlignmentAlternative>(
                 StringComparer.Ordinal);
-        int verificationSteps = 0;
+        var verificationBudget = new NearAlignmentVerificationBudget(
+            limits.MaximumNearAlignmentVerificationSteps);
         foreach (NearCandidate candidate in candidates)
         {
-            int remaining =
-                limits.MaximumNearAlignmentVerificationSteps
-                - verificationSteps;
-            if (remaining < 2)
+            if (!verificationBudget.TryCharge(
+                    IndexCost(left) + (long)IndexCost(right)))
             {
                 return NearLimit(
                     left,
@@ -83,9 +82,9 @@ public static partial class StructuralCloneAnalysis
                         .NearAlignmentVerificationStepLimit,
                     $"Near alignment reached "
                         + $"{limits.MaximumNearAlignmentVerificationSteps} "
-                        + "verification steps.",
+                        + "verification steps before the next candidate.",
                     candidates.Count,
-                    verificationSteps,
+                    verificationBudget.Steps,
                     indexBudget.Steps);
             }
 
@@ -97,15 +96,9 @@ public static partial class StructuralCloneAnalysis
             StructuralCloneComparison exact = CompareExact(
                 candidateLeft,
                 candidateRight,
-                limits with
-                {
-                    MaximumVerificationSteps = Math.Min(
-                        limits.MaximumVerificationSteps,
-                        remaining - 1),
-                },
-                witnessConstraints);
-            verificationSteps = checked(
-                verificationSteps + 1 + exact.Receipt.SearchSteps);
+                limits,
+                witnessConstraints,
+                verificationBudget);
             if (exact.Disposition
                 == StructuralCloneDisposition.LimitReached)
             {
@@ -118,7 +111,7 @@ public static partial class StructuralCloneAnalysis
                     "Near alignment could not exhaust an exact-restoring "
                         + "candidate within its verification bounds.",
                     candidates.Count,
-                    verificationSteps,
+                    verificationBudget.Steps,
                     indexBudget.Steps);
             }
             if (exact.Disposition
@@ -148,7 +141,7 @@ public static partial class StructuralCloneAnalysis
                         + $"{limits.MaximumNearAlignmentAlternatives} "
                         + "complete alternatives.",
                     candidates.Count,
-                    verificationSteps,
+                    verificationBudget.Steps,
                     indexBudget.Steps);
             }
         }
@@ -156,7 +149,7 @@ public static partial class StructuralCloneAnalysis
         var receipt = new StructuralCloneAlignmentReceipt(
             indexBudget.Steps,
             candidates.Count,
-            verificationSteps,
+            verificationBudget.Steps,
             Exhausted: true);
         if (alternatives.Count == 0)
         {
@@ -1023,6 +1016,14 @@ public static partial class StructuralCloneAnalysis
                 + block.Outgoing.Length
                 + block.Incoming.Length)
             + body.Locals.Length);
+
+    static long RefinementElementWork(StructuralCloneBodyFacts body)
+        => 3L * body.Graph.Blocks.Length
+            + 2L * body.Graph.Blocks.Sum(
+                static block => block.Operations.Length)
+            + 2L * body.Graph.Blocks.Sum(
+                static block => block.Outgoing.Length)
+            + 3L * body.Locals.Length;
 
     static NearLocalUseAggregate LocalUseAggregate(
         NearBlockKey block,
@@ -1899,6 +1900,23 @@ sealed class NearAlignmentIndexBudget(int maximum)
 }
 
 sealed class NearAlignmentIndexLimitReachedException : Exception;
+
+sealed class NearAlignmentVerificationBudget(int maximum)
+{
+    public int Steps { get; private set; }
+    public int Remaining => maximum - Steps;
+
+    public bool TryCharge(long steps)
+    {
+        if (steps < 0 || steps > Remaining)
+        {
+            Steps = maximum;
+            return false;
+        }
+        Steps += (int)steps;
+        return true;
+    }
+}
 
 readonly record struct NearOperationCandidateKey(
     int Block,
