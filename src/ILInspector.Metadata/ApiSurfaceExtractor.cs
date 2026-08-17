@@ -3913,8 +3913,16 @@ public static class ApiSurfaceExtractor
             parameterModels.Add(parameterModel);
         }
 
-        var returnType = FormatMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
-        var canonicalReturnType = FormatCanonicalMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
+        var returnType = FormatMethodReturnType(
+            reader,
+            treeSignature.ReturnType,
+            paramHandles,
+            beforeDecodeWork);
+        var canonicalReturnType = FormatCanonicalMethodReturnType(
+            reader,
+            treeSignature.ReturnType,
+            paramHandles,
+            beforeDecodeWork);
         var model = new ApiSignature
         {
             ReturnType = returnType,

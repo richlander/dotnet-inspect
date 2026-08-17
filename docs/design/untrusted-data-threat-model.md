@@ -411,7 +411,10 @@ segment used to resolve an attribute type is also charged before SRM
 materializes it, including names inspected only to skip an accessor,
 compiler-generated field, or hidden member. Property-accessor nullable-context
 probes use the same observer as method attributes, so a TypeSpec constructor
-parent on a getter is charged before its rank string is rendered. This includes every enclosing
+parent on a getter is charged before its rank string is rendered. Property
+`ref` return spelling charges every SequenceNumber-0 Param row the same way
+the method path does, so extra return-parameter rows cannot multiply an
+uncharged TypeSpec decode. This includes every enclosing
 TypeDef or TypeRef segment reached from a signature, skipped enum names scanned
 while formatting defaults, forwarded type and target-assembly names, and
 strong-name blobs read while proving a finalizer slot reaches the core library.
@@ -452,6 +455,7 @@ pre-decoding rejection.
 `OneHugeCustomAttributeArrayCount_StopsBeforeLargeAllocationAmplification`,
 `RepeatedNamedArgumentCount_StopsBeforeLargeAllocationAmplification`,
 `PropertyAccessorNullableContextTypeSpec_StopsBeforeLargeAllocationAmplification`,
+`PropertyRefReturnDuplicateSeq0Attributes_StopsBeforeLargeAllocationAmplification`,
 `LegalNamedAttribute_HasBoundedUnboundedParity`,
 `RepeatedEnumAttributeLookups_DoNotAllocateQuadratically`,
 `SeparateEnumAttributes_ReuseTheChargedTypeNameIndex`,

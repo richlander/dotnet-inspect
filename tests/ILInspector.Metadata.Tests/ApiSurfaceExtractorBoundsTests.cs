@@ -820,6 +820,15 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void PropertyRefReturnDuplicateSeq0Attributes_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildRefPropertyDuplicateSeq0TypeSpecImage(
+                returnParameterCount: 8,
+                rank: 1_000_000));
+    }
+
+    [Fact]
     public void LocalExtensionAttachment_DoesNotAllocateQuadratically()
     {
         byte[] image = BuildLocalExtensionFloodImage(methodCount: 4_000);
@@ -2291,6 +2300,81 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.AddCustomAttribute(type, constructor, valueHandle);
         }
 
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildRefPropertyDuplicateSeq0TypeSpecImage(
+        int returnParameterCount,
+        int rank)
+    {
+        var metadata = Metadata("RefPropertySeq0TypeSpec");
+        var typeSpecSignature = new BlobBuilder();
+        typeSpecSignature.WriteByte(0x14);
+        typeSpecSignature.WriteByte(0x08);
+        typeSpecSignature.WriteCompressedInteger(rank);
+        typeSpecSignature.WriteCompressedInteger(0);
+        typeSpecSignature.WriteCompressedInteger(0);
+        TypeSpecificationHandle typeSpec =
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(typeSpecSignature));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            typeSpec,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        BlobHandle attributeValue =
+            metadata.GetOrAddBlob(new byte[] { 0x01, 0x00, 0x00, 0x00 });
+        TypeDefinitionHandle type = AddModuleAndPublicType(metadata, "Host");
+        ParameterHandle first = default;
+        for (int i = 0; i < returnParameterCount; i++)
+        {
+            ParameterHandle parameter = metadata.AddParameter(
+                ParameterAttributes.None,
+                default,
+                sequenceNumber: 0);
+            if (i == 0)
+                first = parameter;
+            metadata.AddCustomAttribute(parameter, constructor, attributeValue);
+        }
+
+        var accessorSignature = new BlobBuilder();
+        new BlobEncoder(accessorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Type(isByRef: true).Int32(),
+                _ => { });
+        MethodDefinitionHandle accessor = metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("get_Value"),
+            metadata.GetOrAddBlob(accessorSignature),
+            bodyOffset: -1,
+            first);
+        var propertySignature = new BlobBuilder();
+        new BlobEncoder(propertySignature).PropertySignature(
+            isInstanceProperty: true).Parameters(
+                0,
+                returnType => returnType.Type(isByRef: true).Int32(),
+                _ => { });
+        PropertyDefinitionHandle property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(propertySignature));
+        metadata.AddPropertyMap(type, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            accessor);
         return Serialize(metadata);
     }
 
