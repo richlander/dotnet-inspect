@@ -42,6 +42,11 @@ const string Usage =
           Reports exact families, receipts, suppression, and an optional seed-to-family drill-in.
           --max-methods and --max-comparisons override the product admission/comparison limits.
 
+      --clone-worksheet <assembly> --seed <0xMethodDef|Type::Method> [--top N] [--json]
+          Rank likely structural-clone peers for one seed with the bounded product-owned
+          retrieval API. Similarity is candidate evidence only and establishes no relationship.
+          --max-methods overrides product admission; --top only bounds text presentation.
+
       --allocation-readout <file> [--top N] [--json]
           Sweep a corpus list and aggregate allocation occurrence/opportunity metadata
           distributions: allocation, path, path confidence, post dominance, escape, shape, and
@@ -126,6 +131,8 @@ bool relationshipLedgerSpecified = false;
 string? cloneCensusAssembly = null;
 string? cloneCensusSeed = null;
 bool cloneCensusSpecified = false;
+string? cloneWorksheetAssembly = null;
+bool cloneWorksheetSpecified = false;
 bool cloneCensusSeedSpecified = false;
 bool cloneMaximumMethodsSpecified = false;
 bool cloneMaximumComparisonsSpecified = false;
@@ -237,6 +244,15 @@ for (int i = 0; i < args.Length; i++)
                 args,
                 ref i,
                 "--clone-census",
+                missingValueOptions);
+            break;
+        case "--clone-worksheet":
+            selectedModes.Add("--clone-worksheet");
+            cloneWorksheetSpecified = true;
+            cloneWorksheetAssembly = NextRequiredValue(
+                args,
+                ref i,
+                "--clone-worksheet",
                 missingValueOptions);
             break;
         case "--seed":
@@ -454,14 +470,32 @@ if (relationshipLedgerSpecified && !cloneCorpusSpecified)
         "--relationship-ledger requires --clone-corpus.");
     return 2;
 }
-if ((cloneCensusSeedSpecified
-        || cloneMaximumMethodsSpecified
-        || cloneMaximumComparisonsSpecified)
-    && !cloneCensusSpecified)
+if ((cloneCensusSeedSpecified || cloneMaximumMethodsSpecified)
+    && !cloneCensusSpecified
+    && !cloneWorksheetSpecified)
 {
     Console.Error.WriteLine(
-        "--seed, --max-methods, and --max-comparisons require "
-            + "--clone-census.");
+        "--seed and --max-methods require --clone-census or "
+            + "--clone-worksheet.");
+    return 2;
+}
+if (cloneMaximumComparisonsSpecified && !cloneCensusSpecified)
+{
+    Console.Error.WriteLine(
+        "--max-comparisons requires --clone-census.");
+    return 2;
+}
+if (cloneWorksheetSpecified && !cloneCensusSeedSpecified)
+{
+    Console.Error.WriteLine(
+        "--clone-worksheet requires --seed.");
+    return 2;
+}
+if (cloneWorksheetSpecified
+    && string.IsNullOrWhiteSpace(cloneCensusSeed))
+{
+    Console.Error.WriteLine(
+        "--clone-worksheet requires a non-empty --seed.");
     return 2;
 }
 if (maxDepthSpecified
@@ -478,6 +512,7 @@ if (maxDepthSpecified
 if (topSpecified
     && !selectedModes.Contains("--precision-sample")
     && !selectedModes.Contains("--clone-census")
+    && !selectedModes.Contains("--clone-worksheet")
     && !selectedModes.Contains("--allocation-readout")
     && !selectedModes.Contains("--caller-loop-census")
     && !selectedModes.Contains("--deferred-callback-census")
@@ -533,6 +568,16 @@ if (cloneCensusAssembly is not null)
         cloneCensusSeed,
         cloneMaximumMethods,
         cloneMaximumComparisons,
+        top,
+        json);
+}
+
+if (cloneWorksheetAssembly is not null)
+{
+    return RunCloneWorksheet(
+        cloneWorksheetAssembly,
+        cloneCensusSeed!,
+        cloneMaximumMethods,
         top,
         json);
 }
@@ -656,6 +701,44 @@ static int RunCloneCensus(
                 ? StructuralCloneCensus.ToJson(report)
                     + Environment.NewLine
                 : StructuralCloneCensus.Format(report, top));
+        return report.Success ? 0 : 1;
+    }
+    catch (Exception ex) when (
+        ex is InvalidDataException
+            or BadImageFormatException
+            or IOException
+            or UnauthorizedAccessException)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 2;
+    }
+}
+
+static int RunCloneWorksheet(
+    string assembly,
+    string seed,
+    int maximumMethods,
+    int top,
+    bool json)
+{
+    if (!File.Exists(assembly))
+    {
+        Console.Error.WriteLine($"Assembly not found: {assembly}");
+        return 2;
+    }
+
+    try
+    {
+        StructuralCloneWorksheetReport report =
+            StructuralCloneWorksheet.Run(
+                assembly,
+                seed,
+                maximumMethods);
+        Console.Write(
+            json
+                ? StructuralCloneWorksheet.ToJson(report)
+                    + Environment.NewLine
+                : StructuralCloneWorksheet.Format(report, top));
         return report.Success ? 0 : 1;
     }
     catch (Exception ex) when (
@@ -973,7 +1056,8 @@ static string? NextRequiredValue(
 static string MissingValueError(string option) =>
     option switch
     {
-        "--clone-corpus" or "--clone-census" or "--paydirt-recall"
+        "--clone-corpus" or "--clone-census" or "--clone-worksheet"
+            or "--paydirt-recall"
             or "--precision-sample"
             => $"{option} requires an assembly path.",
         "--seed" => "--seed requires a selector.",

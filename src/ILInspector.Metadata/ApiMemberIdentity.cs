@@ -843,7 +843,9 @@ public static class ApiMemberIdentity
     /// members read live. Non-divergent (non-tuple) members are left untouched, keeping
     /// their serialized form and digests unchanged.
     /// </summary>
-    public static void PopulateCanonicalIdentities(ApiSurface surface)
+    public static void PopulateCanonicalIdentities(
+        ApiSurface surface,
+        Action<string>? beforeRetain = null)
     {
         foreach (var type in surface.Types)
         {
@@ -852,7 +854,9 @@ public static class ApiMemberIdentity
                 if (member.SignatureModel is not { } signature || !HasCanonicalDivergence(member, signature))
                     continue;
 
-                member.CanonicalSignature = GetCanonicalSignature(type, member);
+                string canonical = GetCanonicalSignature(type, member);
+                beforeRetain?.Invoke(canonical);
+                member.CanonicalSignature = canonical;
             }
         }
     }

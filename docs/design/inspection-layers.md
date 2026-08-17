@@ -55,10 +55,11 @@ the ownership boundaries below, not the project count.
 `DotnetInspector.ResearchQueries` companion now implement metadata-image,
 direct-reference, extension-method, custom-attribute, manifest-resource,
 type-forwarder, union-type, switch, SourceLink audit, API-comparison, Analysis
-body-signal comparison, unsafe-evidence, Implementation comparison,
-assembly-context Integrations, implementation relationships, type/member
-search, extension reachability, progressive member call-graph slices, and
-group-scoped authored-or-decompiled type/member source. The API-comparison seam
+body-signal comparison, unsafe-evidence, top-leverage, Implementation
+comparison, assembly-context Integrations, implementation relationships,
+type/member search, extension reachability, progressive member call-graph
+slices, and group-scoped authored-or-decompiled type/member source. The
+API-comparison seam
 retains Metadata-owned Finding correspondence and compatibility classification
 over two host-resolved surfaces. The body-signal seam consumes already-acquired
 Analysis indexes and retains `ResearchComparison`; keeping that query in the
@@ -71,14 +72,15 @@ for both traversal directions. These queries return typed results without
 choosing a renderer or output format.
 The library CLI executes metadata-image, direct assembly-reference,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
-union-type, method-classification, audit-metadata, and unsafe-evidence queries,
-plus the Research-backed switch query through a typed, content-shaped registry
+union-type, method-classification, audit-metadata, unsafe-evidence, and
+top-leverage queries, plus the Research-backed switch query through a typed,
+content-shaped registry
 over a host-owned `AssemblyInspectionSession`. The `References`, `Extension
 Methods`, `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`,
 `Union Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Signals`,
-and `Library Info` sections bind to concrete query definitions rather than
-relying solely on string scanner keys, and the CLI and package convenience
-route lower section selection into that same registry.
+`Top Leverage`, and `Library Info` sections bind to concrete query definitions
+rather than relying solely on string scanner keys, and the CLI and package
+convenience route lower section selection into that same registry.
 Library and package SourceLink sections
 execute a shared document prerequisite plus availability or integrity query
 over a host-owned `SourceLinkService`. The library CLI and package
@@ -285,10 +287,10 @@ Metadata-image, direct-reference, assembly-context reference,
 package dependency-group, loaded dependency-coordinate match,
 extension-method, custom-attribute,
 manifest-resource, type-forwarder, union-type, classified-method,
-audit-metadata, unsafe-evidence, switch,
-SourceLink,
-API-comparison, Analysis body-signal comparison, Implementation comparison, and
-assembly-context Integrations inspection are the first vertical L1 canaries:
+audit-metadata, unsafe-evidence, top-leverage, switch, SourceLink,
+API-comparison, Analysis body-signal comparison, Implementation comparison,
+and assembly-context Integrations inspection are the first vertical L1
+canaries:
 
 - `DotnetInspector.Queries` owns typed query definitions, typed result retrieval,
   prerequisite expansion, and query cost.
@@ -338,6 +340,11 @@ assembly-context Integrations inspection are the first vertical L1 canaries:
   adds path-scoped per-method Finding provenance, retains partial-census
   diagnostics, and projects compatibility JSON, while Markdown rows contain raw
   evidence only at the `UnsafeMemberRow` sink.
+- `TopLeverageQuery` consumes that same host-acquired body index and returns the
+  unbounded ranked `MethodLeverage` set, generated-framework type evidence, and
+  Analysis diagnostics. The CLI owns visibility and selector enrichment plus
+  legacy JSON projection; Markdown formats raw method identity and introduces
+  `InertString` only at the `TopLeverageRow` sink.
 - `SwitchesQuery` lives in the optional Research-backed query companion. It
   composes attribute-declared metadata with Research-owned AppContext IL
   evidence into one immutable ordered inventory. The CLI adds path-based
@@ -372,7 +379,8 @@ assembly-context Integrations inspection are the first vertical L1 canaries:
   is query-owned; the CLI retains only command hosting and projection.
 - Metadata sections, `References`, `Library Info`, `Extension Methods`,
   `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`, `Union
-  Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Signals`, and
+  Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Top Leverage`,
+  `Signals`, and
   the diff `Changes`, `Analysis Diff`, and `Implementation Diff` sections bind
   to query definitions by object identity. A section may bind multiple
   definitions; diagnostic names are never lookup keys.

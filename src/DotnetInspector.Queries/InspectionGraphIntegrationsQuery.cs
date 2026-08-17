@@ -43,6 +43,24 @@ public static class InspectionGraphIntegrationsCatalog
             [InspectionGraphSubjectKind.Type],
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Type],
+            [
+                new(
+                    InspectionGraphSubjectKind.Member,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+                new(
+                    InspectionGraphSubjectKind.Assembly,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+            ],
             InspectionGraphEndpointProjection.Exact,
             OccurrenceIdentity,
             [ExtensionEvidence]);
@@ -57,6 +75,24 @@ public static class InspectionGraphIntegrationsCatalog
             [InspectionGraphSubjectKind.Type],
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Type],
+            [
+                new(
+                    InspectionGraphSubjectKind.Member,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+                new(
+                    InspectionGraphSubjectKind.Assembly,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+            ],
             InspectionGraphEndpointProjection.Exact,
             OccurrenceIdentity,
             [IntegrationEvidence]);
@@ -71,6 +107,24 @@ public static class InspectionGraphIntegrationsCatalog
             [InspectionGraphSubjectKind.Assembly],
             [InspectionGraphSubjectKind.Assembly],
             [InspectionGraphSubjectKind.Assembly],
+            [
+                new(
+                    InspectionGraphSubjectKind.Assembly,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Assembly,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+                new(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Target),
+            ],
             InspectionGraphEndpointProjection.Exact,
             OccurrenceIdentity,
             [ReferenceEvidence]);
@@ -85,6 +139,24 @@ public static class InspectionGraphIntegrationsCatalog
             [InspectionGraphSubjectKind.Type],
             [InspectionGraphSubjectKind.Type],
             [InspectionGraphSubjectKind.Type],
+            [
+                new(
+                    InspectionGraphSubjectKind.Assembly,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.OccurrenceEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+                new(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+            ],
             OpportunityEndpointProjection,
             OccurrenceIdentity,
             [OpportunityEvidence]);
