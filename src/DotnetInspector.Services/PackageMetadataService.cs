@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -258,13 +259,19 @@ public static class PackageMetadataService
         var metadata = new PackageMetadata();
 
         List<ServiceResource> registrationResources =
-            CompatibleResources(resources, "RegistrationsBaseUrl");
+            PackageExtractor.GetCompatibleServiceResources(
+                resources,
+                "RegistrationsBaseUrl");
         List<ServiceResource> packageBaseAddresses =
-            CompatibleResources(resources, "PackageBaseAddress");
+            PackageExtractor.GetCompatibleServiceResources(
+                resources,
+                "PackageBaseAddress");
         List<ServiceResource> searchQueryServices =
-            CompatibleResources(resources, "SearchQueryService");
+            PackageExtractor.GetCompatibleSearchServiceResources(resources);
         List<ServiceResource> vulnerabilityInfos =
-            CompatibleResources(resources, "VulnerabilityInfo");
+            PackageExtractor.GetCompatibleServiceResources(
+                resources,
+                "VulnerabilityInfo");
         metadata.DeprecationMetadataSupported =
             registrationResources.Count > 0
             || searchQueryServices.Count > 0;
@@ -444,7 +451,9 @@ public static class PackageMetadataService
                 {
                     log?.Invoke(
                         $"Error fetching search metadata from "
-                        + $"{searchQueryService.Id}: {ex.Message}");
+                        + NetworkRequestObservation.RedactSensitiveUrlText(
+                            searchQueryService.Id)
+                        + $" ({ex.GetType().Name})");
                 }
             }
         }
@@ -507,54 +516,14 @@ public static class PackageMetadataService
                 && vulnerabilityDataAvailable);
     }
 
-    private static List<ServiceResource> CompatibleResources(
-        IReadOnlyList<ServiceResource> resources,
-        string typePrefix)
-    {
-        List<ServiceResource> matching =
-        [
-            .. resources.Where(resource =>
-                IsServiceType(resource.Type, typePrefix)),
-        ];
-        if (matching.Count == 0)
-            return [];
-
-        System.Version bestVersion = ResourceVersion(matching[0].Type);
-        for (int i = 1; i < matching.Count; i++)
-        {
-            System.Version version = ResourceVersion(matching[i].Type);
-            if (version > bestVersion)
-                bestVersion = version;
-        }
-        return
-        [
-            .. matching.Where(resource =>
-                ResourceVersion(resource.Type) == bestVersion),
-        ];
-    }
-
-    private static System.Version ResourceVersion(string resourceType)
-    {
-        int separator = resourceType.IndexOf('/');
-        return separator >= 0
-            && System.Version.TryParse(
-                resourceType[(separator + 1)..],
-                out System.Version? version)
-                ? version
-                : new System.Version();
-    }
-
-    private static bool IsServiceType(string type, string prefix) =>
-        type.Equals(prefix, StringComparison.OrdinalIgnoreCase)
-        || type.StartsWith($"{prefix}/", StringComparison.OrdinalIgnoreCase);
-
     private static async Task<TextFetchResult> FetchTextAsync(
         HttpClient client,
         HttpClient untrustedClient,
         PackageSource source,
         string url,
         NetworkTrafficKind trafficKind,
-        Action<string>? log)
+        Action<string>? log,
+        bool preservePathAndQuery = false)
     {
         HttpClient endpointClient = NuGetCredentialScope.IsSameOrigin(
             source.Url,
@@ -572,7 +541,8 @@ public static class PackageMetadataService
                 log: log,
                 auth: NuGetCredentialScope.AuthFor(source, url, log),
                 trafficKind: trafficKind,
-                maxDownloadSize: HttpRetryHelper.DefaultMaxTextResponseBytes)
+                maxDownloadSize: HttpRetryHelper.DefaultMaxTextResponseBytes,
+                preservePathAndQuery: preservePathAndQuery)
                 .ConfigureAwait(false);
         if (body.Status != HttpRetryHelper.HttpBodyFetchStatus.Success
             || body.Bytes is null)
@@ -659,13 +629,28 @@ public static class PackageMetadataService
 
         while (examined < MaxSearchResults)
         {
-            string searchUrl = AddQuery(
-                searchQueryService.Id,
-                $"q={Uri.EscapeDataString(normalizedName)}"
-                + $"&skip={examined}&take={PageSize}"
-                + "&prerelease=true&semVerLevel=2.0.0");
+            if (!NuGetFetch.SearchRequestUri.TryCompose(
+                    searchQueryService.Id,
+                    [
+                        ("q", normalizedName),
+                        ("skip", examined.ToString(CultureInfo.InvariantCulture)),
+                        ("take", PageSize.ToString(CultureInfo.InvariantCulture)),
+                        ("prerelease", "true"),
+                        ("semVerLevel", "2.0.0"),
+                    ],
+                    out string searchUrl))
+            {
+                log?.Invoke(
+                    $"The search endpoint for {source.Name} is not a usable absolute HTTP or HTTPS URL.");
+                return new SearchFetchResult(
+                    Succeeded: false,
+                    Found: false,
+                    DeprecationMetadataAvailable: false);
+            }
+
             log?.Invoke(
-                $"Fetching search metadata from {source.Name}: {searchUrl}");
+                $"Fetching search metadata from {source.Name}: "
+                + NetworkRequestObservation.RedactSensitiveUrlText(searchUrl));
 
             TextFetchResult searchResult = await FetchTextAsync(
                 client,
@@ -673,7 +658,8 @@ public static class PackageMetadataService
                 source,
                 searchUrl,
                 NetworkTrafficKind.PackageMetadata,
-                log).ConfigureAwait(false);
+                log,
+                preservePathAndQuery: true).ConfigureAwait(false);
             if (!searchResult.IsSuccess)
                 return new SearchFetchResult(
                     Succeeded: false,
@@ -1010,16 +996,6 @@ public static class PackageMetadataService
             '/',
             segments.Select(Uri.EscapeDataString));
         builder.Path = $"{builder.Path.TrimEnd('/')}/{suffix}";
-        return builder.Uri.AbsoluteUri;
-    }
-
-    private static string AddQuery(string baseUrl, string query)
-    {
-        var builder = new UriBuilder(baseUrl);
-        string existing = builder.Query.TrimStart('?');
-        builder.Query = string.IsNullOrEmpty(existing)
-            ? query
-            : $"{existing}&{query}";
         return builder.Uri.AbsoluteUri;
     }
 
