@@ -2,6 +2,7 @@ using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using DotnetInspector.Views;
+using InertText;
 using Markout;
 
 using ILInspector.CSharp;
@@ -20,8 +21,8 @@ public static class DiffOutputFormatter
     /// <c>--jsonl</c>) keep the canonical metadata name (arity backtick) so the Type
     /// field stays a stable, script-parseable identifier.
     /// </summary>
-    private static string FormatTypeDisplayName(string typeFullName)
-        => CSharpIdentifier.ContainRenderedText(
+    private static InertString FormatTypeDisplayName(string typeFullName)
+        => DiffViewText.Field(
             MetadataTypeNameFormatter.FormatGenericTypeName(TypeMatcher.GetSimpleName(typeFullName)));
 
     public static void RenderNameOnly(MarkoutWriter writer, IReadOnlyList<TypeDiff> typeDiffs)
@@ -68,14 +69,20 @@ public static class DiffOutputFormatter
                 detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
             }
 
-            return new DiffTableRow(symbol, CSharpIdentifier.ContainRenderedText(TypeMatcher.GetSimpleName(td.TypeFullName)), detail);
+            return new DiffTableRow(
+                DiffViewText.Field(symbol),
+                DiffViewText.Field(TypeMatcher.GetSimpleName(td.TypeFullName)),
+                DiffViewText.Field(detail));
         }).ToList();
 
-        return new DiffTableView
+        return new DiffTableView(
+            DiffViewText.Field($"API Diff: {name}"),
+            DiffViewText.Field($"{fromVersion} -> {toVersion}"),
+            DiffViewText.Field(FormatSummaryCounts(
+                totalBreaking,
+                totalAdditive,
+                totalPotentiallyBreaking)))
         {
-            Title = $"API Diff: {name}",
-            Versions = $"{fromVersion} -> {toVersion}",
-            Summary = FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking),
             Rows = rows.Count > 0 ? rows : null
         };
     }
@@ -95,11 +102,14 @@ public static class DiffOutputFormatter
             .SelectMany(td => td.Changes.Select(change => BuildDetailedRow(td.TypeFullName, change)))
             .ToList();
 
-        return new DiffDetailedChangesView
+        return new DiffDetailedChangesView(
+            DiffViewText.Field($"API Diff: {name}"),
+            DiffViewText.Field($"{fromVersion} -> {toVersion}"),
+            DiffViewText.Field(FormatSummaryCounts(
+                totalBreaking,
+                totalAdditive,
+                totalPotentiallyBreaking)))
         {
-            Title = $"API Diff: {name}",
-            Versions = $"{fromVersion} -> {toVersion}",
-            Summary = FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking),
             Rows = rows.Count > 0 ? rows : null
         };
     }
@@ -113,22 +123,24 @@ public static class DiffOutputFormatter
         ImplementationDiffView? implementationDiff,
         FindingTransitionsView? findingTransitions,
         IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures)
-        => new()
+        => new(
+            DiffViewText.Field($"Diff: {name}"),
+            DiffViewText.Field($"{fromVersion} -> {toVersion}"),
+            changes?.SummaryText,
+            analysisDiff?.SummaryText,
+            DistinctStatusMessage(analysisDiff),
+            implementationDiff?.SummaryText,
+            DistinctStatusMessage(implementationDiff),
+            findingTransitions is null
+                ? null
+                : DiffViewText.Field(findingTransitions.Status.Message),
+            inspectionFailures.Count == 0
+                ? null
+                : DiffViewText.Prose(
+                    "API comparison is incomplete because metadata "
+                    + $"inspection reported {inspectionFailures.Count} "
+                    + "failure(s)."))
         {
-            Title = $"Diff: {name}",
-            Versions = $"{fromVersion} -> {toVersion}",
-            ChangesSummary = changes?.Summary,
-            AnalysisDiffSummary = analysisDiff?.Summary,
-            AnalysisDiffNote = DistinctStatusMessage(analysisDiff),
-            ImplementationDiffSummary = implementationDiff?.Summary,
-            ImplementationDiffNote = DistinctStatusMessage(implementationDiff),
-            FindingTransitionsSummary = findingTransitions?.Status.Message,
-            InspectionFailuresSummary =
-                inspectionFailures.Count == 0
-                    ? null
-                    : "API comparison is incomplete because metadata "
-                        + $"inspection reported {inspectionFailures.Count} "
-                        + "failure(s).",
             Changes = changes?.Rows,
             AnalysisDiff = analysisDiff?.Rows,
             ImplementationDiff = implementationDiff?.Rows,
@@ -170,7 +182,7 @@ public static class DiffOutputFormatter
                 ["member", "signal", "old", "new", "delta", "shape", "evidence"],
                 view.AnalysisDiff?.Select(row => new[]
                 {
-                    MarkoutInline.Code(row.Member), row.Signal, row.Old, row.New, row.Delta,
+                    MarkoutInline.Code(row.MemberText), row.Signal, row.Old, row.New, row.Delta,
                     row.Shape ?? "", row.Evidence ?? ""
                 }));
         }
@@ -266,14 +278,14 @@ public static class DiffOutputFormatter
             writer.WriteTable(headers, stableHeaders, rows.ToArray());
     }
 
-    private static string? DistinctStatusMessage(AnalysisDiffView? view)
+    private static InertString? DistinctStatusMessage(AnalysisDiffView? view)
         => view is not null && !string.Equals(view.Status.Message, view.Summary, StringComparison.Ordinal)
-            ? view.Status.Message
+            ? DiffViewText.Prose(view.Status.Message)
             : null;
 
-    private static string? DistinctStatusMessage(ImplementationDiffView? view)
+    private static InertString? DistinctStatusMessage(ImplementationDiffView? view)
         => view is not null && !string.Equals(view.Status.Message, view.Summary, StringComparison.Ordinal)
-            ? view.Status.Message
+            ? DiffViewText.Prose(view.Status.Message)
             : null;
 
     public static FindingTransitionsView BuildFindingTransitionsView(
@@ -281,10 +293,10 @@ public static class DiffOutputFormatter
         IReadOnlyList<FindingTransitionRow> rows,
         string fromVersion,
         string toVersion)
-        => new()
+        => new(
+            DiffViewText.Field($"Finding Transitions: {name}"),
+            DiffViewText.Field($"{fromVersion} -> {toVersion}"))
         {
-            Title = $"Finding Transitions: {name}",
-            Versions = $"{fromVersion} -> {toVersion}",
             Status = rows.Count == 0
                 ? new Callout(CalloutSeverity.Note, "No selected Finding exists at either endpoint.")
                 : new Callout(CalloutSeverity.Note, $"{rows.Count} selected Finding transition{(rows.Count == 1 ? "" : "s")}."),
@@ -317,10 +329,11 @@ public static class DiffOutputFormatter
         string fromVersion,
         string toVersion)
     {
-        var view = new DiffFullView
+        var view = new DiffFullView(
+            DiffViewText.Field($"API Diff: {name}"),
+            DiffViewText.Field($"**{fromVersion}** → **{toVersion}**"),
+            InertString.Empty)
         {
-            Title = $"API Diff: {name}",
-            Versions = $"**{fromVersion}** → **{toVersion}**",
             InspectionFailures =
                 BuildInspectionFailureRows(inspectionFailures),
         };
@@ -343,7 +356,8 @@ public static class DiffOutputFormatter
             totalPotentiallyBreaking += td.PotentiallyBreakingCount;
         }
 
-        view.Summary = $"**Summary:** {FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking)} across {typeDiffs.Count} types";
+        view.SummaryText = DiffViewText.Field(
+            $"**Summary:** {FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking)} across {typeDiffs.Count} types");
 
         view.BreakingChanges = BuildChangeRows(ChangeClassification.Breaking, typeDiffs);
         view.PotentiallyBreakingChanges = BuildChangeRows(ChangeClassification.PotentiallyBreaking, typeDiffs);
@@ -425,17 +439,17 @@ public static class DiffOutputFormatter
         string fromVersion,
         string toVersion,
         bool decorateMember = true)
-        => new()
+        => new(
+            DiffViewText.Field($"Analysis Diff: {name}"),
+            DiffViewText.Field($"{fromVersion} -> {toVersion}"),
+            DiffViewText.Field(summary))
         {
-            Title = $"Analysis Diff: {name}",
-            Versions = $"{fromVersion} -> {toVersion}",
-            Summary = summary,
             Status = rows.Count == 0
                 ? new Callout(CalloutSeverity.Note, summary)
                 : new Callout(CalloutSeverity.Note, "Analysis signal changes are body-level evidence, not public API compatibility changes."),
             Rows = rows.Count > 0
                 ? rows.Select(row => decorateMember
-                    ? row with { Member = MarkoutInline.Code(row.Member) }
+                    ? row with { MemberText = MarkoutInline.CodeText(row.MemberText) }
                     : row).ToList()
                 : null
         };
@@ -531,11 +545,11 @@ public static class DiffOutputFormatter
                   + $"{csharpCount} decompiled C#, {ilCount} IL, and {sourceCount} authored Source "
                   + $"evidence row{(rows.Count == 1 ? "" : "s")}.";
 
-        return new ImplementationDiffView
+        return new ImplementationDiffView(
+            DiffViewText.Field($"Implementation Diff: {name}"),
+            DiffViewText.Field($"{fromVersion} -> {toVersion}"),
+            DiffViewText.Field(summary))
         {
-            Title = $"Implementation Diff: {name}",
-            Versions = $"{fromVersion} -> {toVersion}",
-            Summary = summary,
             Status = rows.Count == 0
                 ? new Callout(CalloutSeverity.Note, summary)
                 : new Callout(
@@ -592,14 +606,21 @@ public static class DiffOutputFormatter
 
         foreach (var td in typeDiffs.OrderBy(td => td.TypeFullName))
         {
-            var typeName = FormatTypeDisplayName(td.TypeFullName);
+            InertString typeName = FormatTypeDisplayName(td.TypeFullName);
             foreach (var change in td.Changes.Where(c => c.Classification == classification))
             {
-                var message = change.Message;
+                InertString message =
+                    DiffViewText.EncodedField(change.Message);
                 if (change.Kind == ChangeKind.MemberSignatureChanged &&
                     change.OldValue != null && change.NewValue != null)
                 {
-                    message += $": {MarkoutInline.Code(change.OldValue)} -> {MarkoutInline.Code(change.NewValue)}";
+                    InertString oldValue = MarkoutInline.CodeText(
+                        DiffViewText.EncodedField(change.OldValue));
+                    InertString newValue = MarkoutInline.CodeText(
+                        DiffViewText.EncodedField(change.NewValue));
+                    message = InertString.Format(
+                        TextPolicy.Field,
+                        $"{message}: {oldValue} -> {newValue}");
                 }
                 rows.Add(new DiffChangeRow(typeName, message));
             }
@@ -610,16 +631,17 @@ public static class DiffOutputFormatter
 
     private static DiffDetailedChangeRow BuildDetailedRow(string typeFullName, ApiChange change)
         => new(
-            ChangeSymbol(change.Classification, change.Kind),
-            ClassificationText(change.Classification),
-            TypeMatcher.GetSimpleName(typeFullName),
-            change.Subject?.OldMember?.StableSelector
-                ?? change.Subject?.NewMember?.StableSelector
-                ?? "",
-            ChangeKindText(change.Kind),
-            change.Message,
-            change.OldValue ?? "",
-            change.NewValue ?? "");
+            DiffViewText.Field(ChangeSymbol(change.Classification, change.Kind)),
+            DiffViewText.Field(ClassificationText(change.Classification)),
+            DiffViewText.Field(TypeMatcher.GetSimpleName(typeFullName)),
+            DiffViewText.Field(
+                change.Subject?.OldMember?.StableSelector
+                    ?? change.Subject?.NewMember?.StableSelector
+                    ?? ""),
+            DiffViewText.Field(ChangeKindText(change.Kind)),
+            DiffViewText.EncodedField(change.Message),
+            DiffViewText.EncodedField(change.OldValue ?? ""),
+            DiffViewText.EncodedField(change.NewValue ?? ""));
 
     private static string ChangeSymbol(ChangeClassification classification, ChangeKind kind)
         => kind switch

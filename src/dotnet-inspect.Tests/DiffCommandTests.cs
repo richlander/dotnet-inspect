@@ -13,6 +13,8 @@ using ILInspector.Text;
 using DotnetInspector.Commands;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
+using InertText;
+using Markout;
 
 namespace DotnetInspector.Tests;
 
@@ -103,6 +105,182 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void Views_CarryConcernProvenanceAcrossMarkdownTablesAndDocumentJson()
+    {
+        const string hostile = "Name\u202E\n";
+        TextConcern expectedConcerns =
+            TextConcern.Format | TextConcern.Control;
+        var change = new ApiChange(
+            ChangeKind.MemberSignatureChanged,
+            ChangeClassification.Breaking,
+            hostile,
+            hostile,
+            hostile);
+        var typeDiffs = new[]
+        {
+            new TypeDiff($"Sample.{hostile}", [change]),
+        };
+        DiffDetailedChangesView changes =
+            DiffOutputFormatter.BuildDetailedChangesView(
+                hostile,
+                typeDiffs,
+                hostile,
+                hostile);
+        AnalysisDiffView analysis =
+            DiffOutputFormatter.BuildAnalysisDiffView(
+                hostile,
+                [
+                    new AnalysisDiffRow(
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile),
+                ],
+                hostile,
+                hostile,
+                hostile,
+                decorateMember: false);
+        var implementation = new ImplementationDiffView(
+            new InertString(TextPolicy.Field, hostile),
+            new InertString(TextPolicy.Field, hostile),
+            new InertString(TextPolicy.Field, hostile))
+        {
+            Status = new Callout(CalloutSeverity.Note, hostile),
+            Rows =
+            [
+                new ImplementationDiffRow(
+                    hostile,
+                    hostile,
+                    hostile,
+                    hostile,
+                    hostile),
+            ],
+        };
+        FindingTransitionsView transitions =
+            DiffOutputFormatter.BuildFindingTransitionsView(
+                hostile,
+                [
+                    new FindingTransitionRow(
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile),
+                ],
+                hostile,
+                hostile);
+        DiffDocumentView document =
+            DiffOutputFormatter.BuildDocumentView(
+                hostile,
+                hostile,
+                hostile,
+                changes,
+                analysis,
+                implementation,
+                transitions,
+                []);
+        DiffFullView full =
+            DiffOutputFormatter.BuildFullView(
+                hostile,
+                typeDiffs,
+                hostile,
+                hostile);
+
+        DiffDetailedChangeRow changeRow = Assert.Single(changes.Rows!);
+        AnalysisDiffRow analysisRow = Assert.Single(analysis.Rows!);
+        ImplementationDiffRow implementationRow =
+            Assert.Single(implementation.Rows!);
+        FindingTransitionRow transitionRow =
+            Assert.Single(transitions.Rows!);
+        DiffChangeRow fullRow = Assert.Single(full.BreakingChanges!);
+
+        Assert.Equal(expectedConcerns, changes.TitleText.Concerns);
+        Assert.Equal(expectedConcerns, changes.VersionsText.Concerns);
+        Assert.Equal(TextConcern.Format, changeRow.DetailText.Concerns);
+        Assert.Equal(expectedConcerns, changeRow.TypeText.Concerns);
+        Assert.Equal(expectedConcerns, analysisRow.MemberText.Concerns);
+        Assert.Equal(
+            expectedConcerns,
+            implementationRow.EvidenceText.Concerns);
+        Assert.Equal(expectedConcerns, transitionRow.TargetText.Concerns);
+        Assert.Equal(expectedConcerns, fullRow.TypeNameText.Concerns);
+        Assert.Equal(
+            expectedConcerns,
+            document.AnalysisDiffSummaryText!.Value.Concerns);
+
+        string markdown = MarkoutSerializer.Serialize(
+            changes,
+            DiffViewContext.Default);
+        string tsv = RenderDetailedChangesTable(
+            changes,
+            tsv: true,
+            jsonl: false);
+        string jsonl = RenderDetailedChangesTable(
+            changes,
+            tsv: false,
+            jsonl: true);
+        string json = JsonSerializer.Serialize(
+            document,
+            DiffJsonContext.Default.DiffDocumentView);
+
+        Assert.DoesNotContain("\u202E", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u202E", tsv, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u202E", jsonl, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u202E", json, StringComparison.Ordinal);
+        Assert.Contains(@"\u202E", markdown, StringComparison.Ordinal);
+        Assert.Contains(@"\^J", markdown, StringComparison.Ordinal);
+        Assert.Contains(@"\u202E", tsv, StringComparison.Ordinal);
+        Assert.Contains(@"\^J", tsv, StringComparison.Ordinal);
+
+        string jsonlRow = Assert.Single(
+            jsonl.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries),
+            line => line.Contains("\"type\"", StringComparison.Ordinal));
+        using var jsonlDocument = JsonDocument.Parse(jsonlRow);
+        Assert.Equal(
+            @"Name\u202E\^J",
+            jsonlDocument.RootElement.GetProperty("type").GetString());
+
+        using var jsonDocument = JsonDocument.Parse(json);
+        string[] names =
+        [
+            .. jsonDocument.RootElement
+                .EnumerateObject()
+                .Select(property => property.Name),
+        ];
+        Assert.Equal(
+            [
+                "title",
+                "versions",
+                "changes_summary",
+                "analysis_diff_summary",
+                "analysis_diff_note",
+                "implementation_diff_summary",
+                "implementation_diff_note",
+                "finding_transitions_summary",
+                "changes",
+                "analysis_diff",
+                "implementation_diff",
+                "finding_transitions",
+            ],
+            names);
+        Assert.DoesNotContain(names, name => name.EndsWith("_text", StringComparison.Ordinal));
+        Assert.Equal(
+            @"Name\u202E\^J",
+            jsonDocument.RootElement
+                .GetProperty("analysis_diff")[0]
+                .GetProperty("member")
+                .GetString());
+    }
+
+    [Fact]
     public void BuildDetailedChangesView_RendersMemberLevelRowsForJsonl()
     {
         var oldType = DiffType("Sample", "Widget", DiffMember("Echo", signature: "string Echo(string value)"));
@@ -130,6 +308,22 @@ public class DiffCommandTests
         Assert.Equal("string Echo(string value)", row.Old);
         Assert.Equal("string Echo(string value, int repeat)", row.New);
     }
+
+    private static string RenderDetailedChangesTable(
+        DiffDetailedChangesView view,
+        bool tsv,
+        bool jsonl) =>
+        OutputFormatter.RenderTable(
+            showHeader: true,
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                formatter,
+                DiffViewContext.Default,
+                OutputFormatter.ConfigureTableWriterOptions(
+                    new MarkoutWriterOptions(),
+                    tsv,
+                    jsonl)));
 
     [Fact]
     public void RenderFullMarkdown_GenericType_UsesCSharpFriendlyHeading()
