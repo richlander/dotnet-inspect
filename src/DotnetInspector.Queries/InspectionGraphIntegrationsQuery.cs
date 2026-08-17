@@ -540,8 +540,11 @@ public static class InspectionGraphIntegrationsQuery
         ValidateRelationships(request);
         var queries =
             ImmutableArray.CreateBuilder<InspectionQueryDefinition>();
-        if (request.Relationships.Contains(
-            InspectionGraphIntegrationsCatalog.Extension))
+        bool opportunitiesSelected = request.Relationships.Contains(
+            InspectionGraphIntegrationsCatalog.IntegrationOpportunity);
+        if (opportunitiesSelected
+            || request.Relationships.Contains(
+                InspectionGraphIntegrationsCatalog.Extension))
         {
             queries.Add(
                 AssemblyContextExtensionMethodsQuery.Definition);
@@ -551,13 +554,13 @@ public static class InspectionGraphIntegrationsQuery
         {
             queries.Add(AssemblyContextReferencesQuery.Definition);
         }
-        if (request.Relationships.Contains(
-            InspectionGraphIntegrationsCatalog.IntegrationObserved))
+        if (opportunitiesSelected
+            || request.Relationships.Contains(
+                InspectionGraphIntegrationsCatalog.IntegrationObserved))
         {
             queries.Add(AssemblyContextIntegrationsQuery.Definition);
         }
-        if (request.Relationships.Contains(
-            InspectionGraphIntegrationsCatalog.IntegrationOpportunity))
+        if (opportunitiesSelected)
         {
             queries.Add(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition);
@@ -659,14 +662,18 @@ public static class InspectionGraphIntegrationsQuery
             InspectionGraphIntegrationsCatalog.MetadataReference);
         bool opportunitiesSelected = request.Relationships.Contains(
             InspectionGraphIntegrationsCatalog.IntegrationOpportunity);
+        bool extensionsNeeded =
+            extensionsSelected || opportunitiesSelected;
+        bool integrationsNeeded =
+            integrationsSelected || opportunitiesSelected;
 
         AssemblyContextResult<ImmutableArray<ExtensionMethodInfo>>?
-            extensions = extensionsSelected
+            extensions = extensionsNeeded
                 ? results.Get(
                     AssemblyContextExtensionMethodsQuery.Definition)
                 : null;
         AssemblyContextIntegrationsResult? integrations =
-            integrationsSelected || opportunitiesSelected
+            integrationsNeeded
                 ? results.Get(
                     AssemblyContextIntegrationsQuery.Definition)
                 : null;
@@ -709,12 +716,13 @@ public static class InspectionGraphIntegrationsQuery
             builder.AddTypeCurrency(integrations);
         if (extensions is not null)
             builder.AddExtensions(extensions);
-        if (integrationsSelected)
-            builder.AddIntegrations(integrations!);
+        if (integrations is not null)
+            builder.AddIntegrations(integrations);
         if (references is not null)
             builder.AddReferences(references);
         if (opportunities is not null)
             builder.AddOpportunities(opportunities);
+        builder.EnsureSeed(request.Seed);
 
         InspectionGraphDocument source =
             builder.Build(request.ModeRequest);
@@ -803,6 +811,17 @@ public static class InspectionGraphIntegrationsQuery
                         "An Integration graph prerequisite result does not match workspace participant order.");
                 }
             }
+        }
+
+        internal void EnsureSeed(InspectionGraphSubject seed)
+        {
+            if (seed is InspectionGraphSubject.PackageSubject)
+                return;
+
+            AssemblyAcquisitionRegistration registration =
+                Registration(seed);
+            if (_participants.ContainsKey(registration))
+                AddNode(seed, registration);
         }
 
         internal void AddTypeCurrency(

@@ -736,20 +736,26 @@ the surviving topology.
 
 The Integration implementation validates catalog membership before producer
 execution. Its relationship set drives the deterministic query-registry plan,
-including opportunity's Integration prerequisite. Projection begins through
-the selected descriptor's exact edge, original-occurrence, or typed
-owned-subject seed admission, then walks logical endpoints for the remaining
-hops. Incoming traversal changes which endpoint is followed, never the stored
-edge or occurrence direction.
+including opportunity's Integration and extension prerequisites for
+fulfillment reconciliation. Projection begins through the selected
+descriptor's exact edge, original-occurrence, or typed owned-subject seed
+admission, then walks logical endpoints for the remaining hops. Incoming
+traversal changes which endpoint is followed, never the stored edge or
+occurrence direction.
 
 Projection assigns new dense document-local ids while retaining semantic
 subjects, relationship descriptors, occurrence evidence and occurrence
-identity. Selected-producer failures remain visible even when their target is
-outside healthy reached topology. A typed `queries.neighborhood-depth-bound`
-limit records the requested bound, including depth zero.
+identity. Failures from requested relationship producers and their required
+composition prerequisites remain visible even when their target is outside
+healthy reached topology. A typed `queries.neighborhood-depth-bound` limit
+records the requested bound, including depth zero. An admissible owner-issued
+seed remains bound even when selected producers emit no relationship evidence.
 `Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
 `Execute_ZeroDepthRetainsSeedWithoutEdges`,
-`Execute_NeighborhoodRetainsSelectedProducerFailures`, and
+`Execute_ZeroDepthRetainsAdmissibleSeedWithoutSelectedEvidence`,
+`Execute_OpportunityNeighborhoodPreservesFulfillmentSuppression`,
+`Execute_NeighborhoodRetainsSelectedProducerFailures`,
+`Execute_OpportunityNeighborhoodRetainsPrerequisiteFailures`, and
 `Execute_RejectsForeignRelationshipBeforeProducerExecution` gate these
 contracts.
 

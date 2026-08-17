@@ -152,6 +152,9 @@ internal static class InspectionGraphNeighborhoodProjection
             incomingEdges = IndexEdges(
                 selectedEdges,
                 static edge => edge.ToNodeId);
+        IReadOnlyDictionary<InspectionGraphSubject, InspectionGraphNode>
+            nodesBySubject = source.Nodes.ToDictionary(
+                static node => node.Subject);
         var retainedEdgeIds = new HashSet<int>();
         var retainedNodeIds = new HashSet<int>();
         var queue = new Queue<(int NodeId, int Depth)>();
@@ -175,6 +178,7 @@ internal static class InspectionGraphNeighborhoodProjection
                     if (!request.Includes(admission.Role)
                         || !AdmissionMatches(
                             source,
+                            nodesBySubject,
                             edge,
                             request.Seed,
                             admission))
@@ -413,6 +417,9 @@ internal static class InspectionGraphNeighborhoodProjection
 
     static bool AdmissionMatches(
         InspectionGraphDocument source,
+        IReadOnlyDictionary<
+            InspectionGraphSubject,
+            InspectionGraphNode> nodesBySubject,
         InspectionGraphEdge edge,
         InspectionGraphSubject seed,
         InspectionGraphSeedAdmission admission)
@@ -432,10 +439,15 @@ internal static class InspectionGraphNeighborhoodProjection
                         admission.Role)
                     == seed),
             InspectionGraphSeedAdmissionKind.OwnedSubjects =>
-                StrictlyOwns(source, seed, edgeEndpoint)
+                StrictlyOwns(
+                    source,
+                    nodesBySubject,
+                    seed,
+                    edgeEndpoint)
                 || edge.OccurrenceIds.Any(id =>
                     StrictlyOwns(
                         source,
+                        nodesBySubject,
                         seed,
                         OccurrenceEndpoint(
                             source.Occurrences[id],
@@ -453,6 +465,9 @@ internal static class InspectionGraphNeighborhoodProjection
 
     static bool StrictlyOwns(
         InspectionGraphDocument source,
+        IReadOnlyDictionary<
+            InspectionGraphSubject,
+            InspectionGraphNode> nodesBySubject,
         InspectionGraphSubject owner,
         InspectionGraphSubject subject)
     {
@@ -460,9 +475,9 @@ internal static class InspectionGraphNeighborhoodProjection
             return false;
         if (owner is InspectionGraphSubject.PackageSubject package)
         {
-            InspectionGraphNode? node = source.Nodes.SingleOrDefault(
-                candidate => candidate.Subject == subject);
-            return node is not null
+            return nodesBySubject.TryGetValue(
+                    subject,
+                    out InspectionGraphNode? node)
                 && node.GroupIds.Any(groupId =>
                     source.Groups[groupId].Subject == package);
         }

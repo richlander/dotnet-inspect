@@ -102,9 +102,10 @@ direction.
 
 The current Integration implementation accepts an explicit relationship set,
 `Outgoing`, `Incoming`, or `Both`, and a non-negative maximum edge depth.
-Depth zero retains the bound seed and selected-producer failures without
-traversing an edge. Every result carries the request and a typed depth-bound
-limit.
+Depth zero retains the bound seed and failures from requested producers and
+their required composition prerequisites without traversing an edge, including
+when those producers emit no relationship for the seed. Every result carries
+the request and a typed depth-bound limit.
 
 ### Member seed
 
@@ -203,8 +204,9 @@ The Integration neighborhood consumes these capabilities. Unsupported
 seed/direction/relationship combinations fail while constructing the request;
 relationships outside the Integration catalog fail before any producer runs.
 Selected relationships determine registry demand, including declared
-prerequisites. Induced-set requests have no seeds and therefore need no seed
-admission.
+prerequisites. Opportunity demand includes extension and Integration evidence
+because fulfillment suppression composes both before projection. Induced-set
+requests have no seeds and therefore need no seed admission.
 
 ## Shared contract
 

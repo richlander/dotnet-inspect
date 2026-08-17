@@ -482,14 +482,19 @@ relationships, semantic direction, and finite edge depth separate. Catalog and
 seed admission validation occur before the registry runs. The selected
 relationships request only extension, reference, Integration, or opportunity
 queries they require; the registry still expands typed prerequisites and runs
-them once in registration order. Opportunity therefore activates Integrations
-without activating unrelated extension or reference scans.
+them once in registration order. Opportunity activates both extension and
+Integration evidence because fulfillment suppression composes those results
+before projecting opportunity edges; it does not activate unrelated reference
+scans.
 
 The completed evidence is projected sequentially into a dense bounded document.
 Incoming traversal does not reverse stored semantic direction, original
-occurrence receipts and identity survive id remapping, and failures from
-selected producers remain visible beside reached topology.
+occurrence receipts and identity survive id remapping, and failures from the
+requested relationship producers and their required composition prerequisites
+remain visible beside reached topology.
 `Execute_SelectedRelationshipsControlProducerDemand`,
+`Execute_OpportunityNeighborhoodPreservesFulfillmentSuppression`,
+`Execute_OpportunityNeighborhoodRetainsPrerequisiteFailures`,
 `Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
 `Execute_PackageSeedExpandsThroughOwnedSourceSubjects`,
 `Execute_OpportunitySourceTypeUsesOccurrenceAdmission`, and
