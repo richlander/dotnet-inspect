@@ -478,6 +478,15 @@ public class LibraryBodyIndexTests
             opportunities,
             opportunity => opportunity.Method.Name
                     == nameof(
+                        PrivateStaticSynchronousSiblingService
+                            .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        PrivateStaticSynchronousSiblingService));
+        Assert.Contains(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
                         SealedSynchronousSiblingConsumer
                             .AnalyzeAsync)
                 && opportunity.Method.DeclaringType.Name
@@ -1166,7 +1175,7 @@ public class LibraryBodyIndexTests
                     == nameof(
                         ClassicProtectedReceiverDerivedFixture
                             .AnalyzeAsync));
-        Assert.Contains(
+        Assert.DoesNotContain(
             index.OptimizationOpportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
@@ -10329,12 +10338,12 @@ public class OptimizationOpportunityFixtures
         return value + 1;
     }
 
-    public static IEnumerable<int> ReadValues(int value)
+    private static IEnumerable<int> ReadValues(int value)
     {
         yield return value;
     }
 
-    public static async IAsyncEnumerable<int> ReadValuesAsync(
+    private static async IAsyncEnumerable<int> ReadValuesAsync(
         int value,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -10355,9 +10364,9 @@ public class OptimizationOpportunityFixtures
         return ReadValues(value).Count();
     }
 
-    public static int ReadOtherValue(int value) => value;
+    private static int ReadOtherValue(int value) => value;
 
-    public static Task<int> ReadOtherValueAsync(int value)
+    private static Task<int> ReadOtherValueAsync(int value)
         => Task.FromResult(value);
 
     public static async Task<int>
@@ -12068,6 +12077,20 @@ public static class StaticInheritedSynchronousConsumer
     {
         await Task.Yield();
         return StaticInheritedSynchronousDerived.Read(value);
+    }
+}
+
+public class PrivateStaticSynchronousSiblingService
+{
+    private static int Read(int value) => value;
+
+    private static Task<int> ReadAsync(int value)
+        => Task.FromResult(value);
+
+    public static async Task<int> AnalyzeAsync(int value)
+    {
+        await Task.Yield();
+        return Read(value);
     }
 }
 
