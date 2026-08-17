@@ -816,7 +816,7 @@ internal static class CSharpSpellability
             string first = definition.Name.Split('+')[0];
             string firstSimple = StripArity(first);
             int firstArity = ArityOf(first);
-            for (int i = 0; i < hostSegments.Length; i++)
+            for (int i = hostSegments.Length - 1; i >= 0; i--)
             {
                 if (StripArity(hostSegments[i]) != firstSimple
                     || ArityOf(hostSegments[i]) != firstArity)
@@ -841,7 +841,7 @@ internal static class CSharpSpellability
         if (printed.Length == 0)
             return false;
 
-        for (int i = 0; i < hostSegments.Length; i++)
+        for (int i = hostSegments.Length - 1; i >= 0; i--)
         {
             if (StripArity(hostSegments[i]) != printed)
                 continue;
