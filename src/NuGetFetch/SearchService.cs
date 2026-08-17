@@ -1,12 +1,14 @@
 using System.Globalization;
 using System.Net.Http.Headers;
+using System.Text.RegularExpressions;
+using NuGet.Versioning;
 
 namespace NuGetFetch;
 
 /// <summary>
 /// Searches the NuGet Search API for packages by keyword or prefix.
 /// </summary>
-public class SearchService
+public partial class SearchService
 {
     private const int PrefixSearchPageSize = 100;
     private const int MaxPrefixSearchPages = 32;
@@ -93,6 +95,7 @@ public class SearchService
                     ("skip", skip.ToString(CultureInfo.InvariantCulture)),
                     ("take", take.ToString(CultureInfo.InvariantCulture)),
                     ("prerelease", pre),
+                    ("semVerLevel", "2.0.0"),
                 ],
                 out string url))
         {
@@ -107,7 +110,7 @@ public class SearchService
             async requestToken =>
             {
                 using HttpRequestMessage request =
-                    NuGetHttpRequest.CreateGet(url);
+                    NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
                 if (auth is not null)
                 {
                     request.Headers.Authorization = auth;
@@ -131,10 +134,63 @@ public class SearchService
         // hide the failure behind a successful-looking zero-result search. The
         // endpoint is not named: it is feed-declared metadata that can carry a
         // signature, and this message reaches a caller's failure list.
-        return parsed?.Data
+        IReadOnlyList<SearchResult> results = parsed?.Data
             ?? throw new InvalidOperationException(
                 "The search response was not a valid NuGet search document.");
+        foreach (SearchResult result in results)
+        {
+            operation.ThrowIfExpired();
+            if (!IsValidResult(result, operation))
+            {
+                throw new InvalidOperationException(
+                    "The search response contained an invalid result identity.");
+            }
+        }
+
+        operation.ThrowIfExpired();
+        return results;
     }
+
+    private static bool IsValidResult(
+        SearchResult? result,
+        NuGetOperationDeadline operation)
+    {
+        if (result is null
+            || !IsValidPackageId(result.Id)
+            || !IsValidPackageVersion(result.Version))
+        {
+            return false;
+        }
+
+        if (result.Versions is null)
+            return true;
+
+        foreach (SearchVersion version in result.Versions)
+        {
+            operation.ThrowIfExpired();
+            if (version is null
+                || !IsValidPackageVersion(version.Version))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsValidPackageId(string? packageId) =>
+        packageId is { Length: > 0 and <= 100 }
+        && PackageIdPattern().IsMatch(packageId);
+
+    private static bool IsValidPackageVersion(string? version) =>
+        version is not null
+        && version.AsSpan().Trim().Length == version.Length
+        && NuGetVersion.TryParse(version, out _);
+
+    [GeneratedRegex(
+        @"^\w+(?:[.-]\w+)*\z",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex PackageIdPattern();
 
     /// <summary>
     /// Searches NuGet for packages whose ID starts with the given prefix.
@@ -173,6 +229,7 @@ public class SearchService
             bool madeProgress = false;
             foreach (SearchResult result in page)
             {
+                operation.ThrowIfExpired();
                 madeProgress |= observedResults.Add(
                     $"{result.Id.Length}:{result.Id}{result.Version}");
                 if (result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
@@ -195,6 +252,7 @@ public class SearchService
             throw new InvalidOperationException(
                 $"NuGet search pagination exceeded {MaxPrefixSearchPages} pages.");
 
+        operation.ThrowIfExpired();
         return matches;
     }
 }
