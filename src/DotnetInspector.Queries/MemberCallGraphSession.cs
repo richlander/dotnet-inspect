@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 
 using Analysis = ILInspector.Analysis;
+using ILInspector.CallGraph;
 using ILInspector.Metadata;
 using DotnetInspector.Services;
 
@@ -128,6 +129,25 @@ public sealed record MemberCallGraphOptions
 }
 
 /// <summary>
+/// Bounds one outgoing call neighborhood over the session's workspace group.
+/// </summary>
+public sealed record MemberCallGraphCalleeNeighborhoodRequest
+{
+    public MemberCallGraphCalleeNeighborhoodRequest(
+        int maxDepth,
+        int maxNodes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxDepth);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxNodes, 1);
+        MaxDepth = maxDepth;
+        MaxNodes = maxNodes;
+    }
+
+    public int MaxDepth { get; }
+    public int MaxNodes { get; }
+}
+
+/// <summary>
 /// Acquires and retains the minimum cumulative Analysis state required for
 /// progressively richer member call graphs.
 /// </summary>
@@ -212,6 +232,18 @@ public sealed class MemberCallGraphSession : IDisposable
     /// </summary>
     public MemberCallGraphView CrossLibrary() =>
         Execute(CrossLibraryCore);
+
+    /// <summary>
+    /// Projects one bounded outgoing call neighborhood through every acquired
+    /// participant in this session's assembly context group.
+    /// </summary>
+    public InspectionGraphDocument CrossLibraryCalleeNeighborhood(
+        MemberCallGraphCalleeNeighborhoodRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return Execute(() =>
+            CrossLibraryCalleeNeighborhoodCore(request));
+    }
 
     /// <summary>Lazily yields each cumulative graph tier in order.</summary>
     public IEnumerable<MemberCallGraphView> Tiers()
@@ -332,6 +364,26 @@ public sealed class MemberCallGraphSession : IDisposable
                 _options.Depth,
                 _options.MaxNodes),
             _catalogScope!.Diagnostics);
+    }
+
+    InspectionGraphDocument CrossLibraryCalleeNeighborhoodCore(
+        MemberCallGraphCalleeNeighborhoodRequest request)
+    {
+        IndexBuildResult.Available root = Require(GetFullRoot());
+        EnsureCrossLibraryScope();
+        ThrowIfCrossLibraryFailed();
+        Analysis.CallTreeNode calleeRoot =
+            root.Index.BuildCallTree(
+                _memberToken,
+                _catalogScope!,
+                request.MaxDepth,
+                request.MaxNodes);
+        return CallGraphInspectionGraphAdapter
+            .CreateOutgoingNeighborhood(
+                CallGraphProjection.FromCallees(calleeRoot),
+                request.MaxDepth,
+                request.MaxNodes,
+                _catalogScope!.Diagnostics);
     }
 
     MemberCallGraphView View(
