@@ -883,7 +883,7 @@ public sealed class StructuringPass : IIrPass
                         // the body is built; ordinary branches to the condition
                         // remain outside this slice so nested arm exclusivity is
                         // not lost.
-                        // RegionExitLeaveWithBodyEntryToTail_DoesNotBecomeBreak
+                        // RegionExitLeaveWithDescendantBodyEntry_DoesNotBecomeBreak
                         // keeps this proof latch-only before cloned leaves lose
                         // their original TryFinally ancestry.
                         var loopRegionExitBreakTarget = LoopExitReachesRegionExit(
@@ -957,6 +957,11 @@ public sealed class StructuringPass : IIrPass
                         && falseStart + 1 == target
                         && IsRegionExitTerminator(ctx, falseStart))
                     {
+                        if (!RegionExitBlockPredecessorsAreConsumed(ctx, falseStart, start))
+                        {
+                            ctx.Recorder?.Record("region-exit-block-externally-entered");
+                            return false;
+                        }
                         i = target;
                         break;
                     }
@@ -1626,6 +1631,31 @@ public sealed class StructuringPass : IIrPass
         return children.Count > 0
             && children[^1] is Leave leave
             && IsRegionExitLeave(ctx, leave);
+    }
+
+    static bool RegionExitBlockPredecessorsAreConsumed(
+        Ctx ctx,
+        int blockIndex,
+        int rangeStart)
+    {
+        int targetOffset = ctx.Blocks[blockIndex].StartOffset;
+        if (!ctx.FlowFacts.ClonePredecessorIndices.TryGetValue(
+                targetOffset,
+                out var predecessors))
+        {
+            return true;
+        }
+
+        var conditionalPredecessors =
+            ctx.FlowFacts.ConditionalPredecessorIndices.TryGetValue(
+                targetOffset,
+                out var conditionals)
+                ? conditionals
+                : [];
+        return predecessors.All(source =>
+            source >= rangeStart
+            && source < blockIndex
+            && conditionalPredecessors.Contains(source));
     }
 
     static bool LoopExitReachesRegionExit(
@@ -2323,6 +2353,8 @@ public sealed class StructuringPass : IIrPass
                         && falseStart + 1 == target
                         && IsRegionExitTerminator(ctx, falseStart))
                     {
+                        if (!RegionExitBlockPredecessorsAreConsumed(ctx, falseStart, start))
+                            throw new InvalidOperationException("Validated region-exit block ownership was not buildable.");
                         var breakArm = BuildRegionExitBreakArm(ctx, falseStart, block.StartOffset);
                         result.Add(new IfStatement(Negate(condition), breakArm, null));
                         i = target;

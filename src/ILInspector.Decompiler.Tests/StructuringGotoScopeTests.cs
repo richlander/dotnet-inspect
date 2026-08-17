@@ -189,8 +189,10 @@ public class StructuringGotoScopeTests
         Assert.DoesNotContain("IL_0018:", output);
     }
 
-    [Fact]
-    public void RegionExitLeaveWithBodyEntryToTail_DoesNotBecomeBreak()
+    [Theory]
+    [InlineData(0x0077)]
+    [InlineData(0x005E)]
+    public void RegionExitLeaveWithDescendantBodyEntry_DoesNotBecomeBreak(int targetOffset)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var function = IrImporter.Import(
@@ -209,7 +211,7 @@ public class StructuringGotoScopeTests
             tryFinally.TryBody.Blocks,
             block => block.StartOffset == 0x0062);
         var alternateExitArm = new Block();
-        alternateExitArm.Add(new Branch(0x0077));
+        alternateExitArm.Add(new Branch(targetOffset));
         normalBody.Add(new IfStatement(
             new Comparison(
                 ComparisonKind.Equal,
