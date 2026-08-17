@@ -133,7 +133,7 @@ internal static class LibraryMetadataService
             }
 
             var needsAuditSignals =
-                requiredScanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
+                requiredQueries?.Contains(AuditMetadataQuery.Definition) == true;
 
             AssemblySurfaceClassificationOutcome? surfaceClassification =
                 isPlatformAssembly
@@ -439,7 +439,7 @@ internal static class LibraryMetadataService
                 sourceSubject);
 
             if (needsAuditSignals)
-                AuditSignalBuilder.RefreshLibraryAudit(path, inspection, logger);
+                AuditSignalBuilder.RefreshLibraryAuditSignals(inspection);
 
             if (sourcePlan.CollectSourceFiles)
             {
@@ -2142,6 +2142,13 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                AuditMetadataQuery.Definition,
+                out AuditMetadataResult? auditMetadata))
+        {
+            ApplyAuditMetadataResult(path, inspection, logger, auditMetadata);
+        }
+
+        if (results.TryGet(
                 ExtensionMethodsQuery.Definition,
                 out ExtensionMethodsResult? extensionMethods))
         {
@@ -2202,6 +2209,35 @@ internal static class LibraryMetadataService
                 out SourceIntegrityResult? integrity))
         {
             ApplySourceIntegrityResult(path, inspection, logger, integrity);
+        }
+    }
+
+    internal static void ApplyAuditMetadataResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        AuditMetadataResult result)
+    {
+        switch (result)
+        {
+            case AuditMetadataResult.Available available:
+                AuditSignalBuilder.ApplyLibraryAudit(
+                    inspection,
+                    available.Metadata);
+                break;
+
+            case AuditMetadataResult.NoMetadata:
+                break;
+
+            case AuditMetadataResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning audit metadata in {path}: {failed.Error.Message}");
+                AuditSignalBuilder.ApplyLibraryAudit(inspection, metadata: null);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown audit metadata result '{result.GetType().Name}'.");
         }
     }
 
