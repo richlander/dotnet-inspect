@@ -21,8 +21,10 @@ internal static class CSharpSpellability
     public static bool HasUnrepresentableMetadataName(IrNode node)
         => InspectUnrepresentableMetadataName(node) is not null;
 
-    public static bool CanSpellType(TypeRef type)
-        => !type.ContainsUnsupported && TypeIssue(type) is null;
+    public static bool CanSpellExplicitParameterType(TypeRef type)
+        => !type.ContainsUnsupported
+            && HasExplicitParameterTypeShape(type, allowByRef: true, allowVoid: false)
+            && TypeIssue(type) is null;
 
     internal static NameIssue? InspectUnrepresentableMetadataName(IrNode node)
     {
@@ -435,6 +437,52 @@ internal static class CSharpSpellability
         }
     }
 
+    static bool HasExplicitParameterTypeShape(TypeRef type, bool allowByRef, bool allowVoid)
+    {
+        switch (type.Kind)
+        {
+            case TypeRefKind.Definition:
+                return allowVoid || !IsCoreLibVoid(type);
+
+            case TypeRefKind.GenericInstance:
+                return type.ElementType is { } definition
+                    && HasExplicitParameterTypeShape(definition, allowByRef: false, allowVoid: false)
+                    && type.TypeArguments.All(
+                        argument => HasExplicitParameterTypeShape(argument, allowByRef: false, allowVoid: false));
+
+            case TypeRefKind.SzArray:
+            case TypeRefKind.Array:
+                return type.ElementType is { } arrayElement
+                    && HasExplicitParameterTypeShape(arrayElement, allowByRef: false, allowVoid: false);
+
+            case TypeRefKind.ByRef:
+                return allowByRef
+                    && type.ElementType is { } byRefElement
+                    && HasExplicitParameterTypeShape(byRefElement, allowByRef: false, allowVoid: false);
+
+            case TypeRefKind.Pointer:
+                return type.ElementType is { } pointerElement
+                    && HasExplicitParameterTypeShape(pointerElement, allowByRef: false, allowVoid: true);
+
+            case TypeRefKind.Pinned:
+            case TypeRefKind.Unsupported:
+                return false;
+
+            case TypeRefKind.GenericParameter:
+            case TypeRefKind.MethodGenericParameter:
+                return type.GenericParameterName.Length > 0;
+
+            case TypeRefKind.FunctionPointer:
+                return type.ElementType is { } returnType
+                    && HasExplicitParameterTypeShape(returnType, allowByRef: true, allowVoid: true)
+                    && type.TypeArguments.All(
+                        parameter => HasExplicitParameterTypeShape(parameter, allowByRef: true, allowVoid: false));
+
+            default:
+                return false;
+        }
+    }
+
     static string MethodNameDiscriminator(string name)
     {
         if (GeneratedCodeIdentity.IsSynthesizedLambdaMethodName(name))
@@ -472,6 +520,11 @@ internal static class CSharpSpellability
         => type.Assembly == TypeRef.CoreLibrary
             && type.Namespace == "System"
             && s_coreLibPrimitiveNames.Contains(type.Name);
+
+    static bool IsCoreLibVoid(TypeRef type)
+        => type.Assembly == TypeRef.CoreLibrary
+            && type.Namespace == "System"
+            && type.Name == "Void";
 
     static string StripArity(string name)
     {

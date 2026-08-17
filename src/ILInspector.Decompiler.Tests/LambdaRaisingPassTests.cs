@@ -302,7 +302,7 @@ public class LambdaRaisingPassTests
             out var candidate);
 
         Assert.Equal(TypeRefKind.ByRef, candidate.ParameterTypes[0].Kind);
-        Assert.False(CSharpSpellability.CanSpellType(candidate.ParameterTypes[1]));
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(candidate.ParameterTypes[1]));
         Assert.Empty(host.Descendants.OfType<Lambda>());
         Assert.Single(host.Descendants.OfType<DelegateCreation>());
     }
@@ -315,7 +315,7 @@ public class LambdaRaisingPassTests
             out var candidate);
 
         Assert.Equal(TypeRefKind.ByRef, candidate.ParameterTypes[0].Kind);
-        Assert.True(CSharpSpellability.CanSpellType(candidate.ParameterTypes[1]));
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(candidate.ParameterTypes[1]));
         var lambda = Assert.Single(host.Descendants.OfType<Lambda>());
         Assert.Equal([ArgumentRefKind.Ref, ArgumentRefKind.Value], lambda.ParameterRefKinds);
         Assert.Empty(host.Descendants.OfType<DelegateCreation>());
@@ -396,18 +396,29 @@ public class LambdaRaisingPassTests
         Assert.Single(host.Descendants.OfType<DelegateCreation>());
     }
 
-    [Fact]
-    public void ByRefLambdaWithUnsupportedSibling_StaysLowered()
+    public static TheoryData<string, TypeRef> UnspellableExplicitSiblingTypes() => new()
+    {
+        { "unsupported", TypeRef.Unsupported("unsupported sibling") },
+        { "pinned", TypeRef.Pinned(s_int) },
+        { "unnamed type generic parameter", TypeRef.GenericParameter(0) },
+        { "unnamed method generic parameter", TypeRef.MethodGenericParameter(0) },
+        { "nested by-ref", TypeRef.ByRef(TypeRef.ByRef(s_int)) },
+        { "by-ref array element", TypeRef.SzArray(TypeRef.ByRef(s_int)) },
+        { "void", TypeRef.CoreLib("System", "Void") },
+    };
+
+    [Theory]
+    [MemberData(nameof(UnspellableExplicitSiblingTypes))]
+    public void ByRefLambdaWithUnspellableSibling_StaysLowered(string _, TypeRef siblingType)
     {
         var holder = TypeRef.Definition("Synthetic", "Samples", "Outer+<>c");
         var delegateType = TypeRef.Definition("Synthetic", "Samples", "RefCallback");
         var byRefInt = TypeRef.ByRef(s_int);
-        var unsupported = TypeRef.Unsupported("unsupported sibling");
         var lambdaMethod = new MethodRef(
             holder,
             "<M>b__0",
             TypeRef.CoreLib("System", "Void"),
-            [byRefInt, unsupported],
+            [byRefInt, siblingType],
             HasThis: true)
         {
             CompilerGenerated = MetadataFactState.Yes,
@@ -436,7 +447,7 @@ public class LambdaRaisingPassTests
             holder,
             new MethodSignature(
                 TypeRef.CoreLib("System", "Void"),
-                [new Parameter("value", byRefInt), new Parameter("sibling", unsupported)],
+                [new Parameter("value", byRefInt), new Parameter("sibling", siblingType)],
                 HasThis: true,
                 GenericParameterCount: 0),
             [],
@@ -448,7 +459,7 @@ public class LambdaRaisingPassTests
                 new Stepper(enabled: false),
                 importMethodBody: _ => lambdaBody));
 
-        Assert.False(CSharpSpellability.CanSpellType(unsupported));
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(siblingType));
         Assert.Empty(host.Descendants.OfType<Lambda>());
         Assert.Single(host.Descendants.OfType<DelegateCreation>());
         host.CheckInvariant();
