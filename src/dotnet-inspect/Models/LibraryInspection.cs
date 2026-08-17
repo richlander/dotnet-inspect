@@ -404,8 +404,28 @@ public class LibraryInspection
     /// Members with unsafe signature or body-level unsafe evidence.
     /// P/Invoke-only methods are excluded and remain in P/Invoke Methods.
     /// </summary>
+    private List<UnsafeMemberSummary>? _unsafeMembers;
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<UnsafeMemberSummary>? UnsafeMembers { get; set; }
+    public List<UnsafeMemberSummary>? UnsafeMembers
+    {
+        get => UnsafeEvidenceInspection.Failure() is null ? _unsafeMembers : null;
+        set => _unsafeMembers = value;
+    }
+
+    private FindingInspection<UnsafeEvidence>? _unsafeEvidenceInspection;
+
+    /// <summary>Typed unsafe declaration and body evidence with path-scoped provenance.</summary>
+    [JsonIgnore]
+    public FindingInspection<UnsafeEvidence>? UnsafeEvidenceInspection
+    {
+        get => _unsafeEvidenceInspection;
+        set
+        {
+            _unsafeEvidenceInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
 
     /// <summary>
     /// Methods ranked by call-graph leverage (distinct direct callers, then outbound
@@ -683,6 +703,7 @@ public class LibraryInspection
             AddFailure(failures, "Compilation Options", CompilationOptionInspection);
             AddFailure(failures, "Compilation References", CompilationReferenceInspection);
             AddFailure(failures, "Classified Methods", ClassifiedMethodInspection);
+            AddFailure(failures, "Unsafe Evidence", UnsafeEvidenceInspection);
             AddFailure(failures, "Extension Methods", ExtensionMemberInspection);
             AddFailure(failures, LibraryIntegrationCatalog.RollupName, EcosystemIntegrationInspection);
             AddFailure(failures, EcosystemIntegrationNames.OpenTelemetry, OpenTelemetryInspection);

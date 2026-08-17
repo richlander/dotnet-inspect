@@ -11,6 +11,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Views;
+using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -220,6 +221,67 @@ public class LibraryFindingConsumerTests
         Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Signature));
         Assert.StartsWith("<code>", row.DeclaringType, StringComparison.Ordinal);
         Assert.StartsWith("<code>", row.Signature, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnsafeEvidenceQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    {
+        const string MethodName = "Method\u202EName";
+        const string Reason = "Unsafe\nsignature";
+        const string Detail = "int*\nError: forged";
+        const string Kind = "sign\nature";
+        var method = new MethodIdentity(
+            "Hostile",
+            Guid.Empty,
+            TypeRef.Definition("Hostile", "Namespace", "Type\u202EName"),
+            MethodName,
+            [TypeRef.CoreLib("System", "Int32")],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            IsStatic: true);
+        var evidence = new UnsafeEvidence(
+            method,
+            Reason,
+            Detail,
+            Kind,
+            ILOffset: 1,
+            OperandToken: 0x01000001);
+        var result = new UnsafeEvidenceResult.Available(
+            [evidence],
+            [new AnalysisDiagnostic(0x06000001, MethodName, Detail)]);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyUnsafeEvidenceResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            result);
+
+        UnsafeEvidence queryEvidence = Assert.Single(result.Evidence);
+        UnsafeEvidence findingPayload = Assert.Single(
+            inspection.UnsafeEvidenceInspection.Findings()).Payload;
+        UnsafeMemberSummary summary = Assert.Single(inspection.UnsafeMembers!);
+        UnsafeMemberRow row = Assert.Single(
+            new LibraryInspectionView(inspection).UnsafeMembersSection!);
+
+        Assert.Same(evidence, queryEvidence);
+        Assert.Same(evidence, findingPayload);
+        Assert.Equal(MethodName, findingPayload.Member.Name);
+        Assert.Equal(Reason, summary.Reason);
+        Assert.Equal(Detail, summary.Detail);
+        Assert.Equal(Kind, summary.Kind);
+
+        Assert.NotEqual(Reason, row.Reason);
+        Assert.NotEqual(Detail, row.Detail);
+        Assert.NotEqual(Kind, row.Kind);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Member));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Reason));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Detail));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Kind));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.IL!));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Token!));
+        Assert.StartsWith("<code>", row.Member, StringComparison.Ordinal);
+        Assert.StartsWith("<code>", row.Detail, StringComparison.Ordinal);
     }
 
     [Fact]

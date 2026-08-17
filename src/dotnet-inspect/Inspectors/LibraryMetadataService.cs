@@ -64,9 +64,9 @@ internal static class LibraryMetadataService
                 : queries;
             if (requiredQueries is not null)
                 trace?.RecordQueryClosure(requiredQueries);
-            var bodyAnalysisFeatures = requiredScanners is null
-                ? Analysis.LibraryBodyAnalysisFeatures.None
-                : SelectBodyAnalysisFeatures(requiredScanners);
+            var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(
+                requiredScanners,
+                requiredQueries);
             using var service = assemblyReference is not null
                 ? bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
                     ? SourceLinkService.Open(assemblyReference, logger.Log)
@@ -476,21 +476,22 @@ internal static class LibraryMetadataService
     }
 
     static Analysis.LibraryBodyAnalysisFeatures SelectBodyAnalysisFeatures(
-        IReadOnlySet<string> scanners)
+        IReadOnlySet<string>? scanners,
+        IReadOnlySet<InspectionQueryDefinition>? queries)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
-        if (scanners.Contains(Sections.LibrarySections.ScannerUnsafeMembers)
-            || scanners.Contains(Sections.LibrarySections.ScannerTopLeverage))
+        if (scanners?.Contains(Sections.LibrarySections.ScannerTopLeverage) == true
+            || queries?.Contains(UnsafeEvidenceQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         }
-        if (scanners.Contains(
-            Sections.LibrarySections.ScannerOptimizationOpportunities))
+        if (scanners?.Contains(
+                Sections.LibrarySections.ScannerOptimizationOpportunities) == true)
         {
             features |=
                 Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
         }
-        if (scanners.Contains(Sections.LibrarySections.ScannerResourceTriage))
+        if (scanners?.Contains(Sections.LibrarySections.ScannerResourceTriage) == true)
             features |= Analysis.LibraryBodyAnalysisFeatures.LeakTriage;
         return features;
     }
@@ -1316,43 +1317,6 @@ internal static class LibraryMetadataService
         public IdentifierConfusionAuditFailureKind FailureKind { get; }
     }
 
-    internal static List<UnsafeMemberSummary>? ScanUnsafeMembers(Func<Analysis.LibraryBodyIndex> openIndex, string path, VerboseLogger logger)
-    {
-        try
-        {
-            var index = openIndex();
-            var rows = index.UnsafeEvidence
-                .Select(evidence => new UnsafeMemberSummary
-                {
-                    Member = FormatMethod(evidence.Member),
-                    Reason = evidence.Reason,
-                    Detail = evidence.Detail,
-                    Kind = evidence.Kind,
-                    IL = evidence.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
-                    Token = evidence.OperandToken is { } token ? $"0x{token:X8}" : null,
-                })
-                .OrderBy(row => row.Member, StringComparer.Ordinal)
-                .ThenBy(row => row.IL ?? "", StringComparer.Ordinal)
-                .ThenBy(row => row.Reason, StringComparer.Ordinal)
-                .ThenBy(row => row.Detail, StringComparer.Ordinal)
-                .ToList();
-
-            foreach (var diagnostic in index.Diagnostics)
-                logger.LogWarning($"unsafe analysis skipped {diagnostic.Method}: {diagnostic.Message}");
-
-            return rows.Count > 0 ? rows : null;
-        }
-        catch (CostDeclarationException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning unsafe members in {path}: {ex.Message}");
-            return null;
-        }
-    }
-
     private static string FormatMethod(Analysis.MethodIdentity method)
         => $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
 
@@ -2142,6 +2106,13 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                UnsafeEvidenceQuery.Definition,
+                out UnsafeEvidenceResult? unsafeEvidence))
+        {
+            ApplyUnsafeEvidenceResult(path, inspection, logger, unsafeEvidence);
+        }
+
+        if (results.TryGet(
                 AuditMetadataQuery.Definition,
                 out AuditMetadataResult? auditMetadata))
         {
@@ -2465,6 +2436,64 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown classified-methods result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyUnsafeEvidenceResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        UnsafeEvidenceResult result)
+    {
+        switch (result)
+        {
+            case UnsafeEvidenceResult.Available available:
+                inspection.UnsafeEvidenceInspection =
+                    new FindingInspection<Analysis.UnsafeEvidence>.Complete(
+                        Analysis.AnalysisFindings.InspectUnsafeEvidence(
+                            available.Evidence,
+                            FindingSubjectFor(path)));
+                var rows = available.Evidence
+                    .Select(evidence => new UnsafeMemberSummary
+                    {
+                        Member = FormatMethod(evidence.Member),
+                        Reason = evidence.Reason,
+                        Detail = evidence.Detail,
+                        Kind = evidence.Kind,
+                        IL = evidence.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
+                        Token = evidence.OperandToken is { } token ? $"0x{token:X8}" : null,
+                    })
+                    .OrderBy(row => row.Member, StringComparer.Ordinal)
+                    .ThenBy(row => row.IL ?? "", StringComparer.Ordinal)
+                    .ThenBy(row => row.Reason, StringComparer.Ordinal)
+                    .ThenBy(row => row.Detail, StringComparer.Ordinal)
+                    .ToList();
+                inspection.UnsafeMembers = rows.Count > 0 ? rows : null;
+
+                foreach (var diagnostic in available.Diagnostics)
+                {
+                    logger.LogWarning(
+                        $"unsafe analysis skipped {diagnostic.Method}: {diagnostic.Message}");
+                }
+                break;
+
+            case UnsafeEvidenceResult.NoMetadata:
+                break;
+
+            case UnsafeEvidenceResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning unsafe members in {path}: {failed.Error.Message}");
+                inspection.UnsafeEvidenceInspection =
+                    FailedInspection<Analysis.UnsafeEvidence>(
+                        path,
+                        Analysis.AnalysisFindings.UnsafeEvidenceDescriptor,
+                        failed.Error);
+                inspection.UnsafeMembers = null;
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown unsafe-evidence result '{result.GetType().Name}'.");
         }
     }
 

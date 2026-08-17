@@ -7047,7 +7047,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Discover_FilteredUnsafeMembers_PreservesBodyOnlyApplicabilityWithoutExecutingScanner()
+    public async Task Discover_FilteredUnsafeMembers_PreservesBodyOnlyApplicabilityWithoutExecutingQuery()
     {
         string assemblyPath = typeof(InstructionProducer).Assembly.Location;
         var (renderExit, renderOutput, renderError) = await RunAppAsync(
@@ -7073,7 +7073,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
         Assert.Contains("trace: library", error);
-        Assert.DoesNotContain(LibrarySections.ScannerUnsafeMembers, error);
+        Assert.DoesNotContain(UnsafeEvidenceQuery.Definition.Name, error);
         Assert.DoesNotContain("body index", error);
     }
 
@@ -16305,10 +16305,13 @@ public partial class CommandExecutionTests
         // would only make the test slower, never wrong.
         string[] bodyIndexScanners =
         [
-            LibrarySections.ScannerUnsafeMembers,
             LibrarySections.ScannerTopLeverage,
             LibrarySections.ScannerOptimizationOpportunities,
             LibrarySections.ScannerResourceTriage,
+        ];
+        InspectionQueryDefinition[] bodyIndexQueries =
+        [
+            UnsafeEvidenceQuery.Definition,
         ];
 
         // A coordinate-scoped section cannot be selected without its coordinate: "Metadata: Heap"
@@ -16335,7 +16338,9 @@ public partial class CommandExecutionTests
         var scannerNames = pipeline.ScannerBoundSections
             .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
             .Select(b => b.Name);
-        var queryNames = pipeline.QueryBoundSections.Select(b => b.Name);
+        var queryNames = pipeline.QueryBoundSections
+            .Where(b => !bodyIndexQueries.Contains(b.Query))
+            .Select(b => b.Name);
         var names = scannerNames
             .Concat(queryNames)
             .Where(n => !coordinateScoped.Contains(n, StringComparer.Ordinal))
