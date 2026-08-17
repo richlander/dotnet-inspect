@@ -374,6 +374,9 @@ library MVIDs share that coordinate, they remain distinct because the
 coordinate-only triage row cannot identify which module version it describes.
 Older nested exports without `ModuleVersionId` remain accepted and use that
 conservative ambiguity behavior.
+If triage was exported from a different build than a supplied library, their
+MVIDs do not collapse; the additional physical site can increase ambiguity or
+move the type above the confirmation site cap.
 
 `CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` expose a separate
 cross-method repetition fact. `CallerLoop=direct` means a resolved invocation

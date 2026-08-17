@@ -172,7 +172,7 @@ public class E2EFixtureTests
                       {
                         "member": "RunFaster.AllocationFixture.Program.AllocateOne()",
                         "assembly": "RunFaster.AllocationFixture",
-                        "module_version_id": "not-a-guid",
+                        "module_version_id": {},
                         "method_token": "0x06000002",
                         "shape": "object-allocation",
                         "il": "IL_0000",
@@ -192,7 +192,40 @@ public class E2EFixtureTests
 
             Assert.Equal(1, result.ExitCode);
             Assert.Contains(
-                "Invalid module version ID 'not-a-guid'",
+                "Invalid module version ID in 'module_version_id'",
+                result.Error);
+            Assert.Empty(result.Output);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_RejectsConflictingTriageModuleVersionIds()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","module_version_id":"11111111-1111-1111-1111-111111111111","mvid":"22222222-2222-2222-2222-222222222222","method_token":"0x06000002","shape":"object-allocation","il":"IL_0000","allocation":"System.Object"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"));
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                "Conflicting module version IDs were supplied",
                 result.Error);
             Assert.Empty(result.Output);
         }

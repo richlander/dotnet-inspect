@@ -598,14 +598,6 @@ static bool TryCreateCandidateFromJson(
         "method_token",
         "MethodToken",
         "methodToken");
-    string? moduleVersionIdText = GetJsonString(
-        element,
-        "Module Version ID",
-        "module_version_id",
-        "ModuleVersionId",
-        "moduleVersionId",
-        "MVID",
-        "mvid");
     string? operandTokenText = GetJsonString(
         element,
         "MetadataToken",
@@ -628,19 +620,8 @@ static bool TryCreateCandidateFromJson(
         ? parsedOperandToken
         : null;
     int offset = TryParseFlexibleInt(offsetText, out var parsedOffset) ? parsedOffset : -1;
-    Guid? moduleVersionId = null;
-    if (moduleVersionIdText is not null)
-    {
-        if (!Guid.TryParse(
-                moduleVersionIdText,
-                out var parsedModuleVersionId))
-        {
-            throw new InvalidDataException(
-                $"Invalid module version ID '{moduleVersionIdText}'.");
-        }
-
-        moduleVersionId = parsedModuleVersionId;
-    }
+    Guid? moduleVersionId =
+        ReadOptionalModuleVersionId(element);
 
     if (method is null && methodToken == 0)
         return false;
@@ -680,6 +661,58 @@ static bool TryCreateCandidateFromJson(
         operandToken: operandToken);
     return true;
 }
+
+static Guid? ReadOptionalModuleVersionId(
+    JsonElement element)
+{
+    Guid? result = null;
+    foreach (var property in element.EnumerateObject())
+    {
+        if (!IsModuleVersionIdProperty(
+                property.Name))
+        {
+            continue;
+        }
+
+        if (property.Value.ValueKind ==
+            JsonValueKind.Null)
+        {
+            continue;
+        }
+
+        if (property.Value.ValueKind !=
+                JsonValueKind.String
+            || !Guid.TryParse(
+                property.Value.GetString(),
+                out var parsed))
+        {
+            throw new InvalidDataException(
+                $"Invalid module version ID in "
+                + $"'{property.Name}'.");
+        }
+
+        if (result is Guid existing
+            && existing != parsed)
+        {
+            throw new InvalidDataException(
+                "Conflicting module version IDs "
+                + "were supplied.");
+        }
+
+        result = parsed;
+    }
+
+    return result;
+}
+
+static bool IsModuleVersionIdProperty(
+    string name)
+    => name is "Module Version ID"
+        or "module_version_id"
+        or "ModuleVersionId"
+        or "moduleVersionId"
+        or "MVID"
+        or "mvid";
 
 static string? GetJsonString(JsonElement element, params string[] names)
 {

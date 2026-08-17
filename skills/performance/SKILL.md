@@ -161,6 +161,8 @@ The raw library row is marked `superseded-by-triage`, not workload-cold.
 Type-level ambiguity and its site cap count the shared coordinate once unless
 several library MVIDs make an older MVID-less triage row's module version
 ambiguous.
+Triage and library inputs from different builds retain distinct MVIDs and can
+therefore increase ambiguity or exceed the type-confirmation site cap.
 
 ## Select direct caller-loop repetition
 
