@@ -396,6 +396,64 @@ public class LambdaRaisingPassTests
         Assert.Single(host.Descendants.OfType<DelegateCreation>());
     }
 
+    [Fact]
+    public void ByRefLambdaWithUnsupportedSibling_StaysLowered()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Outer+<>c");
+        var delegateType = TypeRef.Definition("Synthetic", "Samples", "RefCallback");
+        var byRefInt = TypeRef.ByRef(s_int);
+        var unsupported = TypeRef.Unsupported("unsupported sibling");
+        var lambdaMethod = new MethodRef(
+            holder,
+            "<M>b__0",
+            TypeRef.CoreLib("System", "Void"),
+            [byRefInt, unsupported],
+            HasThis: true)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+            ParameterRefKinds = [ArgumentRefKind.Ref, ArgumentRefKind.Value],
+        };
+        var singleton = new LoadField(new FieldRef(holder, "<>9", holder), instance: null);
+        var hostBlock = new Block();
+        hostBlock.Add(new Return(new DelegateCreation(delegateType, lambdaMethod, isVirtual: false, singleton)));
+        var hostBody = new BlockContainer();
+        hostBody.Add(hostBlock);
+        var host = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            new MethodSignature(delegateType, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            hostBody);
+
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new Return(null));
+        var lambdaContainer = new BlockContainer();
+        lambdaContainer.Add(lambdaBlock);
+        var lambdaBody = new IrFunction(
+            lambdaMethod.Name,
+            holder,
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("value", byRefInt), new Parameter("sibling", unsupported)],
+                HasThis: true,
+                GenericParameterCount: 0),
+            [],
+            lambdaContainer);
+
+        new LambdaRaisingPass().Run(
+            host,
+            new PassContext(
+                new Stepper(enabled: false),
+                importMethodBody: _ => lambdaBody));
+
+        Assert.False(CSharpSpellability.CanSpellType(unsupported));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+        Assert.Single(host.Descendants.OfType<DelegateCreation>());
+        host.CheckInvariant();
+    }
+
     static void AssertRefLambdaCompiles(string body)
     {
         string source = $$"""
@@ -470,6 +528,7 @@ public class LambdaRaisingPassTests
             new PassContext(
                 new Stepper(enabled: false),
                 importMethodBody: method => IrImporter.Import(source, method)));
+        host.CheckInvariant();
         return host;
     }
 

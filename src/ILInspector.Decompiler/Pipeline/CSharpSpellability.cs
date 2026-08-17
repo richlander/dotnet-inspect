@@ -22,7 +22,7 @@ internal static class CSharpSpellability
         => InspectUnrepresentableMetadataName(node) is not null;
 
     public static bool CanSpellType(TypeRef type)
-        => TypeIssue(type) is null;
+        => !type.ContainsUnsupported && TypeIssue(type) is null;
 
     internal static NameIssue? InspectUnrepresentableMetadataName(IrNode node)
     {
