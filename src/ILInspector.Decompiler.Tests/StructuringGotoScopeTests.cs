@@ -194,17 +194,7 @@ public class StructuringGotoScopeTests
     [InlineData(0x005E)]
     public void RegionExitLeaveWithDescendantBodyEntry_DoesNotBecomeBreak(int targetOffset)
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
-        var function = IrImporter.Import(
-            source,
-            typeof(CfgSampleClass).FullName!,
-            nameof(CfgSampleClass.CollectValidDoubles))!;
-        foreach (var pass in IrPasses.Default)
-        {
-            if (pass is StructuringPass)
-                break;
-            pass.Run(function, PassContext.None);
-        }
+        var function = CollectValidDoublesBeforeStructuring();
 
         var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
         var normalBody = Assert.Single(
@@ -227,6 +217,41 @@ public class StructuringGotoScopeTests
         string output = CSharpPrinter.Print(function).Output ?? "";
         Assert.True(function.Descendants.OfType<Leave>().Any(leave => leave.TargetOffset == 0x0087), output);
         Assert.Empty(function.Descendants.OfType<Break>());
+    }
+
+    [Fact]
+    public void RegionExitLeaveWithSideEffectingTail_DoesNotBecomeBreak()
+    {
+        var function = CollectValidDoublesBeforeStructuring();
+        var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
+        var tail = Assert.Single(
+            tryFinally.TryBody.Blocks,
+            block => block.StartOffset == 0x0077);
+        tail.Add(new StoreLocal(2, Int32, new Constant(0, Int32)));
+        tail.Add(new Leave(0x0087));
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        string output = CSharpPrinter.Print(function).Output ?? "";
+        Assert.True(function.Descendants.OfType<Leave>().Any(leave => leave.TargetOffset == 0x0087), output);
+        Assert.Empty(function.Descendants.OfType<Break>());
+    }
+
+    static IrFunction CollectValidDoublesBeforeStructuring()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.CollectValidDoubles))!;
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass is StructuringPass)
+                break;
+            pass.Run(function, PassContext.None);
+        }
+        return function;
     }
 
     [Fact]

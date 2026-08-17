@@ -1678,7 +1678,9 @@ public sealed class StructuringPass : IIrPass
         {
             if (ctx.DroppableBlocks.Contains(i) || ctx.Blocks[i].Children.Count == 0)
                 continue;
-            if (i != stop - 1 || !IsRegionExitTerminator(ctx, i))
+            if (i != stop - 1
+                || ctx.Blocks[i].Children.Count != 1
+                || !IsRegionExitTerminator(ctx, i))
                 return false;
         }
 
