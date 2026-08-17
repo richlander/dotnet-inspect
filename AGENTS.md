@@ -87,7 +87,9 @@ change ready to merge.
   behavior passes, commit and push promptly. Keep that head fixed while broader
   local validation, CI, and eligible fixed-head review run concurrently,
   subject to the per-round CI and conflict gates under
-  [Adversarial review](#adversarial-review).
+  [Adversarial review](#adversarial-review). Conflict recovery is the exception:
+  push its resolution head immediately, then run required local validation in
+  parallel with review and CI as described above.
 - Do not fetch or integrate the base again merely because it advances, because
   another PR is expected to land, or because later integration would make the
   branch look newer. Base movement alone does not invalidate a candidate. A
@@ -480,18 +482,19 @@ npx markdownlint-cli <file>
 ### Lock the head, review it, then fix it
 
 An ordinary review round may begin only after the candidate head is pushed,
-settled, and locally includes the effective base recorded at candidate
-formation. Its focused pre-push gate must pass before dispatch, except that a
-settled documentation-only first round may run concurrently with Markdown
-linting. The first round starts without waiting for CI. A conflict-recovery
-round starts immediately after its resolution head is pushed while required
-post-push local validation runs. An ordinary subsequent round additionally
-requires zero merge conflicts and green current-head `ci-required`.
+settled, locally includes the effective base recorded at candidate formation,
+and has passed its focused pre-push gate. The first attempt at round 1 starts
+without waiting for CI. A conflict-recovery round starts immediately after its
+resolution head is pushed while required post-push local validation runs. A
+round restarted after failed-gate recovery and every ordinary subsequent round
+additionally require zero merge conflicts and green current-head
+`ci-required`.
 
 Review is a locked-head feedback loop: freeze and push one exact head, review
 that head, reconcile the feedback, make any resulting fixes, and freeze the
-replacement head. Do not edit a head while its round is running. The fixed
-replacement is a new candidate and its review is a new round.
+replacement head. Do not edit a head while its head lock is held. The lock ends
+when both reviewers have returned and their feedback has been reconciled for
+action. The fixed replacement is a new candidate and its review is a new round.
 
 A known conflict, known failing current-head required check, or known failing
 required local gate blocks an ordinary round. Resolve an actual conflict first,
@@ -513,11 +516,10 @@ moving](#clean-reviews-are-not-spent-by-main-moving), which preserves the clean
 reviews and does not open another round.
 
 Documentation-only PRs follow the same sequencing. Their focused pre-push gate
-is Markdown linting, and a clean exact-head first-round review may run
-concurrently with that gate when the candidate is already settled. Lint must
-still pass before merge, and an ordinary subsequent round requires a
-current-head status check confirming zero merge conflicts and green
-`ci-required`.
+is Markdown linting, which must pass before the candidate is committed, pushed,
+or sent to reviewers. The first round does not wait for CI after that push. An
+ordinary subsequent round requires a current-head status check confirming zero
+merge conflicts and green `ci-required`.
 
 Adversarial review is scarce, but serial wall-clock time is also a cost. Spend
 review only on a named frozen head with focused local evidence, then accept the
@@ -548,9 +550,9 @@ so again before every subsequent round:
   [Clean reviews are not spent by main
   moving](#clean-reviews-are-not-spent-by-main-moving).
 - **Before merge, the PR is mergeable and green** — two questions, one
-  consolidated status query. The first and conflict-recovery rounds do not wait
-  for this result, but an ordinary subsequent round and merge readiness do. Use
-  a single
+  consolidated status query. The first attempt at round 1 and conflict-recovery
+  rounds do not wait for this result, but a failed-gate restart, an ordinary
+  subsequent round, and merge readiness do. Use a single
   `gh api graphql` request that returns the PR's
   `headRefOid`, `mergeable`, `mergeStateStatus`, `statusCheckRollup` state and
   contexts with `pageInfo`, and the query's `rateLimit` cost, remaining quota,
@@ -595,10 +597,14 @@ so again before every subsequent round:
     before starting that round.
   - If `mergeable` is `UNKNOWN`, it does not satisfy the zero-conflict gate. If
     current-head `ci-required` is already green, use the REST fallback above;
-    a null result follows its five-minute recovery cadence. If CI is also
-    pending, schedule the documentation-only follow-up for at least 10 minutes
-    plus small random jitter after the five-minute check, or the
-    non-documentation follow-up for the expected 35-minute completion point.
+    a null result follows its five-minute recovery cadence. If `ci-required` is
+    pending or missing, schedule the documentation-only follow-up for at least
+    10 minutes plus small random jitter after the five-minute check, or the
+    non-documentation follow-up for the expected 35-minute completion point. If
+    both mergeability and CI remain unresolved at that follow-up, continue with
+    at least 10 minutes plus small random jitter between aggregate queries.
+    Switch to the five-minute REST-backed recovery cadence once `ci-required`
+    is green and mergeability is the only unknown.
   - If `mergeable` is `MERGEABLE` and the PR is documentation-only, use that
     five-minute result as the expected CI completion check. Do not schedule a
     longer planned wait; documentation CI should be complete by then. If it is
@@ -631,15 +637,18 @@ so again before every subsequent round:
   not only the slice under review. A known-conflicted or known-red parent blocks
   review of everything above it. A pending parent does not block a slice's
   first or conflict-recovery round, provided each layer has a settled pushed
-  head and passed focused local evidence. Before any ordinary subsequent round,
-  a current-head aggregate check for every open stack layer must confirm zero
-  merge conflicts and green `ci-required`. A slice rebases onto its parent,
-  never onto `main`: only the stack's bottom open slice takes `origin/main` as
-  its base, and rebasing an upper slice onto `main` pulls in work its parent has
-  not landed and makes the slice's diff report its parent's changes as its own.
-  `ci.yml` applies no base-branch filter, so every non-documentation slice
-  schedules the same CI wherever it targets; a non-documentation slice
-  reporting *no* checks is therefore not green.
+  head and passed focused local evidence. A conflict-recovery round is scoped
+  to the recovered slice and may start while that slice's post-push local
+  validation and affected descendant restacks are pending; do not review an
+  upper slice until its own conflicts are recovered. Before any ordinary
+  subsequent round, a current-head aggregate check for every open stack layer
+  must confirm zero merge conflicts and green `ci-required`. A slice rebases
+  onto its parent, never onto `main`: only the stack's bottom open slice takes
+  `origin/main` as its base, and rebasing an upper slice onto `main` pulls in
+  work its parent has not landed and makes the slice's diff report its parent's
+  changes as its own. `ci.yml` applies no base-branch filter, so every
+  non-documentation slice schedules the same CI wherever it targets; a
+  non-documentation slice reporting *no* checks is therefore not green.
   Re-query after the registration window, following the status-discovery
   cadence above, and verify the current head; if no matching workflow run
   appears, that is a scheduling bug to investigate, since a PR that triggers no
@@ -678,10 +687,13 @@ forward without another round. Record the reviewed head, old and new main tips,
 the non-interaction analysis, and the user's decision on the PR.
 
 If the range can affect the change, report that the carry-forward path is not
-available and keep the reviewed head. Do not integrate merely because the base
-moved, and do not open another round unless an actual conflict, review-driven
-fix, author change, or explicit user workflow adjustment creates a replacement
-candidate.
+available and keep the reviewed head. The PR is not merge-ready in that state:
+do not post `Ready to merge`. Do not integrate merely because the base moved,
+and do not open another round unless an actual conflict, review-driven fix,
+author change, or explicit user workflow adjustment creates a replacement
+candidate. Ask the user whether to make a workflow adjustment that integrates
+the base and re-validates and re-reviews the replacement head, or to leave the
+PR blocked.
 
 The carry-forward continuation is the sole exception to the fixed-head review
 rule. It does not authorize carrying reviews across author changes,
@@ -776,7 +788,9 @@ the resulting fixes are committed and pushed as the replacement candidate and
 the public reconciliation is posted. A conflict- or failed-gate-superseded
 attempt is incomplete: it does not consume a round number, does not receive a
 completion report, and restarts with the same number after its applicable
-recovery gate.
+recovery gate. Record every finding returned before supersession, carry it into
+the restarted round, and disposition it in that round's public reconciliation;
+supersession never retires a finding.
 
 After every completed round and before starting the next one, emit this report
 as the assistant's visible user-facing response in the terminal, filling every
@@ -899,11 +913,14 @@ until it is unreviewable, and over parallel PRs that race in the same files.
 - **Review depth is per-slice, by that slice's own risk**, not the stack's size.
 - **Review-start readiness is checked stack-wide before any slice's round.**
   Every layer must have a settled pushed head, focused local evidence, and no
-  known failure or conflict. Pending CI is allowed only for a slice's first or
-  conflict-recovery round. Before any ordinary subsequent round, a current-head
-  aggregate check for every open stack layer must confirm zero merge conflicts
-  and green `ci-required`. Merge readiness still requires every layer to be
-  green and mergeable — see [Adversarial review](#adversarial-review).
+  known failure or conflict. A slice's first round may start with pending CI.
+  A conflict-recovery round may start while the recovered slice's required
+  post-push local validation, CI, and affected descendant restacks are pending;
+  upper-slice review remains blocked until that slice is conflict-free. Before
+  any ordinary subsequent round, a current-head aggregate check for every open
+  stack layer must confirm zero merge conflicts and green `ci-required`. Merge
+  readiness still requires every layer to be green and mergeable — see
+  [Adversarial review](#adversarial-review).
 - **A moved head — including one moved by a restack — needs a clean round at
   the new head**, and a restack never retires an open finding.
 - **Stop stacking when a slice would exist only to continue the stack.** CI cost
