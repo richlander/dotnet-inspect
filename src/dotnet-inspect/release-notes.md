@@ -4,21 +4,23 @@
 
 ### Inspection reliability
 
-- Resource Triage now reports incomplete method analysis as a typed inspection
-  failure instead of returning fewer rows or success-shaped empty output.
-  Instruction decoding, method and catch resolution, metadata validation,
-  method-body acquisition, and control-flow analysis retain stable failure
-  phases across Markdown, JSON, exact-section, count, multi-assembly, and
-  `package --all-libraries` projections. Legal native method bodies are no
+- **Breaking:** `library` and `package --all-libraries` now return a non-zero
+  exit status when an explicitly selected section is empty because its
+  inspection failed. Resource Triage reports incomplete method analysis as a
+  typed inspection failure instead of returning fewer rows or success-shaped
+  empty output. Instruction decoding, method and catch resolution, metadata
+  validation, method-body acquisition, and control-flow analysis retain stable
+  failure phases across Markdown, JSON, exact-section, count, multi-assembly,
+  and `package --all-libraries` projections. Legal native method bodies are no
   longer decoded as IL (#4273).
 - Classified-method facts now come from one bounded typed query shared by
   `Library Info`, P/Invoke Methods, Async Methods, and Signals. Existing output
   remains compatible while failures and raw artifact identity stay typed until
   presentation (#4195).
-- Inspection graphs can project exact package ownership and provenance without
-  reconstructing identity from assembly names or display labels. Incomplete or
-  conflicting package membership fails visibly rather than producing a smaller
-  graph (#4269).
+- Internal inspection-graph composition now has a typed package boundary that
+  preserves exact ownership and provenance without reconstructing identity
+  from assembly names or display labels. Presentation and CLI integration are
+  unchanged (#4269).
 
 ### Experimental analysis and decompilation
 
@@ -39,12 +41,12 @@
 
 ### Engineering and validation
 
-- IL diff ownership now has a dedicated assembly boundary, and Windows CI runs
-  the restored IL toolchain so round-trip coverage is no longer Linux-only
+- IL diff ownership now has a dedicated assembly boundary. Windows CI restores
+  `ilasm` and `ildasm` so oracle-backed Windows tests no longer skip
   (#4201, #4186).
-- Structural clone discovery, decompiler structural comparison, and compiler
-  fixture coverage were expanded while preserving bounded work and
-  deterministic evidence (#4114, #4251, #4280, #4286, #4293).
+- Structural clone comparison and same-assembly discovery gained
+  compiler-produced and corpus coverage while preserving bounded work and
+  deterministic evidence (#4114, #4280).
 
 ## v0.19.0
 
