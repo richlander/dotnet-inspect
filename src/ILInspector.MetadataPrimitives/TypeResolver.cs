@@ -41,18 +41,28 @@ public static class TypeResolver
     /// Handles TypeReference, TypeDefinition, and TypeSpecification.
     /// </summary>
     public static string? GetTypeName(MetadataReader reader, EntityHandle handle, GenericContext? context = null)
+        => GetTypeName(reader, handle, context, beforeMaterialize: null);
+
+    internal static string? GetTypeName(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericContext? context,
+        Action<int>? beforeMaterialize)
     {
         if (handle.IsNil)
             return null;
 
         return handle.Kind switch
         {
-            HandleKind.TypeReference => GetTypeNameFromReference(reader, (TypeReferenceHandle)handle),
-            HandleKind.TypeDefinition => GetTypeNameFromDefinition(reader, (TypeDefinitionHandle)handle),
+            HandleKind.TypeReference => GetTypeNameFromReference(
+                reader, (TypeReferenceHandle)handle, beforeMaterialize),
+            HandleKind.TypeDefinition => GetTypeNameFromDefinition(
+                reader, (TypeDefinitionHandle)handle, beforeMaterialize),
             HandleKind.TypeSpecification => DecodeTypeNameFromSpecification(
                 reader,
                 (TypeSpecificationHandle)handle,
-                context).TryGetValue(out var name)
+                context,
+                beforeMaterialize).TryGetValue(out var name)
                     ? name
                     : null,
             _ => null
@@ -68,7 +78,14 @@ public static class TypeResolver
     /// <c>Builder</c>). Mirrors <see cref="GetFullName(MetadataReader, TypeDefinition)"/>.
     /// </summary>
     public static string GetTypeNameFromReference(MetadataReader reader, TypeReferenceHandle handle)
+        => GetTypeNameFromReference(reader, handle, beforeMaterialize: null);
+
+    public static string GetTypeNameFromReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        Action<int>? beforeMaterialize)
     {
+        ObserveTypeReferenceName(reader, handle, beforeMaterialize);
         try
         {
             var typeRef = reader.GetTypeReference(handle);
@@ -128,7 +145,14 @@ public static class TypeResolver
     /// Gets the type name from a TypeDefinition handle.
     /// </summary>
     public static string GetTypeNameFromDefinition(MetadataReader reader, TypeDefinitionHandle handle)
+        => GetTypeNameFromDefinition(reader, handle, beforeMaterialize: null);
+
+    public static string GetTypeNameFromDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        Action<int>? beforeMaterialize)
     {
+        ObserveTypeDefinitionName(reader, handle, beforeMaterialize);
         try
         {
             var typeDef = reader.GetTypeDefinition(handle);
@@ -141,6 +165,60 @@ public static class TypeResolver
         }
 
         return ResolveTypeNameFromDefinition(reader, handle).GetValueOrThrow();
+    }
+
+    static void ObserveTypeReferenceName(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        Action<int>? beforeMaterialize)
+    {
+        if (beforeMaterialize is null)
+            return;
+
+        Span<TypeReferenceHandle> rootToLeaf =
+            stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                reader,
+                handle,
+                rootToLeaf,
+                out int consumedNodes,
+                out _,
+                out _))
+            return;
+
+        foreach (TypeReferenceHandle current in rootToLeaf[..consumedNodes])
+        {
+            TypeReference type = reader.GetTypeReference(current);
+            beforeMaterialize(reader.GetBlobReader(type.Namespace).Length);
+            beforeMaterialize(reader.GetBlobReader(type.Name).Length);
+        }
+    }
+
+    static void ObserveTypeDefinitionName(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        Action<int>? beforeMaterialize)
+    {
+        if (beforeMaterialize is null)
+            return;
+
+        Span<TypeDefinitionHandle> rootToLeaf =
+            stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                reader,
+                handle,
+                rootToLeaf,
+                out int consumedNodes,
+                out _,
+                out _))
+            return;
+
+        foreach (TypeDefinitionHandle current in rootToLeaf[..consumedNodes])
+        {
+            TypeDefinition type = reader.GetTypeDefinition(current);
+            beforeMaterialize(reader.GetBlobReader(type.Namespace).Length);
+            beforeMaterialize(reader.GetBlobReader(type.Name).Length);
+        }
     }
 
     /// <summary>
@@ -261,8 +339,13 @@ public static class TypeResolver
     public static SignatureDecodeResult<string> DecodeTypeNameFromSpecification(
         MetadataReader reader,
         TypeSpecificationHandle handle,
-        GenericContext? context = null)
-        => GuardedSignatureDecoder.DecodeTypeSpecification(reader, handle, context);
+        GenericContext? context = null,
+        Action<int>? beforeMaterialize = null)
+        => GuardedSignatureDecoder.DecodeTypeSpecification(
+            reader,
+            handle,
+            context,
+            beforeMaterialize);
 
     /// <summary>
     /// Gets the full name of a type definition (Namespace.Name), qualifying a
