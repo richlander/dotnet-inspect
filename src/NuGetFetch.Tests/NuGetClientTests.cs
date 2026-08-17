@@ -32,6 +32,33 @@ public sealed class NuGetClientTests
             handler.Requested);
     }
 
+    [Fact]
+    public async Task LatestVersion_MissingServiceIndexContinuesToHealthySource()
+    {
+        var handler = new MissingSourceHandler();
+        using var http = new HttpClient(handler);
+        var client = new NuGetClient(http);
+        PackageSource[] sources =
+        [
+            new("missing", "https://missing.example/index.json"),
+            new("healthy", "https://healthy.example/index.json"),
+        ];
+
+        string? version = await client.GetLatestVersionAsync(
+            "package",
+            sources,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("9.9.9", version);
+        Assert.Equal(
+            [
+                "https://missing.example/index.json",
+                "https://healthy.example/index.json",
+                "https://healthy.example/flat/package/index.json",
+            ],
+            handler.Requested);
+    }
+
     private sealed class RoutedHandler(string malformedDocument)
         : HttpMessageHandler
     {
@@ -62,10 +89,40 @@ public sealed class NuGetClientTests
             });
         }
 
-        private static string ServiceIndex(string host) =>
+        internal static string ServiceIndex(string host) =>
             $$"""
             {"version":"3.0.0","resources":[{"@id":"https://{{host}}.example/flat/",
             "@type":"PackageBaseAddress/3.0.0"}]}
             """;
+    }
+
+    private sealed class MissingSourceHandler : HttpMessageHandler
+    {
+        public List<string> Requested { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            Requested.Add(url);
+            (HttpStatusCode Status, string Body) response = url switch
+            {
+                "https://missing.example/index.json" =>
+                    (HttpStatusCode.NotFound, ""),
+                "https://healthy.example/index.json" =>
+                    (HttpStatusCode.OK, RoutedHandler.ServiceIndex("healthy")),
+                "https://healthy.example/flat/package/index.json" =>
+                    (HttpStatusCode.OK, """{"versions":["9.9.9"]}"""),
+                _ => throw new InvalidOperationException(url),
+            };
+
+            return Task.FromResult(
+                new HttpResponseMessage(response.Status)
+                {
+                    Content = new StringContent(response.Body),
+                    RequestMessage = request,
+                });
+        }
     }
 }
