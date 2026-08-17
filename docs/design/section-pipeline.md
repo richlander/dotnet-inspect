@@ -89,7 +89,13 @@ Sections bind to that definition by object identity, and the host projects its
 typed result into the compatibility model before residual scanners run.
 `ClassifiedMethodsQuery` is shared by `Library Info`, P/Invoke Methods, Async
 Methods, and Signals; one demand set executes it once against the command-owned
-`AssemblyInspectionSession`.
+`AssemblyInspectionSession`. `Signals` also binds `AuditMetadataQuery` and
+`AssemblyReferencesQuery`; the host applies all three typed results before
+CLI-owned signal composition, then recomposes only model-derived rows after
+later source evidence lands.
+
+The residual `ScannerRegistry` now contains only the unbounded Analysis-backed
+Unsafe Members, Top Leverage, Performance, and Resource Triage producers.
 
 The registry rejects:
 

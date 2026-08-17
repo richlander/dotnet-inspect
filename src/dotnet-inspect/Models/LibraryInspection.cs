@@ -842,7 +842,7 @@ public class LibraryInspection
     public List<AuditSignal>? AuditSignals { get; set; }
 
     /// <summary>
-    /// Assembly-derived audit metadata, cached from the one session the audit scanner ran in.
+    /// Assembly-derived audit metadata retained from the typed query result.
     ///
     /// Audit signals are recomputed after the source-audit and integrity passes fold in evidence
     /// those passes produce. Recomputing them used to reopen the assembly each time — up to four

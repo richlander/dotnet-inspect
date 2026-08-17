@@ -238,15 +238,14 @@ environment-driven paths do not use MSAL and are unaffected.
 ## When a feed is slow
 
 Requests default to a 30 second timeout. A large feed can take longer than that to answer a
-search, which surfaces as a cancelled request rather than as an error from the feed. NativeAOT
-packages use the runtime resource key:
+search, which surfaces as a timeout rather than as an error from the feed:
 
 ```text
 Error: No configured NuGet source could be searched.
-  myfeed: net_http_request_timedout, 30
+  myfeed: NuGet request did not complete within 00:00:30.
 ```
 
-The CoreCLR fallback package may instead spell out the equivalent timeout message.
+Older paths may instead expose the equivalent NativeAOT resource key or CoreCLR timeout message.
 
 Give it more time with `--http-timeout`:
 
@@ -265,6 +264,15 @@ Whole seconds only, from 1 to 3600. The flag wins over the variable, so an expor
 profile cannot override what you typed. A value outside the range, or one that is not a whole
 number, fails the command when given as a flag and is ignored when given as the variable: you
 typed the flag just now, but a stale variable should not make every command fail.
+
+For `package search` and package-name prefix expansion, the configured value replaces the 30
+second request deadline through service-index discovery and search-response consumption. Each
+selected source gets its own search operation ceiling four times that value so pagination remains
+finite without silently restoring the default. Discovery and multiple selected sources do not
+share one operation ceiling.
+
+This setting does not raise ordinary package-download body consumption above its existing 30
+second baseline.
 
 Fetching source content through SourceLink keeps the fixed 30 second timeout. Those URLs come
 from the package rather than from a feed you configured, so they are not covered by this setting.
