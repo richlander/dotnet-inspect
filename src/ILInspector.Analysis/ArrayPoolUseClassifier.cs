@@ -190,7 +190,15 @@ static class ArrayPoolUseClassifier
         {
             if (instruction.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj))
                 continue;
-            calls[instruction.Offset] = resolveMethod(checked((int)instruction.OperandValue));
+            MemberRef member =
+                resolveMethod(
+                    checked((int)instruction.OperandValue));
+            if (member.Kind == MemberKind.Unsupported)
+            {
+                throw new BadImageFormatException(
+                    "Method operand could not be resolved.");
+            }
+            calls[instruction.Offset] = member;
         }
         return calls;
     }
