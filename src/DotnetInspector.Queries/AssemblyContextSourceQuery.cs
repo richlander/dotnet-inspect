@@ -465,6 +465,7 @@ public static class AssemblyContextSourceQuery
                     context,
                     cancellationToken)
                 .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         AuthoredMemberSourceInspection authored;
         if (sourceResult.Source is { } source)
         {
@@ -574,6 +575,7 @@ public static class AssemblyContextSourceQuery
                     context,
                     cancellationToken)
                 .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         AuthoredTypeSourceInspection authored;
         if (sourceResult.Source is { } source)
         {

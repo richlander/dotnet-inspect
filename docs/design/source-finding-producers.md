@@ -216,6 +216,10 @@ source-store read or write remains exceptional rather than returning authored
 success or publishing the bytes to the process-local cache;
 `AssemblyContextSourceQueryTests.SourceStoreSuccessfulCancellation_PropagatesBeforeAuthoredSuccess`
 gates member and type acquisition at both store stages.
+Cancellation is also rechecked immediately after PDB acquisition, before a
+concurrent binding-policy rotation can turn it into a typed policy failure;
+`AssemblyContextSourceQueryTests.PdbAcquisitionCancellation_PrecedesConcurrentBindingPolicyChange`
+gates the member and type paths.
 
 Conditional branch liveness is composed only at the member slicing boundary:
 Metadata reports point lines, CSharpText reports lexical branch ranges, and the

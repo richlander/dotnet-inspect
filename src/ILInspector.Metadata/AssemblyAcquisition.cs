@@ -626,19 +626,9 @@ public sealed class ResolvedAssemblyReference
             base.Dispose(disposing);
         }
 
-        public override async ValueTask DisposeAsync()
-        {
-            try
-            {
-                await inner.DisposeAsync().ConfigureAwait(false);
-            }
-            catch (OperationCanceledException ex)
-            {
-                observer(ex);
-                throw;
-            }
-            GC.SuppressFinalize(this);
-        }
+        public override ValueTask DisposeAsync() =>
+            ObserveDisposeCompletionAsync(
+                Observe(inner.DisposeAsync));
 
         T Observe<T>(Func<T> operation)
         {
@@ -666,11 +656,26 @@ public sealed class ResolvedAssemblyReference
             }
         }
 
-        async Task ObserveAsync(Func<Task> operation)
+        Task ObserveAsync(Func<Task> operation) =>
+            ObserveCompletionAsync(Observe(operation));
+
+        Task<int> ObserveAsync(
+            Func<Task<int>> operation) =>
+            ObserveCompletionAsync(Observe(operation));
+
+        ValueTask ObserveAsync(
+            Func<ValueTask> operation) =>
+            ObserveCompletionAsync(Observe(operation));
+
+        ValueTask<int> ObserveAsync(
+            Func<ValueTask<int>> operation) =>
+            ObserveCompletionAsync(Observe(operation));
+
+        async Task ObserveCompletionAsync(Task operation)
         {
             try
             {
-                await operation().ConfigureAwait(false);
+                await operation.ConfigureAwait(false);
             }
             catch (OperationCanceledException ex)
             {
@@ -679,12 +684,11 @@ public sealed class ResolvedAssemblyReference
             }
         }
 
-        async Task<int> ObserveAsync(
-            Func<Task<int>> operation)
+        async Task<int> ObserveCompletionAsync(Task<int> operation)
         {
             try
             {
-                return await operation().ConfigureAwait(false);
+                return await operation.ConfigureAwait(false);
             }
             catch (OperationCanceledException ex)
             {
@@ -693,12 +697,11 @@ public sealed class ResolvedAssemblyReference
             }
         }
 
-        async ValueTask ObserveAsync(
-            Func<ValueTask> operation)
+        async ValueTask ObserveCompletionAsync(ValueTask operation)
         {
             try
             {
-                await operation().ConfigureAwait(false);
+                await operation.ConfigureAwait(false);
             }
             catch (OperationCanceledException ex)
             {
@@ -707,18 +710,33 @@ public sealed class ResolvedAssemblyReference
             }
         }
 
-        async ValueTask<int> ObserveAsync(
-            Func<ValueTask<int>> operation)
+        async ValueTask<int> ObserveCompletionAsync(
+            ValueTask<int> operation)
         {
             try
             {
-                return await operation().ConfigureAwait(false);
+                return await operation.ConfigureAwait(false);
             }
             catch (OperationCanceledException ex)
             {
                 observer(ex);
                 throw;
             }
+        }
+
+        async ValueTask ObserveDisposeCompletionAsync(
+            ValueTask operation)
+        {
+            try
+            {
+                await operation.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException ex)
+            {
+                observer(ex);
+                throw;
+            }
+            GC.SuppressFinalize(this);
         }
     }
 }

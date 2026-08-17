@@ -775,6 +775,58 @@ public sealed class AssemblyContextSourceQueryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task PdbAcquisitionCancellation_PrecedesConcurrentBindingPolicyChange(
+        bool typeQuery)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        using var cancellation = new CancellationTokenSource();
+        var pdbStore =
+            new ThrowingPdbStore(
+                () =>
+                {
+                    assembly.Policy.ChangeVersion();
+                    cancellation.Cancel();
+                });
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            pdbStore: pdbStore);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        if (typeQuery)
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => AssemblyContextSourceQuery.ExecuteTypeAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.TypeRequest(
+                        typeof(SourceFixture).Name),
+                    host.Context,
+                    cancellation.Token));
+        }
+        else
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => AssemblyContextSourceQuery.ExecuteMemberAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.MemberRequest(
+                        nameof(SourceFixture.Describe)),
+                    host.Context,
+                    cancellation.Token));
+        }
+
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.True(pdbStore.ReadAttempts > 0);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task BindingPolicyVersionChangeDuringFallback_IsRejected(
         bool typeQuery)
     {
