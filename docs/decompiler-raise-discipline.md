@@ -62,8 +62,10 @@ product documents to `DecompilerHarness --structural-review`. The decompiler
 issuer binds correspondence to the exact document revisions and the exact
 physical method body. It matches only unique product-owned IL-origin evidence,
 then feeds the full-body structural review introduced by #4092 from one
-`CSharpStructuralComparison`. Paste its Before/After caret overlays,
-structural rows, and any correspondence gaps verbatim.
+`CSharpStructuralDiffDocument` and its derived `CSharpStructuralComparison`.
+Paste its Before/After caret overlays, structural rows, and any correspondence
+gaps verbatim. Add `--json` when the revision-bound diff document itself must be
+retained or replayed; never replace it with caller-authored correspondence.
 
 Never hand-place carets or recover correspondence from equal ids, coordinates,
 text, labels, or display order. When the documents predate provenance support,
