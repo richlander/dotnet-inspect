@@ -24,13 +24,11 @@
 
 ### NuGet acquisition
 
-- **Breaking:** NuGet timeout failures now use stable tool-owned diagnostics
-  instead of runtime-specific message text. Request deadlines cover
-  service-index discovery, response-body and package-stream consumption, while
-  search pagination has a separate operation ceiling. `--http-timeout` sets
-  each request deadline and a search ceiling four times that value. Configured
-  source credentials authenticate the service index and same-origin discovered
-  endpoints but are withheld from cross-origin resources (#4243).
+- **Breaking:** Package-search timeout failures now use stable tool-owned
+  diagnostics instead of runtime-specific message text. `--http-timeout` now
+  bounds service-index discovery and response-body consumption for
+  `package search` and package-prefix expansion. Each source's search
+  pagination has a separate operation ceiling four times that value (#4243).
 
 ### Experimental analysis and decompilation
 
