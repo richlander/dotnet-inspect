@@ -397,6 +397,7 @@ public class PdbContext : IDisposable
         PdbContext? context = null;
         try
         {
+            // PdbContext is the sole stream owner.
             peReader = new PEReader(
                 stream,
                 streamOptions | PEStreamOptions.LeaveOpen);
@@ -537,7 +538,8 @@ public class PdbContext : IDisposable
 
                 provider = MetadataReaderProvider.FromPortablePdbStream(
                     pdbStream,
-                    MetadataStreamOptions.PrefetchMetadata);
+                    MetadataStreamOptions.PrefetchMetadata
+                        | MetadataStreamOptions.LeaveOpen);
                 var reader = provider.GetMetadataReader();
                 if (!PdbMatchesAssembly(reader))
                 {

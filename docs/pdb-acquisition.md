@@ -77,7 +77,8 @@ gates host-specific non-fatal exceptions outside the common I/O types. A
 cleanup failure while an acquisition failure is already propagating does not
 replace that primary failure;
 `AssemblyContextSourceQueryTests.PdbLoadPrimaryFailure_IsNotMaskedByCleanupFailure`
-gates the member and type cancellation and fatal-exception paths.
+gates the member and type cancellation and fatal-exception paths both before
+and during portable-PDB provider construction.
 
 ### 1. Embedded PDB
 

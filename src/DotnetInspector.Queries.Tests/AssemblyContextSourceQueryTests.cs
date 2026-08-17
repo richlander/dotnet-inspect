@@ -1819,13 +1819,18 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
+    [InlineData(false, false, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, true, true)]
     public async Task PdbLoadPrimaryFailure_IsNotMaskedByCleanupFailure(
         bool memberQuery,
-        bool fatalFailure)
+        bool fatalFailure,
+        bool providerFailure)
     {
         TestAssembly assembly = TestAssembly.Create();
         Exception primaryFailure =
@@ -1840,8 +1845,15 @@ public sealed class AssemblyContextSourceQueryTests
                 disposeFailure:
                     new HttpRequestException(
                         "Synthetic PDB cleanup failure."),
-                positionResetFailure: primaryFailure,
-                disposeFailureAt: 1);
+                positionResetFailure:
+                    providerFailure
+                        ? null
+                        : primaryFailure,
+                disposeFailureAt: 1,
+                lengthFailure:
+                    providerFailure
+                        ? primaryFailure
+                        : null);
         using var host = QueryHost.WithPdb(
             assembly.PdbPath,
             SourceFileBytes(),
@@ -3108,7 +3120,8 @@ public sealed class AssemblyContextSourceQueryTests
         ManualResetEventSlim? disposeRelease = null,
         Exception? disposeFailure = null,
         Exception? positionResetFailure = null,
-        int disposeFailureAt = 2)
+        int disposeFailureAt = 2,
+        Exception? lengthFailure = null)
         : IPdbStore
     {
         readonly InMemoryPdbStore _inner = new();
@@ -3135,7 +3148,8 @@ public sealed class AssemblyContextSourceQueryTests
                     disposeRelease,
                     disposeFailure,
                     positionResetFailure,
-                    disposeFailureAt);
+                    disposeFailureAt,
+                    lengthFailure);
             return AuthoritativeStream;
         }
 
@@ -3162,7 +3176,8 @@ public sealed class AssemblyContextSourceQueryTests
         ManualResetEventSlim? release,
         Exception? disposeFailure,
         Exception? positionResetFailure = null,
-        int disposeFailureAt = 2)
+        int disposeFailureAt = 2,
+        Exception? lengthFailure = null)
         : Stream
     {
         internal int DisposeCount { get; private set; }
@@ -3170,7 +3185,10 @@ public sealed class AssemblyContextSourceQueryTests
         public override bool CanRead => inner.CanRead;
         public override bool CanSeek => inner.CanSeek;
         public override bool CanWrite => inner.CanWrite;
-        public override long Length => inner.Length;
+        public override long Length =>
+            lengthFailure is null
+                ? inner.Length
+                : throw lengthFailure;
         public override long Position
         {
             get => inner.Position;
