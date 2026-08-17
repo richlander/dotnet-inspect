@@ -546,6 +546,22 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void CyclicTypeRefReturn_DoesNotStackOverflowUnderBudget()
+    {
+        // Opus R12: deferred NamedTypeNode CountedCharacters/EnsureMaterialized
+        // mutual recursion when TryCountTypeNameCharacters fails (resolution-scope
+        // cycle). ExtractBounded must fail closed without process abort.
+        byte[] image = BuildCyclicTypeRefReturnImage();
+        var bounds = BrowserTextBounds();
+
+        var result = Extract(image, bounds);
+        Assert.True(
+            result is ApiSurfaceExtractionResult.Extracted
+                or ApiSurfaceExtractionResult.Exceeded,
+            $"Unexpected result shape: {result.GetType().Name}");
+    }
+
+    [Fact]
     public void GiantAttributeTypeName_IsStoppedBeforeGetStringMaterialization()
     {
         // Sol R7: attribute type names were GetString'd during presence checks and
@@ -1377,6 +1393,35 @@ public sealed class ApiSurfaceExtractorBoundsTests
         signature.WriteByte(0x20); // ELEMENT_TYPE_CMOD_OPT
         signature.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(giantModopt));
         signature.WriteByte(0x08); // ELEMENT_TYPE_I4 → int
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildCyclicTypeRefReturnImage()
+    {
+        var metadata = CreateMetadata("CyclicTypeRef");
+        AddModuleAndSurfaceTypes(metadata);
+        // TypeRef #1 scope = TypeRef #2; TypeRef #2 scope = TypeRef #1.
+        TypeReferenceHandle t1 = metadata.AddTypeReference(
+            MetadataTokens.TypeReferenceHandle(2),
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("A"));
+        TypeReferenceHandle t2 = metadata.AddTypeReference(
+            t1,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("B"));
+        _ = t2;
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x12); // ELEMENT_TYPE_CLASS
+        signature.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(t1));
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,

@@ -438,6 +438,7 @@ shared-string and single-signature amplification shapes.
 `GiantBaseTypeName_IsStoppedBeforeGetStringMaterialization`,
 `GiantSignatureTypeRefName_IsStoppedBeforeGetStringMaterialization`,
 `GiantErasedModoptTypeRef_DoesNotConsumeRetainedBudget`,
+`CyclicTypeRefReturn_DoesNotStackOverflowUnderBudget`,
 `GiantAttributeTypeName_IsStoppedBeforeGetStringMaterialization`,
 `GiantNullableTransformArray_IsRejectedBeforeAllocation`,
 `GiantFinalizeMethodImplName_IsStoppedBeforeGetStringMaterialization`, and

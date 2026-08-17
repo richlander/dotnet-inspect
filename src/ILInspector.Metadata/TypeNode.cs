@@ -368,7 +368,9 @@ internal sealed class NamedTypeNode : TypeNode
             return _countedCharacters = characters;
         }
 
-        return EnsureMaterialized().Length;
+        // Uncountable chains (cycles / node-budget rejects) cannot preflight.
+        // Materialize once without re-entering this method (Opus R12).
+        return MaterializeName().Length;
     }
 
     bool CouldBeObjectName()
@@ -376,15 +378,25 @@ internal sealed class NamedTypeNode : TypeNode
         if (_name is not null)
             return IsObjectName(_name);
 
-        // Only materialize when the counted spelling could be object/System.Object.
-        long characters = CountedCharacters();
-        if (characters != "object".Length
-            && characters != "System.Object".Length)
+        if (_reader is not null
+            && MetadataSafetyPolicy.TryCountTypeNameCharacters(
+                _reader,
+                _handle,
+                out long characters))
         {
-            return false;
+            _countedCharacters = characters;
+            // Only materialize when the counted spelling could be object/System.Object.
+            if (characters != "object".Length
+                && characters != "System.Object".Length)
+            {
+                return false;
+            }
+
+            return IsObjectName(EnsureMaterialized());
         }
 
-        return IsObjectName(EnsureMaterialized());
+        // Uncountable: do not force materialization just to test dynamic-ness.
+        return false;
     }
 
     string EnsureMaterialized()
@@ -397,22 +409,44 @@ internal sealed class NamedTypeNode : TypeNode
             return _name = cached;
         }
 
-        long characters = CountedCharacters();
-        _beforeMaterializeName?.Invoke(characters);
+        bool canPreflight = _countedCharacters >= 0
+            || (_reader is not null
+                && MetadataSafetyPolicy.TryCountTypeNameCharacters(
+                    _reader,
+                    _handle,
+                    out long characters)
+                && (_countedCharacters = characters) >= 0);
+
+        if (canPreflight)
+            _beforeMaterializeName?.Invoke(_countedCharacters);
+
+        // Resolve through TypeResolver (string-decode gateway allow list). Leaf
+        // name materialization must not bypass that owner from TypeNode.
+        return MaterializeName();
+    }
+
+    string MaterializeName()
+    {
+        if (_name is not null)
+            return _name;
+        if (_sharedNames is not null
+            && _sharedNames.TryGetValue(_handle, out string? cached))
+        {
+            return _name = cached;
+        }
+
         _name = _handle.Kind switch
         {
-            HandleKind.TypeDefinition => SignatureDecoder.Instance.GetTypeFromDefinition(
+            HandleKind.TypeDefinition => TypeResolver.GetTypeNameFromDefinition(
                 _reader!,
-                (TypeDefinitionHandle)_handle,
-                rawTypeKind: 0),
-            HandleKind.TypeReference => SignatureDecoder.Instance.GetTypeFromReference(
+                (TypeDefinitionHandle)_handle),
+            HandleKind.TypeReference => TypeResolver.GetTypeNameFromReference(
                 _reader!,
-                (TypeReferenceHandle)_handle,
-                rawTypeKind: 0),
+                (TypeReferenceHandle)_handle),
             _ => throw new InvalidOperationException(
                 "Deferred named types require a TypeDef or TypeRef handle."),
         };
-        _sharedNames?.Add(_handle, _name);
+        _sharedNames?.TryAdd(_handle, _name);
         _countedCharacters = _name.Length;
         return _name;
     }
