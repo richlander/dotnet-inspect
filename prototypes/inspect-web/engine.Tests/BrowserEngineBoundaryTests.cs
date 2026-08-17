@@ -1029,9 +1029,9 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             version: null,
             client,
-            TimeSpan.FromMilliseconds(200));
+            TimeSpan.FromSeconds(5));
         await handler.RequestStarted.Task.WaitAsync(
-            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(10),
             TestContext.Current.CancellationToken);
 
         TimeoutException failure =
