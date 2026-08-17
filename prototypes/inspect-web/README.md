@@ -47,6 +47,11 @@ shortening the selected assembly set.
    differ, per matching implementation asset. Malformed selected entries remain
    participants so queries report their rejection. Acquisition never inspects
    one.
+   The Browser adapter places one 30-second operation deadline around coordinate
+   resolution and payload acquisition. The deadline token flows through the
+   shared resolver, retry, response-body, archive-validation, and store paths;
+   expiry is surfaced as a visible timeout instead of leaving the page behind
+   an unbounded loading indicator.
 3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
    and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
    exposes exactly two hand-offs — `Use(group => query(group))` and
@@ -142,7 +147,10 @@ flat-container resource without losing a signed base query or allowing a
 coordinate to rewrite the resource path.
 `PackageCoordinateResolverTests.Coordinate_RejectsAPackageIdOutsideTheGrammar`,
 `ListVersions_UsesAuthorizedSourcesWithoutPersistentCaching`, and
-`BrowserEngineBoundaryTests.PackageCoordinates_AreRejectedBeforeAnyCacheOrNetworkAccess`
+`BrowserEngineBoundaryTests.PackageCoordinates_AreRejectedBeforeAnyCacheOrNetworkAccess`,
+`BrowserEngineBoundaryTests.PackageResolution_StallBecomesVisibleOperationTimeout`,
+and
+`BrowserEngineBoundaryTests.PackageAcquisition_StallBecomesVisibleOperationTimeout`
 gate these boundaries.
 
 Acquisition is bounded before content enters either cache or workspace. A
