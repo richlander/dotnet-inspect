@@ -203,6 +203,67 @@ public sealed class CustomAttributeValueGuardTests
         Assert.NotNull(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
+    [Fact]
+    public void AssemblyQualifiedNamedEnum_SeesFollowingArrayCount()
+    {
+        using var image = Open(
+            BuildAssemblyQualifiedNamedEnumImage(elementCount: 100_000_000));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count)));
+        Assert.Equal(
+            (2 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
+            charged);
+        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
+    }
+
+    [Fact]
+    public void ClassSystemStringFixedArgument_SeesFollowingArrayCount()
+    {
+        using var image = Open(
+            BuildClassSystemStringImage(elementCount: 100_000_000));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count)));
+        Assert.Equal(
+            100_000_000 * CustomAttributeValueGuard.DeclaredSlotCharge,
+            charged);
+    }
+
+    [Fact]
+    public void GenericAttributeTypeParameterInt32_IsSafe()
+    {
+        using var image = Open(BuildGenericAttributeInt32Image());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+        var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
+        Assert.NotNull(decoded);
+        Assert.Single(decoded.Value.FixedArguments);
+        Assert.Equal(5, decoded.Value.FixedArguments[0].Value);
+    }
+
+    [Fact]
+    public void ObserverFailureDuringNamedEnumLookup_EscapesTryDecode()
+    {
+        using var image = Open(BuildNamedEnumInt32Image());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        var thrown = Assert.Throws<InvalidOperationException>(
+            () => AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                _ => throw new InvalidOperationException("budget")));
+        Assert.Equal("budget", thrown.Message);
+    }
+
     // Named SZARRAY-of-boxed starts the first serialized nest at depth 2;
     // each 0x1d/0x51 pair then advances depth by 2.
     const int NamedArrayNestingAtLimit =
@@ -544,6 +605,187 @@ public sealed class CustomAttributeValueGuardTests
         value.WriteUInt16(1);
         value.WriteInt32(1);
         value.WriteUInt16(0);
+        AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildAssemblyQualifiedNamedEnumImage(int elementCount)
+    {
+        var metadata = CreateMetadata("EnumSuffix");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            _ => { },
+            parameterCount: 0);
+        var fieldSignature = new BlobBuilder();
+        new BlobEncoder(fieldSignature).FieldSignature().Int64();
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(fieldSignature));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("E"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Attributed"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(2),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteUInt16(2);
+        value.WriteByte(0x53);
+        value.WriteByte(0x55);
+        value.WriteSerializedString("Samples.E, Other");
+        value.WriteSerializedString("F");
+        value.WriteInt64(0);
+        value.WriteByte(0x53);
+        value.WriteByte(0x1d);
+        value.WriteByte(0x08);
+        value.WriteSerializedString("V");
+        value.WriteInt32(elementCount);
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildClassSystemStringImage(int elementCount)
+    {
+        var metadata = CreateMetadata("ClassString");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemString = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("String"));
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            parameters =>
+            {
+                parameters.AddParameter().Type().Type(systemString, isValueType: false);
+                parameters.AddParameter().Type().SZArray().Int32();
+            },
+            parameterCount: 2);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(0);
+        value.WriteInt32(elementCount);
+        value.WriteUInt16(0);
+        AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGenericAttributeInt32Image()
+    {
+        var metadata = CreateMetadata("GenericAttr");
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributeType = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("MyAttr`1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var typeSpecSignature = new BlobBuilder();
+        typeSpecSignature.WriteByte(0x15);
+        typeSpecSignature.WriteByte(0x12);
+        WriteTypeDefOrRef(typeSpecSignature, attributeType);
+        typeSpecSignature.WriteCompressedInteger(1);
+        typeSpecSignature.WriteByte(0x08);
+        TypeSpecificationHandle typeSpec = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(typeSpecSignature));
+        var constructorSignature = new BlobBuilder();
+        constructorSignature.WriteByte(0x20);
+        constructorSignature.WriteCompressedInteger(1);
+        constructorSignature.WriteByte(0x01);
+        constructorSignature.WriteByte(0x13);
+        constructorSignature.WriteCompressedInteger(0);
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            typeSpec,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Attributed"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(5);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static void WriteTypeDefOrRef(BlobBuilder signature, EntityHandle handle)
+    {
+        int tag = handle.Kind switch
+        {
+            HandleKind.TypeDefinition => 0,
+            HandleKind.TypeReference => 1,
+            HandleKind.TypeSpecification => 2,
+            _ => throw new ArgumentOutOfRangeException(nameof(handle)),
+        };
+        signature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(handle) << 2 | tag);
+    }
+
+    static byte[] BuildNamedEnumInt32Image()
+    {
+        var metadata = CreateMetadata("NamedEnum");
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            _ => { },
+            parameterCount: 0);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteUInt16(1);
+        value.WriteByte(0x53);
+        value.WriteByte(0x55);
+        value.WriteSerializedString("Samples.Missing");
+        value.WriteSerializedString("F");
+        value.WriteInt32(0);
         AddAttributedType(metadata, constructor, value);
         return Serialize(metadata);
     }

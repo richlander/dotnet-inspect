@@ -895,6 +895,38 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void AssemblyQualifiedNamedEnum_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildAssemblyQualifiedNamedEnumImage(elementCount: 100_000_000));
+    }
+
+    [Fact]
+    public void ClassSystemStringFixedArgument_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildClassSystemStringImage(elementCount: 100_000_000));
+    }
+
+    [Fact]
+    public void LegalNestedLongEnumNamedArgument_HasBoundedUnboundedParity()
+    {
+        AssertCompilerAttributeParity(
+            nameof(LegalNestedEnumFixture),
+            "LegalNestedEnum",
+            "Choice");
+    }
+
+    [Fact]
+    public void LegalGenericCtorAttribute_HasBoundedUnboundedParity()
+    {
+        AssertCompilerAttributeParity(
+            nameof(LegalGenericCtorFixture),
+            "LegalGenericCtor",
+            "5");
+    }
+
+    [Fact]
     public void PropertyRefReturnDuplicateSeq0Attributes_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
@@ -2554,6 +2586,127 @@ public sealed class ApiSurfaceExtractorBoundsTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildAssemblyQualifiedNamedEnumImage(int elementCount)
+    {
+        var metadata = Metadata("EnumSuffix");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        var fieldSignature = new BlobBuilder();
+        new BlobEncoder(fieldSignature).FieldSignature().Int64();
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(fieldSignature));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("E"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Host"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(2),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteUInt16(2);
+        value.WriteByte(0x53);
+        value.WriteByte(0x55);
+        value.WriteSerializedString("Samples.E, Other");
+        value.WriteSerializedString("F");
+        value.WriteInt64(0);
+        value.WriteByte(0x53);
+        value.WriteByte(0x1d);
+        value.WriteByte(0x08);
+        value.WriteSerializedString("V");
+        value.WriteInt32(elementCount);
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildClassSystemStringImage(int elementCount)
+    {
+        var metadata = Metadata("ClassString");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemString = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("String"));
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                2,
+                returnType => returnType.Void(),
+                parameters =>
+                {
+                    parameters.AddParameter().Type().Type(systemString, isValueType: false);
+                    parameters.AddParameter().Type().SZArray().Int32();
+                });
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(0);
+        value.WriteInt32(elementCount);
+        value.WriteUInt16(0);
+        TypeDefinitionHandle type = AddModuleAndPublicType(metadata, "Host");
+        metadata.AddCustomAttribute(type, constructor, metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
     static byte[] BuildCustomAttributeArrayCountImage(
         int attributeCount,
         int elementCount)
@@ -3315,6 +3468,72 @@ public sealed class ApiSurfaceExtractorBoundsTests
     [LegalNamed("ok", Count = 3)]
     public sealed class LegalNamedAttributeFixture
     {
+    }
+
+    public sealed class NestedEnumHost
+    {
+        public enum Wide : long
+        {
+            Value = 0x112233445566778
+        }
+    }
+
+    public sealed class LegalNestedEnumAttribute : Attribute
+    {
+        public NestedEnumHost.Wide Choice { get; set; }
+    }
+
+    [LegalNestedEnum(Choice = NestedEnumHost.Wide.Value)]
+    public sealed class LegalNestedEnumFixture
+    {
+    }
+
+    public sealed class LegalGenericCtorAttribute<T> : Attribute
+    {
+        public LegalGenericCtorAttribute(T value)
+        {
+        }
+    }
+
+    [LegalGenericCtor<int>(5)]
+    public sealed class LegalGenericCtorFixture
+    {
+    }
+
+    static void AssertCompilerAttributeParity(
+        string fixtureTypeName,
+        string attributeMarker,
+        string valueMarker)
+    {
+        using var unboundedStream = File.OpenRead(SelfPath);
+        using var unboundedReader = new PEReader(unboundedStream);
+        ApiSurface unbounded = ApiSurfaceExtractor.Extract(
+            unboundedReader,
+            ApiSurfaceExtractionScope.Public);
+        ApiType unboundedType = Assert.Single(
+            unbounded.Types,
+            type => type.FullName.EndsWith(fixtureTypeName, StringComparison.Ordinal));
+        using var boundedStream = File.OpenRead(SelfPath);
+        using var boundedReader = new PEReader(boundedStream);
+        var bounded = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            ApiSurfaceExtractor.ExtractBounded(
+                boundedReader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue)));
+        ApiType boundedType = Assert.Single(
+            bounded.Surface.Types,
+            type => type.FullName.EndsWith(fixtureTypeName, StringComparison.Ordinal));
+        Assert.Equal(unboundedType.Attributes, boundedType.Attributes);
+        Assert.Contains(
+            unboundedType.Attributes,
+            attribute => attribute.Contains(attributeMarker, StringComparison.Ordinal)
+                && attribute.Contains(valueMarker, StringComparison.Ordinal));
     }
 
     static void WriteTypeDefOrRef(BlobBuilder signature, EntityHandle handle)

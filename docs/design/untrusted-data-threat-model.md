@@ -413,7 +413,16 @@ on. Boxed and nested SZArray encodings are depth-bounded before
 decode so a chain of tags cannot overflow the native stack. Enum-typed
 fixed and named arguments use one shared underlying-width oracle, so a
 TypeRef that resolves to a local non-`int32` enum, or an over-deep
-`value__` field signature, cannot desynchronize later count reads. Every bounded member-name decode and every namespace/name
+`value__` field signature, cannot desynchronize later count reads.
+Serialized enum names are normalized the same way SRM's provider sees
+them (assembly suffix stripped, nested `+` matched to the metadata
+index). `CLASS`/`VALUETYPE` constructor parameters special-case only
+`System.Type`; other tokens use the enum-width oracle so a
+`class System.String` argument cannot shift later counts. Generic
+attribute constructors whose parameter is a `VAR` resolve that
+argument through the owning TypeSpec. A budget observer failure
+raised while the guard consults the enum index unwraps to the same
+typed truncation `DecodeValue` already propagated. Every bounded member-name decode and every namespace/name
 segment used to resolve an attribute type is also charged before SRM
 materializes it, including names inspected only to skip an accessor,
 compiler-generated field, or hidden member. Property-accessor nullable-context
@@ -473,6 +482,14 @@ pre-decoding rejection.
 `CustomAttributeValueGuardTests.NamedArrayNestingJustOverLimit_IsUnsafe`,
 `CustomAttributeValueGuardTests.TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.OverDeepEnumFieldModifiers_UseInt32WidthAndSeeFollowingArrayCount`,
+`CustomAttributeValueGuardTests.AssemblyQualifiedNamedEnum_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.ClassSystemStringFixedArgument_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.GenericAttributeTypeParameterInt32_IsSafe`,
+`CustomAttributeValueGuardTests.ObserverFailureDuringNamedEnumLookup_EscapesTryDecode`,
+`AssemblyQualifiedNamedEnum_StopsBeforeLargeAllocationAmplification`,
+`ClassSystemStringFixedArgument_StopsBeforeLargeAllocationAmplification`,
+`LegalNestedLongEnumNamedArgument_HasBoundedUnboundedParity`,
+`LegalGenericCtorAttribute_HasBoundedUnboundedParity`,
 `RepeatedEnumAttributeLookups_DoNotAllocateQuadratically`,
 `SeparateEnumAttributes_ReuseTheChargedTypeNameIndex`,
 `FailedEnumAttributeIndexBuild_IsCachedAndVisible`,

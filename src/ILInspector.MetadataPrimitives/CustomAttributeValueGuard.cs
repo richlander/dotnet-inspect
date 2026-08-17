@@ -107,6 +107,7 @@ public static class CustomAttributeValueGuard
         {
             Result result = SkipFixedArg(
                 reader,
+                attribute.Constructor,
                 ref signature,
                 ref value,
                 beforeMaterialize,
@@ -140,6 +141,7 @@ public static class CustomAttributeValueGuard
 
     static Result SkipFixedArg(
         MetadataReader reader,
+        EntityHandle constructor,
         ref BlobReader signature,
         ref BlobReader value,
         Action<int>? beforeMaterialize,
@@ -176,6 +178,7 @@ public static class CustomAttributeValueGuard
                 depth),
             ElementTypeSzArray => SkipSzArray(
                 reader,
+                constructor,
                 ref signature,
                 ref value,
                 beforeMaterialize,
@@ -188,12 +191,22 @@ public static class CustomAttributeValueGuard
                 beforeMaterialize,
                 enumUnderlyingType,
                 depth),
+            ElementTypeVar or ElementTypeMVar => SkipGenericParameter(
+                reader,
+                constructor,
+                ref signature,
+                ref value,
+                beforeMaterialize,
+                enumUnderlyingType,
+                depth,
+                methodParameter: code == ElementTypeMVar),
             _ => Result.Unsafe,
         };
     }
 
     static Result SkipSzArray(
         MetadataReader reader,
+        EntityHandle constructor,
         ref BlobReader signature,
         ref BlobReader value,
         Action<int>? beforeMaterialize,
@@ -223,6 +236,7 @@ public static class CustomAttributeValueGuard
             signature.Offset = elementStart;
             Result result = SkipFixedArg(
                 reader,
+                constructor,
                 ref signature,
                 ref value,
                 beforeMaterialize,
@@ -247,16 +261,11 @@ public static class CustomAttributeValueGuard
         Func<string, PrimitiveTypeCode>? enumUnderlyingType,
         int depth)
     {
-        if (IsSystemNamedType(reader, handle, "String")
-            || IsSystemNamedType(reader, handle, "Type"))
+        // SRM special-cases only System.Type (a SerString). Every other
+        // CLASS/VALUETYPE token, including System.String and System.Object,
+        // goes through GetUnderlyingEnumType and consumes that width.
+        if (IsSystemNamedType(reader, handle, "Type"))
             return SkipSerString(ref value);
-        if (IsSystemNamedType(reader, handle, "Object"))
-            return SkipBoxed(
-                reader,
-                ref value,
-                beforeMaterialize,
-                enumUnderlyingType,
-                depth);
         return SkipBytes(
             ref value,
             EnumUnderlyingPrimitive.ByteSize(
@@ -542,9 +551,87 @@ public static class CustomAttributeValueGuard
     {
         if (enumName is null)
             return PrimitiveTypeCode.Int32;
+        string normalized = EnumUnderlyingPrimitive.NormalizeSerializedName(enumName);
         return enumUnderlyingType is not null
-            ? enumUnderlyingType(enumName)
-            : EnumUnderlyingPrimitive.FromSerializedName(reader, enumName);
+            ? enumUnderlyingType(normalized)
+            : EnumUnderlyingPrimitive.FromSerializedName(reader, normalized);
+    }
+
+    static Result SkipGenericParameter(
+        MetadataReader reader,
+        EntityHandle constructor,
+        ref BlobReader signature,
+        ref BlobReader value,
+        Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType,
+        int depth,
+        bool methodParameter)
+    {
+        if (signature.RemainingBytes < 1)
+            return Result.Safe;
+        int parameterIndex = signature.ReadCompressedInteger();
+        if (methodParameter || parameterIndex < 0)
+            return Result.Unsafe;
+        if (!TryGetConstructorTypeSpec(reader, constructor, out var spec))
+            return Result.Unsafe;
+        if (!SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                spec.Signature,
+                SignatureBlobGuard.Kind.TypeSpecification))
+            return Result.Unsafe;
+
+        var instantiation = reader.GetBlobReader(spec.Signature);
+        if (!TryReadElementType(ref instantiation, out byte code))
+            return Result.Safe;
+        while (code is ElementTypeCmodReqd or ElementTypeCmodOpt)
+        {
+            instantiation.ReadTypeHandle();
+            if (!TryReadElementType(ref instantiation, out code))
+                return Result.Safe;
+        }
+
+        if (code != ElementTypeGenericInst)
+            return Result.Unsafe;
+        if (!TryReadElementType(ref instantiation, out byte genericKind))
+            return Result.Safe;
+        if (genericKind is not (ElementTypeClass or ElementTypeValueType))
+            return Result.Unsafe;
+        instantiation.ReadTypeHandle();
+        if (instantiation.RemainingBytes < 1)
+            return Result.Safe;
+        int arguments = instantiation.ReadCompressedInteger();
+        if (parameterIndex >= arguments)
+            return Result.Unsafe;
+        for (int index = 0; index < parameterIndex; index++)
+        {
+            if (!TrySkipSignatureType(ref instantiation))
+                return Result.Safe;
+        }
+
+        return SkipFixedArg(
+            reader,
+            constructor,
+            ref instantiation,
+            ref value,
+            beforeMaterialize,
+            enumUnderlyingType,
+            depth);
+    }
+
+    static bool TryGetConstructorTypeSpec(
+        MetadataReader reader,
+        EntityHandle constructor,
+        out TypeSpecification spec)
+    {
+        spec = default;
+        if (constructor.Kind != HandleKind.MemberReference)
+            return false;
+        EntityHandle parent = reader.GetMemberReference(
+            (MemberReferenceHandle)constructor).Parent;
+        if (parent.Kind != HandleKind.TypeSpecification)
+            return false;
+        spec = reader.GetTypeSpecification((TypeSpecificationHandle)parent);
+        return !spec.Signature.IsNil;
     }
 
     static Result SkipSerString(ref BlobReader blob)

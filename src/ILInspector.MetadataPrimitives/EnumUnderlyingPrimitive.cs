@@ -60,12 +60,24 @@ static class EnumUnderlyingPrimitive
         return PrimitiveTypeCode.Int32;
     }
 
+    /// <summary>
+    /// Matches <c>ArgTypeProvider.GetTypeFromSerializedName</c> (strip the
+    /// assembly suffix) and the metadata index key (nested types use
+    /// <c>.</c>, not the serialized <c>+</c>).
+    /// </summary>
+    public static string NormalizeSerializedName(string name)
+    {
+        int comma = name.IndexOf(',');
+        if (comma >= 0)
+            name = name[..comma];
+        return name.Replace('+', '.');
+    }
+
     public static PrimitiveTypeCode FromSerializedName(
         MetadataReader reader,
         string name)
     {
-        int comma = name.IndexOf(',');
-        ReadOnlySpan<char> simple = comma >= 0 ? name.AsSpan(0, comma) : name.AsSpan();
+        ReadOnlySpan<char> simple = NormalizeSerializedName(name).AsSpan();
         return TryFindDefinition(reader, simple, out var definition)
             ? FromDefinition(reader, definition)
             : PrimitiveTypeCode.Int32;

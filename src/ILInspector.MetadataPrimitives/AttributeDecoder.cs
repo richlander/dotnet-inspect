@@ -169,6 +169,11 @@ public static class AttributeDecoder
                     provider.GetUnderlyingEnumType))
                 return null;
         }
+        catch (MaterializationObserverException ex)
+        {
+            ex.Rethrow();
+            throw;
+        }
         catch (Exception ex) when (
             ex is BadImageFormatException or ArgumentOutOfRangeException)
         {
@@ -238,7 +243,9 @@ public static class AttributeDecoder
         }
 
         public PrimitiveTypeCode GetUnderlyingEnumType(string type)
-            => TypeDefinitionsByName.TryGetValue(type, out var handle)
+            => TypeDefinitionsByName.TryGetValue(
+                    EnumUnderlyingPrimitive.NormalizeSerializedName(type),
+                    out var handle)
                 ? EnumUnderlyingPrimitive.FromDefinition(reader, handle)
                 : PrimitiveTypeCode.Int32;
 
