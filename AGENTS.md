@@ -83,6 +83,13 @@ change ready to merge.
   for the replacement head's zero-conflict and green-CI gate, and restart the
   same numbered round. Unlike conflict recovery, failed-gate recovery does not
   start review while CI is pending.
+- A confirmed failing current-head required check that needs no author change
+  does not supersede the attempt or release its head lock. For a cancelled job
+  or evidenced transient infrastructure failure, re-run the failed check on the
+  unchanged head. If it passes, continue the same attempt. If it fails again,
+  inspect the current-head failure and either repeat only with concrete
+  transient evidence or classify the failure as requiring an author change;
+  never release the lock while a required check remains red.
 - Form one frozen candidate for each review round. Immediately before focused
   local validation, fetch and integrate the effective base and record that base
   tip. Once the smallest local test, lint, or build gate covering the authored
@@ -517,7 +524,8 @@ Pending CI or GitHub mergeability computation does not block the first attempt
 at round 1 or that conflict-recovery round. If a required check or local gate
 fails while the head lock is held and requires an author change, end the
 incomplete attempt, push the fix, satisfy the ordinary subsequent-round status
-gate, and restart the same numbered round.
+gate, and restart the same numbered round. If the failure needs no author
+change, keep the lock and follow the unchanged-head re-run path above.
 
 Absent an actual conflict, a round that produces no review-driven fix and then
 integrates newer `main` to create another round on the agent's own initiative
@@ -576,10 +584,10 @@ so again before every subsequent round:
   rounds do not wait for this result, but a failed-gate restart, an ordinary
   subsequent round, and merge readiness do. Use a single
   `gh api graphql` request that returns the PR's
-  `headRefOid`, `baseRefOid`, `isDraft`, `mergeable`, `mergeStateStatus`,
-  `statusCheckRollup` state and contexts with `pageInfo`, and the query's
-  `rateLimit` cost, remaining quota, and reset time. Request enough contexts for
-  the normal check matrix; if
+  `headRefOid`, `baseRefOid`, `baseRef { target { oid } }`, `isDraft`,
+  `mergeable`, `mergeStateStatus`, `statusCheckRollup` state and contexts with
+  `pageInfo`, and the query's `rateLimit` cost, remaining quota, and reset time.
+  Request enough contexts for the normal check matrix; if
   `pageInfo.hasNextPage` is true and `ci-required` is absent, fetch the
   remaining context pages before concluding that it is missing. Confirm that
   `headRefOid` is the pushed head, `isDraft` is false, `mergeable` is
@@ -684,17 +692,18 @@ so again before every subsequent round:
 
 Do not fetch or integrate the base after the candidate is formed while
 validation, CI, or review is in progress. After a review-clean result, the
-consolidated status query's `baseRefOid` may reveal that the effective base
-moved; at that point a non-mutating fetch is permitted solely to inspect the
-exact landed range for the carry-forward decision below. Do not integrate
-unless that decision or another candidate-ending trigger authorizes it. When an
-author change, review fix, or conflict requires a replacement candidate, say so
-on the PR and name the base tip and merge commit, so the next review reads as a
-confirmation rather than an unexplained second full pass. Do not form a
-replacement candidate from base movement alone unless the user approved the
-clean-review carry-forward path, explicitly adjusted the workflow to integrate
-and re-review an interacting range, or the slice requires a cascading restack
-onto its moved parent.
+consolidated status query's `baseRef.target.oid` may reveal that the effective
+base moved; `baseRefOid` identifies the base commit recorded for the PR and is
+not the live branch tip. At that point a non-mutating fetch is permitted solely
+to inspect the exact landed range for the carry-forward decision below. Do not
+integrate unless that decision or another candidate-ending trigger authorizes
+it. When an author change, review fix, or conflict requires a replacement
+candidate, say so on the PR and name the base tip and merge commit, so the next
+review reads as a confirmation rather than an unexplained second full pass. Do
+not form a replacement candidate from base movement alone unless the user
+approved the clean-review carry-forward path, explicitly adjusted the workflow
+to integrate and re-review an interacting range, or the slice requires a
+cascading restack onto its moved parent.
 
 ### Clean reviews are not spent by main moving
 
@@ -708,10 +717,10 @@ after that review-clean result because of an author change, conflict resolution,
 or restack, the exception does not apply: resolve or restack, integrate the
 effective base, and review the new head normally.
 
-Detect movement by comparing the candidate's recorded base tip with
-`baseRefOid` from the consolidated status query. If they differ after the
-review-clean result, fetch the effective base without integrating it, then
-analyze the exact old-to-new range.
+Detect movement by comparing the candidate's recorded base tip with the live
+tip in `baseRef.target.oid` from the consolidated status query. If they differ
+after the review-clean result, record that live tip, fetch the effective base
+without integrating it, and analyze the exact old-to-new range.
 
 Ask with an analysis of what actually landed: which commits touch files this
 change touches, which behavior this change relies on that they alter, and any
@@ -719,10 +728,13 @@ conflict a textual merge would resolve silently but wrongly. Say plainly when
 the answer is that nothing in the range interacts with this change — that is the
 common case and it is the most useful thing you can report.
 
-If the range is non-interacting, the user may direct you to integrate main,
-re-run the claimed validation and current-head CI, and carry the clean reviews
-forward without another round. Record the reviewed head, old and new main tips,
-the non-interaction analysis, and the user's decision on the PR.
+If the range is non-interacting, the user may direct you to integrate the
+approved base tip, re-run the claimed validation and current-head CI, and carry
+the clean reviews forward without another round. Integrate that exact analyzed
+tip by SHA, not a moving branch ref. If the live base tip changes before
+integration, analyze the additional range and obtain renewed approval before
+carrying the reviews forward. Record the reviewed head, old and approved new
+main tips, the non-interaction analysis, and the user's decision on the PR.
 
 If the range can affect the change, report that the carry-forward path is not
 available and keep the reviewed head. The PR is not merge-ready in that state:
