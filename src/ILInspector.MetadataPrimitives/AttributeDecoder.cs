@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Runtime.ExceptionServices;
@@ -17,9 +18,24 @@ public static class AttributeDecoder
     {
         Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
         ExceptionDispatchInfo? _typeDefinitionsByNameFailure;
+        MetadataTypeNameFailure? _typeDefinitionsByNameFailureModel;
         bool _typeDefinitionsByNameObserverFailure;
 
         public void Observe(int characters) => observe(characters);
+
+        public bool TryGetCachedIndexFailure(
+            [NotNullWhen(true)] out MetadataTypeNameFailure? failure)
+        {
+            if (_typeDefinitionsByNameFailureModel is not null
+                && !_typeDefinitionsByNameObserverFailure)
+            {
+                failure = _typeDefinitionsByNameFailureModel;
+                return true;
+            }
+
+            failure = null;
+            return false;
+        }
 
         public Dictionary<string, TypeDefinitionHandle> GetOrCreateTypeDefinitionsByName(
             Func<Dictionary<string, TypeDefinitionHandle>> create)
@@ -51,6 +67,10 @@ public static class AttributeDecoder
             {
                 _typeDefinitionsByNameFailure =
                     ExceptionDispatchInfo.Capture(ex);
+                _typeDefinitionsByNameFailureModel =
+                    ex is TypeDefinitionIndexException index
+                        ? index.Failure
+                        : MetadataTypeNameFailure.Malformed(default, ex.Message);
                 throw;
             }
         }
@@ -238,10 +258,21 @@ public static class AttributeDecoder
                 StringComparer.Ordinal);
             foreach (var handle in reader.TypeDefinitions)
             {
-                string name = TypeResolver.GetTypeNameFromDefinition(
-                    reader,
-                    handle,
-                    ObserveBeforeMaterialize);
+                string name;
+                try
+                {
+                    name = TypeResolver.GetTypeNameFromDefinition(
+                        reader,
+                        handle,
+                        ObserveBeforeMaterialize);
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException or ArgumentOutOfRangeException)
+                {
+                    throw new TypeDefinitionIndexException(
+                        MetadataTypeNameFailure.Malformed(handle, ex.Message));
+                }
+
                 result.TryAdd(name, handle);
             }
             return result;
@@ -259,6 +290,12 @@ public static class AttributeDecoder
                     ExceptionDispatchInfo.Capture(ex));
             }
         }
+    }
+
+    sealed class TypeDefinitionIndexException(MetadataTypeNameFailure failure)
+        : BadImageFormatException(failure.Detail)
+    {
+        public MetadataTypeNameFailure Failure { get; } = failure;
     }
 
     sealed class MaterializationObserverException(ExceptionDispatchInfo failure)

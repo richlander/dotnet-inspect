@@ -448,6 +448,13 @@ public sealed class ApiSurfaceExtractorBoundsTests
 
     [Fact]
     public void FailedEnumAttributeIndexBuild_IsCachedAndVisible()
+        => AssertFailedEnumAttributeIndexIsCachedAndVisible(bounded: true);
+
+    [Fact]
+    public void FailedEnumAttributeIndexBuild_IsCachedOnTheUnboundedPath()
+        => AssertFailedEnumAttributeIndexIsCachedAndVisible(bounded: false);
+
+    static void AssertFailedEnumAttributeIndexIsCachedAndVisible(bool bounded)
     {
         byte[] image = BuildRepeatedEnumAttributeLookupImage(
             typeCount: 2_000,
@@ -458,23 +465,36 @@ public sealed class ApiSurfaceExtractorBoundsTests
         using var peReader = new PEReader(stream);
         long before = GC.GetAllocatedBytesForCurrentThread();
 
-        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
-            ApiSurfaceExtractor.ExtractBounded(
-                peReader,
-                ApiSurfaceExtractionScope.Public,
-                new ApiSurfaceExtractionBounds(
-                    maxTypes: 100_000,
-                    maxMembers: 1_000_000,
-                    maxInspectionFailures: 1_024,
-                    maxTypeForwarders: 100_000,
-                    maxMetadataRows: 250_000,
-                    maxRetainedTextCharacters: 8_000_000)));
+        ApiSurface surface;
+        if (bounded)
+        {
+            var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+                ApiSurfaceExtractor.ExtractBounded(
+                    peReader,
+                    ApiSurfaceExtractionScope.Public,
+                    new ApiSurfaceExtractionBounds(
+                        maxTypes: 100_000,
+                        maxMembers: 1_000_000,
+                        maxInspectionFailures: 1_024,
+                        maxTypeForwarders: 100_000,
+                        maxMetadataRows: 250_000,
+                        maxRetainedTextCharacters: 8_000_000)));
+            surface = extracted.Surface;
+        }
+        else
+        {
+            surface = ApiSurfaceExtractor.Extract(peReader);
+        }
 
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-        Assert.Single(extracted.Surface.InspectionFailures);
+        ApiSurfaceInspectionFailure failure = Assert.Single(surface.InspectionFailures);
+        Assert.Equal("enum attribute type index", failure.Operation);
+        Assert.Equal(MetadataTypeNameFailureMechanism.Metadata, failure.Mechanism);
+        ApiType attributed = Assert.Single(surface.Types, type => type.Name == "Attributed");
+        Assert.Empty(attributed.Attributes);
         Assert.True(
             allocated < 64L * 1024 * 1024,
-            $"bounded extraction allocated {allocated:N0} bytes");
+            $"{(bounded ? "bounded" : "unbounded")} extraction allocated {allocated:N0} bytes");
     }
 
     static void AssertEnumAttributeLookupsDoNotAllocateQuadratically(byte[] image)
@@ -2322,7 +2342,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
         if (poisonTypeDefinitionIndex)
         {
             TypeDefinitionHandle poison = metadata.AddTypeDefinition(
-                TypeAttributes.NestedPublic,
+                TypeAttributes.NestedAssembly,
                 default,
                 metadata.GetOrAddString("Poison"),
                 default,

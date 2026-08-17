@@ -411,10 +411,11 @@ while formatting defaults, forwarded type and target-assembly names, and
 strong-name blobs read while proving a finalizer slot reaches the core library.
 TypeSpec-owned generic attribute constructors use the same guarded signature
 decoder and preserve bounded/unbounded parity. Enum-valued arguments build one
-charged type-name index per bounded extraction instead of rescanning every type
+charged type-name index per extraction instead of rescanning every type
 for every argument or attribute. Both a successful index and its rejected
 outcome are cached, so malformed metadata is reported once rather than silently
-reallocating the index for each attribute. Enum-default classification also
+reallocating the index for each attribute. The same cache is used on the
+unbounded path, which is the public `AssemblyReader.ExtractApiSurface` route. Enum-default classification also
 charges base-type names before resolving them. Decode failures may skip malformed
 attributes, but a budget-observer failure must escape the decoder and produce
 typed truncation. The Browser separately applies the same bound while deriving
@@ -442,6 +443,7 @@ pre-decoding rejection.
 `RepeatedEnumAttributeLookups_DoNotAllocateQuadratically`,
 `SeparateEnumAttributes_ReuseTheChargedTypeNameIndex`,
 `FailedEnumAttributeIndexBuild_IsCachedAndVisible`,
+`FailedEnumAttributeIndexBuild_IsCachedOnTheUnboundedPath`,
 `GenericAttributeTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneDeeplyNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneArgumentNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,

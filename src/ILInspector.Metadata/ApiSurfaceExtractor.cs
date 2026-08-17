@@ -452,13 +452,14 @@ public static class ApiSurfaceExtractor
         budget?.AdmitMetadataRows(reader);
         Action<string>? observeText =
             budget is null ? null : budget.ObservePendingText;
-        var materializationContext = budget is null
-            ? null
-            : new AttributeDecoder.MaterializationContext(
-                budget.ObservePendingDecodeWork);
-        Action<int>? observeDecodeWork = materializationContext is null
+        var materializationContext = new AttributeDecoder.MaterializationContext(
+            budget is null
+                ? static _ => { }
+                : budget.ObservePendingDecodeWork);
+        Action<int>? observeDecodeWork = budget is null
             ? null
             : materializationContext.Observe;
+        Action<int> observeAttributeMaterialize = materializationContext.Observe;
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -559,7 +560,7 @@ public static class ApiSurfaceExtractor
                     typeDef.GetCustomAttributes(),
                     qualifyNames: true,
                     beforeRetain: observeText,
-                    beforeMaterialize: observeDecodeWork),
+                    beforeMaterialize: observeAttributeMaterialize),
             };
 
             // Determine kind
@@ -815,7 +816,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         method.GetCustomAttributes(),
                         observeText,
-                        observeDecodeWork)
+                        observeAttributeMaterialize)
                 };
 
                 // Check for extension method
@@ -923,7 +924,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         prop.GetCustomAttributes(),
                         observeText,
-                        observeDecodeWork),
+                        observeAttributeMaterialize),
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
                     SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
                 };
@@ -1047,7 +1048,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         field.GetCustomAttributes(),
                         observeText,
-                        observeDecodeWork)
+                        observeAttributeMaterialize)
                 };
 
                 // Read enum constant value
@@ -1184,7 +1185,7 @@ public static class ApiSurfaceExtractor
                             reader,
                             adder.GetParameters(),
                             observeText,
-                            observeDecodeWork)
+                            observeAttributeMaterialize)
                     }
                 };
                 if (!accessors.Remover.IsNil)
@@ -1196,7 +1197,7 @@ public static class ApiSurfaceExtractor
                             reader,
                             reader.GetMethodDefinition(accessors.Remover).GetParameters(),
                             observeText,
-                            observeDecodeWork)
+                            observeAttributeMaterialize)
                     });
                 }
 
@@ -1276,6 +1277,17 @@ public static class ApiSurfaceExtractor
                     owningType: typeDefHandle,
                     owningTypeDefinition: owningTypeDefinition);
             }
+        }
+
+        if (materializationContext.TryGetCachedIndexFailure(
+                out MetadataTypeNameFailure? indexFailure))
+        {
+            AddInspectionFailure(
+                surface,
+                budget,
+                "enum attribute type index",
+                default,
+                indexFailure);
         }
 
         AttachLocalExtensionMethods(surface, budget);
