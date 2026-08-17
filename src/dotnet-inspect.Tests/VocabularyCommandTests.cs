@@ -230,9 +230,9 @@ public sealed class VocabularyCommandTests
     }
 
     [Fact]
-    public async Task Command_PartialProjectedJsonOmitsUnmatchedSections()
+    public async Task Command_PartialMachineKeyProjectionKeepsSectionIdentityAcrossFormats()
     {
-        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+        var json = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
                 Select =
@@ -241,15 +241,32 @@ public sealed class VocabularyCommandTests
                     VocabularyCatalog.StyleTiersSection,
                 ],
                 JsonOutput = true,
-                Columns = ["Title"],
+                Columns = ["byte_divergent"],
+            })));
+        var markdown = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select =
+                [
+                    VocabularyCatalog.AccessibilitySection,
+                    VocabularyCatalog.StyleTiersSection,
+                ],
+                Columns = ["byte_divergent"],
             })));
 
-        Assert.Equal(0, result.ExitCode);
-        Assert.Empty(result.Error);
-        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(0, json.ExitCode);
+        Assert.Empty(json.Error);
+        using JsonDocument document = JsonDocument.Parse(json.Output);
         Assert.False(document.RootElement.TryGetProperty("accessibility", out _));
         Assert.True(document.RootElement.TryGetProperty("c#style_tiers", out JsonElement rows));
         Assert.Equal(JsonValueKind.Array, rows.ValueKind);
+        Assert.Equal(4, rows.GetArrayLength());
+
+        Assert.Equal(0, markdown.ExitCode);
+        Assert.Empty(markdown.Error);
+        Assert.DoesNotContain("## Accessibility", markdown.Output);
+        Assert.Contains("## C# Style Tiers", markdown.Output);
+        Assert.Contains("| Byte Divergent |", markdown.Output);
     }
 
     [Fact]
@@ -294,6 +311,25 @@ public sealed class VocabularyCommandTests
         Assert.Contains("Accessibility", result.Output);
         Assert.DoesNotContain("# Vocabulary", result.Output);
         Assert.DoesNotContain("| ID |", result.Output);
+    }
+
+    [Fact]
+    public async Task Command_PlainTextMultiSectionCountUsesPlainTextTable()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select = ["@Decompiler"],
+                Count = true,
+                PlainText = true,
+            })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("Section", result.Output);
+        Assert.Contains("C# Style Tiers", result.Output);
+        Assert.Contains("C# Style Choices", result.Output);
+        Assert.DoesNotContain("| Section |", result.Output);
     }
 
     private static string ValueId(VocabularyRow row) =>

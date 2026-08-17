@@ -2,6 +2,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Vocabulary;
 using Markout;
+using System.Globalization;
 
 namespace DotnetInspector.Commands;
 
@@ -67,6 +68,14 @@ public static class VocabularyCommand
         {
             return 1;
         }
+        VocabularySection[] renderedSections = projectedColumns is { Length: > 0 }
+            ?
+            [
+                .. sections.Where(section =>
+                    schema.ValidateProjection(section.Name, projectedColumns)
+                        .Resolved.Length > 0),
+            ]
+            : sections;
 
         if (options.Count)
         {
@@ -80,9 +89,11 @@ public static class VocabularyCommand
                     section => section.Name,
                     section => RowWindow.Apply(options.Rows, section.Values).Count,
                     StringComparer.Ordinal);
-                CountOutput.WriteCountMap(
-                    counts,
-                    [.. sections.Select(section => section.Name)]);
+                string[] orderedSections = [.. sections.Select(section => section.Name)];
+                if (options.PlainText)
+                    WritePlainTextCountMap(counts, orderedSections);
+                else
+                    CountOutput.WriteCountMap(counts, orderedSections);
             }
             return 0;
         }
@@ -99,13 +110,6 @@ public static class VocabularyCommand
         {
             if (projectedColumns is { Length: > 0 })
             {
-                VocabularySection[] projectedSections =
-                [
-                    .. sections.Where(section => section.Fields.Any(field =>
-                        projectedColumns.Contains(
-                            field.Label,
-                            StringComparer.OrdinalIgnoreCase))),
-                ];
                 OutputFormatter.WriteProjectedJson(
                     Console.Out,
                     projectedColumns,
@@ -113,7 +117,7 @@ public static class VocabularyCommand
                     (writer, formatter, writerOptions) =>
                         WriteSections(
                             new MarkoutWriter(writer, formatter, writerOptions),
-                            projectedSections,
+                            renderedSections,
                             includeDocumentHeading: true),
                     maxRows: options.Rows);
             }
@@ -161,7 +165,7 @@ public static class VocabularyCommand
                 ? new PlainTextFormatter()
                 : new MarkdownFormatter(),
             markdownOptions);
-        WriteSections(markdown, sections, includeDocumentHeading: true);
+        WriteSections(markdown, renderedSections, includeDocumentHeading: true);
         markdown.Flush();
         return 0;
     }
@@ -196,6 +200,28 @@ public static class VocabularyCommand
                         : "").ToArray()),
         ];
         writer.WriteTable(labels, ids, rows);
+    }
+
+    private static void WritePlainTextCountMap(
+        IReadOnlyDictionary<string, int> counts,
+        IReadOnlyList<string> orderedSections)
+    {
+        using var output = new StringWriter(CultureInfo.InvariantCulture);
+        var writer = new MarkoutWriter(output, new PlainTextFormatter());
+        writer.WriteTable(
+            ["Section", "Count"],
+            ["section", "count"],
+            [
+                .. orderedSections.Select(section =>
+                    new[]
+                    {
+                        section,
+                        counts.GetValueOrDefault(section)
+                            .ToString(CultureInfo.InvariantCulture),
+                    }),
+            ]);
+        writer.Flush();
+        CountOutput.WriteCountResult(output.ToString(), outputPath: null);
     }
 
     private static DocumentSchema CreateSchema(VocabularyDocument document)
