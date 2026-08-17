@@ -190,6 +190,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
         private readonly TaskCompletionSource _abortCompleted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private Exception? _abortDisposalFailure;
+        private int _abortStarted;
         private int _deadlineCompleted;
         private bool _disposed;
 
@@ -459,7 +460,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 return;
 
             await _deadlineRegistration.DisposeAsync().ConfigureAwait(false);
-            _abortCompleted.TrySetResult();
+            if (Volatile.Read(ref _abortStarted) == 0)
+                _abortCompleted.TrySetResult();
             requestCancellation.Dispose();
             operation._disposed = true;
             operation._operationCancellation.Dispose();
@@ -471,7 +473,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 return;
 
             _deadlineRegistration.Dispose();
-            _abortCompleted.TrySetResult();
+            if (Volatile.Read(ref _abortStarted) == 0)
+                _abortCompleted.TrySetResult();
             requestCancellation.Dispose();
             operation._disposed = true;
             operation._operationCancellation.Dispose();
@@ -483,6 +486,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         private void AbortOwner()
         {
+            Volatile.Write(ref _abortStarted, 1);
             try
             {
                 owner.Dispose();

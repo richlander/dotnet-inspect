@@ -1628,6 +1628,54 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task DisposeAsync_InlineCompletionRetainsAbortFailure()
+    {
+        var body = new InlineDisposeCompletionFailureStream();
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(StreamResponse(message, body))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(500),
+                operation: TimeSpan.FromSeconds(5)));
+
+        Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        Task<int> read = package.ReadAsync(
+                new byte[1].AsMemory(),
+                TestContext.Current.CancellationToken)
+            .AsTask();
+        await body.ReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        ValueTask dispose = package.DisposeAsync();
+        await body.DisposeAsyncStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                async () =>
+                    _ = await read.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
+        await dispose.AsTask().WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        Assert.Contains(
+            ExceptionTree(error),
+            exception => exception is IOException
+                && exception.Message.Contains(
+                    "Simulated late abort disposal failure",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RequestDeadline_DisposalFailureIsRetained()
     {
         var stallingStream = new ThrowingDisposeStallingStream();
@@ -2249,6 +2297,71 @@ public sealed class NuGetDeadlineTests
                                 nameof(InlineCompletingStream)));
                         break;
                 }
+            }
+
+            base.Dispose(disposing);
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class InlineDisposeCompletionFailureStream : Stream
+    {
+        private readonly TaskCompletionSource<int> _read = new();
+        private readonly TaskCompletionSource _readStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _disposeAsync = new();
+        private readonly TaskCompletionSource _disposeAsyncStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _disposeCount;
+
+        public Task ReadStarted => _readStarted.Task;
+        public Task DisposeAsyncStarted => _disposeAsyncStarted.Task;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            _readStarted.TrySetResult();
+            return new ValueTask<int>(_read.Task);
+        }
+
+        public override ValueTask DisposeAsync()
+        {
+            _disposeAsyncStarted.TrySetResult();
+            return new ValueTask(_disposeAsync.Task);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing
+                && Interlocked.Increment(ref _disposeCount) == 1)
+            {
+                _disposeAsync.TrySetResult();
+                _read.TrySetException(
+                    new ObjectDisposedException(
+                        nameof(InlineDisposeCompletionFailureStream)));
+                throw new IOException(
+                    "Simulated late abort disposal failure.");
             }
 
             base.Dispose(disposing);
