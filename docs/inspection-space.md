@@ -447,6 +447,19 @@ gates the compiled multi-assembly path, while
 `Execute_DoesNotJoinAmbiguousMatchingAssemblyIdentities` gates the rule that
 matching metadata identity or display text cannot replace acquisition
 registration.
+The query's `InspectionGraphModeRequest` now distinguishes seed intent from
+that workspace scope. Its request-free overload explicitly produces a
+workspace-participant induced set; type and assembly seeds bind exact nodes,
+package seeds bind exact package groups in the detailed Integration lens, and
+mixed peers remain equal. Mode binding happens after the same deterministic
+producer plan, so it does not change occurrence identity or semantic edge
+direction.
+`Execute_DefaultsToWorkspaceInducedSetWithoutSeeds`,
+`Execute_BindsTypeSeedToExactNode`,
+`Execute_BindsAssemblySeedToExactNode`,
+`Execute_BindsPackageSeedToDetailedLensGroup`,
+`Execute_BindsPeerSeedsWithoutChoosingPrimary`, and
+`PackageAndTypeModesShareSemanticIntegrationOccurrences` gate those claims.
 `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic
 composition and the shared nonzero completion status used after Markdown,
 count, tabular, or JSON output.

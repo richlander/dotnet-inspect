@@ -397,9 +397,18 @@ public static class InspectionGraphIntegrationsQuery
         new("Inspection graph integrations", InspectionCost.Unbounded);
 
     public static InspectionGraphDocument Execute(
-        WorkspaceContextLoadOutcome.Loaded context)
+        WorkspaceContextLoadOutcome.Loaded context) =>
+        Execute(
+            context,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.WorkspaceParticipants));
+
+    public static InspectionGraphDocument Execute(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphModeRequest modeRequest)
     {
         ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(modeRequest);
 
         var registry =
             new InspectionQueryRegistry<AssemblyContextGroup>()
@@ -427,6 +436,7 @@ public static class InspectionGraphIntegrationsQuery
 
         return Create(
             context,
+            modeRequest,
             results.Get(
                 AssemblyContextExtensionMethodsQuery.Definition),
             results.Get(AssemblyContextIntegrationsQuery.Definition),
@@ -437,6 +447,7 @@ public static class InspectionGraphIntegrationsQuery
 
     internal static InspectionGraphDocument Create(
         WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphModeRequest modeRequest,
         AssemblyContextResult<ImmutableArray<ExtensionMethodInfo>> extensions,
         AssemblyContextIntegrationsResult integrations,
         AssemblyContextIntegrationOpportunitiesResult opportunities,
@@ -444,6 +455,7 @@ public static class InspectionGraphIntegrationsQuery
             references)
     {
         ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(modeRequest);
         ArgumentNullException.ThrowIfNull(extensions);
         ArgumentNullException.ThrowIfNull(integrations);
         ArgumentNullException.ThrowIfNull(opportunities);
@@ -470,7 +482,7 @@ public static class InspectionGraphIntegrationsQuery
         builder.AddIntegrations(integrations);
         builder.AddReferences(references);
         builder.AddOpportunities(opportunities);
-        return builder.Build();
+        return builder.Build(modeRequest);
     }
 
     sealed class Builder
@@ -943,7 +955,8 @@ public static class InspectionGraphIntegrationsQuery
             }
         }
 
-        internal InspectionGraphDocument Build()
+        internal InspectionGraphDocument Build(
+            InspectionGraphModeRequest modeRequest)
         {
             InspectionGraphEdge[] edges =
             [
@@ -966,14 +979,21 @@ public static class InspectionGraphIntegrationsQuery
                         new InspectionGraphIntegrationFailureEvidence(
                             failure.Details))),
             ];
+            ImmutableArray<InspectionGraphSeed> seeds =
+                InspectionGraphSeedBinder.Bind(
+                    modeRequest,
+                    _nodes,
+                    _groups,
+                    InspectionGraphSeedTargetPreference.Group);
             return new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
+                modeRequest,
                 _nodes,
                 _groups,
                 edges,
                 _occurrences,
                 [],
-                [],
+                seeds,
                 [],
                 failures);
         }
