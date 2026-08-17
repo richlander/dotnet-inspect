@@ -55,10 +55,11 @@ the ownership boundaries below, not the project count.
 `DotnetInspector.ResearchQueries` companion now implement metadata-image,
 direct-reference, extension-method, custom-attribute, manifest-resource,
 type-forwarder, union-type, switch, SourceLink audit, API-comparison, Analysis
-body-signal comparison, unsafe-evidence, top-leverage, Implementation comparison,
-assembly-context Integrations, implementation relationships, type/member
-search, extension reachability, progressive member call-graph slices, and
-group-scoped authored-or-decompiled type/member source. The API-comparison seam
+body-signal comparison, unsafe-evidence, top-leverage, Implementation
+comparison, assembly-context Integrations, implementation relationships,
+type/member search, extension reachability, progressive member call-graph
+slices, and group-scoped authored-or-decompiled type/member source. The
+API-comparison seam
 retains Metadata-owned Finding correspondence and compatibility classification
 over two host-resolved surfaces. The body-signal seam consumes already-acquired
 Analysis indexes and retains `ResearchComparison`; keeping that query in the
@@ -72,14 +73,14 @@ choosing a renderer or output format.
 The library CLI executes metadata-image, direct assembly-reference,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
 union-type, method-classification, audit-metadata, unsafe-evidence, and
-top-leverage queries,
-plus the Research-backed switch query through a typed, content-shaped registry
+top-leverage queries, plus the Research-backed switch query through a typed,
+content-shaped registry
 over a host-owned `AssemblyInspectionSession`. The `References`, `Extension
 Methods`, `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`,
 `Union Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Signals`,
-`Top Leverage`, and `Library Info` sections bind to concrete query definitions rather than
-relying solely on string scanner keys, and the CLI and package convenience
-route lower section selection into that same registry.
+`Top Leverage`, and `Library Info` sections bind to concrete query definitions
+rather than relying solely on string scanner keys, and the CLI and package
+convenience route lower section selection into that same registry.
 Library and package SourceLink sections
 execute a shared document prerequisite plus availability or integrity query
 over a host-owned `SourceLinkService`. The library CLI and package
@@ -286,10 +287,10 @@ Metadata-image, direct-reference, assembly-context reference,
 package dependency-group, loaded dependency-coordinate match,
 extension-method, custom-attribute,
 manifest-resource, type-forwarder, union-type, classified-method,
-audit-metadata, unsafe-evidence, top-leverage, switch,
-SourceLink,
-API-comparison, Analysis body-signal comparison, Implementation comparison, and
-assembly-context Integrations inspection are the first vertical L1 canaries:
+audit-metadata, unsafe-evidence, top-leverage, switch, SourceLink,
+API-comparison, Analysis body-signal comparison, Implementation comparison,
+and assembly-context Integrations inspection are the first vertical L1
+canaries:
 
 - `DotnetInspector.Queries` owns typed query definitions, typed result retrieval,
   prerequisite expansion, and query cost.

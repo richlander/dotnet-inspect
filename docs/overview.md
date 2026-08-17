@@ -14,8 +14,7 @@ metadata-image, direct-reference, assembly-context reference,
 package dependency-group, loaded dependency-coordinate match,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
 union-type, classified-method, audit-metadata, unsafe-evidence, top-leverage,
-switch,
-SourceLink, Integrations, implementation relationships, type/member search,
+switch, SourceLink, Integrations, implementation relationships, type/member search,
 extension reachability, API-comparison, Analysis body-signal comparison, and
 Implementation comparison inspection, plus group-scoped
 authored-or-decompiled type/member source. The `diff` Changes, Analysis Diff,
