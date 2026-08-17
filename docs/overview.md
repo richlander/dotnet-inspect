@@ -13,7 +13,8 @@ boundaries. Typed query-planning slices are implemented for library
 metadata-image, direct-reference, assembly-context reference,
 package dependency-group, loaded dependency-coordinate match,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
-union-type, classified-method, audit-metadata, unsafe-evidence, switch,
+union-type, classified-method, audit-metadata, unsafe-evidence, top-leverage,
+switch,
 SourceLink, Integrations, implementation relationships, type/member search,
 extension reachability, API-comparison, Analysis body-signal comparison, and
 Implementation comparison inspection, plus group-scoped
@@ -33,7 +34,8 @@ substrates, and inspection producers that will extend that space.
   and content-shaped metadata, reference, package dependency-group,
   loaded dependency-coordinate match,
   extension-method, custom-attribute, manifest-resource, type-forwarder,
-  union-type, classified-method, audit-metadata, unsafe-evidence, SourceLink,
+  union-type, classified-method, audit-metadata, unsafe-evidence, top-leverage,
+  SourceLink,
   implementation-relationship, type/member search, extension-reachability,
   API-comparison, progressive call-graph, and group-scoped source queries. The
   source query owns a Decompiler fallback over retained assembly content. The
