@@ -590,15 +590,17 @@ public class CSharpStructuralComparisonTests
     [Fact]
     public void RenderAnnotatedBody_TabIndentedExtentPreservesTabAlignment()
     {
-        const string beforeText = "\treturn;";
-        const string afterText = "\tbreak;";
+        const string beforeText = "int value = 0;\n\t\t\treturn value;";
+        const string afterText = "int value = 0;\n\t\t\tbreak;";
+        int beforeStart = beforeText.IndexOf("\t\t\treturn value;", StringComparison.Ordinal);
+        int afterStart = afterText.IndexOf("\t\t\tbreak;", StringComparison.Ordinal);
         var before = new AnnotatedSourceDocument(
             beforeText,
             [new AnnotatedSourceNode(
                 0,
                 "ReturnStatement",
                 SourceLineKind.CSharp,
-                [new(0, beforeText.Length)])],
+                [new(beforeStart, "\t\t\treturn value;".Length)])],
             [],
             [],
             []);
@@ -608,7 +610,7 @@ public class CSharpStructuralComparisonTests
                 0,
                 "BreakStatement",
                 SourceLineKind.CSharp,
-                [new(0, afterText.Length)])],
+                [new(afterStart, "\t\t\tbreak;".Length)])],
             [],
             [],
             []);
@@ -624,8 +626,11 @@ public class CSharpStructuralComparisonTests
             .RenderAnnotatedBody(comparison, CSharpStructuralSide.Before)
             .Split('\n');
 
-        Assert.Equal(beforeText, rendered[0]);
-        Assert.StartsWith("\t^^^^^^^ raise: Return", rendered[1], StringComparison.Ordinal);
+        Assert.Equal("\t\t\treturn value;", rendered[1]);
+        Assert.StartsWith(
+            "\t\t\t^^^^^^^^^^^^^ raise: Return",
+            rendered[2],
+            StringComparison.Ordinal);
     }
 
     [Fact]
