@@ -290,7 +290,10 @@ internal sealed class NuGetOperationDeadline : IDisposable
                     throw new OperationCanceledException(cancellationToken);
                 await ThrowIfDeadlineExpiredAsync().ConfigureAwait(false);
                 if (read == 0 && !buffer.IsEmpty)
-                    CompleteDeadline();
+                {
+                    await DisposeDeadlineStateAsync()
+                        .ConfigureAwait(false);
+                }
                 return read;
             }
             catch (OperationCanceledException ex)

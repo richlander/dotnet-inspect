@@ -1588,6 +1588,45 @@ public sealed class NuGetDeadlineTests
         }
     }
 
+    [Theory]
+    [InlineData(InlineReadCompletion.Success)]
+    [InlineData(InlineReadCompletion.Cancellation)]
+    [InlineData(InlineReadCompletion.Abort)]
+    public async Task InlineAsyncCompletion_DoesNotDeadlockAbortCleanup(
+        InlineReadCompletion completion)
+    {
+        var body = new InlineCompletingStream(completion);
+        using var client = new HttpClient(new DelayedHandler(
+            (message, _) =>
+                Task.FromResult(StreamResponse(message, body))));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromMilliseconds(500),
+                operation: TimeSpan.FromSeconds(5)));
+
+        await using Stream package = await nuget.DownloadAsync(
+            "package",
+            "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
+        Task<int> read = package.ReadAsync(
+                new byte[1].AsMemory(),
+                TestContext.Current.CancellationToken)
+            .AsTask();
+        await body.ReadStarted.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        NuGetRequestTimeoutException error =
+            await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                async () =>
+                    _ = await read.WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(500), error.Timeout);
+    }
+
     [Fact]
     public async Task RequestDeadline_DisposalFailureIsRetained()
     {
@@ -2136,6 +2175,80 @@ public sealed class NuGetDeadlineTests
             {
                 _disposeStarted.TrySetResult();
                 _releaseDispose.Wait();
+            }
+
+            base.Dispose(disposing);
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    public enum InlineReadCompletion
+    {
+        Success,
+        Cancellation,
+        Abort,
+    }
+
+    private sealed class InlineCompletingStream(
+        InlineReadCompletion completion) : Stream
+    {
+        private readonly TaskCompletionSource<int> _read = new();
+        private readonly TaskCompletionSource _readStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private Memory<byte> _buffer;
+        private CancellationToken _cancellationToken;
+
+        public Task ReadStarted => _readStarted.Task;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            _buffer = buffer;
+            _cancellationToken = cancellationToken;
+            _readStarted.TrySetResult();
+            return new ValueTask<int>(_read.Task);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                switch (completion)
+                {
+                    case InlineReadCompletion.Success:
+                        _buffer.Span[0] = 1;
+                        _read.TrySetResult(1);
+                        break;
+                    case InlineReadCompletion.Cancellation:
+                        _read.TrySetCanceled(_cancellationToken);
+                        break;
+                    case InlineReadCompletion.Abort:
+                        _read.TrySetException(
+                            new ObjectDisposedException(
+                                nameof(InlineCompletingStream)));
+                        break;
+                }
             }
 
             base.Dispose(disposing);
