@@ -490,10 +490,14 @@ into queued parent-era jobs; deleting both old secret locations makes later
 reruns fail closed.
 
 Both deployment workflows pin the Azure deployment action to an exact commit
-and disable Azure's own app build. The staging publish step embeds the CLI's
-authoritative `VersionPrefix`, exact source SHA, and UTC build timestamp. The
-home and workspace status bars show that version, link the short commit to
-GitHub, and disclose the binary build time.
+and pin their checkout, SDK setup, and artifact actions to exact commits. The
+workflow contract gate enforces those references. Azure's pinned action still
+pulls Microsoft's `staticappsclient:stable` image; that vendor-controlled
+deployment dependency is not immutable and remains inside the Azure trust
+boundary. Both workflows disable Azure's own app build. The staging publish
+step embeds the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC
+build timestamp. The home and workspace status bars show that version, link
+the short commit to GitHub, and disclose the binary build time.
 `BuildIdentity_UsesVersionedRepositoryProvenance` and
 `ready status shows versioned linked build provenance` gate the engine and UI
 halves.

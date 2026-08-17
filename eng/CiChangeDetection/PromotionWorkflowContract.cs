@@ -7,6 +7,14 @@ internal static class PromotionWorkflowContract
 {
     private const string AzureAction =
         "Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1";
+    private const string CheckoutAction =
+        "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803";
+    private const string DownloadArtifactAction =
+        "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c";
+    private const string SetupDotnetAction =
+        "actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1";
+    private const string UploadArtifactAction =
+        "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
     private const string IndexCheck =
         "test -f artifacts/inspect-web-publish/wwwroot/index.html";
 
@@ -30,14 +38,14 @@ internal static class PromotionWorkflowContract
         const string trustedCheckout =
             """
                 steps:
-                  - uses: actions/checkout@v6
+                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
                   - name: Setup .NET
             """;
         const string candidateCheckout =
             """
                 steps:
-                  - uses: actions/checkout@v6
+                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
                     with:
                       ref: ${{ needs.resolve.outputs.sha }}
 
@@ -58,7 +66,7 @@ internal static class PromotionWorkflowContract
         const string stagingCheckout =
             """
                 steps:
-                  - uses: actions/checkout@v6
+                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
                   - name: Download staged site artifact
             """;
@@ -71,8 +79,8 @@ internal static class PromotionWorkflowContract
 
         AssertMutationRejected(
             promotionWorkflow,
-            "      - name: Setup .NET\n        uses: actions/setup-dotnet@v5",
-            "      - name: Setup .NET\n        uses: actions/download-artifact@v8",
+            "      - name: Setup .NET\n        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5",
+            "      - name: Setup .NET\n        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8",
             ValidatePromotion,
             "Promotion workflow contract accepted an alternate setup action.");
         AssertMutationRejected(
@@ -153,10 +161,10 @@ internal static class PromotionWorkflowContract
             "Staging workflow contract accepted write permission.");
         AssertMutationRejected(
             stagingWorkflow,
-            "    steps:\n      - uses: actions/checkout@v6\n",
+            "    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n",
             """
                 steps:
-                  - uses: actions/checkout@v6
+                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
                     with:
                       ref: ${{ github.event.pull_request.head.sha }}
             """,
@@ -264,7 +272,7 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(
             checkout,
             "uses",
-            "actions/checkout@v6",
+            CheckoutAction,
             "jobs.deploy checkout");
 
         YamlMappingNode setup = RequireStep(steps, 1, "Setup .NET");
@@ -272,7 +280,7 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(
             setup,
             "uses",
-            "actions/setup-dotnet@v5",
+            SetupDotnetAction,
             "production setup step");
         RequireExactScalarValues(
             GetRequiredMapping(setup, "with", "production setup step"),
@@ -334,7 +342,7 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(
             download,
             "uses",
-            "actions/download-artifact@v8",
+            DownloadArtifactAction,
             "artifact download step");
         YamlMappingNode downloadWith =
             GetRequiredMapping(download, "with", "artifact download step");
@@ -472,7 +480,7 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(
             checkout,
             "uses",
-            "actions/checkout@v6",
+            CheckoutAction,
             "staging build checkout");
 
         YamlMappingNode setup =
@@ -481,7 +489,7 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(
             setup,
             "uses",
-            "actions/setup-dotnet@v5",
+            SetupDotnetAction,
             "staging setup step");
         RequireExactScalarValues(
             GetRequiredMapping(setup, "with", "staging setup step"),
@@ -534,7 +542,7 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(
             upload,
             "uses",
-            "actions/upload-artifact@v7",
+            UploadArtifactAction,
             "staging artifact upload step");
         RequireExactScalarValues(
             GetRequiredMapping(upload, "with", "staging artifact upload step"),
@@ -588,7 +596,7 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(
             download,
             "uses",
-            "actions/download-artifact@v8",
+            DownloadArtifactAction,
             "staging artifact download step");
         YamlMappingNode downloadWith =
             GetRequiredMapping(download, "with", "staging artifact download step");
@@ -753,7 +761,7 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(
             checkout,
             "uses",
-            "actions/checkout@v6",
+            CheckoutAction,
             "resolution checkout");
 
         YamlMappingNode setup =
@@ -762,7 +770,7 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(
             setup,
             "uses",
-            "actions/setup-dotnet@v5",
+            SetupDotnetAction,
             "resolution setup step");
         RequireExactScalarValues(
             GetRequiredMapping(setup, "with", "resolution setup step"),
