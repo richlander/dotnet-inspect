@@ -20004,6 +20004,27 @@ public partial class CommandExecutionTests
                 StringComparison.Ordinal);
             Assert.Empty(File.ReadAllText(outputPath));
 
+            File.WriteAllText(outputPath, "stale");
+            var invalidSelection = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "@Integrations",
+                "--tsv",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, invalidSelection.Exit);
+            Assert.Empty(invalidSelection.Output);
+            Assert.Contains(
+                "requires one concrete section",
+                invalidSelection.Error,
+                StringComparison.Ordinal);
+            Assert.Equal("stale", File.ReadAllText(outputPath));
+
             string invalidPath = Path.Combine(
                 tempDir,
                 "missing",

@@ -3544,6 +3544,28 @@ public class PackageCommand
         }
 
         var sections = GetAllLibrariesSections(inspections, libraryOptions, pipeline);
+        if (libraryOptions.TabularExplicitlySet && !libraryOptions.Count)
+        {
+            var candidateSections = pipeline.GetCandidateSections(
+                libraryOptions.Verbosity,
+                libraryOptions.IncludeSections,
+                libraryOptions.FixedOverview);
+            var requestedSections = pipeline.AllSectionNames
+                .Where(candidateSections.Contains)
+                .ToList();
+            if (!WriteAllLibrariesTable(
+                    packageName,
+                    version,
+                    inspections,
+                    requestedSections,
+                    libraryOptions,
+                    sections.Count == 0))
+            {
+                return 1;
+            }
+            return completionExitCode;
+        }
+
         if (sections.Count == 0)
         {
             CommandError.WriteNote("matched sections have no data across all libraries.");
@@ -3575,13 +3597,6 @@ public class PackageCommand
                     libraryOptions.Rows,
                     static _ => { });
             }
-            return completionExitCode;
-        }
-
-        if (libraryOptions.TabularExplicitlySet && !libraryOptions.Count)
-        {
-            if (!WriteAllLibrariesTable(packageName, version, inspections, sections, libraryOptions))
-                return 1;
             return completionExitCode;
         }
 
@@ -3934,7 +3949,8 @@ public class PackageCommand
         string version,
         List<LibraryInspection> inspections,
         List<string> sections,
-        LibraryOptions options)
+        LibraryOptions options,
+        bool noDataAcrossAllLibraries)
     {
         if (options.Select?.Any(value => value.StartsWith("@", StringComparison.Ordinal)) == true)
         {
@@ -3965,7 +3981,10 @@ public class PackageCommand
 
         if (!table.HasRowsBeforeWindow)
         {
-            CommandError.WriteNote("matched section has no row data across all libraries.");
+            CommandError.WriteNote(
+                noDataAcrossAllLibraries
+                    ? "matched sections have no data across all libraries."
+                    : "matched section has no row data across all libraries.");
             WriteAllLibrariesOutput(
                 options.OutputPath,
                 options.Rows,
