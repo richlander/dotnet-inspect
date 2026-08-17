@@ -494,6 +494,14 @@ export function sourceReloadKind(state) {
   return null;
 }
 
+export function sourceRequestNeedsLoad(
+  sameRequest,
+  loading,
+  result,
+  error) {
+  return !sameRequest || (!loading && !result && !error);
+}
+
 export function beginSourceRequestState(state) {
   state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
   clearInFlightSourceState(state);

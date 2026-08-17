@@ -42,6 +42,7 @@ import {
   selectedDependencyGroup,
   sourceSurfaceIsVisible,
   sourceReloadKind,
+  sourceRequestNeedsLoad,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
@@ -423,8 +424,10 @@ test("source operations cancel when superseded or hidden", () => {
     /const kind = activeSourceOperationKind\(state\)/);
   assert.match(autoLoadBody, /kind === "type"/);
   assert.match(autoLoadBody, /kind === "member"/);
+  assert.match(autoLoadBody, /kind === "graph"/);
   assert.match(autoLoadBody, /loadSelectedTypeSource\(\)/);
   assert.match(autoLoadBody, /loadSelectedMemberSource\(\)/);
+  assert.match(autoLoadBody, /openGraphSource\(/);
 
   const visible = {
     settings: false,
@@ -481,6 +484,21 @@ test("source operations cancel when superseded or hidden", () => {
       memberSection: "annotated"
     }),
     null);
+  assert.equal(
+    sourceRequestNeedsLoad(true, false, null, ""),
+    true);
+  assert.equal(
+    sourceRequestNeedsLoad(true, true, null, ""),
+    false);
+  assert.equal(
+    sourceRequestNeedsLoad(true, false, { text: "source" }, ""),
+    false);
+  assert.equal(
+    sourceRequestNeedsLoad(true, false, null, "failed"),
+    false);
+  assert.equal(
+    sourceRequestNeedsLoad(false, true, { text: "stale" }, ""),
+    true);
 
   const requestState = {
     sourceRequestGeneration: 4,

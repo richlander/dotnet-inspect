@@ -38,6 +38,7 @@ import {
   scopedRequestState,
   sourceSurfaceIsVisible,
   sourceReloadKind,
+  sourceRequestNeedsLoad,
   selectedDependencyGroup,
   spotlightCandidateKey,
   spotlightCandidateSignature,
@@ -1473,11 +1474,30 @@ function render() {
 
 function maybeAutoLoadVisibleSource() {
   const kind = activeSourceOperationKind(state);
+  if (kind === "graph") {
+    if (state.graphSourceRequest
+      && sourceRequestNeedsLoad(
+        true,
+        state.graphSourceLoading,
+        state.graphSource,
+        state.graphSourceError)) {
+      openGraphSource(
+        state.graphSourceRequest.request,
+        state.graphSourceRequest.title);
+    }
+    return;
+  }
   const type = selectedType();
   if (!type) return;
   if (kind === "type") {
     const signature = typeSourceSignature(type);
-    if (state.typeSourceKey !== signature) loadSelectedTypeSource();
+    if (sourceRequestNeedsLoad(
+        state.typeSourceKey === signature,
+        state.typeSourceLoading,
+        state.typeSource,
+        state.typeSourceError)) {
+      loadSelectedTypeSource();
+    }
     return;
   }
   if (kind === "member") {
@@ -1485,7 +1505,13 @@ function maybeAutoLoadVisibleSource() {
     const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
     if (!member || !overload) return;
     const signature = memberRequestSignature(type, overload, false, true);
-    if (state.memberSourceKey !== signature) loadSelectedMemberSource();
+    if (sourceRequestNeedsLoad(
+        state.memberSourceKey === signature,
+        state.memberSourceLoading,
+        state.memberSource,
+        state.memberSourceError)) {
+      loadSelectedMemberSource();
+    }
   }
 }
 
@@ -6060,8 +6086,11 @@ async function loadSelectedMemberSource() {
     return;
   }
   const signature = memberRequestSignature(type, overload, false, true);
-  if (state.memberSourceKey === signature
-    && (state.memberSource || state.memberSourceError)) {
+  if (!sourceRequestNeedsLoad(
+      state.memberSourceKey === signature,
+      state.memberSourceLoading,
+      state.memberSource,
+      state.memberSourceError)) {
     render();
     return;
   }
@@ -6205,7 +6234,11 @@ async function loadSelectedTypeSource() {
     return;
   }
   const signature = typeSourceSignature(type);
-  if (state.typeSourceKey === signature && (state.typeSource || state.typeSourceError)) {
+  if (!sourceRequestNeedsLoad(
+      state.typeSourceKey === signature,
+      state.typeSourceLoading,
+      state.typeSource,
+      state.typeSourceError)) {
     render();
     return;
   }
