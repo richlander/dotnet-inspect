@@ -3467,6 +3467,37 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_OperatorPairDoesNotDuplicateTargetSibling()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(in Row left, in Row right) => true;
+                public static bool operator !=(Row left, Row right) => !(left == right);
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "op_Inequality", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("operator ==(", result.Source, StringComparison.Ordinal);
+            Assert.Contains("operator !=(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_ClosureDoesNotPairOrdinaryEqualityNamedMethod()
     {
         var assemblyPath = CompileFixture("""

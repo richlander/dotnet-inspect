@@ -785,11 +785,13 @@ public static class CompileBackSourceComposer
     static CompileBackMemberRequirement? TryCreateRequiredOperatorSibling(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
-        MethodRef method)
+        MethodRef method,
+        MethodDefinitionHandle excludedMethod)
         => TypeProducer.TryCreateRequiredOperatorSibling(
             reader,
             typeHandle,
-            method);
+            method,
+            excludedMethod);
 
     public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
         MetadataReader reader,
@@ -957,7 +959,8 @@ public static class CompileBackSourceComposer
                     root => TryCreateRequiredOperatorSibling(
                         reader,
                         root,
-                        method),
+                        method,
+                        targetMethod),
                     allowTargetRoot);
             }
         }
@@ -3226,7 +3229,8 @@ public static class CompileBackSourceComposer
         TypeDefinition typeDef,
         CompileBackTypeIdentity typeIdentity,
         string methodName,
-        MethodSignature<string> targetSignature)
+        MethodSignature<string> targetSignature,
+        MethodDefinitionHandle excludedMethod = default)
     {
         var siblingName = OperatorNames.RequiredOperatorSibling(methodName);
         if (siblingName is null)
@@ -3234,6 +3238,9 @@ public static class CompileBackSourceComposer
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
+            if (methodHandle == excludedMethod)
+                continue;
+
             var method = reader.GetMethodDefinition(methodHandle);
             if (reader.GetString(method.Name) != siblingName
                 || !IsOperatorMethod(reader, method))
@@ -4173,7 +4180,8 @@ public static class CompileBackSourceComposer
         public static CompileBackMemberRequirement? TryCreateRequiredOperatorSibling(
             MetadataReader reader,
             TypeDefinitionHandle typeHandle,
-            MethodRef methodRef)
+            MethodRef methodRef,
+            MethodDefinitionHandle excludedMethod)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
             if (TryFindMethod(reader, typeDef, methodRef) is not { } methodHandle)
@@ -4189,7 +4197,8 @@ public static class CompileBackSourceComposer
                 typeDef,
                 CompileBackTypeIdentity.FromDefinition(reader, typeDef),
                 methodRef.Name,
-                signature);
+                signature,
+                excludedMethod);
         }
 
         public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
