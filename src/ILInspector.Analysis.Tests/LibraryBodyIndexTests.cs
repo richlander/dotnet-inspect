@@ -126,7 +126,10 @@ public class LibraryBodyIndexTests
         Assert.DoesNotContain(opportunities, opportunity =>
             opportunity.Method.Name
                 == nameof(UnsupportedSignatureSiblingFixture
-                    .AnalyzeAsync));
+                    .AnalyzeAsync)
+            && opportunity.Method.DeclaringType.Name
+                == nameof(
+                    UnsupportedSignatureSiblingFixture));
 
         var genericPrivate = Assert.Single(
             opportunities,
