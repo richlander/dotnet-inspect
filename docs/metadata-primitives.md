@@ -1,232 +1,410 @@
-# Shared metadata primitives — target layering
+# Shared metadata primitives
 
-> **Map:** [Type, member, and API representation](design/type-member-api-representation.md) is the entry
-> point for choosing a type, member, or API identity shape. This document owns
-> the details below.
+> **Map:** [Type, member, and API representation](design/type-member-api-representation.md)
+> is the entry point for choosing a type, member, or API identity shape. This
+> document owns the mechanical SRM boundary below those shapes.
 
-## Problem
+## Decision summary
 
-Three layers read `System.Reflection.Metadata` (SRM) independently and each
-re-implements the same mechanical primitives:
+The June 2026 decision to stop after the first three MetadataPrimitives
+migration steps is superseded.
 
-| Concern | `ILInspector.Metadata` | `ILInspector.Analysis` | `ILInspector.Decompiler` (Pipeline) |
-| --- | --- | --- | --- |
-| Type-name resolution (handle → name, nested-type walking) | `TypeResolver` | `TypeRefDecoder` / `MemberResolver.ResolveParentType` | `IrImporter` (inline) |
-| Signature decoding | `SignatureDecoder : ISignatureTypeProvider<string,…>` | `TypeRefDecoder : ISignatureTypeProvider<TypeRef,…>` | own provider → IR `TypeRef` |
-| Generic-parameter context | `GenericContext` | `GenericScope` | (inline) |
-| Attribute decode | `AttributeReader` (decode + render) | — | — |
-| Method-handle resolution (name + overload) | `AttributeReader.FindMethodHandleInType` | `MemberResolver` | (inline) |
+Resume consolidation in `ILInspector.MetadataPrimitives`, but consolidate
+**mechanics, not semantic models**:
 
-The walks are the same; only the *output type* differs. This is real
-duplication, not speculative.
+- MetadataPrimitives owns bounded SRM traversal, signature-decode admission,
+  neutral name segments and method coordinates, neutral structural keys, work
+  budgets, and typed mechanical rejection.
+- Metadata, Analysis, Decompiler, Instructions, and ILDiff retain their own
+  semantic models, signature providers, projections, and failure policy.
+- Analysis and Decompiler keep separate `TypeRef` types. They answer different
+  questions and have continued to diverge in useful, owner-specific ways.
+- Analysis and Decompiler should replace their local TypeSpec recursion and
+  byte accounting with the shared `TypeSpecGuard` while preserving their
+  current 1,024-byte admission limit and rejection projection.
+- Provider-facing wrappers remain local when they turn the same mechanical
+  rejection into different owner-specific outcomes.
+- Existing forwarded public identities in the `ILInspector.Metadata` namespace
+  remain unchanged in the first slice. A source, test, and local-build corpus
+  census should expose which names are pinned by repository behavior and
+  require new neutral currencies to use `ILInspector.MetadataPrimitives`.
+  Published-package corpus snapshots retain their historical identities until
+  their separately reviewed package pin moves.
 
-## Why a shared library is sound (and what it must not become)
+This document records the decision only. It does not authorize combining the
+implementation slices or changing failure behavior without the focused
+evidence described below.
 
-SRM is already the shared primitive, and its `ISignatureTypeProvider<T>` /
-`ICustomAttributeTypeProvider<T>` pattern is the idiomatic sharing mechanism —
-each consumer implements the provider for the type it needs and SRM does the
-walk. A **lean, SRM-only** helper library is just a thin convenience layer over
-that; it does **not** break the idiom or the layers' independence, *provided*
-it stays SRM-only (no rendering, no `ApiSurfaceExtractor`, no I/O).
+## Why the previous stop decision expired
 
-The discipline that keeps it sound:
+The old decision tested the proposed adoption against its first real Analysis
+consumer. It correctly concluded that Analysis needed a semantic `TypeRef`, not
+Metadata's display-oriented decoder, and that sharing the remaining
+attribute-name walk would delete only about 15 stable lines. That
+coupling-to-payoff result still holds.
 
-- **Share mechanical primitives that return neutral types** — strings, handles,
-  typed argument values. These have one correct form regardless of consumer.
-- **Do not unify the output models.** The three `TypeRef`s exist for different
-  reasons (display string, evidence matching, codegen IR). Each keeps its own
-  `ISignatureTypeProvider<T>`; they may be *built on* the shared name-resolution
-  helpers but are never collapsed into one type.
-- **Rendering stays in the consumer.** Turning typed attribute data into C#
-  (`[Flags]`, `(uint)x`) is a decompiler concern and stays in
-  `ILInspector.Metadata` / the decompiler.
+What expired is the assumption that steps 4 and 5 were one all-or-nothing
+choice. Analysis and Decompiler have since adopted several neutral mechanics,
+and each now contains both the shared TypeSpec guard and an older local
+TypeSpec policy. The new evidence is a concrete policy split below the semantic
+models, not a reason to revisit the models themselves.
 
-## Target layering
+At `27f830dfb`:
 
-A new `ILInspector.MetadataPrimitives` assembly sits **below** `Metadata`,
-referencing only SRM (BCL):
+- Analysis has six project references, including direct references to both
+  Metadata and MetadataPrimitives.
+- Decompiler directly references Metadata, MetadataPrimitives, Instructions,
+  ControlFlow, CSharp, Findings, ILDiff, Text, and CSharpText.
+- Analysis and Decompiler already consume MetadataPrimitives-owned
+  `MetadataRelationshipTraversal`, `SignatureBlobGuard`, and related rejection
+  types. `StructuralCloneAnalysis` and `IrImporter` also call
+  `TypeSpecGuard.TryEnter` directly.
+- Both separately consume Metadata-owned `MetadataTypeDefinitionName` and
+  `AssemblyReferenceIdentity`; those are product identity currencies, not
+  evidence of MetadataPrimitives adoption.
+- ILDiff is another direct MetadataPrimitives consumer for
+  `MethodStructuralSignature` keys and bounded metadata mechanics.
+- Nineteen product `ISignatureTypeProvider<,>` implementations exist across
+  the repository. The number is not itself a defect: the SRM provider pattern
+  is how each owner projects one signature walk into its own result.
+
+The question is therefore no longer whether a shared dependency is worth
+introducing. The dependency and partial adoption already exist. The current
+question is which remaining mechanics have one repository-wide answer and
+which differences are intentional policy.
+
+## Current boundary
+
+`ILInspector.MetadataPrimitives` is currently an SRM-only leaf with no project
+references. That property is **not gated**; the first implementation slice must
+add a project-closure gate before citing it as enforced.
 
 ```text
-                ┌─────────────────────────────┐
-                │  ILInspector.MetadataPrimitives  │  (SRM only)
-                │  GenericContext                  │
-                │  TypeResolver, SignatureDecoder  │  (← cluster, migrates together)
-                │  AttributeDecoder (decode core)  │
-                │  method-handle resolution        │
-                │  StringDistance (name ranking)    │
-                └─────────────────────────────┘
-                   ▲            ▲            ▲
-       ┌───────────┘            │            └───────────┐
-ILInspector.Metadata   ILInspector.Analysis   ILInspector.Decompiler (Pipeline)
-(rendering, ApiSurface, (evidence indexing,    (IR import, C# printing —
- SourceLink — on top)   own TypeRef on top)     own IR TypeRef on top)
+                     ILInspector.MetadataPrimitives
+             (bounded SRM mechanics and neutral currencies)
+                  /          |          |          \
+          Metadata       Analysis   Decompiler   Instructions
+                                                     |
+                                                   ILDiff
 ```
 
-Adopting this helper would add only a dependency on the lean, SRM-only
-primitives; it would not add a new consumer-to-consumer edge. The Decompiler
-`Pipeline` stays "SRM-only" because the helper is SRM-only. Analysis separately
-references Metadata for acquisition, structured binding, and definition
-correspondence.
+The diagram shows ownership, not every direct project edge. ILDiff also
+references MetadataPrimitives directly.
 
-### What moves
+### Shared mechanical ownership
 
-- `GenericContext` (the leaf — depends on nothing internal)
-- `TypeResolver` + `SignatureDecoder` (**mutually recursive** — `TypeResolver`
-  decodes type specs through `SignatureDecoder`, which resolves names through
-  `TypeResolver`; they move as one unit)
-- the attribute **decode** core — the `ICustomAttributeTypeProvider`,
-  `DecodeValue` wrapper, attribute-type-name resolution, and the
-  re-emitted-attribute noise filter
-- method-handle resolution by name + overload
-- dependency-free edit distance and normalized similarity for suggestion ranking
+| Concern | MetadataPrimitives owns |
+| --- | --- |
+| Metadata relationships | Bounded TypeDef, TypeRef, ExportedType, and related handle walks; typed rejection |
+| Signature admission | Structural blob prescan and cross-TypeSpec depth/byte budgets |
+| Bounded name traversal | Root-to-leaf handle/segment walks, `MaxTypeNameCharacters`, and typed rejection; the assembled definition-name currency stays in Metadata |
+| Method coordinates | `MetadataMethodAddress` and other neutral coordinates declared by this owner |
+| Neutral structural identity | Bounded keys used for matching without display policy |
+| Work budgets | Limits and typed exhaustion/rejection shared across consumers |
+| Generic metadata context | Bounded generic parameter names and constraint flags |
+| Neutral matching | Dependency-free name distance and similarity |
 
-### What stays
+Metadata retains product-facing definition identities, including
+`MetadataTypeDefinitionName` and `MetadataTypeDefinitionAddress`. Moving those
+currencies is not part of this decision. That defining-assembly ownership is
+**not gated**; the first implementation slice must add
+`MetadataPrimitiveOwnershipTests.MetadataDefinitionCurrencies_RemainMetadataOwned`,
+covering both types and the absence of a primitives-owned proxy or forwarder.
 
-- attribute **rendering** to C# (`RenderAttributes` and the `[...]` formatting)
-- `ApiSurfaceExtractor`, `PdbContext`, ILInspector.SourceLink, and the rest of the
-  metadata *product* surface
-- each consumer's own `TypeRef`/IR model and its `ISignatureTypeProvider<T>`
-- exact ordered line comparison and `TextFindings` in `ILInspector.Text`
+These mechanisms may expose handles, neutral values, typed results, or
+disposable admission scopes. They must not select a consumer's display,
+fallback, trust, correlation, or code-generation policy.
 
-`StringDistance` is a neutral BCL-only matching primitive, not presentation.
-Metadata type/member lookup and CLI command/section selection share the same
-algorithm, so its owner must sit below both consumers. This does not make the
-assembly a general text layer: line inspection, comparison, and Finding
-projection remain in `ILInspector.Text`.
-`LayeringTests.MetadataNameMatching_DoesNotDependOnFindingBackedText` gates both
-the primitive owner and the absence of `ILInspector.Text` from Metadata's
-project closure. Metadata still references `ILInspector.Findings` directly for
-its own `MetadataFindings` producers; this move removes the unrelated Text edge,
-not that intentional Finding ownership.
+### Consumer ownership
 
-## Guarded string-signature decoding
+| Owner | Retains |
+| --- | --- |
+| Metadata | API models, declaration identities, degraded metadata facts, and API/display projections |
+| Analysis | Evidence `TypeRef`, trust evidence, call/member matching, catalog correspondence, and incomplete-analysis policy |
+| Decompiler | Pipeline `TypeRef`, code-generation facts, custom modifiers, function-pointer spelling inputs, and fidelity policy |
+| Instructions | Decode, stack-shape, and instruction-substrate projections |
+| ILDiff | Canonical IL operands, member/body alignment, diff failures, Findings, and presentation |
 
-String-producing SRM decodes return `SignatureDecodeResult<T>`. `Decoded`
-carries the real field, method, property, method-spec, or TypeSpec value;
-`Rejected` carries a `SignatureDecodeRejectionKind` and detail. Rejection is
-never represented by a plausible `object` type, a default method signature, or
-an empty generic-argument list.
+Consumer-owned providers should call shared admission and traversal mechanics,
+then construct their native result. A neutral primitive must not return a
+plausible `object`, an empty signature, or a display string on rejection unless
+that value is itself an explicit typed result arm.
 
-Consumers fail closed according to their operation:
+## Why `TypeRef` remains local
 
-- discovery and classification scanners skip the rejected member;
-- API-surface census construction projects a visible degraded row with
-  `SignatureDecodeStatus.Degraded`;
-- formatting helpers may throw `BadImageFormatException` through
-  `GetValueOrThrow` when their caller already owns a row-level failure boundary.
+The Analysis and Decompiler models are not accidental copies of one canonical
+type.
 
-This contract governs the shared string-signature decoder and is separate from
-the provider-specific `TypeNode` and semantic-tree paths guarded for stack
-safety under #2575. Those providers retain their own result and fallback
-policies.
+Analysis `TypeRef` carries evidence-facing concerns including:
 
-The safety envelope has two independent limits:
+- exact resolution provenance beside the structural shape;
+- framework and protobuf trust evidence;
+- catalog-correspondence payload for modifiers, function pointers, and array
+  bounds;
+- Analysis-specific incomplete and unsupported outcomes.
 
-- `SignatureBlobGuard.DefaultMaxDepth` is 512 structural type nodes within one
-  signature blob;
-- `TypeSpecGuard.MaxDepth` is 256 cross-handle TypeSpec re-entries, with
-  `TypeSpecGuard.MaxCumulativeBytes` fixed at 4,096 bytes across the active
-  TypeSpec closure.
+Decompiler `Pipeline.TypeRef` carries code-generation concerns including:
 
-A single wide, shallow TypeSpec may consume the full 4,096-byte closure budget.
-There is no separate 1,024-byte per-blob cap. Both
-`GuardedSignatureText.TypeSpecText` and
-`TypeResolver.DecodeTypeNameFromSpecification` enter through the same
-`TypeSpecGuard`, so legal-input acceptance cannot vary by route. The
-compatibility API `GetTypeNameFromSpecification` returns a decoded value or
-throws on rejection; it does not restore a plausible fallback.
+- value-type hints and inline-array facts;
+- enclosing-type facts used by raising;
+- function-pointer calling conventions, parameter ref kinds, and modifiers;
+- fidelity-lowering unsupported shapes and printer inputs.
 
-Signature structure and TypeSpec re-entry are only two metadata safety
-mechanisms. TypeDef/TypeRef relationship walks and metadata-derived output
-expansion follow the separate
-[bounded metadata traversal](design/bounded-metadata-traversal.md) contract.
-They share explicit rejection and budget principles without being folded into
-signature parsing.
+Those facts have different equality, lifetime, and failure semantics. A shared
+`TypeRef` would either erase required evidence or become a union of unrelated
+layer policy. The repository-wide representation map therefore remains
+authoritative: type identity is a set of scoped currencies, not one universal
+record.
 
-## The key finding: it's an entangled cluster, used widely
+The allowed sharing point is below both models:
 
-The shareable primitives are not independent functions — `TypeResolver` and
-`SignatureDecoder` are mutually recursive and both need `GenericContext`, with
-the attribute decode layered on top of name resolution. And they are consumed
-across **~19 files in 3 projects** (Metadata ×13, Decompiler ×6, the CLI).
+1. admit the untrusted blob or relationship walk through shared bounds;
+2. return neutral handles, exact names, structural coordinates, or typed
+   rejection;
+3. let the consuming provider construct its native model.
 
-So this is a **staged migration**, not a single move — which is exactly why it
-warrants a design note before code moves.
+## Remaining convergence
 
-## Migration sequence (leaf-first, each step behind green tests)
+### 1. Use one TypeSpec admission mechanism
 
-1. **Stand up the library and move the leaf, `GenericContext`.** *(this change)*
-   To keep the first step churn-free it retains the `ILInspector.Metadata`
-   namespace, so existing `using ILInspector.Metadata;` resolves it transitively
-   and only `Metadata` adds the project reference. See **Namespace** below.
-2. **Move `TypeResolver` + `SignatureDecoder` together** (the recursive unit);
-   re-point Metadata's call sites.
-3. **Split the attribute primitive**: decode core → the library; rendering stays
-   in `Metadata.AttributeReader`, calling the shared decoder.
-4. **Adopt in `Analysis`**: reference the library and delete the hand-rolled
-   name-resolution in `TypeRefDecoder`/`MemberResolver` that duplicates it,
-   keeping its evidence `TypeRef` and provider.
-5. **Adopt in the Decompiler `Pipeline`** likewise.
+Analysis and Decompiler currently duplicate:
 
-Stop after any step; each is independently valuable.
+- thread-static recursion depth;
+- cumulative TypeSpec byte accounting;
+- a local 1,024-byte per-TypeSpec limit;
+- direct `SignatureBlobGuard` calls;
+- cleanup of the active budget in `finally`.
 
-## Namespace
+MetadataPrimitives already owns `TypeSpecGuard`, with a 256-entry and
+4,096-cumulative-byte contract plus the shared structural prescan. The local
+decoders match those limits but add a 1,024-byte per-TypeSpec cap. They can
+therefore only reject more input than the shared policy; they do not accept
+anything the shared guard rejects.
 
-Step 1 keeps the moved types in the `ILInspector.Metadata` namespace so the
-move is reference-only (zero `using` churn). That leaves a namespace/assembly
-mismatch, acceptable as a transitional state but not the end goal. The decision
-to make once `Analysis` adopts the library (step 4): either give the primitives
-their own `ILInspector.MetadataPrimitives` namespace (consumers update `using`s,
-so the namespace identifies the primitive owner), or keep a deliberate shared
-`ILInspector.Metadata` family namespace across the assemblies. The former is
-cleaner ownership signaling; resolve it then, not now.
+The shared guard currently merges depth and cumulative-byte exhaustion into
+one rejection kind, while the local decoders preserve separate reasons for
+active recursion, per-TypeSpec bytes, cumulative bytes, and unsafe structural
+nesting. Those reasons participate in rendered output and equality in both
+owners and in Decompiler fidelity diagnostics. Analysis also includes the
+reason in `TypeRef` hashing and graph identity; Decompiler currently omits it
+from `TypeRef.GetHashCode`. Consolidation must preserve each owner's actual
+behavior rather than making them incidentally uniform.
+The current rejection precedence is active recursion depth, per-TypeSpec bytes,
+cumulative bytes, then unsafe structural nesting; the shared guard must retain
+that order for the configured semantic-decoder path.
+
+The first implementation slice should:
+
+1. extend `TypeSpecGuard` with a configured per-TypeSpec byte limit and typed
+   rejection discriminators sufficient to preserve all four existing local
+   outcomes, without moving owner-specific reason text into the primitive;
+2. route Analysis and Decompiler `GetTypeFromSpecification` through that
+   disposable scope;
+3. configure both semantic decoders with their existing 1,024-byte limit and
+   map each typed rejection back to its exact current owner result;
+4. remove the local counters and direct structural prescan only after the
+   shared scope preserves cleanup and nested-entry behavior;
+5. preserve successful and rejected projections byte-for-byte, including
+   reason text, equality, each owner's current hash behavior, and
+   fidelity-diagnostic grouping.
+
+The detailed admission result is not permission to change the existing shared
+string contract. `SignatureDecoder` and `GuardedSignatureDecoder` must continue
+to expose the same coarse `SignatureDecodeRejectionKind` and detail text for
+top-level and nested TypeSpec rejection. The shared adapter may deliberately
+coarsen the new admission discriminator at that boundary.
+
+`ProviderSignatureDecodeBoundaryTests` is the existing anti-ratchet gate for
+top-level provider decodes and nested TypeSpec entry. The implementation slice
+must update that gate so its accepted Analysis/Decompiler pattern is the shared
+`TypeSpecGuard`, then mutation-prove that bypassing the guard in either decoder
+fails. `TypeRefDecoderRecursionTests` in both owner suites must cover matching
+close-negative cases at 1,025 and 4,097 bytes, active-depth exhaustion, and
+unsafe structural nesting. A co-violation matrix must pin every earlier reason
+against every later reason: depth with per-entry, cumulative, and structural;
+per-entry with cumulative and structural; and cumulative with structural.
+Outcome tests must pin each owner's reason text, `TypeRef` equality, and current
+hash behavior before and after convergence. Exact top-level and nested
+string-outcome tests must pin the existing coarse rejection kind, detail, and
+`GetValueOrThrow` exception text.
+
+Removing the 1,024-byte cap is explicitly deferred. A legal 4,095-byte generic
+shape can amplify into thousands of resolved names and millions of rendered
+characters. Before widening acceptance, each artifact operation must have
+separately enforced item and text budgets with typed rejection, as required by
+[bounded metadata traversal](design/bounded-metadata-traversal.md). Evidence
+must include the worst-case wide generic shape with long resolved names, not
+only a representative accepted fixture. A later decision must own any
+acceptance, output, equality, or diagnostic-bucketing change.
+
+### 2. Keep decode mechanics separate from failure policy
+
+Metadata and Instructions have similarly named `GuardedProviderDecode`
+adapters. Metadata returns values plus degraded state for row-level API
+projection. Instructions and ILDiff use try-style results, typed diff failures,
+or hash-derived unsupported identities. Decompiler's string composers throw at
+their existing artifact-operation boundary, while Metadata's string producers
+retain `SignatureDecodeResult<T>`.
+
+Those outcomes are intentionally different. Do not move fallback construction
+or throwing behavior into MetadataPrimitives merely to delete similarly shaped
+methods. The shared owner is the prescan and TypeSpec admission mechanism;
+the consuming owner decides what rejection means.
+
+`StringSignatureDecodeBoundaryTests` currently scans Metadata and
+MetadataPrimitives only. Decompiler has three string-producing metadata gateway
+families:
+
+- `GuardedSignatureText` terminates signature text through
+  `GetValueOrThrow`;
+- `CSharpBodyDiff.ResolveIdentityTypeName` terminates typed
+  `TypeResolver.ResolveTypeName` failures through
+  `MetadataIdentityResolutionException`;
+- direct `MetadataReaderExtensions.GetFullTypeName` calls reach
+  `TypeResolver.GetFullName`; some propagate its `BadImageFormatException`,
+  while one `IrImporter` boundary explicitly degrades to `"<type>"`.
+
+Closure across those families is **not verified**. The first implementation
+slice must add `DecompilerStringGatewayBoundaryTests`, using resolved symbols
+rather than owner-type text so extension-method calls cannot evade the census.
+Every call site must be classified by gateway and expected owner failure
+boundary. Mutations that remove, replace, bypass, or silently reclassify any
+boundary must fail.
+
+A generic decode helper belongs in MetadataPrimitives only if at least three
+consumers need the same typed outcome contract. Line-count reduction alone is
+not sufficient.
+
+### 3. Distinguish ILDiff's two signature projections
+
+ILDiff contains two `SignatureIdentityProvider` classes, but they answer
+different questions:
+
+- assembly/member pairing requires exact declaring-type identity and rejects a
+  method from the correlation map when identity construction fails;
+- operand canonicalization applies diff normalization, compiler-generated
+  correspondence, and unsupported-signature identities for row evidence.
+
+Do not merge them into one provider or move their string policy downward.
+A focused ILDiff cleanup may rename them to make the two projections obvious
+and may share genuinely byte-identical primitive spelling helpers, but it must
+preserve their distinct failure and normalization contracts.
+`ILInspector.ILDiff.Tests.SignatureDecoderSafetyTests` covers assembly/member
+pairing rejection, but no named gate jointly proves that pairing and operand
+canonicalization retain their distinct outcomes. That distinction is **not
+verified** as a refactoring invariant. Any cleanup slice must first add focused
+outcome tests for both providers and mutation-prove that merging their failure
+or normalization paths fails.
+
+### 4. Make the namespace split deliberate
+
+Most files in `ILInspector.MetadataPrimitives` still declare
+`namespace ILInspector.Metadata`, while newer neutral currencies use
+`ILInspector.MetadataPrimitives`. The mismatch began as transitional. These
+internal libraries have no external API-stability commitment, but some old
+full type names are observable repository behavior:
+
+- `ILInspector.Metadata` forwards
+  `ILInspector.Metadata.SignatureBlobGuard` and
+  `ILInspector.Metadata.MethodStructuralSignature` to the primitives assembly;
+- `SignatureDecoderSafetyTests.SignatureBlobGuard_OldAssemblyIdentity_IsForwarded`,
+  two `SectionPipelineTests` cases, and
+  `LibraryFindingConsumerTests.TypeForwardersQueryProjection_RetainsFindingSemanticsAndDisplayProjection`
+  pin the former name across runtime resolution, query output, and Finding
+  projection;
+- `tools/DecompilerHarness/corpus/pr-quick-baseline.json` inspects the local
+  build and pins forwarded and non-forwarded MetadataPrimitives types whose
+  full names still use `ILInspector.Metadata`;
+- `tools/DecompilerHarness/corpus/real-world-baseline.json` instead inspects
+  published `dotnet-inspect.any` 0.14.0. Its legacy names are a frozen external
+  snapshot, not evidence about current source, and change only when
+  `SELF_VERSION` is deliberately re-pinned and the corpus is re-harvested;
+- no test independently pins the forwarded
+  `ILInspector.Metadata.MethodStructuralSignature` name;
+- a CLR type forwarder cannot preserve an old full type name while changing its
+  namespace.
+
+A blanket namespace move would therefore change self-inspection output and
+repo-local expectations; it is not a mechanical cleanup. This is repository
+coupling, not an external compatibility promise. The dedicated namespace slice
+should instead:
+
+1. inventory every public primitive as a repo-pinned legacy name, an ungated
+   forwarded name, or owner-native `ILInspector.MetadataPrimitives`;
+2. retain, migrate, or retire each old name deliberately, updating all exact
+   string and local-build corpus expectations and adding or removing
+   forwarding tests to match;
+3. require new neutral currencies to use the owner-native namespace;
+4. add a source/forwarder/test/local-corpus census that fails on an
+   unclassified public type, stale forwarding contract, or exact local-build
+   expectation absent from the classification. The gate must also classify
+   every committed `tools/DecompilerHarness/corpus/**/*baseline.json` by input
+   provenance and fail on an unknown class. Published-package snapshots are
+   excluded from current-source name matching and must not be rewritten outside
+   their package-version re-harvest.
+
+This makes the mixed namespace deliberate without adding duplicate wrapper
+types. The classification property is currently **not gated**.
+
+## Existing safety enforcement
+
+The current boundary is protected by:
+
+- `ProviderSignatureDecodeBoundaryTests` for guarded provider decodes and
+  bounded nested TypeSpec re-entry;
+- `StringSignatureDecodeBoundaryTests` for Metadata and MetadataPrimitives
+  string-producing signature paths; Decompiler policy is not yet covered;
+- `MetadataRelationshipTraversalTests` for bounded relationship mechanics;
+- `SignatureBlobGuardTests` and `SignatureDecoderSafetyTests` for malformed and
+  adversarial signature shapes;
+- `LayeringTests.MetadataNameMatching_DoesNotDependOnFindingBackedText` for the
+  MetadataPrimitives owner of neutral name matching.
+
+No current gate enforces that MetadataPrimitives has zero project references.
+
+An implementation that changes a stated safety or ownership property must
+extend the owning gate rather than relying on a green broad suite.
+
+## Sequencing
+
+Keep the work in independently reviewable slices:
+
+1. **TypeSpec admission and boundary gates** — add the leaf and Decompiler
+   string-gateway gates, converge Analysis and Decompiler on the shared guard,
+   and preserve the current 1,024-byte admission and rejection projections.
+2. **Namespace ownership classification** — inventory legacy forwarded
+   identities and owner-native types, then add the
+   source/forwarder/test/local-corpus expectation and baseline-provenance
+   census.
+3. **Optional local clarity** — rename ILDiff's two providers if the names
+   continue to obscure their distinct projections.
+
+Do not combine these slices with a `TypeRef` redesign, provider-policy rewrite,
+rendering change, or TypeSpec acceptance widening. Each slice must preserve
+product output and failure visibility.
 
 ## Non-goals
 
-- A unified `TypeRef`. The models stay per-consumer.
-- Pulling rendering or I/O into the primitives library.
-- Pre-emptive breadth: primitives earn their place from demonstrated
-  duplication (the rule of three), not speculation.
+- A repository-wide `TypeRef`.
+- One canonical type spelling.
+- Moving rendering, trust, analysis, correlation, or fidelity policy into
+  MetadataPrimitives.
+- Hiding mechanical rejection behind empty or plausible values.
+- Adding a dependency from Analysis to Decompiler or from Decompiler to
+  Analysis.
+- Deduplicating provider classes solely because they implement the same SRM
+  interface.
+- A blanket namespace rename that silently changes forwarded full type names.
 
-## Decision (2026-06): stop after step 3
+## Superseded decision
 
-**Steps 1–3 are complete (#578/#579/#580) and stand. Do not do step 4 (Analysis
-adopts) or step 5 (Pipeline adopts) now.** Keep Analysis's structural decoder
-local; keep the `ILInspector.Metadata` namespace on the moved primitives.
+The June 2026 "stop after step 3" decision correctly rejected a unified
+display-oriented `TypeRef` and declined to share a two-consumer
+attribute-name walk whose payoff was only about 15 lines. It treated all
+further adoption as one choice.
 
-The migration sequence above was written without a real second consumer of
-`Analysis`, so step 4's payoff was a hypothesis. The memory-safety unsafe-mode
-detector (`ILInspector.Analysis.App`, `CallerUnsafeMode` in `LibraryBodyIndex`)
-is now that consumer, and it reads metadata three ways — attribute-by-name,
-signature decode, module-attribute scan — exercising exactly the primitives this
-note is about. It turns the hypothesis into evidence:
-
-- **TypeRef unification is decisively wrong.** The detector's pointer-signature
-  check needs `TypeRefKind.Pointer` — *semantic* structure. `Metadata.TypeResolver`
-  produces display **strings** and cannot answer "is there a pointer in this
-  signature." `Analysis`'s own `TypeRefDecoder → TypeRef` is what makes the check
-  possible. A shared model would have forced `Analysis` to keep its own anyway.
-- **Analysis's structural identity is a product boundary.** The whole detector
-  remains SRM-direct for signature shape even though Analysis now references
-  Metadata for acquisition, structured binding, and definition correspondence.
-  Adopting display-oriented primitives would not replace that local decoder.
-- **The real duplication is tiny and stable.** `Analysis` hand-rolled
-  `AttributeTypeName` (ctor → declaring-type namespace+name, `MemberReference`
-  vs `MethodDefinition`) — the same SRM walk as
-  `AttributeDecoder.GetAttributeTypeName`, differing only in return shape
-  (`(ns, name)` vs full-name `string?`). It needs **only the name**, not
-  `TryDecode`/`CustomAttributeValue` argument decode. The shareable slice is
-  ~15 lines of mechanical SRM that does not churn.
-
-The trade-off, now concrete: sharing buys deleting ~15 stable lines while
-coupling Analysis's structural decoder to a display-oriented primitive surface
-that cannot replace it. Tolerate the duplication.
-
-**Trip-wire (the only condition to revisit):** if the Decompiler `Pipeline` also
-needs attribute-name reads, that is rule-of-three across projects — at that point
-share `GetAttributeTypeName` *only* (the name walk, never `TryDecode`, never a
-`TypeRef`). Until that third sighting, no action.
-
-Underlying principle: let real consumers *pull* primitives into the shared
-library; do not *push* them in speculatively. The first real pull pulled almost
-nothing — which is the answer.
+The durable part remains: semantic models stay local and consumers pull only
+demonstrably shared primitives downward. The superseded part is the prohibition
+on steps 4 and 5. Analysis and Decompiler have already adopted shared
+relationship and identity mechanics; they should complete that convergence
+where one bounded SRM mechanism has one correct answer.
