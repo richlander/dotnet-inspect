@@ -66,7 +66,8 @@ internal static class NuGetHttpRequest
                 continue;
             }
 
-            if (char.IsControl(character)
+            if (character > 0x7F
+                || char.IsControl(character)
                 || char.IsWhiteSpace(character)
                 || character is '\\' or '"' or '<' or '>' or '^' or '`' or '{' or '|' or '}')
             {

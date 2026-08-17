@@ -95,6 +95,27 @@ public class SearchRequestUriTests
         Assert.Equal(string.Empty, url);
     }
 
+    [Fact]
+    public void TryCompose_RequiresFeedDeclaredNonAsciiTextToBeEscaped()
+    {
+        Assert.False(
+            SearchRequestUri.TryCompose(
+                "https://feed.test/über/query?sig=täg",
+                SearchParameters,
+                out string invalid));
+        Assert.Equal(string.Empty, invalid);
+
+        Assert.True(
+            SearchRequestUri.TryCompose(
+                "https://feed.test/%C3%BCber/query?sig=t%C3%A4g",
+                SearchParameters,
+                out string encoded));
+        Assert.StartsWith(
+            "https://feed.test/%C3%BCber/query?sig=t%C3%A4g&",
+            encoded,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("semVerLevel")]
     [InlineData("SEMVERLEVEL")]

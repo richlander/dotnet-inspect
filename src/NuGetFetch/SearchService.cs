@@ -137,23 +137,46 @@ public partial class SearchService
         IReadOnlyList<SearchResult> results = parsed?.Data
             ?? throw new InvalidOperationException(
                 "The search response was not a valid NuGet search document.");
-        if (results.Any(result => !IsValidResult(result)))
+        foreach (SearchResult result in results)
         {
-            throw new InvalidOperationException(
-                "The search response contained an invalid result identity.");
+            operation.ThrowIfExpired();
+            if (!IsValidResult(result, operation))
+            {
+                throw new InvalidOperationException(
+                    "The search response contained an invalid result identity.");
+            }
         }
 
+        operation.ThrowIfExpired();
         return results;
     }
 
-    private static bool IsValidResult(SearchResult? result) =>
-        result is not null
-        && IsValidPackageId(result.Id)
-        && IsValidPackageVersion(result.Version)
-        && (result.Versions is null
-            || result.Versions.All(version =>
-                version is not null
-                && IsValidPackageVersion(version.Version)));
+    private static bool IsValidResult(
+        SearchResult? result,
+        NuGetOperationDeadline operation)
+    {
+        if (result is null
+            || !IsValidPackageId(result.Id)
+            || !IsValidPackageVersion(result.Version))
+        {
+            return false;
+        }
+
+        if (result.Versions is null)
+            return true;
+
+        foreach (SearchVersion version in result.Versions)
+        {
+            operation.ThrowIfExpired();
+            if (version is null
+                || !IsValidPackageVersion(version.Version))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     private static bool IsValidPackageId(string? packageId) =>
         packageId is { Length: > 0 and <= 100 }
@@ -206,6 +229,7 @@ public partial class SearchService
             bool madeProgress = false;
             foreach (SearchResult result in page)
             {
+                operation.ThrowIfExpired();
                 madeProgress |= observedResults.Add(
                     $"{result.Id.Length}:{result.Id}{result.Version}");
                 if (result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
@@ -228,6 +252,7 @@ public partial class SearchService
             throw new InvalidOperationException(
                 $"NuGet search pagination exceeded {MaxPrefixSearchPages} pages.");
 
+        operation.ThrowIfExpired();
         return matches;
     }
 }

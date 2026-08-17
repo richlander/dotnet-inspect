@@ -40,7 +40,9 @@ Feed-declared search endpoints may contain signed query parameters. Unrelated pa
 is sent byte-for-byte as declared, including percent escapes, while product-owned `q`, `skip`,
 `take`, `prerelease`, and `semVerLevel` parameters are replaced case-insensitively and appended
 exactly once. An authority-only endpoint receives the HTTP root path rather than an invalid empty
-request target. Diagnostics redact the declared query on success and failure paths.
+request target. Feed-declared non-ASCII path or query text must already be UTF-8 percent-encoded;
+raw non-ASCII is refused because disabling URI canonicalization would otherwise truncate or corrupt
+the HTTP/1.1 request target. Diagnostics redact the declared query on success and failure paths.
 `SearchRequestUriTests`,
 `SearchServiceTests.SearchAsync_PreservesEncodedSignedQueryBytes`,
 `NuGetSearchSourcesTests.GetSearchQueryServiceAsync_PreservesDeclaredQueryBytes`, and
@@ -48,7 +50,13 @@ request target. Diagnostics redact the declared query on success and failure pat
 `FetchAllMetadataAsync_SearchFailureRedactsDeclaredQuery` gate this contract.
 `NuGetSearchSourcesTests.SearchAsync_EquivalentEndpointFailover_IsBounded` and
 `NuGetSearchSourcesTests.SearchAsync_EquivalentEndpointFailover_SharesOperationCeiling` gate those
-bounds; `SearchTimeoutOptions_DeriveFourRequestDeadlines` and
+bounds for package search; metadata enrichment is gated by
+`PackageMetadataServiceTests.FetchAllMetadataAsync_EquivalentSearchFailoverIsBounded`.
+Every source left unsearched when the shared ceiling expires remains visible in the outcome,
+gated by `SearchAsync_OperationTimeoutDescribesEveryRemainingSource`. Synchronous validation,
+pagination, and aggregation recheck the monotonic operation deadline after network completion.
+`NuGetDeadlineTests.OperationCeiling_RejectsWorkAfterACompletedRequest`,
+`SearchTimeoutOptions_DeriveFourRequestDeadlines`, and
 `SearchAsync_UnsupportedFutureCapability_UsesHighestSupportedVersion` gate the configured
 deadline and compatibility rules. Failed vulnerability endpoints do not create a clean cache
 entry; the next request retries them.

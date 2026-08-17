@@ -42,8 +42,6 @@ public record NuGetSearchOutcome(
 /// </summary>
 public static class NuGetSearchService
 {
-    private const int MaxEquivalentSearchEndpoints = 4;
-
     /// <summary>
     /// Searches the resolved NuGet sources. Resolution always runs, so a NuGet.config discovered
     /// from the working directory is honored even when no source option was passed. Each resolved
@@ -116,6 +114,7 @@ public static class NuGetSearchService
         HashSet<(string Id, NuGetVersion Version)> seen =
             new(SearchResultKeyComparer.Instance);
         int searched = 0;
+        bool operationTimedOut = false;
         bool useFactoryClients =
             ReferenceEquals(client, HttpClientFactory.Shared);
         _ = NuGetFetchOptions.RequestTimeoutForClient(
@@ -125,16 +124,19 @@ public static class NuGetSearchService
             fetchOptions.OperationTimeout);
         long operationStarted = Stopwatch.GetTimestamp();
 
-        foreach (NuGetSource source in sources)
+        for (int sourceIndex = 0; sourceIndex < sources.Count; sourceIndex++)
         {
+            NuGetSource source = sources[sourceIndex];
             if (HasOperationExpired(
                     operationStarted,
                     fetchOptions.OperationTimeout))
             {
-                failures.Add(
-                    $"{PackageSourceDisplay.ForDiagnostics(source)}: search failed "
-                    + $"({nameof(NuGetOperationTimeoutException)}: "
-                    + $"NuGet operation did not complete within {fetchOptions.OperationTimeout}.)");
+                operationTimedOut = true;
+                AddOperationTimeoutFailures(
+                    sources,
+                    sourceIndex,
+                    failures,
+                    fetchOptions.OperationTimeout);
                 break;
             }
 
@@ -194,7 +196,15 @@ public static class NuGetSearchService
                     + $"at {UrlRedaction.ForDiagnostics(source.Url)} "
                     + $"({DescribeTransportFailure(ex)})");
                 if (ex is NuGetOperationTimeoutException)
+                {
+                    operationTimedOut = true;
+                    AddOperationTimeoutFailures(
+                        sources,
+                        sourceIndex + 1,
+                        failures,
+                        fetchOptions.OperationTimeout);
                     break;
+                }
                 continue;
             }
 
@@ -212,7 +222,7 @@ public static class NuGetSearchService
             IReadOnlyList<SearchResult>? found = null;
             Exception? lastFailure = null;
             string? lastSearchUrl = null;
-            foreach (string searchUrl in searchUrls.Take(MaxEquivalentSearchEndpoints))
+            foreach (string searchUrl in searchUrls)
             {
                 if (HasOperationExpired(
                         operationStarted,
@@ -291,26 +301,66 @@ public static class NuGetSearchService
                     + $"at {UrlRedaction.ForDiagnostics(lastSearchUrl)} "
                     + $"({DescribeTransportFailure(lastFailure!)})");
                 if (lastFailure is NuGetOperationTimeoutException)
+                {
+                    operationTimedOut = true;
+                    AddOperationTimeoutFailures(
+                        sources,
+                        sourceIndex + 1,
+                        failures,
+                        fetchOptions.OperationTimeout);
                     break;
+                }
                 continue;
             }
 
-            searched++;
+            var sourceResults = new List<NuGetSearchResult>();
+            var sourceKeys = new HashSet<(string Id, NuGetVersion Version)>(
+                SearchResultKeyComparer.Instance);
+            bool aggregationTimedOut = false;
             foreach (SearchResult result in found)
             {
+                if (HasOperationExpired(
+                        operationStarted,
+                        fetchOptions.OperationTimeout))
+                {
+                    aggregationTimedOut = true;
+                    break;
+                }
+
+                var key = (
+                    result.Id,
+                    NuGetVersion.Parse(result.Version));
                 if ((resultFilter?.Invoke(result) ?? true)
                     && NuGetSourceResolver.IsAliasEligibleForPackage(
                         source,
                         sources,
                         mapping,
                         result.Id)
-                    && seen.Add((
-                        result.Id,
-                        NuGetVersion.Parse(result.Version))))
+                    && !seen.Contains(key)
+                    && sourceKeys.Add(key))
                 {
-                    results.Add(NuGetSearchResult.From(result));
+                    sourceResults.Add(NuGetSearchResult.From(result));
                 }
             }
+
+            if (aggregationTimedOut)
+            {
+                operationTimedOut = true;
+                failures.Add(OperationTimeoutFailure(
+                    source,
+                    fetchOptions.OperationTimeout,
+                    attempted: true));
+                AddOperationTimeoutFailures(
+                    sources,
+                    sourceIndex + 1,
+                    failures,
+                    fetchOptions.OperationTimeout);
+                break;
+            }
+
+            searched++;
+            seen.UnionWith(sourceKeys);
+            results.AddRange(sourceResults);
         }
 
         // Every configured source failed. Returning an empty list here would render as
@@ -331,8 +381,47 @@ public static class NuGetSearchService
                 StringComparer.OrdinalIgnoreCase);
         }
 
-        return new NuGetSearchOutcome(limited.Take(take).ToList(), failures);
+        if (!operationTimedOut)
+        {
+            ThrowIfOperationExpired(
+                operationStarted,
+                fetchOptions.OperationTimeout,
+                operationCancellation.Token);
+        }
+        List<NuGetSearchResult> finalResults = limited.Take(take).ToList();
+        if (!operationTimedOut)
+        {
+            ThrowIfOperationExpired(
+                operationStarted,
+                fetchOptions.OperationTimeout,
+                operationCancellation.Token);
+        }
+        return new NuGetSearchOutcome(finalResults, failures);
     }
+
+    private static void AddOperationTimeoutFailures(
+        IReadOnlyList<NuGetSource> sources,
+        int startIndex,
+        List<string> failures,
+        TimeSpan timeout)
+    {
+        for (int index = startIndex; index < sources.Count; index++)
+        {
+            failures.Add(OperationTimeoutFailure(
+                sources[index],
+                timeout,
+                attempted: false));
+        }
+    }
+
+    private static string OperationTimeoutFailure(
+        NuGetSource source,
+        TimeSpan timeout,
+        bool attempted) =>
+        $"{PackageSourceDisplay.ForDiagnostics(source)}: "
+        + (attempted ? "search failed " : "search not attempted ")
+        + $"({nameof(NuGetOperationTimeoutException)}: "
+        + $"NuGet operation did not complete within {timeout}.)";
 
     /// <summary>
     /// The part of a transport failure that may be printed.

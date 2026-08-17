@@ -929,6 +929,7 @@ public class PackageMetadataServiceTests : IDisposable
                       "resources": [
                         { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
                         { "@id": "https://private.example/query-a", "@type": "SearchQueryService/3.5.0" },
+                        { "@id": "https://private.example/query-a", "@type": "SearchQueryService/3.5.0" },
                         { "@id": "https://private.example/query-b", "@type": "SearchQueryService/3.5.0" }
                       ]
                     }
@@ -960,6 +961,48 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.Contains(
             handler.Requests,
             request => request.Uri.AbsolutePath == "/query-b");
+        Assert.Equal(
+            1,
+            handler.Requests.Count(
+                request => request.Uri.AbsolutePath == "/query-a"));
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_EquivalentSearchFailoverIsBounded()
+    {
+        const string source = "https://private.example/v3/index.json";
+        string resources = string.Join(
+            ",",
+            Enumerable.Range(0, 6).Select(index =>
+                $$"""{"@id":"https://private.example/query-{{index}}","@type":"SearchQueryService/3.5.0"}"""));
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json(
+                    $$"""{"resources":[{"@id":"https://private.example/registration/","@type":"RegistrationsBaseUrl/3.6.0"},{{resources}}]}"""),
+                "/registration/private.package/1.0.0.json" => Json("{}"),
+                _ when request.RequestUri.AbsolutePath.StartsWith(
+                    "/query-",
+                    StringComparison.Ordinal) => Json("{"),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+
+        _ = await PackageMetadataService.FetchAllMetadataAsync(
+            new HttpClient(handler),
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            forceLatest: true,
+            sourceOptions: new NuGetSourceOptions { Sources = [source] });
+
+        Assert.Equal(
+            ["/query-0", "/query-1", "/query-2", "/query-3"],
+            handler.Requests
+                .Where(request => request.Uri.AbsolutePath.StartsWith(
+                    "/query-",
+                    StringComparison.Ordinal))
+                .Select(request => request.Uri.AbsolutePath));
     }
 
     [Fact]

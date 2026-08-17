@@ -68,6 +68,7 @@ internal sealed record PackageVersionResolution(
 /// </summary>
 public static class PackageExtractor
 {
+    private const int MaxEquivalentSearchEndpoints = 4;
     private const int MaxToolWrapperRedirectHops = 8;
 
     /// <summary>
@@ -1249,9 +1250,9 @@ public static class PackageExtractor
     }
 
     /// <summary>
-    /// Selects every endpoint at the highest supported search capability version, preserving
-    /// service-index order. Unknown future versions are not assumed to preserve the current
-    /// search protocol.
+    /// Selects at most four distinct endpoints at the highest supported search capability
+    /// version, preserving service-index order. Unknown future versions are not assumed to
+    /// preserve the current search protocol.
     /// </summary>
     public static List<ServiceResource> GetCompatibleSearchServiceResources(
         IReadOnlyList<ServiceResource> resources)
@@ -1267,12 +1268,20 @@ public static class PackageExtractor
             return [];
 
         int bestRank = matching.Max(item => item.Rank);
-        return
-        [
-            .. matching
-                .Where(item => item.Rank == bestRank)
-                .Select(item => item.Resource),
-        ];
+        var selected = new List<ServiceResource>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach ((ServiceResource resource, int rank) in matching)
+        {
+            if (rank == bestRank
+                && seen.Add(resource.Id))
+            {
+                selected.Add(resource);
+                if (selected.Count == MaxEquivalentSearchEndpoints)
+                    break;
+            }
+        }
+
+        return selected;
     }
 
     private static bool TryGetSearchServiceRank(string type, out int rank)

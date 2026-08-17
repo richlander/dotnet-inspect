@@ -287,6 +287,46 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchAsync_OperationTimeoutDescribesEveryRemainingSource()
+    {
+        const string firstIndex = "https://first.example/v3/index.json";
+        const string secondIndex = "https://second.example/v3/index.json";
+        const string thirdIndex = "https://third.example/v3/index.json";
+        var handler = new RouteHandler();
+        handler.RespondWithContent(
+            firstIndex,
+            static () => new StallingBodyContent());
+        using var client = new HttpClient(handler)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                NuGetSearchService.SearchAsync(
+                    client,
+                    "Contoso",
+                    sourceOptions: new NuGetSourceOptions
+                    {
+                        Sources = [firstIndex, secondIndex, thirdIndex],
+                    },
+                    fetchOptions: new NuGetFetchOptions
+                    {
+                        RequestTimeout = TimeSpan.FromSeconds(5),
+                        OperationTimeout = TimeSpan.FromMilliseconds(100),
+                    }));
+
+        Assert.Contains("first.example", error.Message, StringComparison.Ordinal);
+        Assert.Contains("second.example", error.Message, StringComparison.Ordinal);
+        Assert.Contains("third.example", error.Message, StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            error.Message.Split(
+                "search not attempted",
+                StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
     public async Task GetSearchQueryServiceAsync_FeedWithoutSearchResource_ReturnsNull()
     {
         const string flatContainerOnly = """
