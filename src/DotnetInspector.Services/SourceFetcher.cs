@@ -11,6 +11,7 @@ internal enum SourceFetchFailureKind
     Unavailable,
     AttributedOriginUnverified,
     ValidationFailed,
+    StorageFailed,
 }
 
 internal readonly record struct SourceFetchBytesResult(
@@ -18,14 +19,32 @@ internal readonly record struct SourceFetchBytesResult(
     SourceFetchFailureKind? Failure = null);
 
 /// <summary>
-/// Fetches source files from URLs with persistent disk caching and in-memory caching.
+/// Fetches checksum-gated source bytes through a host-selected content store.
+/// The compatibility constructor uses the process-wide disk cache; content-only
+/// hosts can supply <see cref="InMemorySourceContentStore"/>.
 /// </summary>
-public class SourceFetcher(HttpClient httpClient)
+public class SourceFetcher
 {
     private readonly ConcurrentDictionary<string, byte[]> _byteMemoryCache = new();
-    private readonly HttpClient _httpClient = httpClient;
+    private readonly HttpClient _httpClient;
+    private readonly ISourceContentStore _contentStore;
     private const string ByteCacheCategory = "source-bytes-v2";
     internal const long MaxSourceDownloadSize = 16_000_000;
+
+    public SourceFetcher(HttpClient httpClient)
+        : this(httpClient, CoreCacheSourceContentStore.Instance)
+    {
+    }
+
+    public SourceFetcher(
+        HttpClient httpClient,
+        ISourceContentStore contentStore)
+    {
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(contentStore);
+        _httpClient = httpClient;
+        _contentStore = contentStore;
+    }
 
     /// <summary>
     /// Fetches exact source bytes and returns them only when they satisfy
@@ -74,24 +93,28 @@ public class SourceFetcher(HttpClient httpClient)
             _byteMemoryCache.TryRemove(url, out _);
         }
 
-        string? encoded = CoreCache.TryGet(
-            ByteCacheCategory,
-            url,
-            extension: "base64");
-        if (encoded is not null)
+        byte[]? cachedBytes;
+        try
         {
-            try
+            cachedBytes =
+                await _contentStore.TryOpenAsync(
+                    url,
+                    cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        catch (Exception ex) when (IsContentStoreFailure(ex))
+        {
+            return new SourceFetchBytesResult(
+                null,
+                SourceFetchFailureKind.StorageFailed);
+        }
+
+        if (cachedBytes is not null)
+        {
+            if (validator(cachedBytes))
             {
-                var cachedBytes = Convert.FromBase64String(encoded);
-                if (validator(cachedBytes))
-                {
-                    _byteMemoryCache[url] = cachedBytes;
-                    return new SourceFetchBytesResult(cachedBytes);
-                }
-            }
-            catch (FormatException)
-            {
-                // A corrupt cache entry is replaced by the network result below.
+                _byteMemoryCache[url] = cachedBytes;
+                return new SourceFetchBytesResult(cachedBytes);
             }
         }
 
@@ -119,12 +142,22 @@ public class SourceFetcher(HttpClient httpClient)
             if (!validator(bytes))
                 return new SourceFetchBytesResult(null, SourceFetchFailureKind.ValidationFailed);
 
+            try
+            {
+                await _contentStore.StoreAsync(
+                    url,
+                    bytes,
+                    cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch (Exception ex) when (IsContentStoreFailure(ex))
+            {
+                return new SourceFetchBytesResult(
+                    null,
+                    SourceFetchFailureKind.StorageFailed);
+            }
+
             _byteMemoryCache[url] = bytes;
-            CoreCache.Set(
-                ByteCacheCategory,
-                url,
-                Convert.ToBase64String(bytes),
-                extension: "base64");
             return new SourceFetchBytesResult(bytes);
         }
         catch (HttpRequestException)
@@ -136,6 +169,12 @@ public class SourceFetcher(HttpClient httpClient)
             return new SourceFetchBytesResult(null, SourceFetchFailureKind.Unavailable);
         }
     }
+
+    static bool IsContentStoreFailure(Exception exception)
+        => exception is not (OperationCanceledException
+            or OutOfMemoryException
+            or StackOverflowException
+            or AccessViolationException);
 
     /// <summary>
     /// Extracts a named region from source content.
@@ -226,5 +265,49 @@ public class SourceFetcher(HttpClient httpClient)
         }
 
         return string.Join('\n', result).TrimEnd();
+    }
+
+    sealed class CoreCacheSourceContentStore
+        : ISourceContentStore
+    {
+        internal static CoreCacheSourceContentStore Instance { get; } =
+            new();
+
+        public ValueTask<byte[]?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string? encoded = CoreCache.TryGet(
+                ByteCacheCategory,
+                key,
+                extension: "base64");
+            if (encoded is null)
+                return ValueTask.FromResult<byte[]?>(null);
+
+            try
+            {
+                return ValueTask.FromResult<byte[]?>(
+                    Convert.FromBase64String(encoded));
+            }
+            catch (FormatException)
+            {
+                return ValueTask.FromResult<byte[]?>(null);
+            }
+        }
+
+        public ValueTask StoreAsync(
+            string key,
+            ReadOnlyMemory<byte> content,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CoreCache.Set(
+                ByteCacheCategory,
+                key,
+                Convert.ToBase64String(content.Span),
+                extension: "base64");
+            return ValueTask.CompletedTask;
+        }
     }
 }
