@@ -67,6 +67,8 @@ public static partial class StructuralCloneAnalysis
             (StructuralCloneBodyFacts candidateLeft,
                 StructuralCloneBodyFacts candidateRight) =
                 ApplyCandidate(left, right, candidate);
+            StructuralCloneWitnessConstraints? witnessConstraints =
+                WitnessConstraints(left, right, candidate);
             StructuralCloneComparison exact = CompareExact(
                 candidateLeft,
                 candidateRight,
@@ -75,7 +77,8 @@ public static partial class StructuralCloneAnalysis
                     MaximumVerificationSteps = Math.Min(
                         limits.MaximumVerificationSteps,
                         remaining - 1),
-                });
+                },
+                witnessConstraints);
             verificationSteps = checked(
                 verificationSteps + 1 + exact.Receipt.SearchSteps);
             if (exact.Disposition
@@ -573,6 +576,56 @@ public static partial class StructuralCloneAnalysis
                 $"Unknown near candidate {candidate.Kind}."),
         };
 
+    static StructuralCloneWitnessConstraints? WitnessConstraints(
+        StructuralCloneBodyFacts left,
+        StructuralCloneBodyFacts right,
+        NearCandidate candidate)
+    {
+        if (candidate.Kind == NearCandidateKind.ChangeOperation)
+        {
+            StructuralCloneOperation leftOperation = left.Graph
+                .Blocks[candidate.LeftBlock]
+                .Operations[candidate.LeftOrdinal];
+            StructuralCloneOperation rightOperation = right.Graph
+                .Blocks[candidate.RightBlock]
+                .Operations[candidate.RightOrdinal];
+            return new StructuralCloneWitnessConstraints(
+                RequiredLeftBlock: candidate.LeftBlock,
+                RequiredRightBlock: candidate.RightBlock,
+                ForbiddenLeftLocal:
+                    leftOperation.OpCode == rightOperation.OpCode
+                    && leftOperation.OperandKind
+                        == StructuralCloneOperandKind.Local
+                    && rightOperation.OperandKind
+                        == StructuralCloneOperandKind.Local
+                        ? checked((int)leftOperation.Value)
+                        : -1,
+                ForbiddenRightLocal:
+                    leftOperation.OpCode == rightOperation.OpCode
+                    && leftOperation.OperandKind
+                        == StructuralCloneOperandKind.Local
+                    && rightOperation.OperandKind
+                        == StructuralCloneOperandKind.Local
+                        ? checked((int)rightOperation.Value)
+                        : -1);
+        }
+        if (candidate.Kind == NearCandidateKind.ChangeEdge)
+        {
+            StructuralCloneEdge leftEdge = left.Graph
+                .Blocks[candidate.LeftBlock]
+                .Outgoing[candidate.LeftOrdinal];
+            StructuralCloneEdge rightEdge = right.Graph
+                .Blocks[candidate.RightBlock]
+                .Outgoing[candidate.RightOrdinal];
+            return new StructuralCloneWitnessConstraints(
+                RequiredLeftBlock: candidate.LeftBlock,
+                RequiredRightBlock: candidate.RightBlock,
+                ForbiddenLeftBlock: leftEdge.Target,
+                ForbiddenRightBlock: rightEdge.Target);
+        }
+        return null;
+    }
+
     static StructuralCloneBodyFacts RemoveOperation(
         StructuralCloneBodyFacts body,
         int block,
@@ -746,13 +799,6 @@ public static partial class StructuralCloneAnalysis
                         right,
                         candidate.RightBlock,
                         candidate.RightOrdinal);
-                if (OperationsCorrespond(
-                        leftOperation,
-                        rightOperation,
-                        correspondence))
-                {
-                    return null;
-                }
                 blockEdit = ChangedBlock(
                     correspondence,
                     candidate.LeftBlock);
@@ -1012,25 +1058,6 @@ public static partial class StructuralCloneAnalysis
             operation.OpCode,
             operation.OperandKind,
             operation.Value);
-    }
-
-    static bool OperationsCorrespond(
-        StructuralCloneOperationReference left,
-        StructuralCloneOperationReference right,
-        StructuralCloneCorrespondence correspondence)
-    {
-        if (left.OpCode != right.OpCode
-            || left.OperandKind != right.OperandKind)
-        {
-            return false;
-        }
-        if (left.OperandKind != StructuralCloneOperandKind.Local)
-            return left.Value == right.Value;
-        int leftLocal = checked((int)left.Value);
-        int rightLocal = checked((int)right.Value);
-        return correspondence.Locals
-            .Single(item => item.LeftLocal == leftLocal)
-            .RightLocals.Contains(rightLocal);
     }
 
     static StructuralCloneEdgeReference EdgeReference(

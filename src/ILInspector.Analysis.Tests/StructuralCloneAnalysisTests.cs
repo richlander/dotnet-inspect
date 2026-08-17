@@ -1622,6 +1622,48 @@ public class StructuralCloneAnalysisTests
     }
 
     [Fact]
+    public void Compare_ChangedOperationsRequireOneJointBlockWitness()
+    {
+        StructuralCloneBodyFacts left = RigidColoredGraph(
+            token: 1,
+            changedBlock: 1,
+            ILOpCode.Nop);
+        StructuralCloneBodyFacts right = RigidColoredGraph(
+            token: 2,
+            changedBlock: 2,
+            ILOpCode.Break);
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(left, right);
+
+        Assert.Equal(
+            StructuralCloneRelation.Different,
+            comparison.Relation);
+        Assert.Null(comparison.Alignment);
+        Assert.True(comparison.AlignmentReceipt?.Exhausted);
+    }
+
+    [Fact]
+    public void Compare_ChangedLocalUseHasJointRestoringWitness()
+    {
+        StructuralCloneMethodSignature signature =
+            new(0, 0, 0, 0, ReturnsVoid: true);
+        StructuralCloneBodyFacts left = Facts(
+            token: 1,
+            il: [0x06, 0x26, 0x06, 0x26, 0x07, 0x26, 0x2A],
+            locals: [s_int, s_int],
+            signature: signature);
+        StructuralCloneBodyFacts right = Facts(
+            token: 2,
+            il: [0x07, 0x26, 0x06, 0x26, 0x07, 0x26, 0x2A],
+            locals: [s_int, s_int],
+            signature: signature);
+
+        AssertNearOperationChange(
+            StructuralCloneAnalysis.Compare(left, right));
+    }
+
+    [Fact]
     public void Compare_LargeSingleBlockDifferencePrunesNonRestoringPositions()
     {
         List<byte> leftIl = [];
@@ -2238,6 +2280,51 @@ public class StructuralCloneAnalysisTests
                 $"O:{edit.Kind}:{edit.Left}:{edit.Right}"))
             .Concat(alternative.Edges.Select(edit =>
                 $"E:{edit.Kind}:{edit.Left}:{edit.Right}")));
+
+    static StructuralCloneBodyFacts RigidColoredGraph(
+        int token,
+        int changedBlock,
+        ILOpCode operation)
+    {
+        ImmutableArray<StructuralCloneBlock> blocks =
+        [
+            new(0, 0, true, [], [], []),
+            .. Enumerable.Range(1, 5).Select(block =>
+            {
+                int cycle = 1 + (block % 5);
+                int permutation = block switch
+                {
+                    1 => 2,
+                    2 => 1,
+                    _ => block,
+                };
+                return new StructuralCloneBlock(
+                    block,
+                    block,
+                    false,
+                    block == changedBlock
+                        ? [new(operation, StructuralCloneOperandKind.None, 0)]
+                        : [],
+                    [
+                        new(
+                            new(StructuralCloneEdgeKind.Branch, 0),
+                            cycle),
+                        new(
+                            new(StructuralCloneEdgeKind.Branch, 1),
+                            permutation),
+                    ],
+                    []);
+            }),
+        ];
+        return new StructuralCloneBodyFacts(
+            Address(token),
+            BodyBytes: 1,
+            InstructionCount: 1,
+            InitLocals: false,
+            Locals: [],
+            Signature: new(0, 0, 0, 0, ReturnsVoid: true),
+            RebuildTestGraph(blocks));
+    }
 
     static StructuralCloneBodyFacts WithRetargetedEdge(
         StructuralCloneBodyFacts body,

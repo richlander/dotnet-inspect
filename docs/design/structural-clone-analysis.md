@@ -115,6 +115,12 @@ correspondence back to the original block coordinates. Typed evidence retains
 the affected blocks and normalized operation or edge values. Those coordinates
 are same-comparison locations, not global identities.
 
+Changed operation and edge candidates constrain the exact witness itself: one
+joint witness must map the two edited source blocks, and must not map a changed
+local operand or edge target as unchanged. Refinement-class membership alone is
+not proof of that mapping; correspondence classes remain conservative
+over-approximations whose members are not independently selectable.
+
 Candidate enumeration uses only necessary block/sequence invariants and remains
 exhaustive within explicit candidate, exact-verification-work, alternative, and
 block-affected-element limits. Each attempted exact-restoring candidate and
@@ -131,6 +137,8 @@ carry alignment, and exact discovery calls the exact-only comparison path, so
 adding near cases cannot merge discovery clusters.
 
 `Compare_CompilerProducedOneOperationChanges_AreNear`,
+`Compare_ChangedOperationsRequireOneJointBlockWitness`,
+`Compare_ChangedLocalUseHasJointRestoringWitness`,
 `Compare_OneEdgeChangeInsertionAndRemoval_AreNear`,
 `Compare_UnreachableBlockInsertionAndRemovalCarriesContents`,
 `Compare_SymmetricGraph_ReportsStableExactAndNearAmbiguity`, and

@@ -528,19 +528,31 @@ public static partial class StructuralCloneAnalysis
         StructuralCloneBodyFacts left,
         StructuralCloneBodyFacts right,
         StructuralCloneComparisonLimits? limits = null)
-        => CompareBodies(left, right, limits, includeNear: true);
+        => CompareBodies(
+            left,
+            right,
+            limits,
+            includeNear: true,
+            witnessConstraints: null);
 
     internal static StructuralCloneComparison CompareExact(
         StructuralCloneBodyFacts left,
         StructuralCloneBodyFacts right,
-        StructuralCloneComparisonLimits? limits = null)
-        => CompareBodies(left, right, limits, includeNear: false);
+        StructuralCloneComparisonLimits? limits = null,
+        StructuralCloneWitnessConstraints? witnessConstraints = null)
+        => CompareBodies(
+            left,
+            right,
+            limits,
+            includeNear: false,
+            witnessConstraints);
 
     static StructuralCloneComparison CompareBodies(
         StructuralCloneBodyFacts left,
         StructuralCloneBodyFacts right,
         StructuralCloneComparisonLimits? limits,
-        bool includeNear)
+        bool includeNear,
+        StructuralCloneWitnessConstraints? witnessConstraints)
     {
         ArgumentNullException.ThrowIfNull(left);
         ArgumentNullException.ThrowIfNull(right);
@@ -586,7 +598,12 @@ public static partial class StructuralCloneAnalysis
 
         RefinedColors colors = Refine(left, right);
         WitnessResult witness =
-            FindWitness(left, right, colors, limits.MaximumVerificationSteps);
+            FindWitness(
+                left,
+                right,
+                colors,
+                limits.MaximumVerificationSteps,
+                witnessConstraints);
         if (witness.LimitReached)
         {
             return StructuralCloneComparison.NotCompleted(
@@ -1969,7 +1986,8 @@ public static partial class StructuralCloneAnalysis
         StructuralCloneBodyFacts left,
         StructuralCloneBodyFacts right,
         RefinedColors colors,
-        int maximumSteps)
+        int maximumSteps,
+        StructuralCloneWitnessConstraints? constraints)
     {
         var blockMap = new int[left.Graph.Blocks.Length];
         var reverseBlocks = new int[right.Graph.Blocks.Length];
@@ -1984,7 +2002,8 @@ public static partial class StructuralCloneAnalysis
         int steps = 0;
         bool limitReached = false;
 
-        if (colors.LeftBlocks[0] != colors.RightBlocks[0])
+        if (colors.LeftBlocks[0] != colors.RightBlocks[0]
+            || !BlockPairAllowed(0, 0, constraints))
             return new WitnessResult(false, false, steps);
         var entryAssignments = new List<(int Left, int Right)>();
         if (!TryMatchBlockOperations(
@@ -1995,7 +2014,8 @@ public static partial class StructuralCloneAnalysis
                 colors,
                 localMap,
                 reverseLocals,
-                entryAssignments))
+                entryAssignments,
+                constraints))
         {
             return new WitnessResult(false, false, steps);
         }
@@ -2026,6 +2046,10 @@ public static partial class StructuralCloneAnalysis
                     if (reverseBlocks[rightIndex] < 0
                         && colors.LeftBlocks[leftIndex]
                             == colors.RightBlocks[rightIndex]
+                        && BlockPairAllowed(
+                            leftIndex,
+                            rightIndex,
+                            constraints)
                         && EdgesConsistent(
                             left,
                             right,
@@ -2062,7 +2086,8 @@ public static partial class StructuralCloneAnalysis
                         colors,
                         localMap,
                         reverseLocals,
-                        assignments))
+                        assignments,
+                        constraints))
                 {
                     continue;
                 }
@@ -2100,6 +2125,8 @@ public static partial class StructuralCloneAnalysis
                 {
                     continue;
                 }
+                if (!LocalPairAllowed(nextLeft, rightIndex, constraints))
+                    continue;
                 localMap[nextLeft] = rightIndex;
                 reverseLocals[rightIndex] = nextLeft;
                 if (CompleteLocals())
@@ -2116,6 +2143,32 @@ public static partial class StructuralCloneAnalysis
         return new WitnessResult(found, limitReached, steps);
     }
 
+    static bool BlockPairAllowed(
+        int left,
+        int right,
+        StructuralCloneWitnessConstraints? constraints)
+    {
+        if (constraints is not { } value)
+            return true;
+        if ((left == value.RequiredLeftBlock
+                && right != value.RequiredRightBlock)
+            || (right == value.RequiredRightBlock
+                && left != value.RequiredLeftBlock))
+        {
+            return false;
+        }
+        return left != value.ForbiddenLeftBlock
+            || right != value.ForbiddenRightBlock;
+    }
+
+    static bool LocalPairAllowed(
+        int left,
+        int right,
+        StructuralCloneWitnessConstraints? constraints)
+        => constraints is not { } value
+            || left != value.ForbiddenLeftLocal
+            || right != value.ForbiddenRightLocal;
+
     static bool TryMatchBlockOperations(
         StructuralCloneBodyFacts left,
         StructuralCloneBodyFacts right,
@@ -2124,7 +2177,8 @@ public static partial class StructuralCloneAnalysis
         RefinedColors colors,
         int[] localMap,
         int[] reverseLocals,
-        List<(int Left, int Right)> assignments)
+        List<(int Left, int Right)> assignments,
+        StructuralCloneWitnessConstraints? constraints)
     {
         StructuralCloneBlock leftValue = left.Graph.Blocks[leftBlock];
         StructuralCloneBlock rightValue = right.Graph.Blocks[rightBlock];
@@ -2161,7 +2215,11 @@ public static partial class StructuralCloneAnalysis
             int rightLocal = checked((int)rightOperation.Value);
             if (colors.LeftLocals[leftLocal]
                     != colors.RightLocals[rightLocal]
-                || !left.Locals[leftLocal].Equals(right.Locals[rightLocal]))
+                || !left.Locals[leftLocal].Equals(right.Locals[rightLocal])
+                || !LocalPairAllowed(
+                    leftLocal,
+                    rightLocal,
+                    constraints))
             {
                 RollBackLocals(assignments, localMap, reverseLocals);
                 return false;
@@ -2783,6 +2841,14 @@ internal sealed record RefinedColors(
     int[] LeftLocals,
     int[] RightLocals,
     int Rounds);
+
+internal readonly record struct StructuralCloneWitnessConstraints(
+    int RequiredLeftBlock = -1,
+    int RequiredRightBlock = -1,
+    int ForbiddenLeftBlock = -1,
+    int ForbiddenRightBlock = -1,
+    int ForbiddenLeftLocal = -1,
+    int ForbiddenRightLocal = -1);
 
 internal readonly record struct WitnessResult(
     bool Found,
