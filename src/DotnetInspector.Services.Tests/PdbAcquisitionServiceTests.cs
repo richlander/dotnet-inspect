@@ -181,6 +181,52 @@ public class PdbAcquisitionServiceTests
                     TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task PathlessParticipant_LocalPathFailurePrecedesOwnedStreamOpen()
+    {
+        string assemblyPath =
+            typeof(PdbAcquisitionServiceTests).Assembly.Location;
+        string pdbPath =
+            Path.ChangeExtension(assemblyPath, ".pdb");
+        byte[] assemblyBytes = File.ReadAllBytes(assemblyPath);
+        var assembly =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(assemblyBytes),
+                path: null,
+                () => new MemoryStream(
+                    assemblyBytes,
+                    writable: false),
+                AssemblyResolutionProvenance.Package(
+                    "Example.Symbols",
+                    "1.0.0",
+                    "net10.0",
+                    rid: null));
+        using var source = SourceLinkService.Open(assembly);
+        byte[] snupkg =
+            BuildSnupkg(
+                Path.GetFileName(pdbPath),
+                File.ReadAllBytes(pdbPath));
+        using var client =
+            new HttpClient(
+                new SymbolPackageHandler(snupkg));
+        var store = new ThrowingLocalPathPdbStore();
+
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => PdbAcquisitionService.AcquireAsync(
+                source.Context,
+                assembly,
+                client,
+                store,
+                new UniformPackageSourceAuthorization(
+                    [NuGetFetch.PackageSource.NuGetOrg]),
+                log: null,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, store.OpenCount);
+        Assert.True(Assert.Single(store.OpenedStreams).IsDisposed);
+    }
+
     private static AssemblyReferenceIdentity ReadIdentity(
         byte[] assemblyBytes)
     {
@@ -273,6 +319,63 @@ public class PdbAcquisitionServiceTests
 
         public string? TryGetLocalPath(string key)
             => null;
+    }
+
+    private sealed class ThrowingLocalPathPdbStore : IPdbStore
+    {
+        byte[]? _content;
+        int _openCount;
+
+        internal int OpenCount =>
+            Volatile.Read(ref _openCount);
+        internal List<TrackingMemoryStream> OpenedStreams { get; } =
+            [];
+
+        public ValueTask<Stream?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_content is null)
+                return ValueTask.FromResult<Stream?>(null);
+
+            Interlocked.Increment(ref _openCount);
+            var stream =
+                new TrackingMemoryStream(_content);
+            OpenedStreams.Add(stream);
+            return ValueTask.FromResult<Stream?>(stream);
+        }
+
+        public async ValueTask PutAsync(
+            string key,
+            Stream content,
+            CancellationToken cancellationToken = default)
+        {
+            using var buffer = new MemoryStream();
+            await content.CopyToAsync(
+                buffer,
+                cancellationToken);
+            _content = buffer.ToArray();
+        }
+
+        public string? TryGetLocalPath(string key) =>
+            throw new HttpRequestException(
+                "Injected local-path store failure.");
+    }
+
+    private sealed class TrackingMemoryStream(
+        byte[] content) : MemoryStream(
+        content,
+        writable: false)
+    {
+        internal bool IsDisposed { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                IsDisposed = true;
+            base.Dispose(disposing);
+        }
     }
 
     private sealed class FailingReadStream(

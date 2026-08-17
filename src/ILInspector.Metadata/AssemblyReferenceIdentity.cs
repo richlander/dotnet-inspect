@@ -14,6 +14,10 @@ public sealed record AssemblyReferenceIdentity(
     string? Culture,
     string? PublicKeyToken)
 {
+    public static IEqualityComparer<AssemblyReferenceIdentity>
+        EquivalentComparer { get; } =
+            new EquivalentIdentityComparer();
+
     static readonly System.Runtime.CompilerServices
         .ConditionalWeakTable<
             MetadataReader,
@@ -173,6 +177,33 @@ public sealed record AssemblyReferenceIdentity(
         return isPublicKey
             ? ComputePublicKeyToken(bytes)
             : Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    sealed class EquivalentIdentityComparer :
+        IEqualityComparer<AssemblyReferenceIdentity>
+    {
+        public bool Equals(
+            AssemblyReferenceIdentity? x,
+            AssemblyReferenceIdentity? y) =>
+            ReferenceEquals(x, y)
+            || x is not null
+                && y is not null
+                && x.IsEquivalentTo(y);
+
+        public int GetHashCode(AssemblyReferenceIdentity obj)
+        {
+            ArgumentNullException.ThrowIfNull(obj);
+            var hash = new HashCode();
+            hash.Add(obj.Name, StringComparer.OrdinalIgnoreCase);
+            hash.Add(obj.Version);
+            hash.Add(
+                NormalizeCulture(obj.Culture),
+                StringComparer.OrdinalIgnoreCase);
+            hash.Add(
+                obj.PublicKeyToken ?? "",
+                StringComparer.OrdinalIgnoreCase);
+            return hash.ToHashCode();
+        }
     }
 
     /// <summary>

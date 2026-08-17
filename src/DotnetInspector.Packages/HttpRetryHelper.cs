@@ -11,6 +11,7 @@ using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
 using DotnetInspector.Core;
+using NuGetFetch;
 
 namespace DotnetInspector.Packages;
 
@@ -375,7 +376,8 @@ public static class HttpRetryHelper
         AuthenticationHeaderValue? auth = null,
         NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
         long maxDownloadSize = 500_000_000,
-        Action<HttpRequestMessage>? configureRequest = null)
+        Action<HttpRequestMessage>? configureRequest = null,
+        bool preservePathAndQuery = false)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
@@ -399,7 +401,9 @@ public static class HttpRetryHelper
 
                 try
                 {
-                    using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    using HttpRequestMessage request = preservePathAndQuery
+                        ? NuGetHttpRequest.CreateGetPreservingPathAndQuery(url)
+                        : new HttpRequestMessage(HttpMethod.Get, url);
                     if (auth != null)
                         request.Headers.Authorization = auth;
                     configureRequest?.Invoke(request);
