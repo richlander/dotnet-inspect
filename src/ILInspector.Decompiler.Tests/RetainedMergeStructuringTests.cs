@@ -72,7 +72,7 @@ public class RetainedMergeStructuringTests
         Assert.True(
             diagnostics.RetainedRegions == 1,
             string.Join(", ", diagnostics.RetainedDeclines));
-        Assert.Contains("retained-back-edge-region", diagnostics.RetainedDeclines);
+        Assert.DoesNotContain("retained-back-edge-region", diagnostics.RetainedDeclines);
         var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
         Assert.Single(loop.Body.Descendants.OfType<Break>());
         Assert.DoesNotContain(
@@ -150,6 +150,19 @@ public class RetainedMergeStructuringTests
 
         Assert.Equal(0, diagnostics.RetainedRegions);
         Assert.Contains("retained-back-edge-entangled", diagnostics.RetainedDeclines);
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void RetainedBodyMergeWithEmptyLandingPadStaysFlat()
+    {
+        var blocks = RetainedLoopBlocks();
+        blocks[11] = new Block(11);
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Equal(0, diagnostics.RetainedRegions);
+        Assert.Contains("retained-dangling-merge-label", diagnostics.RetainedDeclines);
         Assert.Empty(function.Descendants.OfType<WhileLoop>());
     }
 

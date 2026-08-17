@@ -446,10 +446,16 @@ public sealed class StructuringPass : IIrPass
         }
 
         var plan = StructuringJoinAnalysis.Analyze(sourceCtx.Blocks);
-        foreach (var _ in plan.BackEdgeRegions)
-            context.StructuringDiagnostics?.RecordRetainedDecline("retained-back-edge-region");
-
         var ranges = PlanRetainedRanges(sourceCtx, plan, context.StructuringDiagnostics);
+        foreach (var backEdge in plan.BackEdgeRegions)
+        {
+            bool consumed = ranges.Any(range =>
+                range.AllowRetainedMergeWithinLoop
+                && range.Start + 1 == backEdge.Start
+                && range.Stop == backEdge.Merge);
+            if (!consumed)
+                context.StructuringDiagnostics?.RecordRetainedDecline("retained-back-edge-region");
+        }
         if (ranges.Count == 0)
         {
             if (!plan.UnrootedDecisions.IsEmpty)
@@ -501,6 +507,16 @@ public sealed class StructuringPass : IIrPass
                     "retained-loop-changes-control-flow-owner");
                 return false;
             }
+            if (range.AllowRetainedMergeWithinLoop
+                && HasDanglingRetainedBranchTarget(
+                    buildContexts[rangeIndex],
+                    built,
+                    range.RetainedMerges))
+            {
+                context.StructuringDiagnostics?.RecordRetainedDecline(
+                    "retained-dangling-merge-label");
+                return false;
+            }
             replacement.Add(built);
             cursor = range.Stop;
             context.StructuringDiagnostics?.RecordRetainedRegion();
@@ -540,12 +556,13 @@ public sealed class StructuringPass : IIrPass
                 if (decline == "retained-back-edge-entangled"
                     && TryPlanRetainedLoopRange(sourceCtx, plan, candidate, cursor) is { } loopRange)
                 {
-                    if (ValidateRetainedLoopCandidate(sourceCtx, loopRange))
+                    string? loopDecline = RetainedLoopCandidateDecline(sourceCtx, loopRange);
+                    if (loopDecline is null)
                     {
                         selected = loopRange;
                         break;
                     }
-                    decline = "retained-loop-validation-failed";
+                    decline = loopDecline;
                 }
                 if (decline is null
                     && ValidateRetainedCandidate(sourceCtx, candidate, retained: false))
@@ -661,7 +678,7 @@ public sealed class StructuringPass : IIrPass
         return false;
     }
 
-    static bool ValidateRetainedLoopCandidate(Ctx sourceCtx, RetainedRange range)
+    static string? RetainedLoopCandidateDecline(Ctx sourceCtx, RetainedRange range)
     {
         var clonedBlocks = sourceCtx.Blocks.Select(CloneBlock).ToList();
         var ctx = CreateRetainedCtx(
@@ -678,7 +695,7 @@ public sealed class StructuringPass : IIrPass
                 breakTarget: null,
                 continueTarget: null))
         {
-            return false;
+            return "retained-loop-validation-failed";
         }
 
         var built = BuildRegion(
@@ -688,8 +705,14 @@ public sealed class StructuringPass : IIrPass
             joinIndex: range.Stop,
             breakTarget: null,
             continueTarget: null);
-        return !ctx.CandidateOwnershipUnsafe
-            && !HasDanglingInternalLeaveTarget(ctx, built, range.Start, range.Stop);
+        if (ctx.CandidateOwnershipUnsafe
+            || HasDanglingInternalLeaveTarget(ctx, built, range.Start, range.Stop))
+        {
+            return "retained-loop-validation-failed";
+        }
+        return HasDanglingRetainedBranchTarget(ctx, built, range.RetainedMerges)
+            ? "retained-dangling-merge-label"
+            : null;
     }
 
     static string? RetainedCandidateDecline(
@@ -1257,6 +1280,25 @@ public sealed class StructuringPass : IIrPass
                 && target >= start
                 && target < stop
                 && !survivingLabels.Contains(leave.TargetOffset));
+    }
+
+    static bool HasDanglingRetainedBranchTarget(
+        Ctx ctx,
+        IrNode root,
+        IReadOnlyList<int> retainedMerges)
+    {
+        var survivingLabels = root.DescendantsAndSelfOutsideNestedFunctions
+            .Where(static node => node.OwnsSourceLabel && node.SourceOffset >= 0)
+            .Select(static node => node.SourceOffset)
+            .ToHashSet();
+        var targetOffsets = retainedMerges
+            .Select(index => ctx.Blocks[index].StartOffset)
+            .ToHashSet();
+        return root.DescendantsOutsideNestedFunctions
+            .OfType<Branch>()
+            .Any(branch =>
+                targetOffsets.Contains(branch.TargetOffset)
+                && !survivingLabels.Contains(branch.TargetOffset));
     }
 
     static bool HasOwnerBeforeRoot(IrNode node, IrNode root, Func<IrNode, bool> isOwner)

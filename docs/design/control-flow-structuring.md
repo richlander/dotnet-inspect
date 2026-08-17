@@ -682,7 +682,9 @@ only when the post-dominator machinery is proven.
    `RetainedBodyMergeWithMultipleLatchesStaysFlat`,
    `RetainedBodyMergeWithNoncanonicalExitStaysFlat`,
    `RetainedBodyMergeWithExternalInteriorEntryStaysFlat`, and
-   `RetainedBodyMergeWithSwitchStaysFlat` gate the declined boundary. Against
+   `RetainedBodyMergeWithSwitchStaysFlat` gate the declined boundary;
+   `RetainedBodyMergeWithEmptyLandingPadStaysFlat` proves every surviving goto
+   still has a printable target label. Against
    exact base `5b808cde1`, the slice moved CoreLib from 11,786 to 11,793
    structured containers (752 to 745 flat) and the pinned corpus from 30,046
    to 30,082 (2,677 to 2,641 flat), with zero pass bugs in both
