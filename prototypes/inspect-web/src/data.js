@@ -449,21 +449,49 @@ export function memberRequestKey(parts, taste = []) {
   return [...parts, ...taste].join("\u0000");
 }
 
-export function sourceSurfaceIsVisible(state) {
+function sourceWorkbenchIsVisible(state) {
   if (state.settings
     || state.explorer?.open
     || state.loading
     || state.error
     || state.home
-    || !state.package
-    || state.atPackageRoot) {
+    || !state.package) {
     return false;
   }
-  return state.graphSourceOpen
-    || state.lens === "source"
-    || (state.lens === "api"
-      && state.selectedMemberKey
-      && state.memberSection === "source");
+  return true;
+}
+
+export function activeSourceOperationKind(state) {
+  if (!sourceWorkbenchIsVisible(state)) return null;
+  if (state.graphSourceOpen) return "graph";
+  if (state.atPackageRoot) return null;
+  if (state.lens === "source") return "type";
+  if (state.lens === "api"
+    && state.selectedMemberKey
+    && state.memberSection === "source") {
+    return "member";
+  }
+  return null;
+}
+
+export function sourceSurfaceIsVisible(state) {
+  return activeSourceOperationKind(state) !== null;
+}
+
+export function sourceReloadKind(state) {
+  const active = activeSourceOperationKind(state);
+  if (active) return active;
+  if (!sourceWorkbenchIsVisible(state)
+    || state.atPackageRoot
+    || state.graphSourceOpen) {
+    return null;
+  }
+  if (state.lens === "api"
+    && state.selectedMemberKey
+    && state.memberSection === "annotated") {
+    return "annotated";
+  }
+  return null;
 }
 
 export function beginSourceRequestState(state) {

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  activeSourceOperationKind,
   assemblyDescriptorForType,
   authoredSourceLimitationHtml,
   beginSourceRequestState,
@@ -40,6 +41,7 @@ import {
   scopedRequestState,
   selectedDependencyGroup,
   sourceSurfaceIsVisible,
+  sourceReloadKind,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
@@ -411,7 +413,13 @@ test("source operations cancel when superseded or hidden", () => {
   const reloadBody =
     appSource.match(/function reloadVisibleSource\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
-  assert.match(reloadBody, /if \(!sourceSurfaceIsVisible\(state\)\) return/);
+  assert.match(reloadBody, /switch \(sourceReloadKind\(state\)\)/);
+  const autoLoadBody =
+    appSource.match(/function maybeAutoLoadTypeSource\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    autoLoadBody,
+    /activeSourceOperationKind\(state\) !== "type"/);
 
   const visible = {
     settings: false,
@@ -438,6 +446,36 @@ test("source operations cancel when superseded or hidden", () => {
   ]) {
     assert.equal(sourceSurfaceIsVisible({ ...visible, ...hidden }), false);
   }
+  assert.equal(
+    activeSourceOperationKind({
+      ...visible,
+      atPackageRoot: true,
+      graphSourceOpen: true
+    }),
+    "graph");
+  assert.equal(
+    activeSourceOperationKind({
+      ...visible,
+      atPackageRoot: true
+    }),
+    null);
+  assert.equal(
+    sourceReloadKind({
+      ...visible,
+      lens: "api",
+      selectedMemberKey: "M",
+      memberSection: "annotated"
+    }),
+    "annotated");
+  assert.equal(
+    sourceReloadKind({
+      ...visible,
+      settings: true,
+      lens: "api",
+      selectedMemberKey: "M",
+      memberSection: "annotated"
+    }),
+    null);
 
   const requestState = {
     sourceRequestGeneration: 4,

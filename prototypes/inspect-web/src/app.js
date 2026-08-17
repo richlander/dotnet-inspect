@@ -1,4 +1,5 @@
 import {
+  activeSourceOperationKind,
   assemblyDescriptorForType,
   authoredSourceLimitationHtml,
   beginSourceRequestState,
@@ -36,6 +37,7 @@ import {
   shareStateLengthError,
   scopedRequestState,
   sourceSurfaceIsVisible,
+  sourceReloadKind,
   selectedDependencyGroup,
   spotlightCandidateKey,
   spotlightCandidateSignature,
@@ -1470,7 +1472,7 @@ function render() {
 }
 
 function maybeAutoLoadTypeSource() {
-  if (state.lens !== "source") return;
+  if (activeSourceOperationKind(state) !== "type") return;
   const type = selectedType();
   if (!type) return;
   const signature = typeSourceSignature(type);
@@ -6036,6 +6038,7 @@ async function loadSelectedMemberDocumentation() {
 }
 
 async function loadSelectedMemberSource() {
+  if (activeSourceOperationKind(state) !== "member") return;
   const type = selectedType();
   const member = selectedMember(type);
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
@@ -6180,6 +6183,7 @@ function memberRequestIsCurrent(
 }
 
 async function loadSelectedTypeSource() {
+  if (activeSourceOperationKind(state) !== "type") return;
   const type = selectedType();
   if (!type) {
     render();
@@ -7557,15 +7561,23 @@ function invalidateSourceCaches() {
 }
 
 function reloadVisibleSource() {
-  if (!sourceSurfaceIsVisible(state)) return;
-  if (state.graphSourceOpen && state.graphSourceRequest) {
-    openGraphSource(state.graphSourceRequest.request, state.graphSourceRequest.title);
-    return;
-  }
-  if (state.lens === "source") loadSelectedTypeSource();
-  else if (state.selectedMemberKey && state.memberSection === "source") loadSelectedMemberSource();
-  else if (state.selectedMemberKey && state.memberSection === "annotated") {
-    loadSelectedMemberAnnotatedSource();
+  switch (sourceReloadKind(state)) {
+    case "graph":
+      if (state.graphSourceRequest) {
+        openGraphSource(
+          state.graphSourceRequest.request,
+          state.graphSourceRequest.title);
+      }
+      break;
+    case "type":
+      loadSelectedTypeSource();
+      break;
+    case "member":
+      loadSelectedMemberSource();
+      break;
+    case "annotated":
+      loadSelectedMemberAnnotatedSource();
+      break;
   }
 }
 
@@ -7584,6 +7596,7 @@ function toggleTaste(id) {
   }
   localStorage.setItem("inspect-taste", JSON.stringify(state.taste));
   invalidateSourceCaches();
+  reloadVisibleSource();
   render();
 }
 
@@ -7591,6 +7604,7 @@ function clearTaste() {
   state.taste = [];
   localStorage.setItem("inspect-taste", "[]");
   invalidateSourceCaches();
+  reloadVisibleSource();
   render();
 }
 
