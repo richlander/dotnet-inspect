@@ -78,7 +78,9 @@ public class NuGetClient(HttpClient client)
                             _options,
                             client.Timeout,
                             requestToken).ConfigureAwait(false);
-                    return (IReadOnlyList<string>?)index?.Versions ?? [];
+                    return (IReadOnlyList<string>?)index?.Versions
+                        ?? throw new NuGetSourceResponseException(
+                            "The package version response was not a valid version document.");
                 }).ConfigureAwait(false);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -336,7 +338,8 @@ public class NuGetClient(HttpClient client)
             sourceUrl,
             credential,
             operation).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Could not resolve PackageBaseAddress from {sourceUrl}");
+            ?? throw new NuGetSourceResponseException(
+                "The source service index did not advertise PackageBaseAddress.");
 
         _baseAddressCache.TryAdd(sourceUrl, baseAddress);
         return baseAddress;

@@ -36,105 +36,178 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         | PackageSourceCapabilities.PackagePayload
         | PackageSourceCapabilities.SymbolPayload;
 
-    public async Task<IReadOnlyList<SearchResult>> SearchAsync(
+    public async Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
         string query,
         int take = 20,
         bool prerelease = false,
         CancellationToken cancellationToken = default)
     {
-        return await _search.SearchAsync(
-            query,
-            take,
-            prerelease,
-            auth: null,
+        return await PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            PackageSourceCapabilities.Search,
+            async () =>
+            {
+                IReadOnlyList<SearchResult> results;
+                try
+                {
+                    results = await _search.SearchAsync(
+                            query,
+                            take,
+                            prerelease,
+                            auth: null,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    throw new NuGetSourceResponseException(
+                        "The NuGet Gallery search response did not satisfy the search contract.",
+                        exception);
+                }
+
+                return new PackageSearchResult(
+                    results.Select(
+                        result => new PackageSearchMatch(
+                            result,
+                            new PackageCandidateObservation(
+                                PackageSourceCoordinate.Create(
+                                    result.Id,
+                                    result.Version),
+                                Identity,
+                                PackageDiscoveryContract.KeywordSearch,
+                                PackageListingState.Listed)))
+                        .ToArray());
+            },
             cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<IReadOnlyList<string>> GetVersionsAsync(
+    public async Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
         CancellationToken cancellationToken = default)
     {
         string normalizedId = NormalizePackageId(packageId);
-        string url =
-            $"{FlatContainer}{EscapeSegment(normalizedId)}/index.json";
-        using var operation = CreateOperation(cancellationToken);
-        (bool found, VersionIndex? index) = await operation.RunRequestAsync(
-            async requestToken =>
+        return await PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            PackageSourceCapabilities.VersionEnumeration,
+            async () =>
             {
-                using HttpRequestMessage request =
-                    NuGetHttpRequest.CreateGet(url);
-                using HttpResponseMessage response = await _client.SendAsync(
-                    request,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    requestToken).ConfigureAwait(false);
-                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                    return (false, null);
+                string url =
+                    $"{FlatContainer}{EscapeSegment(normalizedId)}/index.json";
+                using var operation = CreateOperation(cancellationToken);
+                (bool found, VersionIndex? index) =
+                    await operation.RunRequestAsync(
+                        async requestToken =>
+                        {
+                            using HttpRequestMessage request =
+                                NuGetHttpRequest.CreateGet(url);
+                            using HttpResponseMessage response =
+                                await _client.SendAsync(
+                                    request,
+                                    HttpCompletionOption.ResponseHeadersRead,
+                                    requestToken).ConfigureAwait(false);
+                            if (response.StatusCode
+                                == System.Net.HttpStatusCode.NotFound)
+                            {
+                                return (false, null);
+                            }
 
-                response.EnsureSuccessStatusCode();
-                VersionIndex? parsed =
-                    await NuGetMetadataReader.ReadResponseAsync(
-                    response,
-                    NuGetApi.DeserializeVersionIndexAsync,
-                    _options,
-                    _client.Timeout,
-                    requestToken).ConfigureAwait(false);
-                return (true, parsed);
-            }).ConfigureAwait(false);
+                            response.EnsureSuccessStatusCode();
+                            VersionIndex? parsed =
+                                await NuGetMetadataReader.ReadResponseAsync(
+                                    response,
+                                    NuGetApi.DeserializeVersionIndexAsync,
+                                    _options,
+                                    _client.Timeout,
+                                    requestToken).ConfigureAwait(false);
+                            return (true, parsed);
+                        }).ConfigureAwait(false);
 
-        if (!found)
-            return [];
+                if (!found)
+                    return new PackageVersionResult([]);
 
-        IReadOnlyList<string> versions = index?.Versions
-            ?? throw new InvalidOperationException(
-                "The NuGet Gallery version response was not a valid version document.");
-        foreach (string version in versions)
-        {
-            operation.ThrowIfExpired();
-            if (!PackageCoordinateValidation.IsValidPackageVersion(version))
-            {
-                throw new InvalidOperationException(
-                    "The NuGet Gallery version response contained an invalid package version.");
-            }
-        }
+                IReadOnlyList<string> versions = index?.Versions
+                    ?? throw new NuGetSourceResponseException(
+                        "The NuGet Gallery version response was not a valid version document.");
+                var candidates =
+                    new PackageCandidateObservation[versions.Count];
+                for (int i = 0; i < versions.Count; i++)
+                {
+                    operation.ThrowIfExpired();
+                    if (!PackageCoordinateValidation.IsValidPackageVersion(
+                            versions[i]))
+                    {
+                        throw new NuGetSourceResponseException(
+                            "The NuGet Gallery version response contained an invalid package version.");
+                    }
 
-        return versions;
-    }
+                    candidates[i] = new PackageCandidateObservation(
+                        PackageSourceCoordinate.Create(packageId, versions[i]),
+                        Identity,
+                        PackageDiscoveryContract.CompleteVersionEnumeration,
+                        PackageListingState.Unknown);
+                }
 
-    public async Task<Stream> GetPackageAsync(
-        string packageId,
-        string version,
-        CancellationToken cancellationToken = default)
-    {
-        (string normalizedId, string normalizedVersion) =
-            NormalizeCoordinate(packageId, version);
-        string fileName =
-            EscapeSegment($"{normalizedId}.{normalizedVersion}.nupkg");
-        return await GetPayloadAsync(
-            $"{PackageEndpoint}{fileName}",
-            returnNullOnNotFound: false,
-            cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException(
-                "The NuGet Gallery package response was unexpectedly absent.");
-    }
-
-    public async Task<Stream?> TryGetSymbolsAsync(
-        string packageId,
-        string version,
-        CancellationToken cancellationToken = default)
-    {
-        (string normalizedId, string normalizedVersion) =
-            NormalizeCoordinate(packageId, version);
-        string fileName =
-            EscapeSegment($"{normalizedId}.{normalizedVersion}.snupkg");
-        return await GetPayloadAsync(
-            $"{SymbolEndpoint}{fileName}",
-            returnNullOnNotFound: true,
+                return new PackageVersionResult(candidates);
+            },
             cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<Stream?> GetPayloadAsync(
+    public async Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
+        string packageId,
+        string version,
+        CancellationToken cancellationToken = default)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        string fileName =
+            EscapeSegment(
+                $"{coordinate.PackageId}.{coordinate.Version}.nupkg");
+        return await PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            PackageSourceCapabilities.PackagePayload,
+            async () => new PackageSourcePayload(
+                coordinate,
+                Identity,
+                Kind,
+                PackageSourcePayloadKind.Package,
+                await GetPayloadAsync(
+                    $"{PackageEndpoint}{fileName}",
+                    cancellationToken).ConfigureAwait(false)),
+            cancellationToken,
+            coordinate).ConfigureAwait(false);
+    }
+
+    public async Task<PackageSourceOperationResult<PackageSourcePayload>> TryGetSymbolsAsync(
+        string packageId,
+        string version,
+        CancellationToken cancellationToken = default)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        string fileName =
+            EscapeSegment(
+                $"{coordinate.PackageId}.{coordinate.Version}.snupkg");
+        return await PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            PackageSourceCapabilities.SymbolPayload,
+            async () => new PackageSourcePayload(
+                coordinate,
+                Identity,
+                Kind,
+                PackageSourcePayloadKind.Symbols,
+                await GetPayloadAsync(
+                    $"{SymbolEndpoint}{fileName}",
+                    cancellationToken).ConfigureAwait(false)),
+            cancellationToken,
+            coordinate).ConfigureAwait(false);
+    }
+
+    private async Task<Stream> GetPayloadAsync(
         string url,
-        bool returnNullOnNotFound,
         CancellationToken cancellationToken)
     {
         var operation = CreateOperation(cancellationToken);
@@ -151,15 +224,6 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         requestToken).ConfigureAwait(false);
                     try
                     {
-                        if (returnNullOnNotFound
-                            && response.StatusCode
-                                == System.Net.HttpStatusCode.NotFound)
-                        {
-                            requestToken.ThrowIfCancellationRequested();
-                            operation.ThrowIfExpired();
-                            throw new GalleryPayloadNotFoundException();
-                        }
-
                         response.EnsureSuccessStatusCode();
                         Stream stream = await response.Content
                             .ReadAsStreamAsync(requestToken)
@@ -172,12 +236,6 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         throw;
                     }
                 }).ConfigureAwait(false);
-        }
-        catch (GalleryPayloadNotFoundException)
-            when (returnNullOnNotFound)
-        {
-            operation.Dispose();
-            return null;
         }
         catch
         {
@@ -198,22 +256,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         return packageId.ToLowerInvariant();
     }
 
-    private static (string Id, string Version) NormalizeCoordinate(
-        string packageId,
-        string version) =>
-        (
-            NormalizePackageId(packageId),
-            PackageCoordinateValidation.NormalizeVersion(
-                version,
-                nameof(version))
-        );
-
     private static string EscapeSegment(string value) =>
         Uri.EscapeDataString(value);
 
     public void Dispose() => _client.Dispose();
-
-    private sealed class GalleryPayloadNotFoundException : Exception
-    {
-    }
 }

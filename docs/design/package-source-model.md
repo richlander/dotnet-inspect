@@ -42,6 +42,8 @@ package id, and source provenance protects downloaded content after acquisition.
 | Payload location | Where the inspected bytes were opened: an explicit file, global packages, the dotnet-inspect cache, a local feed, or a network response. |
 | Enrichment endpoint | A service such as a symbol server or NuGet.org aggregate metadata API that is not itself a package source. |
 | Source client | A protocol-specific implementation that supplies package-source capabilities behind the common candidate and payload contracts. |
+| Candidate observation | A normalized coordinate together with the producer that reported it, the discovery contract, and source-relative listing state. |
+| Availability observation | A transient environment- and transport-scoped result describing whether an authorized producer can currently supply a coordinate. |
 
 Source identity has two parts with different purposes:
 
@@ -447,6 +449,15 @@ Consumers should not independently parse source options, resolve config, or
 decide whether a cache key is allowed. Version discovery, package extraction,
 nuspec reads, search, routing, metadata enrichment, RID verification, and
 symbols should consume that shared result.
+
+NuGetFetch now exposes typed source-operation results. Candidate observations
+carry normalized coordinates, producer identity, discovery contract, and
+`listed`, `unlisted`, `unknown`, or `not-applicable` state. Exact payload
+results retain their coordinate, producer, transport profile, payload kind,
+and caller-owned stream. Expected source failures retain the source transport
+and exact coordinate when applicable, and are classified without retaining
+source URLs or response text. These transport results do not yet perform
+multi-source aggregation and are not environment availability observations.
 
 The current implementation source-scopes downloaded package content and
 candidate metadata, aggregates versions across sources while retaining the

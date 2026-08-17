@@ -19,6 +19,8 @@ public sealed class PackageSourceClientTests
         "https://feed.example/v3/index.json";
     private const string FlatContainer =
         "https://feed.example/v3/flat/";
+    private const string NuGetOrgVersions =
+        "https://api.nuget.org/v3-flatcontainer/contoso/index.json";
     private const string Versions =
         "https://feed.example/v3/flat/contoso/index.json";
     private const string Package =
@@ -194,13 +196,34 @@ public sealed class PackageSourceClientTests
             PackageSourceCapabilities.VersionEnumeration
                 | PackageSourceCapabilities.PackagePayload,
             runtime.Capabilities);
-        Assert.Equal(["1.0.0"], await runtime.GetVersionsAsync(
-            "contoso",
-            TestContext.Current.CancellationToken));
-        await using Stream package = await runtime.GetPackageAsync(
-            "contoso",
-            "1.0.0",
-            TestContext.Current.CancellationToken);
+        PackageVersionResult versions = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+        PackageCandidateObservation candidate =
+            Assert.Single(versions.Candidates);
+        Assert.Equal("contoso", candidate.Coordinate.PackageId);
+        Assert.Equal("1.0.0", candidate.Coordinate.Version);
+        Assert.Equal(runtime.Identity, candidate.Producer);
+        Assert.Equal(
+            PackageDiscoveryContract.CompleteVersionEnumeration,
+            candidate.DiscoveryContract);
+        Assert.Equal(
+            PackageListingState.NotApplicable,
+            candidate.ListingState);
+        Assert.True(versions.HasAuthoritativeListingState);
+        PackageSourcePayload packagePayload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await using Stream package = packagePayload.Content;
+        Assert.Equal(candidate.Coordinate, packagePayload.Coordinate);
+        Assert.Equal(runtime.Identity, packagePayload.Producer);
+        Assert.Equal(
+            PackageSourcePayloadKind.Package,
+            packagePayload.Kind);
+        Assert.Equal(PackageSourceKind.NuGetV3, packagePayload.TransportKind);
         using var reader = new StreamReader(package);
         Assert.Equal(
             "package bytes",
@@ -240,14 +263,78 @@ public sealed class PackageSourceClientTests
                     new PackageSourceCredential("user", "token")),
                 client);
 
-        Assert.Equal(
-            ["1.0.0"],
-            await runtime.GetVersionsAsync(
-                "contoso",
-                TestContext.Current.CancellationToken));
+        PackageCandidateObservation candidate = Assert.Single(
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+                .Candidates);
+        Assert.Equal("1.0.0", candidate.Coordinate.Version);
         Assert.Equal(
             [signedServiceIndex, Versions],
             handler.Requested);
+    }
+
+    [Fact]
+    public async Task CanonicalV3EnumerationReportsUnknownListingState()
+    {
+        var handler = new RecordingHandler
+        {
+            [NuGetOrgVersions] = """{"versions":["1.0.0"]}""",
+        };
+        using var client = new HttpClient(handler);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                PackageSource.NuGetOrg,
+                client);
+
+        PackageVersionResult versions = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+        PackageCandidateObservation candidate =
+            Assert.Single(versions.Candidates);
+
+        Assert.Equal(
+            PackageListingState.Unknown,
+            candidate.ListingState);
+        Assert.False(versions.HasAuthoritativeListingState);
+        Assert.Equal([NuGetOrgVersions], handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3InvalidVersionMetadataIsTypedFailure()
+    {
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{FlatContainer}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [Versions] = """{"versions":["../1.0.0"]}""",
+        };
+        using var client = new HttpClient(handler);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            failure.Kind);
+        Assert.Equal(runtime.Identity, failure.Producer);
     }
 
     [Theory]
@@ -307,17 +394,20 @@ public sealed class PackageSourceClientTests
                 new PackageSource("corporate", ServiceIndex),
                 client);
 
-        PackageSourceCapabilityException error =
-            await Assert.ThrowsAsync<PackageSourceCapabilityException>(
-                () => runtime.SearchAsync(
-                    "contoso",
-                    cancellationToken:
-                        TestContext.Current.CancellationToken));
+        PackageSourceFailure error = Failed(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
 
-        Assert.Equal(PackageSourceKind.NuGetV3, error.Kind);
         Assert.Equal(
             PackageSourceCapabilities.Search,
             error.Capability);
+        Assert.Equal(
+            PackageSourceFailureKind.Unsupported,
+            error.Kind);
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(PackageSourceKind.NuGetV3, error.TransportKind);
         Assert.Empty(handler.Requested);
     }
 
@@ -336,11 +426,14 @@ public sealed class PackageSourceClientTests
 
         Assert.False(
             runtime.Capabilities.HasFlag(PackageSourceCapabilities.Search));
-        await Assert.ThrowsAsync<PackageSourceCapabilityException>(
-            () => runtime.SearchAsync(
+        PackageSourceFailure failure = Failed(
+            await runtime.SearchAsync(
                 "contoso",
                 cancellationToken:
                     TestContext.Current.CancellationToken));
+        Assert.Equal(
+            PackageSourceFailureKind.Unsupported,
+            failure.Kind);
         Assert.Empty(handler.Requested);
         Assert.Empty(handler.Authentication);
     }
@@ -373,28 +466,64 @@ public sealed class PackageSourceClientTests
                 | PackageSourceCapabilities.PackagePayload
                 | PackageSourceCapabilities.SymbolPayload,
             runtime.Capabilities);
-        SearchResult result = Assert.Single(
-            await runtime.SearchAsync(
-                "contoso",
-                cancellationToken:
-                    TestContext.Current.CancellationToken));
-        Assert.Equal("Contoso", result.Id);
+        PackageSearchMatch match = Assert.Single(
+            Succeeded(
+                await runtime.SearchAsync(
+                    "contoso",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+                .Matches);
+        Assert.Equal("Contoso", match.Metadata.Id);
+        Assert.Equal("contoso", match.Candidate.Coordinate.PackageId);
+        Assert.Equal("1.0.0", match.Candidate.Coordinate.Version);
+        Assert.Equal(runtime.Identity, match.Candidate.Producer);
         Assert.Equal(
-            ["1.0.0"],
+            PackageDiscoveryContract.KeywordSearch,
+            match.Candidate.DiscoveryContract);
+        Assert.Equal(
+            PackageListingState.Listed,
+            match.Candidate.ListingState);
+        PackageVersionResult versions = Succeeded(
             await runtime.GetVersionsAsync(
                 "Contoso",
                 TestContext.Current.CancellationToken));
-        await using Stream package = await runtime.GetPackageAsync(
-            "Contoso",
-            "1.0",
-            TestContext.Current.CancellationToken);
-        await using Stream? symbols = await runtime.TryGetSymbolsAsync(
-            "Contoso",
-            "1.0",
-            TestContext.Current.CancellationToken);
+        PackageCandidateObservation version =
+            Assert.Single(versions.Candidates);
+        Assert.Equal("1.0.0", version.Coordinate.Version);
+        Assert.Equal(
+            PackageListingState.Unknown,
+            version.ListingState);
+        Assert.False(versions.HasAuthoritativeListingState);
+        PackageSourcePayload packagePayload = Succeeded(
+            await runtime.GetPackageAsync(
+                "Contoso",
+                "1.0",
+                TestContext.Current.CancellationToken));
+        PackageSourcePayload symbolPayload = Succeeded(
+            await runtime.TryGetSymbolsAsync(
+                "Contoso",
+                "1.0",
+                TestContext.Current.CancellationToken));
+        await using Stream package = packagePayload.Content;
+        await using Stream symbols = symbolPayload.Content;
 
         Assert.Equal("package bytes", await ReadAsync(package));
-        Assert.Equal("symbol bytes", await ReadAsync(symbols!));
+        Assert.Equal("symbol bytes", await ReadAsync(symbols));
+        Assert.Equal(
+            PackageSourcePayloadKind.Package,
+            packagePayload.Kind);
+        Assert.Equal(
+            PackageSourcePayloadKind.Symbols,
+            symbolPayload.Kind);
+        Assert.Equal(
+            PackageSourceKind.NuGetGallery,
+            packagePayload.TransportKind);
+        Assert.Equal(
+            PackageSourceKind.NuGetGallery,
+            symbolPayload.TransportKind);
+        Assert.Equal(packagePayload.Coordinate, symbolPayload.Coordinate);
+        Assert.Equal(runtime.Identity, packagePayload.Producer);
+        Assert.Equal(runtime.Identity, symbolPayload.Producer);
         Assert.DoesNotContain(
             handler.Requested,
             url => url.Contains(
@@ -431,18 +560,51 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
-    public async Task GalleryMissingSymbolsReturnNull()
+    public async Task GalleryMissingSymbolsAreTypedAbsence()
     {
         var handler = new RecordingHandler();
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.CreateGallery(handler);
 
-        Assert.Null(
+        PackageSourceFailure failure = Failed(
             await runtime.TryGetSymbolsAsync(
                 "contoso",
                 "1.0.0",
                 TestContext.Current.CancellationToken));
+        Assert.Equal(PackageSourceFailureKind.NotFound, failure.Kind);
+        Assert.Equal(
+            PackageSourceCoordinate.Create("contoso", "1.0.0"),
+            failure.Coordinate);
+        Assert.Equal(
+            PackageSourceKind.NuGetGallery,
+            failure.TransportKind);
+        Assert.Equal(
+            PackageSourceCapabilities.SymbolPayload,
+            failure.Capability);
         Assert.Equal([GallerySymbols], handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryMissingPackageIsTypedAbsence()
+    {
+        var handler = new RecordingHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.NotFound, failure.Kind);
+        Assert.Equal(
+            PackageSourceCoordinate.Create("contoso", "1.0.0"),
+            failure.Coordinate);
+        Assert.Equal(
+            PackageSourceCapabilities.PackagePayload,
+            failure.Capability);
+        Assert.Equal([GalleryPackage], handler.Requested);
     }
 
     [Fact]
@@ -455,13 +617,14 @@ public sealed class PackageSourceClientTests
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.CreateGallery(handler);
 
-        InvalidOperationException error =
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => runtime.GetVersionsAsync(
-                    "contoso",
-                    TestContext.Current.CancellationToken));
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
 
-        Assert.Contains("invalid package version", error.Message);
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            failure.Kind);
         Assert.Equal([GalleryVersions], handler.Requested);
     }
 
@@ -475,14 +638,40 @@ public sealed class PackageSourceClientTests
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.CreateGallery(handler);
 
-        InvalidOperationException error =
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => runtime.GetVersionsAsync(
-                    "contoso",
-                    TestContext.Current.CancellationToken));
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
 
-        Assert.Contains("not a valid version document", error.Message);
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            failure.Kind);
         Assert.Equal([GalleryVersions], handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryClassifiesBoundedMetadataRejection()
+    {
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxMetadataResponseBytes = 8,
+                });
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.ResponseRejected,
+            failure.Kind);
     }
 
     [Fact]
@@ -493,9 +682,11 @@ public sealed class PackageSourceClientTests
             PackageSourceClientFactory.CreateGallery(handler);
 
         Assert.Empty(
-            await runtime.GetVersionsAsync(
-                "contoso",
-                TestContext.Current.CancellationToken));
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+                .Candidates);
         Assert.Equal([GalleryVersions], handler.Requested);
     }
 
@@ -585,11 +776,14 @@ public sealed class PackageSourceClientTests
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.CreateGallery(handler);
 
-        Assert.Equal(
-            ["1.0.0"],
-            await runtime.GetVersionsAsync(
-                "Caf\u00E9",
-                TestContext.Current.CancellationToken));
+        PackageCandidateObservation candidate = Assert.Single(
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "Caf\u00E9",
+                    TestContext.Current.CancellationToken))
+                .Candidates);
+        Assert.Equal("caf\u00E9", candidate.Coordinate.PackageId);
+        Assert.Equal("1.0.0", candidate.Coordinate.Version);
         Assert.Equal([versions], handler.Requested);
     }
 
@@ -607,17 +801,65 @@ public sealed class PackageSourceClientTests
                     OperationTimeout = TimeSpan.FromSeconds(1),
                 });
 
-        Task request = payload
-            ? runtime.GetPackageAsync(
+        PackageSourceFailure failure = payload
+            ? Failed(
+                await runtime.GetPackageAsync(
+                    "contoso",
+                    "1.0.0",
+                    TestContext.Current.CancellationToken))
+            : Failed(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(
+            payload
+                ? PackageSourceCapabilities.PackagePayload
+                : PackageSourceCapabilities.VersionEnumeration,
+            failure.Capability);
+    }
+
+    [Fact]
+    public async Task GalleryCallerCancellationRemainsCancellation()
+    {
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                new StallingHandler());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runtime.GetVersionsAsync(
+                "contoso",
+                cancellation.Token));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, PackageSourceFailureKind.AuthenticationRequired)]
+    [InlineData(HttpStatusCode.Forbidden, PackageSourceFailureKind.AuthenticationRequired)]
+    [InlineData(HttpStatusCode.BadGateway, PackageSourceFailureKind.Transport)]
+    public async Task GalleryClassifiesHttpFailures(
+        HttpStatusCode statusCode,
+        PackageSourceFailureKind expected)
+    {
+        var handler = new RecordingHandler();
+        handler.SetStatus(GalleryPackage, statusCode);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetPackageAsync(
                 "contoso",
                 "1.0.0",
-                TestContext.Current.CancellationToken)
-            : runtime.GetVersionsAsync(
-                "contoso",
-                TestContext.Current.CancellationToken);
+                TestContext.Current.CancellationToken));
 
-        await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
-            async () => await request);
+        Assert.Equal(expected, failure.Kind);
+        Assert.Equal(runtime.Identity, failure.Producer);
+        Assert.DoesNotContain(
+            GalleryPackage,
+            failure.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -653,12 +895,27 @@ public sealed class PackageSourceClientTests
             TestContext.Current.CancellationToken);
     }
 
+    private static T Succeeded<T>(
+        PackageSourceOperationResult<T> result) =>
+        Assert.IsType<PackageSourceOperationResult<T>.Succeeded>(result)
+            .Value;
+
+    private static PackageSourceFailure Failed<T>(
+        PackageSourceOperationResult<T> result) =>
+        Assert.IsType<PackageSourceOperationResult<T>.Failed>(result)
+            .Failure;
+
     private sealed class RecordingHandler : HttpMessageHandler
     {
         private readonly Dictionary<string, string> _routes =
             new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, HttpStatusCode> _statuses =
+            new(StringComparer.OrdinalIgnoreCase);
 
         public string this[string url] { set => _routes[url] = value; }
+
+        public void SetStatus(string url, HttpStatusCode statusCode) =>
+            _statuses[url] = statusCode;
 
         public List<string> Requested { get; } = [];
         public List<string?> Authentication { get; } = [];
@@ -688,9 +945,11 @@ public sealed class PackageSourceClientTests
                             GallerySearch + "?",
                             StringComparison.OrdinalIgnoreCase));
             bool hasResponse = route is not null;
-            HttpStatusCode status = hasResponse
-                ? HttpStatusCode.OK
-                : HttpStatusCode.NotFound;
+            HttpStatusCode status = _statuses.GetValueOrDefault(
+                url,
+                hasResponse
+                    ? HttpStatusCode.OK
+                    : HttpStatusCode.NotFound);
             return Task.FromResult(new HttpResponseMessage(status)
             {
                 Content = new StringContent(

@@ -70,14 +70,14 @@ interface IPackageSourceClient
     PackageSourceIdentity Identity { get; }
     PackageSourceCapabilities Capabilities { get; }
 
-    Task<PackageSearchResult> SearchAsync(...);
-    Task<PackageVersionResult> GetVersionsAsync(...);
-    Task<PackagePayloadResult> GetPackageAsync(...);
-    Task<SymbolPayloadResult> TryGetSymbolsAsync(...);
+    Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(...);
+    Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(...);
+    Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(...);
+    Task<PackageSourceOperationResult<PackageSourcePayload>> TryGetSymbolsAsync(...);
 }
 ```
 
-The exact API may differ, but the boundary must preserve these properties:
+The boundary preserves these properties:
 
 - source identity is typed and stable;
 - capabilities are explicit rather than inferred from a URL string;
@@ -575,13 +575,30 @@ service index. The factory creates an isolated credential-free `HttpClient`
 owned by the Gallery client; it does not accept a shared mutable client whose
 defaults could carry authorization, cookies, or API keys to the fixed public
 hosts. The transport timeout is infinite so the finite NuGetFetch request and
-operation deadlines remain authoritative. Disposing the source client disposes
-that transport. Its initial version-enumeration result is the complete raw
-flat-container list. The current string-only result cannot carry per-version
-Gallery listing state, so the registration join and listing-aware candidate
-contract remain follow-up work; callers must not write this result into a
-listing-aware cache. No existing package-resolution consumer has moved to this
-client yet.
+operation deadlines remain authoritative. Disposing the source client disposes that transport.
+
+Source operations now return typed outcomes. Search and version results carry
+normalized package coordinates, producer identity, discovery contract, and
+source-relative listing state. Payload results carry the exact coordinate,
+producer, transport profile, payload kind, and caller-owned stream. Expected
+source failures retain the producer, transport profile, capability, and exact
+coordinate when applicable, and distinguish unsupported capability, exact
+payload absence, authentication, timeout, malformed metadata,
+bounded-response rejection, and transport failure. Their retained messages are
+source-safe summaries rather than transport URLs or response text. Invalid
+caller coordinates and caller cancellation remain exceptions rather than
+being misreported as source failures.
+
+The Gallery version-enumeration result is still the complete raw flat-container
+list, so every candidate currently carries `unknown` listing state. Canonical
+NuGet.org v3 enumeration also reports `unknown`; a custom v3 source reports
+`not-applicable` because standard v3 flat-container enumeration has no listing
+contract. Gallery search reports `listed`, because unlisted coordinates do not
+appear in that search surface. `PackageVersionResult` exposes whether all
+listing states are authoritative, so the current raw Gallery and canonical-v3
+results cannot be admitted into a listing-aware cache. Registration joining
+remains follow-up work. No existing package-resolution consumer has moved to
+this client yet.
 
 The v3 compatibility adapter initially exposes version and package-payload
 operations only, and validates package coordinates before any service-index or
@@ -595,6 +612,12 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryClientUsesKnownEndpointsWithoutServiceIndex`,
 `GalleryEscapesUnicodePackageIdsAsOneSegment`,
 `GalleryRequestsUseLibraryDeadlines`,
+`CanonicalV3EnumerationReportsUnknownListingState`,
+`V3InvalidVersionMetadataIsTypedFailure`,
+`GalleryMissingPackageIsTypedAbsence`,
+`GalleryClassifiesBoundedMetadataRejection`,
+`GalleryClassifiesHttpFailures`,
+`GalleryCallerCancellationRemainsCancellation`,
 `CanonicalNuGetOrgV3DoesNotReintroduceSearchShortcut`, and
 `LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate these boundaries.
 The existing `NuGetSearchSourcesTests` continue to gate the package-layer
@@ -605,16 +628,16 @@ still largely equate a source with a v3 service-index URL. The implementation
 should:
 
 1. Move v3 resource discovery and URL construction fully into its source client.
-2. Return common typed candidate, listing, payload, symbol, and failure contracts.
+2. Join Gallery registration metadata so complete enumeration reports
+   authoritative per-version listing state.
 3. Migrate package resolution from direct `PackageSource`/`NuGetClient` use to
    the source-client boundary.
-4. Let desktop and browser hosts choose transport implementations without
+4. Add environment-scoped availability observations without mutating durable
+   candidate observations.
+5. Let desktop and browser hosts choose transport implementations without
    changing producer identity above the acquisition layer.
-5. Replace the browser's singleton `default versus mirror` state with a source
+6. Replace the browser's singleton `default versus mirror` state with a source
    registry and selected source set.
-6. Replace boolean-only NuGet.org listing state with a typed
-   `listed`/`unlisted`/`unknown`/`not-applicable` result so partial enumeration
-   cannot look authoritative.
 
 The product libraries must own these contracts. A browser harness may present
 configuration and cancellation, but it must not reconstruct package resolution,

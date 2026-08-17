@@ -247,44 +247,28 @@ public interface IPackageSourceClient : IDisposable
     PackageSourceCapabilities Capabilities { get; }
 
     /// <summary>Searches for packages.</summary>
-    Task<IReadOnlyList<SearchResult>> SearchAsync(
+    Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
         string query,
         int take = 20,
         bool prerelease = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>Gets the versions reported for a package ID.</summary>
-    Task<IReadOnlyList<string>> GetVersionsAsync(
+    Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
         CancellationToken cancellationToken = default);
 
     /// <summary>Gets an exact package payload owned by the returned stream.</summary>
-    Task<Stream> GetPackageAsync(
+    Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
         string packageId,
         string version,
         CancellationToken cancellationToken = default);
 
     /// <summary>Gets an exact symbol-package payload when supported and available.</summary>
-    Task<Stream?> TryGetSymbolsAsync(
+    Task<PackageSourceOperationResult<PackageSourcePayload>> TryGetSymbolsAsync(
         string packageId,
         string version,
         CancellationToken cancellationToken = default);
-}
-
-/// <summary>
-/// Raised when a source client is asked to perform an operation it does not advertise.
-/// </summary>
-public sealed class PackageSourceCapabilityException(
-    PackageSourceKind kind,
-    PackageSourceCapabilities capability)
-    : NotSupportedException(
-        $"Package source kind '{kind}' does not support capability '{capability}'.")
-{
-    /// <summary>Gets the source kind that rejected the operation.</summary>
-    public PackageSourceKind Kind { get; } = kind;
-
-    /// <summary>Gets the unsupported operation.</summary>
-    public PackageSourceCapabilities Capability { get; } = capability;
 }
 
 /// <summary>
@@ -435,56 +419,103 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         PackageSourceCapabilities.VersionEnumeration
         | PackageSourceCapabilities.PackagePayload;
 
-    public Task<IReadOnlyList<SearchResult>> SearchAsync(
+    public Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
         string query,
         int take = 20,
         bool prerelease = false,
         CancellationToken cancellationToken = default) =>
-        throw new PackageSourceCapabilityException(
-            Kind,
-            PackageSourceCapabilities.Search);
+        Task.FromResult(
+            PackageSourceOperation.Unsupported<PackageSearchResult>(
+                Identity,
+                Kind,
+                PackageSourceCapabilities.Search));
 
-    public async Task<IReadOnlyList<string>> GetVersionsAsync(
+    public async Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
         CancellationToken cancellationToken = default)
     {
         PackageCoordinateValidation.ValidatePackageId(
             packageId,
             nameof(packageId));
-        return await _nuget.GetVersionsAsync(
-            packageId,
-            _endpoint.AbsoluteUri,
-            _credential,
+        return await PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            PackageSourceCapabilities.VersionEnumeration,
+            async () =>
+            {
+                IReadOnlyList<string> versions =
+                    await _nuget.GetVersionsAsync(
+                        packageId,
+                        _endpoint.AbsoluteUri,
+                        _credential,
+                        cancellationToken).ConfigureAwait(false);
+                PackageListingState listingState =
+                    Identity == PackageSourceIdentity.NuGetOrg
+                        ? PackageListingState.Unknown
+                        : PackageListingState.NotApplicable;
+                var candidates =
+                    new PackageCandidateObservation[versions.Count];
+                for (int i = 0; i < versions.Count; i++)
+                {
+                    if (!PackageCoordinateValidation.IsValidPackageVersion(
+                            versions[i]))
+                    {
+                        throw new NuGetSourceResponseException(
+                            "The package version response contained an invalid package version.");
+                    }
+
+                    candidates[i] = new PackageCandidateObservation(
+                        PackageSourceCoordinate.Create(packageId, versions[i]),
+                        Identity,
+                        PackageDiscoveryContract.CompleteVersionEnumeration,
+                        listingState);
+                }
+
+                return new PackageVersionResult(candidates);
+            },
             cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<Stream> GetPackageAsync(
+    public async Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
         string packageId,
         string version,
         CancellationToken cancellationToken = default)
     {
-        PackageCoordinateValidation.ValidatePackageId(
-            packageId,
-            nameof(packageId));
-        string normalizedVersion =
-            PackageCoordinateValidation.NormalizeVersion(
-                version,
-                nameof(version));
-        return await _nuget.DownloadAsync(
-            packageId,
-            normalizedVersion,
-            _endpoint.AbsoluteUri,
-            _credential,
-            cancellationToken).ConfigureAwait(false);
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        return await PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            PackageSourceCapabilities.PackagePayload,
+            async () => new PackageSourcePayload(
+                coordinate,
+                Identity,
+                Kind,
+                PackageSourcePayloadKind.Package,
+                await _nuget.DownloadAsync(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    _endpoint.AbsoluteUri,
+                    _credential,
+                    cancellationToken).ConfigureAwait(false)),
+            cancellationToken,
+            coordinate).ConfigureAwait(false);
     }
 
-    public Task<Stream?> TryGetSymbolsAsync(
+    public Task<PackageSourceOperationResult<PackageSourcePayload>> TryGetSymbolsAsync(
         string packageId,
         string version,
-        CancellationToken cancellationToken = default) =>
-        throw new PackageSourceCapabilityException(
-            Kind,
-            PackageSourceCapabilities.SymbolPayload);
+        CancellationToken cancellationToken = default)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        return Task.FromResult(
+            PackageSourceOperation.Unsupported<PackageSourcePayload>(
+                Identity,
+                Kind,
+                PackageSourceCapabilities.SymbolPayload,
+                coordinate));
+    }
 
     public void Dispose()
     {
