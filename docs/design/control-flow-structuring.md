@@ -680,6 +680,7 @@ only when the post-dominator machinery is proven.
    multi-merge and compiler-produced paths.
    `RetainedBodyMergeWithoutRotatedEntryStaysFlat`,
    `RetainedBodyMergeWithMultipleLatchesStaysFlat`,
+   `RetainedBodyMergeAtLatchStaysFlat`,
    `RetainedBodyMergeWithNoncanonicalExitStaysFlat`,
    `RetainedBodyMergeWithExternalInteriorEntryStaysFlat`, and
    `RetainedBodyMergeWithSwitchStaysFlat` gate the declined boundary;

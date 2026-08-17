@@ -626,6 +626,7 @@ public sealed class StructuringPass : IIrPass
         int overlappingLoops = plan.BackEdgeRegions.Count(other =>
             other.Start < loop.End && loop.Start < other.End);
         if (overlappingLoops != 1
+            || retainedMerge.Merge >= latch
             || entry < cursor
             || ctx.Blocks[entry].Children.LastOrDefault() is not Branch entryBranch
             || entryBranch.TargetOffset != ctx.Blocks[latch].StartOffset
@@ -640,7 +641,7 @@ public sealed class StructuringPass : IIrPass
         var retainedMerges = plan.ForwardRegions
             .Where(region =>
                 loop.Start <= region.Start
-                && region.Merge < loop.End
+                && region.Merge < latch
                 && region.IsNonCrossing
                 && region.IsBackEdgeEntangled
                 && RetainedCandidateDecline(ctx, region, allowBackEdgeEntanglement: true) is null

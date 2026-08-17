@@ -118,6 +118,31 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
+    public void RetainedBodyMergeAtLatchStaysFlat()
+    {
+        var blocks = new[]
+        {
+            Term(0, new Branch(5)),
+            Term(1, Cond(4)),
+            Term(2, Cond(5)),
+            Term(3, new Branch(4)),
+            Term(4, new Branch(5)),
+            Term(5, Cond(1)),
+            Term(6, new Return(null)),
+        };
+        var plan = StructuringJoinAnalysis.Analyze(blocks);
+        Assert.Contains(
+            plan.ForwardRegions,
+            region => region.Merge == 5 && region.IsBackEdgeEntangled);
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Equal(0, diagnostics.RetainedRegions);
+        Assert.Contains("retained-back-edge-entangled", diagnostics.RetainedDeclines);
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
     public void RetainedBodyMergeWithNoncanonicalExitStaysFlat()
     {
         var blocks = RetainedLoopBlocks().ToList();
