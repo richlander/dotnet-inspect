@@ -397,7 +397,32 @@ before the check. Composite type nodes carry non-materializing rendered-length
 estimates, and bounded decoding charges each constructed node's complete
 estimated output so repeated wrapping cannot reallocate an uncharged subtree.
 Structured nested type names are read once and enforce their cumulative limit
-before the remaining chain is materialized. Tuple-name, nullability, and dynamic
+before the remaining chain is materialized. Legacy `FormatChain`, `ReadChain`,
+and leaf-append readers preflight UTF-8 storage against three times that
+4,096-character budget (the UTF-8 worst case), then recheck decoded length,
+and report `NameBudget` rather than malformed or success-shaped output.
+Display string APIs (`GetFullName`, `GetTypeNameFrom*`) keep only the encoded
+cap so a 5,030-character classifier fixture can still be spelled;
+`Resolve*`/`Read` remain on the 4,096-character policy.
+`AppendLeaf` continues the declaring walk's live encoded and character
+ledgers rather than reseeding them from rendered text. Shared #Strings entries, many individually
+small segments, projected WinRT virtual strings, TypeSpec `NameBudget` kind
+preservation, and the display/structured split are gated by
+`SharedOversizeHeapString_IsRejectedBeforeAggregateMaterialization`,
+`ManySmallSegments_AreRejectedOnAggregateEncodedLength`,
+`LeafAppendOverBudget_IsRejectedBeforeLeafMaterialization`,
+`StructuredRead_ReportsNameBudgetNotMalformed`,
+`ProjectedVirtualStringLength_IsRecheckedAfterBlobReader`,
+`TypeSpecNameBudget_IsPreservedAsTypedEvidence`,
+`TypeSpecNameBudget_SurvivesLaterMalformedArgument`,
+`AppendLeaf_PreflightsActualUtf8OfMaterializedDeclaringName`,
+`DisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap`,
+`NestedDisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap`,
+`TypeSpecDisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap`,
+`EmptyLeadingNameSegment_DoesNotCollideWithTopLevelName`,
+`EmptyNamespaceExactCharacterBudget_AgreesWithCreate`,
+`EmptyNamespaceNestedResolveFullName_AgreesWithCreate`, and
+`NilNameAfterEncodedCap_IsRejectedOnDisplayPath`. Tuple-name, nullability, and dynamic
 transform arrays charge their encoded blob before allocating arrays, and one
 type generic context is reused across all of that type's members.
 Visibility probes use bounded blob readers rather than copying skipped
