@@ -3932,7 +3932,12 @@ public class PackageCommand
             return false;
         }
 
-        var table = BuildAllLibrariesTable(packageName, version, inspections, sections[0]);
+        var table = BuildAllLibrariesTable(
+            packageName,
+            version,
+            inspections,
+            sections[0],
+            options.Rows);
         if (table == null)
         {
             CommandError.Write($"--all-libraries row output does not support section: {sections[0]}.");
@@ -3940,7 +3945,7 @@ public class PackageCommand
             return false;
         }
 
-        if (table.Rows.Length == 0)
+        if (!table.HasRowsBeforeWindow)
         {
             CommandError.WriteNote("matched section has no row data across all libraries.");
             return true;
@@ -3952,27 +3957,37 @@ public class PackageCommand
             var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
             markoutWriter.WriteTable(table.Headers, table.StableHeaders, table.Rows);
             markoutWriter.Flush();
-        }, options.Rows);
+        });
         return true;
     }
 
-    private sealed record AllLibrariesTable(string[] Headers, string[] StableHeaders, string[][] Rows);
+    private sealed record AllLibrariesTable(
+        string[] Headers,
+        string[] StableHeaders,
+        string[][] Rows,
+        bool HasRowsBeforeWindow);
 
     private static AllLibrariesTable? BuildAllLibrariesTable(
         string packageName,
         string version,
         List<LibraryInspection> inspections,
-        string section)
+        string section,
+        RowWindow? rowWindow)
     {
         if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))
         {
-            var libraryInfoRows = inspections
-                .SelectMany(inspection => BuildLibraryInfoRows(packageName, version, inspection))
+            var rowsByLibrary = inspections
+                .Select(inspection =>
+                    BuildLibraryInfoRows(packageName, version, inspection).ToArray())
+                .ToArray();
+            var libraryInfoRows = rowsByLibrary
+                .SelectMany(rows => RowWindow.Apply(rowWindow, rows))
                 .ToArray();
             return new(
                 ["Package", "Version", "Library", "TFM", "Field", "Value"],
                 ["package", "version", "library", "tfm", "field", "value"],
-                libraryInfoRows);
+                libraryInfoRows,
+                rowsByLibrary.Any(rows => rows.Length != 0));
         }
 
         if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
@@ -3991,7 +4006,8 @@ public class PackageCommand
             return new(
                 ["Package", "Version", "Library", "TFM", "Integration", "API", "Integration Type", "Look For"],
                 ["package", "version", "library", "tfm", "integration", "api", "integration_type", "look_for"],
-                opportunityRows);
+                [.. RowWindow.Apply(rowWindow, opportunityRows)],
+                opportunityRows.Length != 0);
         }
 
         if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
@@ -4009,7 +4025,8 @@ public class PackageCommand
             return new(
                 ["Package", "Version", "Library", "TFM", "Kind", "Switch", "API"],
                 ["package", "version", "library", "tfm", "kind", "switch", "api"],
-                switchRows);
+                [.. RowWindow.Apply(rowWindow, switchRows)],
+                switchRows.Length != 0);
         }
 
         var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
@@ -4039,7 +4056,8 @@ public class PackageCommand
         return new(
             ["Package", "Version", "Library", "TFM", "Kind", valueColumn],
             ["package", "version", "library", "tfm", "kind", valueStableColumn],
-            focusedRows);
+            [.. RowWindow.Apply(rowWindow, focusedRows)],
+            focusedRows.Length != 0);
     }
 
     private static IEnumerable<string[]> BuildLibraryInfoRows(string packageName, string version, LibraryInspection inspection)

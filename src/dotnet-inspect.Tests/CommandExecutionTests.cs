@@ -18319,6 +18319,175 @@ public partial class CommandExecutionTests
         }
     }
 
+    /// <summary>
+    /// Singular all-libraries sections remain one table per library for row selection even when a
+    /// row format flattens them into one provenance-bearing stream. The count is the independent
+    /// Markdown oracle: two rows from each of two selected libraries must produce four rows in
+    /// every representation.
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_AllLibraries_RowFormats_WindowPerLibraryLikeMarkdownCount()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "2",
+                "--count",
+                "--tips",
+                "q");
+            var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "2",
+                "--tsv",
+                "--tips",
+                "q");
+            var (jsonlExit, jsonlOutput, jsonlError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "2",
+                "--jsonl",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, countExit);
+            Assert.Equal(0, tsvExit);
+            Assert.Equal(0, jsonlExit);
+            Assert.Equal(4, int.Parse(
+                countOutput.Trim(),
+                CultureInfo.InvariantCulture));
+
+            var tsvRows = SplitOutputLines(tsvOutput).Skip(1).ToArray();
+            Assert.Equal(4, tsvRows.Length);
+            Assert.Equal(
+                [2, 2],
+                tsvRows
+                    .GroupBy(row => row.Split('\t')[2])
+                    .Select(group => group.Count())
+                    .Order()
+                    .ToArray());
+
+            var jsonlRows = SplitOutputLines(jsonlOutput)
+                .Select(line => JsonDocument.Parse(line))
+                .ToArray();
+            Assert.Equal(4, jsonlRows.Length);
+            Assert.Equal(
+                [2, 2],
+                jsonlRows
+                    .GroupBy(document => document.RootElement
+                        .GetProperty("library")
+                        .GetString())
+                    .Select(group => group.Count())
+                    .Order()
+                    .ToArray());
+            Assert.DoesNotContain("Tip:", countError);
+            Assert.DoesNotContain("Tip:", tsvError);
+            Assert.DoesNotContain("Tip:", jsonlError);
+
+            foreach (var document in jsonlRows)
+                document.Dispose();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregateRowFormats_WindowAcrossRolledUpSection()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration",
+            "Microsoft.Extensions.Configuration.Json");
+        try
+        {
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration",
+                "--rows",
+                "1",
+                "--count",
+                "--tips",
+                "q");
+            var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration",
+                "--rows",
+                "1",
+                "--tsv",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, countExit);
+            Assert.Equal(0, tsvExit);
+            Assert.Equal(
+                1,
+                int.Parse(countOutput.Trim(), CultureInfo.InvariantCulture));
+            Assert.Single(SplitOutputLines(tsvOutput).Skip(1));
+            Assert.DoesNotContain("Tip:", countError);
+            Assert.DoesNotContain("Tip:", tsvError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_RowFormat_WindowMissPreservesHeader()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "100..",
+                "--tsv",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(
+                "package\tversion\tlibrary\ttfm\tfield\tvalue",
+                output.Trim());
+            Assert.DoesNotContain(
+                "matched section has no row data",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task PackageCommand_AllLibraries_TsvRejectsIntegrationCategory()
     {
