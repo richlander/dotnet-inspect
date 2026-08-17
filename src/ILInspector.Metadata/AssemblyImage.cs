@@ -93,10 +93,10 @@ public sealed class AssemblyImage : IDisposable
                 peReader,
                 ownsReader: true);
         }
-        catch
+        catch (Exception ex)
         {
-            peReader?.Dispose();
-            stream.Dispose();
+            OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
+            OwnedResourceCleanup.DisposeAfterFailure(stream, ex);
             throw;
         }
     }
@@ -112,9 +112,9 @@ public sealed class AssemblyImage : IDisposable
                 new PEReader(stream, PEStreamOptions.LeaveOpen),
                 ownsReader: true);
         }
-        catch
+        catch (Exception ex)
         {
-            stream.Dispose();
+            OwnedResourceCleanup.DisposeAfterFailure(stream, ex);
             throw;
         }
     }

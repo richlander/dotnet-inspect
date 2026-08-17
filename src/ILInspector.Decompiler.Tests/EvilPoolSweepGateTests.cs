@@ -149,6 +149,24 @@ public class EvilPoolSweepGateTests
         Assert.False(File.Exists(world.ManifestPath));
     }
 
+    [Fact]
+    public void SweepLauncherSuppressesAmbientSourceAndAuditDiagnostics()
+    {
+        var startInfo = EvilPoolSweepProcess.Create("/repository", "/working");
+
+        Assert.Equal(
+            [
+                "run",
+                "-p:NoWarn=NU1507",
+                "-p:NuGetAudit=false",
+                Path.Combine(
+                    "/repository",
+                    "eng",
+                    "prepare-decompiler-package-sweep.cs"),
+            ],
+            startInfo.ArgumentList);
+    }
+
     /// <summary>
     /// A sweep that cannot write its assembly record refuses the output directory.
     ///
@@ -1873,20 +1891,9 @@ public class EvilPoolSweepGateTests
         /// </summary>
         public (int ExitCode, string Output, string Errors) Run()
         {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } host
-                    ? host
-                    : "dotnet",
-                WorkingDirectory = FakeRoot,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-            startInfo.ArgumentList.Add("run");
-            startInfo.ArgumentList.Add(Path.Combine(
+            var startInfo = EvilPoolSweepProcess.Create(
                 AuthoredCorpusRatchetTests.FindRepositoryRoot(),
-                "eng",
-                "prepare-decompiler-package-sweep.cs"));
+                FakeRoot);
             startInfo.ArgumentList.Add("--");
             startInfo.ArgumentList.Add(OutputDirectory);
 

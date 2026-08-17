@@ -497,7 +497,7 @@ public static class StructuralCloneCensus
         return output.ToString();
     }
 
-    static MetadataReader GetMetadataReader(
+    internal static MetadataReader GetMetadataReader(
         PEReader image,
         string assemblyPath)
     {
@@ -525,7 +525,7 @@ public static class StructuralCloneCensus
         }
     }
 
-    static MethodDefinitionHandle ResolveSeed(
+    internal static MethodDefinitionHandle ResolveSeed(
         MetadataReader reader,
         string selector)
     {
@@ -632,7 +632,7 @@ public static class StructuralCloneCensus
             family);
     }
 
-    static string TypeName(
+    internal static string TypeName(
         MetadataReader reader,
         TypeDefinitionHandle handle)
     {

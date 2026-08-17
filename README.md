@@ -134,6 +134,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
 | Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files, plus version-resolved package README/PROJECT docs from restored projects. |
+| Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections and shared with browser/WASM. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
@@ -154,6 +155,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
+| `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility` or `C# Style Choices` to enumerate their legal values. |
 | `body-shape X` | Search one library's full-fidelity bodies for an exact stable rendered-syntax kind, returning the containing member, MethodDef token, exact range, and selected text. |
 | `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified authored Source implementation evidence. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -250,13 +252,16 @@ Use `package Foo --library` to inspect one package DLL, or `package Foo
 --all-libraries` when the package contains multiple relevant libraries. In
 all-library mode, singular sections such as `Library Info` are rendered per
 library while aggregate sections roll up rows across libraries and include
-library provenance when needed. Row formats (`--table`, `--tsv`, `--jsonl`)
-require one concrete section, such as `Library Info`, `Switches`, or a focused
+library provenance when needed. `--rows` therefore windows singular sections
+within each library and aggregate sections across the rolled-up row set,
+including in row formats (`--table`, `--tsv`, `--jsonl`). Row formats require
+one concrete section, such as `Library Info`, `Switches`, or a focused
 `Integration:` section; use Markdown for category selectors such as
-`@Integrations`. Add `--count` to a category selector for per-section row counts,
-or to bare `-S` for the same map over the fixed overview. For Integrations,
-all-library mode scans selected managed assemblies together within each target
-framework; `--tfm all` keeps each framework in a separate inspection group.
+`@Integrations`. Add `--count` to a category selector for per-section row
+counts, or to bare `-S` for the same map over the fixed overview. For
+Integrations, all-library mode scans selected managed assemblies together
+within each target framework; `--tfm all` keeps each framework in a separate
+inspection group.
 
 `Switches` is a peer library section for feature, compatibility, and runtime
 configuration switches such as `FeatureSwitchDefinitionAttribute` and
@@ -291,15 +296,17 @@ group renders as one self-describing table with a leading `Kind` column, so
 every row states which performance kind it belongs to. These sections rank in-loop (hot) and high-confidence
 opportunities first across actionable rewrite shapes (small non-escaping
 arrays, temporary or span-to-array copies, capturing and instance method-group
-delegates, async state-machine setup, loop-invariant materialization, and
-value-type boxing) plus `allocation-hotspot` rows for methods that allocate
-heavily without matching a specific shape. The `type` and `member` commands keep
-the single `Performance Triage` lens.
+delegates, async state-machine setup, synchronous calls from async methods when
+a signature-compatible `Async` sibling exists, loop-invariant materialization,
+and value-type boxing) plus `allocation-hotspot` rows for methods that allocate
+heavily without matching a specific shape. The `type` and `member` commands
+keep the single `Performance Triage` lens.
 
 The tight markdown columns carry the ranked, human-facing fields, including a
 static `Priority` that is separate from evidence/rewrite `Confidence`; the full
-per-row diagnostics (shape, provenance, candidate id, native `Finding`, metadata
-`Token`, IL offset, allocation `Weight`, path/loop evidence, and the fix
+per-row diagnostics (shape, provenance, candidate id, native `Finding`,
+declaring `Assembly` and `MethodToken`, operation-operand metadata `Token`, IL
+offset, allocation `Weight`, path/loop evidence, and the fix
 sentence) are preserved in the nested `performance` object of `--json`.
 Allocation rows carry `Weight`, a coarse size x multiplicity x reach static
 prior that you can query or sort when choosing pre-profile instrumentation
@@ -307,7 +314,9 @@ targets. Exact allocation and call-site rows also retain a `Candidate` id, their
 native `Finding` descriptor, `Provenance=exact`, `Operation`, and metadata
 `Token`. Aggregate rows are marked `Provenance=aggregate`; `unmatched`
 identifies an instruction-level row that could not be joined to a producer
-occurrence. Those fields let trace and version-diff tooling join a triage row to
+occurrence. `Assembly` + `MethodToken` + `IL` form the runtime allocation-trace coordinate;
+`Token` is the operand of the reported IL operation and must not be used as the
+declaring method token. Those fields let trace and version-diff tooling join a triage row to
 `analysis.allocation` or `analysis.call-site` evidence without parsing
 `Evidence` prose. Use `--top`, `--loop`, `--min-confidence`, and
 `--triage-shape` to ask the tool for the curated pay-dirt rows directly instead
@@ -332,6 +341,26 @@ When `--bin`, `--project`, or `--caller-package` supplies an assembly scope,
 retains its narrower inbound-only scan.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
+
+Export nested JSON when runtime correlation is the next step, then give that
+document and the matching allocation trace to `runfaster`:
+
+```bash
+dotnet-inspect library MyLib.dll -S "Performance:*" \
+  --where "Priority>=high" --json > triage.json
+runfaster correlate --triage triage.json --trace workload.nettrace
+```
+
+The compact `Performance:* --jsonl` table intentionally carries only the tight
+human-facing columns and therefore cannot support an exact trace join.
+`runfaster` reports those rows as not runtime-correlatable rather than treating
+them as negative workload evidence.
+For filtered triage exports, allocation-stack correlation stops at the first
+frame in the represented assembly. If that method has no exported row, the
+allocation remains unattributed rather than being credited to an outer caller.
+When the same site arrives from both `--library` and `--triage`, the
+shape-compatible triage row supplies the richer single attribution; the raw
+library row is marked `superseded-by-triage`, not workload-cold.
 
 `CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` expose a separate
 cross-method repetition fact. `CallerLoop=direct` means a resolved invocation
@@ -396,8 +425,8 @@ normal-return paths, not runtime bytes or workload frequency; virtual, external,
 delegate, recursive, and runtime-library effects remain opaque.
 
 Common `--triage-shape` values include `capturing-delegate`,
-`async-state-machine`, `box-value-type`, `generic-parameter-object-box`,
-`small-array`,
+`async-state-machine`, `sync-call-in-async`, `box-value-type`,
+`generic-parameter-object-box`, `small-array`,
 `cache-lookup-factory-delegate`, `linq-scan-in-loop`,
 `scan-method-in-loop-call`, `scan-method-in-recursive-traversal`,
 `materialize-in-loop`, `string-build-in-loop`, `enumerator-allocation`, and
@@ -591,6 +620,9 @@ dotnet-inspect member Command --project ./src/App -S "Member Index"
 dotnet-inspect project ./src/App -S Skills --jsonl
 dotnet-inspect project ./src/App -S Skills --paths
 dotnet-inspect project ./src/App -S Skills --print --row 1
+dotnet-inspect vocabulary -D
+dotnet-inspect vocabulary -S Accessibility --json
+dotnet-inspect vocabulary -S "C# Style Choices" --columns "ID,Title,Tier" --tsv
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
