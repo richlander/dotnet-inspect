@@ -38,8 +38,9 @@ public sealed class StackSlotLiveRangePass : IIrPass
                     continue;
 
                 // LiveLoads stops at the next store statement. A load in that
-                // statement may still observe this definition.
-                if (NextStoreStatementHasLoad(block, i, store.Slot))
+                // statement, or after a nested store that may not execute, may
+                // still observe this definition.
+                if (NextStoreBoundaryHasUnprovenLoad(block, i, store.Slot))
                     continue;
 
                 var liveLoads = LiveLoads(block, i, store.Slot).ToList();
@@ -311,10 +312,10 @@ public sealed class StackSlotLiveRangePass : IIrPass
     {
         int slot = store.Slot;
         bool hasPriorLoad = block.Children.Take(storeChild)
-            .Any(statement => statement.Descendants.Prepend(statement)
+            .Any(statement => ScopeDescendants(statement).Prepend(statement)
                 .OfType<LoadStackSlot>()
                 .Any(load => load.Slot == slot))
-            || store.Value.Descendants
+            || ScopeDescendants(store.Value)
                 .Prepend(store.Value)
                 .OfType<LoadStackSlot>()
                 .Any(load => load.Slot == slot);
@@ -406,21 +407,29 @@ public sealed class StackSlotLiveRangePass : IIrPass
         return previous;
     }
 
-    static bool NextStoreStatementHasLoad(Block block, int storeChild, int slot)
+    static bool NextStoreBoundaryHasUnprovenLoad(Block block, int storeChild, int slot)
     {
+        bool sawNestedStore = false;
         for (int i = storeChild + 1; i < block.Children.Count; i++)
         {
             var statement = block.Children[i];
-            if (!statement.Descendants.Prepend(statement)
+            bool hasStore = ScopeDescendants(statement).Prepend(statement)
                 .OfType<StoreStackSlot>()
-                .Any(store => store.Slot == slot))
-            {
+                .Any(store => store.Slot == slot);
+            if (!sawNestedStore && !hasStore)
                 continue;
+
+            if (ScopeDescendants(statement).Prepend(statement)
+                .OfType<LoadStackSlot>()
+                .Any(load => load.Slot == slot))
+            {
+                return true;
             }
 
-            return statement.Descendants.Prepend(statement)
-                .OfType<LoadStackSlot>()
-                .Any(load => load.Slot == slot);
+            if (statement is StoreStackSlot store && store.Slot == slot)
+                return false;
+
+            sawNestedStore |= hasStore;
         }
         return false;
     }

@@ -539,6 +539,118 @@ public class StackSlotLiveRangeCrossBlockTests
     }
 
     [Fact]
+    public void LaterNestedStoreWithTrailingLoad_StaysUnsplit()
+    {
+        var directLoad = Load(Int32);
+        var trailingLoad = Load(Object);
+        var nested = BlockOf(100, Store("later"));
+        var entry = BlockOf(
+            0,
+            Store("first"),
+            Store(29),
+            directLoad,
+            new IfStatement(new LoadArgument(0, "condition", Boolean), nested, null),
+            trailingLoad,
+            new Return(null));
+
+        Assert.False(Split(Run(entry)));
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(directLoad.Expression).Slot);
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(trailingLoad.Expression).Slot);
+    }
+
+    [Fact]
+    public void LaterNestedStoreThenDirectStoreBeforeLoad_AllowsSplit()
+    {
+        var directLoad = Load(Int32);
+        var finalLoad = Load(String);
+        var nested = BlockOf(100, Store("conditional"));
+        var entry = BlockOf(
+            0,
+            Store("first"),
+            Store(29),
+            directLoad,
+            new IfStatement(new LoadArgument(0, "condition", Boolean), nested, null),
+            Store("final"),
+            finalLoad,
+            new Return(null));
+
+        var function = Run(entry);
+
+        var rewrittenStore = Assert.Single(
+            entry.Children.OfType<StoreStackSlot>(),
+            store => store.Slot != Slot);
+        Assert.Equal(rewrittenStore.Slot, Assert.IsType<LoadStackSlot>(directLoad.Expression).Slot);
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(finalLoad.Expression).Slot);
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot != Slot);
+    }
+
+    [Fact]
+    public void LaterLocalFunctionSlotCollision_DoesNotVetoSplit()
+    {
+        var directLoad = Load(Int32);
+        var localLoad = Load(String);
+        var localBody = new BlockContainer();
+        localBody.Add(BlockOf(100, Store("local"), localLoad, new Return(null)));
+        var localFunction = new LocalFunctionStatement(
+            "Local",
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            isStatic: true,
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            localBody);
+        var entry = BlockOf(
+            0,
+            Store("first"),
+            Store(29),
+            directLoad,
+            localFunction,
+            new Return(null));
+
+        Run(entry);
+
+        Assert.NotEqual(Slot, Assert.IsType<LoadStackSlot>(directLoad.Expression).Slot);
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(localLoad.Expression).Slot);
+    }
+
+    [Fact]
+    public void CandidateRhsLambdaSlotCollision_DoesNotTriggerLoopDecline()
+    {
+        var lambdaType = TypeRef.Definition("System.Private.CoreLib", "System", "Func`1");
+        var lambdaLoad = new LoadStackSlot(Slot, Object);
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(BlockOf(100, new Return(lambdaLoad)));
+        var lambda = new Lambda(
+            lambdaType,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+        var postStoreLoad = Load(lambdaType);
+        var loopBody = BlockOf(
+            10,
+            Store(1),
+            new StoreStackSlot(Slot, lambda),
+            postStoreLoad);
+        var entry = BlockOf(
+            0,
+            new WhileLoop(new LoadArgument(0, "again", Boolean), loopBody),
+            new Return(null));
+
+        Run(entry);
+
+        var rewrittenStore = Assert.Single(
+            loopBody.Children.OfType<StoreStackSlot>(),
+            store => store.Slot != Slot);
+        Assert.Equal(rewrittenStore.Slot, Assert.IsType<LoadStackSlot>(postStoreLoad.Expression).Slot);
+        Assert.Equal(Slot, lambdaLoad.Slot);
+    }
+
+    [Fact]
     public void CrossBlockSplit_DoesNotEnableLoopCarriedBlockLocalSplit()
     {
         var loopHeadLoad = Load(Int32);
