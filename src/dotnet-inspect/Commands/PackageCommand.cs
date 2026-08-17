@@ -3538,6 +3538,7 @@ public class PackageCommand
                 JsonContext.Default.LibraryInspectionArray);
             WriteAllLibrariesOutput(
                 libraryOptions.OutputPath,
+                libraryOptions.Rows,
                 writer => OutputFormatter.WriteLfLine(writer, json));
             return completionExitCode;
         }
@@ -3566,6 +3567,13 @@ public class PackageCommand
                 {
                     CountOutput.WriteCount(0, options.OutputPath);
                 }
+            }
+            else
+            {
+                WriteAllLibrariesOutput(
+                    libraryOptions.OutputPath,
+                    libraryOptions.Rows,
+                    static _ => { });
             }
             return completionExitCode;
         }
@@ -3613,6 +3621,7 @@ public class PackageCommand
         {
             WriteAllLibrariesOutput(
                 libraryOptions.OutputPath,
+                libraryOptions.Rows,
                 writer => OutputFormatter.WriteLfLine(writer, markdown));
         }
         return completionExitCode;
@@ -3957,10 +3966,14 @@ public class PackageCommand
         if (!table.HasRowsBeforeWindow)
         {
             CommandError.WriteNote("matched section has no row data across all libraries.");
+            WriteAllLibrariesOutput(
+                options.OutputPath,
+                options.Rows,
+                static _ => { });
             return true;
         }
 
-        WriteAllLibrariesOutput(options.OutputPath, output =>
+        WriteAllLibrariesOutput(options.OutputPath, options.Rows, output =>
         {
             OutputFormatter.WriteTable(output, !options.NoHeader, (writer, formatter) =>
             {
@@ -3983,6 +3996,7 @@ public class PackageCommand
 
     private static void WriteAllLibrariesOutput(
         string? outputPath,
+        RowWindow? rowWindow,
         Action<TextWriter> write)
     {
         if (string.IsNullOrEmpty(outputPath))
@@ -3996,9 +4010,30 @@ public class PackageCommand
             append: false,
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
         {
-            NewLine = "\n"
+            NewLine = Console.Out.NewLine
         };
-        write(output);
+        TextWriter destination = output;
+        TailLineLimitingTextWriter? tailWriter = null;
+        if (rowWindow is null
+            && CommandLineBuilder.HeadLines is int headLines)
+        {
+            destination = new LineLimitingTextWriter(
+                destination,
+                headLines);
+        }
+
+        if (rowWindow is null
+            && CommandLineBuilder.TailLines is int tailLines)
+        {
+            tailWriter = new TailLineLimitingTextWriter(
+                destination,
+                tailLines);
+            destination = tailWriter;
+        }
+
+        write(destination);
+        tailWriter?.FlushTail();
+        destination.Flush();
     }
 
     private sealed record AllLibrariesTable(

@@ -19866,6 +19866,118 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageCommand_AllLibraries_OutputFile_PreservesLineWindows()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            foreach (string[] lineWindow in new[]
+                     {
+                         new[] { "-n", "3" },
+                         ["-n", "3", "--tail"]
+                     })
+            {
+                string outputPath = Path.Combine(
+                    tempDir,
+                    lineWindow.Contains("--tail") ? "tail.txt" : "head.txt");
+                var baseline = await RunAppInDirectoryAsync(
+                    tempDir,
+                    [
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "-S",
+                        "Library Info",
+                        "--table",
+                        "--tips",
+                        "q",
+                        .. lineWindow
+                    ]);
+                var redirected = await RunAppInDirectoryAsync(
+                    tempDir,
+                    [
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "-S",
+                        "Library Info",
+                        "--table",
+                        "--tips",
+                        "q",
+                        .. lineWindow,
+                        "--out",
+                        outputPath
+                    ]);
+
+                Assert.Equal(0, baseline.Exit);
+                Assert.Equal(3, baseline.Output.Count(character => character == '\n'));
+                Assert.Equal(baseline.Exit, redirected.Exit);
+                Assert.Equal(baseline.Error, redirected.Error);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_EmptyOutput_TruncatesAndValidatesOutputFile()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        string outputPath = Path.Combine(tempDir, "empty.txt");
+        File.WriteAllText(outputPath, "stale");
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--tsv",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "matched sections have no data",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.Empty(File.ReadAllText(outputPath));
+
+            string invalidPath = Path.Combine(
+                tempDir,
+                "missing",
+                "output.txt");
+            var invalid = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--tsv",
+                "--out",
+                invalidPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, invalid.Exit);
+            Assert.Empty(invalid.Output);
+            Assert.NotEmpty(invalid.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_LegacyFileSectionNames_StillResolve()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
