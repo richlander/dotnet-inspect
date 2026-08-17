@@ -1142,6 +1142,33 @@ public sealed class PackageCoordinateResolverTests
     }
 
     [Fact]
+    public async Task ListVersions_MissingSourceDoesNotNarrowSuccessfulEvidence()
+    {
+        using var client = new HttpClient(
+            new IncompleteVersionSourcesHandler(
+                malformedVersionIndex: false,
+                missingServiceIndex: true));
+
+        var unavailable =
+            Assert.IsType<PackageVersionListingResult.Unavailable>(
+                await PackageCoordinateResolver.ListVersionsAsync(
+                    client,
+                    IncompleteVersionSourcesHandler.PackageId,
+                    [
+                        IncompleteVersionSourcesHandler.IncompleteSource,
+                        IncompleteVersionSourcesHandler.AvailableSource,
+                    ],
+                    useVersionCache: false,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "complete version set",
+            unavailable.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ListVersions_RequiresAnAuthorizedSource()
     {
         using var client = new HttpClient(new FailingHandler());
@@ -1305,7 +1332,8 @@ public sealed class PackageCoordinateResolverTests
 
     sealed class IncompleteVersionSourcesHandler(
         bool malformedVersionIndex,
-        bool malformedPackageBaseAddress = false)
+        bool malformedPackageBaseAddress = false,
+        bool missingServiceIndex = false)
         : HttpMessageHandler
     {
         internal const string PackageId = "partial.package";
@@ -1321,6 +1349,11 @@ public sealed class PackageCoordinateResolverTests
             string url = request.RequestUri!.ToString();
             return url switch
             {
+                "https://incomplete.test/v3/index.json"
+                    when missingServiceIndex =>
+                    Task.FromResult(
+                        new HttpResponseMessage(
+                            HttpStatusCode.NotFound)),
                 "https://incomplete.test/v3/index.json"
                     when malformedPackageBaseAddress =>
                     Json(

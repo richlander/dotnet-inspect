@@ -1442,20 +1442,25 @@ public static class PackageExtractor
     private sealed record SourceVersionListings(
         NuGetSource Source,
         List<PackageVersionInfo> Listings,
-        bool Authoritative);
+        bool Authoritative,
+        bool SourceMissing = false);
 
     readonly record struct SourceVersionList(
         List<string>? Versions,
-        bool Failed)
+        bool Failed,
+        bool SourceMissing)
     {
         internal static SourceVersionList Found(List<string> versions) =>
-            new(versions, Failed: false);
+            new(versions, Failed: false, SourceMissing: false);
 
         internal static SourceVersionList Absent { get; } =
-            new(null, Failed: false);
+            new(null, Failed: false, SourceMissing: false);
+
+        internal static SourceVersionList MissingSource { get; } =
+            new(null, Failed: false, SourceMissing: true);
 
         internal static SourceVersionList Failure { get; } =
-            new(null, Failed: true);
+            new(null, Failed: true, SourceMissing: false);
     }
 
     static PackageExtractor()
@@ -1875,6 +1880,8 @@ public static class PackageExtractor
         }
 
         // Fall back to V3 service index discovery
+        int discoveryFailuresBefore =
+            FeedFailureTelemetry.Current?.Failures.Count ?? 0;
         var baseAddress = await GetPackageBaseAddressAsync(
             client,
             source,
@@ -1892,9 +1899,14 @@ public static class PackageExtractor
             return versions;
         }
 
-        return attemptedAuthoritativeLookup
-            ? SourceVersionList.Absent
-            : SourceVersionList.Failure;
+        if (attemptedAuthoritativeLookup)
+            return SourceVersionList.Absent;
+
+        int discoveryFailuresAfter =
+            FeedFailureTelemetry.Current?.Failures.Count ?? 0;
+        return discoveryFailuresAfter > discoveryFailuresBefore
+            ? SourceVersionList.Failure
+            : SourceVersionList.MissingSource;
     }
 
     private static async Task<SourceVersionList> FetchVersionListAsync(
@@ -1995,7 +2007,8 @@ public static class PackageExtractor
     private static async Task<(
         List<string>? Versions,
         bool Authoritative,
-        bool Failed)> FetchListedVersionsFromSourceAsync(
+        bool Failed,
+        bool SourceMissing)> FetchListedVersionsFromSourceAsync(
         HttpClient client,
         string packageName,
         NuGetSource source,
@@ -2013,7 +2026,8 @@ public static class PackageExtractor
             return (
                 lookup.Versions,
                 Authoritative: true,
-                lookup.Failed);
+                lookup.Failed,
+                lookup.SourceMissing);
         }
 
         var registration = await FetchRegistrationVersionsFromNuGetOrgAsync(
@@ -2022,16 +2036,30 @@ public static class PackageExtractor
             log,
             cancellationToken).ConfigureAwait(false);
         if (registration == null)
-            return (versions, Authoritative: false, Failed: true);
+            return (
+                versions,
+                Authoritative: false,
+                Failed: true,
+                SourceMissing: false);
         if (!RegistrationCovers(versions, registration.AllVersions))
         {
             FeedFailureTelemetry.Record(
                 $"{NuGetOrgRegistrationBase}/{packageName}/index.json",
                 HttpStatusCode.OK);
-            return (versions, Authoritative: false, Failed: true);
+            return (
+                versions,
+                Authoritative: false,
+                Failed: true,
+                SourceMissing: false);
         }
         if (registration.UnlistedVersions.Count == 0)
-            return (versions, Authoritative: true, Failed: false);
+        {
+            return (
+                versions,
+                Authoritative: true,
+                Failed: false,
+                SourceMissing: false);
+        }
 
         var filtered = versions
             .Where(v => !IsUnlisted(v, registration.UnlistedVersions))
@@ -2039,7 +2067,11 @@ public static class PackageExtractor
         int removed = versions.Count - filtered.Count;
         if (removed > 0)
             log?.Invoke($"Excluded {removed} unlisted version(s) from enumeration");
-        return (filtered, Authoritative: true, Failed: false);
+        return (
+            filtered,
+            Authoritative: true,
+            Failed: false,
+            SourceMissing: false);
     }
 
     private static bool IsUnlisted(string version, HashSet<NuGet.Versioning.NuGetVersion> unlisted) =>
@@ -2288,7 +2320,7 @@ public static class PackageExtractor
         // index below.
         if (source.IsNuGetOrg)
         {
-            var (listed, authoritative, failed) =
+            var (listed, authoritative, failed, _) =
                 await FetchListedVersionsFromSourceAsync(
                     client,
                     packageName,
@@ -2671,7 +2703,17 @@ public static class PackageExtractor
         if (perSource is null)
             return (null, HasIncompleteMetadata: false);
         if (perSource.Any(candidate => !candidate.Authoritative))
-            return (null, HasIncompleteMetadata: true);
+        {
+            bool hasAuthoritativeEvidence =
+                perSource.Any(candidate => candidate.Authoritative);
+            bool hasHardFailure = perSource.Any(candidate =>
+                !candidate.Authoritative
+                && !candidate.SourceMissing);
+            return (
+                null,
+                HasIncompleteMetadata:
+                    hasAuthoritativeEvidence || hasHardFailure);
+        }
 
         var candidates = new Dictionary<
             string,
@@ -2971,6 +3013,7 @@ public static class PackageExtractor
             List<PackageVersionInfo>? listings = null;
             bool fetchedAuthoritative = false;
             bool fetchedFailed = false;
+            bool fetchedSourceMissing = false;
             bool fromCache = false;
             string cacheKey = ListingsVersionCacheKey(
                 NuGetCache.GetSourceKey(source.Url),
@@ -2996,7 +3039,11 @@ public static class PackageExtractor
 
             if (listings == null)
             {
-                (listings, fetchedAuthoritative, fetchedFailed) =
+                (
+                    listings,
+                    fetchedAuthoritative,
+                    fetchedFailed,
+                    fetchedSourceMissing) =
                     await FetchVersionListingsFromSourceAsync(
                         client,
                         normalizedName,
@@ -3006,12 +3053,14 @@ public static class PackageExtractor
             }
             if (listings == null)
             {
-                if (requireCompleteSources && fetchedFailed)
+                if (requireCompleteSources
+                    && (fetchedFailed || fetchedSourceMissing))
                 {
                     perSource.Add(new SourceVersionListings(
                         source,
                         [],
-                        Authoritative: false));
+                        Authoritative: false,
+                        fetchedSourceMissing));
                 }
                 continue;
             }
@@ -3094,7 +3143,8 @@ public static class PackageExtractor
     private static async Task<(
         List<PackageVersionInfo>? Listings,
         bool Authoritative,
-        bool Failed)> FetchVersionListingsFromSourceAsync(
+        bool Failed,
+        bool SourceMissing)> FetchVersionListingsFromSourceAsync(
         HttpClient client,
         string packageName,
         NuGetSource source,
@@ -3112,7 +3162,8 @@ public static class PackageExtractor
             return (
                 null,
                 Authoritative: true,
-                lookup.Failed);
+                lookup.Failed,
+                lookup.SourceMissing);
         }
 
         NuGetOrgRegistrationVersions? registration = source.IsNuGetOrg
@@ -3135,7 +3186,8 @@ public static class PackageExtractor
         return (
             listings,
             authoritative,
-            Failed: !authoritative);
+            Failed: !authoritative,
+            SourceMissing: false);
     }
 
     // Every line carries an explicit two-character tab suffix. The versioned
