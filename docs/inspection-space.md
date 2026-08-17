@@ -16,8 +16,9 @@ shared contracts, not dynamically loaded plugins.
 This document describes the target core architecture and the principles that
 govern its migration. Library metadata, direct-reference, extension-method,
 custom-attribute, manifest-resource, type-forwarder, union-type, switch,
-SourceLink, and API-comparison inspection plus implementation-relationship and
-type/member search inspection are the first typed-query canaries: commands and
+SourceLink, authored-or-decompiled type/member source, and API-comparison
+inspection plus implementation-relationship and type/member search inspection
+are the first typed-query canaries: commands and
 section catalogs plan typed demand while queries remain independent of
 acquisition and output. The `diff` Changes section consumes one API-comparison result over
 host-resolved surfaces, retaining Metadata-owned Finding correspondence and
@@ -318,8 +319,28 @@ supplies the same validated PDB bytes to browser/Wasm hosts, paired with the
 same explicit `IPackageSourceAuthorization` used for package acquisition.
 Stored Portable PDB content is keyed by GUID plus stamp, so the content
 reference remains repeatable across otherwise-colliding symbol-server lookup
-keys. This capability does not itself add a group query; it is the symbol-input
-seam such a query consumes.
+keys. `AssemblyContextSourceQuery` now consumes that seam for one selected group
+participant. Type requests carry an exact `MetadataTypeDefinitionName`; member
+requests add a `MemberAnchor` and MethodDef token, so target identity is never
+recovered from display text. The query resolves that target against the
+participant's retained immutable image, then takes a content-backed reference
+for asynchronous source work without consuming the participant snapshot.
+Checksum-verified authored source wins when available. Otherwise the
+Decompiler runs over the same content reference and the participant's frozen
+`IAssemblyBindingPolicy`; an authored integrity failure remains attached to a
+successful decompiled result rather than being rewritten as absence. When both
+producers are unavailable, the result carries both typed attempts instead of
+empty text.
+
+The query's moderated network work requires explicit symbol HTTP, `IPdbStore`,
+`IPackageSourceAuthorization`, source-fetch, and source-content-store
+capabilities. `InMemoryPdbStore` and `InMemorySourceContentStore` provide the
+filesystem-free host shape. Absolute source paths recorded in a PDB are
+disabled by default at this boundary and require an explicit opt-in.
+`AssemblyContextSourceQueryTests.PathlessMember_AcquiresVerifiedAuthoredSource`,
+`MissingAuthoredSource_FallsBackToDecompiler`,
+`AuthoredIntegrityFailure_IsPreservedBesideDecompiler`, and
+`NeitherSourceAvailable_ReturnsTypedFailure` gate these claims.
 
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
 gates asynchronous host work over a retained descriptor without reopening its
