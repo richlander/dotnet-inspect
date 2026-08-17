@@ -7,8 +7,6 @@ namespace DotnetInspector.Views;
 internal static class DiffViewText
 {
     public static InertString Field(string value) => new(TextPolicy.Field, value);
-    public static InertString EncodedField(string value) =>
-        InertString.FromEncoded(TextPolicy.Field, value);
     public static InertString Prose(string value) => new(TextPolicy.Prose, value);
 }
 

@@ -609,15 +609,15 @@ public static class DiffOutputFormatter
             InertString typeName = FormatTypeDisplayName(td.TypeFullName);
             foreach (var change in td.Changes.Where(c => c.Classification == classification))
             {
-                InertString message =
-                    DiffViewText.EncodedField(change.Message);
-                if (change.Kind == ChangeKind.MemberSignatureChanged &&
-                    change.OldValue != null && change.NewValue != null)
+                InertString message = change.GetMessageText();
+                if (change.Kind == ChangeKind.MemberSignatureChanged
+                    && change.GetOldValueText() is { } oldText
+                    && change.GetNewValueText() is { } newText)
                 {
                     InertString oldValue = MarkoutInline.CodeText(
-                        DiffViewText.EncodedField(change.OldValue));
+                        oldText);
                     InertString newValue = MarkoutInline.CodeText(
-                        DiffViewText.EncodedField(change.NewValue));
+                        newText);
                     message = InertString.Format(
                         TextPolicy.Field,
                         $"{message}: {oldValue} -> {newValue}");
@@ -639,9 +639,9 @@ public static class DiffOutputFormatter
                     ?? change.Subject?.NewMember?.StableSelector
                     ?? ""),
             DiffViewText.Field(ChangeKindText(change.Kind)),
-            DiffViewText.EncodedField(change.Message),
-            DiffViewText.EncodedField(change.OldValue ?? ""),
-            DiffViewText.EncodedField(change.NewValue ?? ""));
+            change.GetMessageText(),
+            change.GetOldValueText() ?? InertString.Empty,
+            change.GetNewValueText() ?? InertString.Empty);
 
     private static string ChangeSymbol(ChangeClassification classification, ChangeKind kind)
         => kind switch

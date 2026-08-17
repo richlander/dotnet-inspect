@@ -202,7 +202,7 @@ public class DiffCommandTests
 
         Assert.Equal(expectedConcerns, changes.TitleText.Concerns);
         Assert.Equal(expectedConcerns, changes.VersionsText.Concerns);
-        Assert.Equal(TextConcern.Format, changeRow.DetailText.Concerns);
+        Assert.Equal(expectedConcerns, changeRow.DetailText.Concerns);
         Assert.Equal(expectedConcerns, changeRow.TypeText.Concerns);
         Assert.Equal(expectedConcerns, analysisRow.MemberText.Concerns);
         Assert.Equal(
@@ -307,6 +307,52 @@ public class DiffCommandTests
         Assert.Equal("MemberSignatureChanged", row.Kind);
         Assert.Equal("string Echo(string value)", row.Old);
         Assert.Equal("string Echo(string value, int repeat)", row.New);
+    }
+
+    [Fact]
+    public void ApiChangeText_WithLiteralEscapeSpellings_RemainsRenderable()
+    {
+        const string literalEscapes = @"C:\x\t\u0041";
+        var change = new ApiChange(
+            ChangeKind.MemberSignatureChanged,
+            ChangeClassification.Breaking,
+            $"Member changed to '{literalEscapes}'",
+            "void Go(string p = \"a\")",
+            $"void Go(string p = \"{literalEscapes}\")");
+        var typeDiffs = new[]
+        {
+            new TypeDiff("Sample.Widget", [change]),
+        };
+
+        DiffDetailedChangeRow detailed = Assert.Single(
+            DiffOutputFormatter.BuildDetailedChangesView(
+                "Sample",
+                typeDiffs,
+                "1.0.0",
+                "2.0.0").Rows!);
+        string markdown = DiffOutputFormatter.RenderFullMarkdown(
+            "Sample",
+            typeDiffs,
+            "1.0.0",
+            "2.0.0");
+
+        Assert.Equal(@"Member changed to 'C:\\x\\t\\u0041'", detailed.Detail);
+        Assert.Equal(
+            @"void Go(string p = ""C:\\x\\t\\u0041"")",
+            detailed.New);
+        Assert.Contains(@"C:\\x\\t\\u0041", markdown, StringComparison.Ordinal);
+
+        ApiChange updated = change with
+        {
+            Message = "Updated\u202E",
+            OldValue = null,
+            NewValue = "next\nline",
+        };
+        Assert.Equal(TextConcern.Format, updated.GetMessageText().Concerns);
+        Assert.Null(updated.GetOldValueText());
+        Assert.Equal(
+            TextConcern.Control,
+            updated.GetNewValueText()!.Value.Concerns);
     }
 
     private static string RenderDetailedChangesTable(
