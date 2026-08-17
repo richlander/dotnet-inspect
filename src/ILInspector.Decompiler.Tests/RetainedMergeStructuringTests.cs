@@ -378,6 +378,17 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
+    public void RetainedLoopGotoBailsDefiniteAssignmentConservatively()
+    {
+        var (function, diagnostics) = Structure(RetainedLoopBlocks());
+        var facts = CSharpPrinter.CollectDataflowFacts(function);
+
+        Assert.Equal(1, diagnostics.RetainedRegions);
+        Assert.True(facts.Bailed);
+        Assert.Contains("int V_0 = default;", CSharpPrinter.Print(function).Output!);
+    }
+
+    [Fact]
     public void RetainedRegionStartKeepsOutsideTargetLabel()
     {
         var blocks = new[]

@@ -821,8 +821,11 @@ than something to emit speculatively now.
   rotated-entry, single-latch `while` regions with one real immediate exit.
   Retained `while (true)`, continue placement, multi-latch loops, condition
   hoisting for effectful latches, labeled break, and conditional rotated
-  entries remain follow-on scope. (The old "`cond-backward-branch`, 61"
-  framing understated the population — see the denominator warning above.)
+  entries remain follow-on scope. Loops whose bodies return, throw, or
+  otherwise reach the virtual exit, and loops whose exit is the container end,
+  also remain flat because this slice requires a real immediate exit
+  post-dominator. (The old "`cond-backward-branch`, 61" framing understated
+  the population — see the denominator warning above.)
 - EH (`unconsumed-regions`, 108) — the EH pass leaving regions flat is a distinct
   gap; the CFG-DA's `Leave` bail (#631) is the related printer-side residue.
 - Switch jump tables (`SwitchRaisingPass`) and comparison trees (#640) — done.
@@ -1079,8 +1082,12 @@ add to the step-4 plan:
    untouched tail does not veto an eligible forward region (see the corrected
    loop entry under *Out of scope*).
 3. **Definite assignment**: the production slice extends the #631 analysis with
-   a forward structured-goto walk, so assignments reaching a retained merge are
-   intersected with lexical fallthrough instead of flooding locals to
-   `= default` (`Matrix4x4::Decompose` was 1→7 in the probe).
+   a forward structured-goto walk, so assignments reaching an acyclic retained
+   merge are intersected with lexical fallthrough instead of flooding locals to
+   `= default` (`Matrix4x4::Decompose` was 1→7 in the probe). A retained goto
+   nested inside the first loop slice still exceeds that top-level model and
+   conservatively falls back to default initialization;
+   `RetainedLoopGotoBailsDefiniteAssignmentConservatively` gates that disclosed
+   boundary until a loop-aware dataflow extension replaces it.
 4. **Sequencing** (unchanged from the spike): wire the rec-#2 real-world
    corpus baseline as the regression sensor before the rewrite lands.
