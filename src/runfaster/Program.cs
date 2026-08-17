@@ -2299,63 +2299,12 @@ sealed class AllocationCandidate(
 
     static bool TypeNamesEquivalent(string left, string right)
     {
-        left = NormalizeTypeName(left);
-        right = NormalizeTypeName(right);
+        left = ProgramSupport.NormalizeProducerTypeName(left);
+        right = ProgramSupport.NormalizeProducerTypeName(right);
         return string.Equals(
             ProgramSupport.CanonicalTypeSignature(left),
             ProgramSupport.CanonicalTypeSignature(right, reflection: true),
             StringComparison.Ordinal);
-    }
-
-    static string NormalizeTypeName(string value)
-    {
-        value = value.Trim();
-                 bool stripped;
-                 do
-                 {
-                     stripped = false;
-                     foreach (string prefix in new[]
-                              {
-                                  "boxed ",
-                                  "value class ",
-                                  "valuetype ",
-                                  "class "
-                              })
-            {
-                         if (!value.StartsWith(
-                                 prefix,
-                                 StringComparison.OrdinalIgnoreCase))
-                         {
-                             continue;
-                         }
-
-                         value = value[prefix.Length..].Trim();
-                         stripped = true;
-                         break;
-                     }
-
-                     foreach (string wrapper in new[]
-                              {
-                                  "display class (",
-                                  "state machine ("
-                              })
-                     {
-                         if (!value.StartsWith(
-                                 wrapper,
-                                 StringComparison.OrdinalIgnoreCase)
-                             || !value.EndsWith(')'))
-                         {
-                             continue;
-                         }
-
-                         value = value[wrapper.Length..^1].Trim();
-                         stripped = true;
-                         break;
-                     }
-                 }
-                 while (stripped);
-
-                 return value;
     }
 
     public static AllocationCandidate FromOccurrence(int id, string path, AllocationOccurrence occurrence) => new(
@@ -2706,6 +2655,57 @@ static partial class Patterns
 
 internal static class ProgramSupport
 {
+    public static string NormalizeProducerTypeName(string value)
+    {
+        value = value.Trim();
+        bool stripped;
+        do
+        {
+            stripped = false;
+            foreach (string prefix in new[]
+                     {
+                         "boxed ",
+                         "value class ",
+                         "valuetype ",
+                         "class "
+                     })
+            {
+                if (!value.StartsWith(
+                        prefix,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                value = value[prefix.Length..].Trim();
+                stripped = true;
+                break;
+            }
+
+            foreach (string wrapper in new[]
+                     {
+                         "display class (",
+                         "state machine ("
+                     })
+            {
+                if (!value.StartsWith(
+                        wrapper,
+                        StringComparison.OrdinalIgnoreCase)
+                    || !value.EndsWith(')'))
+                {
+                    continue;
+                }
+
+                value = value[wrapper.Length..^1].Trim();
+                stripped = true;
+                break;
+            }
+        }
+        while (stripped);
+
+        return value;
+    }
+
     public static void MarkAllocationHitForTest(
         AllocationCandidate candidate,
         HashSet<int> matchedIds,
@@ -2781,7 +2781,8 @@ internal static class ProgramSupport
         {
             if (!candidate.IsObserved || candidate.PredictedType is not { Length: > 0 } type)
                 continue;
-            var canon = CanonicalTypeSignature(type);
+            var canon = CanonicalTypeSignature(
+                NormalizeProducerTypeName(type));
             if (canon.Length != 0)
                 observedCanons.Add(canon);
         }
@@ -2793,7 +2794,8 @@ internal static class ProgramSupport
                 || candidate.SupersededByTriage
                 || candidate.PredictedType is not { Length: > 0 } type)
                 continue;
-            var canon = CanonicalTypeSignature(type);
+            var canon = CanonicalTypeSignature(
+                NormalizeProducerTypeName(type));
             if (canon.Length == 0 || observedCanons.Contains(canon))
                 continue;
             if (!byCanon.TryGetValue(canon, out var list))

@@ -154,6 +154,30 @@ public class TypeConfirmationTests
         Assert.Equal("type-hot", candidate.Status);
     }
 
+    [Theory]
+    [InlineData("state machine (N.C+<M>d__1)", "N.C+<M>d__1")]
+    [InlineData(
+        "display class (N.C+<>c__DisplayClass1_0)",
+        "N.C+<>c__DisplayClass1_0")]
+    public void ApplyTypeConfirmation_UnwrapsProducerType(
+        string predictedType,
+        string runtimeType)
+    {
+        var candidate = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            predictedType);
+        var result = new CorrelationResult();
+        result.Candidates.Add(candidate);
+        result.RecordTypeVolume(
+            runtimeType,
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.True(candidate.TypeConfirmed);
+    }
+
     [Fact]
     public void ApplyTypeConfirmation_MarksAmbiguous_WhenMultipleSitesSharePredictedType()
     {
@@ -339,6 +363,30 @@ public class TypeConfirmationTests
         result.Candidates.Add(observed);
         result.Candidates.Add(cold);
         result.RecordTypeVolume("System.String", 900_000_000);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.False(cold.TypeConfirmed);
+        Assert.Equal("cold-for-this-workload", cold.Status);
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_WrappedObservedTypeExplainsRuntimeVolume()
+    {
+        var observed = CandidateWithType(
+            1,
+            "Fixture.Hot.M()",
+            "boxed System.Int32");
+        observed.AllocationHits = 1;
+        observed.AllocationBytes = 900_000_000;
+        var cold = CandidateWithType(
+            2,
+            "Fixture.Cold.M()",
+            "System.Int32");
+        var result = new CorrelationResult();
+        result.Candidates.Add(observed);
+        result.Candidates.Add(cold);
+        result.RecordTypeVolume("System.Int32", 900_000_000);
 
         ProgramSupport.ApplyTypeConfirmation(result);
 
