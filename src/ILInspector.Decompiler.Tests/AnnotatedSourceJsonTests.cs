@@ -103,6 +103,27 @@ public class AnnotatedSourceJsonTests
         Assert.Contains(expected, error.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false, "\"provenance\":{\"il_offsets\":[0]}", "\"provenance\":{}", "il_offsets")]
+    [InlineData(true, "\"provenance\":{\"il_offsets\":[0]}", "\"provenance\":{}", "il_offsets")]
+    [InlineData(false, ",\"subject\":\"M\"", "", "subject")]
+    [InlineData(true, ",\"subject\":\"M\"", "", "subject")]
+    public void StrictReaders_RejectMissingNestedRequiredFields(
+        bool structuralComparison,
+        string oldValue,
+        string newValue,
+        string expected)
+    {
+        string document = TrustedCompactJson().Replace(oldValue, newValue, StringComparison.Ordinal);
+        string json = structuralComparison ? StructuralComparisonJson(document) : document;
+
+        var error = Assert.Throws<JsonException>(() => Deserialize(structuralComparison, json));
+
+        Assert.Contains("missing required properties", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(expected, error.Message, StringComparison.Ordinal);
+        AssertContained(error);
+    }
+
     [Fact]
     public void StrictDocumentReader_RejectsDuplicateProperties()
     {
@@ -326,11 +347,36 @@ public class AnnotatedSourceJsonTests
             AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument);
 
     static string StructuralComparisonJson()
+        => StructuralComparisonJson(CompactJson());
+
+    static string StructuralComparisonJson(string document)
     {
-        string document = CompactJson();
         return
             $$"""{"subject":"test","before":{{document}},"after":{{document}},"before_node_ids":[0],"after_node_ids":[0],"correspondences":[{"before_node_id":0,"after_node_id":0}]}""";
     }
+
+    static string TrustedCompactJson()
+        => JsonSerializer.Serialize(
+            new AnnotatedSourceDocument(
+                "return;",
+                [
+                    new AnnotatedSourceNode(
+                        0,
+                        "ReturnStatement",
+                        SourceLineKind.CSharp,
+                        [new AnnotatedSourceSpan(0, 7)],
+                        Provenance: new AnnotatedSourceNodeProvenance([0])),
+                ],
+                [],
+                [],
+                [],
+                new AnnotatedSourceDocumentSource(
+                    "Tests",
+                    new Guid("00112233-4455-6677-8899-AABBCCDDEEFF"),
+                    0x06000001,
+                    new string('A', 64),
+                    "M")),
+            AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument);
 
     static void Deserialize(bool structuralComparison, string json)
     {
