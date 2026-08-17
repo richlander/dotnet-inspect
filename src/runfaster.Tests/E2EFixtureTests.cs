@@ -322,6 +322,40 @@ public class E2EFixtureTests
     }
 
     [Fact]
+    public void Correlate_ValidatesPerformanceSectionOnJsonlRootTriageRow()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.jsonl");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","method_token":"0x06000002","shape":"object-allocation","il":"IL_0000","allocation":"System.Object","Performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","module_version_id":null,"method_token":"0x06000002","shape":"object-allocation","il":"IL_0000","allocation":"System.Object"}]}}
+                {"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","method_token":"0x06000002","shape":"object-allocation","il":"IL_0000","allocation":"System.Object"}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"));
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                "Invalid module version ID in 'module_version_id'",
+                result.Error);
+            Assert.Empty(result.Output);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
     public void Correlate_RejectsConflictingTriageModuleVersionIds()
     {
         string triagePath = Path.Combine(

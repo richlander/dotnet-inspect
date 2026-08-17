@@ -408,7 +408,7 @@ static bool TryLoadTriageFile(string triageFile, CorrelationResult result, out i
                     continue;
 
                 using var document = JsonDocument.Parse(line);
-                AddTriageCandidates(
+                AddTriageDocumentCandidates(
                     document.RootElement,
                     path,
                     defaultAssembly: null,
