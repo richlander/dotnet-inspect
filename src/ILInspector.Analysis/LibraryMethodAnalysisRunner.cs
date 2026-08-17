@@ -160,6 +160,8 @@ internal sealed class LibraryMethodAnalysisRunner(
         var calls =
             ImmutableArray.CreateBuilder<DirectCall>();
         MetadataReader reader = _infrastructure.Reader;
+        LeakTriageFailureKind leakFailureKind =
+            LeakTriageFailureKind.MethodMetadata;
         try
         {
             var methodDefinition =
@@ -191,7 +193,9 @@ internal sealed class LibraryMethodAnalysisRunner(
             {
                 result.IsLeverage = true;
             }
-            if (methodDefinition.RelativeVirtualAddress == 0)
+            if (methodDefinition.RelativeVirtualAddress == 0
+                || !HasManagedIlBody(
+                    methodDefinition.ImplAttributes))
             {
                 if (includeOpportunities
                     && (bodyScope is null
@@ -235,31 +239,43 @@ internal sealed class LibraryMethodAnalysisRunner(
                 if (!bodyTypeScope(scopedType))
                     return result;
             }
+            leakFailureKind =
+                LeakTriageFailureKind.BodyAcquisition;
             var body = _infrastructure.PeReader.GetMethodBody(
                 methodDefinition.RelativeVirtualAddress);
             var il = body.GetILBytes() ?? [];
-            if (includeLeakTriage
-                && SignatureBlobGuard.IsSafeToDecode(
+            if (includeLeakTriage)
+            {
+                if (!SignatureBlobGuard.IsSafeToDecode(
                     reader,
                     methodDefinition.Signature,
                     SignatureBlobGuard.Kind.Method))
-            {
-                result.LeakTriage =
-                    LeakTriageAnalyzer.AnalyzeMethodDetailed(
-                        LeakTriageAnalyzer
-                            .CreateAssemblyScanMethodIdentity(
-                                caller),
-                        il,
-                        body.ExceptionRegions,
-                        token => _infrastructure.ResolveMethod(
-                            token,
-                            scope,
-                            methodHandle),
-                        token =>
-                            ArrayPoolExceptionPathAnalyzer.ResolveCatchTypeRef(
-                                reader,
-                                MetadataTokens.EntityHandle(token),
-                                scope));
+                {
+                    result.LeakTriage =
+                        LeakTriageAnalyzer.Failed(
+                            caller.MetadataToken,
+                            LeakTriageFailureKind.MethodMetadata,
+                            "SignatureLimit");
+                }
+                else
+                {
+                    result.LeakTriage =
+                        LeakTriageAnalyzer.AnalyzeMethodDetailed(
+                            LeakTriageAnalyzer
+                                .CreateAssemblyScanMethodIdentity(
+                                    caller),
+                            il,
+                            body.ExceptionRegions,
+                            token => _infrastructure.ResolveMethod(
+                                token,
+                                scope,
+                                methodHandle),
+                            token =>
+                                ArrayPoolExceptionPathAnalyzer.ResolveCatchTypeRef(
+                                    reader,
+                                    MetadataTokens.EntityHandle(token),
+                                    scope));
+                }
             }
             var methodInstructions =
                 DecodeBody(
@@ -445,6 +461,15 @@ internal sealed class LibraryMethodAnalysisRunner(
                     typeHandle,
                     methodHandle),
                 $"{ex.GetType().Name}: {ex.Message}");
+            if (includeLeakTriage
+                && result.LeakTriage is null)
+            {
+                result.LeakTriage =
+                    LeakTriageAnalyzer.Failed(
+                        MetadataTokens.GetToken(methodHandle),
+                        leakFailureKind,
+                        ex.GetType().Name);
+            }
         }
         finally
         {
@@ -463,10 +488,15 @@ internal sealed class LibraryMethodAnalysisRunner(
     {
         var result = new LibraryMethodAnalysisResult();
         MetadataReader reader = _infrastructure.Reader;
+        LeakTriageFailureKind leakFailureKind =
+            LeakTriageFailureKind.MethodMetadata;
         try
         {
             var methodDefinition =
                 reader.GetMethodDefinition(methodHandle);
+            if (!HasManagedIlBody(
+                    methodDefinition.ImplAttributes))
+                return result;
             if (methodDefinition.RelativeVirtualAddress == 0)
                 return result;
 
@@ -478,6 +508,11 @@ internal sealed class LibraryMethodAnalysisRunner(
                     methodDefinition.Signature,
                     SignatureBlobGuard.Kind.Method))
             {
+                result.LeakTriage =
+                    LeakTriageAnalyzer.Failed(
+                        MetadataTokens.GetToken(methodHandle),
+                        LeakTriageFailureKind.MethodMetadata,
+                        "SignatureLimit");
                 return result;
             }
 
@@ -508,6 +543,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                         methodDefinition),
             };
 
+            leakFailureKind =
+                LeakTriageFailureKind.BodyAcquisition;
             var body =
                 _infrastructure.PeReader.GetMethodBody(
                     methodDefinition.RelativeVirtualAddress);
@@ -529,12 +566,24 @@ internal sealed class LibraryMethodAnalysisRunner(
         catch (Exception ex)
             when (LeakTriageAnalyzer.IsRecoverable(ex))
         {
-            // Preserve the standalone assembly sensor's per-method fail-closed
-            // contract without suppressing other methods in the shared walk.
+            result.LeakTriage =
+                LeakTriageAnalyzer.Failed(
+                    MetadataTokens.GetToken(methodHandle),
+                    leakFailureKind,
+                    ex.GetType().Name);
         }
 
         return result;
     }
+
+    internal static bool HasManagedIlBody(
+        MethodImplAttributes attributes)
+        => (attributes
+                & MethodImplAttributes.CodeTypeMask)
+            == MethodImplAttributes.IL
+            && (attributes
+                & MethodImplAttributes.ManagedMask)
+            == MethodImplAttributes.Managed;
 
     internal static MethodInstructions DecodeBody(
         byte[] il,
