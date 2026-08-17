@@ -565,12 +565,16 @@ credential-free descriptor, capability, runtime-client, and factory contracts
 in NuGetFetch. It adapts the existing desktop `PackageSource` input to a NuGet
 v3 client without migrating current consumers, and centralizes canonical HTTP
 producer identity so credential scope and future transports use the same key.
+Portable descriptors reject user information, queries, and fragments. The
+desktop compatibility adapter keeps established query-bearing signed service
+indexes as runtime-only configuration rather than admitting them into a
+portable descriptor.
 Gallery and local-folder descriptors are modeled but intentionally have no
 runtime client yet. The v3 compatibility adapter initially exposes version and
-package-payload operations only. Search remains on the existing package-layer
-service-index discovery path until that resource discovery moves into the
-typed client; the adapter does not restore the retired NuGet.org-only search
-shortcut.
+package-payload operations only, and validates package coordinates before any
+service-index or payload request. Search remains on the existing package-layer
+service-index discovery path until that resource discovery moves into the typed
+client; the adapter does not restore the retired NuGet.org-only search shortcut.
 `PackageSourceClientTests.GalleryAndCanonicalV3ShareProducerIdentity`,
 `HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`,
 `LegacyPackageSourceCreatesV3Client`,

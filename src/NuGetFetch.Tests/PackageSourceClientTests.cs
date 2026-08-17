@@ -83,6 +83,34 @@ public sealed class PackageSourceClientTests
             error.Message);
     }
 
+    [Theory]
+    [InlineData("https://feed.example/v3/index.json?sig=secret")]
+    [InlineData("https://feed.example/v3/index.json#metadata")]
+    public void PortableDescriptorRejectsQueryAndFragment(string endpoint)
+    {
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => PackageSourceDescriptor.NuGetV3(
+                "nonportable",
+                "Nonportable",
+                new Uri(endpoint)));
+
+        Assert.Contains(
+            "cannot contain a query or fragment",
+            error.Message);
+    }
+
+    [Fact]
+    public void PortableDescriptorRejectsRelativeEndpoint()
+    {
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => PackageSourceDescriptor.NuGetV3(
+                "relative",
+                "Relative",
+                new Uri("v3/index.json", UriKind.Relative)));
+
+        Assert.Contains("must be an absolute", error.Message);
+    }
+
     [Fact]
     public void DescriptorIsCredentialFreeConfiguration()
     {
@@ -149,6 +177,92 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             ["user:token", "user:token", "user:token"],
             handler.Authentication.Select(DecodeBasic));
+    }
+
+    [Fact]
+    public async Task LegacySignedSourceRemainsRuntimeOnlyConfiguration()
+    {
+        const string signedServiceIndex =
+            ServiceIndex + "?sig=secret";
+        var handler = new RecordingHandler
+        {
+            [signedServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{FlatContainer}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [Versions] = """{"versions":["1.0.0"]}""",
+        };
+        using var client = new HttpClient(handler);
+        IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource(
+                    "signed",
+                    signedServiceIndex,
+                    new PackageSourceCredential("user", "token")),
+                client);
+
+        Assert.Equal(
+            ["1.0.0"],
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            [signedServiceIndex, Versions],
+            handler.Requested);
+    }
+
+    [Theory]
+    [InlineData("../admin")]
+    [InlineData("contoso/package")]
+    [InlineData(" contoso")]
+    [InlineData("")]
+    public async Task InvalidPackageIdFailsBeforeNetworkAccess(
+        string packageId)
+    {
+        var handler = new RecordingHandler();
+        using var client = new HttpClient(handler);
+        IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => runtime.GetVersionsAsync(
+                packageId,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(handler.Requested);
+    }
+
+    [Theory]
+    [InlineData("../1.0.0")]
+    [InlineData("1.0.0/extra")]
+    [InlineData(" 1.0.0")]
+    [InlineData("")]
+    public async Task InvalidPackageVersionFailsBeforeNetworkAccess(
+        string version)
+    {
+        var handler = new RecordingHandler();
+        using var client = new HttpClient(handler);
+        IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => runtime.GetPackageAsync(
+                "contoso",
+                version,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(handler.Requested);
     }
 
     [Fact]

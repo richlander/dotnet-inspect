@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.RegularExpressions;
+using NuGet.Versioning;
 
 namespace NuGetFetch;
 
@@ -193,10 +195,25 @@ public sealed record PackageSourceDescriptor
         bool enabled = true)
     {
         ArgumentNullException.ThrowIfNull(serviceIndex);
+        if (!serviceIndex.IsAbsoluteUri)
+        {
+            throw new ArgumentException(
+                "A portable package source endpoint must be an absolute HTTP or HTTPS URI.",
+                nameof(serviceIndex));
+        }
+
         if (serviceIndex.UserInfo.Length > 0)
         {
             throw new ArgumentException(
                 "A portable package source endpoint cannot contain user information.",
+                nameof(serviceIndex));
+        }
+
+        if (serviceIndex.Query.Length > 0
+            || serviceIndex.Fragment.Length > 0)
+        {
+            throw new ArgumentException(
+                "A portable package source endpoint cannot contain a query or fragment.",
                 nameof(serviceIndex));
         }
 
@@ -293,6 +310,7 @@ public static class PackageSourceClientFactory
         NuGetFetchOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(client);
         if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
             || endpoint.IsFile)
         {
@@ -300,14 +318,11 @@ public static class PackageSourceClientFactory
                 PackageSourceKind.LocalFolder);
         }
 
-        PackageSourceDescriptor descriptor = PackageSourceDescriptor.NuGetV3(
-            source.Name,
-            source.Name,
-            endpoint);
-        return Create(
-            descriptor,
+        return new NuGetV3PackageSourceClient(
+            PackageSourceIdentity.ForHttpEndpoint(endpoint),
+            endpoint,
             client,
-            options,
+            options ?? new NuGetFetchOptions(),
             source.Credential);
     }
 
@@ -341,7 +356,8 @@ public static class PackageSourceClientFactory
 
 internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
 {
-    private readonly PackageSourceDescriptor _descriptor;
+    private readonly PackageSourceIdentity _identity;
+    private readonly Uri _endpoint;
     private readonly PackageSourceCredential? _credential;
     private readonly NuGetClient _nuget;
 
@@ -350,13 +366,29 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         HttpClient client,
         NuGetFetchOptions options,
         PackageSourceCredential? credential)
+        : this(
+            descriptor.Identity,
+            descriptor.Endpoint!,
+            client,
+            options,
+            credential)
     {
-        _descriptor = descriptor;
+    }
+
+    public NuGetV3PackageSourceClient(
+        PackageSourceIdentity identity,
+        Uri endpoint,
+        HttpClient client,
+        NuGetFetchOptions options,
+        PackageSourceCredential? credential)
+    {
+        _identity = identity;
+        _endpoint = endpoint;
         _credential = credential;
         _nuget = new NuGetClient(client, options);
     }
 
-    public PackageSourceIdentity Identity => _descriptor.Identity;
+    public PackageSourceIdentity Identity => _identity;
     public PackageSourceKind Kind => PackageSourceKind.NuGetV3;
     public PackageSourceCapabilities Capabilities =>
         PackageSourceCapabilities.VersionEnumeration
@@ -373,23 +405,37 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
 
     public async Task<IReadOnlyList<string>> GetVersionsAsync(
         string packageId,
-        CancellationToken cancellationToken = default) =>
-        await _nuget.GetVersionsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        PackageCoordinateValidation.ValidatePackageId(
             packageId,
-            _descriptor.Endpoint!.AbsoluteUri,
+            nameof(packageId));
+        return await _nuget.GetVersionsAsync(
+            packageId,
+            _endpoint.AbsoluteUri,
             _credential,
             cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task<Stream> GetPackageAsync(
         string packageId,
         string version,
-        CancellationToken cancellationToken = default) =>
-        await _nuget.DownloadAsync(
+        CancellationToken cancellationToken = default)
+    {
+        PackageCoordinateValidation.ValidatePackageId(
             packageId,
-            version,
-            _descriptor.Endpoint!.AbsoluteUri,
+            nameof(packageId));
+        string normalizedVersion =
+            PackageCoordinateValidation.NormalizeVersion(
+                version,
+                nameof(version));
+        return await _nuget.DownloadAsync(
+            packageId,
+            normalizedVersion,
+            _endpoint.AbsoluteUri,
             _credential,
             cancellationToken).ConfigureAwait(false);
+    }
 
     public Task<Stream?> TryGetSymbolsAsync(
         string packageId,
@@ -399,4 +445,48 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
             Kind,
             PackageSourceCapabilities.SymbolPayload);
 
+}
+
+internal static partial class PackageCoordinateValidation
+{
+    public static bool IsValidPackageId(string? packageId) =>
+        packageId is { Length: > 0 and <= 100 }
+        && PackageIdPattern().IsMatch(packageId);
+
+    public static bool IsValidPackageVersion(string? version) =>
+        version is not null
+        && version.AsSpan().Trim().Length == version.Length
+        && NuGetVersion.TryParse(version, out _);
+
+    public static void ValidatePackageId(
+        string? packageId,
+        string parameterName)
+    {
+        if (!IsValidPackageId(packageId))
+        {
+            throw new ArgumentException(
+                "A package ID must use the NuGet package ID grammar.",
+                parameterName);
+        }
+    }
+
+    public static string NormalizeVersion(
+        string? version,
+        string parameterName)
+    {
+        if (!IsValidPackageVersion(version)
+            || !NuGetVersion.TryParse(version, out NuGetVersion? parsed))
+        {
+            throw new ArgumentException(
+                "A package version must be a valid NuGet version without surrounding whitespace.",
+                parameterName);
+        }
+
+        return parsed.ToNormalizedString().ToLowerInvariant();
+    }
+
+    [GeneratedRegex(
+        @"^\w+(?:[.-]\w+)*\z",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex PackageIdPattern();
 }
