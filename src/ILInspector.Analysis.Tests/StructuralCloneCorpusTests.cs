@@ -190,7 +190,7 @@ public class StructuralCloneCorpusTests
                             expectation with
                             {
                                 Candidate = lowerRankedCandidate,
-                                RanksAbove = [expectation.Candidate],
+                                ScoresAbove = [expectation.Candidate],
                             },
                         ],
                     }),
@@ -205,6 +205,58 @@ public class StructuralCloneCorpusTests
         Assert.False(
             report.Retrieval.Queries.Single(
                 static item => item.Id == "near-constant-peer").Passed);
+    }
+
+    [Fact]
+    public void Run_RetrievalRejectsContrastiveScoreTie()
+    {
+        StructuralCloneCorpusDocument corpus = LoadCorpus();
+        StructuralCloneCorpusRetrievalQuery query =
+            corpus.Retrieval.Queries.Single(
+                static item => item.Id == "near-call-target-peer");
+        string type = query.Seed.Type;
+        StructuralCloneCorpusDocument altered = corpus with
+        {
+            Retrieval = corpus.Retrieval with
+            {
+                Queries = corpus.Retrieval.Queries.Replace(
+                    query,
+                    query with
+                    {
+                        Expectations =
+                        [
+                            new StructuralCloneCorpusRetrievalExpectation(
+                                new StructuralCloneCorpusMethod(
+                                    type,
+                                    nameof(StructuralCloneFixture
+                                        .NearHardNegativeA)),
+                                MaximumRank: 20,
+                                ScoresAbove:
+                                [
+                                    new StructuralCloneCorpusMethod(
+                                        type,
+                                        nameof(StructuralCloneFixture
+                                            .NearHardNegativeB)),
+                                ]),
+                        ],
+                    }),
+            },
+        };
+
+        StructuralCloneCorpusReport report = StructuralCloneCorpus.Run(
+            typeof(StructuralCloneFixture).Assembly.Location,
+            altered);
+
+        StructuralCloneCorpusRetrievalExpectationResult result =
+            Assert.Single(
+                report.Retrieval.Queries.Single(
+                    static item => item.Id == "near-call-target-peer")
+                    .Expectations);
+        Assert.NotNull(result.Actual);
+        Assert.Equal(
+            Assert.Single(result.Contrasts).Similarity.Score,
+            result.Actual.Similarity.Score);
+        Assert.False(result.Passed);
     }
 
     [Fact]
@@ -238,7 +290,7 @@ public class StructuralCloneCorpusTests
                   "expectations": [{
                     "candidate": { "type": "T", "method": "B" },
                     "maximumRank": 1,
-                    "ranksAbove": []
+                    "scoresAbove": []
                   }]
                 }]
               }
@@ -293,7 +345,7 @@ public class StructuralCloneCorpusTests
         root["retrieval"]!["queries"]![0]!
             ["expectations"]![0]!
             .AsObject()
-            .Remove("ranksAbove");
+            .Remove("scoresAbove");
 
         Assert.Throws<JsonException>(() =>
             StructuralCloneCorpus.Load(root.ToJsonString()));

@@ -33,7 +33,7 @@ public sealed record StructuralCloneCorpusRetrievalExpectation(
     [property: JsonRequired] StructuralCloneCorpusMethod Candidate,
     [property: JsonRequired] int MaximumRank,
     [property: JsonRequired]
-    ImmutableArray<StructuralCloneCorpusMethod> RanksAbove);
+    ImmutableArray<StructuralCloneCorpusMethod> ScoresAbove);
 
 public sealed record StructuralCloneCorpusCase(
     [property: JsonRequired] string Id,
@@ -337,7 +337,7 @@ public static class StructuralCloneCorpus
                     out StructuralCloneCorpusRankedCandidate? actual);
                 ImmutableArray<StructuralCloneCorpusRankedCandidate> contrasts =
                 [
-                    .. expectation.RanksAbove
+                    .. expectation.ScoresAbove
                         .Select(method =>
                             rankedByMethod.GetValueOrDefault(
                                 MethodKey(method)))
@@ -349,9 +349,10 @@ public static class StructuralCloneCorpus
                         == StructuralCloneRetrievalDisposition.Completed
                     && actual is not null
                     && actual.Rank <= expectation.MaximumRank
-                    && contrasts.Length == expectation.RanksAbove.Length
+                    && contrasts.Length == expectation.ScoresAbove.Length
                     && contrasts.All(contrast =>
-                        actual.Rank < contrast.Rank);
+                        actual.Similarity.Score
+                            > contrast.Similarity.Score);
                 expectations.Add(
                     new StructuralCloneCorpusRetrievalExpectationResult(
                         expectation,
@@ -626,15 +627,15 @@ public static class StructuralCloneCorpus
                         $"Retrieval query '{query.Id}' maximum rank must be "
                             + "positive.");
                 }
-                if (expectation.RanksAbove.IsDefault)
+                if (expectation.ScoresAbove.IsDefault)
                 {
                     throw new InvalidDataException(
-                        $"Retrieval query '{query.Id}' ranksAbove must be "
+                        $"Retrieval query '{query.Id}' scoresAbove must be "
                             + "initialized.");
                 }
                 HashSet<string> contrasts = new(StringComparer.Ordinal);
                 foreach (StructuralCloneCorpusMethod contrast
-                    in expectation.RanksAbove)
+                    in expectation.ScoresAbove)
                 {
                     ValidateMethod(query.Id, "contrast", contrast);
                     string key = MethodKey(contrast);

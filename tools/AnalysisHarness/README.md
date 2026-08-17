@@ -68,9 +68,10 @@ undeclared cross-component merge fails the discovery card.
 The harness owns no candidate fingerprint, fuzzy score, clone normalization,
 correspondence, near alignment, clustering, or verification logic. Near
 expectations describe only edit categories and counts; retrieval expectations
-name recall-at-K peers and contrastive hard negatives. The harness consumes
-product ranks and scores and never reconstructs product block mappings, edits,
-or similarity features. Negative cluster membership is graded only after
+name recall-at-K peers and contrastive hard negatives that they must strictly
+outscore. A deterministic rank tiebreak does not satisfy the contrast. The
+harness consumes product ranks and scores and never reconstructs product block
+mappings, edits, or similarity features. Negative cluster membership is graded only after
 discovery reports `Completed` with no suppressed buckets. Unsupported
 direct-comparison cases remain visible direct gates and do not downgrade an
 otherwise complete discovery or retrieval pass.

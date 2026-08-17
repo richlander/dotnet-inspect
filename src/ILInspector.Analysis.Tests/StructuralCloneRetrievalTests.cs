@@ -144,6 +144,9 @@ public class StructuralCloneRetrievalTests
             StructuralCloneDisposition.Unsupported,
             result.Seed.Disposition);
         Assert.Empty(result.Candidates);
+        Assert.Equal(
+            Population().Length - 1,
+            result.Receipt.SuppressedCandidates);
         Assert.Contains(
             result.Blockers,
             static blocker =>
@@ -272,6 +275,34 @@ public class StructuralCloneRetrievalTests
         Assert.Equal(1, result.Receipt.RankedCandidates);
     }
 
+    [Fact]
+    public void RetrieveSimilar_MalformedModuleIdentityFailsVisibly()
+    {
+        using var image = new PEReader(
+            new MemoryStream(
+                BuildZeroScoreAssembly(malformedModuleIdentity: true)));
+        MethodDefinitionHandle seed =
+            MetadataTokens.MethodDefinitionHandle(1);
+
+        StructuralCloneRetrievalResult result =
+            StructuralCloneAnalysis.RetrieveSimilar(
+                image,
+                seed,
+                [seed, MetadataTokens.MethodDefinitionHandle(2)]);
+
+        Assert.Equal(
+            StructuralCloneRetrievalDisposition.Failed,
+            result.Disposition);
+        Assert.Empty(result.Candidates);
+        Assert.Equal(1, result.Receipt.SuppressedCandidates);
+        Assert.Contains(
+            result.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneRetrievalBlockerKind
+                        .MetadataReadFailure);
+    }
+
     static PEReader OpenFixture()
         => new(File.OpenRead(
             typeof(StructuralCloneFixture).Assembly.Location));
@@ -316,14 +347,18 @@ public class StructuralCloneRetrievalTests
             + $"{MetadataTokens.GetToken(candidate.Method.Handle):X8}:"
             + $"{candidate.Similarity.Score}";
 
-    static byte[] BuildZeroScoreAssembly()
+    static byte[] BuildZeroScoreAssembly(
+        bool malformedModuleIdentity = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
             metadata.GetOrAddString("ZeroScore.dll"),
-            metadata.GetOrAddGuid(
-                new Guid("39BC1613-D15A-4792-B023-E875D0F24891")),
+            malformedModuleIdentity
+                ? MetadataTokens.GuidHandle(999)
+                : metadata.GetOrAddGuid(
+                    new Guid(
+                        "39BC1613-D15A-4792-B023-E875D0F24891")),
             encId: default,
             encBaseId: default);
         metadata.AddAssembly(
@@ -367,7 +402,9 @@ public class StructuralCloneRetrievalTests
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
-            new MetadataRootBuilder(metadata),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: malformedModuleIdentity),
             bodies,
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();

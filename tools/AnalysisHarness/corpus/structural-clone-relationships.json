@@ -330,7 +330,7 @@
               "method": "ExactPositiveB"
             },
             "maximumRank": 1,
-            "ranksAbove": [
+            "scoresAbove": [
               {
                 "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
                 "method": "EdgeRoleNegativeA"
@@ -352,7 +352,7 @@
               "method": "NearConstantB"
             },
             "maximumRank": 5,
-            "ranksAbove": [
+            "scoresAbove": [
               {
                 "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
                 "method": "NearHardNegativeA"
@@ -378,7 +378,7 @@
               "method": "NearCallTargetB"
             },
             "maximumRank": 5,
-            "ranksAbove": [
+            "scoresAbove": [
               {
                 "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
                 "method": "NearHardNegativeA"

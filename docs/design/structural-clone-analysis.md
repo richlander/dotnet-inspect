@@ -302,12 +302,14 @@ Schema 4 also declares expected edit-count summaries for every `Near` case,
 the closed-world exact-discovery population, and seeded retrieval expectations.
 `analysis-harness --clone-corpus` resolves those identities through SRM and
 grades comparison, every returned near-alignment alternative, exact discovery,
-recall-at-K, and strict contrastive ordering independently. Expected exact
+recall-at-K, and strict contrastive score ordering independently. Expected exact
 connected components derive only from declared expected relations. Complete
 actual clusters must equal them, so both missed families and undeclared
 cross-component merges fail. Retrieval expectations name candidates and hard
-negatives; the harness consumes product ranks and scores without reconstructing
-the similarity model. The harness does not own retrieval, normalization,
+negatives that each candidate must strictly outscore; a deterministic ranking
+tie does not satisfy that contrast. The harness consumes product ranks and
+scores without reconstructing the similarity model. The harness does not own
+retrieval, normalization,
 alignment, clustering, CFG correspondence, or verification logic.
 `StructuralCloneCorpusTests` gates ledger validity, both fixture inventory
 views, all direct outcomes, exact closed-world clustering, fuzzy recall, and
