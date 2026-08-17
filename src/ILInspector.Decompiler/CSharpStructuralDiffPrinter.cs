@@ -33,6 +33,8 @@ public sealed record CSharpStructuralDiffDisplayRow(
 /// </summary>
 public static class CSharpStructuralDiffPrinter
 {
+    const int MaximumInlineTransitionLength = 120;
+
     /// <summary>Projects typed structural rows without recomputing correspondence.</summary>
     public static ImmutableArray<CSharpStructuralDiffDisplayRow> ToDisplayRows(
         CSharpStructuralComparison comparison)
@@ -77,7 +79,9 @@ public static class CSharpStructuralDiffPrinter
             if (label is null)
                 continue;
 
-            string annotationText = $"raise: {Contain(label)}{RegionSuffix(region)}";
+            string annotationText =
+                $"raise: {Contain(label)}{RegionSuffix(region)}"
+                + TextTransitionSuffix(comparison, row, side);
             foreach (var span in spans)
             {
                 for (int lineIndex = 0; lineIndex < lines.Count; lineIndex++)
@@ -172,6 +176,56 @@ public static class CSharpStructuralDiffPrinter
             PrintedRegionRole.Construct => " construct",
             _ => "",
         };
+
+    static string TextTransitionSuffix(
+        CSharpStructuralComparison comparison,
+        CSharpStructuralDiffRow row,
+        CSharpStructuralSide side)
+    {
+        if (!row.Change.HasFlag(CSharpStructuralChangeKind.Changed)
+            || CSharpBodyDiff.SelectedTextEqual(
+                comparison.Before,
+                row.BeforeSpans,
+                comparison.After,
+                row.AfterSpans))
+            return "";
+
+        if (row.BeforeSpans.Length != 1 || row.AfterSpans.Length != 1)
+            return "; text changed";
+
+        var beforeSpan = row.BeforeSpans[0];
+        var afterSpan = row.AfterSpans[0];
+        if (beforeSpan.Length > MaximumInlineTransitionLength
+            || afterSpan.Length > MaximumInlineTransitionLength)
+        {
+            return "; text changed";
+        }
+
+        string beforeText = SelectText(comparison.Before, beforeSpan);
+        string afterText = SelectText(comparison.After, afterSpan);
+        if (!CanRenderExactInline(beforeText) || !CanRenderExactInline(afterText))
+            return "; text changed";
+
+        string counterpart = side == CSharpStructuralSide.Before
+            ? afterText
+            : beforeText;
+
+        return side == CSharpStructuralSide.Before
+            ? $"; changed to {Contain(counterpart)}"
+            : $"; changed from {Contain(counterpart)}";
+    }
+
+    static bool CanRenderExactInline(string text)
+        => AnnotatedSourceText.IsWellFormedUtf16(text)
+            && string.Equals(text, Contain(text), StringComparison.Ordinal)
+            && !text.StartsWith(' ')
+            && !text.EndsWith(' ')
+            && !text.Contains("  ", StringComparison.Ordinal);
+
+    static string SelectText(
+        AnnotatedSourceDocument document,
+        AnnotatedSourceSpan span)
+        => document.Text.Substring(span.Start, span.Length);
 
     static IReadOnlyList<SourceTextLine> SplitLines(string text)
     {

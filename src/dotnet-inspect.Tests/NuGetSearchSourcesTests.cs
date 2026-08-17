@@ -31,13 +31,26 @@ public class NuGetSearchSourcesTests
         """;
 
     [Fact]
+    public void SearchTimeoutOptions_DeriveFourRequestDeadlines()
+    {
+        NuGetFetchOptions options =
+            NuGetFetchOptions.FromRequestTimeout(
+                TimeSpan.FromSeconds(60));
+
+        Assert.Equal(TimeSpan.FromSeconds(60), options.RequestTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(240), options.OperationTimeout);
+    }
+
+    [Fact]
     public async Task GetSearchQueryServiceAsync_DiscoversVersionedSearchResource()
     {
         var handler = new RouteHandler { [IndexUrl] = ServiceIndex(SearchUrl) };
         using var client = new HttpClient(handler);
 
         string? discovered = await PackageExtractor.GetSearchQueryServiceAsync(
-            client, new NuGetSource("contoso", IndexUrl));
+            client,
+            new NuGetSource("contoso", IndexUrl),
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(SearchUrl, discovered);
     }
@@ -53,7 +66,9 @@ public class NuGetSearchSourcesTests
         using var client = new HttpClient(handler);
 
         string? discovered = await PackageExtractor.GetSearchQueryServiceAsync(
-            client, new NuGetSource("contoso", IndexUrl));
+            client,
+            new NuGetSource("contoso", IndexUrl),
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(discovered);
     }
@@ -64,7 +79,9 @@ public class NuGetSearchSourcesTests
         using var client = new HttpClient(new RouteHandler());
 
         string? discovered = await PackageExtractor.GetSearchQueryServiceAsync(
-            client, new NuGetSource("local", @"D:\packages"));
+            client,
+            new NuGetSource("local", @"D:\packages"),
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(discovered);
     }
@@ -86,6 +103,30 @@ public class NuGetSearchSourcesTests
         NuGetSearchResult result = Assert.Single(outcome.Results);
         Assert.Equal("Contoso.Internal", result.PackageId);
         Assert.Contains(handler.Requested, u => u.StartsWith(SearchUrl + "?", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchAsync_ConfiguredDeadlineBoundsServiceIndexBody()
+    {
+        var handler = new RouteHandler();
+        handler.RespondWithContent(IndexUrl, static () => new StallingBodyContent());
+        using var client = new HttpClient(handler)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await NuGetSearchService.SearchAsync(
+                client,
+                "Contoso",
+                sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] },
+                fetchOptions: NuGetFetchOptions.FromRequestTimeout(
+                    TimeSpan.FromMilliseconds(40))));
+
+        Assert.Contains(
+            "NuGetRequestTimeoutException",
+            ex.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1570,6 +1611,57 @@ public class NuGetSearchSourcesTests
             length = 0;
             return false;
         }
+    }
+
+    private sealed class StallingBodyContent : HttpContent
+    {
+        protected override Task<Stream> CreateContentReadStreamAsync() =>
+            Task.FromResult<Stream>(new StallingBodyStream());
+
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context) =>
+            Task.FromException(
+                new InvalidOperationException(
+                    "Headers-first metadata must read the response stream."));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
+    private sealed class StallingBodyStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
     }
 
     private sealed class PrefixThenFailStream : Stream

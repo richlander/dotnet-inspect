@@ -205,16 +205,23 @@ public class DiffCommand
                         () => CreateImplementationComparisonInput(
                             inputs,
                             options)));
+                IReadOnlyList<ApiDiffInspectionFailure>
+                    inspectionFailures =
+                        ApiDiffAnalyzer.ProjectInspectionFailures(
+                            inputs.FromSurface,
+                            inputs.ToSurface);
 
                 if (options.JsonOutput || options.IncludeSections is { Count: > 1 })
                 {
-                    await WriteSelectedDocumentAsync(
+                    bool inspectionIncomplete =
+                        await WriteSelectedDocumentAsync(
                         inputs,
                         options,
                         queryResults,
                         context.HttpClient,
-                        logger);
-                    return 0;
+                        logger,
+                        inspectionFailures);
+                    return inspectionIncomplete ? 1 : 0;
                 }
 
                 if (SelectsFindingTransitions(options))
@@ -235,11 +242,37 @@ public class DiffCommand
                     }
                     else
                     {
-                        var output = DiffOutputFormatter.RenderFindingTransitionsView(
-                            view, OutputFormatter.CreateWindowedOptions(options.Rows));
+                        var output =
+                            inspectionFailures.Count == 0
+                                || options.NameOnly
+                                ? DiffOutputFormatter.RenderFindingTransitionsView(
+                                    view,
+                                    OutputFormatter.CreateWindowedOptions(
+                                        options.Rows))
+                                : DiffOutputFormatter.RenderDocumentView(
+                                    DiffOutputFormatter.BuildDocumentView(
+                                        inputs.Name,
+                                        inputs.FromVersion,
+                                        inputs.ToVersion,
+                                        changes: null,
+                                        analysisDiff: null,
+                                        implementationDiff: null,
+                                        findingTransitions: view,
+                                        inspectionFailures),
+                                    OutputFormatter.CreateWindowedOptions(
+                                        options.Rows));
                         Console.WriteLine(output);
                     }
-                    return 0;
+                    if (inspectionFailures.Count > 0
+                        && (options.Tabular
+                            || options.Tsv
+                            || options.Jsonl
+                            || options.NameOnly))
+                    {
+                        WriteIncompleteComparisonDiagnostic(
+                            inspectionFailures);
+                    }
+                    return inspectionFailures.Count > 0 ? 1 : 0;
                 }
 
                 if (SelectsImplementationDiff(options) && !SelectsAnalysisDiff(options))
@@ -267,11 +300,33 @@ public class DiffCommand
                     }
                     else
                     {
-                        var output = DiffOutputFormatter.RenderImplementationDiffView(
-                            view, OutputFormatter.CreateWindowedOptions(options.Rows));
+                        var output =
+                            inspectionFailures.Count == 0
+                                || options.NameOnly
+                                ? DiffOutputFormatter.RenderImplementationDiffView(
+                                    view,
+                                    OutputFormatter.CreateWindowedOptions(
+                                        options.Rows))
+                                : DiffOutputFormatter.RenderDocumentView(
+                                    DiffOutputFormatter.BuildDocumentView(
+                                        inputs.Name,
+                                        inputs.FromVersion,
+                                        inputs.ToVersion,
+                                        changes: null,
+                                        analysisDiff: null,
+                                        implementationDiff: view,
+                                        findingTransitions: null,
+                                        inspectionFailures),
+                                    OutputFormatter.CreateWindowedOptions(
+                                        options.Rows));
                         Console.WriteLine(output);
                     }
-                    return 0;
+                    if (options.Tabular || options.NameOnly)
+                    {
+                        WriteIncompleteComparisonDiagnostic(
+                            inspectionFailures);
+                    }
+                    return inspectionFailures.Count > 0 ? 1 : 0;
                 }
 
                 if (SelectsAnalysisDiff(options))
@@ -286,7 +341,7 @@ public class DiffCommand
                         inputs.FromVersion,
                         inputs.ToVersion,
                         decorateMember: !options.Jsonl);
-                    if (options.Tsv || options.Jsonl)
+                    if (options.Tabular)
                     {
                         OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
                             options.Columns, options.Fields,
@@ -296,11 +351,34 @@ public class DiffCommand
                     }
                     else
                     {
-                        var output = DiffOutputFormatter.RenderAnalysisDiffView(
-                            view, OutputFormatter.CreateWindowedOptions(options.Rows));
+                        var output =
+                            inspectionFailures.Count == 0
+                                || options.NameOnly
+                                ? DiffOutputFormatter.RenderAnalysisDiffView(
+                                    view,
+                                    OutputFormatter.CreateWindowedOptions(
+                                        options.Rows))
+                                : DiffOutputFormatter.RenderDocumentView(
+                                    DiffOutputFormatter.BuildDocumentView(
+                                        inputs.Name,
+                                        inputs.FromVersion,
+                                        inputs.ToVersion,
+                                        changes: null,
+                                        analysisDiff: view,
+                                        implementationDiff: null,
+                                        findingTransitions: null,
+                                        inspectionFailures),
+                                    OutputFormatter.CreateWindowedOptions(
+                                        options.Rows));
                         Console.WriteLine(output);
                     }
-                    return 0;
+                    if (options.Tabular
+                        || options.NameOnly)
+                    {
+                        WriteIncompleteComparisonDiagnostic(
+                            inspectionFailures);
+                    }
+                    return inspectionFailures.Count > 0 ? 1 : 0;
                 }
 
                 var diff = BuildApiDiff(
@@ -330,14 +408,22 @@ public class DiffCommand
                                 MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
                             options.Rows);
                     }
+
+                    WriteIncompleteComparisonDiagnostic(
+                        diff.InspectionFailures);
                 }
                 else
                 {
                     var output = RenderDiff(inputs.Name, diff, inputs.FromVersion, inputs.ToVersion, options);
                     Console.WriteLine(output);
+                    if (options.NameOnly)
+                    {
+                        WriteIncompleteComparisonDiagnostic(
+                            diff.InspectionFailures);
+                    }
                 }
 
-                return 0;
+                return diff.InspectionFailures.Count > 0 ? 1 : 0;
             }
             finally
             {
@@ -759,12 +845,14 @@ public class DiffCommand
         return pipeline.GetRequiredQueries(Verbosity.Minimal, querySections);
     }
 
-    private static async Task WriteSelectedDocumentAsync(
+    private static async Task<bool> WriteSelectedDocumentAsync(
         DiffInputs inputs,
         DiffOptions options,
         InspectionQueryResults queryResults,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        IReadOnlyList<ApiDiffInspectionFailure>
+            inspectionFailures)
     {
         var selected = options.IncludeSections
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -774,17 +862,18 @@ public class DiffCommand
                     : DiffSections.Changes.Name
             };
 
+        ApiDiff? changesDiff = null;
         DiffDetailedChangesView? changesView = null;
         if (selected.Contains(DiffSections.Changes.Name))
         {
-            var diff = BuildApiDiff(
+            changesDiff = BuildApiDiff(
                 queryResults.Get(ApiComparisonQuery.Definition),
                 inputs.FromSurface,
                 inputs.ToSurface,
                 options);
             changesView = DiffOutputFormatter.BuildDetailedChangesView(
                 inputs.Name,
-                ApplyFilters(diff, options),
+                ApplyFilters(changesDiff, options),
                 inputs.FromVersion,
                 inputs.ToVersion);
         }
@@ -839,16 +928,18 @@ public class DiffCommand
             changesView,
             analysisView,
             implementationView,
-            findingTransitionsView);
+            findingTransitionsView,
+            inspectionFailures);
 
         if (options.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(view, DiffJsonContext.Default.DiffDocumentView));
-            return;
+            return inspectionFailures.Count > 0;
         }
 
         Console.WriteLine(DiffOutputFormatter.RenderDocumentView(
             view, OutputFormatter.CreateWindowedOptions(options.Rows)));
+        return inspectionFailures.Count > 0;
     }
 
     internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
@@ -1332,7 +1423,12 @@ public class DiffCommand
             });
         }
 
-        return DiffOutputFormatter.RenderFullMarkdown(name, typeDiffs, fromVersion, toVersion,
+        return DiffOutputFormatter.RenderFullMarkdown(
+            name,
+            typeDiffs,
+            diff.InspectionFailures,
+            fromVersion,
+            toVersion,
             OutputFormatter.CreateWindowedOptions(options.Rows));
     }
 
@@ -1888,10 +1984,24 @@ public class DiffCommand
         return new ApiDiff
         {
             TypeDiffs = filtered,
+            InspectionFailures = diff.InspectionFailures,
             TotalBreaking = filtered.Sum(typeDiff => typeDiff.BreakingCount),
             TotalAdditive = filtered.Sum(typeDiff => typeDiff.AdditiveCount),
             TotalPotentiallyBreaking = filtered.Sum(typeDiff => typeDiff.PotentiallyBreakingCount)
         };
+    }
+
+    static void WriteIncompleteComparisonDiagnostic(
+        IReadOnlyCollection<ApiDiffInspectionFailure>
+            inspectionFailures)
+    {
+        if (inspectionFailures.Count == 0)
+            return;
+
+        CommandError.WriteWarning(
+            "API comparison is incomplete because metadata inspection "
+                + $"reported {inspectionFailures.Count} failure(s); "
+                + "use Markdown or JSON output for failure details.");
     }
 
     sealed record ResolvedDiffMemberTargets(

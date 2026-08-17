@@ -1603,17 +1603,16 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_Signals_DeclaresItsScannerAndTypedInputs()
+    public void LibraryPipeline_Signals_DeclaresOnlyItsTypedInputs()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string> { SectionNames.Signals };
 
-        Assert.Equal(
-            [LibrarySections.ScannerAuditSignals],
-            pipeline.GetRequiredScanners(Verbosity.Minimal, include));
+        Assert.Empty(pipeline.GetRequiredScanners(Verbosity.Minimal, include));
         Assert.Equal(
             [
                 AssemblyReferencesQuery.Definition,
+                AuditMetadataQuery.Definition,
                 ClassifiedMethodsQuery.Definition,
             ],
             pipeline.GetRequiredQueries(Verbosity.Minimal, include)
@@ -1721,6 +1720,7 @@ public class SectionPipelineTests
                 AssemblyContextIntegrationOpportunitiesQuery.Definition,
                 AssemblyContextIntegrationsQuery.Definition,
                 AssemblyReferencesQuery.Definition,
+                AuditMetadataQuery.Definition,
                 ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
@@ -3092,6 +3092,142 @@ public class SectionPipelineTests
         Assert.Null(model.PInvokeMethods);
         Assert.Null(model.AsyncMethods);
         Assert.Equal("Classified Methods", Assert.Single(model.InspectionFailures!).Section);
+    }
+
+    [Fact]
+    public void AuditMetadataQuery_ReturnsFactsFromBorrowedContent()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(MethodClassificationScannerTests).Assembly.Location);
+
+        var result = Assert.IsType<AuditMetadataResult.Available>(
+            AuditMetadataQuery.Execute(session));
+
+        Assert.True(result.Metadata.PInvokeMethodCount >= 2);
+    }
+
+    [Fact]
+    public void AuditMetadataQuery_UsesTheCommandsOpenImage()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var metadataContext = PdbContext.Open(
+            typeof(MethodClassificationScannerTests).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [AuditMetadataQuery.Definition],
+            context);
+        var metadata = Assert.IsType<AuditMetadataResult.Available>(
+            results.Get(AuditMetadataQuery.Definition));
+
+        Assert.True(metadata.Metadata.PInvokeMethodCount >= 2);
+        Assert.Equal(1, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void AuditMetadataQuery_OpenFailureRemainsTyped()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [AuditMetadataQuery.Definition],
+            context);
+        var failure = Assert.IsType<AuditMetadataResult.Failed>(
+            results.Get(AuditMetadataQuery.Definition));
+
+        Assert.IsType<FileNotFoundException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void AuditMetadataQuery_DisposedBorrowedSessionRemainsTyped()
+    {
+        using var lender = PdbContext.Open(
+            typeof(MethodClassificationScannerTests).Assembly.Location);
+        var session = AssemblyInspectionSession.Borrow(lender);
+        session.Dispose();
+
+        var failure = Assert.IsType<AuditMetadataResult.Failed>(
+            AuditMetadataQuery.Execute(session));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+    }
+
+    [Fact]
+    public void AuditMetadataQuery_RetainedImageFailureDoesNotReopenPath()
+    {
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        string reopenCanary =
+            typeof(MethodClassificationScannerTests).Assembly.Location;
+        using (var canarySession = AssemblyInspectionSession.Open(reopenCanary))
+        {
+            var canary = Assert.IsType<AuditMetadataResult.Available>(
+                AuditMetadataQuery.Execute(canarySession));
+            Assert.True(canary.Metadata.PInvokeMethodCount >= 2);
+        }
+
+        using var context = new ScannerContext
+        {
+            AssemblyPath = reopenCanary,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+        metadataContext.Dispose();
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [AuditMetadataQuery.Definition],
+            context);
+        var failure = Assert.IsType<AuditMetadataResult.Failed>(
+            results.Get(AuditMetadataQuery.Definition));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void AuditMetadataQuery_FailureStillComposesModelDerivedSignals()
+    {
+        var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+        session.Dispose();
+        var model = new LibraryInspection
+        {
+            HasSourceLink = false,
+            PdbLocation = "standalone",
+        };
+
+        var result = Assert.IsType<AuditMetadataResult.Failed>(
+            AuditMetadataQuery.Execute(session));
+        LibraryMetadataService.ApplyAuditMetadataResult(
+            "disposed.dll",
+            model,
+            new Output.VerboseLogger(false),
+            result);
+
+        Assert.Null(model.AuditMetadata);
+        Assert.NotNull(model.AuditSignals);
+        Assert.Contains(
+            model.AuditSignals,
+            signal => signal.Signal == "SourceLink"
+                && signal.Value == "Not found");
     }
 
     [Fact]
@@ -4610,7 +4746,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryScannerCosts_AreDeclaredForEveryRegisteredScanner()
+    public void LibraryScannerCosts_AreDeclaredAndResidualScannersAreUnbounded()
     {
         // Every registered key must resolve. CostOf throws both for an unregistered key and for a
         // real scanner registered without a declared cost, so this walk is what makes those two
@@ -4627,10 +4763,9 @@ public class SectionPipelineTests
                 $"Scanner '{key}' resolved to an undeclared cost value.");
         }
 
-        // The declared tiers must actually discriminate, or the whole mechanism is decoration.
-        var costs = registry.RegisteredKeys.Select(registry.CostOf).Distinct().ToList();
-        Assert.True(costs.Count > 1, "Every library scanner declares the same cost.");
-        Assert.Contains(SectionCost.Unbounded, costs);
+        Assert.All(
+            registry.RegisteredKeys,
+            key => Assert.Equal(SectionCost.Unbounded, registry.CostOf(key)));
     }
 
     [Fact]
@@ -4734,9 +4869,8 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void ClassifiedQueryAndAuditScanner_ObserveOneSession()
+    public void ClassifiedAndAuditQueries_ObserveOneSession()
     {
-        var scannerRegistry = LibrarySections.CreateScannerRegistry();
         var queryRegistry = LibrarySections.CreateQueryRegistry();
         using var context = new ScannerContext
         {
@@ -4746,14 +4880,21 @@ public class SectionPipelineTests
         };
 
         InspectionQueryResults results = queryRegistry.Run(
-            [ClassifiedMethodsQuery.Definition],
+            [
+                AuditMetadataQuery.Definition,
+                ClassifiedMethodsQuery.Definition,
+            ],
             context);
         LibraryMetadataService.ApplyClassifiedMethodsResult(
             context.AssemblyPath,
             context.Model,
             context.Logger,
             results.Get(ClassifiedMethodsQuery.Definition));
-        scannerRegistry.RunScanners([LibrarySections.ScannerAuditSignals], context);
+        LibraryMetadataService.ApplyAuditMetadataResult(
+            context.AssemblyPath,
+            context.Model,
+            context.Logger,
+            results.Get(AuditMetadataQuery.Definition));
 
         Assert.Equal(2, context.SharedScanCount);
         Assert.NotNull(context.Session());
@@ -4866,6 +5007,7 @@ public class SectionPipelineTests
         Assert.Equal(
             [
                 AssemblyReferencesQuery.Definition,
+                AuditMetadataQuery.Definition,
                 ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
@@ -4968,10 +5110,10 @@ public class SectionPipelineTests
     public void Tracing_DoesNotChangeTheWorkTheRunDoes()
     {
         // A diagnostic that perturbs what it measures is worse than none. Held against the shared
-        // scan count, which is the observable the atomicity gates already rely on.
+        // query scan count, which is the observable the atomicity gates already rely on.
         static int RunAndCountSharedScans(InspectionTrace? trace)
         {
-            var registry = LibrarySections.CreateScannerRegistry();
+            var registry = LibrarySections.CreateQueryRegistry();
             using var context = new ScannerContext
             {
                 AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
@@ -4980,7 +5122,14 @@ public class SectionPipelineTests
                 Trace = trace,
             };
 
-            registry.RunScanners(registry.ExpandRequired(SharedSessionScannerKeys), context);
+            Action<InspectionQueryDefinition, TimeSpan>? recordExecution =
+                trace is null
+                    ? null
+                    : (query, elapsed) => trace.RecordQueryExecution(query, elapsed);
+            registry.Run(
+                [AuditMetadataQuery.Definition],
+                context,
+                recordExecution);
             return context.SharedScanCount;
         }
 
@@ -4988,13 +5137,10 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void SharedSessionScanners_MapTheirOwnFailuresRatherThanThrowing()
+    public void SharedSessionQueries_MapTheirOwnFailuresRatherThanThrowing()
     {
-        // Routing a scanner through the shared session means it runs its SESSION overload where it
-        // used to run its PATH overload. The path overloads all wrap their work in try/catch and
-        // produce a typed per-scanner failure; the session overloads have to do the same, or a
-        // single scanner fault escapes RunScanners into InspectAsync's broad catch and the whole
-        // command degrades to one generic "Could not read library".
+        // A query must map an inspected-artifact fault into its typed result rather than escaping
+        // query execution and degrading the whole command to one generic failure.
         //
         // A disposed session is the fault injector: AssemblyImage.EnsureAlive throws
         // ObjectDisposedException on every facet, so it faults each scanner at the point where it
@@ -5005,9 +5151,9 @@ public class SectionPipelineTests
         var logger = new Output.VerboseLogger(false);
         const string Path = "disposed.dll";
 
-        var classifiedModel = new LibraryInspection();
         var classifiedResult = Assert.IsType<ClassifiedMethodsResult.Failed>(
             ClassifiedMethodsQuery.Execute(session));
+        var classifiedModel = new LibraryInspection();
         LibraryMetadataService.ApplyClassifiedMethodsResult(
             Path,
             classifiedModel,
@@ -5016,50 +5162,29 @@ public class SectionPipelineTests
         Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(
             classifiedModel.ClassifiedMethodInspection!.Value);
 
-        // Each scanner runs against its OWN model and is asserted on the exact
-        // field it alone must populate.
-        var scans = new (string Name, Action<LibraryInspection> Run, Action<LibraryInspection> Assert)[]
-        {
-            ("AuditSignals",
-                m => AuditSignalBuilder.PopulateLibraryAudit(session, Path, m, logger),
-                m =>
-                {
-                    // A failed audit scan must not cache metadata, or RefreshLibraryAudit would
-                    // reuse a value the scan never produced instead of falling back.
-                    Xunit.Assert.Null(m.AuditMetadata);
-                    Xunit.Assert.NotNull(m.AuditSignals);
-                }),
-        };
+        var auditResult = Assert.IsType<AuditMetadataResult.Failed>(
+            AuditMetadataQuery.Execute(session));
+        var auditModel = new LibraryInspection();
+        LibraryMetadataService.ApplyAuditMetadataResult(
+            Path,
+            auditModel,
+            logger,
+            auditResult);
 
-        foreach (var (name, run, assert) in scans)
-        {
-            var model = new LibraryInspection();
-
-            var ex = Record.Exception(() => run(model));
-            Assert.True(ex is null, $"{name} let {ex?.GetType().Name} escape its session overload.");
-
-            // Not just "did not throw": the fault has to be visible as a typed failure, otherwise a
-            // scanner could satisfy this test by swallowing the error into success-shaped empty
-            // output.
-            var mapping = Record.Exception(() => assert(model));
-            Assert.True(mapping is null, $"{name} did not map its own failure: {mapping?.Message}");
-        }
+        Assert.Null(auditModel.AuditMetadata);
+        Assert.NotNull(auditModel.AuditSignals);
     }
 
     [Fact]
-    public void SharedSessionScanners_DoNotObserveAPathRetargetedMidRun()
+    public void SharedSessionQueries_DoNotObserveAPathRetargetedMidRun()
     {
         // The actual attack, run in-process rather than described in a comment.
         //
-        // A directory link points at assembly A. One scanner runs, which opens the shared session.
-        // The link is then retargeted to assembly B and the remaining scanners run. Every scanner
+        // A directory link points at assembly A. One query runs, which opens the shared session.
+        // The link is then retargeted to assembly B and the remaining query runs. Both queries
         // must still report A: an open handle keeps reading its original target, so sharing one
-        // open is what makes the run coherent. Without it each scanner reopens through the link
+        // open is what makes the run coherent. Without it each query reopens through the link
         // and picks up B, and the command still exits 0 with output that looks correct.
-        //
-        // The counter in SharedSessionScanners_AllObserveOneSession cannot see this, because
-        // anything that lives inside ScannerContext.Scan can be defeated by editing Scan. This
-        // test observes only scanner OUTPUT, so no edit to the plumbing can fake it.
         var pathA = typeof(SectionPipelineTests).Assembly.Location;
         var pathB = typeof(AssemblyInspectionSession).Assembly.Location;
 
@@ -5094,14 +5219,8 @@ public class SectionPipelineTests
             // and this test would pass no matter what the product did.
             Assert.NotEqual(expectedA.Full, expectedB.Full);
 
-            // The action-based scanners must distinguish the fixtures on their own. Found by
-            // review: asserting only the combined signature let the value-returning census
-            // scanner carry the whole assertion, so a tamper confined to the void Scan overload
-            // -- which is how Audit Signals, Integrations and Integration Opportunities run --
-            // left this gate green while three scanners reopened the path.
-            Assert.NotEqual(expectedA.Actions, expectedB.Actions);
+            Assert.NotEqual(expectedA.Audit, expectedB.Audit);
 
-            var scannerRegistry = LibrarySections.CreateScannerRegistry();
             var queryRegistry = LibrarySections.CreateQueryRegistry();
             var model = new LibraryInspection();
             using var context = new ScannerContext
@@ -5111,21 +5230,25 @@ public class SectionPipelineTests
                 Logger = new Output.VerboseLogger(false),
             };
 
-            // The typed query opens the shared session against A.
-            InspectionQueryResults results = queryRegistry.Run(
+            InspectionQueryResults classifiedResults = queryRegistry.Run(
                 [ClassifiedMethodsQuery.Definition],
                 context);
             LibraryMetadataService.ApplyClassifiedMethodsResult(
                 linkedAssembly,
                 model,
                 context.Logger,
-                results.Get(ClassifiedMethodsQuery.Definition));
+                classifiedResults.Get(ClassifiedMethodsQuery.Definition));
 
             Assert.True(TryLinkDirectory(link, dirB), "Could not retarget the directory link.");
 
-            scannerRegistry.RunScanners(
-                scannerRegistry.ExpandRequired(SharedSessionScannerKeys),
+            InspectionQueryResults auditResults = queryRegistry.Run(
+                [AuditMetadataQuery.Definition],
                 context);
+            LibraryMetadataService.ApplyAuditMetadataResult(
+                linkedAssembly,
+                model,
+                context.Logger,
+                auditResults.Get(AuditMetadataQuery.Definition));
 
             Assert.Equal(expectedA.Full, SignatureOf(model));
         }
@@ -5139,16 +5262,16 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened()
+    public void SharedSessionQueries_ObserveTheImageTheCommandAlreadyOpened()
     {
         // The wider half of the same attack, and the reason the shared session borrows instead of
         // opening. A command opens the assembly once for identity, presence flags, and debug
-        // directory facts, then hands that PdbContext to the scanners. If the scanner session
+        // directory facts, then hands that PdbContext to the queries. If the query session
         // opened AssemblyPath again, everything between the two opens would be a window in which
         // the path can be retargeted, and the command would report one assembly's identity beside
         // another assembly's counts -- with a zero exit code.
         //
-        // Sharing one session among the scanners does not close that window; it only moves it
+        // Sharing one session among queries does not close that window; it only moves it
         // earlier. Borrowing the already-open image removes it, because there is nothing left to
         // race: no second open of the path happens at all.
         var pathA = typeof(SectionPipelineTests).Assembly.Location;
@@ -5178,11 +5301,9 @@ public class SectionPipelineTests
             var expectedB = CensusSignature(pathB);
             Assert.NotEqual(expectedA.Full, expectedB.Full);
 
-            // The action-based scanners must distinguish the fixtures on their own, or a tamper
-            // confined to the void Scan overload would be invisible here.
-            Assert.NotEqual(expectedA.Actions, expectedB.Actions);
+            Assert.NotEqual(expectedA.Audit, expectedB.Audit);
 
-            // Stand in for the command's own open: identity is read here, scanners run later.
+            // Stand in for the command's own open: identity is read here, queries run later.
             using var metadataContext = PdbContext.Open(linkedAssembly);
             var identity = metadataContext.ExtractAssemblyInfo();
 
@@ -5198,7 +5319,7 @@ public class SectionPipelineTests
                 MetadataContext = metadataContext,
             };
 
-            RunClassifiedQueryAndAudit(context);
+            RunClassifiedAndAuditQueries(context);
 
             // Identity and counts have to describe the same assembly, not merely each be valid.
             Assert.Equal(
@@ -5218,12 +5339,12 @@ public class SectionPipelineTests
     public void BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed()
     {
         // A borrow that outlives its lender must fail with an exception a caller can map, not by
-        // reading unmapped memory. The dangerous shape is a MethodBodySource obtained WHILE the
-        // lender was alive: it captures the reader and its liveness check, so it survives the
-        // borrow's own disposal flag being false and reads through a released handle. That is an
-        // AccessViolationException, which is uncatchable and kills the process -- so if the
-        // liveness check on AssemblyImage stops consulting the lender, this test does not merely
-        // fail, it takes the test host down. Either way it stops the build.
+        // reading unmapped memory. The dangerous shapes are a MethodBodySource and declaration
+        // index obtained WHILE the lender was alive: each captures the reader, so it survives the
+        // borrow's own disposal flag being false and can read through a released handle. That is
+        // an AccessViolationException, which is uncatchable and kills the process -- so if a
+        // warmed reader-backed path stops consulting the lender, this test does not merely fail,
+        // it takes the test host down. Either way it stops the build.
         //
         // Found by review: an earlier version of this gate touched MethodBodies only AFTER
         // disposal, so the cold property threw from the disposed PEReader and the missing lender
@@ -5233,7 +5354,7 @@ public class SectionPipelineTests
         foreach (var prefetched in new[] { false, true })
         {
             // SourceLinkService is how commands open an assembly, and it owns the PdbContext the
-            // scanners borrow. Both open modes are covered because they map the image differently.
+            // queries borrow. Both open modes are covered because they map the image differently.
             var service = prefetched
                 ? SourceLinkService.OpenPrefetched(path)
                 : SourceLinkService.Open(path);
@@ -5241,14 +5362,24 @@ public class SectionPipelineTests
 
             var borrowed = AssemblyInspectionSession.Borrow(lender);
 
-            // Warm the body source while the lender is still alive.
+            // Warm both reader-backed paths while the lender is still alive.
             var bodies = borrowed.MethodBodies;
             Assert.NotEmpty(bodies.EnumerateMethods());
+            MetadataTypeDefinitionName declarationName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "DotnetInspector.Tests",
+                        ["SectionPipelineTests"]))
+                    .Name;
+            Assert.IsType<TypeDeclarationResult.Defined>(
+                borrowed.ProbeDeclaration(declarationName));
 
             service.Dispose();
 
             Assert.Throws<ObjectDisposedException>(() => bodies.EnumerateMethods());
             Assert.Throws<ObjectDisposedException>(() => borrowed.MethodBodies);
+            Assert.Throws<ObjectDisposedException>(
+                () => borrowed.ProbeDeclaration(declarationName));
 
             // Borrowing from an already-disposed lender is refused rather than deferred.
             Assert.Throws<ObjectDisposedException>(() => AssemblyInspectionSession.Borrow(lender));
@@ -5279,13 +5410,9 @@ public class SectionPipelineTests
     }
 
     /// <summary>
-    /// Runs the classified query and shared-session audit scanner over an untouched path and
-    /// returns their signature, split
-    /// so a caller can assert that the action-based scanners on their own distinguish the two
-    /// fixtures. Without that split, the value-returning census scanner could carry the whole
-    /// signature and a tamper confined to the void <c>Scan</c> overload would stay invisible.
+    /// Runs the classified-method and audit-metadata queries over an untouched path.
     /// </summary>
-    private static (string Full, string Actions) CensusSignature(string assemblyPath)
+    private static (string Full, string Audit) CensusSignature(string assemblyPath)
     {
         var model = new LibraryInspection();
         using var context = new ScannerContext
@@ -5295,52 +5422,38 @@ public class SectionPipelineTests
             Logger = new Output.VerboseLogger(false),
         };
 
-        RunClassifiedQueryAndAudit(context);
+        RunClassifiedAndAuditQueries(context);
 
-        return (SignatureOf(model), ActionSignatureOf(model));
+        return (SignatureOf(model), AuditSignatureOf(model));
     }
 
-    /// <summary>
-    /// Every remaining scanner that must stay coherent with the command-owned
-    /// image. Both retarget gates drive this whole set so action-based and
-    /// value-returning scanners are covered.
-    /// </summary>
-    private static readonly string[] SharedSessionScannerKeys =
-    [
-        LibrarySections.ScannerAuditSignals,
-    ];
-
-    private static void RunClassifiedQueryAndAudit(ScannerContext context)
+    private static void RunClassifiedAndAuditQueries(ScannerContext context)
     {
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
-            [ClassifiedMethodsQuery.Definition],
+            [
+                AuditMetadataQuery.Definition,
+                ClassifiedMethodsQuery.Definition,
+            ],
             context);
         LibraryMetadataService.ApplyClassifiedMethodsResult(
             context.AssemblyPath,
             context.Model,
             context.Logger,
             results.Get(ClassifiedMethodsQuery.Definition));
-
-        ScannerRegistry registry = LibrarySections.CreateScannerRegistry();
-        registry.RunScanners(registry.ExpandRequired(SharedSessionScannerKeys), context);
+        LibraryMetadataService.ApplyAuditMetadataResult(
+            context.AssemblyPath,
+            context.Model,
+            context.Logger,
+            results.Get(AuditMetadataQuery.Definition));
     }
 
     private static string SignatureOf(LibraryInspection model) => string.Join(
         "|",
         $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
-        ActionSignatureOf(model));
+        AuditSignatureOf(model));
 
-    /// <summary>
-    /// Output of the scanners that run through the void <c>Scan</c> overload. Audit signals are
-    /// compared by VALUE, not by count: the signal rows are a fixed catalog, so two different
-    /// assemblies produce the same number of them and a count would make this signature identical
-    /// for every input — which is exactly how the first version of this gate lost its coverage.
-    /// </summary>
-    private static string ActionSignatureOf(LibraryInspection model) => string.Join(
-        "|",
-        $"audit=[{string.Join(",", model.AuditSignals?.Select(s => $"{s.Signal}={s.Value}") ?? [])}]",
-        $"otel={PayloadCount(model.OpenTelemetryInspection)}",
-        $"ecosystem={PayloadCount(model.EcosystemIntegrationInspection)}");
+    private static string AuditSignatureOf(LibraryInspection model) =>
+        $"audit=[{string.Join(",", model.AuditSignals?.Select(s => $"{s.Signal}={s.Value}") ?? [])}]";
 
     private static int? PayloadCount<T>(FindingInspection<T>? inspection) where T : notnull
         => inspection?.Value is FindingInspection<T>.Complete complete ? complete.Findings.Length : null;
@@ -5373,39 +5486,6 @@ public class SectionPipelineTests
             process!.WaitForExit();
             return process.ExitCode == 0 && Directory.Exists(link);
         }
-    }
-
-    [Fact]
-    public void AuditSignalRefresh_DoesNotReopenTheAssembly()
-    {
-        // GPT's finding: the Signals section was NOT protected by the shared session. InspectAsync
-        // recomputes audit signals after the source-audit and integrity passes, and each recompute
-        // used to call PopulateLibraryAudit(path, ...) — a fresh open, AFTER the ScannerContext was
-        // disposed. So Signals could still mix two assemblies (proved out-of-process by retargeting
-        // a junction during the recompute), and a healthy run opened the assembly up to four times.
-        //
-        // Only the model-derived half of the computation changes between recomputes, so the
-        // assembly-derived half is captured once and reused. Refresh must therefore work against a
-        // path that can no longer be opened at all: if it still reopens, this fails.
-        var model = new LibraryInspection();
-        AuditSignalBuilder.PopulateLibraryAudit(
-            typeof(SectionPipelineTests).Assembly.Location,
-            model,
-            new Output.VerboseLogger(false));
-
-        Assert.NotNull(model.AuditMetadata);
-        var captured = model.AuditMetadata;
-        var signals = model.AuditSignals;
-        Assert.NotNull(signals);
-
-        // A path that cannot be opened. A reopen would null out the metadata and change signals.
-        AuditSignalBuilder.RefreshLibraryAudit(
-            Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll"),
-            model,
-            new Output.VerboseLogger(false));
-
-        Assert.Same(captured, model.AuditMetadata);
-        Assert.Equal(signals!.Count, model.AuditSignals!.Count);
     }
 
     private static ScannerContext NullScannerContext() => new()
@@ -6372,6 +6452,15 @@ public class SectionPipelineTests
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var surface = new ApiSurface
         {
+            InspectionFailures =
+            [
+                new ApiSurfaceInspectionFailure(
+                    "test",
+                    0,
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    "Rejected",
+                    "test"),
+            ],
             Types =
             [
                 new ApiType { Name = "C", Kind = "class" },
@@ -6448,7 +6537,7 @@ public class SectionPipelineTests
     public void ApiTypePipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        Assert.Equal(6, pipeline.AllSectionNames.Length);
+        Assert.Equal(7, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -6463,6 +6552,9 @@ public class SectionPipelineTests
         Assert.Contains("Interfaces", names);
         Assert.Contains("Enums", names);
         Assert.Contains("Delegates", names);
+        Assert.Contains(
+            SectionNames.InspectionFailures,
+            names);
     }
 
     [Fact]

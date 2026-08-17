@@ -37,6 +37,9 @@
 - Package and library `Signals` now summarize non-ASCII identifiers and
   reserved-prefix homoglyphs. `Audit: Identifier Confusion` adds content-free
   locations, classifications, similarity, and code points (#4090).
+- Find-result views now carry titles, descriptions, type and member identities,
+  source provenance, and row values through typed inert-text boundaries before
+  Markout-backed Markdown, TSV, JSONL, and projected JSON rendering (#3463).
 - PDB and SourceLink acquisition now handles pathless and content-shaped
   responses while preserving visible diagnostics for rejected evidence
   (#4138).

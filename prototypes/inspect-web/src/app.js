@@ -38,7 +38,101 @@ import {
 } from "./data.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { initializeEngine, inspectBuildIdentity, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectListStyleTiers, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPackageVersions, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource, matchPackageDependencyCoordinate, resolveDependencyVersion } from "/engine.js";
+
+let initializeEngine;
+let inspectBuildIdentity;
+let inspectExpandPlatformCallGraph;
+let inspectListStyleOptions;
+let inspectListStyleTiers;
+let inspectLoadRuntimePack;
+let inspectLoadRuntimePackAssembly;
+let inspectMemberAnnotatedSource;
+let inspectMemberCallGraph;
+let inspectMemberDocumentation;
+let inspectMemberFacts;
+let inspectMemberSource;
+let inspectPackage;
+let inspectPackageCacheStats;
+let inspectPackageDependencies;
+let inspectPackageDocument;
+let inspectPackageHeapEntries;
+let inspectPackageIntegrations;
+let inspectPackageMetadata;
+let inspectPackageMetadataTable;
+let inspectPackageOpportunities;
+let inspectPackagePerformance;
+let inspectPackageVersions;
+let inspectPlatformHeapEntries;
+let inspectPlatformIntegrations;
+let inspectPlatformMetadata;
+let inspectPlatformMetadataTable;
+let inspectPlatformOpportunities;
+let inspectPlatformPerformance;
+let inspectSearchTypes;
+let inspectTypeMemberSource;
+let inspectTypeProjection;
+let inspectTypeSource;
+let matchPackageDependencyCoordinate;
+let resolveDependencyVersion;
+
+async function loadEngineModule() {
+  ({
+    initializeEngine,
+    inspectBuildIdentity,
+    inspectExpandPlatformCallGraph,
+    inspectListStyleOptions,
+    inspectListStyleTiers,
+    inspectLoadRuntimePack,
+    inspectLoadRuntimePackAssembly,
+    inspectMemberAnnotatedSource,
+    inspectMemberCallGraph,
+    inspectMemberDocumentation,
+    inspectMemberFacts,
+    inspectMemberSource,
+    inspectPackage,
+    inspectPackageCacheStats,
+    inspectPackageDependencies,
+    inspectPackageDocument,
+    inspectPackageHeapEntries,
+    inspectPackageIntegrations,
+    inspectPackageMetadata,
+    inspectPackageMetadataTable,
+    inspectPackageOpportunities,
+    inspectPackagePerformance,
+    inspectPackageVersions,
+    inspectPlatformHeapEntries,
+    inspectPlatformIntegrations,
+    inspectPlatformMetadata,
+    inspectPlatformMetadataTable,
+    inspectPlatformOpportunities,
+    inspectPlatformPerformance,
+    inspectSearchTypes,
+    inspectTypeMemberSource,
+    inspectTypeProjection,
+    inspectTypeSource,
+    matchPackageDependencyCoordinate,
+    resolveDependencyVersion
+  } = await import("/engine.js"));
+}
+
+function waitForHomePaint() {
+  if (document.visibilityState === "hidden") return Promise.resolve();
+  if (globalThis.PerformanceObserver?.supportedEntryTypes?.includes("paint")) {
+    if (performance.getEntriesByName("first-contentful-paint", "paint").length) {
+      return Promise.resolve();
+    }
+    return new Promise(resolve => {
+      const observer = new PerformanceObserver(list => {
+        if (!list.getEntries().some(entry => entry.name === "first-contentful-paint")) return;
+        observer.disconnect();
+        resolve();
+      });
+      observer.observe({ type: "paint", buffered: true });
+    });
+  }
+  return new Promise(resolve =>
+    requestAnimationFrame(() => setTimeout(resolve, 0)));
+}
 
 function loadStoredTaste() {
   try {
@@ -228,6 +322,8 @@ const state = {
   loading: true,
   loadingMessage: "Starting browser inspection engine…",
   loadingSubtitle: "",
+  engineReady: false,
+  engineStatus: "Loading browser WebAssembly…",
   error: "",
   errorTitle: "",
   errorDetail: "",
@@ -5595,8 +5691,9 @@ async function copyText(value, confirmation) {
 // (shared #spotlight-input / #spotlight-chips / #spotlight-results ids), so results, scope
 // chips, NuGet discovery, and result picking all behave exactly like the modal Spotlight.
 function renderHomeView() {
-  document.title = "dotnet-inspect -- Inspect any .NET package, right in the browser.";
+  document.title = "dotnet-inspect -- Inspect any NuGet package: types, methods, metadata, decompilation.";
   const results = spotlightResults();
+  const enginePending = !state.engineReady;
   state.spotlightIndex = Math.min(state.spotlightIndex, Math.max(results.length - 1, 0));
   app.innerHTML = `
     <div class="home">
@@ -5618,29 +5715,40 @@ function renderHomeView() {
       <main class="home-hero">
         <div class="home-copy">
           <p class="home-kicker">Browser-native · WebAssembly · zero install</p>
-          <h1 class="home-title">Inspect any .NET package, right in the browser.</h1>
+          <h1 class="home-title">Inspect any NuGet package: types, methods, metadata, decompilation.</h1>
           <p class="home-lede">Explore NuGet packages and the .NET platform — types, members, public API surface, dependencies, call graphs, and decompiled C# — all computed locally in your browser. Nothing to install, nothing uploaded.</p>
-          <div class="home-search" role="search">
-            <div class="home-search-box">
-              <span class="spotlight-glyph">⌕</span>
-              <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Search NuGet — a package, type, or member…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results" />
+          <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
+          <div class="home-search ${enginePending ? "engine-pending" : ""}" role="search" aria-busy="${enginePending}">
+            <div class="home-search-content" ${enginePending ? "inert" : ""}>
+              <div class="home-search-box">
+                <span class="spotlight-glyph">⌕</span>
+                <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Search NuGet — a package, type, or member…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results" ${enginePending ? "disabled" : ""} />
+              </div>
+              <div class="spotlight-chips" id="spotlight-chips">${spotlightChipsHtml()}</div>
+              <div class="spotlight-results home-results" id="spotlight-results" role="listbox">${spotlightResultsHtml(results)}</div>
             </div>
-            <div class="spotlight-chips" id="spotlight-chips">${spotlightChipsHtml()}</div>
-            <div class="spotlight-results home-results" id="spotlight-results" role="listbox">${spotlightResultsHtml(results)}</div>
+            ${enginePending
+              ? `<div class="home-engine-status" role="status" aria-live="polite">
+                  <span class="loader" aria-hidden="true"></span>
+                  <strong>${escapeHtml(state.engineStatus)}</strong>
+                </div>`
+              : ""}
           </div>
           <div class="home-demos">
             <span class="home-demos-label">Or jump straight into a demo</span>
             <div class="home-demo-row">
-              <button class="home-demo" data-home-demo="stj"><strong>System.Text.Json</strong><small>Browse a real package API</small></button>
-              <button class="home-demo" data-home-demo="callgraph"><strong>Cross-package call graph</strong><small>Trace calls across four packages</small></button>
-              <button class="home-demo" data-home-demo="runtime"><strong>.NET Platform</strong><small>Inspect platform BCL types</small></button>
+              <button class="home-demo" data-home-demo="stj" ${enginePending ? "disabled" : ""}><strong>System.Text.Json</strong><small>Browse a real package API</small></button>
+              <button class="home-demo" data-home-demo="callgraph" ${enginePending ? "disabled" : ""}><strong>Cross-package call graph</strong><small>Trace calls across four packages</small></button>
+              <button class="home-demo" data-home-demo="runtime" ${enginePending ? "disabled" : ""}><strong>.NET Platform</strong><small>Inspect platform BCL types</small></button>
             </div>
           </div>
         </div>
         <aside class="home-art">${homeArtSvg()}</aside>
       </main>
       <footer class="home-foot">
-        <span class="ready-dot"></span><span>browser wasm ready</span>
+        ${state.engineReady
+          ? '<span class="ready-dot"></span><span>browser wasm ready</span>'
+          : '<span class="home-wasm-spinner" aria-hidden="true"></span><span>browser wasm loading</span>'}
         ${buildIdentityHtml()}
         ${state.diag ? `<span class="diag">⚙ ready in ${fmtMs(state.diag.totalMs)}</span>` : ""}
       </footer>
@@ -5799,6 +5907,17 @@ function interstitialBotSrc() {
   return loadingBotSrc;
 }
 
+function openPackageFromError(packageId, version) {
+  if (!state.engineReady) {
+    const url = new URL("/", window.location.href);
+    url.searchParams.set("package", packageId);
+    url.searchParams.set("version", version);
+    window.location.assign(url);
+    return;
+  }
+  loadPackage(packageId, version, "");
+}
+
 function renderLoading() {
   app.innerHTML = `
     <div class="loading-screen">
@@ -5829,7 +5948,7 @@ function renderLoading() {
     if (!value || separator === value.length - 1) return;
     const packageId = separator > 0 ? value.slice(0, separator) : value;
     const version = separator > 0 ? value.slice(separator + 1) : "latest";
-    loadPackage(packageId, version, "");
+    openPackageFromError(packageId, version);
   });
   document.querySelector("#toggle-error-detail")?.addEventListener("click", () => {
     const pre = document.querySelector(".load-error-detail");
@@ -8164,14 +8283,19 @@ async function restoreInitialWorkspace() {
 }
 
 async function bootstrap() {
-  state.loading = true;
+  state.loading = !state.home;
+  state.engineReady = false;
+  state.engineStatus = "Loading browser WebAssembly…";
   state.error = "";
   state.retryAction = null;
   render();
   const tStart = performance.now();
   try {
+    if (state.home) await waitForHomePaint();
+    await loadEngineModule();
     await initializeEngine(message => {
       state.loadingMessage = message;
+      state.engineStatus = message;
       render();
     });
     state.buildIdentity = inspectBuildIdentity();
@@ -8186,6 +8310,8 @@ async function bootstrap() {
       state.styleOptions = [];
       state.styleCatalogError = String(error?.message || error);
     }
+    state.engineReady = true;
+    state.engineStatus = "";
     if (state.home) {
       // Engine is warm and search is ready; show the intro/home page without loading a package.
       state.loading = false;
@@ -8199,10 +8325,12 @@ async function bootstrap() {
     render();
   } catch (error) {
     state.loading = false;
+    state.engineReady = false;
+    state.engineStatus = "";
     state.error = "Couldn’t start the inspection engine. Retry, or open a different package.";
     state.errorTitle = "Startup failed";
     state.errorDetail = String(error?.stack || error);
-    state.retryAction = bootstrap;
+    state.retryAction = () => window.location.reload();
     render();
   }
 }

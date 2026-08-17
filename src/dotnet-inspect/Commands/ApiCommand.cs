@@ -538,6 +538,24 @@ public class ApiCommand
 
     internal static void ApplySurfaceFilters(ApiSurface api, ApiOptions options, string? typeFilter = null)
     {
+        bool filtersConstraintSubjects =
+            !string.IsNullOrEmpty(typeFilter)
+            || options.KindFilter.Count > 0
+            || options.UnsafeOnly;
+        var materializedSubjects =
+            new HashSet<ApiSurfaceInspectionSubject>();
+        var materializedTokens = new HashSet<int>();
+        var materializedDefinitions =
+            new HashSet<MetadataTypeDefinitionName>();
+        if (filtersConstraintSubjects)
+        {
+            AddRetainedTypes(
+                api.Types,
+                materializedDefinitions,
+                materializedTokens,
+                materializedSubjects);
+        }
+
         if (!string.IsNullOrEmpty(typeFilter))
         {
             api.Types = api.Types
@@ -565,6 +583,148 @@ public class ApiCommand
             api.PublicFieldCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "field"));
             api.PublicEventCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "event"));
         }
+
+        if (filtersConstraintSubjects)
+            ReprojectConstraintFailures(api);
+
+        void ReprojectConstraintFailures(ApiSurface surface)
+        {
+            var retainedSubjects =
+                new HashSet<ApiSurfaceInspectionSubject>();
+            var retainedTokens = new HashSet<int>();
+            var retainedDefinitions =
+                new HashSet<MetadataTypeDefinitionName>();
+            foreach (ApiType type in surface.Types)
+            {
+                if (type.DefinitionName is { } definition)
+                    retainedDefinitions.Add(definition);
+                Add(type.SourceAssemblyPath, type.MetadataToken);
+                foreach (ApiMember member in type.Members)
+                {
+                    Add(type.SourceAssemblyPath, member.MetadataToken);
+                    Add(type.SourceAssemblyPath, member.GetterToken);
+                    Add(type.SourceAssemblyPath, member.SetterToken);
+                    Add(type.SourceAssemblyPath, member.AdderToken);
+                    Add(type.SourceAssemblyPath, member.RemoverToken);
+                }
+            }
+
+            surface.ReprojectConstraintResolutionFailures(
+                subject =>
+                    retainedTokens.Contains(subject.SubjectToken)
+                    && (subject.SourceAssemblyPath is null
+                        || retainedSubjects.Contains(subject)
+                        || retainedSubjects.Contains(
+                            new ApiSurfaceInspectionSubject(
+                                null,
+                                subject.SubjectToken))));
+            surface.InspectionFailures.RemoveAll(
+                failure =>
+                    failure.Operation
+                        != ApiSurfaceInspectionFailure
+                            .GenericParameterConstraintResolutionOperation
+                    && ExcludesOwnedFailure(failure));
+
+            bool ExcludesOwnedFailure(
+                ApiSurfaceInspectionFailure failure)
+            {
+                if (failure.OwningTypeDefinition is { } owner)
+                {
+                    return materializedDefinitions.Contains(owner)
+                        && !retainedDefinitions.Contains(owner);
+                }
+                if (!failure.AffectedTypeDefinitions.IsDefaultOrEmpty)
+                {
+                    if (failure.AffectedTypeDefinitions.Any(
+                            retainedDefinitions.Contains))
+                    {
+                        return false;
+                    }
+
+                    return failure.AffectedTypeDefinitions.All(
+                        materializedDefinitions.Contains);
+                }
+                if (failure.OwningTypeToken is not int token)
+                    return false;
+
+                return IncludesMaterializedOwner(
+                           token,
+                           failure.SourceAssemblyPath)
+                    && !IncludesRetainedOwner(
+                        token,
+                        failure.SourceAssemblyPath);
+            }
+
+            void Add(string? path, int? token)
+            {
+                if (token is not int value)
+                    return;
+
+                retainedTokens.Add(value);
+                retainedSubjects.Add(
+                    new ApiSurfaceInspectionSubject(path, value));
+            }
+
+            bool IncludesRetainedOwner(
+                int token,
+                string? path) =>
+                retainedTokens.Contains(token)
+                && (path is null
+                    || retainedSubjects.Contains(
+                        new ApiSurfaceInspectionSubject(
+                            path,
+                            token))
+                    || retainedSubjects.Contains(
+                        new ApiSurfaceInspectionSubject(
+                            null,
+                            token)));
+        }
+
+        void AddRetainedTypes(
+            IReadOnlyList<ApiType> types,
+            HashSet<MetadataTypeDefinitionName> definitions,
+            HashSet<int> tokens,
+            HashSet<ApiSurfaceInspectionSubject> subjects)
+        {
+            foreach (ApiType type in types)
+            {
+                if (type.DefinitionName is { } definition)
+                    definitions.Add(definition);
+                Add(type.SourceAssemblyPath, type.MetadataToken);
+                foreach (ApiMember member in type.Members)
+                {
+                    Add(type.SourceAssemblyPath, member.MetadataToken);
+                    Add(type.SourceAssemblyPath, member.GetterToken);
+                    Add(type.SourceAssemblyPath, member.SetterToken);
+                    Add(type.SourceAssemblyPath, member.AdderToken);
+                    Add(type.SourceAssemblyPath, member.RemoverToken);
+                }
+            }
+
+            void Add(string? path, int? token)
+            {
+                if (token is not int value)
+                    return;
+
+                tokens.Add(value);
+                subjects.Add(
+                    new ApiSurfaceInspectionSubject(path, value));
+            }
+        }
+
+        bool IncludesMaterializedOwner(
+            int token,
+            string? path) =>
+            materializedTokens.Contains(token)
+            && (path is null
+                || materializedSubjects.Contains(
+                    new ApiSurfaceInspectionSubject(
+                        path,
+                        token))
+                || materializedSubjects.Contains(
+                    new ApiSurfaceInspectionSubject(
+                        null,
+                        token)));
     }
 
     /// <summary>
@@ -637,6 +797,7 @@ public class ApiCommand
             IsByRefLike = type.IsByRefLike,
             IsReadOnly = type.IsReadOnly,
             SourceAssemblyPath = type.SourceAssemblyPath,
+            MetadataToken = type.MetadataToken,
             BaseType = type.BaseType,
             Interfaces = type.Interfaces,
             DerivedTypes = type.DerivedTypes,
@@ -801,9 +962,59 @@ public class ApiCommand
 
     // ===== Full API Surface Rendering =====
 
+    internal static bool HasRejectedMetadataRows(
+        ApiSurface api) =>
+        CountRejectedMetadataRows(api) > 0;
+
+    internal static int CountRejectedMetadataRows(
+        ApiSurface api) =>
+        api.InspectionFailures.Count(
+            static failure =>
+                failure.Operation
+                    != ApiSurfaceInspectionFailure
+                        .GenericParameterConstraintResolutionOperation);
+
+    internal static void WriteConstraintResolutionDiagnostics(
+        ApiSurface api)
+    {
+        foreach (ApiSurfaceInspectionFailure failure
+            in api.InspectionFailures)
+        {
+            if (failure.Operation
+                != ApiSurfaceInspectionFailure
+                    .GenericParameterConstraintResolutionOperation)
+            {
+                continue;
+            }
+
+            WriteConstraintResolutionDiagnostic(failure);
+        }
+    }
+
+    internal static int WriteSelectedSurfaceDiagnostics(
+        ApiSurface api,
+        ApiType selectedType,
+        HashSet<string>? selectedMemberNames = null)
+    {
+        WarnSelectedApiInspectionIncomplete(
+            api,
+            selectedType,
+            selectedMemberNames);
+        int rejectedRows = CountRejectedMetadataRows(api);
+        if (rejectedRows == 0)
+            return 0;
+
+        CommandError.WriteWarning(
+            $"API inspection rejected {rejectedRows} metadata row(s); "
+            + "selected output excludes failure details.");
+        return 1;
+    }
+
     internal static int WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
     {
         ApplySurfaceFilters(api, options, (options as TypeOptions)?.TypeFilter);
+        int successExitCode =
+            HasRejectedMetadataRows(api) ? 1 : 0;
 
         // Fail closed: the type-listing surface has no dispatch for payload projections
         // (--print/--value/--urls/--paths); its sections are type-name tables that expose no
@@ -814,15 +1025,36 @@ public class ApiCommand
         if (IsProjectionRequested(options))
             return RejectSurfacePayloadProjection(options);
 
-        if (api.InspectionFailures.Count > 0
-            && (options.Count
-                || options.Tabular
-                || options.Verbosity < Verbosity.Normal))
+        bool failureDetailsRendered =
+            !options.Count
+            && (options.JsonOutput
+                || (options.Tabular
+                    ? ApiOutputFormatter
+                        .ShouldRenderSurfaceInspectionFailureTableView(
+                            options)
+                    : ApiOutputFormatter
+                        .RendersInspectionFailures(
+                            api,
+                            options)));
+        bool constraintDetailsRendered =
+            !options.Count
+            && (options.JsonOutput
+                || (options.Tabular
+                    && ApiOutputFormatter
+                        .ShouldRenderSurfaceInspectionFailureTableView(
+                            options)));
+        if (!failureDetailsRendered)
         {
-            CommandError.WriteWarning(
-                $"API inspection rejected {api.InspectionFailures.Count} metadata row(s); "
-                + "use normal verbosity or JSON for failure details.");
+            int rejectedRows = CountRejectedMetadataRows(api);
+            if (rejectedRows > 0)
+            {
+                CommandError.WriteWarning(
+                    $"API inspection rejected {rejectedRows} metadata row(s); "
+                    + "use default Markdown verbosity or JSON for failure details.");
+            }
         }
+        if (!constraintDetailsRendered)
+            WriteConstraintResolutionDiagnostics(api);
 
         if (options.JsonOutput && !options.Count)
         {
@@ -831,7 +1063,7 @@ public class ApiCommand
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: false);
             Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
-            return 0;
+            return successExitCode;
         }
 
         var (view, _) = ApiOutputFormatter.BuildFullApiView(api, options);
@@ -847,6 +1079,45 @@ public class ApiCommand
         }
         else if (options.Tabular)
         {
+            if (ApiOutputFormatter
+                .ShouldRenderSurfaceInspectionFailureTableView(
+                    options))
+            {
+                var failureRows =
+                    OutputFormatter.RenderProjectedTable(
+                        !options.NoHeader,
+                        options.Tsv,
+                        options.Jsonl,
+                        options.Columns,
+                        options.Fields,
+                        (writer, formatter, writerOptions) =>
+                        {
+                            writerOptions.IncludeSections =
+                                [SectionNames.InspectionFailures];
+                            MarkoutSerializer.Serialize(
+                                view,
+                                writer,
+                                formatter,
+                                ApiViewContext.Default,
+                                writerOptions);
+                        });
+                ProjectionDiagnostics.DiagnoseRendered(
+                    options.Fields ?? options.Columns,
+                    failureRows);
+                if (!TryReportEmptyProjection(
+                        failureRows,
+                        options))
+                {
+                    return 1;
+                }
+                Console.Out.Write(
+                    OutputFormatter.LimitRenderedTableRows(
+                        failureRows,
+                        options.Rows,
+                        !options.NoHeader));
+                return successExitCode;
+            }
+
             if (ApiOutputFormatter.ShouldRenderSurfaceFactTableView(options))
             {
                 // Deliberately the same machinery as the fall-through below -- projection,
@@ -863,7 +1134,7 @@ public class ApiCommand
                 if (!TryReportEmptyProjection(factRows, options))
                     return 1;
                 Console.Out.Write(OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader));
-                return 0;
+                return successExitCode;
             }
 
             var (tableView, _) = ApiOutputFormatter.BuildSurfaceTableView(api, options);
@@ -904,7 +1175,112 @@ public class ApiCommand
             }
         }
 
-        return 0;
+        return successExitCode;
+    }
+
+    internal static bool WarnSelectedApiInspectionIncomplete(
+        ApiSurface api,
+        ApiType selectedType,
+        HashSet<string>? selectedMemberNames = null)
+    {
+        HashSet<int> subjectTokens = [];
+        if (selectedType.MetadataToken is int typeToken)
+            subjectTokens.Add(typeToken);
+        foreach (ApiMember member in selectedType.Members)
+        {
+            if (selectedMemberNames is { Count: > 0 }
+                && !TypeMatcher.MatchesMemberFilter(
+                    member.Name,
+                    selectedMemberNames))
+            {
+                continue;
+            }
+
+            Add(member.MetadataToken);
+            Add(member.GetterToken);
+            Add(member.SetterToken);
+            Add(member.AdderToken);
+            Add(member.RemoverToken);
+        }
+
+        var failures =
+            api.ConstraintResolutionFailuresBySubject
+                .Where(pair =>
+                    subjectTokens.Contains(pair.Key.SubjectToken)
+                    && (pair.Key.SourceAssemblyPath is null
+                        || string.Equals(
+                            pair.Key.SourceAssemblyPath,
+                            selectedType.SourceAssemblyPath,
+                            StringComparison.Ordinal)))
+                .SelectMany(pair => pair.Value)
+                .Where(failure =>
+                    failure.SourceAssemblyPath is null
+                    || string.Equals(
+                        failure.SourceAssemblyPath,
+                        selectedType.SourceAssemblyPath,
+                        StringComparison.Ordinal))
+                .DistinctBy(failure => (
+                    failure.SubjectAssembly,
+                    failure.DependencyAssembly,
+                    failure.SubjectToken,
+                    failure.Mechanism,
+                    failure.Kind,
+                    failure.Detail))
+                .Take(
+                    ApiSurface.MaxVisibleConstraintResolutionFailures + 1)
+                .ToList();
+        if (failures.Count == 0)
+            return false;
+
+        foreach (ApiSurfaceInspectionFailure failure in failures.Take(
+            ApiSurface.MaxVisibleConstraintResolutionFailures))
+        {
+            WriteConstraintResolutionDiagnostic(failure);
+        }
+        if (failures.Count
+            > ApiSurface.MaxVisibleConstraintResolutionFailures)
+        {
+            CommandError.WriteWarning(
+                "Additional generic-constraint classification diagnostics "
+                    + "were suppressed.");
+        }
+        return true;
+
+        void Add(int? token)
+        {
+            if (token is int value)
+                subjectTokens.Add(value);
+        }
+    }
+
+    static void WriteConstraintResolutionDiagnostic(
+        ApiSurfaceInspectionFailure failure)
+    {
+        if (failure.SubjectToken == 0
+            && failure.Kind == "ResourceLimit")
+        {
+            CommandError.WriteWarning(
+                "Generic-constraint classification was incomplete: "
+                    + failure.Detail);
+            return;
+        }
+
+        string assembly =
+            failure.SubjectAssembly is null
+                ? ""
+                : $" in '{AssemblyIdentityFormatter.Format(
+                    failure.SubjectAssembly)}'";
+        string dependency =
+            failure.DependencyAssembly is null
+                ? ""
+                : $" via '{AssemblyIdentityFormatter.Format(
+                    failure.DependencyAssembly)}'";
+        CommandError.WriteWarning(
+            "Generic-constraint classification was incomplete"
+                + $"{assembly}{dependency} "
+                + $"at 0x{failure.SubjectToken:X8} "
+                + $"({failure.Mechanism}/{failure.Kind}): "
+                + failure.Detail);
     }
 
     /// <summary>

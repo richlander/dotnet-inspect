@@ -24,6 +24,9 @@ namespace NuGetFetch.Tests;
 /// </remarks>
 public sealed class PluginAuthenticationHandlerTests
 {
+    private static readonly HttpRequestOptionsKey<bool> BrowserStreamingResponse =
+        new("WebAssemblyEnableStreamingResponse");
+
     [Fact]
     public async Task SourceThatNeverChallenges_IsNeverAskedForCredentials()
     {
@@ -56,6 +59,38 @@ public sealed class PluginAuthenticationHandlerTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(2, transport.Requests.Count);
         Assert.Equal(Basic("user", "token"), transport.Requests[1].Authorization);
+    }
+
+    [Fact]
+    public async Task BrowserStreamingOptionSurvivesCredentialReplay()
+    {
+        var source = new FakeCredentialSource(
+            new PackageSourceCredential("user", "token"));
+        var transport = new ScriptedTransport(request =>
+            request.Authorization is null
+                ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                : new HttpResponseMessage(HttpStatusCode.OK));
+        using var client = Client(source, transport);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "https://feed.example/index.json");
+        request.Options.Set(BrowserStreamingResponse, true);
+
+        using HttpResponseMessage response = await client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2, transport.Messages.Count);
+        Assert.All(
+            transport.Messages,
+            message =>
+            {
+                Assert.True(message.Options.TryGetValue(
+                    BrowserStreamingResponse,
+                    out bool enabled));
+                Assert.True(enabled);
+            });
     }
 
     [Fact]
