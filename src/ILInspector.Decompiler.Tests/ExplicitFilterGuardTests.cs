@@ -10,6 +10,10 @@ using Xunit.Sdk;
 
 namespace ILInspector.Decompiler.Tests;
 
+[CollectionDefinition("ExplicitFilterGuardProcess", DisableParallelization = true)]
+public sealed class ExplicitFilterGuardProcessCollection;
+
+[Collection("ExplicitFilterGuardProcess")]
 public class ExplicitFilterGuardTests
 {
     [Fact]
@@ -46,13 +50,16 @@ public class ExplicitFilterGuardTests
         const string missingClass = "ILInspector.Decompiler.Tests.ThisClassDoesNotExist";
         const string validMethod =
             "ILInspector.Decompiler.Tests.GateArgumentExpanderTests.NoGateFlag_PassesArgumentsThroughUnchanged";
+        const string appHostAliasMethod =
+            "ILInspector.Decompiler.Tests.ExplicitFilterGuardTests."
+            + "AppHostAlias_IsTheExecutingTestProcess";
         const string missingMethod =
             "ILInspector.Decompiler.Tests.GateArgumentExpanderTests.ThisMethodDoesNotExist";
 
         ProcessResult valid = await RunHostAsync("-method", validMethod);
         ProcessResult appHostWithoutDotnetPath = await RunAppHostAsync(
             "-method",
-            validMethod);
+            appHostAliasMethod);
         ProcessResult mixed = await RunHostWithResponseFileAsync(
             "-class", validClass,
             "-class", missingClass,
@@ -198,6 +205,20 @@ public class ExplicitFilterGuardTests
             (new FilterGuardCustomValue("custom"), 42),
         };
 
+    [Fact]
+    public void AppHostAlias_IsTheExecutingTestProcess()
+    {
+        string? expectedPath =
+            Environment.GetEnvironmentVariable(
+                "DOTNET_INSPECT_EXPECTED_FILTER_GUARD_APPHOST");
+        if (expectedPath is not null)
+        {
+            Assert.Equal(
+                Path.GetFullPath(expectedPath),
+                Path.GetFullPath(Environment.ProcessPath!));
+        }
+    }
+
     [Theory]
     [MemberData(nameof(DisposableArguments), DisableDiscoveryEnumeration = false)]
     public void PreflightDisposesDiscoveredTheoryArguments(
@@ -239,45 +260,52 @@ public class ExplicitFilterGuardTests
         string emptyPath = Path.Combine(
             Path.GetTempPath(),
             $"filter-guard-host-alias-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(emptyPath);
         string aliasPath = Path.Combine(
             Path.GetDirectoryName(appHostPath)!,
             OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
-        Assert.False(
-            File.Exists(aliasPath),
-            $"Apphost alias already exists: {aliasPath}");
-        File.Copy(appHostPath, aliasPath);
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(
-                aliasPath,
-                File.GetUnixFileMode(appHostPath));
-        }
-
-        var environment = new Dictionary<string, string?>
-        {
-            ["PATH"] = emptyPath,
-            ["DOTNET_HOST_PATH"] = aliasPath,
-        };
-        string? dotnetHostPath =
-            Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
-        if (!string.IsNullOrEmpty(dotnetHostPath))
-        {
-            environment["DOTNET_ROOT"] = Path.GetDirectoryName(dotnetHostPath);
-        }
+        bool aliasCreated = false;
 
         try
         {
-            return await RunProcessAsync(appHostPath, null, environment, arguments);
+            Directory.CreateDirectory(emptyPath);
+            Assert.False(
+                File.Exists(aliasPath),
+                $"Apphost alias already exists: {aliasPath}");
+            File.Copy(appHostPath, aliasPath);
+            aliasCreated = true;
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(
+                    aliasPath,
+                    File.GetUnixFileMode(appHostPath));
+            }
+
+            var environment = new Dictionary<string, string?>
+            {
+                ["PATH"] = emptyPath,
+                ["DOTNET_HOST_PATH"] = aliasPath,
+                ["DOTNET_INSPECT_EXPECTED_FILTER_GUARD_APPHOST"] = aliasPath,
+            };
+            string? dotnetHostPath =
+                Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
+            if (!string.IsNullOrEmpty(dotnetHostPath))
+            {
+                environment["DOTNET_ROOT"] = Path.GetDirectoryName(dotnetHostPath);
+            }
+
+            return await RunProcessAsync(aliasPath, null, environment, arguments);
         }
         finally
         {
-            if (File.Exists(aliasPath))
+            if (aliasCreated && File.Exists(aliasPath))
             {
                 File.Delete(aliasPath);
             }
 
-            Directory.Delete(emptyPath);
+            if (Directory.Exists(emptyPath))
+            {
+                Directory.Delete(emptyPath);
+            }
         }
     }
 
