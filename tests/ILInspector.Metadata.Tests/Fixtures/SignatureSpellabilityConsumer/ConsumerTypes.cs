@@ -14,3 +14,12 @@ public sealed class SignatureSpellabilityConsumerFixtures
     internal HiddenReferenceType HiddenMethod(HiddenReferenceType value) => value;
     internal VisibleReferenceType VisibleMethod(VisibleReferenceType value) => value;
 }
+
+public class ConstructedVisibleString : VisibleGeneric<string>
+{
+}
+
+public abstract class CompilerProducedConstraintHost<T>
+    where T : ConstructedVisibleString
+{
+}

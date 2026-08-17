@@ -198,6 +198,32 @@ public class ApiDiffAnalyzerTests
     }
 
     [Fact]
+    public void InspectionFailurePreservesSourceAssemblyPath()
+    {
+        var oldSurface = Surface();
+        oldSurface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "type identity",
+                0x02000002,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "Type identity failed.")
+            {
+                SourceAssemblyPath = "/inputs/Old.dll",
+            });
+
+        ApiDiff diff =
+            ApiDiffAnalyzer.Compare(
+                oldSurface,
+                Surface());
+
+        Assert.Equal(
+            "/inputs/Old.dll",
+            Assert.Single(diff.InspectionFailures)
+                .SourceAssemblyPath);
+    }
+
+    [Fact]
     public void BaseTypeChanged_IsBreaking()
     {
         var oldSurface = Surface(Type("Foo", baseType: "System.Object"));
