@@ -1,10 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
 using System.Text.Json;
 using NuGetFetch;
 using DotnetInspector.Core;
 using InertText;
+using NuGet.Versioning;
 using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;
@@ -84,46 +86,6 @@ public static class NuGetSearchService
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
 
-        // nuget.org's search endpoint is well known, so searching it needs no service-index
-        // request. That shortcut is keyed on where resolution actually landed, not on whether a
-        // source option was passed: a discovered NuGet.config can name an entirely different feed,
-        // and gating on the flags alone sent those users to nuget.org anyway (issue #3417, bug 2).
-        //
-        // The match is against the canonical service index, not merely a nuget.org host. Any other
-        // path on that host is a different endpoint the user named deliberately, and answering it
-        // from the well-known search endpoint would report results the requested URL never served.
-        if (sources is [{ Credential: null } only]
-            && only.IsNuGetOrg)
-        {
-            log?.Invoke($"Searching NuGet: {query}");
-            SearchService service = new(
-                client,
-                searchUrl: null,
-                options: fetchOptions);
-            IReadOnlyList<SearchResult> results = resultFilter is null
-                ? await service.SearchAsync(query, take, prerelease)
-                : await service.SearchByPrefixAsync(query, take, prerelease);
-            IEnumerable<NuGetSearchResult> projected = results
-                .Where(result =>
-                    (resultFilter?.Invoke(result) ?? true)
-                    && NuGetSourceResolver.IsAliasEligibleForPackage(
-                        only,
-                        sources,
-                        mapping,
-                        result.Id))
-                .Select(NuGetSearchResult.From);
-            if (resultFilter is not null)
-            {
-                projected = projected.DistinctBy(
-                    result => result.PackageId,
-                    StringComparer.OrdinalIgnoreCase);
-            }
-
-            return new NuGetSearchOutcome(
-                projected.Take(take).ToList(),
-                []);
-        }
-
         return await SearchSourcesAsync(
             client,
             fetchOptions,
@@ -149,28 +111,73 @@ public static class NuGetSearchService
     {
         List<NuGetSearchResult> results = [];
         List<string> failures = [];
-        HashSet<(string Id, string Version)> seen = new(SearchResultKeyComparer.Instance);
+        HashSet<(string Id, NuGetVersion Version)> seen =
+            new(SearchResultKeyComparer.Instance);
         int searched = 0;
-        TimeSpan requestTimeout = NuGetFetchOptions.RequestTimeoutForClient(
+        bool operationTimedOut = false;
+        bool useFactoryClients =
+            ReferenceEquals(client, HttpClientFactory.Shared);
+        _ = NuGetFetchOptions.RequestTimeoutForClient(
             fetchOptions,
             client.Timeout);
+        using var operationCancellation = new CancellationTokenSource(
+            fetchOptions.OperationTimeout);
+        long operationStarted = Stopwatch.GetTimestamp();
 
-        foreach (NuGetSource source in sources)
+        for (int sourceIndex = 0; sourceIndex < sources.Count; sourceIndex++)
         {
+            NuGetSource source = sources[sourceIndex];
+            if (HasOperationExpired(
+                    operationStarted,
+                    fetchOptions.OperationTimeout))
+            {
+                operationTimedOut = true;
+                AddOperationTimeoutFailures(
+                    sources,
+                    sourceIndex,
+                    failures,
+                    fetchOptions.OperationTimeout);
+                break;
+            }
+
             using var failureScope = FeedFailureTelemetry.Scope();
-            string? searchUrl;
+            HttpClient sourceClient = useFactoryClients
+                && Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? sourceUri)
+                && sourceUri.Scheme is "http" or "https"
+                    ? HttpClientFactory.GetPackageSourceClient(source.Url)
+                    : client;
+            TimeSpan requestTimeout = NuGetFetchOptions.RequestTimeoutForClient(
+                fetchOptions,
+                sourceClient.Timeout);
+            IReadOnlyList<string>? searchUrls;
             try
             {
-                using var requestCancellation = new CancellationTokenSource(
-                    requestTimeout);
+                using CancellationTokenSource requestCancellation =
+                    CancellationTokenSource.CreateLinkedTokenSource(
+                        operationCancellation.Token);
+                requestCancellation.CancelAfter(requestTimeout);
                 try
                 {
-                    searchUrl = await PackageExtractor.GetSearchQueryServiceAsync(
-                        client,
+                    searchUrls = await PackageExtractor.GetSearchQueryServicesAsync(
+                        sourceClient,
                         source,
                         log,
                         requestCancellation.Token,
                         Timeout.InfiniteTimeSpan);
+                    ThrowIfOperationExpired(
+                        operationStarted,
+                        fetchOptions.OperationTimeout,
+                        operationCancellation.Token);
+                }
+                catch (OperationCanceledException ex)
+                    when (operationCancellation.IsCancellationRequested
+                        || HasOperationExpired(
+                            operationStarted,
+                            fetchOptions.OperationTimeout))
+                {
+                    throw new NuGetOperationTimeoutException(
+                        fetchOptions.OperationTimeout,
+                        ex);
                 }
                 catch (OperationCanceledException ex)
                     when (requestCancellation.IsCancellationRequested)
@@ -188,10 +195,20 @@ public static class NuGetSearchService
                     $"{PackageSourceDisplay.ForDiagnostics(source)}: service index unavailable "
                     + $"at {UrlRedaction.ForDiagnostics(source.Url)} "
                     + $"({DescribeTransportFailure(ex)})");
+                if (ex is NuGetOperationTimeoutException)
+                {
+                    operationTimedOut = true;
+                    AddOperationTimeoutFailures(
+                        sources,
+                        sourceIndex + 1,
+                        failures,
+                        fetchOptions.OperationTimeout);
+                    break;
+                }
                 continue;
             }
 
-            if (searchUrl is null)
+            if (searchUrls is null || searchUrls.Count == 0)
             {
                 IReadOnlyList<FeedFailure> sourceFailures =
                     FeedFailureTelemetry.Current!.Failures;
@@ -202,25 +219,78 @@ public static class NuGetSearchService
                 continue;
             }
 
-            var auth = NuGetCredentialScope.AuthFor(source, searchUrl, log);
-            log?.Invoke(
-                $"Searching {PackageSourceDisplay.ForDiagnostics(source)}: {UrlRedaction.ForDiagnostics(searchUrl)}");
-
-            IReadOnlyList<SearchResult> found;
-            try
+            IReadOnlyList<SearchResult>? found = null;
+            Exception? lastFailure = null;
+            string? lastSearchUrl = null;
+            foreach (string searchUrl in searchUrls)
             {
-                SearchService service = new(client, searchUrl, fetchOptions);
-                found = resultFilter is null
-                    ? await service.SearchAsync(query, take, prerelease, auth)
-                    : await service.SearchByPrefixAsync(
-                        query,
-                        take,
-                        prerelease,
-                        auth);
+                if (HasOperationExpired(
+                        operationStarted,
+                        fetchOptions.OperationTimeout))
+                {
+                    lastFailure = CreateOperationTimeoutException(
+                        fetchOptions.OperationTimeout,
+                        operationCancellation.Token);
+                    break;
+                }
+
+                lastSearchUrl = searchUrl;
+                var auth = NuGetCredentialScope.AuthFor(source, searchUrl, log);
+                log?.Invoke(
+                    $"Searching {PackageSourceDisplay.ForDiagnostics(source)}: {UrlRedaction.ForDiagnostics(searchUrl)}");
+                HttpClient endpointClient = NuGetCredentialScope.IsSameOrigin(
+                    source.Url,
+                    searchUrl)
+                        ? sourceClient
+                        : useFactoryClients
+                            ? HttpClientFactory.SharedUntrustedFetch
+                            : client;
+
+                try
+                {
+                    SearchService service = new(
+                        endpointClient,
+                        searchUrl,
+                        fetchOptions);
+                    found = resultFilter is null
+                        ? await service.SearchAsync(
+                            query,
+                            take,
+                            prerelease,
+                            auth,
+                            operationCancellation.Token)
+                        : await service.SearchByPrefixAsync(
+                            query,
+                            take,
+                            prerelease,
+                            auth,
+                            operationCancellation.Token);
+                    ThrowIfOperationExpired(
+                        operationStarted,
+                        fetchOptions.OperationTimeout,
+                        operationCancellation.Token);
+                    break;
+                }
+                catch (Exception ex) when (ex is HttpRequestException or JsonException
+                    or InvalidOperationException or OperationCanceledException
+                    or IOException or TimeoutException)
+                {
+                    lastFailure = ex;
+                    if (operationCancellation.IsCancellationRequested
+                        || HasOperationExpired(
+                            operationStarted,
+                            fetchOptions.OperationTimeout))
+                    {
+                        lastFailure = CreateOperationTimeoutException(
+                            fetchOptions.OperationTimeout,
+                            operationCancellation.Token,
+                            ex);
+                        break;
+                    }
+                }
             }
-            catch (Exception ex) when (ex is HttpRequestException or JsonException
-                or InvalidOperationException or TaskCanceledException
-                or IOException or TimeoutException)
+
+            if (found is null)
             {
                 // The remote controls both the response that produced this
                 // exception and the endpoint URL its message embeds, so the
@@ -228,25 +298,69 @@ public static class NuGetSearchService
                 // category of what went wrong, not the message.
                 failures.Add(
                     $"{PackageSourceDisplay.ForDiagnostics(source)}: search failed "
-                    + $"at {UrlRedaction.ForDiagnostics(searchUrl)} "
-                    + $"({DescribeTransportFailure(ex)})");
+                    + $"at {UrlRedaction.ForDiagnostics(lastSearchUrl)} "
+                    + $"({DescribeTransportFailure(lastFailure!)})");
+                if (lastFailure is NuGetOperationTimeoutException)
+                {
+                    operationTimedOut = true;
+                    AddOperationTimeoutFailures(
+                        sources,
+                        sourceIndex + 1,
+                        failures,
+                        fetchOptions.OperationTimeout);
+                    break;
+                }
                 continue;
             }
 
-            searched++;
+            var sourceResults = new List<NuGetSearchResult>();
+            var sourceKeys = new HashSet<(string Id, NuGetVersion Version)>(
+                SearchResultKeyComparer.Instance);
+            bool aggregationTimedOut = false;
             foreach (SearchResult result in found)
             {
+                if (HasOperationExpired(
+                        operationStarted,
+                        fetchOptions.OperationTimeout))
+                {
+                    aggregationTimedOut = true;
+                    break;
+                }
+
+                var key = (
+                    result.Id,
+                    NuGetVersion.Parse(result.Version));
                 if ((resultFilter?.Invoke(result) ?? true)
                     && NuGetSourceResolver.IsAliasEligibleForPackage(
                         source,
                         sources,
                         mapping,
                         result.Id)
-                    && seen.Add((result.Id, result.Version)))
+                    && !seen.Contains(key)
+                    && sourceKeys.Add(key))
                 {
-                    results.Add(NuGetSearchResult.From(result));
+                    sourceResults.Add(NuGetSearchResult.From(result));
                 }
             }
+
+            if (aggregationTimedOut)
+            {
+                operationTimedOut = true;
+                failures.Add(OperationTimeoutFailure(
+                    source,
+                    fetchOptions.OperationTimeout,
+                    attempted: true));
+                AddOperationTimeoutFailures(
+                    sources,
+                    sourceIndex + 1,
+                    failures,
+                    fetchOptions.OperationTimeout);
+                break;
+            }
+
+            searched++;
+            seen.UnionWith(sourceKeys);
+            results.AddRange(sourceResults);
         }
 
         // Every configured source failed. Returning an empty list here would render as
@@ -267,23 +381,88 @@ public static class NuGetSearchService
                 StringComparer.OrdinalIgnoreCase);
         }
 
-        return new NuGetSearchOutcome(limited.Take(take).ToList(), failures);
+        if (!operationTimedOut)
+        {
+            ThrowIfOperationExpired(
+                operationStarted,
+                fetchOptions.OperationTimeout,
+                operationCancellation.Token);
+        }
+        List<NuGetSearchResult> finalResults = limited.Take(take).ToList();
+        if (!operationTimedOut)
+        {
+            ThrowIfOperationExpired(
+                operationStarted,
+                fetchOptions.OperationTimeout,
+                operationCancellation.Token);
+        }
+        return new NuGetSearchOutcome(finalResults, failures);
     }
+
+    private static void AddOperationTimeoutFailures(
+        IReadOnlyList<NuGetSource> sources,
+        int startIndex,
+        List<string> failures,
+        TimeSpan timeout)
+    {
+        for (int index = startIndex; index < sources.Count; index++)
+        {
+            failures.Add(OperationTimeoutFailure(
+                sources[index],
+                timeout,
+                attempted: false));
+        }
+    }
+
+    private static string OperationTimeoutFailure(
+        NuGetSource source,
+        TimeSpan timeout,
+        bool attempted) =>
+        $"{PackageSourceDisplay.ForDiagnostics(source)}: "
+        + (attempted ? "search failed " : "search not attempted ")
+        + $"({nameof(NuGetOperationTimeoutException)}: "
+        + $"NuGet operation did not complete within {timeout}.)";
 
     /// <summary>
     /// The part of a transport failure that may be printed.
     /// </summary>
     /// <remarks>
-    /// A timeout's wording is generated by the client from this product's own
-    /// configured <c>HttpClient.Timeout</c> and names no endpoint, so it is
-    /// kept: it is how an operator learns which timeout fired. Every other
-    /// message here is written by a layer that saw the remote's response or the
-    /// feed-declared URL, so only the exception's category survives.
+    /// A timeout's wording is generated from this product's configured request
+    /// deadline or operation ceiling and names no endpoint. It is kept so an
+    /// operator learns which timeout fired. Every other message here is written
+    /// by a layer that saw the remote's response or the feed-declared URL, so
+    /// only the exception's category survives.
     /// </remarks>
     private static string DescribeTransportFailure(Exception error) =>
         error is TaskCanceledException or TimeoutException
             ? $"{error.GetType().Name}: {error.Message}"
             : error.GetType().Name;
+
+    private static bool HasOperationExpired(
+        long started,
+        TimeSpan timeout) =>
+        Stopwatch.GetElapsedTime(started) >= timeout;
+
+    private static void ThrowIfOperationExpired(
+        long started,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        if (HasOperationExpired(started, timeout))
+            throw CreateOperationTimeoutException(timeout, cancellationToken);
+    }
+
+    private static NuGetOperationTimeoutException CreateOperationTimeoutException(
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        Exception? innerException = null) =>
+        new(
+            timeout,
+            innerException as OperationCanceledException
+                ?? new OperationCanceledException(
+                    "NuGet search operation deadline expired.",
+                    innerException,
+                    cancellationToken));
 
     private static string DescribeServiceIndexFailure(
         NuGetSource source,
@@ -338,17 +517,20 @@ public static class NuGetSearchService
         return [.. outcome.Results];
     }
 
-    private sealed class SearchResultKeyComparer : IEqualityComparer<(string Id, string Version)>
+    private sealed class SearchResultKeyComparer
+        : IEqualityComparer<(string Id, NuGetVersion Version)>
     {
         public static readonly SearchResultKeyComparer Instance = new();
 
-        public bool Equals((string Id, string Version) x, (string Id, string Version) y) =>
+        public bool Equals(
+            (string Id, NuGetVersion Version) x,
+            (string Id, NuGetVersion Version) y) =>
             string.Equals(x.Id, y.Id, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(x.Version, y.Version, StringComparison.OrdinalIgnoreCase);
+            && x.Version.Equals(y.Version);
 
-        public int GetHashCode((string Id, string Version) obj) =>
+        public int GetHashCode((string Id, NuGetVersion Version) obj) =>
             HashCode.Combine(
                 StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Id),
-                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Version));
+                obj.Version.GetHashCode());
     }
 }
