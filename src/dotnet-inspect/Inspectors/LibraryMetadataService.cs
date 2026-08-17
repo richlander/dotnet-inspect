@@ -133,7 +133,7 @@ internal static class LibraryMetadataService
             }
 
             var needsAuditSignals =
-                requiredScanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
+                requiredQueries?.Contains(AuditMetadataQuery.Definition) == true;
 
             AssemblySurfaceClassificationOutcome? surfaceClassification =
                 isPlatformAssembly
@@ -301,7 +301,11 @@ internal static class LibraryMetadataService
                         inspection,
                         logger,
                         UnionTypesQuery.Execute(session));
-                    inspection.Apply(ScanClassifiedMethods(session, path, logger));
+                    ApplyClassifiedMethodsResult(
+                        path,
+                        inspection,
+                        logger,
+                        ClassifiedMethodsQuery.Execute(session));
                 }
 
                 catch (Exception ex)
@@ -435,7 +439,7 @@ internal static class LibraryMetadataService
                 sourceSubject);
 
             if (needsAuditSignals)
-                AuditSignalBuilder.RefreshLibraryAudit(path, inspection, logger);
+                AuditSignalBuilder.RefreshLibraryAuditSignals(inspection);
 
             if (sourcePlan.CollectSourceFiles)
             {
@@ -1312,100 +1316,6 @@ internal static class LibraryMetadataService
         public IdentifierConfusionAuditFailureKind FailureKind { get; }
     }
 
-    /// <summary>
-    /// Scans an assembly for unsafe and P/Invoke methods.
-    /// </summary>
-    internal static ClassifiedMethodScan ScanClassifiedMethods(string path, VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanClassifiedMethods(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning classified methods in {path}: {ex.Message}");
-            return ClassifiedMethodScan.FromInspectionOnly(
-                FailedInspection<ClassifiedMethodObservation>(
-                    path, MetadataFindings.ClassifiedMethodDescriptor, ex));
-        }
-    }
-
-    internal static ClassifiedMethodScan ScanClassifiedMethods(AssemblyInspectionSession session, string path, VerboseLogger logger)
-    {
-        try
-        {
-            return ProjectClassifiedMethods(
-                session.ClassifiedMethods(),
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning classified methods in {path}: {ex.Message}");
-            return ClassifiedMethodScan.FromInspectionOnly(
-                FailedInspection<ClassifiedMethodObservation>(
-                    path, MetadataFindings.ClassifiedMethodDescriptor, ex));
-        }
-    }
-
-    static ClassifiedMethodScan ProjectClassifiedMethods(
-        List<ClassifiedMethodInfo> classified,
-        FindingSubject subject)
-    {
-        var inspection = MetadataFindings.InspectClassifiedMethods(classified, subject);
-
-        if (classified.Count == 0) return ClassifiedMethodScan.FromInspectionOnly(inspection);
-
-        var unsafe_ = classified
-            .Where(m => m.Classification == MethodClassification.Unsafe)
-            .Select(m => new ClassifiedMethodSummary
-            {
-                MethodName = m.MethodName,
-                DeclaringType = m.DeclaringType,
-                Signature = m.Signature
-            })
-            .OrderBy(m => m.DeclaringType)
-            .ThenBy(m => m.MethodName)
-            .ToList();
-
-        var pinvoke = classified
-            .Where(m => m.Classification == MethodClassification.PInvoke)
-            .Select(m => new ClassifiedMethodSummary
-            {
-                MethodName = m.MethodName,
-                DeclaringType = m.DeclaringType,
-                Signature = m.Signature,
-                ModuleName = m.ModuleName
-            })
-            .OrderBy(m => m.DeclaringType)
-            .ThenBy(m => m.MethodName)
-            .ToList();
-
-        var async = classified
-            .Where(m => m.Classification is MethodClassification.RuntimeAsync
-                                         or MethodClassification.StateMachineAsync)
-            .Select(m => new AsyncMethodSummary
-            {
-                MethodName = m.MethodName,
-                DeclaringType = m.DeclaringType,
-                Signature = m.Signature,
-                Kind = m.Classification == MethodClassification.RuntimeAsync
-                    ? AsyncMethodSummary.RuntimeKind
-                    : AsyncMethodSummary.StateMachineKind
-            })
-            // Runtime async first (sorts before "State machine"), then by type/name.
-            .OrderBy(m => m.Kind, StringComparer.Ordinal)
-            .ThenBy(m => m.DeclaringType)
-            .ThenBy(m => m.MethodName)
-            .ToList();
-
-        return new ClassifiedMethodScan(
-            inspection,
-            unsafe_.Count > 0 ? unsafe_ : null,
-            pinvoke.Count > 0 ? pinvoke : null,
-            async.Count > 0 ? async : null);
-    }
-
     internal static List<UnsafeMemberSummary>? ScanUnsafeMembers(Func<Analysis.LibraryBodyIndex> openIndex, string path, VerboseLogger logger)
     {
         try
@@ -1462,6 +1372,41 @@ internal static class LibraryMetadataService
     internal static bool IsGeneratedMethod(Analysis.MethodIdentity method, IReadOnlySet<string> generatedFrameworkTypes)
         => IsGeneratedMethod(method)
            || generatedFrameworkTypes.Contains(method.DeclaringType.ToQualifiedDisplayString());
+
+    internal static bool IncludePerformanceOpportunity(
+        Analysis.OptimizationOpportunity opportunity,
+        IReadOnlySet<string> generatedFrameworkTypes)
+        => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)
+            || opportunity.Shape == "generic-parameter-object-box"
+                && !IsInGeneratedFrameworkType(
+                    opportunity,
+                    generatedFrameworkTypes)
+                && IsSourceFunctionName(opportunity.Method.Name);
+
+    static bool IsInGeneratedFrameworkType(
+        Analysis.OptimizationOpportunity opportunity,
+        IReadOnlySet<string> generatedFrameworkTypes)
+    {
+        if (opportunity.SourceOwner is { } sourceOwner
+            && generatedFrameworkTypes.Contains(
+                sourceOwner.DeclaringType.ToQualifiedDisplayString()))
+        {
+            return true;
+        }
+
+        string name =
+            opportunity.Method.DeclaringType.ToQualifiedDisplayString();
+        if (generatedFrameworkTypes.Contains(name))
+            return true;
+
+        int generatedNested = name.IndexOf(".<>", StringComparison.Ordinal);
+        return generatedNested >= 0
+            && generatedFrameworkTypes.Contains(name[..generatedNested]);
+    }
+
+    static bool IsSourceFunctionName(string methodName)
+        => methodName.Contains(">g__", StringComparison.Ordinal)
+            || methodName.Contains(">b__", StringComparison.Ordinal);
 
     private static bool IsSystemTextJsonContextGeneratedMethod(Analysis.MethodIdentity method)
         => method.Name is "TryGetTypeInfoForRuntimeCustomConverter"
@@ -1588,7 +1533,9 @@ internal static class LibraryMetadataService
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             var rows = FilterAndOrderTriageOpportunities(
                     TriageOpportunities(index, options)
-                        .Where(opportunity => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)),
+                        .Where(opportunity => IncludePerformanceOpportunity(
+                            opportunity,
+                            generatedFrameworkTypes)),
                     options)
                 .Select(opportunity => new OptimizationOpportunitySummary
                 {
@@ -1602,6 +1549,7 @@ internal static class LibraryMetadataService
                     Token = FormatToken(opportunity.OperandToken),
                     Evidence = opportunity.Evidence,
                     Fix = opportunity.SafeFixDirection,
+                    Priority = TriagePriority(opportunity),
                     Confidence = opportunity.Confidence,
                     Loop = IteratesInLoop(opportunity) ? "loop" : "",
                     CallerLoop = FormatCallerLoop(opportunity.CallerLoop),
@@ -1756,20 +1704,58 @@ internal static class LibraryMetadataService
             _ => throw new ArgumentOutOfRangeException(nameof(confidence)),
         };
 
-    // Performance Triage ordering: surface pay-dirt first. In-loop (repeated, hot)
-    // allocations lead, then by confidence, then by call-graph leverage (root reach),
-    // then a stable structural tie-break. This is distinct from Top Leverage, which ranks
-    // purely by reach. Extracted so the ranking model is guarded by a labeled, non-vacuous
-    // test (analysis quality ladder #1623 rung 5), not only by self-consistent monotonicity.
+    // Performance Triage ordering separates static actionability from evidence confidence.
+    // Algorithmic amplification, avoidable cache-lookup factory allocations, and actionable
+    // high allocation weight lead. Escape-unknown small arrays and other generic repeated costs
+    // are medium priority; ordinary one-shot candidates are low. Confidence then ranks the
+    // certainty of the evidence/rewrite within that tier, followed by weight and call-graph reach.
     internal static IEnumerable<Analysis.OptimizationOpportunity> OrderByTriagePriority(IEnumerable<Analysis.OptimizationOpportunity> opportunities)
         => opportunities
-            .OrderByDescending(IteratesInLoop)
+            .OrderByDescending(TriagePriorityRank)
             .ThenByDescending(opportunity => ConfidenceRank(opportunity.Confidence))
+            .ThenByDescending(opportunity => WeightSortRank(opportunity.Weight))
             .ThenByDescending(opportunity => opportunity.RootReach)
             .ThenBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
             .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
             .ThenBy(opportunity => opportunity.ILOffset ?? -1)
             .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal);
+
+    internal static string TriagePriority(Analysis.OptimizationOpportunity opportunity)
+        => TriagePriorityRank(opportunity) switch
+        {
+            2 => "high",
+            1 => "medium",
+            _ => "low",
+        };
+
+    static int TriagePriorityRank(Analysis.OptimizationOpportunity opportunity)
+    {
+        if (opportunity.ColdPath)
+            return 0;
+
+        if (opportunity.Shape is
+                "allocation-hotspot"
+                or "cache-lookup-factory-delegate"
+                or "linq-scan-in-loop"
+                or "materialize-in-loop"
+                or "scan-method-in-loop-call"
+                or "string-build-in-loop"
+            || (opportunity.Weight == "high"
+                && opportunity.Shape != "small-array"))
+        {
+            return 2;
+        }
+
+        if (opportunity.Shape == "generic-parameter-object-box")
+            return IteratesInLoop(opportunity)
+                    ? 2
+                    : 1;
+
+        return IteratesInLoop(opportunity)
+            || opportunity.Weight == "medium"
+                ? 1
+                : 0;
+    }
 
     // Whether an allocation opportunity actually iterates as a hot loop, per the
     // semantic per-invocation multiplicity (#2127). A structural in-loop offset that
@@ -1887,6 +1873,15 @@ internal static class LibraryMetadataService
         if (PerformanceTriageOptions.IsNumericField(predicate.Field))
             return false;
 
+        if (predicate.Field == "Priority")
+        {
+            int expected = ConfidenceRank(predicate.Value);
+            if (expected == 0 && !predicate.Value.Equals("low", StringComparison.OrdinalIgnoreCase))
+                return false;
+            int compare = TriagePriorityRank(opportunity).CompareTo(expected);
+            return MatchCompare(compare, predicate.Operator);
+        }
+
         if (predicate.Field == "Confidence")
         {
             int expected = ConfidenceRank(predicate.Value);
@@ -1964,6 +1959,8 @@ internal static class LibraryMetadataService
         {
             return leftNumber.CompareTo(rightNumber);
         }
+        if (field == "Priority")
+            return TriagePriorityRank(left).CompareTo(TriagePriorityRank(right));
         if (field == "Confidence")
             return ConfidenceRank(left.Confidence).CompareTo(ConfidenceRank(right.Confidence));
         if (field == "Weight")
@@ -1990,6 +1987,7 @@ internal static class LibraryMetadataService
             "Token" => FormatToken(opportunity.OperandToken),
             "Evidence" => opportunity.Evidence,
             "Fix" => opportunity.SafeFixDirection,
+            "Priority" => TriagePriority(opportunity),
             "Confidence" => opportunity.Confidence,
             "Loop" => IteratesInLoop(opportunity) ? "loop" : "",
             "CallerLoop" => FormatCallerLoop(opportunity.CallerLoop),
@@ -2137,6 +2135,20 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                ClassifiedMethodsQuery.Definition,
+                out ClassifiedMethodsResult? classifiedMethods))
+        {
+            ApplyClassifiedMethodsResult(path, inspection, logger, classifiedMethods);
+        }
+
+        if (results.TryGet(
+                AuditMetadataQuery.Definition,
+                out AuditMetadataResult? auditMetadata))
+        {
+            ApplyAuditMetadataResult(path, inspection, logger, auditMetadata);
+        }
+
+        if (results.TryGet(
                 ExtensionMethodsQuery.Definition,
                 out ExtensionMethodsResult? extensionMethods))
         {
@@ -2197,6 +2209,35 @@ internal static class LibraryMetadataService
                 out SourceIntegrityResult? integrity))
         {
             ApplySourceIntegrityResult(path, inspection, logger, integrity);
+        }
+    }
+
+    internal static void ApplyAuditMetadataResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        AuditMetadataResult result)
+    {
+        switch (result)
+        {
+            case AuditMetadataResult.Available available:
+                AuditSignalBuilder.ApplyLibraryAudit(
+                    inspection,
+                    available.Metadata);
+                break;
+
+            case AuditMetadataResult.NoMetadata:
+                break;
+
+            case AuditMetadataResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning audit metadata in {path}: {failed.Error.Message}");
+                AuditSignalBuilder.ApplyLibraryAudit(inspection, metadata: null);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown audit metadata result '{result.GetType().Name}'.");
         }
     }
 
@@ -2341,6 +2382,89 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown extension-method result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyClassifiedMethodsResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        ClassifiedMethodsResult result)
+    {
+        switch (result)
+        {
+            case ClassifiedMethodsResult.Available available:
+                inspection.ClassifiedMethodInspection =
+                    MetadataFindings.InspectClassifiedMethods(
+                        available.Methods,
+                        FindingSubjectFor(path));
+
+                var unsafeMethods = available.Methods
+                    .Where(m => m.Classification == MethodClassification.Unsafe)
+                    .Select(m => new ClassifiedMethodSummary
+                    {
+                        MethodName = m.MethodName,
+                        DeclaringType = m.DeclaringType,
+                        Signature = m.Signature
+                    })
+                    .OrderBy(m => m.DeclaringType)
+                    .ThenBy(m => m.MethodName)
+                    .ToList();
+
+                var pinvokeMethods = available.Methods
+                    .Where(m => m.Classification == MethodClassification.PInvoke)
+                    .Select(m => new ClassifiedMethodSummary
+                    {
+                        MethodName = m.MethodName,
+                        DeclaringType = m.DeclaringType,
+                        Signature = m.Signature,
+                        ModuleName = m.ModuleName
+                    })
+                    .OrderBy(m => m.DeclaringType)
+                    .ThenBy(m => m.MethodName)
+                    .ToList();
+
+                var asyncMethods = available.Methods
+                    .Where(m => m.Classification is MethodClassification.RuntimeAsync
+                                                 or MethodClassification.StateMachineAsync)
+                    .Select(m => new AsyncMethodSummary
+                    {
+                        MethodName = m.MethodName,
+                        DeclaringType = m.DeclaringType,
+                        Signature = m.Signature,
+                        Kind = m.Classification == MethodClassification.RuntimeAsync
+                            ? AsyncMethodSummary.RuntimeKind
+                            : AsyncMethodSummary.StateMachineKind
+                    })
+                    .OrderBy(m => m.Kind, StringComparer.Ordinal)
+                    .ThenBy(m => m.DeclaringType)
+                    .ThenBy(m => m.MethodName)
+                    .ToList();
+
+                inspection.UnsafeMethods =
+                    unsafeMethods.Count > 0 ? unsafeMethods : null;
+                inspection.PInvokeMethods =
+                    pinvokeMethods.Count > 0 ? pinvokeMethods : null;
+                inspection.AsyncMethods =
+                    asyncMethods.Count > 0 ? asyncMethods : null;
+                break;
+
+            case ClassifiedMethodsResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning classified methods in {path}: {failed.Error.Message}");
+                inspection.ClassifiedMethodInspection =
+                    FailedInspection<ClassifiedMethodObservation>(
+                        path,
+                        MetadataFindings.ClassifiedMethodDescriptor,
+                        failed.Error);
+                inspection.UnsafeMethods = null;
+                inspection.PInvokeMethods = null;
+                inspection.AsyncMethods = null;
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown classified-methods result '{result.GetType().Name}'.");
         }
     }
 

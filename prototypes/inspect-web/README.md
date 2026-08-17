@@ -279,6 +279,14 @@ selection for the active package; other open packages use their product-selected
 groups. The selected compile participant's direct references come from the
 assembly-context query; the browser neither parses the nuspec nor opens an
 assembly session.
+For open-package navigation, JavaScript supplies the loaded coordinates and
+their typed package-versus-platform provenance to
+`PackageDependencyCoordinateMatchQuery`. The product returns `NoMatch`,
+`Unique`, or `Ambiguous` using NuGet identity and range semantics; JavaScript
+only activates the opaque key from a unique result. Product-query tests gate
+the semantic outcomes, and
+`dependency candidates carry typed package provenance to the product engine`
+gates the Browser transport.
 
 `QueryMemberCallGraph` projects `MemberCallGraphView` through
 `ILInspector.CallGraph.CallGraphProjection` and renders Mermaid in the engine.
@@ -360,6 +368,13 @@ Open `http://127.0.0.1:5198`. Create a deployable static bundle with
 `dotnet publish -c Release`. Remote addresses require HTTPS because the .NET
 loader uses secure-context browser APIs.
 
+On a bare visit, `app.js` waits for the home page's first contentful paint
+before dynamically importing `engine.js`. Search and demo controls remain
+inert behind a loading indicator until the Wasm engine is ready; package and
+shared-workspace deep links retain the full loading interstitial. The
+`bare home paints before wasm engine download` JavaScript test gates this
+startup boundary.
+
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
 `EmscriptenSdkToolsPath` pointing to a no-whitespace link to the installed
@@ -433,6 +448,12 @@ build disabled. It runs on every push to `main`; `workflow_dispatch` remains
 available, but the deploy job itself requires `refs/heads/main`, so a manual run
 cannot publish another ref. Its deployment credential is the
 `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB` GitHub Actions secret.
+The publish step embeds the CLI's authoritative `VersionPrefix`, the exact
+`GITHUB_SHA`, and a UTC build timestamp in the engine. The home and workspace
+status bars show that version, link the short commit to GitHub, and disclose the
+binary build time. `BuildIdentity_UsesVersionedRepositoryProvenance` and
+`ready status shows versioned linked build provenance` gate the engine and UI
+halves.
 
 Two prerequisites live outside this repository and are **not** verified by
 anything in it: the secret must be present, and the Static Web App resource's

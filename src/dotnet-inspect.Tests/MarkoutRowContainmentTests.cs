@@ -58,8 +58,8 @@ namespace DotnetInspector.Tests;
 /// had to be corrected for. It is the exact complement of the set that contains
 /// <i>in the row</i>. Membership is a fact about which idiom a column uses; some
 /// entries are producer-contained and correct as they stand, and the remainder
-/// are the residual tracked by issue #3463 -- which this measures at 359 members
-/// across 86 types, where the estimate had been "roughly 290."</para>
+/// are the residual tracked by issue #3463 -- which this measures at 332 members
+/// across 78 types after the Find view boundary moved to typed inert text.</para>
 ///
 /// <para>Asserting it as a set is what makes the weaker property still bite. A
 /// column cannot leave the self-containing set without failing here, which is
@@ -140,6 +140,8 @@ public class MarkoutRowContainmentTests
         "ApiInfoSection.Source",
         "ApiInfoSection.Tfm",
         "ApiInfoSection.Version",
+        "ApiInspectionFailureRow.Assembly",
+        "ApiInspectionFailureRow.DependencyAssembly",
         "ApiInspectionFailureRow.Detail",
         "ApiInspectionFailureRow.Kind",
         "ApiInspectionFailureRow.Mechanism",
@@ -157,8 +159,6 @@ public class MarkoutRowContainmentTests
         "AppliedTasteRow.Fidelity",
         "AppliedTasteRow.Rule",
         "AppliedTasteRow.Subject",
-        "AsyncMethodRow.DeclaringType",
-        "AsyncMethodRow.Signature",
         "BaseclassRow.Type",
         "CacheCategoryRow.Items",
         "CacheCategoryRow.Name",
@@ -225,6 +225,7 @@ public class MarkoutRowContainmentTests
         "DiffDocumentView.FindingTransitionsSummary",
         "DiffDocumentView.ImplementationDiffNote",
         "DiffDocumentView.ImplementationDiffSummary",
+        "DiffDocumentView.InspectionFailuresSummary",
         "DiffDocumentView.Title",
         "DiffDocumentView.Versions",
         "DiffFullView.Summary",
@@ -272,25 +273,6 @@ public class MarkoutRowContainmentTests
         "FieldSummaryRow.Decode",
         "FieldSummaryRow.Name",
         "FieldSummaryRow.ReturnType",
-        "FindMemberRow.Kind",
-        "FindMemberRow.Library",
-        "FindMemberRow.Member",
-        "FindMemberRow.Pattern",
-        "FindMemberRow.Signature",
-        "FindMemberRow.Source",
-        "FindMemberRow.Type",
-        "FindMembersResultView.Description",
-        "FindMembersResultView.Title",
-        "FindResultView.Description",
-        "FindResultView.Title",
-        "FindRow.Kind",
-        "FindRow.Library",
-        "FindRow.Match",
-        "FindRow.Namespace",
-        "FindRow.Pattern",
-        "FindRow.Similarity",
-        "FindRow.Source",
-        "FindRow.Type",
         "FindingTransitionRow.Finding",
         "FindingTransitionRow.New",
         "FindingTransitionRow.Old",
@@ -373,8 +355,6 @@ public class MarkoutRowContainmentTests
         "OptimizationOpportunityRow.Token",
         "OptimizationOpportunityRow.UnknownPaths",
         "OptimizationOpportunityRow.Weight",
-        "PInvokeMethodRow.DeclaringType",
-        "PInvokeMethodRow.Signature",
         "PackageDependenciesView.Title",
         "PackageSearchResultView.Title",
         "PackageSearchRow.Description",

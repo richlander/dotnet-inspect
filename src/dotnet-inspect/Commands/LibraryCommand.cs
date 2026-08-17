@@ -460,8 +460,6 @@ public class LibraryCommand
             commandQueryDemand.AddRange(DiscoveryQueries);
         if (options.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
-        if (scanners.Contains(LibrarySections.ScannerAuditSignals))
-            commandQueryDemand.Add(("Signals scanner", AssemblyReferencesQuery.Definition));
 
         var queries = pipeline.GetRequiredQueries(
             discoveryInspection && !fullEffectiveDiscovery
@@ -630,7 +628,10 @@ public class LibraryCommand
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
-                    return 0;
+                    return SelectedInspectionFailureExitCode(
+                        options,
+                        pipeline,
+                        inspection);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -640,7 +641,12 @@ public class LibraryCommand
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
-                return IntegrityExitCode(inspection);
+                return Math.Max(
+                    IntegrityExitCode(inspection),
+                    SelectedInspectionFailureExitCode(
+                        options,
+                        pipeline,
+                        inspection));
             }
             else if (!string.IsNullOrEmpty(options.PackagePath))
             {
@@ -769,10 +775,15 @@ public class LibraryCommand
                             reportIdentifierFailures:
                                 !identifierAuditIncomplete));
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
-                    return IntegrityExitCode(
-                        identifierAuditExitCode,
-                        !identifierAuditIncomplete,
-                        inspections[0]);
+                    return Math.Max(
+                        IntegrityExitCode(
+                            identifierAuditExitCode,
+                            !identifierAuditIncomplete,
+                            inspections[0]),
+                        SelectedInspectionFailureExitCode(
+                            options,
+                            pipeline,
+                            inspections[0]));
                 if (options.Print)
                     return IntegrityExitCode(
                         Math.Max(
@@ -806,10 +817,15 @@ public class LibraryCommand
                     OutputFormatter.WriteLibraryResults(inspections, options, pipeline);
                 }
 
-                return IntegrityExitCode(
-                    identifierAuditExitCode,
-                    !identifierAuditIncomplete,
-                    [.. inspections]);
+                return Math.Max(
+                    IntegrityExitCode(
+                        identifierAuditExitCode,
+                        !identifierAuditIncomplete,
+                        [.. inspections]),
+                    SelectedInspectionFailureExitCode(
+                        options,
+                        pipeline,
+                        [.. inspections]));
             }
             else
             {
@@ -895,7 +911,10 @@ public class LibraryCommand
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
-                    return 0;
+                    return SelectedInspectionFailureExitCode(
+                        options,
+                        pipeline,
+                        inspection);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -905,7 +924,12 @@ public class LibraryCommand
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
-                return IntegrityExitCode(inspection);
+                return Math.Max(
+                    IntegrityExitCode(inspection),
+                    SelectedInspectionFailureExitCode(
+                        options,
+                        pipeline,
+                        inspection));
             }
         }
         catch (Exception ex)
@@ -974,6 +998,30 @@ public class LibraryCommand
                 inspection =>
                     inspection.SourceIntegrityMismatches is { Count: > 0 })
             || identifierFailures.Count > 0
+            ? 1
+            : 0;
+    }
+
+    internal static int SelectedInspectionFailureExitCode(
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline,
+        params LibraryInspection[] inspections)
+    {
+        if (options.IncludeSections is not { Count: > 0 })
+            return 0;
+
+        return inspections.Any(inspection =>
+        {
+            var empty = pipeline.GetEmptySections(
+                inspection,
+                options.Verbosity,
+                options.IncludeSections).Empty;
+            return (inspection.InspectionFailures ?? []).Any(failure =>
+                empty.Any(section =>
+                    FailureAffectsSection(
+                        failure.Section,
+                        section)));
+        })
             ? 1
             : 0;
     }
@@ -2402,9 +2450,6 @@ public class LibraryCommand
     internal static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline, bool writeEmptyNote = true)
     {
-        if (options.Count)
-            return;
-
         var emptyResults = inspections
             .Select(inspection => pipeline.GetEmptySections(
                 inspection, options.Verbosity, options.IncludeSections))
@@ -2439,7 +2484,10 @@ public class LibraryCommand
             .Where(section => !relevantFailures.Any(
                 entry => FailureAffectsSection(entry.Failure.Section, section)))
             .ToList();
-        if (writeEmptyNote && unexplained.Count > 0 && empty.Count == requested)
+        if (!options.Count
+            && writeEmptyNote
+            && unexplained.Count > 0
+            && empty.Count == requested)
         {
             var label = unexplained.Count == 1 ? "section has" : "sections have";
             CommandError.WriteNote(
@@ -2447,7 +2495,7 @@ public class LibraryCommand
         }
     }
 
-    private static bool RejectEmptyExactSection(LibraryInspection inspection, LibraryOptions options,
+    internal static bool RejectEmptyExactSection(LibraryInspection inspection, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline) =>
         RejectEmptyExactSection([inspection], options, pipeline);
 
@@ -2473,6 +2521,21 @@ public class LibraryCommand
         }
         if (emptySection is null)
             return false;
+
+        bool explainedByFailure = inspections.Any(inspection =>
+            (inspection.InspectionFailures ?? []).Any(failure =>
+                FailureAffectsSection(
+                    failure.Section,
+                    emptySection)));
+        if (explainedByFailure)
+        {
+            WarnEmptySections(
+                inspections,
+                options,
+                pipeline,
+                writeEmptyNote: false);
+            return true;
+        }
 
         CommandError.WriteLine($"This section ({emptySection}) produced no output.");
         return true;

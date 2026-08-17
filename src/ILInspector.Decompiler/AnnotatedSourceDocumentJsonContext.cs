@@ -20,6 +20,8 @@ namespace ILInspector.Decompiler;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(AnnotatedSourceDocument))]
+[JsonSerializable(typeof(CSharpNodeCorrespondenceResult))]
+[JsonSerializable(typeof(CSharpStructuralDiffDocument))]
 public partial class AnnotatedSourceDocumentJsonContext : JsonSerializerContext;
 
 /// <inheritdoc cref="AnnotatedSourceDocumentJsonContext"/>
@@ -29,4 +31,6 @@ public partial class AnnotatedSourceDocumentJsonContext : JsonSerializerContext;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(AnnotatedSourceDocument))]
+[JsonSerializable(typeof(CSharpNodeCorrespondenceResult))]
+[JsonSerializable(typeof(CSharpStructuralDiffDocument))]
 public partial class AnnotatedSourceDocumentCompactJsonContext : JsonSerializerContext;

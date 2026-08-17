@@ -1,6 +1,6 @@
 using DotnetInspector.Models;
 using DotnetInspector.Views;
-using ILInspector.CSharp;
+using InertText;
 
 namespace DotnetInspector.Output;
 
@@ -18,20 +18,20 @@ public static class FindOutputFormatter
     {
         var matchCount = results.Count(r => r.Match != MatchKind.NotFound);
 
-        return new FindResultView
+        return new FindResultView(
+            Field(title ?? "Find Results"),
+            matchCount == 0 ? Prose("No types found matching the pattern.") : null)
         {
-            Title = CSharpIdentifier.ContainRenderedText(title ?? "Find Results"),
             Matches = matchCount,
-            Description = matchCount == 0 ? "No types found matching the pattern." : null,
             Results = matchCount == 0 ? null : results.Select(r => new FindRow(
-                CSharpIdentifier.ContainRenderedText(r.Pattern),
-                r.Match == MatchKind.NotFound ? "-" : CSharpIdentifier.ContainRenderedText(r.Type),
-                r.Match == MatchKind.NotFound ? "-" : CSharpIdentifier.ContainRenderedText(r.Namespace ?? ""),
-                r.Match == MatchKind.NotFound ? "-" : r.Kind,
-                r.Match == MatchKind.NotFound ? "-" : CSharpIdentifier.ContainRenderedText(r.Library),
-                r.Match == MatchKind.NotFound ? "-" : SourceColumn.Format(r.Source, r.SourceVersion),
-                r.Match.ToString().ToLowerInvariant(),
-                r.Similarity.HasValue ? r.Similarity.Value.ToString("0.00") : "-"
+                Field(r.Pattern),
+                Field(r.Match == MatchKind.NotFound ? "-" : r.Type),
+                Field(r.Match == MatchKind.NotFound ? "-" : r.Namespace ?? ""),
+                Field(r.Match == MatchKind.NotFound ? "-" : r.Kind),
+                Field(r.Match == MatchKind.NotFound ? "-" : r.Library),
+                r.Match == MatchKind.NotFound ? Field("-") : Source(r.Source, r.SourceVersion),
+                Field(r.Match.ToString().ToLowerInvariant()),
+                Field(r.Similarity.HasValue ? r.Similarity.Value.ToString("0.00") : "-")
             )).ToList()
         };
     }
@@ -44,22 +44,31 @@ public static class FindOutputFormatter
         List<MemberFindResult> results,
         string? title = null)
     {
-        return new FindMembersResultView
+        return new FindMembersResultView(
+            Field(title ?? "Find Members"),
+            results.Count == 0 ? Prose("No members found matching the pattern.") : null)
         {
-            Title = CSharpIdentifier.ContainRenderedText(title ?? "Find Members"),
             Matches = results.Count,
-            Description = results.Count == 0 ? "No members found matching the pattern." : null,
             Results = results.Count == 0 ? null : results.Select(r => new FindMemberRow(
-                CSharpIdentifier.ContainRenderedText(r.Pattern),
-                CSharpIdentifier.ContainRenderedText(r.Member),
-                r.Kind,
-                CSharpIdentifier.ContainRenderedText(r.DeclaringType),
+                Field(r.Pattern),
+                Field(r.Member),
+                Field(r.Kind),
+                Field(r.DeclaringType),
                 // The signature is composed from type names, so it carries a
                 // hostile type spelling even when the member name is benign.
-                CSharpIdentifier.ContainRenderedText(r.Signature ?? ""),
-                CSharpIdentifier.ContainRenderedText(r.Library),
-                SourceColumn.Format(r.Source, r.SourceVersion)
+                Field(r.Signature ?? ""),
+                Field(r.Library),
+                Source(r.Source, r.SourceVersion)
             )).ToList()
         };
     }
+
+    private static InertString Field(string value) => new(TextPolicy.Field, value);
+
+    private static InertString Prose(string value) => new(TextPolicy.Prose, value);
+
+    private static InertString Source(string? source, string? version)
+        => string.IsNullOrEmpty(version)
+            ? Field(source ?? "")
+            : InertString.Format(TextPolicy.Field, $"{source}@{version}");
 }

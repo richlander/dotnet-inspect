@@ -423,26 +423,58 @@ inputs directly. Nothing gates the invariant, which is why the gaps persisted; s
 
 NuGetFetch reads service indexes, version indexes, and search responses headers-first, rejects an
 advertised `Content-Length` above the configured ceiling, and counts the bytes actually consumed
-when the length is absent or false. The default ceiling is 16 MiB. A separate body-phase timeout
-defaults to 30 seconds and never exceeds a shorter configured `HttpClient.Timeout`, because that
-client timeout stops applying once a headers-first request returns. Metadata requests also require
-Browser/Wasm streaming-response mode so the browser transport cannot buffer an unbounded body
-before the counting stream sees it.
+when the length is absent or false. The default ceiling is 16 MiB. Every HTTP request, including
+response-body consumption, has a 30-second default request deadline that a shorter configured
+`HttpClient.Timeout` tightens. A logical operation spanning service discovery, version or search
+metadata, pagination, and package-stream consumption has a separate 120-second default ceiling.
+Direct `NuGetApi` stream readers use the request deadline as their body-parse timeout, and callers
+may configure a stricter metadata-body timeout. Header-first NuGet and package-layer requests also
+require Browser/Wasm streaming-response mode so the browser transport cannot buffer an unbounded
+body before the counting or deadline streams see it.
 
-Oversize and body-timeout failures have dedicated exception types. They are not represented as
-`JsonException`, `HttpRequestException`, a null document, or an empty result, so existing malformed
-JSON handling and multi-source fallback cannot turn a resource-limit failure into success-shaped
-output. Direct `NuGetApi` stream consumers pass through the same bounded reader. Package payload
-streams (`.nupkg` and `.snupkg`) are deliberately excluded; their larger download policy belongs to
-the acquisition layer.
+Oversize, request-timeout, operation-timeout, and optional body-timeout failures have dedicated
+exception types. They are not represented as `JsonException`, `HttpRequestException`, a null
+document, or an empty result, so existing malformed-JSON handling and multi-source fallback cannot
+turn a resource-limit failure into success-shaped output. Direct `NuGetApi` stream consumers pass
+through the same bounded reader. Package payload streams (`.nupkg` and `.snupkg`) are deliberately
+excluded from the metadata byte ceiling; their larger download policy belongs to the acquisition
+layer, while request and operation deadlines still cover their streamed consumption.
 
 This is gated by
 `NuGetMetadataLimitTests.Search_AdvertisedOversizeRejectsBeforeReadingTheBody`,
 `NuGetMetadataLimitTests.Search_UnderreportedLengthCannotBypassTheActualByteLimit`,
-`NuGetMetadataLimitTests.MetadataGets_RequestBrowserStreaming`,
+`NuGetMetadataLimitTests.NuGetGets_RequestBrowserStreaming`,
 `NuGetMetadataLimitTests.StalledBodyUsesTheBodyPhaseTimeout`,
+`NuGetMetadataLimitTests.ShorterHttpClientTimeoutBoundsTheWholeRequest`,
 `NuGetMetadataLimitTests.DirectNuGetApiReadersUseTheDefaultLimit`, and
-`NuGetMetadataLimitTests.PackagePayloadIsNotSubjectToTheMetadataLimit`.
+`NuGetMetadataLimitTests.PackagePayloadIsNotSubjectToTheMetadataLimit`, plus
+`NuGetDeadlineTests.RequestDeadline_BoundsARequestBeforeHeaders`,
+`NuGetDeadlineTests.RequestDeadline_BoundsPackageStreamConsumption`,
+`NuGetDeadlineTests.OperationCeiling_SpansServiceDiscoveryAndVersionLookup`,
+`NuGetDeadlineTests.OperationCeiling_IncludesPackageStreamConsumption`, and
+`NuGetDeadlineTests.CallerCancellation_IsNotReportedAsADeadline`, plus
+`HttpRetryHelperTests.HeaderFirstBodyRead_RequiresBrowserStreamingResponse`,
+`HttpRetryHelperTests.StringBodyRead_RequiresBrowserStreamingResponse`,
+`HttpRetryHelperTests.StreamedResponse_RequiresBrowserStreamingResponse`, and
+`HttpRetryHelperTests.RangeResponse_RequiresBrowserStreamingResponse`.
+
+### Malformed NuGet metadata fails visibly
+
+The `NuGetApi` readers propagate service-index, version-index, and search documents with invalid
+JSON or missing required data as `JsonException` rather than representing them as an absent
+resource, empty version list, or empty search. A top-level JSON `null` remains an explicit null
+document. The multi-source client isolates `JsonException` to the source that supplied the
+malformed document and continues to later sources, while metadata response limits and body
+timeouts remain fatal.
+
+This is gated by `NuGetApiTests.GetServiceIndexAsync_MalformedJson_Throws`,
+`NuGetApiTests.GetServiceIndexAsync_InvalidRequiredData_Throws`,
+`NuGetApiTests.GetVersionIndexAsync_MalformedJson_Throws`,
+`NuGetApiTests.GetVersionIndexAsync_InvalidRequiredData_Throws`,
+`NuGetApiTests.GetSearchResponseAsync_MalformedJson_Throws`,
+`NuGetApiTests.GetSearchResponseAsync_InvalidRequiredData_Throws`,
+`NuGetApiTests.MetadataReaders_TopLevelNull_RemainsNull`, and
+`NuGetClientTests.LatestVersion_MalformedSourceContinuesToHealthySource`.
 
 ### SourceLink provenance is read off the URL source is fetched from
 

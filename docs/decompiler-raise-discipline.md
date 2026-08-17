@@ -57,24 +57,28 @@ Assert the IR invariant on accepted and declined results.
 ### Review evidence
 
 For the real witness, acquire exact base/head `AnnotatedSourceDocument` values
-with `-S "Annotated Source Document"`. When a product owner can also issue real
-cross-document node correspondence, generate the full-body structural review
-introduced by #4092 from one `CSharpStructuralComparison` and paste its
-Before/After caret overlays and structural rows verbatim.
+with `-S "Annotated Source Document"`, save them separately, and pass both
+product documents to `DecompilerHarness --structural-review`. The decompiler
+issuer binds correspondence to the exact document revisions and the exact
+physical method body. It matches only unique product-owned IL-origin evidence,
+then feeds the full-body structural review introduced by #4092 from one
+`CSharpStructuralDiffDocument` and its derived `CSharpStructuralComparison`.
+Paste its Before/After caret overlays, structural rows, and any correspondence
+gaps verbatim. Add `--json` when the revision-bound diff document itself must be
+retained or replayed; never replace it with caller-authored correspondence.
 
-PR #4092 currently supplies the comparison and presentation consumer, not a
-producer that maps base-render C# node ids to head-render C# node ids. Until
-such a producer exists, record `Not generated — no product correspondence
-issuer` and retain the standalone Before and After bodies. Never hand-place
-carets or recover correspondence from equal ids, coordinates, text, labels, or
-display order merely to satisfy the template.
+Never hand-place carets or recover correspondence from equal ids, coordinates,
+text, labels, or display order. When the documents predate provenance support,
+describe different method bodies, or leave the changed nodes unsupported or
+ambiguous, record
+`Not generated — unsupported or ambiguous product correspondence: {detail}`
+and retain the standalone Before and After bodies.
 
 The structural review explains *what changed*; it is not a correctness oracle.
 Keep the independent validity, correctness, compile-back fidelity, and exact
-revision verdicts beside it. The current correspondence-producer gap does not
-change an otherwise supported raise verdict; it changes only which
-presentation artifact is honest. Do not manufacture a persuasive substitute in
-the harness.
+revision verdicts beside it. An unsupported correspondence result does not change an otherwise supported
+raise verdict; it changes only which presentation artifact is honest. Do not
+manufacture a persuasive substitute in the harness.
 
 Render A/B and corpus evidence remain population checks. Report stable
 changed-method loss/gain identities and classify every changed method; aggregate
@@ -162,6 +166,14 @@ required review shape.
   outside-nested like its `SlotConfined` sibling and would have deleted the sole
   initializer of a field a nested body still read (#2866) — the partial-sibling
   species again, this time split along storage class rather than render context.
+- **By-ref lambda parameters require declaration evidence.** A recovered lambda
+  with any by-ref parameter carries the synthesized method's exact
+  `ref`/`out`/`in` facts and renders the entire parameter list explicitly typed;
+  unknown or misaligned ref-kind facts decline instead of defaulting to `ref`.
+  `ref readonly` remains distinct metadata evidence and declines until the
+  declaration model can represent it rather than being misrendered as `in`.
+  `LambdaRaisingPassTests` gates the compiler-produced positives, decline
+  boundary, and emitted C# syntax.
 - **Pretty-but-wrong loses to ugly-but-correct — and it is usually free.** When
   a raise would emit prettier source but the shape is not *provably* the exact
   pattern, decline to the honest lowered scaffolding. On honest input the proof

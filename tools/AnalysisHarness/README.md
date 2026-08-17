@@ -24,6 +24,54 @@ dotnet "$DLL" --generated-fixtures alloc --json  # grade a subset (id/prefix/tag
 dotnet "$DLL" --generated-fixtures exception.unsuffixed.external --keep  # keep temp projects
 ```
 
+The structural clone corpus is a separate product/harness boundary and the
+first exact-discovery demo:
+
+```bash
+dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll
+dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll --json
+```
+
+The text demo reports direct comparison and discovery independently:
+
+```text
+Structural clone relationship corpus: 6/6 passed
+PASS banal.authored.exact: expected Completed/Exact, actual Completed/Exact (Unique correspondence)
+...
+PASS closed-world exact discovery: expected 4 clusters, actual 4 clusters, disposition Completed
+  ...::ExactPositiveA = ...::ExactPositiveB
+  ...::MetadataOperandsA = ...::MetadataOperandsB
+  ...::SignatureHazardByte = ...::SignatureHazardUInt
+  ...::SignatureHazardObject = ...::SignatureHazardString
+```
+
+The committed
+`corpus/structural-clone-relationships.json` ledger supplies candidate pairs,
+separate expected disposition/relation, and an explicit closed-world discovery
+population. It also records orthogonal difficulty, intent, actionability, and
+tag axes. The harness derives expected exact connected components only from
+the ledger's expected relations. It then resolves the declared identities to
+SRM handles, grades `StructuralCloneAnalysis.Compare`, runs
+`StructuralCloneAnalysis.Discover`, and requires the complete discovered
+clusters to equal those components. A missed family or an undeclared
+cross-component merge fails the discovery card.
+
+The harness owns no candidate fingerprint, clone normalization,
+correspondence, clustering, or verification logic. Negative cluster membership
+is graded only after discovery reports `Completed` with no suppressed buckets.
+Unsupported direct-comparison cases remain visible direct gates and do not
+downgrade an otherwise complete discovery pass.
+
+The ledger is strict: missing or unknown fields, integer enum values, schema
+versions, duplicate IDs, unknown axis values, incomplete identities, and
+relation/disposition contradictions fail instead of silently shrinking
+coverage. The discovery population must contain each distinct relationship
+method exactly once. An explicitly supplied `--relationship-ledger` must name
+a file; it never falls back to the committed corpus.
+`StructuralCloneCorpusTests` also requires every public method in the dedicated
+fixture type to appear in both ledger views, preventing fixture, relationship,
+or discovery-population drift.
+
 Each fixture builds in isolation: a consumer assembly (the inspected one) plus, when the
 fixture is cross-assembly, a referenced external assembly (with an extern alias for the
 name-collision case). Isolation keeps same-fully-qualified-name and alias fixtures from clashing
@@ -126,6 +174,23 @@ That run is also an invocation-edge near miss: the current Caller Graph path to
 `RenderFragment`; it is not a call. The invocation-only census therefore
 correctly reports no witness. Proving that callback is repeatedly consumed
 requires a separate deferred-callback discriminator.
+
+## Historical performance recall
+
+The historical reference complements the local paydirt list with performance
+fixes from `dotnet/runtime`. It records all reviewed fixes, including current
+misses and explicit out-of-scope classes, while executable cells acquire exact
+before/after NuGet artifacts and gate the expected member+shape count:
+
+```bash
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --historical-performance-recall
+```
+
+This mode is explicitly network-capable; cached packages are reused. The
+committed reference contains coordinates and expectations, not copied runtime
+binaries. The generated Analysis fixtures separately keep each implemented
+discriminator executable in offline CI.
 
 A deferred-callback census measures that separate construction boundary:
 

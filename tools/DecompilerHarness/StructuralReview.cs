@@ -1,26 +1,23 @@
 using System.Net;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using ILInspector.Decompiler;
-using ILInspector.Decompiler.Annotations;
-using ILInspector.Instructions;
 
 namespace ILInspector.DecompilerHarness;
 
 internal static class StructuralReview
 {
-    public static int Run(string path)
+    public static int Run(string path, string? afterPath, bool json)
     {
         try
         {
-            string json = File.ReadAllText(path);
-            ValidateRequiredValueTypeProperties(json);
-            var input = JsonSerializer.Deserialize(
-                json,
-                StructuralReviewJsonContext.Default.CSharpStructuralComparisonInput)
-                ?? throw new JsonException("Structural comparison input is null.");
-            var comparison = CSharpBodyDiff.CompareStructure(input);
-            Console.Write(RenderMarkdown(comparison));
+            var document = afterPath is null
+                ? AnnotatedSourceJson.DeserializeStructuralDiff(File.ReadAllText(path))
+                : CSharpStructuralDiffDocument.Create(
+                    ReadDocument(path),
+                    ReadDocument(afterPath));
+            Console.Write(json
+                ? AnnotatedSourceJson.SerializeStructuralDiff(document)
+                : RenderMarkdown(document.ToComparison()));
             return 0;
         }
         catch (Exception ex) when (ex is IOException
@@ -30,96 +27,15 @@ internal static class StructuralReview
             or NotSupportedException)
         {
             Console.Error.WriteLine(CSharpText.CSharpIdentifier.ContainRenderedText(
-                $"Error: Could not render structural review '{path}': {ex.Message}"));
+                afterPath is null
+                    ? $"Error: Could not render structural diff '{path}': {ex.Message}"
+                    : $"Error: Could not render structural review '{path}' and '{afterPath}': {ex.Message}"));
             return 1;
         }
     }
 
-    static void ValidateRequiredValueTypeProperties(string json)
-    {
-        using var document = JsonDocument.Parse(json);
-        if (document.RootElement.ValueKind != JsonValueKind.Object)
-            return;
-
-        ValidateDocument(document.RootElement, "before");
-        ValidateDocument(document.RootElement, "after");
-    }
-
-    static void ValidateDocument(JsonElement root, string propertyName)
-    {
-        if (!root.TryGetProperty(propertyName, out var document)
-            || document.ValueKind != JsonValueKind.Object)
-        {
-            return;
-        }
-
-        ValidateSpans(document, "nodes");
-        ValidateSpans(document, "regions");
-        ValidateObjectArray(
-            document,
-            "facts",
-            "id",
-            "descriptor",
-            "category",
-            "conditionality",
-            "detail",
-            "source_offset",
-            "origin");
-        ValidateObjectArray(document, "targets", "fact_id", "node_id");
-    }
-
-    static void ValidateSpans(JsonElement document, string propertyName)
-    {
-        if (!document.TryGetProperty(propertyName, out var owners)
-            || owners.ValueKind != JsonValueKind.Array)
-        {
-            return;
-        }
-
-        foreach (var owner in owners.EnumerateArray())
-        {
-            if (owner.ValueKind != JsonValueKind.Object
-                || !owner.TryGetProperty("spans", out var spans)
-                || spans.ValueKind != JsonValueKind.Array)
-            {
-                continue;
-            }
-
-            foreach (var span in spans.EnumerateArray())
-                RequireProperties(span, "start", "length");
-        }
-    }
-
-    static void ValidateObjectArray(
-        JsonElement document,
-        string propertyName,
-        params string[] requiredProperties)
-    {
-        if (!document.TryGetProperty(propertyName, out var values)
-            || values.ValueKind != JsonValueKind.Array)
-        {
-            return;
-        }
-
-        foreach (var value in values.EnumerateArray())
-            RequireProperties(value, requiredProperties);
-    }
-
-    static void RequireProperties(JsonElement value, params string[] requiredProperties)
-    {
-        if (value.ValueKind != JsonValueKind.Object)
-            return;
-
-        string[] missing =
-        [
-            .. requiredProperties.Where(propertyName => !value.TryGetProperty(propertyName, out _))
-        ];
-        if (missing.Length > 0)
-        {
-            throw new JsonException(
-                $"JSON object is missing required properties: {string.Join(", ", missing)}.");
-        }
-    }
+    static AnnotatedSourceDocument ReadDocument(string path)
+        => AnnotatedSourceJson.DeserializeDocument(File.ReadAllText(path));
 
     internal static string RenderMarkdown(CSharpStructuralComparison comparison)
     {
@@ -152,37 +68,82 @@ internal static class StructuralReview
 
         if (rows.IsEmpty)
         {
-            output.WriteLine("No structural changes.");
+            output.WriteLine(comparison.IsCorrespondenceComplete
+                ? "No structural changes."
+                : "No supported structural changes; correspondence is incomplete.");
             if (comparison.Fidelity is { } fidelity)
             {
                 output.WriteLine();
                 output.Write("Fidelity: ");
                 output.WriteLine(InlineCode(Fidelity(fidelity)));
             }
-            return output.ToString();
         }
-
-        output.WriteLine("| Change | Structure | Region | Before spans | After spans | Fidelity |");
-        output.WriteLine("| --- | --- | --- | --- | --- | --- |");
-        foreach (var row in rows)
+        else
         {
-            output.Write("| ");
-            output.Write(TableCell(row.Change));
-            output.Write(" | ");
-            output.Write(TableCell(row.Structure));
-            output.Write(" | ");
-            output.Write(TableCell(row.Region));
-            output.Write(" | ");
-            output.Write(TableCell(row.BeforeSpans));
-            output.Write(" | ");
-            output.Write(TableCell(row.AfterSpans));
-            output.Write(" | ");
-            output.Write(TableCell(row.Fidelity));
-            output.WriteLine(" |");
+            output.WriteLine("| Change | Structure | Region | Before spans | After spans | Fidelity |");
+            output.WriteLine("| --- | --- | --- | --- | --- | --- |");
+            foreach (var row in rows)
+            {
+                output.Write("| ");
+                output.Write(TableCell(row.Change));
+                output.Write(" | ");
+                output.Write(TableCell(row.Structure));
+                output.Write(" | ");
+                output.Write(TableCell(row.Region));
+                output.Write(" | ");
+                output.Write(TableCell(row.BeforeSpans));
+                output.Write(" | ");
+                output.Write(TableCell(row.AfterSpans));
+                output.Write(" | ");
+                output.Write(TableCell(row.Fidelity));
+                output.WriteLine(" |");
+            }
         }
 
+        WriteCorrespondenceGaps(output, comparison.Correspondence);
         return output.ToString();
     }
+
+    static void WriteCorrespondenceGaps(
+        StringWriter output,
+        CSharpNodeCorrespondenceResult? correspondence)
+    {
+        if (correspondence is null)
+            return;
+
+        var gaps = correspondence.UnmatchedBefore
+            .Where(static node => node.Reason != CSharpUnmatchedNodeReason.NoCounterpart)
+            .Select(static node => (Side: "Before", Node: node))
+            .Concat(correspondence.UnmatchedAfter
+                .Where(static node => node.Reason != CSharpUnmatchedNodeReason.NoCounterpart)
+                .Select(static node => (Side: "After", Node: node)))
+            .ToArray();
+        if (gaps.Length == 0)
+            return;
+
+        output.WriteLine();
+        output.WriteLine("## Correspondence gaps");
+        output.WriteLine();
+        output.WriteLine("| Side | Node | Reason | IL provenance |");
+        output.WriteLine("| --- | ---: | --- | --- |");
+        foreach (var gap in gaps)
+        {
+            output.Write("| ");
+            output.Write(gap.Side);
+            output.Write(" | ");
+            output.Write(gap.Node.Node.NodeId);
+            output.Write(" | ");
+            output.Write(gap.Node.Reason);
+            output.Write(" | ");
+            output.Write(TableCell(FormatEvidence(gap.Node.Evidence)));
+            output.WriteLine(" |");
+        }
+    }
+
+    static string FormatEvidence(AnnotatedSourceNodeProvenance? evidence)
+        => evidence is null
+            ? ""
+            : string.Join(", ", evidence.IlOffsets.Select(static offset => $"IL_{offset:X4}"));
 
     static string FencedCSharp(string body)
     {
@@ -230,58 +191,3 @@ internal static class StructuralReview
         return longest;
     }
 }
-
-internal sealed class StrictStringEnumJsonConverter<TEnum> : JsonConverter<TEnum>
-    where TEnum : struct, Enum
-{
-    static readonly IReadOnlyDictionary<string, TEnum> s_values = Enum
-        .GetNames<TEnum>()
-        .ToDictionary(static name => name, static name => Enum.Parse<TEnum>(name), StringComparer.Ordinal);
-
-    public override TEnum Read(
-        ref Utf8JsonReader reader,
-        Type typeToConvert,
-        JsonSerializerOptions options)
-    {
-        if (reader.TokenType == JsonTokenType.String
-            && reader.GetString() is { } name
-            && s_values.TryGetValue(name, out var value))
-        {
-            return value;
-        }
-
-        throw new JsonException(ErrorMessage);
-    }
-
-    public override void Write(
-        Utf8JsonWriter writer,
-        TEnum value,
-        JsonSerializerOptions options)
-    {
-        string? name = Enum.GetName(value);
-        if (name is null)
-            throw new JsonException(ErrorMessage);
-
-        writer.WriteStringValue(name);
-    }
-
-    static string ErrorMessage => typeof(TEnum) == typeof(IlBodyDiffOutcome)
-        ? "Structural fidelity contains an unknown IL body-diff outcome."
-        : $"Structural review contains an unknown {typeof(TEnum).Name} value.";
-}
-
-[JsonSourceGenerationOptions(
-    AllowDuplicateProperties = false,
-    Converters =
-    [
-        typeof(StrictStringEnumJsonConverter<SourceLineKind>),
-        typeof(StrictStringEnumJsonConverter<PrintedRegionRole>),
-        typeof(StrictStringEnumJsonConverter<AnnotationConditionality>),
-        typeof(StrictStringEnumJsonConverter<AnnotatedSourceFactOrigin>),
-        typeof(StrictStringEnumJsonConverter<IlBodyDiffOutcome>),
-    ],
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    RespectRequiredConstructorParameters = true,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
-[JsonSerializable(typeof(CSharpStructuralComparisonInput))]
-internal sealed partial class StructuralReviewJsonContext : JsonSerializerContext;

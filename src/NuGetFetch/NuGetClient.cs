@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net.Http.Headers;
+using System.Text.Json;
 using NuGet.Versioning;
 
 namespace NuGetFetch;
@@ -17,7 +18,7 @@ public class NuGetClient(HttpClient client)
     private readonly ConcurrentDictionary<string, string> _baseAddressCache = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Creates a NuGet client with configured metadata response limits.
+    /// Creates a NuGet client with configured resource limits and deadlines.
     /// </summary>
     public NuGetClient(HttpClient client, NuGetFetchOptions options)
         : this(client)
@@ -31,29 +32,54 @@ public class NuGetClient(HttpClient client)
     /// </summary>
     public async Task<IReadOnlyList<string>> GetVersionsAsync(string packageId, string? sourceUrl = null, PackageSourceCredential? credential = null, CancellationToken cancellationToken = default)
     {
-        string baseAddress = await ResolveBaseAddressAsync(sourceUrl, cancellationToken).ConfigureAwait(false);
+        using var operation = CreateOperation(cancellationToken);
+        return await GetVersionsAsync(
+            packageId,
+            sourceUrl,
+            credential,
+            operation).ConfigureAwait(false);
+    }
+
+    private async Task<IReadOnlyList<string>> GetVersionsAsync(
+        string packageId,
+        string? sourceUrl,
+        PackageSourceCredential? credential,
+        NuGetOperationDeadline operation)
+    {
+        string baseAddress = await ResolveBaseAddressAsync(
+            sourceUrl,
+            credential,
+            operation).ConfigureAwait(false);
         string url = $"{baseAddress}{packageId.ToLowerInvariant()}/index.json";
+        PackageSourceCredential? endpointCredential =
+            CredentialForEndpoint(sourceUrl, url, credential);
 
         try
         {
-            using HttpRequestMessage request =
-                NuGetMetadataReader.CreateGetRequest(url);
-            ApplyCredential(request, credential);
-            using HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            return await operation.RunRequestAsync(
+                async requestToken =>
+                {
+                    using HttpRequestMessage request =
+                        NuGetHttpRequest.CreateGet(url);
+                    ApplyCredential(request, endpointCredential);
+                    using HttpResponseMessage response = await client.SendAsync(
+                        request,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        requestToken).ConfigureAwait(false);
 
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
-                return [];
-            }
+                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                        return [];
 
-            response.EnsureSuccessStatusCode();
-            VersionIndex? index = await NuGetMetadataReader.ReadResponseAsync(
-                response,
-                NuGetApi.DeserializeVersionIndexAsync,
-                _options,
-                client.Timeout,
-                cancellationToken).ConfigureAwait(false);
-            return (IReadOnlyList<string>?)index?.Versions ?? [];
+                    response.EnsureSuccessStatusCode();
+                    VersionIndex? index =
+                        await NuGetMetadataReader.ReadResponseAsync(
+                            response,
+                            NuGetApi.DeserializeVersionIndexAsync,
+                            _options,
+                            client.Timeout,
+                            requestToken).ConfigureAwait(false);
+                    return (IReadOnlyList<string>?)index?.Versions ?? [];
+                }).ConfigureAwait(false);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -66,15 +92,38 @@ public class NuGetClient(HttpClient client)
     /// </summary>
     public async Task<string?> GetLatestVersionAsync(string packageId, bool includePrerelease = false, string? sourceUrl = null, PackageSourceCredential? credential = null, CancellationToken cancellationToken = default)
     {
+        using var operation = CreateOperation(cancellationToken);
+        return await GetLatestVersionAsync(
+            packageId,
+            includePrerelease,
+            sourceUrl,
+            credential,
+            operation).ConfigureAwait(false);
+    }
+
+    private async Task<string?> GetLatestVersionAsync(
+        string packageId,
+        bool includePrerelease,
+        string? sourceUrl,
+        PackageSourceCredential? credential,
+        NuGetOperationDeadline operation)
+    {
         // For nuget.org, use the search API (faster than listing all versions)
         if (sourceUrl is null
             || PackageSource.IsNuGetOrgServiceIndex(sourceUrl))
         {
-            return await GetLatestVersionFromSearchAsync(packageId, includePrerelease, cancellationToken).ConfigureAwait(false);
+            return await GetLatestVersionFromSearchAsync(
+                packageId,
+                includePrerelease,
+                operation).ConfigureAwait(false);
         }
 
         // For other sources, list all versions and pick the latest
-        IReadOnlyList<string> versions = await GetVersionsAsync(packageId, sourceUrl, credential, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<string> versions = await GetVersionsAsync(
+            packageId,
+            sourceUrl,
+            credential,
+            operation).ConfigureAwait(false);
         return FindLatestVersion(versions, includePrerelease);
     }
 
@@ -83,17 +132,23 @@ public class NuGetClient(HttpClient client)
     /// </summary>
     public async Task<string?> GetLatestVersionAsync(string packageId, IEnumerable<PackageSource> sources, bool includePrerelease = false, CancellationToken cancellationToken = default)
     {
+        using var operation = CreateOperation(cancellationToken);
         foreach (PackageSource source in sources)
         {
             try
             {
-                string? version = await GetLatestVersionAsync(packageId, includePrerelease, source.Url, source.Credential, cancellationToken).ConfigureAwait(false);
+                string? version = await GetLatestVersionAsync(
+                    packageId,
+                    includePrerelease,
+                    source.Url,
+                    source.Credential,
+                    operation).ConfigureAwait(false);
                 if (version is not null)
                 {
                     return version;
                 }
             }
-            catch (HttpRequestException)
+            catch (Exception ex) when (ex is HttpRequestException or JsonException)
             {
                 // Try next source
             }
@@ -108,25 +163,47 @@ public class NuGetClient(HttpClient client)
     /// </summary>
     public async Task<Stream> DownloadAsync(string packageId, string version, string? sourceUrl = null, PackageSourceCredential? credential = null, CancellationToken cancellationToken = default)
     {
-        string baseAddress = await ResolveBaseAddressAsync(sourceUrl, cancellationToken).ConfigureAwait(false);
-        string id = packageId.ToLowerInvariant();
-        string ver = NormalizeVersion(version);
-        string url = $"{baseAddress}{id}/{ver}/{id}.{ver}.nupkg";
-
-        HttpRequestMessage request = new(HttpMethod.Get, url);
-        ApplyCredential(request, credential);
-
-        HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-
+        var operation = CreateOperation(cancellationToken);
         try
         {
-            response.EnsureSuccessStatusCode();
-            Stream contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            return new HttpResponseStream(contentStream, response);
+            string baseAddress = await ResolveBaseAddressAsync(
+                sourceUrl,
+                credential,
+                operation).ConfigureAwait(false);
+            string id = packageId.ToLowerInvariant();
+            string ver = NormalizeVersion(version);
+            string url = $"{baseAddress}{id}/{ver}/{id}.{ver}.nupkg";
+            PackageSourceCredential? endpointCredential =
+                CredentialForEndpoint(sourceUrl, url, credential);
+
+            return await operation.RunStreamingRequestAsync(
+                async requestToken =>
+                {
+                    using HttpRequestMessage request =
+                        NuGetHttpRequest.CreateGet(url);
+                    ApplyCredential(request, endpointCredential);
+                    HttpResponseMessage response = await client.SendAsync(
+                        request,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        requestToken).ConfigureAwait(false);
+                    try
+                    {
+                        response.EnsureSuccessStatusCode();
+                        Stream contentStream = await response.Content
+                            .ReadAsStreamAsync(requestToken)
+                            .ConfigureAwait(false);
+                        return (contentStream, response);
+                    }
+                    catch
+                    {
+                        response.Dispose();
+                        throw;
+                    }
+                }).ConfigureAwait(false);
         }
         catch
         {
-            response.Dispose();
+            operation.Dispose();
             throw;
         }
     }
@@ -146,20 +223,37 @@ public class NuGetClient(HttpClient client)
     /// </summary>
     public async Task<string?> GetPackageBaseAddressAsync(string serviceIndexUrl, CancellationToken cancellationToken = default)
     {
-        using HttpRequestMessage request =
-            NuGetMetadataReader.CreateGetRequest(serviceIndexUrl);
-        using HttpResponseMessage response = await client.SendAsync(
-            request,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        using var operation = CreateOperation(cancellationToken);
+        return await GetPackageBaseAddressAsync(
+            serviceIndexUrl,
+            credential: null,
+            operation).ConfigureAwait(false);
+    }
 
-        ServiceIndex? index = await NuGetMetadataReader.ReadResponseAsync(
-            response,
-            NuGetApi.DeserializeServiceIndexAsync,
-            _options,
-            client.Timeout,
-            cancellationToken).ConfigureAwait(false);
+    private async Task<string?> GetPackageBaseAddressAsync(
+        string serviceIndexUrl,
+        PackageSourceCredential? credential,
+        NuGetOperationDeadline operation)
+    {
+        ServiceIndex? index = await operation.RunRequestAsync(
+            async requestToken =>
+            {
+                using HttpRequestMessage request =
+                    NuGetHttpRequest.CreateGet(serviceIndexUrl);
+                ApplyCredential(request, credential);
+                using HttpResponseMessage response = await client.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    requestToken).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+
+                return await NuGetMetadataReader.ReadResponseAsync(
+                    response,
+                    NuGetApi.DeserializeServiceIndexAsync,
+                    _options,
+                    client.Timeout,
+                    requestToken).ConfigureAwait(false);
+            }).ConfigureAwait(false);
 
         string? baseAddress = index?.Resources
             .Where(r => r.Type.StartsWith("PackageBaseAddress", StringComparison.OrdinalIgnoreCase))
@@ -179,7 +273,12 @@ public class NuGetClient(HttpClient client)
     /// </summary>
     public async Task<string?> ResolveVersionPatternAsync(string packageId, string pattern, string? sourceUrl = null, PackageSourceCredential? credential = null, CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<string> versions = await GetVersionsAsync(packageId, sourceUrl, credential, cancellationToken).ConfigureAwait(false);
+        using var operation = CreateOperation(cancellationToken);
+        IReadOnlyList<string> versions = await GetVersionsAsync(
+            packageId,
+            sourceUrl,
+            credential,
+            operation).ConfigureAwait(false);
 
         string prefix = pattern.TrimEnd('*');
         NuGetVersion? best = null;
@@ -199,28 +298,28 @@ public class NuGetClient(HttpClient client)
         return best?.OriginalVersion;
     }
 
-    private async Task<string?> GetLatestVersionFromSearchAsync(string packageId, bool includePrerelease, CancellationToken cancellationToken)
+    private async Task<string?> GetLatestVersionFromSearchAsync(
+        string packageId,
+        bool includePrerelease,
+        NuGetOperationDeadline operation)
     {
-        string prerelease = includePrerelease ? "true" : "false";
-        string url = $"{NuGetOrgSearchUrl}?q=packageid:{Uri.EscapeDataString(packageId)}&take=1&prerelease={prerelease}";
-        using HttpRequestMessage request =
-            NuGetMetadataReader.CreateGetRequest(url);
-        using HttpResponseMessage httpResponse = await client.SendAsync(
-            request,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken).ConfigureAwait(false);
-        httpResponse.EnsureSuccessStatusCode();
-
-        SearchResponse? response = await NuGetMetadataReader.ReadResponseAsync(
-            httpResponse,
-            NuGetApi.DeserializeSearchResponseAsync,
-            _options,
-            client.Timeout,
-            cancellationToken).ConfigureAwait(false);
-        return response?.Data.FirstOrDefault()?.Version;
+        var search = new SearchService(
+            client,
+            NuGetOrgSearchUrl,
+            _options);
+        IReadOnlyList<SearchResult> results = await search.SearchAsync(
+            $"packageid:{packageId}",
+            take: 1,
+            prerelease: includePrerelease,
+            auth: null,
+            operation: operation).ConfigureAwait(false);
+        return results.FirstOrDefault()?.Version;
     }
 
-    private async Task<string> ResolveBaseAddressAsync(string? sourceUrl, CancellationToken cancellationToken)
+    private async Task<string> ResolveBaseAddressAsync(
+        string? sourceUrl,
+        PackageSourceCredential? credential,
+        NuGetOperationDeadline operation)
     {
         if (sourceUrl is null
             || PackageSource.IsNuGetOrgServiceIndex(sourceUrl))
@@ -233,12 +332,19 @@ public class NuGetClient(HttpClient client)
             return cached;
         }
 
-        string baseAddress = await GetPackageBaseAddressAsync(sourceUrl, cancellationToken).ConfigureAwait(false)
+        string baseAddress = await GetPackageBaseAddressAsync(
+            sourceUrl,
+            credential,
+            operation).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Could not resolve PackageBaseAddress from {sourceUrl}");
 
         _baseAddressCache.TryAdd(sourceUrl, baseAddress);
         return baseAddress;
     }
+
+    private NuGetOperationDeadline CreateOperation(
+        CancellationToken cancellationToken) =>
+        new(_options, client.Timeout, cancellationToken);
 
     private static void ApplyCredential(HttpRequestMessage request, PackageSourceCredential? credential)
     {
@@ -248,6 +354,27 @@ public class NuGetClient(HttpClient client)
                 System.Text.Encoding.ASCII.GetBytes($"{credential.Username}:{credential.Password}"));
             request.Headers.Authorization = new AuthenticationHeaderValue("Basic", encoded);
         }
+    }
+
+    private static PackageSourceCredential? CredentialForEndpoint(
+        string? sourceUrl,
+        string endpointUrl,
+        PackageSourceCredential? credential)
+    {
+        if (credential is null || sourceUrl is null)
+            return credential;
+
+        return Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? source)
+            && Uri.TryCreate(endpointUrl, UriKind.Absolute, out Uri? endpoint)
+            && source.Scheme.Equals(
+                endpoint.Scheme,
+                StringComparison.OrdinalIgnoreCase)
+            && source.IdnHost.Equals(
+                endpoint.IdnHost,
+                StringComparison.OrdinalIgnoreCase)
+            && source.Port == endpoint.Port
+                ? credential
+                : null;
     }
 
     internal static string? FindLatestVersion(IReadOnlyList<string> versions, bool includePrerelease)
@@ -285,44 +412,5 @@ public class NuGetClient(HttpClient client)
         }
 
         return version.ToLowerInvariant();
-    }
-}
-
-/// <summary>
-/// A stream wrapper that disposes the underlying HttpResponseMessage when the stream is disposed.
-/// </summary>
-internal sealed class HttpResponseStream(Stream inner, HttpResponseMessage response) : Stream
-{
-    public override bool CanRead => inner.CanRead;
-    public override bool CanSeek => inner.CanSeek;
-    public override bool CanWrite => inner.CanWrite;
-    public override long Length => inner.Length;
-    public override long Position { get => inner.Position; set => inner.Position = value; }
-
-    public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
-    public override int Read(Span<byte> buffer) => inner.Read(buffer);
-    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) => inner.ReadAsync(buffer, offset, count, cancellationToken);
-    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => inner.ReadAsync(buffer, cancellationToken);
-    public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
-    public override void Flush() => inner.Flush();
-    public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
-    public override void SetLength(long value) => inner.SetLength(value);
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            inner.Dispose();
-            response.Dispose();
-        }
-
-        base.Dispose(disposing);
-    }
-
-    public override async ValueTask DisposeAsync()
-    {
-        await inner.DisposeAsync().ConfigureAwait(false);
-        response.Dispose();
-        await base.DisposeAsync().ConfigureAwait(false);
     }
 }
