@@ -9,6 +9,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Tests;
 
+[Collection(ConsoleCollection.Name)]
 public sealed class VocabularyCommandTests
 {
     [Fact]
