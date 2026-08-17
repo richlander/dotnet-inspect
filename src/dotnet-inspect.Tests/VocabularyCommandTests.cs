@@ -9,6 +9,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public sealed class VocabularyCommandTests
 {
     [Fact]
@@ -226,6 +227,73 @@ public sealed class VocabularyCommandTests
         Assert.Empty(result.Error);
         foreach (VocabularySection section in VocabularyCatalog.Document.Sections)
             Assert.Contains($"| {section.Name} | {section.Values.Length} |", result.Output);
+    }
+
+    [Fact]
+    public async Task Command_PartialProjectedJsonOmitsUnmatchedSections()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select =
+                [
+                    VocabularyCatalog.AccessibilitySection,
+                    VocabularyCatalog.StyleTiersSection,
+                ],
+                JsonOutput = true,
+                Columns = ["Title"],
+            })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.False(document.RootElement.TryGetProperty("accessibility", out _));
+        Assert.True(document.RootElement.TryGetProperty("c#style_tiers", out JsonElement rows));
+        Assert.Equal(JsonValueKind.Array, rows.ValueKind);
+    }
+
+    [Fact]
+    public async Task Command_PlainTextUsesThePlainTextFormatter()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select = [VocabularyCatalog.AccessibilitySection],
+                PlainText = true,
+            })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("Vocabulary", result.Output);
+        Assert.Contains("Accessibility", result.Output);
+        Assert.DoesNotContain("# Vocabulary", result.Output);
+        Assert.DoesNotContain("| ID |", result.Output);
+    }
+
+    [Fact]
+    public async Task CommandLine_PlainTextEnvironmentOverrideUsesThePlainTextFormatter()
+    {
+        string? original = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        var result = await ConsoleCapture.RunAsync(async () =>
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "plaintext");
+            try
+            {
+                return await CommandLineBuilder.CreateRootCommand()
+                    .Parse(["vocabulary", "-S", "Accessibility"])
+                    .InvokeAsync();
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", original);
+            }
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("Accessibility", result.Output);
+        Assert.DoesNotContain("# Vocabulary", result.Output);
+        Assert.DoesNotContain("| ID |", result.Output);
     }
 
     private static string ValueId(VocabularyRow row) =>

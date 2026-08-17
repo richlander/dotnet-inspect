@@ -36,8 +36,9 @@ public static class VocabularyCommand
                 json: options.JsonOutput,
                 tsv: options.Tsv,
                 jsonl: options.Jsonl,
-                markdown: !options.Tabular && !options.JsonOutput,
-                sectionCategories: categoryMap);
+                markdown: !options.Tabular && !options.JsonOutput && !options.PlainText,
+                sectionCategories: categoryMap,
+                plainText: options.PlainText);
         }
 
         SelectResult selection = SelectResolver.ResolveSelectAsSections(
@@ -98,6 +99,13 @@ public static class VocabularyCommand
         {
             if (projectedColumns is { Length: > 0 })
             {
+                VocabularySection[] projectedSections =
+                [
+                    .. sections.Where(section => section.Fields.Any(field =>
+                        projectedColumns.Contains(
+                            field.Label,
+                            StringComparer.OrdinalIgnoreCase))),
+                ];
                 OutputFormatter.WriteProjectedJson(
                     Console.Out,
                     projectedColumns,
@@ -105,7 +113,7 @@ public static class VocabularyCommand
                     (writer, formatter, writerOptions) =>
                         WriteSections(
                             new MarkoutWriter(writer, formatter, writerOptions),
-                            sections,
+                            projectedSections,
                             includeDocumentHeading: true),
                     maxRows: options.Rows);
             }
@@ -149,7 +157,9 @@ public static class VocabularyCommand
             options.Rows);
         var markdown = new MarkoutWriter(
             Console.Out,
-            new MarkdownFormatter(),
+            options.PlainText
+                ? new PlainTextFormatter()
+                : new MarkdownFormatter(),
             markdownOptions);
         WriteSections(markdown, sections, includeDocumentHeading: true);
         markdown.Flush();
