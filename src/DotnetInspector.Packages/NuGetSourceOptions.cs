@@ -12,5 +12,6 @@ public record NuGetSourceOptions
     public string[] AdditionalSources { get; init; } = [];
     public string? ConfigFile { get; init; }
     internal string[]? AuthorizedSourceKeys { get; init; }
+    internal NuGetFetch.PackageSource[]? ResolvedSources { get; init; }
     public static NuGetSourceOptions Default { get; } = new();
 }

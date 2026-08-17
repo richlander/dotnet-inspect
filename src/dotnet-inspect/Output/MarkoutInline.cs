@@ -46,6 +46,11 @@ internal static class MarkoutInline
     public static string Code(InertString value)
         => $"<code>{EscapeXmlText(value.ToString())}</code>";
 
+    public static InertString CodeText(InertString value)
+        => InertString.FromEncoded(
+            TextPolicy.Field,
+            $"<code>{EscapeXmlText(value.ToString())}</code>");
+
     private static string EscapeXmlText(string value)
         => value
             .Replace("&", "&amp;", StringComparison.Ordinal)

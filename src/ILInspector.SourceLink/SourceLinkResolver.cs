@@ -10,17 +10,18 @@ namespace ILInspector.SourceLink;
 public sealed class SourceLinkResolver
 {
     readonly PdbContext _context;
-    readonly SLF.SourceLinkResolver _map;
+    readonly SLF.SourceLinkResolver? _map;
     IReadOnlyList<string>? _documentPaths;
     Dictionary<string, List<string>>? _docsByFirstSegment;
     Dictionary<int, PdbDocumentInfo>? _documentsByRowId;
     Dictionary<string, PdbDocumentInfo>? _uniqueDocumentsByPath;
+    Dictionary<MetadataTypeDefinitionName, PdbTypeDocumentInfo>? _exactTypesByDefinitionName;
     Dictionary<string, PdbTypeDocumentInfo>? _typesByFullName;
     Dictionary<string, PdbTypeDocumentInfo>? _typesBySimpleName;
 
     internal SourceLinkResolver(
         PdbContext context,
-        SLF.SourceLinkResolver map)
+        SLF.SourceLinkResolver? map)
     {
         _context = context;
         _map = map;
@@ -76,17 +77,50 @@ public sealed class SourceLinkResolver
     public TypeSourceInfo? ResolveTypeSource(string typeName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeName);
+        return ResolveTypeSource(
+            typeName,
+            allowSimpleNameFallback: true);
+    }
 
+    public TypeSourceInfo? ResolveTypeSource(
+        MetadataTypeDefinitionName type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        EnsureTypeIndexes();
+        return _exactTypesByDefinitionName!.TryGetValue(
+            type,
+            out PdbTypeDocumentInfo? match)
+                ? ResolveTypeSource(match, allowDocumentInference: false)
+                : null;
+    }
+
+    TypeSourceInfo? ResolveTypeSource(
+        string typeName,
+        bool allowSimpleNameFallback)
+    {
         EnsureTypeIndexes();
         if (!_typesByFullName!.TryGetValue(typeName, out var type)
-            && !_typesBySimpleName!.TryGetValue(typeName, out type))
+            && (!allowSimpleNameFallback
+                || !_typesBySimpleName!.TryGetValue(
+                    typeName,
+                    out type)))
         {
             return null;
         }
 
+        return ResolveTypeSource(type, allowDocumentInference: true);
+    }
+
+    TypeSourceInfo? ResolveTypeSource(
+        PdbTypeDocumentInfo type,
+        bool allowDocumentInference)
+    {
         string simpleName = type.TypeSimpleName;
         Dictionary<string, PartialSourceFile> files =
-            new(StringComparer.OrdinalIgnoreCase);
+            new(
+                allowDocumentInference
+                    ? StringComparer.OrdinalIgnoreCase
+                    : StringComparer.Ordinal);
 
         foreach (var documents in type.Documents.GroupBy(
             static document => document.FilePath,
@@ -100,11 +134,17 @@ public sealed class SourceLinkResolver
                     : Decorate(documents.Key));
         }
 
-        foreach (string path in FindDocumentsMatchingTypeName(simpleName))
-            files.TryAdd(path, Decorate(path));
+        if (allowDocumentInference)
+        {
+            foreach (string path in FindDocumentsMatchingTypeName(simpleName))
+                files.TryAdd(path, Decorate(path));
+        }
 
         if (files.Count == 0)
         {
+            if (!allowDocumentInference)
+                return null;
+
             string? inferred = DocumentPaths
                 .FirstOrDefault(path => Path.GetFileNameWithoutExtension(path)
                     .Equals(simpleName, StringComparison.OrdinalIgnoreCase));
@@ -156,7 +196,7 @@ public sealed class SourceLinkResolver
             ? null
             : new MethodSourceInfo(
                 raw.FilePath,
-                _map.ResolveUrl(raw.FilePath),
+                _map?.ResolveUrl(raw.FilePath),
                 raw.StartLine,
                 raw.EndLine,
                 raw.Checksum,
@@ -167,7 +207,7 @@ public sealed class SourceLinkResolver
     }
 
     public string? ApplySourceLinkMapping(string filePath)
-        => _map.ResolveUrl(filePath);
+        => _map?.ResolveUrl(filePath);
 
     IReadOnlyList<string> DocumentPaths
         => _documentPaths ??= [.. _context.EnumeratePdbDocumentPaths()];
@@ -177,18 +217,42 @@ public sealed class SourceLinkResolver
         if (_typesByFullName is not null)
             return;
 
+        var (exactDefinitionNames, fullNames, simpleNames) =
+            BuildTypeIndexes(_context.EnumerateTypeDocuments());
+        _exactTypesByDefinitionName = exactDefinitionNames;
+        _typesByFullName = fullNames;
+        _typesBySimpleName = simpleNames;
+    }
+
+    internal static (
+        Dictionary<MetadataTypeDefinitionName, PdbTypeDocumentInfo>
+            ExactDefinitionNames,
+        Dictionary<string, PdbTypeDocumentInfo> FullNames,
+        Dictionary<string, PdbTypeDocumentInfo> SimpleNames)
+        BuildTypeIndexes(IEnumerable<PdbTypeDocumentInfo> types)
+    {
+        Dictionary<MetadataTypeDefinitionName, PdbTypeDocumentInfo>
+            exactDefinitionNames = [];
+        HashSet<MetadataTypeDefinitionName> ambiguousDefinitionNames = [];
         var fullNames =
             new Dictionary<string, PdbTypeDocumentInfo>(StringComparer.OrdinalIgnoreCase);
         var simpleNames =
             new Dictionary<string, PdbTypeDocumentInfo>(StringComparer.OrdinalIgnoreCase);
-        foreach (var type in _context.EnumerateTypeDocuments())
+        foreach (PdbTypeDocumentInfo type in types)
         {
+            if (type.DefinitionName is { } definitionName
+                && !ambiguousDefinitionNames.Contains(definitionName)
+                && !exactDefinitionNames.TryAdd(definitionName, type))
+            {
+                exactDefinitionNames.Remove(definitionName);
+                ambiguousDefinitionNames.Add(definitionName);
+            }
+
             fullNames.TryAdd(type.TypeFullName, type);
             simpleNames.TryAdd(type.TypeSimpleName, type);
         }
 
-        _typesByFullName = fullNames;
-        _typesBySimpleName = simpleNames;
+        return (exactDefinitionNames, fullNames, simpleNames);
     }
 
     IEnumerable<string> FindDocumentsMatchingTypeName(string typeName)
@@ -217,7 +281,7 @@ public sealed class SourceLinkResolver
 
     PartialSourceFile Decorate(string filePath)
     {
-        string? url = _map.ResolveUrl(filePath);
+        string? url = _map?.ResolveUrl(filePath);
         EnsureDocumentIndexes();
         _uniqueDocumentsByPath!.TryGetValue(filePath, out PdbDocumentInfo? document);
         return new PartialSourceFile(
@@ -230,7 +294,7 @@ public sealed class SourceLinkResolver
 
     PartialSourceFile Decorate(PdbDocumentReference reference)
     {
-        string? url = _map.ResolveUrl(reference.FilePath);
+        string? url = _map?.ResolveUrl(reference.FilePath);
         EnsureDocumentIndexes();
         _documentsByRowId!.TryGetValue(reference.DocumentRowId, out PdbDocumentInfo? document);
         if (document is not null
