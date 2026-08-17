@@ -131,16 +131,17 @@ public static class CSharpStructuralDiffPrinter
                 int result = left.Extent.Column.CompareTo(right.Extent.Column);
                 return result != 0 ? result : right.Extent.Length.CompareTo(left.Extent.Length);
             });
-            if (!CanRenderInCommentGutter(entries, memberIndent.Length))
+            if (HasTabBeforeExtent(line.Text, entries)
+                || !CanRenderInCommentGutter(entries, memberIndent.Length))
             {
-                output.AddRange(RenderExactFallback(entries));
+                output.AddRange(RenderExactFallback(line.Text, entries));
                 continue;
             }
 
             var facts = entries.Select(static entry => entry.Fact).ToArray();
             var extents = entries.ToDictionary(static entry => entry.Fact, static entry => entry.Extent);
             var rendered = AnnotationCaret.Render(line.Text, memberIndent, facts, extents: extents);
-            output.AddRange(rendered.Count > 0 ? rendered : RenderExactFallback(entries));
+            output.AddRange(rendered.Count > 0 ? rendered : RenderExactFallback(line.Text, entries));
         }
 
         return string.Join('\n', output);
@@ -282,7 +283,13 @@ public static class CSharpStructuralDiffPrinter
         return true;
     }
 
+    static bool HasTabBeforeExtent(
+        string sourceLine,
+        IReadOnlyList<(IAnnotation Fact, AnnotationAnchor.CaretExtent Extent)> entries)
+        => entries.Any(entry => sourceLine.AsSpan(0, entry.Extent.Column).Contains('\t'));
+
     static IReadOnlyList<string> RenderExactFallback(
+        string sourceLine,
         IReadOnlyList<(IAnnotation Fact, AnnotationAnchor.CaretExtent Extent)> entries)
     {
         var lines = new List<string>();
@@ -292,7 +299,7 @@ public static class CSharpStructuralDiffPrinter
             foreach (var entry in group)
             {
                 lines.Add(
-                    new string(' ', entry.Extent.Column)
+                    RenderFallbackPadding(sourceLine, entry.Extent.Column)
                     + (first ? new string('^', entry.Extent.Length) : new string(' ', entry.Extent.Length))
                     + " "
                     + AnnotationText.Format(entry.Fact));
@@ -300,6 +307,14 @@ public static class CSharpStructuralDiffPrinter
             }
         }
         return lines;
+    }
+
+    static string RenderFallbackPadding(string sourceLine, int length)
+    {
+        var padding = new char[length];
+        for (int index = 0; index < padding.Length; index++)
+            padding[index] = sourceLine[index] == '\t' ? '\t' : ' ';
+        return new string(padding);
     }
 
     static void EnsureDisplaySafe(

@@ -144,10 +144,13 @@ This model exists only for node/span structure that the line-oriented
 diff-row hierarchy. Ordinary indented spans reuse the annotation comment gutter
 and its stacking rules. When a covered extent includes indentation and a
 non-whitespace token, the display caret starts at that token; whitespace-only
-extents preserve their exact geometry. A resulting span too close to the left
-edge for the gutter uses an exact gutter-free caret row instead. Typed UTF-16
-spans are unchanged. `CSharpStructuralComparisonTests.
-RenderAnnotatedBody_IndentedExtentAlignsCaretToFirstCoveredToken` gates this
+extents preserve their exact geometry. Tab-indented extents retain the source
+tab prefix in an exact fallback row so the renderer's tab stops remain aligned.
+A resulting span too close to the left edge for the gutter uses an exact
+gutter-free caret row instead. Typed UTF-16 spans are unchanged.
+`CSharpStructuralComparisonTests.
+RenderAnnotatedBody_IndentedExtentAlignsCaretToFirstCoveredToken` and
+`RenderAnnotatedBody_TabIndentedExtentPreservesTabAlignment` gate this
 display-only alignment.
 
 ## Research comparison model

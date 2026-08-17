@@ -588,6 +588,47 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void RenderAnnotatedBody_TabIndentedExtentPreservesTabAlignment()
+    {
+        const string beforeText = "\treturn;";
+        const string afterText = "\tbreak;";
+        var before = new AnnotatedSourceDocument(
+            beforeText,
+            [new AnnotatedSourceNode(
+                0,
+                "ReturnStatement",
+                SourceLineKind.CSharp,
+                [new(0, beforeText.Length)])],
+            [],
+            [],
+            []);
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [new AnnotatedSourceNode(
+                0,
+                "BreakStatement",
+                SourceLineKind.CSharp,
+                [new(0, afterText.Length)])],
+            [],
+            [],
+            []);
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string[] rendered = CSharpStructuralDiffPrinter
+            .RenderAnnotatedBody(comparison, CSharpStructuralSide.Before)
+            .Split('\n');
+
+        Assert.Equal(beforeText, rendered[0]);
+        Assert.StartsWith("\t^^^^^^^ raise: Return", rendered[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RenderAnnotatedBody_EarlyColumnSpansUseExactGutterFreeCarets()
     {
         const string beforeText = "a(b);";
