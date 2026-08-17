@@ -506,11 +506,11 @@ descriptor endpoint domain. An owned-subject admission must name a strict
 typed owner of a kind in that semantic endpoint domain; it authorizes later
 expansion but does not change the logical edge's subject kind or direction.
 
-Once relationship selection is request-driven, a seeded request must have at
-least one selected relationship and every seed kind must be admitted by at
-least one of them. That future validation must occur before producer execution
-and fail with the selected relationship ids and typed guidance. Induced-set
-requests carry no seeds and bypass that gate.
+The single-seed neighborhood requires at least one selected relationship and
+the seed kind and semantic direction must be admitted by at least one of them.
+Integration catalog validation occurs before producer execution and fails with
+the selected relationship id and typed guidance. Induced-set requests carry no
+seeds and bypass that gate.
 `RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions`,
 `AdmissionsMatchDeclaredEndpointDomains`, and
 `RelationshipCatalogsDeclareCurrentSeedAdmissions` gate the implemented
@@ -726,6 +726,49 @@ typed package-owned members and retains member-to-member call semantics.
 No mode chooses a subject lens, relationship set, or characteristic selection
 automatically. The same relationship, identity, direction, limit, and failure
 contracts apply in every mode.
+
+`InspectionGraphNeighborhoodRequest` is the first composed request over these
+orthogonal axes. It currently requires one seed, one or more typed relationship
+descriptors, semantic traversal direction, and a finite maximum edge depth.
+The resulting document retains both its `ModeRequest` and
+`NeighborhoodRequest`; a consumer never has to infer selection or bounds from
+the surviving topology.
+
+Relationship producers may retain a stricter typed breadth budget alongside
+that shared request. The bounded call neighborhood records
+`call.traversal-node-bound` in addition to
+`queries.neighborhood-depth-bound`, because Analysis enforces its node budget
+while building the cross-library callee tree. Hitting either bound remains
+visible through call traversal incompleteness; it does not erase the member
+seed or its physical evidence. Nonzero catalog correspondence counts likewise
+remain a typed `call.correspondence-incomplete` limit rather than a
+success-shaped empty graph. `CrossLibraryCalleeNeighborhood_*` gates these
+call-specific compositions.
+
+The Integration implementation validates catalog membership before producer
+execution. Its relationship set drives the deterministic query-registry plan,
+including opportunity's Integration and extension prerequisites for
+fulfillment reconciliation. Projection begins through the selected
+descriptor's exact edge, original-occurrence, or typed owned-subject seed
+admission, then walks logical endpoints for the remaining hops. Incoming
+traversal changes which endpoint is followed, never the stored edge or
+occurrence direction.
+
+Projection assigns new dense document-local ids while retaining semantic
+subjects, relationship descriptors, occurrence evidence and occurrence
+identity. Failures from requested relationship producers and their required
+composition prerequisites remain visible even when their target is outside
+healthy reached topology. A typed `queries.neighborhood-depth-bound` limit
+records the requested bound, including depth zero. An admissible owner-issued
+seed remains bound even when selected producers emit no relationship evidence.
+`Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
+`Execute_ZeroDepthRetainsSeedWithoutEdges`,
+`Execute_ZeroDepthRetainsAdmissibleSeedWithoutSelectedEvidence`,
+`Execute_OpportunityNeighborhoodPreservesFulfillmentSuppression`,
+`Execute_NeighborhoodRetainsSelectedProducerFailures`,
+`Execute_OpportunityNeighborhoodRetainsPrerequisiteFailures`, and
+`Execute_RejectsForeignRelationshipBeforeProducerExecution` gate these
+contracts.
 
 ### Type outward
 
@@ -1035,10 +1078,11 @@ subject lenses it advances.
    retain equal roles; and request-free workspace projection declares its
    workspace-participant induced-set rule. Relationship descriptors now own
    direct edge, original occurrence, and owned-subject seed admission, and
-   preserve each admission's semantic role for later request planning.
-   Admission-driven request validation, producer selection,
-   connecting-neighborhood construction, explicit-subject induced sets, and
-   presentation lowering remain.
+   preserve each admission's semantic role for request planning.
+   `InspectionGraphNeighborhoodRequest` now drives finite single-seed
+   Integration traversal and producer selection. Peer connecting
+   neighborhoods, explicit-subject induced sets, and presentation lowering
+   remain.
 
 ## Required implementation gates
 

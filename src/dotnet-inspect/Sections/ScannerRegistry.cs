@@ -28,6 +28,7 @@ public sealed class ScannerContext : IDisposable
 {
     public required string AssemblyPath { get; init; }
     public ResolvedAssemblyReference? AssemblyReference { get; init; }
+    public IAssemblyReferenceResolver? BodyReferenceResolver { get; init; }
     public required LibraryInspection Model { get; init; }
     public required VerboseLogger Logger { get; init; }
     public PdbContext? MetadataContext { get; init; }
@@ -280,6 +281,7 @@ public sealed class ScannerContext : IDisposable
                 AssemblyPath,
                 GetMetadataContext(),
                 BodyAnalysisFeatures,
+                BodyReferenceResolver,
                 assembly: AssemblyReference);
         }
         catch (Exception ex)
