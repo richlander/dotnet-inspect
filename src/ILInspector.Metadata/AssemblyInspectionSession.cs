@@ -330,7 +330,10 @@ public sealed class AssemblyInspectionSession : IDisposable
         return reader.GetGuid(reader.GetModuleDefinition().Mvid);
     }
 
-    internal TypeDeclarationResult ProbeDeclaration(
+    /// <summary>
+    /// Probes one exact structured type name in this immutable assembly image.
+    /// </summary>
+    public TypeDeclarationResult ProbeDeclaration(
         MetadataTypeDefinitionName name)
     {
         _image.EnsureAlive();

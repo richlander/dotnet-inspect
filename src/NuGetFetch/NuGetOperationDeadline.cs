@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace NuGetFetch;
 
 internal sealed class NuGetOperationDeadline : IDisposable
@@ -6,6 +8,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
     private readonly CancellationTokenSource _operationCancellation;
     private readonly TimeSpan _operationTimeout;
     private readonly TimeSpan _requestTimeout;
+    private readonly long _operationStarted;
     private bool _disposed;
     private bool _ownershipTransferred;
 
@@ -23,6 +26,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
         _operationCancellation =
             CancellationTokenSource.CreateLinkedTokenSource(callerToken);
         _operationCancellation.CancelAfter(_operationTimeout);
+        _operationStarted = Stopwatch.GetTimestamp();
     }
 
     public async Task<T> RunRequestAsync<T>(
@@ -35,6 +39,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             T result = await request(requestCancellation.Token)
                 .ConfigureAwait(false);
             requestCancellation.Token.ThrowIfCancellationRequested();
+            ThrowIfExpired();
             return result;
         }
         catch (OperationCanceledException ex)
@@ -48,6 +53,27 @@ internal sealed class NuGetOperationDeadline : IDisposable
         {
             ThrowTranslatedAbort(ex, requestCancellation);
             throw;
+        }
+    }
+
+    public void ThrowIfExpired()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_callerToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(
+                "NuGet operation was canceled by the caller.",
+                _callerToken);
+        }
+
+        if (_operationCancellation.IsCancellationRequested
+            || Stopwatch.GetElapsedTime(_operationStarted) >= _operationTimeout)
+        {
+            throw new NuGetOperationTimeoutException(
+                _operationTimeout,
+                new OperationCanceledException(
+                    "NuGet operation deadline expired.",
+                    _operationCancellation.Token));
         }
     }
 
