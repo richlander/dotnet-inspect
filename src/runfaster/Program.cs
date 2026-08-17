@@ -2542,48 +2542,28 @@ sealed class CandidateLookup
 
     static IEnumerable<string> CandidateModuleKeys(AllocationCandidate candidate)
     {
-        if (NormalizeModuleKey(candidate.AssemblyName) is { Length: > 0 } assembly)
+        if (ProgramSupport.NormalizeModuleKey(candidate.AssemblyName) is { Length: > 0 } assembly)
             yield return assembly;
         if (string.Equals(
                 candidate.Source,
                 "library",
                 StringComparison.Ordinal))
         {
-            if (NormalizeModuleKey(candidate.LibraryPath) is { Length: > 0 } path)
+            if (ProgramSupport.NormalizeModuleKey(candidate.LibraryPath) is { Length: > 0 } path)
                 yield return path;
-            if (NormalizeModuleKey(Path.GetFileName(candidate.LibraryPath)) is { Length: > 0 } file)
+            if (ProgramSupport.NormalizeModuleKey(Path.GetFileName(candidate.LibraryPath)) is { Length: > 0 } file)
                 yield return file;
         }
     }
 
     static IEnumerable<string> ModuleLookupKeys(string? modulePath, string? moduleName)
     {
-        if (NormalizeModuleKey(modulePath) is { Length: > 0 } path)
+        if (ProgramSupport.NormalizeModuleKey(modulePath) is { Length: > 0 } path)
             yield return path;
-        if (NormalizeModuleKey(Path.GetFileName(modulePath)) is { Length: > 0 } file)
+        if (ProgramSupport.NormalizeModuleKey(Path.GetFileName(modulePath)) is { Length: > 0 } file)
             yield return file;
-        if (NormalizeModuleKey(moduleName) is { Length: > 0 } name)
+        if (ProgramSupport.NormalizeModuleKey(moduleName) is { Length: > 0 } name)
             yield return name;
-    }
-
-    static string NormalizeModuleKey(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return "";
-
-        value = Path.GetFileName(value.Trim());
-        if (value.EndsWith(".ni.dll", StringComparison.OrdinalIgnoreCase))
-            value = value[..^7];
-        else if (value.EndsWith(".ni.exe", StringComparison.OrdinalIgnoreCase))
-            value = value[..^7];
-        else if (value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            || value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-            || value.EndsWith(".ni", StringComparison.OrdinalIgnoreCase))
-        {
-            value = Path.GetFileNameWithoutExtension(value);
-        }
-
-        return value.ToLowerInvariant();
     }
 
     static bool MethodMatches(AllocationCandidate candidate, string? method)
@@ -2655,6 +2635,26 @@ static partial class Patterns
 
 internal static class ProgramSupport
 {
+    public static string NormalizeModuleKey(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+
+        value = Path.GetFileName(value.Trim());
+        if (value.EndsWith(".ni.dll", StringComparison.OrdinalIgnoreCase))
+            value = value[..^7];
+        else if (value.EndsWith(".ni.exe", StringComparison.OrdinalIgnoreCase))
+            value = value[..^7];
+        else if (value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith(".ni", StringComparison.OrdinalIgnoreCase))
+        {
+            value = Path.GetFileNameWithoutExtension(value);
+        }
+
+        return value.ToLowerInvariant();
+    }
+
     public static string NormalizeProducerTypeName(string value)
     {
         value = value.Trim();
@@ -2843,7 +2843,7 @@ internal static class ProgramSupport
                      .Where(static candidate =>
                          candidate.HasRuntimeCoordinate)
                      .GroupBy(static candidate => (
-                         Assembly: candidate.AssemblyName.ToUpperInvariant(),
+                         Assembly: NormalizeModuleKey(candidate.AssemblyName),
                          candidate.MethodToken,
                          candidate.IlOffset)))
         {

@@ -236,6 +236,35 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void ApplyTypeConfirmation_NormalizesAssemblyNameForDuplicatePhysicalSite()
+    {
+        var library = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            assemblyName: "Fixture.dll");
+        var triage = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.String",
+            source: "triage",
+            assemblyName: "Fixture");
+        var result = new CorrelationResult();
+        result.Candidates.Add(library);
+        result.Candidates.Add(triage);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.True(library.SupersededByTriage);
+        Assert.True(triage.TypeConfirmed);
+        Assert.Equal(1, triage.TypeConfirmedSiteCount);
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_UsesPhysicalSitesForCap()
     {
         var result = new CorrelationResult();
