@@ -13,9 +13,19 @@ namespace ILInspector.Metadata;
 public sealed class AssemblyInspectionSession : IDisposable
 {
     readonly AssemblyImage _image;
+    readonly Lazy<MetadataTypeDeclarationProbe.Index>
+        _declarationIndex;
     MethodBodySource? _methodBodies;
 
-    AssemblyInspectionSession(AssemblyImage image) => _image = image;
+    AssemblyInspectionSession(AssemblyImage image)
+    {
+        _image = image;
+        _declarationIndex =
+            new Lazy<MetadataTypeDeclarationProbe.Index>(
+                () => MetadataTypeDeclarationProbe.CreateIndex(
+                    _image.GetMetadataReader()),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+    }
 
     /// <summary>Opens a session from a file path.</summary>
     public static AssemblyInspectionSession Open(string path) => new(AssemblyImage.Open(path));
@@ -106,6 +116,20 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// <summary>The public (or, with <paramref name="includeAll"/>, full) API surface.</summary>
     public ApiSurface ApiSurface(bool includeAll = false, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(_image.PEReader, includeAll, typesOnly);
+
+    internal ApiSurface ApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        bool includeAll,
+        bool typesOnly) =>
+        ApiSurfaceExtractor.Extract(
+            _image.PEReader,
+            source,
+            catalog,
+            bindingPolicy,
+            includeAll,
+            typesOnly);
 
     /// <summary>The API surface at one explicit extraction scope.</summary>
     public ApiSurface ApiSurface(ApiSurfaceExtractionScope scope, bool typesOnly = false)
@@ -307,8 +331,11 @@ public sealed class AssemblyInspectionSession : IDisposable
     }
 
     internal TypeDeclarationResult ProbeDeclaration(
-        MetadataTypeDefinitionName name) =>
-        MetadataTypeDeclarationProbe.Probe(_image.GetMetadataReader(), name);
+        MetadataTypeDefinitionName name)
+    {
+        _image.EnsureAlive();
+        return _declarationIndex.Value.Probe(name);
+    }
 
     public void Dispose() => _image.Dispose();
 }
