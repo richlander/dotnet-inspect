@@ -126,61 +126,149 @@ internal static class DependencyGraphService
         NuGetSourceOptions? sourceOptions,
         VerboseLogger logger)
     {
-        List<string> tempDirs = [];
-        try
-        {
-            // Package dependency mode inspects nuspec dependency groups, not assembly sets.
-            var (packageName, _) = PackageExtractor.ParsePackageReference(packageRef);
+        PackageNuspecResolution resolution =
+            await ResolvePackageNuspecAsync(
+                httpClient,
+                packageRef,
+                sourceOptions,
+                logger).ConfigureAwait(false);
+        if (resolution.ErrorMessage is { } error)
+            return new PackageDependencyGraphResult.Error(error);
 
-            logger.Log($"Resolving package: {packageRef}");
-            var outcome = await PackageExtractor.ExtractPackageAsync(
-                httpClient, packageRef, logger.Log,
-                sourceOptions: sourceOptions);
+        NuspecData? nuspec = resolution.Nuspec;
+        if (nuspec == null)
+            return new PackageDependencyGraphResult.Empty("No dependencies declared in package.");
+
+        var selection = DependencyResolutionService.SelectDependencyGroup(nuspec.DependencyGroups, requestedTfm);
+        if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups)
+            return new PackageDependencyGraphResult.Empty("No dependencies declared in package.");
+        if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework)
+        {
+            return new PackageDependencyGraphResult.Error(
+                $"No dependencies found for TFM '{selection.TargetFramework}'.",
+                "Available TFMs: " + string.Join(", ", selection.AvailableTargetFrameworks));
+        }
+
+        var group = selection.Group!;
+        var tfm = selection.TargetFramework ?? group.TargetFramework;
+        if (group.Dependencies.Count == 0)
+            return new PackageDependencyGraphResult.Empty($"No additional dependencies for {tfm}.");
+
+        var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
+            httpClient,
+            group.Dependencies,
+            tfm,
+            globalSeen,
+            logger.Log,
+            sourceOptions);
+
+        return new PackageDependencyGraphResult.Graph(
+            $"{resolution.PackageName} ({resolution.Version})",
+            depNodes);
+    }
+
+    private static async Task<PackageNuspecResolution> ResolvePackageNuspecAsync(
+        HttpClient httpClient,
+        string packageRef,
+        NuGetSourceOptions? sourceOptions,
+        VerboseLogger logger)
+    {
+        // Package dependency mode inspects nuspec dependency groups, not assembly sets.
+        var (packageName, version) =
+            PackageExtractor.ParsePackageReference(packageRef);
+        logger.Log($"Resolving package: {packageRef}");
+
+        // Local inputs and wildcard selectors still need archive acquisition.
+        bool requiresArchive =
+            (packageRef.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
+                && File.Exists(packageRef))
+            || version?.Contains('*', StringComparison.Ordinal) == true;
+        if (requiresArchive)
+        {
+            PackageExtractionOutcome outcome =
+                await PackageExtractor.ExtractPackageAsync(
+                    httpClient,
+                    packageRef,
+                    logger.Log,
+                    sourceOptions: sourceOptions).ConfigureAwait(false);
             if (!outcome.IsSuccess)
             {
-                return new PackageDependencyGraphResult.Error(outcome.ErrorMessage ?? $"Package '{packageRef}' could not be resolved.");
+                return PackageNuspecResolution.Error(
+                    packageName,
+                    outcome.ErrorMessage
+                    ?? $"Package '{packageRef}' could not be resolved.");
             }
 
-            var extracted = outcome.Result!;
-            if (extracted.TempDir != null)
-                tempDirs.Add(extracted.TempDir);
-
-            var version = extracted.Version ?? "";
-
-            var nuspec = NuspecParser.FindAndParse(extracted.ExtractPath);
-            if (nuspec == null)
-                return new PackageDependencyGraphResult.Empty("No dependencies declared in package.");
-
-            var selection = DependencyResolutionService.SelectDependencyGroup(nuspec.DependencyGroups, requestedTfm);
-            if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups)
-                return new PackageDependencyGraphResult.Empty("No dependencies declared in package.");
-            if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework)
+            PackageExtractionResult extracted = outcome.Result!;
+            try
             {
-                return new PackageDependencyGraphResult.Error(
-                    $"No dependencies found for TFM '{selection.TargetFramework}'.",
-                    "Available TFMs: " + string.Join(", ", selection.AvailableTargetFrameworks));
+                return new PackageNuspecResolution(
+                    packageName,
+                    extracted.Version ?? "",
+                    NuspecParser.FindAndParse(extracted.ExtractPath),
+                    ErrorMessage: null);
             }
+            finally
+            {
+                CleanupTempDir(extracted.TempDir);
+            }
+        }
 
-            var group = selection.Group!;
-            var tfm = selection.TargetFramework ?? group.TargetFramework;
-            if (group.Dependencies.Count == 0)
-                return new PackageDependencyGraphResult.Empty($"No additional dependencies for {tfm}.");
-
-            var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
+        bool forceLatest = string.Equals(
+            version,
+            "latest",
+            StringComparison.OrdinalIgnoreCase);
+        PackageCoordinateResolution coordinateResolution =
+            await PackageCoordinateResolver.ResolveUsingSourcePolicyAsync(
                 httpClient,
-                group.Dependencies,
-                tfm,
-                globalSeen,
+                new PackageCoordinate(packageName, forceLatest ? null : version),
+                sourceOptions,
                 logger.Log,
-                sourceOptions);
-
-            return new PackageDependencyGraphResult.Graph($"{packageName} ({version})", depNodes);
-        }
-        finally
+                useVersionCache: !forceLatest).ConfigureAwait(false);
+        if (coordinateResolution
+            is not PackageCoordinateResolution.Resolved resolved)
         {
-            CleanupTempDirs(tempDirs);
+            string message = coordinateResolution switch
+            {
+                PackageCoordinateResolution.Invalid invalid =>
+                    invalid.Message,
+                PackageCoordinateResolution.Unavailable unavailable =>
+                    unavailable.Message,
+                _ => $"Package '{packageRef}' could not be resolved.",
+            };
+            return PackageNuspecResolution.Error(packageName, message);
         }
+
+        ResolvedPackageCoordinate coordinate = resolved.Coordinate;
+        NuGetSourceOptions reportingSources =
+            (sourceOptions ?? NuGetSourceOptions.Default) with
+            {
+                Sources =
+                [
+                    .. coordinate.Sources.Select(source => source.Url),
+                ],
+                AdditionalSources = [],
+            };
+        string? nuspecXml = await PackageExtractor.TryGetNuspecXmlAsync(
+            httpClient,
+            coordinate.PackageId,
+            coordinate.Version,
+            logger.Log,
+            reportingSources).ConfigureAwait(false);
+        if (nuspecXml is null)
+        {
+            return PackageNuspecResolution.Error(
+                packageName,
+                $"Nuspec for package '{packageName}' version "
+                + $"'{coordinate.Version}' could not be resolved.");
+        }
+
+        return new PackageNuspecResolution(
+            packageName,
+            coordinate.Version,
+            NuspecParser.ParseContent(nuspecXml),
+            ErrorMessage: null);
     }
 
     private static async Task<TResult> WithAssemblySetAsync<TResult>(
@@ -194,12 +282,24 @@ internal static class DependencyGraphService
         return operation(assemblySet);
     }
 
-    private static void CleanupTempDirs(List<string> tempDirs)
+    private static void CleanupTempDir(string? tempDir)
     {
-        foreach (var dir in tempDirs)
-        {
-            try { Directory.Delete(dir, recursive: true); } catch { }
-        }
+        if (tempDir is null)
+            return;
+
+        try { Directory.Delete(tempDir, recursive: true); } catch { }
+    }
+
+    private sealed record PackageNuspecResolution(
+        string PackageName,
+        string Version,
+        NuspecData? Nuspec,
+        string? ErrorMessage)
+    {
+        public static PackageNuspecResolution Error(
+            string packageName,
+            string message) =>
+            new(packageName, "", Nuspec: null, ErrorMessage: message);
     }
 }
 
