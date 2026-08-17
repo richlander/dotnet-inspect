@@ -103,7 +103,7 @@ internal static class PromotionWorkflowContract
         const string productionJob =
             """
                 environment:
-                  name: inspect-web-production
+                  name: inspect-web-production-promotion
                   url: https://dotnet-inspect.net
                 runs-on: ubuntu-26.04
                 steps:
@@ -111,7 +111,7 @@ internal static class PromotionWorkflowContract
         const string productionBashEnv =
             """
                 environment:
-                  name: inspect-web-production
+                  name: inspect-web-production-promotion
                   url: https://dotnet-inspect.net
                 runs-on: ubuntu-26.04
                 env:
@@ -131,7 +131,7 @@ internal static class PromotionWorkflowContract
 
               bypass:
                 name: Bypass production
-                environment: inspect-web-production
+                environment: inspect-web-production-promotion
                 runs-on: ubuntu-26.04
                 steps:
                   - run: echo bypass
@@ -246,7 +246,7 @@ internal static class PromotionWorkflowContract
             environment,
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["name"] = "inspect-web-production",
+                ["name"] = "inspect-web-production-promotion",
                 ["url"] = "https://dotnet-inspect.net",
             },
             "jobs.deploy.environment");
@@ -384,7 +384,7 @@ internal static class PromotionWorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["azure_static_web_apps_api_token"] =
-                    "${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB }}",
+                    "${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION }}",
                 ["action"] = "upload",
                 ["app_location"] = "artifacts/inspect-web-publish/wwwroot",
                 ["output_location"] = "",

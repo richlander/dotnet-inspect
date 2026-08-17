@@ -479,6 +479,12 @@ revision, and orders each artifact download before only verification and
 deployment. Manual staging runs remain useful for recovery but are deliberately
 not promotable.
 
+Production promotion uses the distinct `inspect-web-production-promotion`
+environment and `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION`
+secret. Legacy deployment workflows reference neither name. During cutover,
+retire the old `inspect-web-production` environment secret before merging the
+parent workflow so queued or rerun parent-era jobs fail closed.
+
 Both deployment workflows pin the Azure deployment action to an exact commit
 and disable Azure's own app build. The staging publish step embeds the CLI's
 authoritative `VersionPrefix`, exact source SHA, and UTC build timestamp. The
