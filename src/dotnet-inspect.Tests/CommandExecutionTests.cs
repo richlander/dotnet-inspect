@@ -2980,6 +2980,57 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("System.Collections.Generic.List<T,U>.Add")]
+    [InlineData("System.Collections.Generic.List`2.Add")]
+    [InlineData("System.Threading.Tasks.Task<T1,T2>")]
+    public async Task Router_ExplicitMissingGenericArity_DoesNotBroaden(
+        string target)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target, "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Router_UnqualifiedGenericPlatformMember_AmbiguityFails()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            "SequenceReader<T>.TryRead", "--all", "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Platform type lookup is ambiguous",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Router_UnqualifiedGenericPlatformMember_ExplicitSourceDisambiguates()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "SequenceReader<T>.TryRead",
+            "--platform",
+            "System.Memory",
+            "--all",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "# System.Buffers.SequenceReader&lt;T&gt;",
+            output);
+        Assert.Contains("TryRead", output);
+    }
+
+    [Theory]
     [InlineData("Dictionary<TKey,TValue>.KeyCollection")]
     [InlineData("Dictionary`2.KeyCollection")]
     public async Task Router_UnqualifiedNestedGenericType_RoutesAsExactType(string typeName)

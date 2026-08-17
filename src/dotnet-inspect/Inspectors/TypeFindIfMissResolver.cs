@@ -158,7 +158,12 @@ internal static class TypeFindIfMissResolver
                 .Where(r => string.Equals(TypeMatcher.GetSimpleName(r.FullName), query, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            var candidateMatches = exactDisplayNameMatches.Count > 0 ? exactDisplayNameMatches
+            var exactIdentityMatches = exactMatches
+                .Where(r => IsExactTypeIdentity(r.FullName, normalizedQuery))
+                .ToList();
+            var candidateMatches = exactIdentityMatches.Count > 0 ? exactIdentityMatches
+                : TypeMatcher.GetPatternArity(normalizedQuery) >= 0 ? []
+                : exactDisplayNameMatches.Count > 0 ? exactDisplayNameMatches
                 : exactSimpleNameMatches.Count > 0 ? exactSimpleNameMatches
                 : exactMatches;
 
@@ -168,6 +173,24 @@ internal static class TypeFindIfMissResolver
             1 => TypeFindIfMissResult.Found(query!, candidateMatches[0]),
             _ => TypeFindIfMissResult.Ambiguous(query!, candidateMatches)
         };
+    }
+
+    private static bool IsExactTypeIdentity(
+        string candidate,
+        string normalizedQuery)
+    {
+        string normalizedCandidate =
+            FqnParser.NormalizeTypeName(candidate).Replace('+', '.');
+        normalizedQuery = normalizedQuery.Replace('+', '.');
+        return normalizedCandidate.Equals(
+                   normalizedQuery,
+                   StringComparison.OrdinalIgnoreCase)
+               || (normalizedCandidate.Length > normalizedQuery.Length
+                   && normalizedCandidate[
+                       normalizedCandidate.Length - normalizedQuery.Length - 1] == '.'
+                   && normalizedCandidate.EndsWith(
+                       normalizedQuery,
+                       StringComparison.OrdinalIgnoreCase));
     }
 
     public static async Task<TypeMemberFindIfMissResult> ResolvePlatformMemberAsync(

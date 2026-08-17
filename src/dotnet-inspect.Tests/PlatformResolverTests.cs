@@ -328,6 +328,44 @@ public class PlatformResolverTests
     }
 
     [Fact]
+    public void PlatformTypeCatalog_EmptyDirectory_IsRejectedAndRetried()
+    {
+        string referencePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-platform-catalog-{Guid.NewGuid():N}");
+        string typeName = typeof(PlatformResolverTests).FullName!;
+        try
+        {
+            Directory.CreateDirectory(referencePath);
+            var rejected = Assert.IsType<PlatformTypeLookupOutcome.Rejected>(
+                PlatformTypeCatalog.Lookup(
+                    typeName,
+                    referencePath,
+                    "test",
+                    "1.0.0"));
+            Assert.Equal(
+                PlatformTypeLookupFailureKind.CatalogUnavailable,
+                rejected.Failure.Kind);
+
+            File.Copy(
+                typeof(PlatformResolverTests).Assembly.Location,
+                Path.Combine(referencePath, "CatalogFixture.dll"));
+
+            Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
+                PlatformTypeCatalog.Lookup(
+                    typeName,
+                    referencePath,
+                    "test",
+                    "1.0.0"));
+        }
+        finally
+        {
+            if (Directory.Exists(referencePath))
+                Directory.Delete(referencePath, recursive: true);
+        }
+    }
+
+    [Fact]
     public void LookupType_UnqualifiedCollision_ReturnsOrderedAmbiguity()
     {
         var ambiguous = Assert.IsType<PlatformTypeLookupOutcome.Ambiguous>(

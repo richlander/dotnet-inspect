@@ -239,13 +239,42 @@ public static class RouterCommandDefinition
             }
 
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
-            if (TryResolveExactGenericPlatformType(target) is { } exactType)
+            bool hasExplicitApiSource = HasExplicitApiSource(tail);
+            var exactTypeLookup = LookupExactGenericPlatformType(target);
+            if (exactTypeLookup is PlatformTypeLookupOutcome.Resolved exactType)
                 return RouteExactGenericPlatformType(exactType, target, tail);
+            if (hasExplicitApiSource && exactTypeLookup is not null)
+                return ["type", target, .. tail];
+            if (WritePlatformTypeLookupFailure(exactTypeLookup))
+                return tokens;
 
-            if (TryResolveExactGenericPlatformMember(target)
+            if (LookupExactGenericPlatformMember(target)
                 is { } exactMember)
             {
-                return RouteExactGenericPlatformMember(exactMember, tail);
+                if (exactMember.Lookup
+                    is PlatformTypeLookupOutcome.Resolved resolved)
+                {
+                    return RouteExactGenericPlatformMember(
+                        (exactMember.TypeTarget,
+                            exactMember.MemberSelector,
+                            resolved),
+                        tail);
+                }
+
+                if (hasExplicitApiSource)
+                {
+                    return
+                    [
+                        "member",
+                        exactMember.TypeTarget,
+                        "-m",
+                        exactMember.MemberSelector,
+                        .. tail
+                    ];
+                }
+
+                if (WritePlatformTypeLookupFailure(exactMember.Lookup))
+                    return tokens;
             }
 
             string? platformLookupFailure = null;
@@ -398,7 +427,7 @@ public static class RouterCommandDefinition
                    && PlatformResolver.HasType(assemblyPath, probe.Remainder);
         }
 
-        private static PlatformTypeLookupOutcome.Resolved? TryResolveExactGenericPlatformType(
+        private static PlatformTypeLookupOutcome? LookupExactGenericPlatformType(
             string target,
             bool allowSimpleName = false)
         {
@@ -407,10 +436,21 @@ public static class RouterCommandDefinition
 
             var normalizedTarget = FqnParser.NormalizeTypeName(target).Replace('+', '.');
             var lookup = PlatformResolver.LookupType(target);
-            if (lookup is not PlatformTypeLookupOutcome.Resolved)
+            if (lookup is not PlatformTypeLookupOutcome.Resolved runtimeResolved
+                || !runtimeResolved.Candidate.Type
+                    .ToMetadataFullName()
+                    .Replace('+', '.')
+                    .Equals(
+                        normalizedTarget,
+                        StringComparison.OrdinalIgnoreCase))
+            {
                 lookup = PlatformResolver.LookupTypeAcrossFrameworks(target);
+            }
+
             if (lookup is not PlatformTypeLookupOutcome.Resolved resolved)
-                return null;
+                return lookup is PlatformTypeLookupOutcome.Missing
+                    ? null
+                    : lookup;
 
             var normalizedCandidate = resolved.Candidate.Type
                 .ToMetadataFullName()
@@ -433,8 +473,8 @@ public static class RouterCommandDefinition
         private static (
             string TypeTarget,
             string MemberSelector,
-            PlatformTypeLookupOutcome.Resolved Resolved)?
-            TryResolveExactGenericPlatformMember(
+            PlatformTypeLookupOutcome Lookup)?
+            LookupExactGenericPlatformMember(
                 string target)
         {
             var lastDot = FqnParser.LastTopLevelDot(target);
@@ -442,11 +482,29 @@ public static class RouterCommandDefinition
                 return null;
 
             var typeTarget = target[..lastDot];
-            return TryResolveExactGenericPlatformType(
+            return LookupExactGenericPlatformType(
                     typeTarget,
-                    allowSimpleName: true) is { } resolved
-                ? (typeTarget, target[(lastDot + 1)..], resolved)
+                    allowSimpleName: true) is { } lookup
+                ? (typeTarget, target[(lastDot + 1)..], lookup)
                 : null;
+        }
+
+        private static bool WritePlatformTypeLookupFailure(
+            PlatformTypeLookupOutcome? lookup)
+        {
+            switch (lookup)
+            {
+                case PlatformTypeLookupOutcome.Ambiguous ambiguous:
+                    CommandError.Write(
+                        $"Platform type lookup is ambiguous across {ambiguous.Candidates.Length} candidates.");
+                    return true;
+                case PlatformTypeLookupOutcome.Rejected rejected:
+                    CommandError.Write(
+                        $"Platform type lookup failed ({rejected.Failure.Kind}).");
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private static string[] RouteExactGenericPlatformType(

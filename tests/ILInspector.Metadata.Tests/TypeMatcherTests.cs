@@ -95,7 +95,7 @@ public class TypeMatcherTests
     }
 
     [Fact]
-    public void Lookup_falls_back_to_first_match_when_no_arity_matches()
+    public void Lookup_rejects_when_no_explicit_arity_matches()
     {
         var candidates = new[]
         {
@@ -105,8 +105,8 @@ public class TypeMatcherTests
 
         var result = TypeMatcher.Lookup(candidates, "Option<T>");  // Expects arity 1
 
-        Assert.NotNull(result.Match);
-        Assert.Equal("MyNamespace.Option`2", result.Match);
+        Assert.Null(result.Match);
+        Assert.Equal(candidates, result.Suggestions);
     }
 
     [Fact]

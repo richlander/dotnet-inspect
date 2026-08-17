@@ -255,9 +255,20 @@ internal sealed class PlatformTypeCatalog
         {
             var entries =
                 ImmutableArray.CreateBuilder<PlatformTypeLookupCandidate>();
-            foreach (string path in Directory
+            string[] assemblyPaths =
+            [
+                .. Directory
                 .EnumerateFiles(referencePath, "*.dll")
-                .OrderBy(static path => path, StringComparer.Ordinal))
+                .OrderBy(static path => path, StringComparer.Ordinal),
+            ];
+            if (assemblyPaths.Length == 0)
+            {
+                return Rejected(
+                    PlatformTypeLookupFailureKind.CatalogUnavailable,
+                    "The platform reference catalog contains no assemblies.");
+            }
+
+            foreach (string path in assemblyPaths)
             {
                 ResolvedAssemblyReference assembly =
                     ResolvedAssemblyReference.CreateFromPath(

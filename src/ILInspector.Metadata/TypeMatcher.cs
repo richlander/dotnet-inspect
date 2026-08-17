@@ -348,14 +348,10 @@ public static class TypeMatcher
             if (exactNormalizedMatch != null)
                 return new LookupResult(exactNormalizedMatch, []);
 
-            // If pattern specified arity (e.g., Option<T>), prefer candidate with matching arity
-            var patternArity = GetPatternArity(pattern);
-            if (patternArity >= 0)
-            {
-                var arityMatch = matches.FirstOrDefault(c => GetGenericArity(c) == patternArity);
-                if (arityMatch != null)
-                    return new LookupResult(arityMatch, []);
-            }
+            // Explicit generic notation is exact identity evidence, including
+            // every nested segment's arity. Never broaden it to a base-name hit.
+            if (GetPatternArity(pattern) >= 0)
+                return new LookupResult(null, matches.Take(maxSuggestions).ToList());
 
             var exactSimpleNameMatch = matches.FirstOrDefault(c =>
                 GetGenericArity(GetSimpleName(c)) == 0
