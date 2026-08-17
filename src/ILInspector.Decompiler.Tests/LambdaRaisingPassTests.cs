@@ -989,6 +989,117 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void NintKeywordCollidingWithDeclaringTypeName_StaysLowered()
+    {
+        var nint = TypeRef.CoreLib("System", "IntPtr");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nint,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "nint"));
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            nint,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void NuintKeywordCollidingWithDeclaringTypeName_StaysLowered()
+    {
+        var nuint = TypeRef.CoreLib("System", "UIntPtr");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nuint,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "nuint"));
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            nuint,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void NintKeywordWithoutDeclaringTypeCollision_StillRaises()
+    {
+        var nint = TypeRef.CoreLib("System", "IntPtr");
+        var host = RunSyntheticSiblingLambdaRaise(nint);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            nint,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void DynamicKeywordCollidingWithDeclaringTypeName_StaysLowered()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var host = RunSyntheticSiblingLambdaRaise(
+            objectType,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "dynamic"),
+            siblingIsDynamic: true);
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            objectType,
+            host,
+            ArgumentRefKind.Value,
+            isDynamic: true));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void ConstituentGenericArgumentShadowingLeadingSegment_StaysLowered()
+    {
+        var sibling = TypeRef.GenericInstance(
+            TypeRef.Definition("Synthetic", "Samples", "Foo+Bar`1"),
+            [TypeRef.Definition("Synthetic", "Samples", "Outer+Mid+Foo")]);
+        var host = RunSyntheticSiblingLambdaRaise(
+            sibling,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer+Mid"));
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            sibling,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void CrossParameterSiblingChainShadowingLeadingSegment_StaysLowered()
+    {
+        var first = TypeRef.Definition("Synthetic", "Samples", "Outer+Mid+Foo");
+        var second = TypeRef.Definition("Synthetic", "Samples", "Foo+Bar");
+        var host = RunSyntheticSiblingLambdaRaise(
+            first,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer+Mid"),
+            additionalSiblings: [second]);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            first,
+            host,
+            ArgumentRefKind.Value));
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            second,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void CrossParameterSiblingChainWithoutHostPrefix_StillRaises()
+    {
+        var first = TypeRef.Definition("Synthetic", "Samples", "Outer+Mid+Foo");
+        var second = TypeRef.Definition("Synthetic", "Samples", "Foo+Bar");
+        var host = RunSyntheticSiblingLambdaRaise(
+            first,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            additionalSiblings: [second]);
+
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
     public void DynamicObjectSiblingCollidingWithHostGenericParameter_StaysLowered()
     {
         var objectType = TypeRef.CoreLib("System", "Object");
@@ -1381,22 +1492,40 @@ public class LambdaRaisingPassTests
         TypeRef siblingType,
         ImmutableArray<string> declaringTypeGenericParameterNames = default,
         ImmutableArray<string> methodGenericParameterNames = default,
-        TypeRef? declaringType = null)
+        TypeRef? declaringType = null,
+        TypeRef[]? additionalSiblings = null,
+        bool siblingIsDynamic = false)
     {
         var holder = TypeRef.Definition("Synthetic", "Samples", "Outer+<>c");
         var delegateType = TypeRef.Definition("Synthetic", "Samples", "RefCallback");
         var byRefInt = TypeRef.ByRef(s_int);
+        var extra = additionalSiblings ?? [];
+        var parameterTypesBuilder = ImmutableArray.CreateBuilder<TypeRef>(2 + extra.Length);
+        parameterTypesBuilder.Add(byRefInt);
+        parameterTypesBuilder.Add(siblingType);
+        parameterTypesBuilder.AddRange(extra);
+        var parameterTypes = parameterTypesBuilder.MoveToImmutable();
+        var parameterRefKindsBuilder = ImmutableArray.CreateBuilder<ArgumentRefKind>(parameterTypes.Length);
+        parameterRefKindsBuilder.Add(ArgumentRefKind.Ref);
+        for (int i = 1; i < parameterTypes.Length; i++)
+            parameterRefKindsBuilder.Add(ArgumentRefKind.Value);
+        var lambdaParametersBuilder = ImmutableArray.CreateBuilder<Parameter>(parameterTypes.Length);
+        lambdaParametersBuilder.Add(new Parameter("value", byRefInt));
+        lambdaParametersBuilder.Add(new Parameter("sibling", siblingType, IsDynamic: siblingIsDynamic));
+        for (int i = 0; i < extra.Length; i++)
+            lambdaParametersBuilder.Add(new Parameter("sibling" + (i + 2), extra[i]));
+        var lambdaParameters = lambdaParametersBuilder.MoveToImmutable();
         var lambdaMethod = new MethodRef(
             holder,
             "<M>b__0",
             TypeRef.CoreLib("System", "Void"),
-            [byRefInt, siblingType],
+            parameterTypes,
             HasThis: true)
         {
             CompilerGenerated = MetadataFactState.Yes,
             DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
             ParameterRefKindsFacts = ParameterRefKindFacts.Known,
-            ParameterRefKinds = [ArgumentRefKind.Ref, ArgumentRefKind.Value],
+            ParameterRefKinds = parameterRefKindsBuilder.MoveToImmutable(),
         };
         var singleton = new LoadField(new FieldRef(holder, "<>9", holder), instance: null);
         var hostBlock = new Block();
@@ -1436,7 +1565,7 @@ public class LambdaRaisingPassTests
             holder,
             new MethodSignature(
                 TypeRef.CoreLib("System", "Void"),
-                [new Parameter("value", byRefInt), new Parameter("sibling", siblingType)],
+                lambdaParameters,
                 HasThis: true,
                 GenericParameterCount: 0),
             [],

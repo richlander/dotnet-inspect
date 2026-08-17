@@ -416,10 +416,12 @@ public sealed class LambdaRaisingPass : IIrPass
         DelegateCreation creation,
         IrFunction host)
     {
+        var parameterTypes = new TypeRef[body.Signature.Parameters.Length];
         for (int i = 0; i < body.Signature.Parameters.Length; i++)
         {
+            parameterTypes[i] = body.Signature.Parameters[i].Type;
             if (!CSharpSpellability.CanSpellExplicitParameterType(
-                    body.Signature.Parameters[i].Type,
+                    parameterTypes[i],
                     host,
                     creation.Method.ParameterRefKinds[i],
                     body.Signature.Parameters[i].IsDynamic))
@@ -427,7 +429,8 @@ public sealed class LambdaRaisingPass : IIrPass
                 return false;
             }
         }
-        return true;
+
+        return !CSharpSpellability.AnyLeadingSegmentShadowedByKnownTypes(parameterTypes, host);
     }
 
     static IEnumerable<IrNode> Self(IrNode node)

@@ -753,7 +753,7 @@ internal static class CSharpSpellability
             && type.Name == "Object";
 
     static bool IsDynamicParameterType(TypeRef type, IrFunction host)
-        => !IsInScopeGenericParameterName("dynamic", host)
+        => !IsInScopeName("dynamic", host)
             && IsCoreLibObject(
                 type.Kind == TypeRefKind.ByRef && type.ElementType is { } element
                     ? element
@@ -793,7 +793,21 @@ internal static class CSharpSpellability
             return true;
         }
 
-        return CollidesWithDeclaringTypeSimpleName(definition, host, qualified);
+        return CollidesWithDeclaringTypeSimpleName(definition, host, qualified)
+            || CollidesWithVisibleNestedName(type, host, [type]);
+    }
+
+    internal static bool AnyLeadingSegmentShadowedByKnownTypes(
+        IReadOnlyList<TypeRef> parameterTypes,
+        IrFunction host)
+    {
+        for (int i = 0; i < parameterTypes.Count; i++)
+        {
+            if (CollidesWithVisibleNestedName(parameterTypes[i], host, parameterTypes))
+                return true;
+        }
+
+        return false;
     }
 
     static bool CollidesWithDeclaringTypeSimpleName(
@@ -802,7 +816,7 @@ internal static class CSharpSpellability
         bool qualified)
     {
         if (IsCoreLibPrimitive(definition))
-            return false;
+            return CollidesWithPrintedKeyword(definition, host);
 
         var hostDefinition = host.DeclaringType.Kind == TypeRefKind.GenericInstance
             ? host.DeclaringType.ElementType
@@ -892,6 +906,169 @@ internal static class CSharpSpellability
     {
         int tick = metadataName.IndexOf('`');
         return tick >= 0 && int.TryParse(metadataName[(tick + 1)..], out int arity) ? arity : 0;
+    }
+
+    static bool CollidesWithPrintedKeyword(TypeRef definition, IrFunction host)
+        => definition.Assembly == TypeRef.CoreLibrary
+            && definition.Namespace == "System"
+            && PrimitiveTypeNames.TryToKeywordForSystemType(definition.Name, out string? keyword)
+            && IsInScopeName(keyword, host);
+
+    static bool CollidesWithVisibleNestedName(
+        TypeRef type,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        if (definition is not { Kind: TypeRefKind.Definition } || !definition.Name.Contains('+'))
+            return false;
+        if (!type.PrintsAsQualifiedNestedName(host.DeclaringType))
+            return false;
+
+        var hostDefinition = HostDefinition(host);
+        if (hostDefinition is null)
+            return false;
+
+        string first = definition.Name.Split('+')[0];
+        string firstSimple = StripArity(first);
+        int firstArity = ArityOf(first);
+        for (int i = 0; i < knownTypes.Count; i++)
+        {
+            if (TypeTreeProvesVisibleNestedName(
+                    knownTypes[i],
+                    hostDefinition,
+                    firstSimple,
+                    firstArity))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool TypeTreeProvesVisibleNestedName(
+        TypeRef type,
+        TypeRef hostDefinition,
+        string simpleName,
+        int arity)
+    {
+        switch (type.Kind)
+        {
+            case TypeRefKind.Definition:
+                return ChainProvesVisibleNestedName(type, hostDefinition, simpleName, arity);
+
+            case TypeRefKind.GenericInstance:
+                if (type.ElementType is { } definition
+                    && TypeTreeProvesVisibleNestedName(definition, hostDefinition, simpleName, arity))
+                {
+                    return true;
+                }
+
+                for (int i = 0; i < type.TypeArguments.Length; i++)
+                {
+                    if (TypeTreeProvesVisibleNestedName(
+                            type.TypeArguments[i],
+                            hostDefinition,
+                            simpleName,
+                            arity))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+
+            case TypeRefKind.SzArray:
+            case TypeRefKind.Array:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                return type.ElementType is { } element
+                    && TypeTreeProvesVisibleNestedName(element, hostDefinition, simpleName, arity);
+
+            case TypeRefKind.FunctionPointer:
+                if (type.ElementType is { } returnType
+                    && TypeTreeProvesVisibleNestedName(returnType, hostDefinition, simpleName, arity))
+                {
+                    return true;
+                }
+
+                for (int i = 0; i < type.TypeArguments.Length; i++)
+                {
+                    if (TypeTreeProvesVisibleNestedName(
+                            type.TypeArguments[i],
+                            hostDefinition,
+                            simpleName,
+                            arity))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+
+            default:
+                return false;
+        }
+    }
+
+    static bool ChainProvesVisibleNestedName(
+        TypeRef named,
+        TypeRef hostDefinition,
+        string simpleName,
+        int arity)
+    {
+        if (named.Kind != TypeRefKind.Definition
+            || named.Assembly != hostDefinition.Assembly
+            || named.Namespace != hostDefinition.Namespace
+            || !named.Name.Contains('+'))
+        {
+            return false;
+        }
+
+        var segments = named.Name.Split('+');
+        for (int k = 1; k < segments.Length; k++)
+        {
+            if (StripArity(segments[k]) != simpleName || ArityOf(segments[k]) != arity)
+                continue;
+
+            string prefix = string.Join("+", segments, 0, k);
+            if (hostDefinition.Name == prefix
+                || hostDefinition.Name.StartsWith(prefix + "+", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static TypeRef? HostDefinition(IrFunction host)
+    {
+        var hostDefinition = host.DeclaringType.Kind == TypeRefKind.GenericInstance
+            ? host.DeclaringType.ElementType
+            : host.DeclaringType;
+        return hostDefinition is { Kind: TypeRefKind.Definition } ? hostDefinition : null;
+    }
+
+    static bool IsInScopeName(string name, IrFunction host)
+        => IsInScopeGenericParameterName(name, host)
+            || HostDeclaringChainHasArityZeroName(host, name);
+
+    static bool HostDeclaringChainHasArityZeroName(IrFunction host, string name)
+    {
+        var hostDefinition = HostDefinition(host);
+        if (hostDefinition is null)
+            return false;
+
+        foreach (var segment in hostDefinition.Name.Split('+'))
+        {
+            if (ArityOf(segment) == 0 && StripArity(segment) == name)
+                return true;
+        }
+
+        return false;
     }
 
     static bool IsInScopeGenericParameterName(string name, IrFunction host)
