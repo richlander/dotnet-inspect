@@ -562,6 +562,46 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void SameLengthUnrecognizedModreq_DoesNotConsumeRetainedBudget()
+    {
+        // Sol R13: required-modifier identity length-matched InAttribute (42 chars)
+        // then Name → EnsureCanMaterialize(42) against remaining retained headroom,
+        // false-rejecting an exact-fit `ref int M()` model.
+        byte[] image = BuildSameLengthUnrecognizedModreqReturnImage();
+        var generous = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            Extract(image, new ApiSurfaceExtractionBounds(
+                int.MaxValue,
+                int.MaxValue,
+                int.MaxValue,
+                int.MaxValue,
+                int.MaxValue,
+                int.MaxValue)));
+        int largestModel = checked(
+            (int)generous.Surface.Types.Select(ApiSurfaceRetainedText.TypeHeader)
+                .Concat(
+                    generous.Surface.Types.SelectMany(
+                        type => type.Members.Select(ApiSurfaceRetainedText.Member)))
+                .Max());
+
+        var exact = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            Extract(
+                image,
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    largestModel)));
+        Assert.Contains(
+            exact.Surface.Types.SelectMany(type => type.Members),
+            member => member.Name == "M"
+                && member.Signature is not null
+                && member.Signature.Contains("ref int", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void GiantAttributeTypeName_IsStoppedBeforeGetStringMaterialization()
     {
         // Sol R7: attribute type names were GetString'd during presence checks and
@@ -1422,6 +1462,41 @@ public sealed class ApiSurfaceExtractorBoundsTests
         signature.WriteCompressedInteger(0);
         signature.WriteByte(0x12); // ELEMENT_TYPE_CLASS
         signature.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(t1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildSameLengthUnrecognizedModreqReturnImage()
+    {
+        // "System.Runtime.InteropServices.InAttribute".Length == 42
+        const int inAttributeLength = 42;
+        var metadata = CreateMetadata("SameLenModreq");
+        AddModuleAndSurfaceTypes(metadata);
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        // "N." + 40×M == 42 characters, not InAttribute.
+        TypeReferenceHandle modreq = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(new string('M', inAttributeLength - 2)));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x10); // ELEMENT_TYPE_BYREF
+        signature.WriteByte(0x1f); // ELEMENT_TYPE_CMOD_REQD
+        signature.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(modreq));
+        signature.WriteByte(0x08); // ELEMENT_TYPE_I4
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,

@@ -333,6 +333,8 @@ internal sealed class NamedTypeNode : TypeNode
     /// <summary>
     /// Compares against a fully-qualified expected name without materializing a
     /// differently-sized deferred metadata name (custom-modifier identity).
+    /// Same-length matches materialize without the retained-budget preflight so an
+    /// unrecognized modreq cannot false-trip exact accept-set headroom (Sol R13).
     /// </summary>
     public bool EqualsResolvedName(string expected)
     {
@@ -341,7 +343,9 @@ internal sealed class NamedTypeNode : TypeNode
             return _name == expected;
         if (CountedCharacters() != expected.Length)
             return false;
-        return Name == expected;
+        // Length already matched a short recognized modifier spelling; skip
+        // EnsureCanMaterialize (MaterializeName has no retained preflight).
+        return MaterializeName() == expected;
     }
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
