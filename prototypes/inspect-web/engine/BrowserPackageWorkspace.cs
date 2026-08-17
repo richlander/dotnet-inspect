@@ -84,9 +84,13 @@ internal static class BrowserPackageWorkspace
                 + Reservations.Values.Sum(reservation => reservation.ReservedBytes));
 
     /// <summary>Resolves and acquires one package through the shared product owners.</summary>
-    public static async Task<BrowserPackage> AcquireAsync(string packageId, string? version)
+    public static async Task<BrowserPackage> AcquireAsync(
+        string packageId,
+        string? version,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        cancellationToken.ThrowIfCancellationRequested();
 
         string? requestedVersion =
             string.IsNullOrWhiteSpace(version)
@@ -94,7 +98,8 @@ internal static class BrowserPackageWorkspace
                 ? null
                 : version;
         ResolvedPackageCoordinate coordinate = await ResolveCoordinateAsync(
-            new PackageCoordinate(packageId, requestedVersion));
+            new PackageCoordinate(packageId, requestedVersion),
+            cancellationToken);
 
         string key = PackageKey(coordinate.PackageId, coordinate.Version);
         if (!PendingAcquisitions.TryGetValue(
@@ -103,17 +108,13 @@ internal static class BrowserPackageWorkspace
         {
             pending = AcquirePayloadAsync(coordinate);
             PendingAcquisitions.Add(key, pending);
+            ObserveAndRemovePendingAcquisition(key, pending);
         }
 
-        AcquiredPackagePayload payload;
-        try
-        {
-            payload = await pending;
-        }
-        finally
-        {
-            PendingAcquisitions.Remove(key);
-        }
+        AcquiredPackagePayload payload =
+            await WaitForSharedAcquisitionAsync(
+                pending,
+                cancellationToken);
 
         if (!Cache.TryGetValue(key, out CacheEntry? cached)
             || !cached.ProducerKey.Equals(
@@ -134,7 +135,8 @@ internal static class BrowserPackageWorkspace
     }
 
     static async Task<ResolvedPackageCoordinate> ResolveCoordinateAsync(
-        PackageCoordinate request)
+        PackageCoordinate request,
+        CancellationToken cancellationToken = default)
     {
         if (PackageCoordinateResolver.Validate(request) is { } invalid)
             throw new InvalidOperationException(invalid.Message);
@@ -148,7 +150,8 @@ internal static class BrowserPackageWorkspace
                 request,
                 authorization.Sources,
                 useVersionCache: false,
-                requireStableFloating: true);
+                requireStableFloating: true,
+                cancellationToken: cancellationToken);
         ResolvedPackageCoordinate coordinate = resolution switch
         {
             PackageCoordinateResolution.Resolved resolved => resolved.Coordinate,
@@ -169,9 +172,13 @@ internal static class BrowserPackageWorkspace
     public static async Task<BrowserPackageCoordinate> ResolveAsync(
         string packageId,
         string? version,
-        string? targetFramework)
+        string? targetFramework,
+        CancellationToken cancellationToken = default)
     {
-        BrowserPackage package = await AcquireAsync(packageId, version);
+        BrowserPackage package = await AcquireAsync(
+            packageId,
+            version,
+            cancellationToken);
         PackageCompileAssetSelection selection = PackageCompileAssetSelector.Select(
             package.Content,
             packageId,
@@ -307,9 +314,11 @@ internal static class BrowserPackageWorkspace
     public static async Task<BrowserInspectionScope> OpenScopeAsync(
         string packageId,
         string? version,
-        string? targetFramework)
+        string? targetFramework,
+        CancellationToken cancellationToken = default)
         => (await ResolveAndOpenScopeAsync(
-            [new BrowserPackageRequest(packageId, version, targetFramework)])).Scope;
+            [new BrowserPackageRequest(packageId, version, targetFramework)],
+            cancellationToken)).Scope;
 
     /// <summary>
     /// Resolves and temporarily leases every requested coordinate until the aggregate scope owns
@@ -317,7 +326,8 @@ internal static class BrowserPackageWorkspace
     /// workspace is still being assembled.
     /// </summary>
     public static async Task<BrowserScopeResolution> ResolveAndOpenScopeAsync(
-        IReadOnlyList<BrowserPackageRequest> requests)
+        IReadOnlyList<BrowserPackageRequest> requests,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(requests);
         if (requests.Count == 0)
@@ -333,7 +343,8 @@ internal static class BrowserPackageWorkspace
                 BrowserPackageCoordinate coordinate = await ResolveAsync(
                     request.PackageId,
                     request.Version,
-                    request.TargetFramework);
+                    request.TargetFramework,
+                    cancellationToken);
                 string packageKey = PackageKey(coordinate);
                 if (leasedPackages.Add(packageKey))
                     LeasePackage(packageKey);
@@ -368,6 +379,36 @@ internal static class BrowserPackageWorkspace
             _ => throw new InvalidOperationException(
                 "Package payload acquisition returned an unknown outcome."),
         };
+    }
+
+    internal static Task<T> WaitForSharedAcquisitionAsync<T>(
+        Task<T> acquisition,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(acquisition);
+        return acquisition.WaitAsync(cancellationToken);
+    }
+
+    static void ObserveAndRemovePendingAcquisition(
+        string key,
+        Task<AcquiredPackagePayload> acquisition)
+    {
+        _ = acquisition.ContinueWith(
+            completed =>
+            {
+                if (PendingAcquisitions.TryGetValue(
+                        key,
+                        out Task<AcquiredPackagePayload>? current)
+                    && ReferenceEquals(current, completed))
+                {
+                    PendingAcquisitions.Remove(key);
+                }
+
+                _ = completed.Exception;
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     internal static async Task<string[]> GetVersionsAsync(string packageId)

@@ -449,6 +449,58 @@ export function memberRequestKey(parts, taste = []) {
   return [...parts, ...taste].join("\u0000");
 }
 
+export function sourceSurfaceIsVisible(state) {
+  if (state.settings
+    || state.explorer?.open
+    || state.loading
+    || state.error
+    || state.home
+    || !state.package
+    || state.atPackageRoot) {
+    return false;
+  }
+  return state.graphSourceOpen
+    || state.lens === "source"
+    || (state.lens === "api"
+      && state.selectedMemberKey
+      && state.memberSection === "source");
+}
+
+export function beginSourceRequestState(state) {
+  state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
+  clearInFlightSourceState(state);
+  return state.sourceRequestGeneration;
+}
+
+export function cancelSourceRequestState(state) {
+  if (!state.memberSourceLoading
+    && !state.typeSourceLoading
+    && !state.graphSourceLoading) {
+    return false;
+  }
+  state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
+  clearInFlightSourceState(state);
+  return true;
+}
+
+function clearInFlightSourceState(state) {
+  if (state.memberSourceLoading) {
+    state.memberSourceLoading = false;
+    state.memberSourceKey = "";
+    state.memberSourceError = "";
+  }
+  if (state.typeSourceLoading) {
+    state.typeSourceLoading = false;
+    state.typeSourceKey = "";
+    state.typeSourceError = "";
+  }
+  if (state.graphSourceLoading) {
+    state.graphSourceLoading = false;
+    state.graphSourceError = "";
+    state.graphSourceSeq++;
+  }
+}
+
 export function memberSectionIdsFor(member) {
   return ["property", "field", "event", "constant"].includes(member?.kind)
     ? ["overview"]

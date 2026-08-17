@@ -587,6 +587,10 @@ archives until its bounded PDB and source stores are released. This prevents
 concurrent stale requests or workspace eviction from multiplying the
 request-local budgets; `SourceOperations_AreExclusiveAndSuperseding` and
 `ActiveScopeLease_PreventsWorkspaceAndPackageEviction` gate that host contract.
+A canceled caller also stops waiting on shared package acquisition immediately,
+releasing the exclusive source-operation gate while the shared download remains
+inside the aggregate package-cache reservation for other consumers;
+`CancelledWait_ReleasesSharedPackageAcquisition` gates that ownership split.
 Callers that do not supply limits retain only the shared transport ceiling.
 Product-wide default expansion and retention budgets remain an open requirement
 below.

@@ -138,7 +138,8 @@ public static partial class BrowserInspectionEngine
             typeIdentity,
             memberName,
             selectorKey,
-            metadataToken);
+            metadataToken,
+            operation.CancellationToken);
         operation.CancellationToken.ThrowIfCancellationRequested();
         using BrowserInspectionScopeLease scopeLease =
             BrowserPackageWorkspace.LeaseScope(scope);
@@ -182,7 +183,8 @@ public static partial class BrowserInspectionEngine
         BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
             packageId,
             version,
-            targetFramework);
+            targetFramework,
+            cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         BrowserInspectionScopeLease scopeLease =
             BrowserPackageWorkspace.LeaseScope(scope);

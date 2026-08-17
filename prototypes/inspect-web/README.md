@@ -266,13 +266,16 @@ The operation holds its workspace and package archives until its fresh bounded
 PDB and source stores are released, so concurrent or evicted requests cannot
 multiply those request-local budgets. This lifetime is gated by
 `SourceOperations_AreExclusiveAndSuperseding` and
-`ActiveScopeLease_PreventsWorkspaceAndPackageEviction`. Source lookup therefore
-adds no ambient filesystem dependency or unbounded retained cache. Typed
-rejection and unavailable outcomes become visible failures; only an `Available`
-result crosses the bridge. Decompiled results disclose why the authored attempt was
-unavailable. Reference-only type source is refused rather than presented as a
-body-free decompilation. Printer options apply to decompiled fallback and never
-rewrite authored source. Whole-member source remains MethodDef-scoped: a
+`ActiveScopeLease_PreventsWorkspaceAndPackageEviction`. Cancellation also
+releases a caller waiting on shared package acquisition without canceling that
+bounded cache operation for other consumers; `CancelledWait_ReleasesSharedPackageAcquisition`
+gates that separation. Source lookup therefore adds no ambient filesystem
+dependency or unbounded retained cache. Typed rejection and unavailable
+outcomes become visible failures; only an `Available` result crosses the
+bridge. Decompiled results disclose why the authored attempt was unavailable.
+Reference-only type source is refused rather than presented as a body-free
+decompilation. Printer options apply to decompiled fallback and never rewrite
+authored source. Whole-member source remains MethodDef-scoped: a
 call-graph accessor body reports that limitation rather than returning its owner
 property or the whole type as a success-shaped substitute, and bodiless API
 groups do not offer a Source section.

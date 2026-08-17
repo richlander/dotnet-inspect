@@ -1022,12 +1022,15 @@ public static partial class BrowserInspectionEngine
             string typeId,
             string memberName,
             string selectorKey,
-            int metadataToken)
+            int metadataToken,
+            CancellationToken cancellationToken = default)
     {
-        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
-            packageId,
-            version,
-            targetFramework);
+            BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework,
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         (
             BrowserWorkspaceParticipant participant,

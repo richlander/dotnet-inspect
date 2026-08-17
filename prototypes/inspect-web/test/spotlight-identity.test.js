@@ -5,6 +5,8 @@ import test from "node:test";
 import {
   assemblyDescriptorForType,
   authoredSourceLimitationHtml,
+  beginSourceRequestState,
+  cancelSourceRequestState,
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetMatchesType,
@@ -37,6 +39,7 @@ import {
   shareStateLengthError,
   scopedRequestState,
   selectedDependencyGroup,
+  sourceSurfaceIsVisible,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
@@ -402,12 +405,62 @@ test("source operations cancel when superseded or hidden", () => {
   const renderBody =
     appSource.match(/function render\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
-  assert.match(renderBody, /state\.graphSourceOpen/);
-  assert.match(renderBody, /state\.lens === "source"/);
-  assert.match(renderBody, /state\.memberSection === "source"/);
-  assert.match(
-    renderBody,
-    /if \(state\.settings \|\| !sourceVisible\) cancelSourceInspection\?\.\(\)/);
+  assert.match(renderBody, /sourceSurfaceIsVisible\(state\)/);
+  assert.match(renderBody, /cancelSourceRequestState\(state\)/);
+  assert.match(renderBody, /cancelSourceInspection\?\.\(\)/);
+  const reloadBody =
+    appSource.match(/function reloadVisibleSource\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(reloadBody, /if \(!sourceSurfaceIsVisible\(state\)\) return/);
+
+  const visible = {
+    settings: false,
+    explorer: null,
+    loading: false,
+    error: "",
+    home: false,
+    package: {},
+    atPackageRoot: false,
+    graphSourceOpen: false,
+    lens: "source",
+    selectedMemberKey: "",
+    memberSection: "overview"
+  };
+  assert.equal(sourceSurfaceIsVisible(visible), true);
+  for (const hidden of [
+    { home: true },
+    { atPackageRoot: true },
+    { settings: true },
+    { loading: true },
+    { error: "failed" },
+    { explorer: { open: true } },
+    { package: null }
+  ]) {
+    assert.equal(sourceSurfaceIsVisible({ ...visible, ...hidden }), false);
+  }
+
+  const requestState = {
+    sourceRequestGeneration: 4,
+    memberSourceLoading: true,
+    memberSourceKey: "member",
+    memberSourceError: "",
+    typeSourceLoading: false,
+    typeSourceKey: "",
+    typeSourceError: "",
+    graphSourceLoading: false,
+    graphSourceError: "",
+    graphSourceSeq: 0
+  };
+  assert.equal(beginSourceRequestState(requestState), 5);
+  assert.equal(requestState.memberSourceLoading, false);
+  assert.equal(requestState.memberSourceKey, "");
+  requestState.typeSourceLoading = true;
+  requestState.typeSourceKey = "type";
+  assert.equal(cancelSourceRequestState(requestState), true);
+  assert.equal(requestState.sourceRequestGeneration, 6);
+  assert.equal(requestState.typeSourceLoading, false);
+  assert.equal(requestState.typeSourceKey, "");
+  assert.equal(requestState.typeSourceError, "");
 });
 
 test("MethodDef-only member sections are hidden for bodiless APIs", () => {

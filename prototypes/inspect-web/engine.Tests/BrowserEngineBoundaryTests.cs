@@ -70,6 +70,38 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task CancelledWait_ReleasesSharedPackageAcquisition()
+    {
+        var completion =
+            new TaskCompletionSource<int>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = new CancellationTokenSource();
+        Task<int> waiting = BrowserPackageWorkspace.WaitForSharedAcquisitionAsync(
+            completion.Task,
+            cancellation.Token);
+
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
+        Assert.False(completion.Task.IsCompleted);
+        completion.SetResult(42);
+        Assert.Equal(42, await completion.Task);
+    }
+
+    [Fact]
+    public async Task CancelledPackageAcquisition_StopsBeforeNetworkAccess()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => BrowserPackageWorkspace.AcquireAsync(
+                "Cancelled.Source",
+                "1.0.0",
+                cancellation.Token));
+    }
+
+    [Fact]
     public void ActiveScopeLease_PreventsWorkspaceAndPackageEviction()
     {
         byte[] image =
@@ -284,12 +316,14 @@ public sealed class BrowserEngineBoundaryTests
         [
             new BrowserPackageRequest("Root.Order.A", "1.0.0", "net11.0"),
             new BrowserPackageRequest("Root.Order.B", "1.0.0", "net11.0"),
-        ]);
+        ],
+        TestContext.Current.CancellationToken);
         BrowserScopeResolution second = await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
         [
             new BrowserPackageRequest("Root.Order.B", "1.0.0", "net11.0"),
             new BrowserPackageRequest("Root.Order.A", "1.0.0", "net11.0"),
-        ]);
+        ],
+        TestContext.Current.CancellationToken);
 
         Assert.Same(first.Scope, second.Scope);
         BrowserPackageCoordinate requestedRoot = second.RequestedCoordinates[0];
@@ -1143,7 +1177,10 @@ public sealed class BrowserEngineBoundaryTests
 
         InvalidOperationException failure =
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => BrowserPackageWorkspace.AcquireAsync(packageId, version));
+                () => BrowserPackageWorkspace.AcquireAsync(
+                    packageId,
+                    version,
+                    TestContext.Current.CancellationToken));
 
         Assert.Contains("package coordinate", failure.Message, StringComparison.OrdinalIgnoreCase);
         BrowserPackageCacheStats after = BrowserPackageWorkspace.Stats();

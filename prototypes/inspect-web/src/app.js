@@ -1,6 +1,8 @@
 import {
   assemblyDescriptorForType,
   authoredSourceLimitationHtml,
+  beginSourceRequestState,
+  cancelSourceRequestState,
   callGraphDiagnosticsMessage,
   callGraphTargetMatchesType,
   callGraphTargetTypeId,
@@ -33,6 +35,7 @@ import {
   resolveLoadedGraphTargetCandidate,
   shareStateLengthError,
   scopedRequestState,
+  sourceSurfaceIsVisible,
   selectedDependencyGroup,
   spotlightCandidateKey,
   spotlightCandidateSignature,
@@ -213,6 +216,7 @@ const state = {
   memberSourceLoading: false,
   memberSourceError: "",
   memberSourceKey: "",
+  sourceRequestGeneration: 0,
   memberAnnotated: null,
   memberAnnotatedLoading: false,
   memberAnnotatedError: "",
@@ -1262,12 +1266,10 @@ function updateCommandSuggestions() {
 }
 
 function render() {
-  const sourceVisible = state.graphSourceOpen
-    || state.lens === "source"
-    || (state.lens === "api"
-      && state.selectedMemberKey
-      && state.memberSection === "source");
-  if (state.settings || !sourceVisible) cancelSourceInspection?.();
+  if (!sourceSurfaceIsVisible(state)
+    && cancelSourceRequestState(state)) {
+    cancelSourceInspection?.();
+  }
 
   // The Settings page is a modal-style full view layered over whatever the user came from
   // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
@@ -6049,6 +6051,7 @@ async function loadSelectedMemberSource() {
     return;
   }
 
+  const generation = beginSourceRequestState(state);
   state.memberSourceKey = signature;
   state.memberSource = null;
   state.memberSourceLoading = true;
@@ -6067,18 +6070,22 @@ async function loadSelectedMemberSource() {
       metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
       styleOptionsJson: JSON.stringify(state.taste)
     });
-    if (memberRequestIsCurrent(signature, false, true)
+    if (generation === state.sourceRequestGeneration
+      && memberRequestIsCurrent(signature, false, true)
       && state.memberSourceKey === signature) {
       state.memberSource = result;
     }
   } catch (error) {
-    if (memberRequestIsCurrent(signature, false, true)
+    if (generation === state.sourceRequestGeneration
+      && memberRequestIsCurrent(signature, false, true)
       && state.memberSourceKey === signature) {
       state.memberSourceError = String(error?.message || error);
     }
   } finally {
-    if (state.memberSourceKey === signature)
+    if (generation === state.sourceRequestGeneration
+      && state.memberSourceKey === signature) {
       state.memberSourceLoading = false;
+    }
     render();
   }
 }
@@ -6183,6 +6190,7 @@ async function loadSelectedTypeSource() {
     render();
     return;
   }
+  const generation = beginSourceRequestState(state);
   state.typeSourceKey = signature;
   state.typeSource = null;
   state.typeSourceError = "";
@@ -6198,11 +6206,20 @@ async function loadSelectedTypeSource() {
       typeIdentity: type.definitionId ?? type.id,
       styleOptionsJson: JSON.stringify(state.taste)
     });
-    if (state.typeSourceKey === signature) state.typeSource = result;
+    if (generation === state.sourceRequestGeneration
+      && state.typeSourceKey === signature) {
+      state.typeSource = result;
+    }
   } catch (error) {
-    if (state.typeSourceKey === signature) state.typeSourceError = String(error?.message || error);
+    if (generation === state.sourceRequestGeneration
+      && state.typeSourceKey === signature) {
+      state.typeSourceError = String(error?.message || error);
+    }
   } finally {
-    if (state.typeSourceKey === signature) state.typeSourceLoading = false;
+    if (generation === state.sourceRequestGeneration
+      && state.typeSourceKey === signature) {
+      state.typeSourceLoading = false;
+    }
     render();
   }
 }
@@ -7310,6 +7327,7 @@ function stripArity(name) {
 }
 
 async function openGraphSource(request, title) {
+  const generation = beginSourceRequestState(state);
   const seq = ++state.graphSourceSeq;
   state.graphSourceOpen = true;
   state.graphSourceTitle = title;
@@ -7323,19 +7341,26 @@ async function openGraphSource(request, title) {
       ...request,
       styleOptionsJson: JSON.stringify(state.taste)
     });
-    if (seq !== state.graphSourceSeq || !state.graphSourceOpen) return;
+    if (generation !== state.sourceRequestGeneration
+      || seq !== state.graphSourceSeq
+      || !state.graphSourceOpen) return;
     state.graphSource = source;
   } catch (error) {
-    if (seq !== state.graphSourceSeq || !state.graphSourceOpen) return;
+    if (generation !== state.sourceRequestGeneration
+      || seq !== state.graphSourceSeq
+      || !state.graphSourceOpen) return;
     state.graphSourceError = String(error?.message || error);
   } finally {
-    if (seq !== state.graphSourceSeq || !state.graphSourceOpen) return;
+    if (generation !== state.sourceRequestGeneration
+      || seq !== state.graphSourceSeq
+      || !state.graphSourceOpen) return;
     state.graphSourceLoading = false;
     render();
   }
 }
 
 function closeGraphSource() {
+  if (cancelSourceRequestState(state)) cancelSourceInspection?.();
   state.graphSourceSeq++;
   state.graphSourceOpen = false;
   state.graphSource = null;
@@ -7532,8 +7557,10 @@ function invalidateSourceCaches() {
 }
 
 function reloadVisibleSource() {
+  if (!sourceSurfaceIsVisible(state)) return;
   if (state.graphSourceOpen && state.graphSourceRequest) {
     openGraphSource(state.graphSourceRequest.request, state.graphSourceRequest.title);
+    return;
   }
   if (state.lens === "source") loadSelectedTypeSource();
   else if (state.selectedMemberKey && state.memberSection === "source") loadSelectedMemberSource();
@@ -7557,7 +7584,6 @@ function toggleTaste(id) {
   }
   localStorage.setItem("inspect-taste", JSON.stringify(state.taste));
   invalidateSourceCaches();
-  reloadVisibleSource();
   render();
 }
 
@@ -7565,7 +7591,6 @@ function clearTaste() {
   state.taste = [];
   localStorage.setItem("inspect-taste", "[]");
   invalidateSourceCaches();
-  reloadVisibleSource();
   render();
 }
 
@@ -7580,6 +7605,7 @@ function openSettings(from) {
 
 function closeSettings() {
   state.settings = false;
+  reloadVisibleSource();
   render();
 }
 
