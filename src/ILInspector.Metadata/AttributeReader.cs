@@ -831,23 +831,47 @@ public static class AttributeReader
         if (byteCount < 0)
             return true;
 
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(Math.Min(byteCount, 4096));
+        // Stream via Convert so multi-byte UTF-8 that straddles the 4 KiB window is
+        // not double-counted by GetCharCount's replacement fallback (Opus R6).
+        const int Window = 4096;
+        byte[] byteBuffer = ArrayPool<byte>.Shared.Rent(Math.Min(byteCount, Window));
+        char[] charBuffer = ArrayPool<char>.Shared.Rent(Window);
         try
         {
             Decoder decoder = Encoding.UTF8.GetDecoder();
             int remaining = byteCount;
             while (remaining > 0)
             {
-                int count = Math.Min(remaining, buffer.Length);
-                blob.ReadBytes(count, buffer, 0);
+                int count = Math.Min(remaining, byteBuffer.Length);
+                blob.ReadBytes(count, byteBuffer, 0);
                 remaining -= count;
-                lowerBound += decoder.GetCharCount(buffer.AsSpan(0, count), remaining == 0);
+                bool flush = remaining == 0;
+                int byteOffset = 0;
+                bool completed;
+                do
+                {
+                    decoder.Convert(
+                        byteBuffer,
+                        byteOffset,
+                        count - byteOffset,
+                        charBuffer,
+                        0,
+                        charBuffer.Length,
+                        flush,
+                        out int bytesUsed,
+                        out int charsUsed,
+                        out completed);
+                    lowerBound += charsUsed;
+                    byteOffset += bytesUsed;
+                }
+                while (!completed);
             }
             return true;
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<byte>.Shared.Return(byteBuffer);
+            ArrayPool<char>.Shared.Return(charBuffer);
         }
     }
 

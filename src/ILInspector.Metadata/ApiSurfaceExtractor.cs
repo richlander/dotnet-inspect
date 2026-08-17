@@ -682,6 +682,7 @@ public static class ApiSurfaceExtractor
                     typeDef,
                     methodHandle,
                     method,
+                    methodName,
                     typeNullableContext,
                     constraintResolution,
                     materialization);
@@ -829,20 +830,22 @@ public static class ApiSurfaceExtractor
                     materialization is null
                         ? null
                         : materialization.EnsureCanMaterialize);
+                string propertyName = ReadBudgetedString(
+                    reader,
+                    prop.Name,
+                    materialization);
                 var propertySignature = GetPropertySignature(
                     reader,
                     typeDef,
                     prop,
                     accessors,
+                    propertyName,
                     typeNullableContext,
                     includeAll,
                     materialization);
                 var member = new ApiMember
                 {
-                    Name = ReadBudgetedString(
-                        reader,
-                        prop.Name,
-                        materialization),
+                    Name = propertyName,
                     Kind = "property",
                     Signature = propertySignature.Text,
                     SignatureModel = propertySignature.Model,
@@ -1516,7 +1519,7 @@ public static class ApiSurfaceExtractor
             var param = reader.GetGenericParameter(paramHandle);
             var typeParam = new TypeParameter
             {
-                Name = reader.GetString(param.Name)
+                Name = ReadBudgetedString(reader, param.Name, materialization)
             };
             var structured = new List<TypeParameterConstraint>();
 
@@ -2428,11 +2431,11 @@ public static class ApiSurfaceExtractor
         TypeDefinition typeDef,
         MethodDefinitionHandle methodHandle,
         MethodDefinition method,
+        string name,
         byte typeNullableContext,
         TypeParameterConstraintResolution? constraintResolution = null,
         TextMaterializationBudget? materialization = null)
     {
-        string name = reader.GetString(method.Name);
         var context = GenericContext.ForMethod(reader, typeDef, method);
         var treeSignature = GuardedProviderDecode.Method(
             reader,
@@ -2703,7 +2706,9 @@ public static class ApiSurfaceExtractor
             var param = reader.GetParameter(handle);
             if (param.SequenceNumber == sequenceNumber)
             {
-                string name = reader.GetString(param.Name);
+                // Count before GetString so a multi-MB parameter name cannot allocate
+                // under an open model budget (Sol R6).
+                string name = ReadBudgetedString(reader, param.Name, materialization);
                 var attributes = param.GetCustomAttributes();
                 bool isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
                     || AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.ParamCollectionAttribute);
@@ -3291,11 +3296,11 @@ public static class ApiSurfaceExtractor
         TypeDefinition typeDef,
         PropertyDefinition prop,
         PropertyAccessors accessors,
+        string name,
         byte typeNullableContext,
         bool includeAll = false,
         TextMaterializationBudget? materialization = null)
     {
-        string name = reader.GetString(prop.Name);
         materialization?.Retain(name);
         var context = GenericContext.ForType(reader, typeDef);
         var treeSignature = GuardedProviderDecode.Property(

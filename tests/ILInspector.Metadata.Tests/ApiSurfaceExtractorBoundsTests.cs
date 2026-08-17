@@ -410,6 +410,49 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void GiantParameterName_IsStoppedBeforeGetStringMaterialization()
+    {
+        // Sol R6: GetParameterInfo called GetString before the model budget, so a
+        // 20M-char parameter name allocated ~80 MB on Exceeded.
+        byte[] image = BuildGiantParameterNameImage(20_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void GiantPropertyName_IsStoppedBeforeGetStringMaterialization()
+    {
+        // Sol R6: GetPropertySignature called GetString before ReadBudgetedString.
+        byte[] image = BuildGiantPropertyNameImage(20_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void StringDefault_IsStoppedBeforeDecodeAndEscaping()
     {
         byte[] image = BuildStringDefaultImage(2_000_000);
@@ -1028,6 +1071,60 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.GetOrAddBlob(signature),
             0,
             parameter);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGiantParameterNameImage(int nameCharacters)
+    {
+        var metadata = CreateMetadata("GiantParam");
+        AddModuleAndSurfaceTypes(metadata);
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x0e);
+        ParameterHandle parameter = metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString(new string('P', nameCharacters)),
+            1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            0,
+            parameter);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGiantPropertyNameImage(int nameCharacters)
+    {
+        var metadata = CreateMetadata("GiantProp");
+        TypeDefinitionHandle surface = AddModuleAndSurfaceTypes(metadata);
+        var getterSignature = new BlobBuilder();
+        getterSignature.WriteByte(0x00);
+        getterSignature.WriteCompressedInteger(0);
+        getterSignature.WriteByte(0x0e);
+        MethodDefinitionHandle getter = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("get_P"),
+            metadata.GetOrAddBlob(getterSignature),
+            0,
+            MetadataTokens.ParameterHandle(1));
+        var propertySignature = new BlobBuilder();
+        propertySignature.WriteByte(0x28);
+        propertySignature.WriteCompressedInteger(0);
+        propertySignature.WriteByte(0x0e);
+        PropertyDefinitionHandle property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString(new string('P', nameCharacters)),
+            metadata.GetOrAddBlob(propertySignature));
+        metadata.AddPropertyMap(surface, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            getter);
         return Serialize(metadata);
     }
 
