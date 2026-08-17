@@ -154,7 +154,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             nuspec: null,
             client,
             new VerboseLogger(enabled: false));
-        Assert.True(Assert.Single(
+        Assert.Null(Assert.Single(
             unverified.RuntimeIdentifierPackages!,
             package => package.RuntimeIdentifier == "any").Exists);
         Assert.Null(Assert.Single(
@@ -205,6 +205,80 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             Assert.Single(
                 jsonPackages,
                 package => package.RuntimeIdentifier == "linux-x64").Available);
+    }
+
+    [Fact]
+    public async Task InspectAsync_OversizedWrapperNuspecUsesBoundedProbe()
+    {
+        string wrapperRoot = Path.Combine(_root, "oversized-wrapper");
+        string wrapperTools = Path.Combine(
+            wrapperRoot,
+            "tools",
+            "net10.0",
+            "any");
+        Directory.CreateDirectory(wrapperTools);
+        await File.WriteAllTextAsync(
+            Path.Combine(wrapperTools, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="wrapper-command" />
+              </Commands>
+              <RuntimeIdentifierPackages>
+                <RuntimeIdentifierPackage RuntimeIdentifier="any" Id="Wrapper.Package.any" />
+              </RuntimeIdentifierPackages>
+            </DotNetCliTool>
+            """,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(wrapperRoot, "Wrapper.Package.nuspec"),
+            "<package><metadata><id>Wrapper.Package</id><version>1.0.0</version>"
+            + $"<description>{new string('x', PackageExtractor.MaxNuspecBytes)}</description>"
+            + "</metadata></package>",
+            TestContext.Current.CancellationToken);
+
+        string payloadRoot = Path.Combine(_root, "oversized-payload");
+        string payloadTools = Path.Combine(
+            payloadRoot,
+            "tools",
+            "net10.0",
+            "any");
+        Directory.CreateDirectory(payloadTools);
+        File.Copy(
+            typeof(PackageInspectorMetadataSourceTests).Assembly.Location,
+            Path.Combine(payloadTools, "Payload.dll"));
+        WriteNuspec(
+            payloadRoot,
+            "Wrapper.Package.any",
+            "1.0.0");
+        var resolution = new PackageExtractionResult(
+            payloadRoot,
+            TempDir: null,
+            PackageName: "Wrapper.Package.any",
+            Version: "1.0.0")
+        {
+            ToolWrapperChain =
+            [
+                new ToolWrapperPackage(
+                    wrapperRoot,
+                    "Wrapper.Package",
+                    "1.0.0",
+                    ProducerKey: "wrapper-source"),
+            ],
+        };
+
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            "Wrapper.Package.any",
+            "1.0.0",
+            isLocalFile: true,
+            localFilePath: Path.Combine(_root, "Wrapper.Package.1.0.0.nupkg"),
+            nuspec: null,
+            new HttpClient(),
+            new VerboseLogger(enabled: false));
+
+        Assert.Equal("Tool v2", new InspectionResultView(result).PackageType);
+        Assert.Equal(["wrapper-command"], result.ToolCommands);
     }
 
     [Theory]
@@ -848,6 +922,57 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.False(PackageCommand.DiscoverRequestsSection(
             [PackageSections.Signals],
             PackageSections.Manifest,
+            pipeline));
+    }
+
+    [Fact]
+    public void PackageCommand_SelectionConstrainsDiscoveryProducers()
+    {
+        var pipeline =
+            PackageSectionDescriptors.CreateCatalog().Pipeline;
+        var options = new InspectionOptions
+        {
+            Discover = [],
+            IncludeSections =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    PackageSections.PackageInfo,
+                },
+        };
+
+        Assert.False(PackageCommand.RequestsSelectedOrDiscoveredSection(
+            options,
+            PackageSections.Manifest,
+            pipeline));
+        Assert.False(PackageCommand.RequestsSelectedOrDiscoveredSection(
+            options,
+            PackageSections.Signals,
+            pipeline));
+        Assert.False(PackageCommand.RequiresPackageMetadata(
+            options,
+            pipeline));
+    }
+
+    [Theory]
+    [InlineData(Verbosity.Normal)]
+    [InlineData(Verbosity.Detailed)]
+    public void PackageCommand_LocalRenderedManifestRequestsRidAvailability(
+        Verbosity verbosity)
+    {
+        var pipeline =
+            PackageSectionDescriptors.CreateCatalog().Pipeline;
+        var options = new InspectionOptions
+        {
+            Verbosity = verbosity,
+        };
+
+        Assert.True(PackageCommand.RequestsRidPackageAvailability(
+            options,
+            isLocalFile: true,
+            pipeline));
+        Assert.False(PackageCommand.RequestsRidPackageAvailability(
+            options,
+            isLocalFile: false,
             pipeline));
     }
 

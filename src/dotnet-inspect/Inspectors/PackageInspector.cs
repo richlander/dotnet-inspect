@@ -249,7 +249,21 @@ internal static class PackageInspector
         if (wrapper is null)
             return;
 
-        NuspecData? wrapperNuspec = NuspecParser.FindAndParse(wrapper.ExtractPath);
+        string wrapperVersion = wrapper.Version ?? result.Version;
+        NuspecProbeResult wrapperNuspecProbe =
+            await PackageExtractor.ProbeExtractedPackageNuspecAsync(
+                wrapper.ExtractPath,
+                wrapper.PackageName,
+                wrapperVersion,
+                logger.Log).ConfigureAwait(false);
+        NuspecData? wrapperNuspec =
+            wrapperNuspecProbe is
+            {
+                Status: NuspecProbeStatus.Present,
+                Xml: { } wrapperNuspecXml,
+            }
+                ? NuspecParser.ParseContent(wrapperNuspecXml)
+                : null;
         if (wrapperNuspec?.PackageTypes is { Count: > 0 })
             result.PackageTypes = wrapperNuspec.PackageTypes;
         result.IsToolPackage |= wrapperNuspec?.IsToolPackage == true;
@@ -270,23 +284,23 @@ internal static class PackageInspector
         result.IsRidSpecificPointerPackage = wrapperTool.IsRidSpecificPointerPackage;
         result.RuntimeIdentifierPackages = wrapperTool.RuntimeIdentifierPackages;
 
-        await MarkAcquiredRidPackagesAsync(
-            result,
-            resolution,
-            wrapper.Version ?? result.Version,
-            logger.Log);
-
         if (verifyRidPackageAvailability
             && result.IsRidSpecificPointerPackage
             && result.RuntimeIdentifierPackages is { Count: > 0 })
         {
+            await MarkAcquiredRidPackagesAsync(
+                result,
+                resolution,
+                wrapperVersion,
+                logger.Log);
+
             string? localDir = isLocalFile
                 ? Path.GetDirectoryName(Path.GetFullPath(localFilePath!))
                 : null;
             await RidPackageVerifier.VerifyAsync(
                 httpClient,
                 result,
-                wrapper.Version ?? result.Version,
+                wrapperVersion,
                 localDir,
                 logger,
                 sourceOptions);

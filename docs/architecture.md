@@ -306,16 +306,21 @@ and inspects its managed assemblies. The redirect benefits every package-consumi
 The extraction result retains the ordered wrapper chain separately from the final payload
 coordinate. Package inspection uses the requested wrapper's tool manifest for classification
 and commands while keeping the payload package identity and producer as the provenance of the
-managed assemblies being inspected. RID companion availability is verified only when an
-explicit manifest selection requests it: a coordinate-matching nuspec proves presence,
-authoritative absence renders `no`, and malformed or otherwise inconclusive probes remain
-`unknown`. A local sibling must also pass bounded package-archive admission before its strict
-UTF-8 nuspec can prove presence; an existing but empty, corrupt, unreadable, or mismatched sibling
-remains `unknown`. An acquired redirect hop likewise proves its mapped package present only when
-its extracted root nuspec has one consistently namespaced metadata, id, and version element that
-matches the acquired coordinate. Bare effective discovery requests every discoverable section,
-so it performs the same Manifest verification as targeted discovery. `RidPackageVerifierTests` and
-`PackageInspectorMetadataSourceTests` gate these local, remote, and acquired distinctions.
+managed assemblies being inspected. RID companion availability is verified when an explicit
+Manifest selection or effective discovery requests it. Normal and detailed local-file views also
+verify local siblings because that work is filesystem-only; ordinary remote views do not gain
+hidden network traffic. A coordinate-matching nuspec proves presence, authoritative absence
+renders `no`, and malformed or otherwise inconclusive probes remain `unknown`. A local sibling
+matches by NuGet's case-insensitive coordinate identity and must also pass bounded package-archive
+admission before its strict UTF-8 nuspec can prove presence; an existing but empty, corrupt,
+unreadable, or mismatched sibling remains `unknown`. An acquired redirect hop likewise proves its
+mapped package present only when verification was requested and its extracted root nuspec has one
+consistently namespaced metadata, id, and version element that matches the acquired coordinate.
+Wrapper metadata uses the same bounded extracted-nuspec path. Bare effective discovery requests
+every discoverable section, so it performs the same Manifest verification as targeted discovery;
+an explicit section selection constrains both discovery output and its producers.
+`RidPackageVerifierTests` and `PackageInspectorMetadataSourceTests` gate these local, remote, and
+acquired distinctions.
 Availability is not retained in the payload index; each explicit request evaluates the current
 source policy and available cache replicas. Redirect and RID package ids must satisfy the canonical
 NuGet id grammar before cache or network use; probe versions compare by normalized NuGet identity,

@@ -659,13 +659,14 @@ public class PackageCommand
                 packageSize = new FileInfo(resolution.NupkgPath).Length;
             }
 
-            bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
-                || DiscoverRequestsSection(options.Discover, PackageSections.Signals, pipeline);
+            bool wantsSignals = RequestsSelectedOrDiscoveredSection(
+                options,
+                PackageSections.Signals,
+                pipeline);
             bool wantsRidPackageAvailability =
-                options.IncludeSections?.Contains(PackageSections.Manifest) == true
-                || DiscoverRequestsSection(
-                    options.Discover,
-                    PackageSections.Manifest,
+                RequestsRidPackageAvailability(
+                    options,
+                    target.IsLocalFile,
                     pipeline);
             bool wantsPackageMetadata =
                 RequiresPackageMetadata(options, pipeline);
@@ -1455,6 +1456,42 @@ public class PackageCommand
         return false;
     }
 
+    internal static bool RequestsSelectedOrDiscoveredSection(
+        InspectionOptions options,
+        string sectionName,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        if (options.IncludeSections is { } selectedSections)
+            return selectedSections.Contains(sectionName);
+
+        return DiscoverRequestsSection(
+            options.Discover,
+            sectionName,
+            pipeline);
+    }
+
+    internal static bool RequestsRidPackageAvailability(
+        InspectionOptions options,
+        bool isLocalFile,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        if (RequestsSelectedOrDiscoveredSection(
+                options,
+                PackageSections.Manifest,
+                pipeline))
+        {
+            return true;
+        }
+
+        return isLocalFile
+            && options.IncludeSections is null
+            && options.Discover is null
+            && pipeline.GetCandidateSections(
+                    options.Verbosity,
+                    fixedOverview: options.FixedOverview)
+                .Contains(PackageSections.Manifest);
+    }
+
     private static bool ValidateMultiPackageMode(InspectionOptions options)
     {
         List<string> conflicts = [];
@@ -1981,16 +2018,14 @@ public class PackageCommand
             if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
                 packageSize = new FileInfo(resolution.NupkgPath).Length;
 
-            bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
-                || DiscoverRequestsSection(
-                    options.Discover,
-                    PackageSections.Signals,
-                    pipeline);
+            bool wantsSignals = RequestsSelectedOrDiscoveredSection(
+                options,
+                PackageSections.Signals,
+                pipeline);
             bool wantsRidPackageAvailability =
-                options.IncludeSections?.Contains(PackageSections.Manifest) == true
-                || DiscoverRequestsSection(
-                    options.Discover,
-                    PackageSections.Manifest,
+                RequestsRidPackageAvailability(
+                    options,
+                    target.IsLocalFile,
                     pipeline);
             bool wantsPackageMetadata =
                 RequiresPackageMetadata(options, pipeline);
@@ -3776,17 +3811,14 @@ public class PackageCommand
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(pipeline);
 
-        return options.IncludeSections?.Contains(PackageSections.Signals) == true
-            || options.IncludeSections?.Contains(
-                PackageSections.AuditIdentifierConfusion) == true
-            || DiscoverRequestsSection(
-                options.Discover,
-                PackageSections.Signals,
-                pipeline)
-            || DiscoverRequestsSection(
-                options.Discover,
-                PackageSections.AuditIdentifierConfusion,
-                pipeline);
+        return RequestsSelectedOrDiscoveredSection(
+                   options,
+                   PackageSections.Signals,
+                   pipeline)
+               || RequestsSelectedOrDiscoveredSection(
+                   options,
+                   PackageSections.AuditIdentifierConfusion,
+                   pipeline);
     }
 
     private static LibraryOptions CreateLibraryOptions(string? assemblyName, string packageReference, InspectionOptions options)

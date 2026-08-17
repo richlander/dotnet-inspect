@@ -40,10 +40,10 @@ public static class RidPackageVerifier
             {
                 string expectedFileName =
                     $"{ridPkg.PackageId}.{normalizedVersion}.nupkg";
-                string expectedPath = Path.Combine(localDir, expectedFileName);
                 NuspecProbeResult probe =
-                    await PackageExtractor.ProbeLocalPackageArchiveAsync(
-                        expectedPath,
+                    await ProbeLocalPackageArchiveAsync(
+                        localDir,
+                        expectedFileName,
                         ridPkg.PackageId,
                         normalizedVersion,
                         logger.Log);
@@ -79,6 +79,74 @@ public static class RidPackageVerifier
                     + $"({ridPkg.PackageId} {normalizedVersion})");
             }
         }
+    }
+
+    private static async Task<NuspecProbeResult>
+        ProbeLocalPackageArchiveAsync(
+            string localDir,
+            string expectedFileName,
+            string packageId,
+            string version,
+            Action<string>? log)
+    {
+        string expectedPath = Path.Combine(localDir, expectedFileName);
+        NuspecProbeResult exact =
+            await PackageExtractor.ProbeLocalPackageArchiveAsync(
+                expectedPath,
+                packageId,
+                version,
+                log).ConfigureAwait(false);
+        if (exact.Status != NuspecProbeStatus.Absent)
+            return exact;
+
+        bool sawIndeterminate = false;
+        try
+        {
+            foreach (string candidatePath in Directory.EnumerateFiles(
+                         localDir,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                string candidateName = Path.GetFileName(candidatePath);
+                if (string.Equals(
+                        candidateName,
+                        expectedFileName,
+                        StringComparison.Ordinal)
+                    || !string.Equals(
+                        candidateName,
+                        expectedFileName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                NuspecProbeResult candidate =
+                    await PackageExtractor.ProbeLocalPackageArchiveAsync(
+                        candidatePath,
+                        packageId,
+                        version,
+                        log).ConfigureAwait(false);
+                if (candidate.Status == NuspecProbeStatus.Present)
+                    return candidate;
+                sawIndeterminate |=
+                    candidate.Status == NuspecProbeStatus.Indeterminate;
+            }
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException)
+        {
+            log?.Invoke(
+                $"Local RID package directory could not be inspected: "
+                + ex.GetType().Name);
+            sawIndeterminate = true;
+        }
+
+        return sawIndeterminate
+            ? new NuspecProbeResult(
+                null,
+                NuspecProbeStatus.Indeterminate)
+            : exact;
     }
 
     private static bool? ToAvailability(NuspecProbeStatus status) =>
