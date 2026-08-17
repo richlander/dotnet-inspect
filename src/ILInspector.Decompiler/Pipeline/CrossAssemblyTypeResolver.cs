@@ -498,6 +498,7 @@ internal sealed class CrossAssemblyTypeResolver
                     method,
                     callee,
                     allowCoreLibraryAliases,
+                    type.ResolutionAssembly,
                     out var parameterRefKinds,
                     out var declaredReturnType))
                     continue;
@@ -562,7 +563,8 @@ internal sealed class CrossAssemblyTypeResolver
                     field.Type,
                     allowCoreLibraryAliases,
                     TypeRefDecoder.CanonicalSelf(reader),
-                    AssemblyReferenceIdentity.FromAssemblyDefinition(reader)))
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
+                    type.ResolutionAssembly))
                     continue;
 
                 return new ResolvedFieldFacts(
@@ -623,6 +625,7 @@ internal sealed class CrossAssemblyTypeResolver
         MethodDefinition method,
         MethodRef callee,
         bool allowCoreLibraryAliases,
+        AssemblyReferenceIdentity? resolvedLocalBindingIdentity,
         out ParameterRefKindResult parameterRefKinds,
         out TypeRef declaredReturnType)
     {
@@ -649,7 +652,8 @@ internal sealed class CrossAssemblyTypeResolver
             callee.ReturnType,
             allowCoreLibraryAliases,
             localAssembly,
-            localAssemblyIdentity))
+            localAssemblyIdentity,
+            resolvedLocalBindingIdentity))
             return false;
         declaredReturnType = signature.ReturnType;
 
@@ -664,7 +668,8 @@ internal sealed class CrossAssemblyTypeResolver
                 callee.ParameterTypes[i],
                 allowCoreLibraryAliases,
                 localAssembly,
-                localAssemblyIdentity))
+                localAssemblyIdentity,
+                resolvedLocalBindingIdentity))
                 return false;
             parameters.Add(parameter);
         }
@@ -678,7 +683,8 @@ internal sealed class CrossAssemblyTypeResolver
         TypeRef expected,
         bool allowCoreLibraryAliases,
         string? resolvedLocalAssembly = null,
-        AssemblyReferenceIdentity? resolvedLocalAssemblyIdentity = null)
+        AssemblyReferenceIdentity? resolvedLocalAssemblyIdentity = null,
+        AssemblyReferenceIdentity? resolvedLocalBindingIdentity = null)
     {
         if (resolved.Kind != expected.Kind)
             return false;
@@ -704,17 +710,22 @@ internal sealed class CrossAssemblyTypeResolver
                 if (allowCoreLibraryAliases || resolved.Assembly == TypeRef.CoreLibrary)
                     return true;
                 var resolvedAssembly = resolved.ResolutionAssembly;
+                bool resolvedFromLocalAssembly = false;
                 if (resolvedAssembly is null
                     && resolvedLocalAssemblyIdentity is not null
                     && resolved.Assembly == resolvedLocalAssembly)
                 {
                     resolvedAssembly = resolvedLocalAssemblyIdentity;
+                    resolvedFromLocalAssembly = true;
                 }
                 return (resolvedAssembly, expected.ResolutionAssembly) switch
                 {
                     (null, null) => true,
                     ({ } actual, { } expectedAssembly)
-                        => actual.IsEquivalentTo(expectedAssembly),
+                        => actual.IsEquivalentTo(expectedAssembly)
+                            || resolvedFromLocalAssembly
+                                && resolvedLocalBindingIdentity is { } bindingIdentity
+                                && bindingIdentity.IsEquivalentTo(expectedAssembly),
                     _ => false,
                 };
             case TypeRefKind.GenericInstance:
@@ -723,7 +734,8 @@ internal sealed class CrossAssemblyTypeResolver
                         expected.ElementType!,
                         allowCoreLibraryAliases,
                         resolvedLocalAssembly,
-                        resolvedLocalAssemblyIdentity)
+                        resolvedLocalAssemblyIdentity,
+                        resolvedLocalBindingIdentity)
                     || resolved.TypeArguments.Length != expected.TypeArguments.Length)
                     return false;
                 for (int i = 0; i < resolved.TypeArguments.Length; i++)
@@ -732,7 +744,8 @@ internal sealed class CrossAssemblyTypeResolver
                         expected.TypeArguments[i],
                         allowCoreLibraryAliases,
                         resolvedLocalAssembly,
-                        resolvedLocalAssemblyIdentity))
+                        resolvedLocalAssemblyIdentity,
+                        resolvedLocalBindingIdentity))
                         return false;
                 return true;
             case TypeRefKind.SzArray or TypeRefKind.Pointer or TypeRefKind.Pinned or TypeRefKind.ByRef:
@@ -741,7 +754,8 @@ internal sealed class CrossAssemblyTypeResolver
                     expected.ElementType!,
                     allowCoreLibraryAliases,
                     resolvedLocalAssembly,
-                    resolvedLocalAssemblyIdentity);
+                    resolvedLocalAssemblyIdentity,
+                    resolvedLocalBindingIdentity);
             case TypeRefKind.Array:
                 return resolved.Rank == expected.Rank
                     && SameSignatureType(
@@ -749,7 +763,8 @@ internal sealed class CrossAssemblyTypeResolver
                         expected.ElementType!,
                         allowCoreLibraryAliases,
                         resolvedLocalAssembly,
-                        resolvedLocalAssemblyIdentity);
+                        resolvedLocalAssemblyIdentity,
+                        resolvedLocalBindingIdentity);
             case TypeRefKind.FunctionPointer:
                 if (resolved.CallingConvention != expected.CallingConvention
                     || !SameSignatureType(
@@ -757,7 +772,8 @@ internal sealed class CrossAssemblyTypeResolver
                         expected.ElementType!,
                         allowCoreLibraryAliases,
                         resolvedLocalAssembly,
-                        resolvedLocalAssemblyIdentity)
+                        resolvedLocalAssemblyIdentity,
+                        resolvedLocalBindingIdentity)
                     || resolved.TypeArguments.Length != expected.TypeArguments.Length
                     || resolved.FunctionPointerParameterRefKinds.Length != expected.FunctionPointerParameterRefKinds.Length)
                     return false;
@@ -767,7 +783,8 @@ internal sealed class CrossAssemblyTypeResolver
                         expected.TypeArguments[i],
                         allowCoreLibraryAliases,
                         resolvedLocalAssembly,
-                        resolvedLocalAssemblyIdentity))
+                        resolvedLocalAssemblyIdentity,
+                        resolvedLocalBindingIdentity))
                         return false;
                 for (int i = 0; i < resolved.FunctionPointerParameterRefKinds.Length; i++)
                     if (resolved.FunctionPointerParameterRefKinds[i] != expected.FunctionPointerParameterRefKinds[i])

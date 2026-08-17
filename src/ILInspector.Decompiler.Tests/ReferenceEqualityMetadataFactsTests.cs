@@ -59,6 +59,8 @@ public class ReferenceEqualityMetadataFactsTests
 
             Assert.Equal(new Version(1, 0, 0, 0), type.ResolutionAssembly?.Version);
             Assert.Equal(TypeShapeKind.Enum, source.ClassifyResolvedType(type));
+            Assert.True(function.TypeShapes.TryGetValue(type, out var shape));
+            Assert.Equal(TypeShape.Unknown, shape);
             Assert.Equal(
                 MetadataFactState.No,
                 source.HasOperatorInBindingHierarchy(type, "op_Equality"));
@@ -188,6 +190,15 @@ public class ReferenceEqualityMetadataFactsTests
             null,
             definitionName,
             v1);
+        var externalV2 = TypeRef.DefinitionWithResolution(
+            "Lib",
+            "N",
+            "C",
+            ValueTypeHint.ReferenceType,
+            MetadataFactState.Unknown,
+            null,
+            definitionName,
+            v2);
 
         Assert.False(CrossAssemblyTypeResolver.SameSignatureType(
             localDefinition,
@@ -205,7 +216,94 @@ public class ReferenceEqualityMetadataFactsTests
             allowCoreLibraryAliases: false,
             resolvedLocalAssembly: "Lib",
             resolvedLocalAssemblyIdentity: v2));
+        Assert.True(CrossAssemblyTypeResolver.SameSignatureType(
+            localDefinition,
+            externalV1,
+            allowCoreLibraryAliases: false,
+            resolvedLocalAssembly: "Lib",
+            resolvedLocalAssemblyIdentity: v2,
+            resolvedLocalBindingIdentity: v1));
+        Assert.False(CrossAssemblyTypeResolver.SameSignatureType(
+            localDefinition,
+            externalV1,
+            allowCoreLibraryAliases: false,
+            resolvedLocalAssembly: "Lib",
+            resolvedLocalAssemblyIdentity: v2,
+            resolvedLocalBindingIdentity: v2));
+        Assert.False(CrossAssemblyTypeResolver.SameSignatureType(
+            externalV2,
+            externalV1,
+            allowCoreLibraryAliases: false,
+            resolvedLocalAssembly: "Lib",
+            resolvedLocalAssemblyIdentity: v2,
+            resolvedLocalBindingIdentity: v1));
     }
+
+    [Fact]
+    public void LocalFunctionTypeFactMerge_PreservesExactIdentityAmbiguity()
+    {
+        var definitionName = MetadataTypeDefinitionName.Create("N", ["E"]) switch
+        {
+            MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+            _ => throw new InvalidOperationException("E metadata name is invalid"),
+        };
+        var v1 = new AssemblyReferenceIdentity("Twin", new Version(1, 0, 0, 0), null, null);
+        var v2 = v1 with { Version = new Version(2, 0, 0, 0) };
+        var externalEnum = TypeRef.DefinitionWithResolution(
+            "Twin",
+            "N",
+            "E",
+            ValueTypeHint.ValueType,
+            MetadataFactState.Unknown,
+            null,
+            definitionName,
+            v1);
+        var localClass = TypeRef.DefinitionWithResolution(
+            "Twin",
+            "N",
+            "E",
+            ValueTypeHint.ReferenceType,
+            MetadataFactState.Unknown,
+            null,
+            definitionName,
+            v2);
+        var host = SyntheticFunction();
+        host.TypeShapes = new Dictionary<TypeRef, TypeShape> { [localClass] = TypeShape.Reference };
+        host.TypeFactIdentities = new Dictionary<TypeRef, TypeDefinitionIdentity>
+        {
+            [localClass] = TypeDefinitionIdentity.Create(localClass)!.Value,
+        };
+        var body = SyntheticFunction();
+        body.TypeShapes = new Dictionary<TypeRef, TypeShape> { [externalEnum] = TypeShape.Enum };
+        body.TypeFactIdentities = new Dictionary<TypeRef, TypeDefinitionIdentity>
+        {
+            [externalEnum] = TypeDefinitionIdentity.Create(externalEnum)!.Value,
+        };
+        body.EnumMembers = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>
+        {
+            [externalEnum] = new Dictionary<long, string> { [0] = "Zero" },
+        };
+        body.InterfaceTypes = ImmutableHashSet.Create(externalEnum);
+
+        LocalFunctionRaisingPass.MergeTypeFacts(host, body);
+
+        Assert.Contains(externalEnum, host.AmbiguousTypeFacts);
+        Assert.Equal(TypeShape.Unknown, host.TypeShapes[externalEnum]);
+        Assert.DoesNotContain(externalEnum, host.EnumMembers.Keys);
+        Assert.DoesNotContain(externalEnum, host.InterfaceTypes);
+    }
+
+    static IrFunction SyntheticFunction()
+        => new(
+            "M",
+            TypeRef.Definition("Tests", "Tests", "Host"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            new BlockContainer());
 
     static void AssertOrder(
         string consumer,
@@ -560,11 +658,14 @@ public class ReferenceEqualityMetadataFactsTests
             metadata.GetOrAddString("Cases"),
             objectType,
             MetadataTokens.FieldDefinitionHandle(1),
-            MetadataTokens.MethodDefinitionHandle(2));
+            MetadataTokens.MethodDefinitionHandle(3));
 
         var methodBodies = new BlobBuilder();
         var bodyEncoder = new MethodBodyStreamEncoder(methodBodies);
-        int compareBody = AddCeqBody(bodyEncoder);
+        int constructorBody = AddReturnBody(bodyEncoder);
+        int compareBody = AddNewObjectCeqBody(
+            bodyEncoder,
+            MetadataTokens.MethodDefinitionHandle(1));
         var operatorParameters = metadata.AddParameter(
             ParameterAttributes.None,
             metadata.GetOrAddString("left"),
@@ -581,6 +682,20 @@ public class ReferenceEqualityMetadataFactsTests
             ParameterAttributes.None,
             metadata.GetOrAddString("right"),
             sequenceNumber: 2);
+        var constructorSignature = new BlobBuilder();
+        constructorSignature.WriteByte(0x20);
+        constructorSignature.WriteCompressedInteger(0);
+        constructorSignature.WriteByte(0x01);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature),
+            constructorBody,
+            MetadataTokens.ParameterHandle(1));
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
             MethodImplAttributes.IL,
@@ -597,6 +712,30 @@ public class ReferenceEqualityMetadataFactsTests
             compareParameters);
 
         return Serialize(metadata, methodBodies);
+    }
+
+    static int AddReturnBody(MethodBodyStreamEncoder encoder)
+    {
+        var body = new BlobBuilder();
+        var instructions = new InstructionEncoder(body, new ControlFlowBuilder());
+        instructions.OpCode(ILOpCode.Ret);
+        return encoder.AddMethodBody(instructions, maxStack: 0);
+    }
+
+    static int AddNewObjectCeqBody(
+        MethodBodyStreamEncoder encoder,
+        MethodDefinitionHandle constructor)
+    {
+        var body = new BlobBuilder();
+        var instructions = new InstructionEncoder(body, new ControlFlowBuilder());
+        instructions.OpCode(ILOpCode.Newobj);
+        instructions.Token(constructor);
+        instructions.OpCode(ILOpCode.Pop);
+        instructions.OpCode(ILOpCode.Ldarg_0);
+        instructions.OpCode(ILOpCode.Ldarg_1);
+        instructions.OpCode(ILOpCode.Ceq);
+        instructions.OpCode(ILOpCode.Ret);
+        return encoder.AddMethodBody(instructions, maxStack: 2);
     }
 
     static byte[] BuildMalformedDynamicField()

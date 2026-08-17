@@ -1785,6 +1785,7 @@ public sealed partial class CSharpPrinter
             EnumMembers = _function.EnumMembers,
             EnumUnderlyingTypes = _function.EnumUnderlyingTypes,
             UnionTypes = _function.UnionTypes,
+            InterfaceTypes = _function.InterfaceTypes,
         };
 
         string pad = new(' ', indent * 4);

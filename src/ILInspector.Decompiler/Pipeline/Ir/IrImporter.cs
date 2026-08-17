@@ -640,6 +640,8 @@ public static class IrImporter
         var inequalityOperatorFreeTypes = ImmutableHashSet.CreateBuilder<TypeDefinitionIdentity>();
         var operatorFactsConsidered = new HashSet<TypeDefinitionIdentity>();
         var classifications = new Dictionary<TypeDefinitionIdentity, (TypeShapeKind Kind, TypeShape Shape)>();
+        var ordinaryTypeOwners = new Dictionary<TypeRef, TypeDefinitionIdentity>();
+        var ambiguousOrdinaryTypes = new HashSet<TypeRef>();
 
         void Consider(TypeRef? type)
         {
@@ -684,8 +686,30 @@ public static class IrImporter
                 if (source.HasOperatorInBindingHierarchy(type, "op_Inequality") == MetadataFactState.No)
                     inequalityOperatorFreeTypes.Add(identity);
             }
-            if (!shapes.TryAdd(type, shape))
+            if (ambiguousOrdinaryTypes.Contains(type))
                 return;
+            if (ordinaryTypeOwners.TryGetValue(type, out var owner))
+            {
+                if (owner == identity)
+                    return;
+
+                ambiguousOrdinaryTypes.Add(type);
+                shapes[type] = TypeShape.Unknown;
+                enums?.Remove(type);
+                enumUnderlyingTypes?.Remove(type);
+                foreach (var candidate in collectionInitializerTypes
+                    .Where(candidate => NamedDefinition(candidate).Equals(type))
+                    .ToArray())
+                {
+                    collectionInitializerTypes.Remove(candidate);
+                }
+                unionTypes.Remove(type);
+                byRefLikeTypes.Remove(type);
+                interfaceTypes.Remove(type);
+                return;
+            }
+            ordinaryTypeOwners.Add(type, identity);
+            shapes.Add(type, shape);
             // Interface-ness is folded into TypeShape.Reference above, but the
             // printer needs it apart from a class to re-insert the ((I)this) cast
             // an implicit class→interface upcast erases. Record the confirmed
@@ -716,9 +740,14 @@ public static class IrImporter
                 type = element;
             if (type is not { Kind: TypeRefKind.Definition or TypeRefKind.GenericInstance })
                 return;
+            if (ambiguousOrdinaryTypes.Contains(NamedDefinition(type)))
+                return;
             if (source.SupportsCollectionInitializer(type) == MetadataFactState.Yes)
                 collectionInitializerTypes.Add(type);
         }
+
+        static TypeRef NamedDefinition(TypeRef type)
+            => type.Kind == TypeRefKind.GenericInstance ? type.ElementType! : type;
 
         foreach (var node in function.Descendants)
         {
@@ -740,6 +769,10 @@ public static class IrImporter
 
         if (shapes.Count > 0)
             function.TypeShapes = shapes;
+        if (ordinaryTypeOwners.Count > 0)
+            function.TypeFactIdentities = ordinaryTypeOwners;
+        if (ambiguousOrdinaryTypes.Count > 0)
+            function.AmbiguousTypeFacts = ambiguousOrdinaryTypes;
         if (enums is not null)
             function.EnumMembers = enums;
         if (enumUnderlyingTypes is not null)

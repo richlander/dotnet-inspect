@@ -23,6 +23,19 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void VersionDriftedSiblingAssembly_RecoversParameterRefKinds()
+    {
+        using var fixture = CrossAssemblyFixture.Create(versionDrift: true);
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        AssertCallRefKind(source, nameof(CrossAssemblyFixtureMethods.UseExternalOut), "WriteExternalOut", ArgumentRefKind.Out);
+        AssertCallRefKind(source, nameof(CrossAssemblyFixtureMethods.UseExternalRef), "MutateExternal", ArgumentRefKind.Ref);
+        Assert.Contains(
+            "ByRefLibrary.WriteExternalOut(out V_0);",
+            Print(source, CrossAssemblyFixtureMethods.UseExternalOut));
+    }
+
+    [Fact]
     public void PlatformForwardedByRefMemberRef_RecoversParameterRefKinds()
     {
         using var fixture = CrossAssemblyFixture.Create();
@@ -347,16 +360,16 @@ public class CrossAssemblyMethodFactsTests
 
         public string ConsumerPath { get; }
 
-        public static CrossAssemblyFixture Create()
+        public static CrossAssemblyFixture Create(bool versionDrift = false)
         {
             var directory = Directory.CreateTempSubdirectory("dotnet-inspect-method-facts-").FullName;
             try
             {
-                string libraryPath = Emit(
-                    directory,
-                    "ExternalFacts.Library",
-                    """
+                const string librarySource = """
+                    using System.Reflection;
                     using System.Runtime.CompilerServices;
+
+                    [assembly: AssemblyVersion("1.0.0.0")]
 
                     namespace ExternalFacts;
 
@@ -365,6 +378,8 @@ public class CrossAssemblyMethodFactsTests
                         public static void WriteOut(out int value) => value = 42;
                         public static void Mutate(ref int value) => value++;
                         public static void Read(in int value) { _ = value; }
+                        public static void WriteExternalOut(out ExternalReference value) => value = new();
+                        public static void MutateExternal(ref ExternalReference value) => value = new();
                     }
 
                     public delegate int ExternalDelegate(int value);
@@ -452,7 +467,11 @@ public class CrossAssemblyMethodFactsTests
                     {
                         private int _element0;
                     }
-                    """);
+                    """;
+                string libraryPath = Emit(
+                    directory,
+                    "ExternalFacts.Library",
+                    librarySource);
                 string consumerPath = Emit(
                     directory,
                     "ExternalFacts.Consumer",
@@ -478,6 +497,18 @@ public class CrossAssemblyMethodFactsTests
                         {
                             int value = 1;
                             ByRefLibrary.Read(in value);
+                        }
+
+                        public static ExternalReference UseExternalOut()
+                        {
+                            ByRefLibrary.WriteExternalOut(out var value);
+                            return value;
+                        }
+
+                        public static ExternalReference UseExternalRef(ExternalReference value)
+                        {
+                            ByRefLibrary.MutateExternal(ref value);
+                            return value;
                         }
 
                         public static int UseGenerated(int value)
@@ -558,6 +589,16 @@ public class CrossAssemblyMethodFactsTests
                     }
                     """,
                     [MetadataReference.CreateFromFile(libraryPath)]);
+                if (versionDrift)
+                {
+                    Emit(
+                        directory,
+                        "ExternalFacts.Library",
+                        librarySource.Replace(
+                            """AssemblyVersion("1.0.0.0")""",
+                            """AssemblyVersion("2.0.0.0")""",
+                            StringComparison.Ordinal));
+                }
                 return new CrossAssemblyFixture(directory, consumerPath);
             }
             catch
@@ -600,6 +641,8 @@ public class CrossAssemblyMethodFactsTests
         public const string UseOut = nameof(UseOut);
         public const string UseRef = nameof(UseRef);
         public const string UseIn = nameof(UseIn);
+        public const string UseExternalOut = nameof(UseExternalOut);
+        public const string UseExternalRef = nameof(UseExternalRef);
         public const string UseGenerated = nameof(UseGenerated);
         public const string UseExternalDelegate = nameof(UseExternalDelegate);
         public const string UseOperatorLikeAddition = nameof(UseOperatorLikeAddition);

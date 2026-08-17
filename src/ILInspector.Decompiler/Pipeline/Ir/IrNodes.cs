@@ -647,6 +647,12 @@ public sealed class IrFunction : IrNode
     public IReadOnlyDictionary<TypeRef, TypeShape> TypeShapes { get; set; }
         = ImmutableDictionary<TypeRef, TypeShape>.Empty;
 
+    internal IReadOnlyDictionary<TypeRef, TypeDefinitionIdentity> TypeFactIdentities { get; set; }
+        = ImmutableDictionary<TypeRef, TypeDefinitionIdentity>.Empty;
+
+    internal IReadOnlySet<TypeRef> AmbiguousTypeFacts { get; set; }
+        = ImmutableHashSet<TypeRef>.Empty;
+
     /// <summary>
     /// Named members (value → name) of the same-assembly enum types this
     /// function references, materialized at import. Lets the printer render an

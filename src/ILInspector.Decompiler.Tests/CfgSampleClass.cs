@@ -5063,6 +5063,21 @@ public class CfgSampleClass
         }
     }
 
+    // The local-function body is the only place that references CfgDimFace, and
+    // its own local forces a nested printer scope. The interface fact must survive
+    // both the body-to-host merge and the host-to-nested-printer copy so the boxed
+    // interface receiver is restored as ((CfgDimFace)consumer), not omitted.
+    public static int InterfaceBoxInLocalFunctionWithLocal(CfgDimStructConsumer consumer, int x)
+    {
+        return Call(consumer, x);
+
+        static int Call(CfgDimStructConsumer consumer, int value)
+        {
+            int copy = value;
+            return copy + ((CfgDimFace)consumer).Value();
+        }
+    }
+
     // #2983 (inline path): a static local function with no locals or surviving
     // stack slots prints INLINE through the enclosing function's scope, not a
     // reconstructed one. `CfgPriority` is referenced only inside the local
@@ -5357,6 +5372,13 @@ public sealed class JoinTypeProvider
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
+
+public interface CfgDimFace
+{
+    int Value() => 7;
+}
+
+public readonly struct CfgDimStructConsumer : CfgDimFace { }
 
 public enum CfgTerminalSwitchKind
 {
