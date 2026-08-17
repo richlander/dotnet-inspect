@@ -560,7 +560,7 @@ The existing NuGetFetch shape is a useful base:
 - it source-scopes candidates and payload provenance; and
 - its v3 primitives already own service-index, version, and package requests.
 
-The first implementation slice establishes the typed source identity,
+The first two implementation slices establish the typed source identity,
 credential-free descriptor, capability, runtime-client, and factory contracts
 in NuGetFetch. It adapts the existing desktop `PackageSource` input to a NuGet
 v3 client without migrating current consumers, and centralizes canonical HTTP
@@ -569,33 +569,45 @@ Portable descriptors reject user information, queries, and fragments. The
 desktop compatibility adapter keeps established query-bearing signed service
 indexes as runtime-only configuration rather than admitting them into a
 portable descriptor.
-Gallery and local-folder descriptors are modeled but intentionally have no
-runtime client yet. The v3 compatibility adapter initially exposes version and
-package-payload operations only, and validates package coordinates before any
-service-index or payload request. Search remains on the existing package-layer
-service-index discovery path until that resource discovery moves into the typed
-client; the adapter does not restore the retired NuGet.org-only search shortcut.
+The Gallery descriptor creates a runtime client that uses the known search,
+flat-container, package, and symbol CDN routes without requesting the NuGet.org
+service index. Its initial version-enumeration result is the complete raw
+flat-container list. The current string-only result cannot carry per-version
+Gallery listing state, so the registration join and listing-aware candidate
+contract remain follow-up work; callers must not write this result into a
+listing-aware cache. No existing package-resolution consumer has moved to this
+client yet.
+
+The v3 compatibility adapter initially exposes version and package-payload
+operations only, and validates package coordinates before any service-index or
+payload request. Search remains on the existing package-layer service-index
+discovery path until that resource discovery moves into the typed client; the
+adapter does not restore the retired NuGet.org-only search shortcut.
+The local-folder descriptor remains modeled without a runtime client.
 `PackageSourceClientTests.GalleryAndCanonicalV3ShareProducerIdentity`,
 `HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`,
 `LegacyPackageSourceCreatesV3Client`,
+`GalleryClientUsesKnownEndpointsWithoutServiceIndex`,
+`GalleryEscapesUnicodePackageIdsAsOneSegment`,
+`GalleryRequestsUseLibraryDeadlines`,
 `CanonicalNuGetOrgV3DoesNotReintroduceSearchShortcut`, and
-`LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate this first boundary.
+`LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate these boundaries.
 The existing `NuGetSearchSourcesTests` continue to gate the package-layer
 service-index search behavior and credential-scope canonicalization.
 
-The remaining structural problem is that `PackageSource` and `NuGetClient`
-largely equate a source with a v3 service-index URL. The implementation should:
+The remaining structural problem is that existing package-resolution consumers
+still largely equate a source with a v3 service-index URL. The implementation
+should:
 
-1. Split source descriptors from runtime source clients.
-2. Replace URL-based NuGet.org branching with an explicit Gallery source kind.
-3. Move URL construction into the owning source clients.
-4. Return common candidate, payload, symbol, and failure contracts.
-5. Thread validated timeout policy through every client.
-6. Let desktop and browser hosts choose transport implementations without
+1. Move v3 resource discovery and URL construction fully into its source client.
+2. Return common typed candidate, listing, payload, symbol, and failure contracts.
+3. Migrate package resolution from direct `PackageSource`/`NuGetClient` use to
+   the source-client boundary.
+4. Let desktop and browser hosts choose transport implementations without
    changing producer identity above the acquisition layer.
-7. Replace the browser's singleton `default versus mirror` state with a source
+5. Replace the browser's singleton `default versus mirror` state with a source
    registry and selected source set.
-8. Replace boolean-only NuGet.org listing state with a typed
+6. Replace boolean-only NuGet.org listing state with a typed
    `listed`/`unlisted`/`unknown`/`not-applicable` result so partial enumeration
    cannot look authoritative.
 

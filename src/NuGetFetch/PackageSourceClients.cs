@@ -351,6 +351,14 @@ public static class PackageSourceClientFactory
                     client,
                     options,
                     credential),
+            PackageSourceKind.NuGetGallery when credential is null =>
+                new NuGetGalleryPackageSourceClient(
+                    client,
+                    options),
+            PackageSourceKind.NuGetGallery =>
+                throw new ArgumentException(
+                    "The built-in NuGet Gallery source does not accept credentials.",
+                    nameof(credential)),
             _ => throw new PackageSourceClientUnavailableException(
                 descriptor.Kind),
         };
