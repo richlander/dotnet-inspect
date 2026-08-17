@@ -6283,7 +6283,13 @@ public class ReturnToSenderPrototypeTests
             // ordinal position of same-name members.
             var result = Assert.Single(ReturnToSender.CompileBackTargets(
                 assemblyPath,
-                [new ReturnToSender.RequestedTarget("Class1", "Pick", Overload: 0, Signature: "`0(string)")]));
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "Class1",
+                        "Pick",
+                        Overload: 0,
+                        Signature: CanonicalMethodSignature("void Pick(string value);")),
+                ]));
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Equal(1, result.Plan.TargetMethod.Overload);
@@ -6297,11 +6303,39 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_LegacySignatureCannotOverrideOrdinal()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Pick(int value) => value + 1;
+
+                public int Pick(string value) => value.Length;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Pick", Overload: 0, Signature: "`0(string)")]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(0, result.Plan.TargetMethod.Overload);
+            Assert.Contains("public int Pick(int value)", result.Source);
+            Assert.DoesNotContain("public int Pick(string value)", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_MatchesSourceBySignatureWhenDeclarationOrderDiffers()
     {
         // The compiled assembly declares Pick(int) before Pick(string); the source slice
         // reverses that order. Ordinal correlation would pair Pick(int)'s decompiled body
-        // with Pick(string)'s source (a false ValidDifferent); the normalized signature
+        // with Pick(string)'s source (a false ValidDifferent); the canonical shape
         // pairs them correctly.
         var assemblyPath = CompileFixture("""
             public class Class1
@@ -6326,7 +6360,13 @@ public class ReturnToSenderPrototypeTests
         {
             var withSignature = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
                 assemblyPath,
-                [new ReturnToSender.RequestedTarget("Class1", "Pick", Overload: 0, Signature: "`0(int)")],
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "Class1",
+                        "Pick",
+                        Overload: 0,
+                        Signature: CanonicalMethodSignature("void Pick(int value);")),
+                ],
                 [sourcePath]));
 
             Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, withSignature.Outcome);
@@ -6352,11 +6392,174 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void DiscoverTargets_DropsSignatureWhenNormalizationIsAmbiguous()
+    public void SourceSignatureCorrespondence_RefusesFunctionPointerTupleCrossMatch()
     {
-        // A user type named Nullable<T> normalizes to the same `int?` token as
-        // System.Nullable<int> in metadata. The round-trip guard must drop that
-        // ambiguous signature so correlation cannot mis-select the sibling overload.
+        const string source = """
+            public unsafe class C
+            {
+                public static void M(
+                    delegate* unmanaged[SuppressGCTransition]<
+                        (int, int, int, int, int, int, int, (short, byte)),
+                        void> callback) { }
+
+                public static void M(
+                    delegate* unmanaged<
+                        global::System.ValueTuple<
+                            int, int, int, int, int, int, int, (short, byte)>,
+                        void> callback) { }
+            }
+            """;
+        string assemblyPath = CompileFixture(source, allowUnsafe: true);
+        string sourcePath = WriteTempSource(
+            "FunctionPointerTupleCollision.cs",
+            source,
+            out string sourceDirectory);
+        try
+        {
+            ReturnToSender.RequestedTarget target =
+                ReturnToSenderSourceProbe.DiscoverTargets(assemblyPath, int.MaxValue)
+                    .Select(row => row.Target)
+                    .Single(row => row is { Type: "C", Method: "M", Overload: 0 });
+            Assert.NotNull(target.Signature);
+            ReturnToSenderSourceIndex index =
+                ReturnToSenderSourceIndex.TryCreate([sourcePath])
+                ?? throw new InvalidOperationException("Expected a source index.");
+
+            MemberSignatureCorrespondence<ReturnToSenderSourceMember> result =
+                index.ResolveBySignature(target);
+
+            Assert.Equal(MemberSignatureCorrespondenceKind.Unavailable, result.Kind);
+            Assert.Contains(
+                "cannot be represented consistently",
+                result.UnavailableReason,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void SourceSignatureCorrespondence_ReportsUnavailableCandidate()
+    {
+        string sourcePath = WriteTempSource(
+            "UnavailableSignature.cs",
+            """
+            public class Widget { }
+
+            public class Class1
+            {
+                public int Pick(int value) => value;
+                public int Pick(Widget value) => 0;
+            }
+            """,
+            out string sourceDirectory);
+        try
+        {
+            ReturnToSenderSourceIndex index =
+                ReturnToSenderSourceIndex.TryCreate([sourcePath])
+                ?? throw new InvalidOperationException("Expected a source index.");
+
+            MemberSignatureCorrespondence<ReturnToSenderSourceMember> result =
+                index.ResolveBySignature(
+                    new ReturnToSender.RequestedTarget(
+                        "Class1",
+                        "Pick",
+                        Overload: 0,
+                        Signature: CanonicalMethodSignature("void Pick(int value);")));
+
+            Assert.Equal(MemberSignatureCorrespondenceKind.Unavailable, result.Kind);
+            Assert.Contains(
+                "not globally qualified",
+                result.UnavailableReason,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(sourceDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SourceSignatureCorrespondence_ReportsAmbiguousCandidates()
+    {
+        string sourcePath = WriteTempSource(
+            "AmbiguousSignature.cs",
+            """
+            public class Class1
+            {
+                public int Pick(int value) => value;
+                public int Pick(int other) => other;
+            }
+            """,
+            out string sourceDirectory);
+        try
+        {
+            ReturnToSenderSourceIndex index =
+                ReturnToSenderSourceIndex.TryCreate([sourcePath])
+                ?? throw new InvalidOperationException("Expected a source index.");
+
+            MemberSignatureCorrespondence<ReturnToSenderSourceMember> result =
+                index.ResolveBySignature(
+                    new ReturnToSender.RequestedTarget(
+                        "Class1",
+                        "Pick",
+                        Overload: 0,
+                        Signature: CanonicalMethodSignature("void Pick(int value);")));
+
+            Assert.Equal(MemberSignatureCorrespondenceKind.Ambiguous, result.Kind);
+            Assert.Equal(2, result.Candidates.Count);
+        }
+        finally
+        {
+            Directory.Delete(sourceDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SourceSignatureCorrespondence_RejectsLegacyCandidateSelection()
+    {
+        string sourcePath = WriteTempSource(
+            "LegacySignature.cs",
+            """
+            public class Class1
+            {
+                public int Pick(int value) => value;
+                public int Pick(string value) => value.Length;
+            }
+            """,
+            out string sourceDirectory);
+        try
+        {
+            ReturnToSenderSourceIndex index =
+                ReturnToSenderSourceIndex.TryCreate([sourcePath])
+                ?? throw new InvalidOperationException("Expected a source index.");
+
+            MemberSignatureCorrespondence<ReturnToSenderSourceMember> result =
+                index.ResolveBySignature(
+                    new ReturnToSender.RequestedTarget(
+                        "Class1",
+                        "Pick",
+                        Overload: 0,
+                        Signature: "`0(int)"));
+
+            Assert.Equal(MemberSignatureCorrespondenceKind.Unavailable, result.Kind);
+            Assert.Contains("canonical", result.UnavailableReason, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(sourceDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DiscoverTargets_DistinguishesUserNullableFromSystemNullable()
+    {
+        // The structural metadata adapter keeps a user type named Nullable<T>
+        // distinct from System.Nullable<T>; the old simple-name projection collapsed
+        // these shapes and had to discard both signatures.
         var assemblyPath = CompileFixture("""
             namespace Sample { public readonly struct Nullable<T> { } }
 
@@ -6374,10 +6577,14 @@ public class ReturnToSenderPrototypeTests
                 .ToArray();
 
             Assert.Equal(2, pickTargets.Length);
-            Assert.All(pickTargets, target => Assert.Null(target.Target.Signature));
+            Assert.All(pickTargets, target => Assert.NotNull(target.Target.Signature));
+            Assert.NotEqual(
+                pickTargets[0].Target.Signature,
+                pickTargets[1].Target.Signature);
 
-            // With the signature dropped, correlation falls back to the ordinal and each
-            // overload still pairs with its own source body (no false ValidDifferent).
+            // The ordinary source spelling Sample.Nullable<int> is unresolved without
+            // semantic context and therefore falls back to ordinal. The exact int?
+            // shape still correlates structurally.
             var results = ReturnToSenderSourceProbe.EvaluateTargets(
                 assemblyPath,
                 pickTargets.Select(target => target.Target).ToArray(),
@@ -6699,8 +6906,9 @@ public class ReturnToSenderPrototypeTests
             var reader = pe.GetMetadataReader();
             var (typeHandle, methodHandle) = FindMethod(reader, "Class1", "M");
             var type = reader.GetTypeDefinition(typeHandle);
-            string signature = SignatureIdentity.ForMetadataMethod(reader, type, methodHandle)
-                ?? throw new InvalidOperationException("Expected a method signature.");
+            string signature = MetadataMemberSignatureShape.Create(reader, methodHandle).Shape is { } shape
+                ? MemberSignatureShapeCodec.Encode(shape)
+                : throw new InvalidOperationException("Expected a method signature.");
             var (assemblyName, assemblyVersion) = AuthoredSourceHarvest.ReadAssemblyIdentity(assemblyPath);
             var record = new AuthoredSourceHarvest.CorpusRecord(
                 assemblyName,
@@ -6897,6 +7105,16 @@ public class ReturnToSenderPrototypeTests
         return path;
     }
 
+    static string CanonicalMethodSignature(string declaration)
+    {
+        MemberSignatureShapeResult result = SourceMemberSignatureShape.Create(
+            declaration,
+            SourceMemberSignatureKind.Method);
+        return result.Shape is { } shape
+            ? MemberSignatureShapeCodec.Encode(shape)
+            : throw new InvalidOperationException(result.UnavailableReason);
+    }
+
     static void TryDeleteDirectory(string directory)
     {
         try
@@ -6928,7 +7146,9 @@ public class ReturnToSenderPrototypeTests
         var (typeHandle, methodHandle) = FindMethod(reader, "Class1", methodName, overload);
         var moduleVersionId = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         var typeDefinition = reader.GetTypeDefinition(typeHandle);
-        string? signature = SignatureIdentity.ForMetadataMethod(reader, typeDefinition, methodHandle);
+        string? signature = MetadataMemberSignatureShape.Create(reader, methodHandle).Shape is { } shape
+            ? MemberSignatureShapeCodec.Encode(shape)
+            : null;
         if (signature is not null
             && !ReturnToSender.ResolvesUniquelyBySignature(
                 reader,

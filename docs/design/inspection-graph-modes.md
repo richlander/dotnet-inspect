@@ -6,10 +6,29 @@ workspace scope, and output format.
 
 Tracking: [#4133](https://github.com/richlander/dotnet-inspect/issues/4133).
 
-The current product has a member-seeded call graph. Type-, assembly-, and
-package-seeded inspection graphs, peer seeds, and induced input-set graphs are
-design targets and remain unverified until an implementation names the gates
-below.
+The current L1 product has an explicit `InspectionGraphModeRequest` for
+single-seed, peer-seed, and induced-set documents. The member call adapter
+declares its existing focus member as one primary seed. Package-boundary and
+Integration projections accept type, assembly, and realized-package seeds over
+the owner-issued subjects already present in their graph; a package binds to a
+node or group according to the selected package lens. The Integration query
+also binds mixed peer seeds without selecting a primary and declares its
+request-free workspace projection as an induced set over workspace
+participants.
+
+This first executable mode slice binds request intent to graph subjects without
+changing producer demand or topology. Request-driven neighborhood construction,
+relationship-specific admission, traversal bounds, induced explicit-subject
+sets, and command/presentation surfaces remain design targets.
+
+`CallAdapter_PreservesTypedTopologyAndDisclosesEvidenceGap`,
+`PackageSeed_BindsToNodeOrGroupSelectedByLens`,
+`Execute_BindsTypeSeedToExactNode`,
+`Execute_BindsAssemblySeedToExactNode`,
+`Execute_BindsPackageSeedToDetailedLensGroup`,
+`Execute_BindsPeerSeedsWithoutChoosingPrimary`, and
+`Execute_DefaultsToWorkspaceInducedSetWithoutSeeds` gate the implemented
+contract.
 
 | Mode | Focus | Input | Primary question |
 | --- | --- | --- | --- |
@@ -190,11 +209,17 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
 
 ## Delivery
 
-1. Preserve and name the current member-seeded call behavior.
-2. Add generic typed seed roles to the inspection-graph request and document.
-3. Support type and realized-package seeds with descriptor-owned admission.
-4. Add peer-seed requests without choosing a hero node.
-5. Add induced-set requests with explicit admission rules and bounds.
+1. **Implemented:** preserve and name the current member-seeded call behavior.
+2. **Implemented:** add generic typed seed roles to the inspection-graph mode
+   request and document.
+3. **Partially implemented:** bind type, assembly, and realized-package seeds
+   to existing Integration/package graph subjects. Descriptor-owned producer
+   admission remains.
+4. **Partially implemented:** bind peer-seed requests without choosing a hero
+   node. Connecting-neighborhood construction remains.
+5. **Partially implemented:** declare workspace-participant and
+   document-subject induced-set rules. Explicit-subject admission and bounds
+   remain.
 
 ## Required gates
 

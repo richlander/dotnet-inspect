@@ -78,7 +78,7 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition method);
 }
 
-// Method-local output is merged by LibraryBodyAnalysisBuilder in metadata
+// Method-local output is merged by LibraryBodyAnalysisAccumulator in metadata
 // order. BuildCallTree_PreservesRecoverableBodyAnalysisFailure gates the
 // partial call/evidence publication and diagnostic behavior.
 internal sealed class LibraryMethodAnalysisResult
@@ -104,8 +104,8 @@ internal sealed class LibraryMethodAnalysisResult
 
 /// <summary>
 /// Runs the ordered topic producers for one method while the assembly builder
-/// retains scheduling, primary-image lifetime, and result aggregation. The
-/// primary metadata resolver owns metadata-dependent judgments and adapters.
+/// retains scheduling and primary-image lifetime. The primary metadata
+/// resolver owns metadata-dependent judgments and adapters.
 /// </summary>
 internal sealed class LibraryMethodAnalysisRunner(
     ILibraryMethodAnalysisInfrastructure infrastructure)

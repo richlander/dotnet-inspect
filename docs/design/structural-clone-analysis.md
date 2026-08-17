@@ -1,13 +1,13 @@
 # Structural Clone Analysis
 
-`StructuralCloneAnalysis` is the Analysis-owned comparator for normalized method
-body structure. The first slice answers one bounded question: are two IL method
-bodies in the same retained PE image exactly equal under the documented
-normalization?
+`StructuralCloneAnalysis` is the Analysis-owned comparator for normalized
+method body structure. It answers one bounded pairwise question: are two IL
+method bodies in the same retained PE image exact or separated by one
+documented normalized structural edit?
 
-This is an internal product API. The second slice adds bounded exact discovery
-over a caller-supplied same-PE population. It does not expose a public CLI
-command.
+This is an internal product API. Bounded discovery over a caller-supplied
+same-PE population remains exact-only. The product API does not expose a public
+CLI command.
 
 ## Result contract
 
@@ -15,14 +15,16 @@ Execution disposition and measured relationship are separate:
 
 | Disposition | Relation |
 | --- | --- |
-| `Completed` | `Exact`, `Different`, or a future `Near` |
+| `Completed` | `Exact`, `Near`, or `Different` |
 | `Unsupported` | None |
 | `LimitReached` | None |
 | `Failed` | None |
 
 Every non-completed result carries typed blockers. Every result carries a
 bounded-work receipt. An exact result additionally carries product-owned block
-and local correspondence.
+and local correspondence. A near result carries every complete restoring
+alignment; a completed different result and an incomplete near search retain
+the near-search receipt when alignment was attempted.
 
 The comparator is A-vs-A: both `MethodDefinitionHandle` values belong to one
 `PEReader`. Metadata, string, and signature operands therefore retain their
@@ -90,6 +92,76 @@ corresponding fail-closed metadata boundaries.
 
 `StructuralCloneAnalysisTests` gates this policy with compiler-produced and
 synthetic close-positive/close-negative cases.
+
+## Bounded near alignment
+
+`Near` means exactly one normalized structural edit whose unchanged remainder
+the existing exact comparator proves `Exact`. Near alignment does not implement
+a second graph verifier or a general graph-edit distance.
+
+The bounded edit families are:
+
+- one changed, inserted, or removed normalized operation;
+- one changed, inserted, or removed directed CFG edge;
+- one inserted or removed non-entry block, including its operations and
+  incident edges.
+
+A changed operation is tested at the same ordinal in potentially corresponding
+blocks, and the removed normalized values must differ under the restoring local
+correspondence. A changed edge retains its role and changes its target. An
+insertion or removal is tested by removing one candidate from the larger side.
+A block edit removes one non-entry block and translates the exact
+correspondence back to the original block coordinates. Typed evidence retains
+the affected blocks and normalized operation or edge values. Those coordinates
+are same-comparison locations, not global identities.
+
+Changed operation and edge candidates constrain the exact witness itself: one
+joint witness must map the two edited source blocks, and must not map a changed
+local operand or edge target as unchanged. Refinement-class membership alone is
+not proof of that mapping; correspondence classes remain conservative
+over-approximations whose members are not independently selectable.
+
+Candidate enumeration indexes masked block shapes and body-level block
+multisets, so only removals that can preserve necessary exact invariants reach
+the verifier. Operation order, entry/exit shape, local types, local-use sites,
+and incoming and outgoing edge-role multisets participate; raw local slots and
+CFG target identities do not. Removing an operation incrementally rewrites the
+use-site keys for locals used in that block; removing an edge rewrites local
+contexts in its source and target blocks. Per-block, per-local profiles derive
+these rewrites from aggregate use counts, sums, and squared sums without
+rescanning the block for each candidate. The index uses aggregate hashes. A
+collision can add exact comparisons but cannot establish or suppress a
+relationship.
+
+Enumeration remains exhaustive within explicit candidate-index-work,
+candidate, exact-verification-work, alternative, and block-affected-element
+limits. Index construction and lookup consume the index budget; each attempted
+exact-restoring candidate charges its body-rebuild work before it runs, every
+exact-refinement round charges its structural element work before rebuilding
+keys, and each witness-search step consumes the remaining aggregate
+verification budget. The alignment receipt reports both index and verification
+charges. Every distinct restoring alternative is returned in deterministic
+order. Multiple alternatives, or ambiguity in any restoring exact
+correspondence, makes the alignment `Ambiguous`; the comparator does not choose
+a preferred edit by layout or search order. If any limit prevents complete
+enumeration, the result is `LimitReached`, never partial `Near` or unproven
+`Different`.
+
+Signature shape, `InitLocals`, and the local-type multiset remain hard
+discriminators. Multi-edit contrasts remain `Different`. Exact results do not
+carry alignment, and exact discovery calls the exact-only comparison path, so
+adding near cases cannot merge discovery clusters.
+
+`Compare_CompilerProducedOneOperationChanges_AreNear`,
+`Compare_ChangedOperationsRequireOneJointBlockWitness`,
+`Compare_ChangedLocalUseHasJointRestoringWitness`,
+`Compare_LargeMultiBlockNearUsesMaskedCandidateIndex`,
+`Compare_LargeLocalNearUsesLocalUseIndex`,
+`Compare_OneEdgeChangeInsertionAndRemoval_AreNear`,
+`Compare_UnreachableBlockInsertionAndRemovalCarriesContents`,
+`Compare_SymmetricGraph_ReportsStableExactAndNearAmbiguity`, and
+`Compare_NearEnumerationLimitsDoNotBecomeDifferent` gate the relationship,
+evidence, reversal, ambiguity, and fail-closed limits.
 
 ## Exact discovery
 
@@ -184,21 +256,25 @@ independent candidate relationships and expected outcomes. Each case records:
 - expected disposition and, separately, expected relation;
 - difficulty, intent, actionability, and tags.
 
-Schema 2 also declares the closed-world discovery population.
+Schema 3 also declares expected edit-count summaries for every `Near` case and
+the closed-world exact-discovery population.
 `analysis-harness --clone-corpus` resolves those identities through SRM and
-grades comparison and discovery independently. Expected exact connected
-components derive only from declared expected relations. Complete actual
-clusters must equal them, so both missed families and undeclared
-cross-component merges fail. The harness does not own retrieval,
-normalization, clustering, CFG correspondence, or verification logic.
+grades comparison, every returned near-alignment alternative, and discovery
+independently. Expected exact connected components derive only from declared
+expected relations. Complete actual clusters must equal them, so both missed
+families and undeclared cross-component merges fail. The harness does not own
+retrieval, normalization, alignment, clustering, CFG correspondence, or
+verification logic.
 `StructuralCloneCorpusTests` gates ledger validity, both fixture inventory
 views, all direct outcomes, and exact closed-world clustering.
 
-The initial corpus includes authored arithmetic and metadata-operand exact
-pairs, a control-flow close negative, exact parameter-type and return-type
-semantic hazards, and the EH unsupported boundary. Exact discovery finds four
-families and rejects the close negative. Fuzzy ranking, precision/recall
-measurement, and CoreLib scale runs are later slices.
+The corpus includes authored arithmetic and metadata-operand exact pairs,
+constant and call-target near pairs, control-flow, operation-reordering, and
+two-operation hard negatives, exact parameter-type and return-type semantic
+hazards, and the EH unsupported boundary. Exact discovery still finds four
+families and does not cluster near pairs. Fuzzy retrieval/ranking and
+precision/recall measurement remain later slices; whole-assembly exact scale
+runs belong to the census.
 
 ## Census and demo projection
 

@@ -6,7 +6,7 @@ namespace ILInspector.DecompilerHarness;
 
 internal sealed record CSharpSourceMemberIdentity(
     string MetadataName,
-    string Signature,
+    MemberSignatureShapeResult SignatureShape,
     string? Body,
     IReadOnlyList<string> Evidence);
 
@@ -63,7 +63,7 @@ internal sealed class CSharpSourceIdentityContext
         [
             new CSharpSourceMemberIdentity(
                 method.Identifier.ValueText,
-                SignatureIdentity.ForSourceMethod(method),
+                SourceShape(method, SourceMemberSignatureKind.Method),
                 BodyText(method),
                 MethodEvidence(method).ToArray()),
         ];
@@ -75,7 +75,7 @@ internal sealed class CSharpSourceIdentityContext
         if (HasPrimaryConstructor(type))
             members.Add(new CSharpSourceMemberIdentity(
                 ".ctor",
-                SignatureIdentity.ForSourceConstructor(type.ParameterList),
+                SourceShape(type, SourceMemberSignatureKind.Constructor),
                 Body: null,
                 Evidence: ["primary-constructor"]));
         return members;
@@ -88,7 +88,7 @@ internal sealed class CSharpSourceIdentityContext
         [
             new CSharpSourceMemberIdentity(
                 methodName,
-                SignatureIdentity.ForSourceConstructor(constructor.ParameterList),
+                SourceShape(constructor, SourceMemberSignatureKind.Constructor),
                 BodyText(constructor),
                 ConstructorEvidence(constructor).ToArray()),
         ];
@@ -99,7 +99,7 @@ internal sealed class CSharpSourceIdentityContext
         [
             new CSharpSourceMemberIdentity(
                 OperatorMetadataName(op),
-                SignatureIdentity.ForSourceOperator(op),
+                SourceShape(op, SourceMemberSignatureKind.Operator),
                 BodyText(op),
                 ["operator"]),
         ];
@@ -125,7 +125,7 @@ internal sealed class CSharpSourceIdentityContext
         [
             new CSharpSourceMemberIdentity(
                 methodName,
-                SignatureIdentity.ForSourceConversion(conversion),
+                SourceShape(conversion, SourceMemberSignatureKind.ConversionOperator),
                 BodyText(conversion),
                 ["conversion-operator"]),
         ];
@@ -141,13 +141,13 @@ internal sealed class CSharpSourceIdentityContext
         if (HasGetter(property))
             members.Add(new CSharpSourceMemberIdentity(
                 $"get_{property.Identifier.ValueText}",
-                SignatureIdentity.ForSourcePropertyGetter(),
+                SourceShape(property, SourceMemberSignatureKind.Property),
                 GetterBodyText(property),
                 evidence));
         if (HasSetter(property))
             members.Add(new CSharpSourceMemberIdentity(
                 $"set_{property.Identifier.ValueText}",
-                SignatureIdentity.ForSourcePropertySetter(property.Type),
+                SetterShape(property),
                 SetterBodyText(property),
                 evidence));
         return members;
@@ -164,17 +164,68 @@ internal sealed class CSharpSourceIdentityContext
         if (HasGetter(indexer))
             members.Add(new CSharpSourceMemberIdentity(
                 $"get_{metadataName}",
-                SignatureIdentity.ForSourceIndexerGetter(indexer.ParameterList),
+                SourceShape(indexer, SourceMemberSignatureKind.Indexer),
                 GetterBodyText(indexer),
                 evidence));
         if (HasSetter(indexer))
             members.Add(new CSharpSourceMemberIdentity(
                 $"set_{metadataName}",
-                SignatureIdentity.ForSourceIndexerSetter(indexer.ParameterList, indexer.Type),
+                SetterShape(indexer),
                 SetterBodyText(indexer),
                 evidence));
         return members;
     }
+
+    static MemberSignatureShapeResult SourceShape(
+        SyntaxNode declaration,
+        SourceMemberSignatureKind kind)
+        => SourceMemberSignatureShape.Create(
+            declaration.ToFullString(),
+            kind,
+            ContainingTypeParameters(declaration),
+            ContainingValueTypeParameters(declaration));
+
+    static MemberSignatureShapeResult SetterShape(PropertyDeclarationSyntax property)
+        => SourceMemberSignatureShape.Create(
+            $"void __set({property.Type} value);",
+            SourceMemberSignatureKind.Method,
+            ContainingTypeParameters(property),
+            ContainingValueTypeParameters(property));
+
+    static MemberSignatureShapeResult SetterShape(IndexerDeclarationSyntax indexer)
+    {
+        string parameters = string.Join(
+            ", ",
+            indexer.ParameterList.Parameters.Select(parameter => parameter.ToString())
+                .Append($"{indexer.Type} value"));
+        return SourceMemberSignatureShape.Create(
+            $"void __set({parameters});",
+            SourceMemberSignatureKind.Method,
+            ContainingTypeParameters(indexer),
+            ContainingValueTypeParameters(indexer));
+    }
+
+    static IReadOnlyList<string> ContainingTypeParameters(SyntaxNode declaration)
+        => declaration.AncestorsAndSelf()
+            .OfType<TypeDeclarationSyntax>()
+            .Reverse()
+            .SelectMany(type => type.TypeParameterList?.Parameters
+                .Select(parameter => parameter.Identifier.ValueText)
+                ?? [])
+            .ToArray();
+
+    static IReadOnlySet<string> ContainingValueTypeParameters(SyntaxNode declaration)
+        => declaration.AncestorsAndSelf()
+            .OfType<TypeDeclarationSyntax>()
+            .SelectMany(type => type.ConstraintClauses)
+            .Where(clause => clause.Constraints.Any(constraint =>
+                constraint.IsKind(SyntaxKind.StructConstraint)
+                || constraint is TypeConstraintSyntax
+                {
+                    Type: IdentifierNameSyntax { Identifier.ValueText: "unmanaged" },
+                }))
+            .Select(clause => clause.Name.Identifier.ValueText)
+            .ToHashSet(StringComparer.Ordinal);
 
     string? PartialIndexerMetadataName(string fullType, IndexerDeclarationSyntax indexer)
         => _partialIndexerNames.TryGetValue(PartialIndexerKey(fullType, indexer), out var metadataName)

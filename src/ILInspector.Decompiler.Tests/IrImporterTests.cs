@@ -3777,9 +3777,39 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void ExternalEntryIntoMultiBlockDoWhile_StaysFlat()
+    public void NestedDoWhileWithBranchingBody_RaisesBothLoops()
     {
-        var function = ExternalEntryIntoMultiBlockLoop();
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.NestedDoWhileWithBranchingBody));
+        Assert.NotNull(function);
+
+        IrPasses.Run(function);
+
+        Assert.Equal(2, function.Descendants.OfType<DoWhileLoop>().Count());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ExternalEntryToMultiBlockDoWhileHeader_Raises()
+    {
+        var function = ExternalEntryIntoMultiBlockLoop(entryTarget: 10);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ExternalEntryIntoMultiBlockDoWhileBody_StaysFlat()
+    {
+        var function = ExternalEntryIntoMultiBlockLoop(entryTarget: 20);
 
         new DoWhileLoopPass().Run(function, PassContext.None);
 
@@ -3788,14 +3818,360 @@ public class RaisingPassTests
         function.CheckInvariant();
     }
 
-    static IrFunction ExternalEntryIntoMultiBlockLoop()
+    [Theory]
+    [InlineData(NestedEntryKind.Branch)]
+    [InlineData(NestedEntryKind.ConditionalBranch)]
+    [InlineData(NestedEntryKind.SwitchBranch)]
+    [InlineData(NestedEntryKind.Leave)]
+    public void NestedExternalEntryIntoMultiBlockDoWhileBody_StaysFlat(NestedEntryKind kind)
+    {
+        var function = ExternalEntryIntoMultiBlockLoop(entryTarget: 20, nestedEntry: kind);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Theory]
+    [InlineData(NestedEntryKind.Branch)]
+    [InlineData(NestedEntryKind.ConditionalBranch)]
+    [InlineData(NestedEntryKind.SwitchBranch)]
+    [InlineData(NestedEntryKind.Leave)]
+    public void NestedExternalEntryToMultiBlockDoWhileHeader_Raises(NestedEntryKind kind)
+    {
+        var function = ExternalEntryIntoMultiBlockLoop(entryTarget: 10, nestedEntry: kind);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DecimalExternalHeaderEntry_RaisesOnEarlyPass()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(source, "System.Decimal.DecCalc", "VarDecCmpSub");
+        Assert.NotNull(function);
+
+        var stages = IrPasses.RunWithStages(function);
+        var doWhileStages = stages.Where(stage => stage.PassName == "do-while").ToArray();
+
+        Assert.Equal(2, doWhileStages.Length);
+        Assert.Contains("DoWhileLoop", doWhileStages[0].Projection);
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void Dragon4DoWhileNormalizedAfterEarlyPass_RaisesOnLatePass()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(source, "System.Number", "Dragon4", overloadIndex: 2);
+        Assert.NotNull(function);
+
+        var stages = IrPasses.RunWithStages(function);
+        var doWhileStages = stages.Where(stage => stage.PassName == "do-while").ToArray();
+
+        Assert.Equal(2, doWhileStages.Length);
+        Assert.DoesNotContain("DoWhileLoop", doWhileStages[0].Projection);
+        Assert.Contains("DoWhileLoop", doWhileStages[1].Projection);
+        Assert.NotEmpty(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SwitchOwnedBreakExitingLateDoWhileCandidate_StaysOwnedBySwitch()
+    {
+        var function = SwitchCaseContainingBottomTestedRegion();
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+        Assert.Empty(function.Descendants.OfType<DoWhileLoop>());
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Equal(2, function.Descendants.OfType<Break>().Count());
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<DoWhileLoop>());
+        Assert.Equal(2, function.Descendants.OfType<Break>().Count());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NestedSwitchBreakInsideDoWhileCandidate_KeepsOwnerAndRaises()
     {
         var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var switchBody = new BlockContainer();
+        var switchBlock = new Block(10);
+        switchBlock.Add(new Break());
+        switchBody.Add(switchBlock);
+
+        var body = new BlockContainer();
+        var header = new Block(10);
+        header.Add(new Switch(
+            new Constant(0, intType),
+            [new SwitchSection([], isDefault: true, switchBody)]));
+        body.Add(header);
+        var bottom = new Block(20);
+        bottom.Add(new ConditionalBranch(new LoadArgument(0, "repeat", boolType), 10));
+        body.Add(bottom);
+        var exit = new Block(30);
+        exit.Add(new Return(new Constant(0, intType)));
+        body.Add(exit);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Loops"),
+            new MethodSignature(
+                intType,
+                [new Parameter("repeat", boolType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Single(function.Descendants.OfType<Break>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NestedContainerSecondBackEdge_StaysFlat()
+    {
+        var function = BottomTestedRegionWithNestedContainerTransfer(targetOffset: 10);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NestedContainerNonCanonicalExit_StaysFlat()
+    {
+        var function = BottomTestedRegionWithNestedContainerTransfer(targetOffset: 40);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NestedLeaveToCanonicalDoWhileExit_Raises()
+    {
+        var function = BottomTestedRegionWithNestedLeave(targetOffset: 30);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NestedLeaveToNonCanonicalDoWhileExit_StaysFlat()
+    {
+        var function = BottomTestedRegionWithNestedLeave(targetOffset: 40);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NestedLeaveLeavingContainer_StaysFlat()
+    {
+        var function = BottomTestedRegionWithNestedLeave(targetOffset: 9999);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void OutsideLeaveLeavingContainer_DoesNotDeclineDoWhile()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var body = new BlockContainer();
+        var loop = new Block(10);
+        loop.Add(new ConditionalBranch(
+            new LoadArgument(0, "repeat", boolType),
+            10));
+        body.Add(loop);
+        var exit = new Block(20);
+        exit.Add(new Leave(9999));
+        body.Add(exit);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Loops"),
+            new MethodSignature(
+                intType,
+                [new Parameter("repeat", boolType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void TaskWhenAllPromiseNestedCanonicalLeave_RetainsDoWhile()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            "System.Threading.Tasks.Task.WhenAllPromise",
+            "Invoke");
+        Assert.NotNull(function);
+
+        IrPasses.Run(function);
+
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    static IrFunction BottomTestedRegionWithNestedLeave(int targetOffset)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var nested = new Block(12);
+        nested.Add(new Leave(targetOffset));
+
+        var body = new BlockContainer();
+        var header = new Block(10);
+        header.Add(new IfStatement(
+            new LoadArgument(0, "leave", boolType),
+            nested,
+            null));
+        body.Add(header);
+        var bottom = new Block(20);
+        bottom.Add(new ConditionalBranch(
+            new LoadArgument(1, "repeat", boolType),
+            10));
+        body.Add(bottom);
+        var exit = new Block(30);
+        exit.Add(new Return(new Constant(0, intType)));
+        body.Add(exit);
+        var alternateExit = new Block(40);
+        alternateExit.Add(new Return(new Constant(1, intType)));
+        body.Add(alternateExit);
+
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Loops"),
+            new MethodSignature(
+                intType,
+                [
+                    new Parameter("leave", boolType),
+                    new Parameter("repeat", boolType),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction BottomTestedRegionWithNestedContainerTransfer(int targetOffset)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var switchBody = new BlockContainer();
+        var switchBlock = new Block(12);
+        switchBlock.Add(new Branch(targetOffset));
+        switchBody.Add(switchBlock);
+
+        var body = new BlockContainer();
+        var header = new Block(10);
+        header.Add(new Switch(
+            new Constant(0, intType),
+            [new SwitchSection([], isDefault: true, switchBody)]));
+        body.Add(header);
+        var bottom = new Block(20);
+        bottom.Add(new ConditionalBranch(
+            new LoadArgument(0, "repeat", boolType),
+            10));
+        body.Add(bottom);
+        var exit = new Block(30);
+        exit.Add(new Return(new Constant(0, intType)));
+        body.Add(exit);
+        var alternateExit = new Block(40);
+        alternateExit.Add(new Return(new Constant(1, intType)));
+        body.Add(alternateExit);
+
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Loops"),
+            new MethodSignature(
+                intType,
+                [new Parameter("repeat", boolType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    public enum NestedEntryKind
+    {
+        Branch,
+        ConditionalBranch,
+        SwitchBranch,
+        Leave,
+    }
+
+    static IrFunction ExternalEntryIntoMultiBlockLoop(
+        int entryTarget,
+        NestedEntryKind? nestedEntry = null)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
         var body = new BlockContainer();
 
         var entry = new Block(0);
-        entry.Add(new Branch(20));
+        if (nestedEntry is { } kind)
+        {
+            var then = new Block(0);
+            then.Add(kind switch
+            {
+                NestedEntryKind.Branch => new Branch(entryTarget),
+                NestedEntryKind.ConditionalBranch => new ConditionalBranch(
+                    new LoadArgument(0, "enterAtTarget", boolType),
+                    entryTarget),
+                NestedEntryKind.SwitchBranch => new SwitchBranch(
+                    new Constant(0, intType),
+                    [entryTarget]),
+                NestedEntryKind.Leave => new Leave(entryTarget),
+                _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+            });
+            entry.Add(new IfStatement(
+                new LoadArgument(0, "enterAtTarget", boolType),
+                then,
+                null));
+        }
+        else
+        {
+            entry.Add(new ConditionalBranch(
+                new LoadArgument(0, "enterAtTarget", boolType),
+                entryTarget));
+        }
         body.Add(entry);
+
+        var preheader = new Block(5);
+        preheader.Add(new Branch(10));
+        body.Add(preheader);
 
         var head = new Block(10);
         head.Add(new StoreLocal(0, intType, new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(0, intType), new Constant(1, intType))));
@@ -3813,7 +4189,66 @@ public class RaisingPassTests
         return new IrFunction(
             "M",
             TypeRef.Definition("Synthetic", "Samples", "Loops"),
-            new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0),
+            new MethodSignature(
+                intType,
+                [new Parameter("enterAtTarget", boolType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [intType],
+            body);
+    }
+
+    static IrFunction SwitchCaseContainingBottomTestedRegion()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var body = new BlockContainer();
+
+        var dispatch = new Block(0);
+        dispatch.Add(new SwitchBranch(new LoadArgument(0, "selector", intType), [10, 10]));
+        body.Add(dispatch);
+
+        var defaultBlock = new Block(4);
+        defaultBlock.Add(new Branch(60));
+        body.Add(defaultBlock);
+
+        var header = new Block(10);
+        header.Add(new ConditionalBranch(new LoadArgument(1, "stayInCase", boolType), 30));
+        body.Add(header);
+
+        var leaveCase = new Block(20);
+        leaveCase.Add(new Branch(60));
+        body.Add(leaveCase);
+
+        var loopBody = new Block(30);
+        loopBody.Add(new StoreLocal(0, intType, new Constant(1, intType)));
+        body.Add(loopBody);
+
+        var bottom = new Block(40);
+        bottom.Add(new ConditionalBranch(new LoadArgument(2, "repeat", boolType), 10));
+        body.Add(bottom);
+
+        var loopExit = new Block(50);
+        loopExit.Add(new StoreLocal(0, intType, new Constant(999, intType)));
+        loopExit.Add(new Branch(60));
+        body.Add(loopExit);
+
+        var join = new Block(60);
+        join.Add(new Return(new LoadLocal(0, intType)));
+        body.Add(join);
+
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Loops"),
+            new MethodSignature(
+                intType,
+                [
+                    new Parameter("selector", intType),
+                    new Parameter("stayInCase", boolType),
+                    new Parameter("repeat", boolType),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
             [intType],
             body);
     }

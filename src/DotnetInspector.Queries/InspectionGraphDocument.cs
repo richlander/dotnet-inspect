@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 
 using ILInspector.Analysis;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Queries;
 
@@ -12,6 +13,58 @@ public enum InspectionGraphSubjectKind
     Type,
     Assembly,
     Package,
+}
+
+/// <summary>Owner-issued identity for one member subject.</summary>
+public abstract record InspectionGraphMemberIdentity
+{
+    protected InspectionGraphMemberIdentity()
+    {
+    }
+
+    public abstract bool IsPortable { get; }
+
+    public sealed record CallGraph : InspectionGraphMemberIdentity
+    {
+        public CallGraph(
+            GraphNodeIdentity identity,
+            MemberRef member)
+        {
+            ArgumentNullException.ThrowIfNull(identity);
+            ArgumentNullException.ThrowIfNull(member);
+            Identity = identity;
+            Member = member;
+        }
+
+        public GraphNodeIdentity Identity { get; }
+        public MemberRef Member { get; }
+        public override bool IsPortable => Identity.IsPortable;
+
+        public bool Equals(CallGraph? other) =>
+            other is not null && Identity == other.Identity;
+
+        public override int GetHashCode() => Identity.GetHashCode();
+    }
+
+    /// <summary>
+    /// One Metadata API member interpreted beside its acquired assembly.
+    /// </summary>
+    public sealed record AcquiredApi : InspectionGraphMemberIdentity
+    {
+        public AcquiredApi(
+            AssemblyAcquisitionRegistration registration,
+            MemberAnchor member)
+        {
+            ArgumentNullException.ThrowIfNull(registration);
+            ArgumentNullException.ThrowIfNull(member);
+            Registration = registration;
+            Member = member;
+        }
+
+        public AssemblyAcquisitionRegistration Registration { get; }
+        public MemberAnchor Member { get; }
+        public override bool IsPortable => false;
+    }
 }
 
 /// <summary>Owner-issued identity for one type subject.</summary>
@@ -33,6 +86,26 @@ public abstract record InspectionGraphTypeIdentity
 
         public TypeRef Type { get; }
         public override bool IsPortable => true;
+    }
+
+    /// <summary>
+    /// One exact metadata definition interpreted beside its acquired assembly.
+    /// </summary>
+    public sealed record AcquiredDefinition : InspectionGraphTypeIdentity
+    {
+        public AcquiredDefinition(
+            AssemblyAcquisitionRegistration registration,
+            MetadataTypeDefinitionName type)
+        {
+            ArgumentNullException.ThrowIfNull(registration);
+            ArgumentNullException.ThrowIfNull(type);
+            Registration = registration;
+            Type = type;
+        }
+
+        public AssemblyAcquisitionRegistration Registration { get; }
+        public MetadataTypeDefinitionName Type { get; }
+        public override bool IsPortable => false;
     }
 }
 
@@ -119,7 +192,22 @@ public abstract record InspectionGraphSubject
     public static InspectionGraphSubject ForMember(
         GraphNodeIdentity identity,
         MemberRef member) =>
-        new MemberSubject(identity, member);
+        ForMember(
+            new InspectionGraphMemberIdentity.CallGraph(
+                identity,
+                member));
+
+    public static InspectionGraphSubject ForMember(
+        InspectionGraphMemberIdentity identity) =>
+        new MemberSubject(identity);
+
+    public static InspectionGraphSubject ForAcquiredApiMember(
+        AssemblyAcquisitionRegistration registration,
+        MemberAnchor member) =>
+        ForMember(
+            new InspectionGraphMemberIdentity.AcquiredApi(
+                registration,
+                member));
 
     public static InspectionGraphSubject ForType(
         InspectionGraphTypeIdentity identity) =>
@@ -127,6 +215,14 @@ public abstract record InspectionGraphSubject
 
     public static InspectionGraphSubject ForStructuralType(TypeRef type) =>
         ForType(new InspectionGraphTypeIdentity.Structural(type));
+
+    public static InspectionGraphSubject ForAcquiredType(
+        AssemblyAcquisitionRegistration registration,
+        MetadataTypeDefinitionName type) =>
+        ForType(
+            new InspectionGraphTypeIdentity.AcquiredDefinition(
+                registration,
+                type));
 
     public static InspectionGraphSubject ForAssembly(
         InspectionGraphAssemblyIdentity identity) =>
@@ -152,26 +248,17 @@ public abstract record InspectionGraphSubject
     public sealed record MemberSubject : InspectionGraphSubject
     {
         internal MemberSubject(
-            GraphNodeIdentity identity,
-            MemberRef member)
+            InspectionGraphMemberIdentity identity)
         {
             ArgumentNullException.ThrowIfNull(identity);
-            ArgumentNullException.ThrowIfNull(member);
             Identity = identity;
-            Member = member;
         }
 
         public override InspectionGraphSubjectKind Kind =>
             InspectionGraphSubjectKind.Member;
         public override bool IsPortable => Identity.IsPortable;
 
-        public GraphNodeIdentity Identity { get; }
-        public MemberRef Member { get; }
-
-        public bool Equals(MemberSubject? other) =>
-            other is not null && Identity == other.Identity;
-
-        public override int GetHashCode() => Identity.GetHashCode();
+        public InspectionGraphMemberIdentity Identity { get; }
     }
 
     public sealed record TypeSubject : InspectionGraphSubject
@@ -975,6 +1062,7 @@ public sealed class InspectionGraphDocument
 {
     public InspectionGraphDocument(
         InspectionGraphDocumentScope scope,
+        InspectionGraphModeRequest modeRequest,
         IEnumerable<InspectionGraphNode> nodes,
         IEnumerable<InspectionGraphGroup> groups,
         IEnumerable<InspectionGraphEdge> edges,
@@ -985,7 +1073,9 @@ public sealed class InspectionGraphDocument
         IEnumerable<InspectionGraphFailure> failures)
     {
         InspectionGraphCollections.RequireDefined(scope, nameof(scope));
+        ArgumentNullException.ThrowIfNull(modeRequest);
         Scope = scope;
+        ModeRequest = modeRequest;
         Nodes = InspectionGraphCollections.Snapshot(nodes, nameof(nodes));
         Groups = InspectionGraphCollections.Snapshot(groups, nameof(groups));
         Edges = InspectionGraphCollections.Snapshot(edges, nameof(edges));
@@ -1048,6 +1138,7 @@ public sealed class InspectionGraphDocument
     }
 
     public InspectionGraphDocumentScope Scope { get; }
+    public InspectionGraphModeRequest ModeRequest { get; }
     public ImmutableArray<InspectionGraphNode> Nodes { get; }
     public ImmutableArray<InspectionGraphGroup> Groups { get; }
     public ImmutableArray<InspectionGraphEdge> Edges { get; }
@@ -1092,7 +1183,8 @@ public sealed class InspectionGraphDocument
                         occurrence.SourceSubject,
                         occurrence.TargetSubject,
                     }))
-                .Concat(Seeds.Select(static seed => seed.Subject));
+                .Concat(Seeds.Select(static seed => seed.Subject))
+                .Concat(ModeRequest.Seeds);
         if (subjects.Any(static subject => !subject.IsPortable))
         {
             throw new ArgumentException(
@@ -1412,6 +1504,45 @@ public sealed class InspectionGraphDocument
 
         if (primaryCount > 1)
             throw new ArgumentException("A graph can have at most one primary seed.", nameof(Seeds));
+
+        switch (ModeRequest.Mode)
+        {
+            case InspectionGraphMode.SingleSeed:
+                InspectionGraphSeed primary = Seeds.SingleOrDefault(
+                    static seed =>
+                        seed.Role == InspectionGraphSeedRole.Primary)
+                    ?? throw new ArgumentException(
+                        "Single-seed mode requires one primary seed binding.",
+                        nameof(Seeds));
+                if (Seeds.Length != 1
+                    || primary.Subject != ModeRequest.Seeds[0])
+                {
+                    throw new ArgumentException(
+                        "The primary seed binding must match the single-seed request.",
+                        nameof(Seeds));
+                }
+                break;
+            case InspectionGraphMode.PeerSeeds:
+                if (Seeds.Length != ModeRequest.Seeds.Length
+                    || Seeds.Any(static seed =>
+                        seed.Role != InspectionGraphSeedRole.Peer)
+                    || !Seeds.Select(static seed => seed.Subject)
+                        .SequenceEqual(ModeRequest.Seeds))
+                {
+                    throw new ArgumentException(
+                        "Peer seed bindings must preserve every requested peer in request order.",
+                        nameof(Seeds));
+                }
+                break;
+            case InspectionGraphMode.InducedSet:
+                if (!Seeds.IsEmpty)
+                {
+                    throw new ArgumentException(
+                        "An induced-set graph cannot contain seed bindings.",
+                        nameof(Seeds));
+                }
+                break;
+        }
     }
 
     private void ValidateDiagnostics()
