@@ -3,6 +3,18 @@ using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
+public class ConsoleCaptureParallelCollectionTests
+{
+    [Fact]
+    public async Task CaptureFromParallelCollectionIsRejected()
+    {
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => ConsoleCapture.RunAsync(() => Task.FromResult(0)));
+
+        Assert.Contains("assembly-exclusive", exception.Message);
+    }
+}
+
 // This harness deliberately holds ConsoleCapture across assertions. Isolate it from every
 // external test so acquiring the semaphore tests this class, not suite scheduling (#4141).
 [CollectionDefinition("ConsoleCaptureGuard", DisableParallelization = true)]
