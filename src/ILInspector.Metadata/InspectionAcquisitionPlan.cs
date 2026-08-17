@@ -333,23 +333,31 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         long reservedBytes = 0;
         try
         {
-            AssemblyImageSnapshotResult snapshotResult =
-                AssemblyImageSnapshot.Open(
-                    entry.Candidate.Assembly,
-                    TryReserveInventoryImage,
-                    ReleaseInventoryImage);
-            if (snapshotResult
-                is AssemblyImageSnapshotResult.Rejected rejected)
+            AssemblyImageSnapshot snapshot;
+            if (entry.RetainedSnapshot is { } retainedSnapshot)
             {
-                return new CandidateRegistrationResult.Rejected(
-                    entry.Candidate.Assembly,
-                    rejected.Failure);
+                snapshot = retainedSnapshot;
             }
+            else
+            {
+                AssemblyImageSnapshotResult snapshotResult =
+                    AssemblyImageSnapshot.Open(
+                        entry.Candidate.Assembly,
+                        TryReserveInventoryImage,
+                        ReleaseInventoryImage);
+                if (snapshotResult
+                    is AssemblyImageSnapshotResult.Rejected rejected)
+                {
+                    return new CandidateRegistrationResult.Rejected(
+                        entry.Candidate.Assembly,
+                        rejected.Failure);
+                }
 
-            AssemblyImageSnapshot snapshot =
-                ((AssemblyImageSnapshotResult.Ready)snapshotResult)
-                    .Snapshot;
-            reservedBytes = snapshot.Length;
+                snapshot =
+                    ((AssemblyImageSnapshotResult.Ready)snapshotResult)
+                        .Snapshot;
+                reservedBytes = snapshot.Length;
+            }
             ImmutableArray<byte> contentDigest =
                 ImmutableArray.CreateRange(
                     SHA256.HashData(snapshot.Content.AsSpan()));
