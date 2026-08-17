@@ -6144,8 +6144,11 @@ async function loadSelectedMemberAnnotatedSource() {
     return;
   }
   const signature = memberRequestSignature(type, overload, false, true);
-  if (state.memberAnnotatedKey === signature
-    && (state.memberAnnotated || state.memberAnnotatedError)) {
+  if (!sourceRequestNeedsLoad(
+      state.memberAnnotatedKey === signature,
+      state.memberAnnotatedLoading,
+      state.memberAnnotated,
+      state.memberAnnotatedError)) {
     render();
     return;
   }

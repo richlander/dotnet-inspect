@@ -428,6 +428,14 @@ test("source operations cancel when superseded or hidden", () => {
   assert.match(autoLoadBody, /loadSelectedTypeSource\(\)/);
   assert.match(autoLoadBody, /loadSelectedMemberSource\(\)/);
   assert.match(autoLoadBody, /openGraphSource\(/);
+  const annotatedLoader =
+    appSource.match(
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+    ?? "";
+  assert.match(annotatedLoader, /sourceRequestNeedsLoad\(/);
+  assert.match(annotatedLoader, /state\.memberAnnotatedLoading/);
+  assert.match(annotatedLoader, /state\.memberAnnotated/);
+  assert.match(annotatedLoader, /state\.memberAnnotatedError/);
 
   const visible = {
     settings: false,
