@@ -36,6 +36,11 @@ const string Usage =
           committed closed-world corpus. The harness resolves typed metadata identities and does
           not reconstruct candidate retrieval, normalization, correspondence, or verification.
 
+      --clone-census <assembly> [--seed <0xMethodDef|Type::Method>] [--top N]
+          Run bounded product-owned exact discovery over every MethodDef in one assembly.
+          Reports exact families, receipts, suppression, and an optional seed-to-family drill-in.
+          --max-methods and --max-comparisons override the product admission/comparison limits.
+
       --allocation-readout <file> [--top N] [--json]
           Sweep a corpus list and aggregate allocation occurrence/opportunity metadata
           distributions: allocation, path, path confidence, post dominance, escape, shape, and
@@ -103,17 +108,28 @@ bool fixturesMode = false;
 string? corpusList = null;
 string? diffBaseline = null;
 string? emitSnapshot = null;
+bool diffBaselineSpecified = false;
+bool emitSnapshotSpecified = false;
 bool json = false;
 bool keep = false;
 bool list = false;
 string? recallAssembly = null;
 string? historicalPerformanceReference = null;
 string? referenceFile = null;
+bool referenceFileSpecified = false;
 string? precisionAssembly = null;
 string? cloneCorpusAssembly = null;
 string? relationshipLedger = null;
 bool cloneCorpusSpecified = false;
 bool relationshipLedgerSpecified = false;
+string? cloneCensusAssembly = null;
+string? cloneCensusSeed = null;
+bool cloneCensusSpecified = false;
+bool cloneCensusSeedSpecified = false;
+bool cloneMaximumMethodsSpecified = false;
+bool cloneMaximumComparisonsSpecified = false;
+int cloneMaximumMethods = 50_000;
+int cloneMaximumComparisons = 100_000;
 string? allocationReadoutList = null;
 string? callerLoopCensusList = null;
 string? deferredCallbackCensusList = null;
@@ -129,30 +145,58 @@ string? memoryPoolLifecycleList = null;
 bool tsv = false;
 bool jsonl = false;
 int top = 20;
+bool topSpecified = false;
+bool topArgumentValid = true;
 int maxDepth = 4;
+bool maxDepthSpecified = false;
+HashSet<string> selectedModes = [];
+List<string> missingValueOptions = [];
+string? numericArgumentError = null;
 
 for (int i = 0; i < args.Length; i++)
 {
     switch (args[i])
     {
         case "--generated-fixtures":
+            selectedModes.Add("--generated-fixtures");
             fixturesMode = true;
             if (i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal))
                 fixtureSelector = args[++i];
             break;
         case "--corpus-list":
-            corpusList = NextValue(args, ref i);
+            selectedModes.Add("--corpus-list");
+            corpusList = NextRequiredValue(
+                args,
+                ref i,
+                "--corpus-list",
+                missingValueOptions);
             break;
         case "--diff-corpus-baseline":
-            diffBaseline = NextValue(args, ref i);
+            diffBaselineSpecified = true;
+            diffBaseline = NextRequiredValue(
+                args,
+                ref i,
+                "--diff-corpus-baseline",
+                missingValueOptions);
             break;
         case "--emit-corpus-snapshot":
-            emitSnapshot = NextValue(args, ref i);
+            emitSnapshotSpecified = true;
+            emitSnapshot = NextRequiredValue(
+                args,
+                ref i,
+                "--emit-corpus-snapshot",
+                missingValueOptions);
             break;
         case "--paydirt-recall":
-            recallAssembly = NextValue(args, ref i);
+            selectedModes.Add("--paydirt-recall");
+            recallAssembly = NextRequiredValue(
+                args,
+                ref i,
+                "--paydirt-recall",
+                missingValueOptions);
             break;
         case "--historical-performance-recall":
+            selectedModes.Add("--historical-performance-recall");
             historicalPerformanceReference =
                 NextPathValue(args, ref i)
                 ?? Path.Combine(
@@ -161,45 +205,155 @@ for (int i = 0; i < args.Length; i++)
                     "historical-performance-reference.json");
             break;
         case "--precision-sample":
-            precisionAssembly = NextValue(args, ref i);
+            selectedModes.Add("--precision-sample");
+            precisionAssembly = NextRequiredValue(
+                args,
+                ref i,
+                "--precision-sample",
+                missingValueOptions);
             break;
         case "--clone-corpus":
+            selectedModes.Add("--clone-corpus");
             cloneCorpusSpecified = true;
-            cloneCorpusAssembly = NextPathValue(args, ref i);
+            cloneCorpusAssembly = NextRequiredValue(
+                args,
+                ref i,
+                "--clone-corpus",
+                missingValueOptions);
             break;
         case "--relationship-ledger":
             relationshipLedgerSpecified = true;
-            relationshipLedger = NextPathValue(args, ref i);
+            relationshipLedger = NextRequiredValue(
+                args,
+                ref i,
+                "--relationship-ledger",
+                missingValueOptions);
+            break;
+        case "--clone-census":
+            selectedModes.Add("--clone-census");
+            cloneCensusSpecified = true;
+            cloneCensusAssembly = NextRequiredValue(
+                args,
+                ref i,
+                "--clone-census",
+                missingValueOptions);
+            break;
+        case "--seed":
+            cloneCensusSeedSpecified = true;
+            cloneCensusSeed = NextRequiredValue(
+                args,
+                ref i,
+                "--seed",
+                missingValueOptions);
+            break;
+        case "--max-methods":
+            cloneMaximumMethodsSpecified = true;
+            if (NextPathValue(args, ref i) is not { } methodLimit
+                || !int.TryParse(methodLimit, out cloneMaximumMethods)
+                || cloneMaximumMethods < 1)
+            {
+                numericArgumentError ??=
+                    "--max-methods requires a positive integer.";
+            }
+            break;
+        case "--max-comparisons":
+            cloneMaximumComparisonsSpecified = true;
+            if (NextPathValue(args, ref i) is not { } comparisonLimit
+                || !int.TryParse(
+                    comparisonLimit,
+                    out cloneMaximumComparisons)
+                || cloneMaximumComparisons < 1)
+            {
+                numericArgumentError ??=
+                    "--max-comparisons requires a positive integer.";
+            }
             break;
         case "--allocation-readout":
-            allocationReadoutList = NextValue(args, ref i);
+            selectedModes.Add("--allocation-readout");
+            allocationReadoutList = NextRequiredValue(
+                args,
+                ref i,
+                "--allocation-readout",
+                missingValueOptions);
             break;
         case "--caller-loop-census":
-            callerLoopCensusList = NextValue(args, ref i);
+            selectedModes.Add("--caller-loop-census");
+            callerLoopCensusList = NextRequiredValue(
+                args,
+                ref i,
+                "--caller-loop-census",
+                missingValueOptions);
             break;
         case "--deferred-callback-census":
-            deferredCallbackCensusList = NextValue(args, ref i);
+            selectedModes.Add("--deferred-callback-census");
+            deferredCallbackCensusList = NextRequiredValue(
+                args,
+                ref i,
+                "--deferred-callback-census",
+                missingValueOptions);
             break;
         case "--recursive-traversal-census":
-            recursiveTraversalCensusList = NextValue(args, ref i);
+            selectedModes.Add("--recursive-traversal-census");
+            recursiveTraversalCensusList = NextRequiredValue(
+                args,
+                ref i,
+                "--recursive-traversal-census",
+                missingValueOptions);
             break;
         case "--allocation-parity":
-            allocationParityExpected = NextPathValue(args, ref i);
-            allocationParityActual = NextPathValue(args, ref i);
+            selectedModes.Add("--allocation-parity");
+            allocationParityExpected = NextRequiredValue(
+                args,
+                ref i,
+                "--allocation-parity",
+                missingValueOptions);
+            allocationParityActual = NextRequiredValue(
+                args,
+                ref i,
+                "--allocation-parity",
+                missingValueOptions);
             break;
         case "--annotation-parity":
-            annotationParityCategory = NextValue(args, ref i);
-            annotationParityExpected = NextPathValue(args, ref i);
-            annotationParityActual = NextPathValue(args, ref i);
+            selectedModes.Add("--annotation-parity");
+            annotationParityCategory = NextRequiredValue(
+                args,
+                ref i,
+                "--annotation-parity",
+                missingValueOptions);
+            annotationParityExpected = NextRequiredValue(
+                args,
+                ref i,
+                "--annotation-parity",
+                missingValueOptions);
+            annotationParityActual = NextRequiredValue(
+                args,
+                ref i,
+                "--annotation-parity",
+                missingValueOptions);
             break;
         case "--leak-triage":
-            leakTriageList = NextPathValue(args, ref i);
+            selectedModes.Add("--leak-triage");
+            leakTriageList = NextRequiredValue(
+                args,
+                ref i,
+                "--leak-triage",
+                missingValueOptions);
             break;
         case "--leak-actionability":
-            leakActionabilityList = NextPathValue(args, ref i);
+            selectedModes.Add("--leak-actionability");
+            leakActionabilityList = NextRequiredValue(
+                args,
+                ref i,
+                "--leak-actionability",
+                missingValueOptions);
             break;
         case "--memorypool-lifecycle":
-            memoryPoolLifecycleList = NextPathValue(args, ref i);
+            selectedModes.Add("--memorypool-lifecycle");
+            memoryPoolLifecycleList = NextRequiredValue(
+                args,
+                ref i,
+                "--memorypool-lifecycle",
+                missingValueOptions);
             break;
         case "--tsv":
             tsv = true;
@@ -208,21 +362,37 @@ for (int i = 0; i < args.Length; i++)
             jsonl = true;
             break;
         case "--reference":
-            referenceFile = NextValue(args, ref i);
+            referenceFileSpecified = true;
+            referenceFile = NextRequiredValue(
+                args,
+                ref i,
+                "--reference",
+                missingValueOptions);
             break;
         case "--top":
-            if (NextValue(args, ref i) is { } t && int.TryParse(t, out int n)) top = n;
+            topSpecified = true;
+            if (NextPathValue(args, ref i) is not { } t
+                || !int.TryParse(t, out int parsedTop))
+            {
+                topArgumentValid = false;
+            }
+            else
+            {
+                top = parsedTop;
+            }
             break;
         case "--max-depth":
-            if (NextValue(args, ref i) is not { } depth
+            maxDepthSpecified = true;
+            if (NextPathValue(args, ref i) is not { } depth
                 || !int.TryParse(depth, out maxDepth)
                 || maxDepth < 1)
             {
-                Console.Error.WriteLine("--max-depth requires a positive integer.");
-                return 2;
+                numericArgumentError ??=
+                    "--max-depth requires a positive integer.";
             }
             break;
         case "list":
+            selectedModes.Add("--generated-fixtures");
             list = true;
             break;
         case "--json":
@@ -241,14 +411,40 @@ for (int i = 0; i < args.Length; i++)
     }
 }
 
-if (cloneCorpusSpecified && cloneCorpusAssembly is null)
+if (selectedModes.Count > 1)
 {
-    Console.Error.WriteLine("--clone-corpus requires an assembly path.");
+    Console.Error.WriteLine(
+        "Analysis harness modes are mutually exclusive: "
+            + string.Join(", ", selectedModes)
+            + ".");
     return 2;
 }
-if (relationshipLedgerSpecified && relationshipLedger is null)
+
+if (numericArgumentError is not null)
 {
-    Console.Error.WriteLine("--relationship-ledger requires a file path.");
+    Console.Error.WriteLine(numericArgumentError);
+    return 2;
+}
+
+if (missingValueOptions.Count > 0)
+{
+    Console.Error.WriteLine(
+        MissingValueError(missingValueOptions[0]));
+    return 2;
+}
+
+if ((diffBaselineSpecified || emitSnapshotSpecified)
+    && !selectedModes.Contains("--corpus-list"))
+{
+    Console.Error.WriteLine(
+        "--diff-corpus-baseline and --emit-corpus-snapshot require "
+            + "--corpus-list.");
+    return 2;
+}
+if (referenceFileSpecified
+    && !selectedModes.Contains("--paydirt-recall"))
+{
+    Console.Error.WriteLine("--reference requires --paydirt-recall.");
     return 2;
 }
 if (relationshipLedgerSpecified && !cloneCorpusSpecified)
@@ -257,10 +453,60 @@ if (relationshipLedgerSpecified && !cloneCorpusSpecified)
         "--relationship-ledger requires --clone-corpus.");
     return 2;
 }
+if ((cloneCensusSeedSpecified
+        || cloneMaximumMethodsSpecified
+        || cloneMaximumComparisonsSpecified)
+    && !cloneCensusSpecified)
+{
+    Console.Error.WriteLine(
+        "--seed, --max-methods, and --max-comparisons require "
+            + "--clone-census.");
+    return 2;
+}
+if (maxDepthSpecified
+    && !selectedModes.Contains("--caller-loop-census")
+    && !selectedModes.Contains("--deferred-callback-census")
+    && !selectedModes.Contains("--recursive-traversal-census"))
+{
+    Console.Error.WriteLine(
+        "--max-depth requires --caller-loop-census, "
+            + "--deferred-callback-census, or "
+            + "--recursive-traversal-census.");
+    return 2;
+}
+if (topSpecified
+    && !selectedModes.Contains("--precision-sample")
+    && !selectedModes.Contains("--clone-census")
+    && !selectedModes.Contains("--allocation-readout")
+    && !selectedModes.Contains("--caller-loop-census")
+    && !selectedModes.Contains("--deferred-callback-census")
+    && !selectedModes.Contains("--recursive-traversal-census")
+    && !selectedModes.Contains("--leak-triage")
+    && !selectedModes.Contains("--leak-actionability")
+    && !selectedModes.Contains("--memorypool-lifecycle"))
+{
+    Console.Error.WriteLine(
+        "--top does not apply to the selected mode.");
+    return 2;
+}
+if (!topArgumentValid || top < 1)
+{
+    Console.Error.WriteLine("--top requires a positive integer.");
+    return 2;
+}
+if (keep && !selectedModes.Contains("--generated-fixtures"))
+{
+    Console.Error.WriteLine(
+        "--keep requires --generated-fixtures.");
+    return 2;
+}
 
 // --tsv/--jsonl are tabular-format selectors for the leak cards; other modes use --json.
 // Reject them elsewhere rather than silently accepting-and-ignoring them.
-if ((tsv || jsonl) && leakTriageList is null && leakActionabilityList is null && memoryPoolLifecycleList is null)
+if ((tsv || jsonl)
+    && !selectedModes.Contains("--leak-triage")
+    && !selectedModes.Contains("--leak-actionability")
+    && !selectedModes.Contains("--memorypool-lifecycle"))
 {
     Console.Error.WriteLine("--tsv and --jsonl apply only to --leak-triage / --leak-actionability / --memorypool-lifecycle; other modes use --json.");
     return 2;
@@ -278,6 +524,17 @@ if (precisionAssembly is not null)
 
 if (cloneCorpusAssembly is not null)
     return RunCloneCorpus(cloneCorpusAssembly, relationshipLedger, json);
+
+if (cloneCensusAssembly is not null)
+{
+    return RunCloneCensus(
+        cloneCensusAssembly,
+        cloneCensusSeed,
+        cloneMaximumMethods,
+        cloneMaximumComparisons,
+        top,
+        json);
+}
 
 if (allocationReadoutList is not null)
     return RunAllocationReadout(allocationReadoutList, top, json);
@@ -370,6 +627,45 @@ static int RunCloneCorpus(
             ? StructuralCloneCorpus.ToJson(report) + Environment.NewLine
             : StructuralCloneCorpus.Format(report));
     return report.Success ? 0 : 1;
+}
+
+static int RunCloneCensus(
+    string assembly,
+    string? seed,
+    int maximumMethods,
+    int maximumComparisons,
+    int top,
+    bool json)
+{
+    if (!File.Exists(assembly))
+    {
+        Console.Error.WriteLine($"Assembly not found: {assembly}");
+        return 2;
+    }
+
+    try
+    {
+        StructuralCloneCensusReport report = StructuralCloneCensus.Run(
+            assembly,
+            seed,
+            maximumMethods,
+            maximumComparisons);
+        Console.Write(
+            json
+                ? StructuralCloneCensus.ToJson(report)
+                    + Environment.NewLine
+                : StructuralCloneCensus.Format(report, top));
+        return report.Success ? 0 : 1;
+    }
+    catch (Exception ex) when (
+        ex is InvalidDataException
+            or BadImageFormatException
+            or IOException
+            or UnauthorizedAccessException)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 2;
+    }
 }
 
 static int RunAllocationReadout(string corpusList, int top, bool json)
@@ -661,8 +957,31 @@ static int RunCorpus(string corpusList, string? diffBaseline, string? emitSnapsh
     return diff.HasRegression ? 1 : 0;
 }
 
-static string? NextValue(string[] args, ref int i)
-    => i + 1 < args.Length ? args[++i] : null;
+static string? NextRequiredValue(
+    string[] args,
+    ref int i,
+    string option,
+    List<string> missingValueOptions)
+{
+    string? value = NextPathValue(args, ref i);
+    if (value is null && !missingValueOptions.Contains(option))
+        missingValueOptions.Add(option);
+    return value;
+}
+
+static string MissingValueError(string option) =>
+    option switch
+    {
+        "--clone-corpus" or "--clone-census" or "--paydirt-recall"
+            or "--precision-sample"
+            => $"{option} requires an assembly path.",
+        "--seed" => "--seed requires a selector.",
+        "--allocation-parity" =>
+            "--allocation-parity requires expected and actual files.",
+        "--annotation-parity" =>
+            "--annotation-parity requires a category and expected/actual files.",
+        _ => $"{option} requires a file path.",
+    };
 
 static string? NextPathValue(string[] args, ref int i)
     => i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal)

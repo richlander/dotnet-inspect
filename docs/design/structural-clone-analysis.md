@@ -200,6 +200,45 @@ semantic hazards, and the EH unsupported boundary. Exact discovery finds four
 families and rejects the close negative. Fuzzy ranking, precision/recall
 measurement, and CoreLib scale runs are later slices.
 
+## Census and demo projection
+
+`analysis-harness --clone-census` is the harness-only whole-assembly and
+seed-to-family projection. It enumerates one PE's MethodDef table, calls
+`StructuralCloneAnalysis.Discover` exactly once, and presents product-owned
+clusters, evidence, blockers, suppression, method outcomes, and receipts. It
+does not filter candidate methods, reconstruct fingerprints, compare pairs, or
+form clusters.
+
+Every projected method includes its full MethodDef token. Type and method names
+are display and selector conveniences, never identity. A `Type::Method`
+selector must resolve uniquely; overloads fail and require a token. Nested type
+display uses `Outer+Inner`.
+
+Text output is bounded, but a selected seed and at least one member of its
+exact family are always pinned. Structured output retains every cluster/member,
+suppressed bucket, non-completed method, and unresolved comparison. Elapsed
+time measures the one product discovery call and is run evidence, not a
+performance baseline.
+
+Seed status preserves discovery completeness:
+
+- `Clustered` is positive product evidence and remains valid when unrelated
+  methods make the overall run partial.
+- `Unsupported`, `LimitReached`, and `Failed` preserve the seed's production
+  disposition.
+- `Singleton` is emitted only for a completed, unsuppressed discovery run.
+- `Unresolved` replaces negative inference on partial runs.
+
+The census reports eligible methods without an emitted family in every run,
+but names that count `ExactSingletonMethods` only when discovery completed.
+Product method and candidate-comparison limits remain separate and are echoed
+in output.
+
+`StructuralCloneCensusTests` gates exact-family and close-negative seed
+behavior, unsupported and partial seed status, token selection, overload
+ambiguity, seed pinning under truncation, complete structured output,
+malformed metadata, and CLI argument/exit behavior.
+
 Clone detection is intentionally neutral about why two bodies are similar.
 Deduplication, refactoring, provenance investigation, copied-code detection,
 known-insecure-pattern remediation, and CFG stress testing are possible
