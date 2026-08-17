@@ -367,6 +367,56 @@ public sealed class ResolvedAssemblyReference
     /// </summary>
     public DateTime? LastWriteTimeUtc { get; }
 
+    /// <summary>
+    /// Returns this descriptor with the same acquisition registration and an
+    /// observer for cancellation raised while opening or using its content
+    /// stream.
+    /// </summary>
+    /// <remarks>
+    /// `InspectionAcquisitionPlanTests.ObserveOpenReadCancellation_PreservesRegistrationAndReportsStreamOperationCancellation`
+    /// gates both properties.
+    /// </remarks>
+    public ResolvedAssemblyReference ObserveOpenReadCancellation(
+        Action<OperationCanceledException> observer)
+    {
+        ArgumentNullException.ThrowIfNull(observer);
+        return WithOpenRead(
+            () =>
+            {
+                try
+                {
+                    return new CancellationObservingStream(
+                        OpenRead(),
+                        observer);
+                }
+                catch (OperationCanceledException ex)
+                {
+                    observer(ex);
+                    throw;
+                }
+            },
+            LastWriteTimeUtc);
+    }
+
+    /// <summary>
+    /// Returns a content-only view with the same acquisition registration and
+    /// no filesystem path.
+    /// </summary>
+    /// <remarks>
+    /// `InspectionAcquisitionPlanTests.WithoutLocalPath_PreservesRegistrationAndAcquisition`
+    /// gates the preserved descriptor properties.
+    /// </remarks>
+    public ResolvedAssemblyReference WithoutLocalPath()
+        => Path is null
+            ? this
+            : new ResolvedAssemblyReference(
+                Registration,
+                Identity,
+                path: null,
+                OpenRead,
+                Provenance,
+                LastWriteTimeUtc);
+
     internal ResolvedAssemblyReference WithOpenRead(
         Func<Stream> openRead,
         DateTime? lastWriteTimeUtc)
@@ -379,6 +429,315 @@ public sealed class ResolvedAssemblyReference
             openRead,
             Provenance,
             lastWriteTimeUtc);
+    }
+
+    sealed class CancellationObservingStream(
+        Stream inner,
+        Action<OperationCanceledException> observer)
+        : Stream
+    {
+        public override bool CanRead =>
+            Observe(() => inner.CanRead);
+        public override bool CanSeek =>
+            Observe(() => inner.CanSeek);
+        public override bool CanWrite =>
+            Observe(() => inner.CanWrite);
+        public override bool CanTimeout =>
+            Observe(() => inner.CanTimeout);
+        public override long Length =>
+            Observe(() => inner.Length);
+        public override long Position
+        {
+            get => Observe(() => inner.Position);
+            set => Observe(() => inner.Position = value);
+        }
+        public override int ReadTimeout
+        {
+            get => Observe(() => inner.ReadTimeout);
+            set => Observe(() => inner.ReadTimeout = value);
+        }
+        public override int WriteTimeout
+        {
+            get => Observe(() => inner.WriteTimeout);
+            set => Observe(() => inner.WriteTimeout = value);
+        }
+
+        public override void Flush() =>
+            Observe(inner.Flush);
+
+        public override Task FlushAsync(
+            CancellationToken cancellationToken) =>
+            ObserveAsync(
+                () => inner.FlushAsync(cancellationToken));
+
+        public override void CopyTo(
+            Stream destination,
+            int bufferSize) =>
+            Observe(
+                () => inner.CopyTo(
+                    destination,
+                    bufferSize));
+
+        public override Task CopyToAsync(
+            Stream destination,
+            int bufferSize,
+            CancellationToken cancellationToken) =>
+            ObserveAsync(
+                () => inner.CopyToAsync(
+                    destination,
+                    bufferSize,
+                    cancellationToken));
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            Observe(
+                () => inner.Read(buffer, offset, count));
+
+        public override int Read(Span<byte> buffer)
+        {
+            try
+            {
+                return inner.Read(buffer);
+            }
+            catch (OperationCanceledException ex)
+            {
+                observer(ex);
+                throw;
+            }
+        }
+
+        public override int ReadByte() =>
+            Observe(inner.ReadByte);
+
+        public override Task<int> ReadAsync(
+            byte[] buffer,
+            int offset,
+            int count,
+            CancellationToken cancellationToken) =>
+            ObserveAsync(
+                () => inner.ReadAsync(
+                    buffer,
+                    offset,
+                    count,
+                    cancellationToken));
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            ObserveAsync(
+                () => inner.ReadAsync(
+                    buffer,
+                    cancellationToken));
+
+        public override IAsyncResult BeginRead(
+            byte[] buffer,
+            int offset,
+            int count,
+            AsyncCallback? callback,
+            object? state) =>
+            Observe(
+                () => inner.BeginRead(
+                    buffer,
+                    offset,
+                    count,
+                    callback,
+                    state));
+
+        public override int EndRead(
+            IAsyncResult asyncResult) =>
+            Observe(() => inner.EndRead(asyncResult));
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin) =>
+            Observe(() => inner.Seek(offset, origin));
+
+        public override void SetLength(long value) =>
+            Observe(() => inner.SetLength(value));
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            Observe(
+                () => inner.Write(buffer, offset, count));
+
+        public override void Write(
+            ReadOnlySpan<byte> buffer)
+        {
+            try
+            {
+                inner.Write(buffer);
+            }
+            catch (OperationCanceledException ex)
+            {
+                observer(ex);
+                throw;
+            }
+        }
+
+        public override Task WriteAsync(
+            byte[] buffer,
+            int offset,
+            int count,
+            CancellationToken cancellationToken) =>
+            ObserveAsync(
+                () => inner.WriteAsync(
+                    buffer,
+                    offset,
+                    count,
+                    cancellationToken));
+
+        public override ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            ObserveAsync(
+                () => inner.WriteAsync(
+                    buffer,
+                    cancellationToken));
+
+        public override IAsyncResult BeginWrite(
+            byte[] buffer,
+            int offset,
+            int count,
+            AsyncCallback? callback,
+            object? state) =>
+            Observe(
+                () => inner.BeginWrite(
+                    buffer,
+                    offset,
+                    count,
+                    callback,
+                    state));
+
+        public override void EndWrite(
+            IAsyncResult asyncResult) =>
+            Observe(() => inner.EndWrite(asyncResult));
+
+        public override void WriteByte(byte value) =>
+            Observe(() => inner.WriteByte(value));
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                Observe(inner.Dispose);
+            base.Dispose(disposing);
+        }
+
+        public override ValueTask DisposeAsync() =>
+            ObserveDisposeCompletionAsync(
+                Observe(inner.DisposeAsync));
+
+        T Observe<T>(Func<T> operation)
+        {
+            try
+            {
+                return operation();
+            }
+            catch (OperationCanceledException ex)
+            {
+                observer(ex);
+                throw;
+            }
+        }
+
+        void Observe(Action operation)
+        {
+            try
+            {
+                operation();
+            }
+            catch (OperationCanceledException ex)
+            {
+                observer(ex);
+                throw;
+            }
+        }
+
+        Task ObserveAsync(Func<Task> operation) =>
+            ObserveCompletionAsync(Observe(operation));
+
+        Task<int> ObserveAsync(
+            Func<Task<int>> operation) =>
+            ObserveCompletionAsync(Observe(operation));
+
+        ValueTask ObserveAsync(
+            Func<ValueTask> operation) =>
+            ObserveCompletionAsync(Observe(operation));
+
+        ValueTask<int> ObserveAsync(
+            Func<ValueTask<int>> operation) =>
+            ObserveCompletionAsync(Observe(operation));
+
+        async Task ObserveCompletionAsync(Task operation)
+        {
+            try
+            {
+                await operation.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException ex)
+            {
+                observer(ex);
+                throw;
+            }
+        }
+
+        async Task<int> ObserveCompletionAsync(Task<int> operation)
+        {
+            try
+            {
+                return await operation.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException ex)
+            {
+                observer(ex);
+                throw;
+            }
+        }
+
+        async ValueTask ObserveCompletionAsync(ValueTask operation)
+        {
+            try
+            {
+                await operation.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException ex)
+            {
+                observer(ex);
+                throw;
+            }
+        }
+
+        async ValueTask<int> ObserveCompletionAsync(
+            ValueTask<int> operation)
+        {
+            try
+            {
+                return await operation.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException ex)
+            {
+                observer(ex);
+                throw;
+            }
+        }
+
+        async ValueTask ObserveDisposeCompletionAsync(
+            ValueTask operation)
+        {
+            try
+            {
+                await operation.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException ex)
+            {
+                observer(ex);
+                throw;
+            }
+            GC.SuppressFinalize(this);
+        }
     }
 }
 

@@ -4,6 +4,14 @@ using ILInspector.Findings;
 
 namespace ILInspector.Text;
 
+/// <summary>An exact text-line census exceeded its caller-selected limit.</summary>
+public sealed class TextFindingComplexityException(int limit)
+    : InvalidOperationException(
+        $"Text exceeds the finding complexity limit of {limit:N0} lines.")
+{
+    public int Limit { get; } = limit;
+}
+
 /// <summary>Projects arbitrary text onto the ordered finding spine.</summary>
 public static class TextFindings
 {
@@ -21,6 +29,25 @@ public static class TextFindings
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(subject);
+
+        return ProjectAtoms(SplitLines(text), subject);
+    }
+
+    /// <summary>
+    /// Lazily yields an exact line census after refusing text that exceeds
+    /// <paramref name="maxLineCount"/>.
+    /// </summary>
+    public static IEnumerable<Finding<string>> Inspect(
+        string text,
+        FindingSubject subject,
+        int maxLineCount)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxLineCount);
+
+        if (CountLines(text) > maxLineCount)
+            throw new TextFindingComplexityException(maxLineCount);
 
         return ProjectAtoms(SplitLines(text), subject);
     }
@@ -69,6 +96,29 @@ public static class TextFindings
         }
 
         yield return text[start..];
+    }
+
+    static int CountLines(string text)
+    {
+        if (text.Length == 0)
+            return 0;
+
+        int count = 1;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] is not ('\r' or '\n'))
+                continue;
+
+            count++;
+            if (text[i] == '\r'
+                && i + 1 < text.Length
+                && text[i + 1] == '\n')
+            {
+                i++;
+            }
+        }
+
+        return count;
     }
 
     static IEnumerable<Finding<string>> ProjectAtoms(

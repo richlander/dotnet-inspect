@@ -102,15 +102,14 @@ public sealed class InspectionGraphDocumentTests
         Assert.Equal(
             [focus, caller, callee],
             document.Nodes.Select(node =>
-                Assert.IsType<
-                    InspectionGraphSubject.MemberSubject>(
-                        node.Subject).Member));
+                CallGraphMember(node.Subject)));
         Assert.Equal(
             projection.Nodes.Select(node => node.Identity),
             document.Nodes.Select(node =>
-                Assert.IsType<
-                    InspectionGraphSubject.MemberSubject>(
-                        node.Subject).Identity));
+                Assert.IsType<InspectionGraphMemberIdentity.CallGraph>(
+                    Assert.IsType<
+                        InspectionGraphSubject.MemberSubject>(
+                            node.Subject).Identity).Identity));
         Assert.Equal(
             [
                 InspectionGraphNodeRole.Unclassified,
@@ -148,8 +147,7 @@ public sealed class InspectionGraphDocumentTests
             document.Occurrences.Select(
                 occurrence => occurrence.TargetSubject));
         InspectionGraphSeed seed = Assert.Single(document.Seeds);
-        Assert.Equal(focus, Assert.IsType<
-            InspectionGraphSubject.MemberSubject>(seed.Subject).Member);
+        Assert.Equal(focus, CallGraphMember(seed.Subject));
         Assert.Equal(InspectionGraphTarget.Node(0), seed.Target);
         Assert.Equal(InspectionGraphSeedRole.Primary, seed.Role);
         Assert.Contains(
@@ -679,8 +677,7 @@ public sealed class InspectionGraphDocumentTests
         Assert.NotEqual(document.Nodes[0].Subject, document.Nodes[1].Subject);
         Assert.Equal(
             member,
-            Assert.IsType<InspectionGraphSubject.MemberSubject>(
-                document.Nodes[0].Subject).Member);
+            CallGraphMember(document.Nodes[0].Subject));
     }
 
     [Fact]
@@ -1225,6 +1222,11 @@ public sealed class InspectionGraphDocumentTests
     {
         public override bool IsPortable => false;
     }
+
+    static MemberRef CallGraphMember(InspectionGraphSubject subject) =>
+        Assert.IsType<InspectionGraphMemberIdentity.CallGraph>(
+            Assert.IsType<InspectionGraphSubject.MemberSubject>(
+                subject).Identity).Member;
 
     sealed record TestDiagnosticEvidence(
         InspectionGraphEvidenceDescriptor Descriptor)

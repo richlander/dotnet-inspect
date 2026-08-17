@@ -107,8 +107,8 @@ public class StructuralCloneCensusTests
             StructuralCloneCensusSeedStatus.Unresolved,
             report.Seed!.Status);
         Assert.Equal(0, report.Receipt.ProcessedMethods);
-        Assert.True(report.Receipt.SuppressedMethods > 0);
         string text = StructuralCloneCensus.Format(report);
+        Assert.True(report.Receipt.SuppressedMethods > 1);
         Assert.Contains(
             $"suppressed={report.Receipt.SuppressedMethods}",
             text);

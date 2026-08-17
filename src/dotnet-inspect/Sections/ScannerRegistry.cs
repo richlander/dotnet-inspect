@@ -261,10 +261,9 @@ public sealed class ScannerContext : IDisposable
 
     /// <summary>
     /// Shared method-body analysis index for <see cref="AssemblyPath"/>, built once on first use.
-    /// The body-index scanners (unsafe members, top leverage, optimization opportunities) share it
-    /// instead of each rebuilding the full <c>LibraryBodyIndex</c>. Scanners run sequentially
-    /// (<see cref="ScannerRegistry.RunScanners"/>), so no synchronization is required. The build is
-    /// narrowed to the phases the requested scanners consume (see
+    /// Body-index queries and scanners share it instead of each rebuilding the full
+    /// <c>LibraryBodyIndex</c>. Work runs sequentially, so no synchronization is required. The
+    /// build is narrowed to the phases the requested work consumes (see
     /// <see cref="BodyAnalysisFeatures"/>).
     /// </summary>
     public Analysis.LibraryBodyIndex BodyIndex()
