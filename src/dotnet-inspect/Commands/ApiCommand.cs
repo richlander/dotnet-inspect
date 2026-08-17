@@ -47,7 +47,14 @@ public class ApiCommand
             ProjectPath = options.ProjectPath, ProjectAssetsPath = options.ProjectAssetsPath,
             SourceRepositories = options.SourceRepositories,
             Tfm = options.Tfm, IncludeAll = options.IncludeAll, Verbose = options.Verbose,
-            ShowDocs = options.ShowDocs, DocsExplicitlySet = options.DocsExplicitlySet,
+            ShowDocs = options is MemberOptions
+                {
+                    RouterDeferredTypeOrMember: true,
+                    DocsExplicitlySet: false
+                }
+                    ? false
+                    : options.ShowDocs,
+            DocsExplicitlySet = options.DocsExplicitlySet,
             UseLocalDocs = options.UseLocalDocs, ShowSamples = options.ShowSamples,
             BrowsableUrls = options.BrowsableUrls, Verbosity = options.Verbosity,
             JsonOutput = options.JsonOutput, CompactJson = options.CompactJson,

@@ -250,17 +250,36 @@ public static class RouterCommandDefinition
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
             bool hasExplicitApiSource = HasExplicitApiSource(tail);
             if (hasExplicitApiSource
+                && TrySplitOperatorMemberTarget(
+                    target,
+                    out var operatorType,
+                    out var operatorMember))
+            {
+                return
+                [
+                    "member",
+                    operatorType,
+                    "-m",
+                    operatorMember,
+                    .. tail
+                ];
+            }
+
+            if (hasExplicitApiSource
                 && TypeMatcher.HasExplicitGenericNotation(target)
-                && FqnParser.LastTopLevelDot(target) > 0)
+                && target.Contains('.'))
             {
                 return RouteDeferredTypeOrMember(target, tail);
             }
 
-            var exactTypeLookup = LookupExactGenericPlatformType(target);
+            var frameworkSpec = GetOptionValue(tail, "--framework");
+            var exactTypeLookup = LookupExactGenericPlatformType(
+                target,
+                frameworkSpec: frameworkSpec);
             if (exactTypeLookup is PlatformTypeLookupOutcome.Resolved exactType)
                 return RouteExactGenericPlatformType(exactType, target, tail);
 
-            if (LookupExactGenericPlatformMember(target)
+            if (LookupExactGenericPlatformMember(target, frameworkSpec)
                 is { } exactMember)
             {
                 if (exactMember.Lookup
@@ -387,6 +406,49 @@ public static class RouterCommandDefinition
             => tokens.Any(token => token.Equals(option, StringComparison.Ordinal)
                                    || token.StartsWith(option + "=", StringComparison.Ordinal));
 
+        private static string? GetOptionValue(
+            string[] tokens,
+            string option)
+        {
+            for (var i = 0; i < tokens.Length; i++)
+            {
+                if (tokens[i].StartsWith(
+                        option + "=",
+                        StringComparison.Ordinal))
+                {
+                    return tokens[i][(option.Length + 1)..];
+                }
+
+                if (tokens[i].Equals(option, StringComparison.Ordinal)
+                    && i + 1 < tokens.Length)
+                {
+                    return tokens[i + 1];
+                }
+            }
+
+            return null;
+        }
+
+        private static bool TrySplitOperatorMemberTarget(
+            string target,
+            out string typeTarget,
+            out string memberSelector)
+        {
+            var operatorIndex = target.LastIndexOf(
+                ".operator",
+                StringComparison.OrdinalIgnoreCase);
+            if (operatorIndex <= 0)
+            {
+                typeTarget = "";
+                memberSelector = "";
+                return false;
+            }
+
+            typeTarget = target[..operatorIndex];
+            memberSelector = target[(operatorIndex + 1)..];
+            return memberSelector.Length > "operator".Length;
+        }
+
         private static string[] RouteDeferredTypeOrMember(
             string target,
             string[] tail) =>
@@ -448,20 +510,26 @@ public static class RouterCommandDefinition
 
         private static PlatformTypeLookupOutcome? LookupExactGenericPlatformType(
             string target,
-            bool allowSimpleName = false)
+            bool allowSimpleName = false,
+            string? frameworkSpec = null)
         {
             if (!target.Contains('`') && !target.Contains('<'))
                 return null;
 
             var normalizedTarget = FqnParser.NormalizeTypeName(target).Replace('+', '.');
-            var lookup = PlatformResolver.LookupType(target);
-            if (lookup is not PlatformTypeLookupOutcome.Resolved runtimeResolved
-                || !runtimeResolved.Candidate.Type
-                    .ToMetadataFullName()
-                    .Replace('+', '.')
-                    .Equals(
-                        normalizedTarget,
-                        StringComparison.OrdinalIgnoreCase))
+            var lookup = frameworkSpec is null
+                ? PlatformResolver.LookupType(target)
+                : PlatformResolver.LookupTypeInFramework(
+                    target,
+                    frameworkSpec);
+            if (frameworkSpec is null
+                && (lookup is not PlatformTypeLookupOutcome.Resolved runtimeResolved
+                    || !runtimeResolved.Candidate.Type
+                        .ToMetadataFullName()
+                        .Replace('+', '.')
+                        .Equals(
+                            normalizedTarget,
+                            StringComparison.OrdinalIgnoreCase)))
             {
                 lookup = PlatformResolver.LookupTypeAcrossFrameworks(target);
             }
@@ -494,7 +562,8 @@ public static class RouterCommandDefinition
             string MemberSelector,
             PlatformTypeLookupOutcome Lookup)?
             LookupExactGenericPlatformMember(
-                string target)
+                string target,
+                string? frameworkSpec)
         {
             var lastDot = FqnParser.LastTopLevelDot(target);
             if (lastDot <= 0 || lastDot == target.Length - 1)
@@ -503,7 +572,8 @@ public static class RouterCommandDefinition
             var typeTarget = target[..lastDot];
             return LookupExactGenericPlatformType(
                     typeTarget,
-                    allowSimpleName: true) is { } lookup
+                    allowSimpleName: true,
+                    frameworkSpec: frameworkSpec) is { } lookup
                 ? (typeTarget, target[(lastDot + 1)..], lookup)
                 : null;
         }

@@ -959,6 +959,36 @@ public static class PlatformResolver
     }
 
     /// <summary>
+    /// Resolves a user type pattern against one explicitly selected framework
+    /// reference catalog.
+    /// </summary>
+    public static PlatformTypeLookupOutcome LookupTypeInFramework(
+        string typeName,
+        string frameworkSpec,
+        string? packsDirectory = null)
+    {
+        var (refPath, version, error) =
+            ResolveFramework(frameworkSpec, packsDirectory);
+        if (error is not null || refPath is null || version is null)
+        {
+            return new PlatformTypeLookupOutcome.Rejected(
+                new PlatformTypeLookupFailure(
+                    PlatformTypeLookupFailureKind.CatalogUnavailable,
+                    error ?? $"The {frameworkSpec} reference catalog is unavailable."));
+        }
+
+        var atIndex = frameworkSpec.LastIndexOf('@');
+        var frameworkName = atIndex > 0
+            ? frameworkSpec[..atIndex]
+            : frameworkSpec;
+        return PlatformTypeCatalog.Lookup(
+            typeName,
+            refPath,
+            frameworkName,
+            version);
+    }
+
+    /// <summary>
     /// Resolves a user type pattern across every installed platform reference
     /// catalog without choosing a first-enumerated assembly.
     /// </summary>

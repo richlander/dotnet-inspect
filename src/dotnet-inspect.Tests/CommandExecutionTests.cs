@@ -2990,6 +2990,7 @@ public partial class CommandExecutionTests
     [InlineData("System.Collections.Generic.Dictionary<TKey,>")]
     [InlineData("System.Collections.Generic.Dictionary<,TValue>")]
     [InlineData("System.Collections.Generic.Dictionary<List<>,TValue>")]
+    [InlineData("System.Collections.Generic.Dictionary<TKey,<TValue>>")]
     [InlineData("System.Threading.Tasks.Task<T1,T2>")]
     public async Task Router_ExplicitMissingGenericArity_DoesNotBroaden(
         string target)
@@ -3091,6 +3092,25 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
     }
 
+    [Theory]
+    [InlineData("System.Threading.Tasks.Task<T>")]
+    [InlineData("System.Threading.Tasks.Task<T>.Result")]
+    public async Task Router_GenericPlatformTarget_UsesExplicitFrameworkOwner(
+        string target)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "--framework",
+            "netstandard",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("System.Threading.Tasks.Task", output);
+        Assert.Empty(error);
+    }
+
     [Fact]
     public async Task Member_RouterDeferredTarget_UsesMetadataMemberBoundary()
     {
@@ -3147,6 +3167,27 @@ public partial class CommandExecutionTests
             "-v:n",
             "--tips",
             "q");
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypePreservesTypeDocumentationDefaults()
+    {
+        string[] arguments =
+        [
+            "SequenceReader<T>",
+            "--platform",
+            "System.Memory",
+            "--markdown",
+            "-S",
+            "Methods",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var deferred = await RunAppAsync(arguments);
 
         Assert.Equal(direct, deferred);
         Assert.Equal(0, deferred.Exit);
@@ -19108,6 +19149,24 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Numerics.Vector<T>.operator<<",
             "-S", SectionNames.Signature, "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitSourceGenericShiftOperator_ResolvesTheMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Numerics.Vector<T>.operator<<",
+            "--platform",
+            "System.Numerics.Vectors",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());

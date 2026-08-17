@@ -272,6 +272,12 @@ public static class FqnParser
             switch (typeParams[i])
             {
                 case '<':
+                    if (typeParams[segmentStart..i].IsWhiteSpace())
+                    {
+                        count = 0;
+                        return false;
+                    }
+
                     var close = FindMatchingAngleBracket(typeParams, i);
                     if (close < 0
                         || !TryCountTypeParameters(
