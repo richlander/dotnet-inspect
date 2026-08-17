@@ -138,6 +138,26 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void TypeSurface_AccessorFactsPreserveDistinctAccessibility()
+    {
+        var surface = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures)));
+        var property = Assert.Single(
+            surface.Members,
+            member => member.Name == nameof(MetadataDeclarationQueryFixtures.Restricted));
+
+        Assert.Equal(
+            "private",
+            Assert.Single(property.AccessorFacts, accessor => accessor.Kind == "set")
+                .Accessibility);
+        Assert.Equal(
+            "private",
+            Assert.Single(property.SignatureModel!.Accessors, accessor => accessor.Kind == "set")
+                .Accessibility);
+    }
+
+    [Fact]
     public void TypeSurface_RecordsUnsafeBodylessSignatures()
     {
         var interfaceSurface = MetadataDeclarationQuery.GetTypeSurface(
@@ -743,6 +763,8 @@ public class MetadataDeclarationQueryFixtures
     public int @class() => 0;
 
     public int @while { get; set; }
+
+    public int Restricted { get; private set; }
 
     public int @event = 1;
 

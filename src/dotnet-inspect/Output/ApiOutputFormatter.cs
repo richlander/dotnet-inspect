@@ -1559,13 +1559,15 @@ public static class ApiOutputFormatter
             parameters.Add(new ApiParameter { Name = "value", Type = valueType });
         }
 
-        var accessorEntry = owner.AccessorFacts.FirstOrDefault(
-                accessor => accessor.Kind == accessorKind)
-            ?? ownerModel?.Accessors.FirstOrDefault(
-                accessor => accessor.Kind == accessorKind);
-        var accessibility = string.IsNullOrEmpty(accessorEntry?.Accessibility)
-            ? owner.Accessibility
-            : accessorEntry!.Accessibility;
+        var accessorFact = owner.AccessorFacts.FirstOrDefault(
+            accessor => accessor.Kind == accessorKind);
+        var presentationAccessor = ownerModel?.Accessors.FirstOrDefault(
+            accessor => accessor.Kind == accessorKind);
+        var accessibility = !string.IsNullOrEmpty(accessorFact?.Accessibility)
+            ? accessorFact.Accessibility
+            : !string.IsNullOrEmpty(presentationAccessor?.Accessibility)
+                ? presentationAccessor.Accessibility
+                : owner.Accessibility;
 
         var renderedParameters = string.Join(", ", parameters.Select(p => $"{p.TypeWithModifier} {p.Name}"));
         return new ApiMember
@@ -1584,10 +1586,14 @@ public static class ApiOutputFormatter
             },
             IsStatic = owner.IsStatic,
             IsVirtual = owner.IsVirtual,
-            IsAbstract = accessorEntry?.IsAbstract ?? owner.IsAbstract,
+            IsAbstract = accessorFact?.IsAbstract
+                ?? presentationAccessor?.IsAbstract
+                ?? owner.IsAbstract,
             IsOverride = owner.IsOverride,
             IsSealed = owner.IsSealed,
-            HasMethodBody = accessorEntry?.HasMethodBody ?? owner.HasMethodBody,
+            HasMethodBody = accessorFact?.HasMethodBody
+                ?? presentationAccessor?.HasMethodBody
+                ?? owner.HasMethodBody,
             IsUnsafe = owner.IsUnsafe,
             Accessibility = accessibility,
             Documentation = owner.Documentation,

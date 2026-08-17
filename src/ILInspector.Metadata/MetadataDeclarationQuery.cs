@@ -331,6 +331,8 @@ public static class MetadataDeclarationQuery
         return new ApiAccessor
         {
             Kind = kind,
+            Accessibility = NonPublicAccessibility(
+                method.Attributes & MethodAttributes.MemberAccessMask),
             HasMethodBody = method.RelativeVirtualAddress != 0,
             IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
         };

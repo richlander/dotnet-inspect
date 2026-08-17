@@ -610,14 +610,39 @@ public class MemberCallGraphSectionTests
         Assert.DoesNotContain("public void set_State(", result.Output);
     }
 
+    [Theory]
+    [InlineData(nameof(MemberAccessorModifierFixture.ProtectedState), 2, true, "protected void set_ProtectedState(int value)")]
+    [InlineData(nameof(MemberAccessorModifierFixture.InternalState), 2, true, "internal void set_InternalState(int value)")]
+    [InlineData(nameof(MemberAccessorModifierFixture.HiddenState), 1, false, "private int get_HiddenState()")]
+    public async Task DecompiledSource_KeepsDistinctAccessorAccessibility(
+        string memberName,
+        int overloadIndex,
+        bool includeAll,
+        string expectedDeclaration)
+    {
+        var result = await RunDecompiledAsync(
+            typeof(MemberAccessorModifierFixture).FullName!,
+            memberName,
+            overloadIndex,
+            includeAll);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.Contains(expectedDeclaration, result.Output);
+    }
+
     static Task<(int ExitCode, string Output, string Error)> RunDecompiledAsync(
-        string typeName, string memberName, int? overloadIndex)
+        string typeName,
+        string memberName,
+        int? overloadIndex,
+        bool includeAll = false)
         => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
             TypeName = typeName,
             AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
             MemberFilter = [memberName],
             OverloadIndex = overloadIndex,
+            IncludeAll = includeAll,
             IncludeSections = [SectionNames.DecompiledSource],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Normal,
@@ -711,6 +736,12 @@ public class MemberAccessorModifierFixture
     public virtual string Label { get; } = "base";
 
     public bool State { get; private set; }
+
+    public int ProtectedState { get; protected set; }
+
+    public int InternalState { get; internal set; }
+
+    public int HiddenState { private get; set; }
 }
 
 public class DerivedAccessorModifierFixture : MemberAccessorModifierFixture

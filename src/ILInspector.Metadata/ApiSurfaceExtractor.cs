@@ -3281,10 +3281,19 @@ public static class ApiSurfaceExtractor
         return new ApiAccessor
         {
             Kind = kind,
+            Accessibility = GetAccessorAccessibility(method.Attributes),
             ReturnAttributes = ReturnParameterAttributes(reader, method.GetParameters()),
             HasMethodBody = method.RelativeVirtualAddress != 0,
             IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0
         };
+    }
+
+    private static string? GetAccessorAccessibility(MethodAttributes attributes)
+    {
+        var access = attributes & MethodAttributes.MemberAccessMask;
+        return access == MethodAttributes.PrivateScope
+            ? "private"
+            : GetAccessibility(access);
     }
 
     private static List<ApiAccessor> AccessorFacts(
