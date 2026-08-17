@@ -1,5 +1,6 @@
 using CSharpText;
 using System.Buffers;
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -654,7 +655,9 @@ public static class AttributeReader
                     return false;
                 }
             }
-            return true;
+            // A desynced scan that stops early would otherwise report success with a
+            // lower bound of 0 and let DecodeValue allocate the unread remainder.
+            return blob.RemainingBytes == 0;
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -673,15 +676,10 @@ public static class AttributeReader
             if (!TryReadSerializedType(ref blob, out type))
                 return false;
         }
-        int size = type.Code switch
-        {
-            SerializationTypeCode.Boolean or SerializationTypeCode.Byte or SerializationTypeCode.SByte => 1,
-            SerializationTypeCode.Char or SerializationTypeCode.Int16 or SerializationTypeCode.UInt16 => 2,
-            SerializationTypeCode.Int32 or SerializationTypeCode.UInt32 or SerializationTypeCode.Single => 4,
-            SerializationTypeCode.Int64 or SerializationTypeCode.UInt64 or SerializationTypeCode.Double => 8,
-            SerializationTypeCode.Enum => GetEnumStorageSize(reader, type.TypeName!),
-            _ => 0,
-        };
+        if (type.Code == SerializationTypeCode.Enum)
+            return TryScanEnumValue(reader, ref blob, type.TypeName!, ref lowerBound);
+
+        int size = FixedPrimitiveStorageSize(type.Code);
         if (size != 0)
             return TrySkipBytes(ref blob, size);
         return type.Code switch
@@ -691,6 +689,24 @@ public static class AttributeReader
             SerializationTypeCode.SZArray => blob.ReadUInt32() == uint.MaxValue,
             _ => false,
         };
+    }
+
+    static bool TryScanEnumValue(
+        MetadataReader reader,
+        ref BlobReader blob,
+        string typeName,
+        ref long lowerBound)
+    {
+        // Mirror AttributeDecoder.ArgTypeProvider.GetUnderlyingEnumType so the
+        // scanner and SRM custom-attribute decoder agree on the value layout.
+        if (!TryGetEnumUnderlyingPrimitive(reader, typeName, out PrimitiveTypeCode code))
+            return false;
+
+        if (code == PrimitiveTypeCode.String)
+            return TryCountSerializedString(ref blob, ref lowerBound);
+
+        int size = FixedPrimitiveStorageSize(code);
+        return size != 0 && TrySkipBytes(ref blob, size);
     }
     static bool TryScanTypeValue(ref BlobReader blob, ref long lowerBound)
     {
@@ -841,40 +857,109 @@ public static class AttributeReader
         blob.Offset += count; return true;
     }
 
-    static int GetEnumStorageSize(MetadataReader reader, string typeName)
+    static int FixedPrimitiveStorageSize(SerializationTypeCode code) => code switch
     {
+        SerializationTypeCode.Boolean or SerializationTypeCode.Byte or SerializationTypeCode.SByte => 1,
+        SerializationTypeCode.Char or SerializationTypeCode.Int16 or SerializationTypeCode.UInt16 => 2,
+        SerializationTypeCode.Int32 or SerializationTypeCode.UInt32 or SerializationTypeCode.Single => 4,
+        SerializationTypeCode.Int64 or SerializationTypeCode.UInt64 or SerializationTypeCode.Double => 8,
+        _ => 0,
+    };
+
+    static int FixedPrimitiveStorageSize(PrimitiveTypeCode code) => code switch
+    {
+        PrimitiveTypeCode.Boolean or PrimitiveTypeCode.Byte or PrimitiveTypeCode.SByte => 1,
+        PrimitiveTypeCode.Char or PrimitiveTypeCode.Int16 or PrimitiveTypeCode.UInt16 => 2,
+        PrimitiveTypeCode.Int32 or PrimitiveTypeCode.UInt32 or PrimitiveTypeCode.Single => 4,
+        PrimitiveTypeCode.Int64 or PrimitiveTypeCode.UInt64 or PrimitiveTypeCode.Double => 8,
+        // String is variable-length and handled by the caller. IntPtr/UIntPtr/
+        // Object and any non-primitive field type are unscannable here.
+        _ => 0,
+    };
+
+    static bool TryGetEnumUnderlyingPrimitive(
+        MetadataReader reader,
+        string typeName,
+        out PrimitiveTypeCode code)
+    {
+        // AttributeDecoder.ArgTypeProvider.GetUnderlyingEnumType defaults every
+        // unresolved case to Int32, including unknown type names and enums with
+        // no instance field. Match that so preflight and decode stay aligned.
+        code = PrimitiveTypeCode.Int32;
         foreach (var handle in reader.TypeDefinitions)
         {
-            var definition = reader.GetTypeDefinition(handle);
             if (TypeResolver.GetTypeNameFromDefinition(reader, handle) != typeName)
                 continue;
+
+            var definition = reader.GetTypeDefinition(handle);
             foreach (var fieldHandle in definition.GetFields())
             {
                 var field = reader.GetFieldDefinition(fieldHandle);
                 if ((field.Attributes & FieldAttributes.Static) != 0)
                     continue;
-                if (!SignatureBlobGuard.IsSafeToDecode(reader, field.Signature, SignatureBlobGuard.Kind.Field))
-                    return 4;
-                var signature = reader.GetBlobReader(field.Signature);
-                if (signature.ReadSignatureHeader().Kind != SignatureKind.Field)
-                    return 0;
-                var code = signature.ReadSignatureTypeCode();
-                while (code is SignatureTypeCode.OptionalModifier or SignatureTypeCode.RequiredModifier)
-                {
-                    signature.ReadTypeHandle();
-                    code = signature.ReadSignatureTypeCode();
-                }
-                return code switch
-                {
-                    SignatureTypeCode.Boolean or SignatureTypeCode.Byte or SignatureTypeCode.SByte => 1,
-                    SignatureTypeCode.Char or SignatureTypeCode.Int16 or SignatureTypeCode.UInt16 => 2,
-                    SignatureTypeCode.Int64 or SignatureTypeCode.UInt64 or SignatureTypeCode.Double => 8,
-                    SignatureTypeCode.Invalid => 0,
-                    _ => 4,
-                };
+
+                code = GuardedProviderDecode.Field(
+                    reader,
+                    field,
+                    EnumUnderlyingPrimitiveProvider.Instance,
+                    context: null,
+                    fallback: PrimitiveTypeCode.Int32);
+                return true;
             }
+
+            return true;
         }
-        return 4;
+
+        return true;
+    }
+
+    sealed class EnumUnderlyingPrimitiveProvider
+        : ISignatureTypeProvider<PrimitiveTypeCode, object?>
+    {
+        public static EnumUnderlyingPrimitiveProvider Instance { get; } = new();
+
+        public PrimitiveTypeCode GetPrimitiveType(PrimitiveTypeCode code) => code;
+        public PrimitiveTypeCode GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetSZArrayType(PrimitiveTypeCode elementType)
+            => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetArrayType(
+            PrimitiveTypeCode elementType,
+            ArrayShape shape) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetByReferenceType(PrimitiveTypeCode elementType)
+            => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetPointerType(PrimitiveTypeCode elementType)
+            => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetGenericInstantiation(
+            PrimitiveTypeCode genericType,
+            ImmutableArray<PrimitiveTypeCode> typeArguments)
+            => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetGenericMethodParameter(
+            object? genericContext,
+            int index) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetGenericTypeParameter(
+            object? genericContext,
+            int index) => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetModifiedType(
+            PrimitiveTypeCode modifier,
+            PrimitiveTypeCode unmodifiedType,
+            bool isRequired) => unmodifiedType;
+        public PrimitiveTypeCode GetPinnedType(PrimitiveTypeCode elementType)
+            => elementType;
+        public PrimitiveTypeCode GetFunctionPointerType(
+            MethodSignature<PrimitiveTypeCode> signature)
+            => PrimitiveTypeCode.Int32;
+        public PrimitiveTypeCode GetTypeFromSpecification(
+            MetadataReader reader,
+            object? genericContext,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind) => PrimitiveTypeCode.Int32;
     }
 
     readonly record struct AttributeValueType(SerializationTypeCode Code, string? TypeName = null)

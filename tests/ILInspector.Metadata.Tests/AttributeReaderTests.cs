@@ -141,6 +141,66 @@ public class AttributeReaderTests
     }
 
     [Fact]
+    public void RenderAttributes_StringBackedEnum_PreflightsWithoutMaterializingString()
+    {
+        // Hostile metadata can declare value__ : string. The decoder then treats
+        // the enum argument as a length-prefixed string. Preflight must use the
+        // same layout and charge the string before DecodeValue materializes it.
+        const int characterCount = 20_000_000;
+        using var provider = BuildSyntheticStringBackedEnumAttribute(
+            value => WriteRepeatedString(value, characterCount));
+        var reader = provider.GetMetadataReader();
+        var attributes = reader.GetTypeDefinition(
+            reader.TypeDefinitions.Single(handle =>
+                reader.GetString(reader.GetTypeDefinition(handle).Name) == "Target"))
+            .GetCustomAttributes();
+        long observedLowerBound = -1;
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.Throws<StopPreflightException>(() => AttributeReader.RenderAttributes(
+            reader,
+            attributes,
+            preflight: lowerBound =>
+            {
+                observedLowerBound = lowerBound;
+                throw new StopPreflightException();
+            }));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(characterCount, observedLowerBound);
+        Assert.True(allocated < 8_000_000, $"Preflight allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void RenderAttributes_StringBackedEnum_OrdinaryValueMatchesUnbounded()
+    {
+        const string text = "fixed \u03bb\n";
+        using var provider = BuildSyntheticStringBackedEnumAttribute(value =>
+        {
+            byte[] utf8 = System.Text.Encoding.UTF8.GetBytes(text);
+            value.WriteCompressedInteger(utf8.Length);
+            value.WriteBytes(utf8);
+        });
+        var reader = provider.GetMetadataReader();
+        var attributes = reader.GetTypeDefinition(
+            reader.TypeDefinitions.Single(handle =>
+                reader.GetString(reader.GetTypeDefinition(handle).Name) == "Target"))
+            .GetCustomAttributes();
+
+        var expected = AttributeReader.RenderAttributes(reader, attributes, qualifyNames: true);
+        var actual = AttributeReader.RenderAttributes(
+            reader,
+            attributes,
+            qualifyNames: true,
+            preflight: _ => { });
+
+        Assert.Equal(expected, actual);
+        Assert.Single(actual);
+        Assert.Contains("fixed", actual[0], StringComparison.Ordinal);
+        Assert.Contains("\\n", actual[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RenderAttributes_GiantNonNullArray_SkipsWithoutMaterializingArray()
     {
         const int elementCount = 5_000_000;
@@ -294,6 +354,98 @@ public class AttributeReaderTests
             MethodImplAttributes.IL,
             metadata.GetOrAddString(".ctor"),
             metadata.GetOrAddBlob(signature),
+            -1,
+            MetadataTokens.ParameterHandle(1));
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        writeFixedValue(value);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(targetType, constructor, metadata.GetOrAddBlob(value));
+
+        var image = new BlobBuilder();
+        new MetadataRootBuilder(metadata, suppressValidation: true).Serialize(image, 0, 0);
+        return MetadataReaderProvider.FromMetadataImage(ImmutableArray.Create(image.ToArray()));
+    }
+
+    static MetadataReaderProvider BuildSyntheticStringBackedEnumAttribute(
+        Action<BlobBuilder> writeFixedValue)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("SyntheticEnum.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("SyntheticEnum"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var coreLib = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.CoreLib"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var enumBase = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var enumType = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Synthetic"),
+            metadata.GetOrAddString("StringBackedEnum"),
+            enumBase,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var attributeType = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Synthetic"),
+            metadata.GetOrAddString("LargeAttribute"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(2),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var targetType = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Synthetic"),
+            metadata.GetOrAddString("Target"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(2),
+            MetadataTokens.MethodDefinitionHandle(2));
+
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte((byte)SignatureKind.Field);
+        fieldSignature.WriteByte((byte)SignatureTypeCode.String);
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(fieldSignature));
+
+        // hasthis, 1 arg, void, valuetype StringBackedEnum
+        var ctorSignature = new BlobBuilder();
+        ctorSignature.WriteByte(0x20);
+        ctorSignature.WriteCompressedInteger(1);
+        ctorSignature.WriteByte((byte)SignatureTypeCode.Void);
+        ctorSignature.WriteByte(0x11); // ELEMENT_TYPE_VALUETYPE
+        ctorSignature.WriteCompressedInteger(CodedIndex.TypeDefOrRef(enumType));
+        var constructor = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(ctorSignature),
             -1,
             MetadataTokens.ParameterHandle(1));
 
