@@ -296,6 +296,15 @@ descriptor.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.
+When stream inspection is already propagating cancellation or a fatal failure,
+owned-stream cleanup cannot replace that primary failure.
+`AssemblyContextSourceQueryTests.SnapshotPrimaryFailure_IsNotMaskedByCleanupFailure`
+gates the end-to-end member and type paths, while
+`PdbContextDescriptorTests.DescriptorOpenPrimaryFailure_IsNotMaskedByCleanupFailure`
+gates descriptor-backed metadata contexts, assembly images, and prefetched
+sessions, and
+`PdbContextDescriptorTests.PdbContextConstructionPrimaryFailure_ReleasesOwnedStream`
+gates the post-reader context-construction boundary.
 `InspectionWorkspaceTests.OwnedResources_AreDisposedBeforeSnapshots` gates the
 derived-resource-before-snapshot disposal order.
 `InspectionWorkspaceTests.AsyncParticipantRelease_PreservesOwnedResourceDisposalOrder`

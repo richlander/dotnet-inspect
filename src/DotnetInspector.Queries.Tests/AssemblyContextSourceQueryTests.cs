@@ -410,6 +410,76 @@ public sealed class AssemblyContextSourceQueryTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
+    public async Task SnapshotPrimaryFailure_IsNotMaskedByCleanupFailure(
+        bool memberQuery,
+        bool fatalFailure)
+    {
+        Exception primaryFailure =
+            fatalFailure
+                ? new OutOfMemoryException(
+                    "Synthetic fatal snapshot failure.")
+                : new OperationCanceledException(
+                    "Synthetic snapshot cancellation.");
+        var cleanupFailure =
+            new HttpRequestException(
+                "Synthetic snapshot cleanup failure.");
+        PrimaryAndCleanupFailureStream? opened = null;
+        TestAssembly assembly =
+            TestAssembly.Create(
+                openRead: () =>
+                {
+                    opened =
+                        new PrimaryAndCleanupFailureStream(
+                            File.ReadAllBytes(
+                                typeof(
+                                    AssemblyContextSourceQueryTests)
+                                    .Assembly.Location),
+                            primaryFailure,
+                            cleanupFailure);
+                    return opened;
+                });
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        Func<Task> operation =
+            memberQuery
+                ? () => AssemblyContextSourceQuery.ExecuteMemberAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.MemberRequest(
+                        nameof(SourceFixture.Describe)),
+                    host.Context,
+                    TestContext.Current.CancellationToken)
+                : () => AssemblyContextSourceQuery.ExecuteTypeAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.TypeRequest(
+                        typeof(SourceFixture).Name),
+                    host.Context,
+                    TestContext.Current.CancellationToken);
+
+        Exception error =
+            fatalFailure
+                ? await Assert.ThrowsAsync<OutOfMemoryException>(
+                    operation)
+                : await Assert.ThrowsAsync<OperationCanceledException>(
+                    operation);
+
+        Assert.Same(primaryFailure, error);
+        Assert.Equal(1, Assert.IsType<
+            PrimaryAndCleanupFailureStream>(opened).DisposeCount);
+        Assert.Empty(host.SourceRequests);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
     public async Task SnapshotAcquisitionStateChange_PrecedesEarlyTargetNotFound(
         bool memberQuery,
         bool rotatePolicy)
@@ -2514,7 +2584,8 @@ public sealed class AssemblyContextSourceQueryTests
 
         internal static TestAssembly Create(
             string? selectedName = null,
-            bool retainPath = false)
+            bool retainPath = false,
+            Func<Stream>? openRead = null)
         {
             string path =
                 typeof(AssemblyContextSourceQueryTests)
@@ -2536,9 +2607,10 @@ public sealed class AssemblyContextSourceQueryTests
                     retainPath
                         ? path
                         : null,
-                    () => new MemoryStream(
-                        bytes,
-                        writable: false),
+                    openRead
+                        ?? (() => new MemoryStream(
+                            bytes,
+                            writable: false)),
                     AssemblyResolutionProvenance.Package(
                         "Example.Source",
                         "1.0.0",
@@ -3208,6 +3280,29 @@ public sealed class AssemblyContextSourceQueryTests
             int offset,
             int count) =>
             throw new NotSupportedException();
+    }
+
+    sealed class PrimaryAndCleanupFailureStream(
+        byte[] bytes,
+        Exception primaryFailure,
+        Exception cleanupFailure)
+        : MemoryStream(bytes, writable: false)
+    {
+        internal int DisposeCount { get; private set; }
+
+        public override long Length =>
+            throw primaryFailure;
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisposeCount++;
+                base.Dispose(disposing);
+                throw cleanupFailure;
+            }
+            base.Dispose(disposing);
+        }
     }
 
     sealed class DisposeCountingStream(Stream inner)

@@ -393,28 +393,21 @@ public class PdbContext : IDisposable
         DateTime? lastWriteTimeUtc,
         bool loadLocalPdb = true)
     {
-        PEReader peReader;
+        PEReader? peReader = null;
+        PdbContext? context = null;
         try
         {
-            peReader = new PEReader(stream, streamOptions);
-        }
-        catch
-        {
-            stream.Dispose();
-            throw;
-        }
-
-        var context = new PdbContext(
-            stream,
-            peReader,
-            assemblyPath,
-            assemblyDisplayName,
-            log,
-            (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
-            lastWriteTimeUtc);
-
-        try
-        {
+            peReader = new PEReader(
+                stream,
+                streamOptions | PEStreamOptions.LeaveOpen);
+            context = new PdbContext(
+                stream,
+                peReader,
+                assemblyPath,
+                assemblyDisplayName,
+                log,
+                (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
+                lastWriteTimeUtc);
             if (!peReader.HasMetadata)
                 return context;
 
@@ -424,9 +417,21 @@ public class PdbContext : IDisposable
 
             return context;
         }
-        catch
+        catch (Exception ex)
         {
-            context.Dispose();
+            if (context is not null)
+            {
+                context.Dispose();
+            }
+            else
+            {
+                OwnedResourceCleanup.DisposeAfterFailure(
+                    peReader,
+                    ex);
+                OwnedResourceCleanup.DisposeAfterFailure(
+                    stream,
+                    ex);
+            }
             throw;
         }
     }
@@ -584,20 +589,13 @@ public class PdbContext : IDisposable
                 }
                 else
                 {
-                    DisposeSuppressingFailure(provider);
-                    DisposeSuppressingFailure(pdbStream);
+                    OwnedResourceCleanup.DisposeAfterFailure(
+                        provider,
+                        primaryFailure);
+                    OwnedResourceCleanup.DisposeAfterFailure(
+                        pdbStream,
+                        primaryFailure);
                 }
-            }
-        }
-
-        static void DisposeSuppressingFailure(IDisposable? disposable)
-        {
-            try
-            {
-                disposable?.Dispose();
-            }
-            catch
-            {
             }
         }
     }
