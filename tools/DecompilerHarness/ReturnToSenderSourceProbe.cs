@@ -757,21 +757,7 @@ internal sealed class ReturnToSenderSourceIndex
         try
         {
             pdb = PdbContext.Open(assemblyPath);
-            IReadOnlyList<CompilationOptionInfo> compilationOptions = pdb.GetCompilationOptions();
-            string[] symbols = compilationOptions
-                .Where(option => string.Equals(option.Name, "define", StringComparison.OrdinalIgnoreCase))
-                .SelectMany(option => option.Value.Split(
-                    [',', ';'],
-                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
-            var index = TryCreate(
-                sourcePaths,
-                new CSharpParseOptions(LanguageVersion.Preview, preprocessorSymbols: symbols));
-            return index?.WithPdbCorrelations(
-                assemblyPath,
-                pdb,
-                compilationOptionsKnown: compilationOptions.Count > 0);
+            return TryCreate(pdb, sourcePaths);
         }
         catch (Exception ex) when (ex is IOException
             or UnauthorizedAccessException
@@ -785,6 +771,29 @@ internal sealed class ReturnToSenderSourceIndex
         {
             pdb?.Dispose();
         }
+    }
+
+    internal static ReturnToSenderSourceIndex? TryCreate(
+        PdbContext pdb,
+        IReadOnlyList<string> sourcePaths)
+    {
+        if (!pdb.HasAssemblyBoundPdb)
+            return TryCreate(sourcePaths);
+
+        IReadOnlyList<CompilationOptionInfo> compilationOptions = pdb.GetCompilationOptions();
+        string[] symbols = compilationOptions
+            .Where(option => string.Equals(option.Name, "define", StringComparison.OrdinalIgnoreCase))
+            .SelectMany(option => option.Value.Split(
+                [',', ';'],
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var index = TryCreate(
+            sourcePaths,
+            new CSharpParseOptions(LanguageVersion.Preview, preprocessorSymbols: symbols));
+        return index?.WithPdbCorrelations(
+            pdb,
+            compilationOptionsKnown: compilationOptions.Count > 0);
     }
 
     public static ReturnToSenderSourceIndex? TryCreate(string assemblyPath)
@@ -866,7 +875,6 @@ internal sealed class ReturnToSenderSourceIndex
     }
 
     ReturnToSenderSourceIndex WithPdbCorrelations(
-        string assemblyPath,
         PdbContext pdb,
         bool compilationOptionsKnown)
     {
@@ -877,19 +885,15 @@ internal sealed class ReturnToSenderSourceIndex
             return this;
         }
 
-        using var pe = new PEReader(File.OpenRead(assemblyPath));
-        if (!pe.HasMetadata)
-            return this;
-
-        var reader = pe.GetMetadataReader();
-        Guid moduleVersionId = reader.GetGuid(reader.GetModuleDefinition().Mvid);
-        if (moduleVersionId == Guid.Empty)
+        PdbModuleDefinitionInfo? module = pdb.GetModuleDefinitionInfo();
+        if (module is null || module.ModuleVersionId == Guid.Empty)
             return this;
 
         var verifiedSources = new Dictionary<string, string?>(StringComparer.Ordinal);
         var correlatedMembers = new Dictionary<int, ReturnToSenderSourceMember>();
-        foreach (var methodHandle in reader.MethodDefinitions)
+        for (int row = 1; row <= module.MethodDefinitionCount; row++)
         {
+            var methodHandle = MetadataTokens.MethodDefinitionHandle(row);
             int metadataToken = MetadataTokens.GetToken(methodHandle);
             PdbMethodDocumentInfo? document = pdb.ResolveMethodDocument(
                 typeName: "",
@@ -924,29 +928,13 @@ internal sealed class ReturnToSenderSourceIndex
             if (candidates.Length != 1)
                 continue;
 
-            var method = reader.GetMethodDefinition(methodHandle);
-            var type = reader.GetTypeDefinition(method.GetDeclaringType());
-            string methodName = reader.GetString(method.Name);
-            string fullType = reader.GetFullTypeName(type);
             ReturnToSenderSourceMember candidate = candidates[0];
-            if (!string.Equals(candidate.Type, fullType, StringComparison.Ordinal)
-                || !string.Equals(candidate.Method, methodName, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            int overload = ReturnToSenderSourceProbe.OverloadIndex(
-                reader,
-                type,
-                methodHandle,
-                methodName);
             correlatedMembers.TryAdd(
                 metadataToken,
                 candidate with
                 {
-                    Overload = overload,
                     MetadataToken = metadataToken,
-                    ModuleVersionId = moduleVersionId,
+                    ModuleVersionId = module.ModuleVersionId,
                 });
         }
 
@@ -1127,26 +1115,55 @@ internal sealed class ReturnToSenderSourceIndex
     /// Resolves a source member for fault attribution by its exact metadata token.
     /// </summary>
     /// <remarks>
-    /// The redundant type, method, and overload check catches a malformed correlated
-    /// record rather than trusting a token from the wrong target. Raw syntax indexes
-    /// have no token map and therefore fail closed.
+    /// The current reader's MVID plus the redundant type, method, and overload
+    /// checks catch a stale or malformed correlated record rather than trusting a
+    /// token from the wrong target. Raw syntax indexes have no token map and
+    /// therefore fail closed.
     /// </remarks>
     public bool TryFindForAttribution(
         ReturnToSender.RequestedTarget target,
+        MetadataReader reader,
         int metadataToken,
         out ReturnToSenderSourceMember member)
     {
         member = null!;
+        Guid moduleVersionId = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         if (!_correlatedMembersByToken.TryGetValue(metadataToken, out var correlated)
+            || correlated.ModuleVersionId != moduleVersionId
+            || !TargetMatchesReader(target, reader, metadataToken)
             || !string.Equals(correlated.Type, target.Type, StringComparison.Ordinal)
-            || !string.Equals(correlated.Method, target.Method, StringComparison.Ordinal)
-            || correlated.Overload != target.Overload)
+            || !string.Equals(correlated.Method, target.Method, StringComparison.Ordinal))
         {
             return false;
         }
 
-        member = correlated;
+        member = correlated with { Overload = target.Overload };
         return true;
+    }
+
+    static bool TargetMatchesReader(
+        ReturnToSender.RequestedTarget target,
+        MetadataReader reader,
+        int metadataToken)
+    {
+        if ((metadataToken & unchecked((int)0xff000000)) != 0x06000000)
+            return false;
+
+        int row = metadataToken & 0x00ffffff;
+        if (row == 0 || row > reader.MethodDefinitions.Count)
+            return false;
+
+        var methodHandle = MetadataTokens.MethodDefinitionHandle(row);
+        var method = reader.GetMethodDefinition(methodHandle);
+        var type = reader.GetTypeDefinition(method.GetDeclaringType());
+        string methodName = reader.GetString(method.Name);
+        return string.Equals(reader.GetFullTypeName(type), target.Type, StringComparison.Ordinal)
+            && string.Equals(methodName, target.Method, StringComparison.Ordinal)
+            && ReturnToSenderSourceProbe.OverloadIndex(
+                reader,
+                type,
+                methodHandle,
+                methodName) == target.Overload;
     }
 
     public bool TryFindRecordSynthesizedMember(ReturnToSender.RequestedTarget target, out string sourcePath)

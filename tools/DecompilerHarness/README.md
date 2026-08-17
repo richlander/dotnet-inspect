@@ -354,13 +354,19 @@ binds the PDB to the assembly; the PDB's MethodDef then selects a document and
 visible line span, the document checksum authenticates exactly one supplied
 local file with the same file name, and exactly one body-bearing declaration or
 accessor must contain the span. Recorded preprocessor symbols are applied before
-indexing. Missing or mismatched PDBs, checksums, files, bodies, or unique spans
-remain uncorrelated; the original compile diagnostic stays visible and an
-invalid result remains `Unclassified`, not a success.
+indexing only after the assembly binding succeeds, and attribution lookup
+revalidates the stored MVID against the current request reader. Missing or
+mismatched PDBs, checksums, files, bodies, or unique spans remain uncorrelated;
+the original compile diagnostic stays visible and an invalid result remains
+`Unclassified`, not a success.
+MethodDef enumeration and the stored MVID come from the PDB context's retained
+PE image; the harness does not reopen the assembly path while forming the
+correlation.
 `TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan`,
 `TryIsolateRecompileFailure_DeclinesPdbSourceAfterChecksumMismatch`,
 `TryIsolateRecompileFailure_DeclinesSourceWithoutPortablePdb`,
 `TryIsolateRecompileFailure_DeclinesForeignPdbForAssemblyWithoutCodeViewIdentity`,
+`PdbSourceIndex_RejectsCurrentReaderFromDifferentModule`,
 and
 `TryIsolateRecompileFailure_DeclinesDuplicateChecksumVerifiedSourceFiles` gate
 the positive and fail-closed paths.

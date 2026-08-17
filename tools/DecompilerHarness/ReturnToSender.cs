@@ -2479,6 +2479,7 @@ static class ReturnToSender
         if (sourceIndex is null
             || !sourceIndex.TryFindForAttribution(
                 new RequestedTarget(request.FullType, request.MethodName, request.Overload, Signature: null),
+                request.Reader,
                 MetadataTokens.GetToken(request.TargetMethod),
                 out var sourceMember)
             || sourceMember.Body is not { } authoredBody)

@@ -70,13 +70,18 @@ and mapped line span, the document checksum authenticates one supplied local
 file with the same file name, and exactly one body-bearing declaration or
 accessor must contain the span. Embedded containment or a verified Portable
 CodeView content ID establishes the assembly binding. Recorded preprocessor
-symbols are applied before parsing.
+symbols are applied before parsing only after that binding succeeds. Attribution
+lookup revalidates the stored MVID against the current request reader before
+accepting the MethodDef token. The initial correlation enumerates MethodDefs
+from Metadata coordinates read from the PDB context's retained PE image rather
+than reopening the assembly path.
 Any missing, mismatched, or ambiguous input leaves the MethodDef
 uncorrelated. `TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan`,
 `TryIsolateRecompileFailure_AttributesTheExactPropertyAccessor`, and the
 `TryIsolateRecompileFailure_DeclinesPdbSourceAfterChecksumMismatch`,
 `TryIsolateRecompileFailure_DeclinesSourceWithoutPortablePdb`,
 `TryIsolateRecompileFailure_DeclinesForeignPdbForAssemblyWithoutCodeViewIdentity`,
+`PdbSourceIndex_RejectsCurrentReaderFromDifferentModule`,
 and
 `TryIsolateRecompileFailure_DeclinesAmbiguousSameLinePdbSpan` tests gate this
 path.

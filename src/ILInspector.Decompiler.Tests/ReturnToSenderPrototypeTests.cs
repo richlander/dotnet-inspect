@@ -6546,10 +6546,11 @@ public class ReturnToSenderPrototypeTests
                         document.Checksum,
                         File.ReadAllBytes(sourcePath)));
                 var sourceIndex = Assert.IsType<ReturnToSenderSourceIndex>(
-                    ReturnToSenderSourceIndex.TryCreate(assemblyPath, [sourcePath]));
+                    ReturnToSenderSourceIndex.TryCreate(pdb, [sourcePath]));
                 int metadataToken = MetadataTokens.GetToken(methodHandle);
                 Assert.True(sourceIndex.TryFindForAttribution(
                     new ReturnToSender.RequestedTarget("Class1", "M", 0),
+                    reader,
                     metadataToken,
                     out var correlated));
                 Assert.Equal(metadataToken, correlated.MetadataToken);
@@ -6654,7 +6655,14 @@ public class ReturnToSenderPrototypeTests
         const string foreignSource = """
             public class Class1
             {
-                public int M() { return 2; }
+                public int M()
+                {
+            #if FEATURE
+                    return 2;
+            #else
+                    return 3;
+            #endif
+                }
             }
             """;
         var sourcePath = WriteTempSource(
@@ -6674,7 +6682,8 @@ public class ReturnToSenderPrototypeTests
             foreignDirectory,
             assemblyName: "foreign",
             sourcePath: foreignSourcePath,
-            emitPortablePdb: true);
+            emitPortablePdb: true,
+            preprocessorSymbols: ["FEATURE"]);
         File.Copy(
             Path.ChangeExtension(foreignAssemblyPath, ".pdb"),
             Path.ChangeExtension(assemblyPath, ".pdb"));
@@ -6685,6 +6694,13 @@ public class ReturnToSenderPrototypeTests
                 Assert.True(pdb.HasPdb);
                 Assert.False(pdb.HasAssemblyBoundPdb);
             }
+
+            var sourceIndex = Assert.IsType<ReturnToSenderSourceIndex>(
+                ReturnToSenderSourceIndex.TryCreate(assemblyPath, [foreignSourcePath]));
+            Assert.True(sourceIndex.TryFind(
+                new ReturnToSender.RequestedTarget("Class1", "M", 0),
+                out var rawMember));
+            Assert.Equal("return 3;", rawMember.Body);
 
             Assert.Null(TryIsolateRecompileFailureForMethod(
                 assemblyPath,
@@ -6699,6 +6715,62 @@ public class ReturnToSenderPrototypeTests
             DeleteFixture(foreignAssemblyPath);
             TryDeleteDirectory(sourceDirectory);
             TryDeleteDirectory(foreignDirectory);
+        }
+    }
+
+    [Fact]
+    public void PdbSourceIndex_RejectsCurrentReaderFromDifferentModule()
+    {
+        const string firstSource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        const string secondSource = """
+            public class Class1
+            {
+                public int M() { return 43; }
+            }
+            """;
+        var firstSourcePath = WriteTempSource(
+            "CurrentModule.cs",
+            firstSource,
+            out var firstDirectory);
+        var secondSourcePath = WriteTempSource(
+            "CurrentModule.cs",
+            secondSource,
+            out var secondDirectory);
+        var firstAssemblyPath = CompileFixture(
+            firstSource,
+            firstDirectory,
+            sourcePath: firstSourcePath,
+            emitPortablePdb: true);
+        var secondAssemblyPath = CompileFixture(
+            secondSource,
+            secondDirectory,
+            sourcePath: secondSourcePath,
+            emitPortablePdb: true);
+        try
+        {
+            var sourceIndex = Assert.IsType<ReturnToSenderSourceIndex>(
+                ReturnToSenderSourceIndex.TryCreate(firstAssemblyPath, [firstSourcePath]));
+            using var pe = new PEReader(File.OpenRead(secondAssemblyPath));
+            var reader = pe.GetMetadataReader();
+            var (_, methodHandle) = FindMethod(reader, "Class1", "M");
+
+            Assert.False(sourceIndex.TryFindForAttribution(
+                new ReturnToSender.RequestedTarget("Class1", "M", 0),
+                reader,
+                MetadataTokens.GetToken(methodHandle),
+                out _));
+        }
+        finally
+        {
+            DeleteFixture(firstAssemblyPath);
+            DeleteFixture(secondAssemblyPath);
+            TryDeleteDirectory(firstDirectory);
+            TryDeleteDirectory(secondDirectory);
         }
     }
 

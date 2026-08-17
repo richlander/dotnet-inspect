@@ -150,7 +150,11 @@ typed APIs for map extraction, URL decoration, and provenance.
 to the PE, from standalone or caller-supplied content whose Portable PDB content
 ID was verified against the PE's Portable CodeView entry. A readable PDB
 without either binding remains available as raw data but cannot authorize exact
-assembly-to-source attribution.
+assembly-to-source attribution or supply build options to an assembly-aware
+source index.
+`GetModuleDefinitionInfo` returns the MVID and MethodDef count from the same
+retained PE image, so a PDB consumer does not reopen a mutable path to establish
+physical module coordinates.
 
 The ReturnToSender harness is a separate raw-fact consumer. For an
 assembly-aware local source index it asks `PdbContext` for an exact MethodDef's
@@ -161,7 +165,7 @@ SourceLink map or URL. `TryIsolateRecompileFailure_AttributesChecksumVerifiedPdb
 and `TryIsolateRecompileFailure_UsesPdbRecordedPreprocessorSymbols` gate this
 layering seam.
 `TryIsolateRecompileFailure_DeclinesForeignPdbForAssemblyWithoutCodeViewIdentity`
-gates the assembly-binding requirement.
+gates the assembly-binding and build-option requirements.
 
 ## Microsoft vs third-party libraries
 

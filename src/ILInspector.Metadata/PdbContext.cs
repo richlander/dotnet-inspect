@@ -30,6 +30,13 @@ public record PdbDocumentInfo(
     string? ChecksumAlgorithm = null,
     int DocumentRowId = 0);
 
+/// <summary>
+/// Physical module coordinates read from the same PE image as this PDB context.
+/// </summary>
+public sealed record PdbModuleDefinitionInfo(
+    Guid ModuleVersionId,
+    int MethodDefinitionCount);
+
 public enum PdbCustomDebugInformationStatus
 {
     Absent,
@@ -909,6 +916,30 @@ public class PdbContext : IDisposable
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Reads the physical module coordinates from this context's retained PE image.
+    /// </summary>
+    public PdbModuleDefinitionInfo? GetModuleDefinitionInfo()
+    {
+        EnsureAlive();
+        if (!_peReader.HasMetadata)
+            return null;
+
+        try
+        {
+            var reader = _peReader.GetMetadataReader();
+            return new PdbModuleDefinitionInfo(
+                reader.GetGuid(reader.GetModuleDefinition().Mvid),
+                reader.MethodDefinitions.Count);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     PdbMethodDocumentInfo? ResolveMethodDocumentRange(MethodDefinitionHandle methodHandle)
