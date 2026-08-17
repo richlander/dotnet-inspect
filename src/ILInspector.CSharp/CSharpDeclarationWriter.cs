@@ -1204,10 +1204,11 @@ internal static class CSharpDeclarationWriter
         else
         {
             // Explicit interface implementations omit the access modifier but must still
-            // carry `static` (C# 11 static-abstract interface members implemented explicitly)
-            // and `unsafe`. Order mirrors the .cctor branch: static then unsafe.
+            // carry `static`, interface-owned `abstract`, and `unsafe`.
             if (member.IsStatic)
                 modifiers.Add("static");
+            if (member.IsAbstract)
+                modifiers.Add("abstract");
             if (member.IsUnsafe || options.ForceUnsafe)
                 modifiers.Add("unsafe");
         }

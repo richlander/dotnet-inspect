@@ -436,15 +436,45 @@ public sealed class CSharpTypePrinter
         CSharpMemberPolicy policy,
         ApiType type,
         ApiMember snapshot)
-        => policy.BodyPolicy == CSharpBodyPolicy.Skeleton
-            && type.Kind != "interface"
-            && !snapshot.IsAbstract
-            && IsExplicitInterfaceEvent(snapshot)
-            ? new CSharpMemberPolicy(
+    {
+        if (policy.BodyPolicy != CSharpBodyPolicy.Skeleton
+            || !IsExplicitInterfaceAggregate(snapshot))
+        {
+            return policy;
+        }
+
+        if (snapshot.IsAbstract)
+        {
+            if (type.Kind == "interface")
+                return policy;
+
+            throw new NotSupportedException(
+                $"Abstract explicit interface aggregate '{snapshot.Name}' has no legal C# class spelling.");
+        }
+
+        if (IsExplicitInterfaceEvent(snapshot))
+        {
+            return new CSharpMemberPolicy(
                 policy.Member,
                 CSharpBodyPolicy.Stub,
-                new CSharpEventBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw))
-            : policy;
+                new CSharpEventBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw));
+        }
+
+        if (type.Kind != "interface")
+            return policy;
+
+        var accessors = snapshot.SignatureModel!.Accessors;
+        return new CSharpMemberPolicy(
+            policy.Member,
+            CSharpBodyPolicy.Stub,
+            new CSharpPropertyBody(
+                accessors.Any(accessor => accessor.Kind == "get")
+                    ? CSharpAccessorBody.Throw
+                    : null,
+                accessors.Any(accessor => accessor.Kind is "set" or "init")
+                    ? CSharpAccessorBody.Throw
+                    : null));
+    }
 
     static Dictionary<ApiMember, CSharpMemberPolicy> ValidateAndIndexPolicies(
         CSharpTypePrintRequest request,
@@ -1117,7 +1147,8 @@ public sealed class CSharpTypePrinter
                 parameterName);
         }
         if (type.Kind == "interface"
-            && policy.BodyPolicy != CSharpBodyPolicy.Skeleton)
+            && policy.BodyPolicy != CSharpBodyPolicy.Skeleton
+            && !IsExplicitInterfaceAggregate(member))
         {
             throw new ArgumentException(
                 $"Interface member '{member.Name}' must use skeleton body policy.",
@@ -1141,6 +1172,13 @@ public sealed class CSharpTypePrinter
                 || member.IsExplicitInterfaceImplementation)
             && member.Name.Contains('.', StringComparison.Ordinal)
             && HasOnlyAccessors(member, "add", "remove");
+
+    static bool IsExplicitInterfaceAggregate(ApiMember member)
+        => IsExplicitInterfaceEvent(member)
+            || IsProperty(member)
+                && (member.Kind == "explicit-interface-implementation"
+                    || member.IsExplicitInterfaceImplementation)
+                && member.Name.Contains('.', StringComparison.Ordinal);
 
     static bool HasOnlyAccessors(ApiMember member, params string[] kinds)
         => member.SignatureModel?.Accessors is { Count: > 0 } accessors

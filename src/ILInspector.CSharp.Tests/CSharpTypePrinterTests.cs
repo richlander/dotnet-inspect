@@ -347,17 +347,16 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Theory]
-    [InlineData("interface", false)]
-    [InlineData("class", true)]
-    public void ExplicitInterfaceEventSkeletonRemainsSkeletonWhenBodiesAreIllegal(
-        string typeKind,
-        bool isAbstract)
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExplicitInterfaceAggregatesInInterfaceCompileBack(bool isAbstract)
     {
         var type = CreateEmptyType("Samples", "Widget");
-        type.Kind = typeKind;
+        type.Kind = "interface";
+        type.Interfaces = ["Samples.IContract"];
         var explicitEvent = new ApiMember
         {
-            Name = "Samples.IEvents.Changed",
+            Name = "Samples.IContract.Changed",
             Kind = "event",
             Accessibility = "private",
             IsExplicitInterfaceImplementation = true,
@@ -365,7 +364,81 @@ public sealed class CSharpTypePrinterTests
             SignatureModel = new ApiSignature
             {
                 ReturnType = "System.EventHandler",
-                MemberName = "Samples.IEvents.Changed",
+                MemberName = "Samples.IContract.Changed",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "add" },
+                    new ApiAccessor { Kind = "remove" }
+                ]
+            }
+        };
+        var explicitProperty = new ApiMember
+        {
+            Name = "Samples.IContract.Value",
+            Kind = "property",
+            Accessibility = "private",
+            IsExplicitInterfaceImplementation = true,
+            IsAbstract = isAbstract,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Samples.IContract.Value",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" },
+                    new ApiAccessor { Kind = "set" }
+                ]
+            }
+        };
+        type.Members.Add(explicitEvent);
+        type.Members.Add(explicitProperty);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        if (isAbstract)
+        {
+            Assert.Contains(
+                "abstract event EventHandler Samples.IContract.Changed;",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "abstract int Samples.IContract.Value { get; set; }",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Contains("throw null;", result.Source, StringComparison.Ordinal);
+        }
+        AssertCompiles(
+            result.Source,
+            """
+            namespace Samples;
+
+            public interface IContract
+            {
+                event System.EventHandler Changed;
+                int Value { get; set; }
+            }
+            """);
+    }
+
+    [Fact]
+    public void AbstractExplicitInterfaceAggregateInClassFailsClosed()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        type.IsAbstract = true;
+        var explicitEvent = new ApiMember
+        {
+            Name = "Samples.IContract.Changed",
+            Kind = "event",
+            Accessibility = "private",
+            IsExplicitInterfaceImplementation = true,
+            IsAbstract = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Samples.IContract.Changed",
                 Accessors =
                 [
                     new ApiAccessor { Kind = "add" },
@@ -375,10 +448,10 @@ public sealed class CSharpTypePrinterTests
         };
         type.Members.Add(explicitEvent);
 
-        var result = _printer.Print(new CSharpTypePrintRequest(type));
+        var exception = Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
 
-        Assert.Contains("Samples.IEvents.Changed", result.Source, StringComparison.Ordinal);
-        Assert.DoesNotContain("throw null;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("no legal C# class spelling", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
