@@ -115,11 +115,14 @@ Exact rows retain machine-readable provenance from the native Analysis
 producer in structured JSON:
 `Candidate`, `Finding` (`analysis.allocation` or `analysis.call-site`),
 `Provenance=exact`,
-`Operation`, `Token`, `EvidenceMethod`, and `IL`. `EvidenceMethod` is the
-MethodDef containing the instruction; for a source async member, it can name
-the generated `MoveNext` body whose offset appears in `IL`. Use these fields for
-runtime/static joins or to carry one triage row into the matching
-`diff`/`timeline` confirmation workflow without parsing `Evidence` text:
+`Assembly`, `MethodToken`, `Operation`, `Token`, `EvidenceMethod`, and `IL`.
+`MethodToken` identifies the source-facing member, while `EvidenceMethod`
+identifies the MethodDef containing the instruction; for an async source member,
+it can name the generated `MoveNext` body whose offset appears in `IL`.
+`Assembly` + `EvidenceMethod` + `IL` form the exact body coordinate, and `Token`
+is the operand of `Operation`. Use these fields for runtime/static joins or to
+carry one triage row into the matching `diff`/`timeline` confirmation workflow
+without parsing `Evidence` text:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
@@ -132,6 +135,26 @@ Aggregate rows such as `allocation-hotspot` use `Provenance=aggregate` and have
 a `pt~` candidate id but no exact source Finding, operation, or token.
 `Provenance=unmatched` flags an instruction-level row that did not join to the
 expected producer census.
+
+## Correlate triage with an allocation trace
+
+Export nested JSON, whose deep rows carry the declaring method coordinate, then
+pass it to `runfaster` with a trace captured from the same assembly build:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
+  --where "Priority>=high" --json > triage.json
+runfaster correlate --triage triage.json --trace workload.nettrace
+```
+
+Compact `Performance:* --jsonl` rows omit deep provenance and cannot support an
+exact trace join. `runfaster` keeps their operation `Token` separate from the
+declaring `MethodToken` and reports missing runtime coordinates explicitly.
+For a filtered export, the trace join stops at the first frame in the
+represented assembly; it does not walk past an unexported in-assembly callee
+and credit an outer caller. If `--library` and `--triage` name the same physical
+site, the shape-compatible triage row supplies the single attribution.
+The raw library row is marked `superseded-by-triage`, not workload-cold.
 
 ## Select direct caller-loop repetition
 

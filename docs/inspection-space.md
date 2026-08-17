@@ -296,6 +296,15 @@ descriptor.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.
+When stream inspection is already propagating cancellation or a fatal failure,
+owned-stream cleanup cannot replace that primary failure.
+`AssemblyContextSourceQueryTests.SnapshotPrimaryFailure_IsNotMaskedByCleanupFailure`
+gates the end-to-end member and type paths, while
+`PdbContextDescriptorTests.DescriptorOpenPrimaryFailure_IsNotMaskedByCleanupFailure`
+gates descriptor-backed metadata contexts, assembly images, and prefetched
+sessions, and
+`PdbContextDescriptorTests.PdbContextConstructionPrimaryFailure_ReleasesOwnedStream`
+gates the post-reader context-construction boundary.
 `InspectionWorkspaceTests.OwnedResources_AreDisposedBeforeSnapshots` gates the
 derived-resource-before-snapshot disposal order.
 `InspectionWorkspaceTests.AsyncParticipantRelease_PreservesOwnedResourceDisposalOrder`
@@ -447,6 +456,27 @@ gates the compiled multi-assembly path, while
 `Execute_DoesNotJoinAmbiguousMatchingAssemblyIdentities` gates the rule that
 matching metadata identity or display text cannot replace acquisition
 registration.
+The query's `InspectionGraphModeRequest` now distinguishes seed intent from
+that workspace scope. Its request-free overload explicitly produces a
+workspace-participant induced set; type and assembly seeds bind exact nodes,
+package seeds bind exact package groups in the detailed Integration lens, and
+mixed peers remain equal. Mode binding happens after the same deterministic
+producer plan, so it does not change occurrence identity or semantic edge
+direction. Integration relationship descriptors now declare whether a seed may
+enter as a logical edge endpoint, an original occurrence endpoint, or through
+strict typed ownership. Request-driven relationship selection and admission
+validation remain deferred, so these declarations do not change the
+deterministic sequential plan.
+`Execute_DefaultsToWorkspaceInducedSetWithoutSeeds`,
+`Execute_BindsTypeSeedToExactNode`,
+`Execute_BindsAssemblySeedToExactNode`,
+`Execute_BindsPackageSeedToDetailedLensGroup`,
+`Execute_BindsPeerSeedsWithoutChoosingPrimary`, and
+`PackageAndTypeModesShareSemanticIntegrationOccurrences` gate those claims.
+`RelationshipCatalogsDeclareCurrentSeedAdmissions`,
+`RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions`, and
+`AdmissionsMatchDeclaredEndpointDomains` gate the catalog declarations and
+their endpoint constraints.
 `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic
 composition and the shared nonzero completion status used after Markdown,
 count, tabular, or JSON output.

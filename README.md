@@ -134,6 +134,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
 | Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files, plus version-resolved package README/PROJECT docs from restored projects. |
+| Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections and shared with browser/WASM. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
@@ -154,6 +155,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
+| `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility` or `C# Style Choices` to enumerate their legal values. |
 | `body-shape X` | Search one library's full-fidelity bodies for an exact stable rendered-syntax kind, returning the containing member, MethodDef token, exact range, and selected text. |
 | `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified authored Source implementation evidence. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -299,8 +301,9 @@ keep the single `Performance Triage` lens.
 
 The tight markdown columns carry the ranked, human-facing fields, including a
 static `Priority` that is separate from evidence/rewrite `Confidence`; the full
-per-row diagnostics (shape, provenance, candidate id, native `Finding`, metadata
-`Token`, IL offset, allocation `Weight`, path/loop evidence, and the fix
+per-row diagnostics (shape, provenance, candidate id, native `Finding`,
+declaring `Assembly` and `MethodToken`, operation-operand metadata `Token`, IL
+offset, allocation `Weight`, path/loop evidence, and the fix
 sentence) are preserved in the nested `performance` object of `--json`.
 Allocation rows carry `Weight`, a coarse size x multiplicity x reach static
 prior that you can query or sort when choosing pre-profile instrumentation
@@ -308,7 +311,9 @@ targets. Exact allocation and call-site rows also retain a `Candidate` id, their
 native `Finding` descriptor, `Provenance=exact`, `Operation`, and metadata
 `Token`. Aggregate rows are marked `Provenance=aggregate`; `unmatched`
 identifies an instruction-level row that could not be joined to a producer
-occurrence. Those fields let trace and version-diff tooling join a triage row to
+occurrence. `Assembly` + `MethodToken` + `IL` form the runtime allocation-trace coordinate;
+`Token` is the operand of the reported IL operation and must not be used as the
+declaring method token. Those fields let trace and version-diff tooling join a triage row to
 `analysis.allocation` or `analysis.call-site` evidence without parsing
 `Evidence` prose. Use `--top`, `--loop`, `--min-confidence`, and
 `--triage-shape` to ask the tool for the curated pay-dirt rows directly instead
@@ -333,6 +338,26 @@ When `--bin`, `--project`, or `--caller-package` supplies an assembly scope,
 retains its narrower inbound-only scan.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
+
+Export nested JSON when runtime correlation is the next step, then give that
+document and the matching allocation trace to `runfaster`:
+
+```bash
+dotnet-inspect library MyLib.dll -S "Performance:*" \
+  --where "Priority>=high" --json > triage.json
+runfaster correlate --triage triage.json --trace workload.nettrace
+```
+
+The compact `Performance:* --jsonl` table intentionally carries only the tight
+human-facing columns and therefore cannot support an exact trace join.
+`runfaster` reports those rows as not runtime-correlatable rather than treating
+them as negative workload evidence.
+For filtered triage exports, allocation-stack correlation stops at the first
+frame in the represented assembly. If that method has no exported row, the
+allocation remains unattributed rather than being credited to an outer caller.
+When the same site arrives from both `--library` and `--triage`, the
+shape-compatible triage row supplies the richer single attribution; the raw
+library row is marked `superseded-by-triage`, not workload-cold.
 
 `CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` expose a separate
 cross-method repetition fact. `CallerLoop=direct` means a resolved invocation
@@ -592,6 +617,9 @@ dotnet-inspect member Command --project ./src/App -S "Member Index"
 dotnet-inspect project ./src/App -S Skills --jsonl
 dotnet-inspect project ./src/App -S Skills --paths
 dotnet-inspect project ./src/App -S Skills --print --row 1
+dotnet-inspect vocabulary -D
+dotnet-inspect vocabulary -S Accessibility --json
+dotnet-inspect vocabulary -S "C# Style Choices" --columns "ID,Title,Tier" --tsv
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
