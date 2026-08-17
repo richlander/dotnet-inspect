@@ -195,6 +195,28 @@ public class SkeletonEmitTests
         Assert.True(result.UsedProductWholeMember);
     }
 
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.CompoundAssignIndexer))]
+    [InlineData(nameof(CfgSampleClass.NullConditionalIndexerAssignment))]
+    public void SkeletonMakesOrdinarySameImageIndexersCompileBackCheckable(
+        string methodName)
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(CfgSampleClass).Assembly.Location,
+            type => type == typeof(CfgSampleClass).FullName,
+            method => method.Method == methodName));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.OpcodeDiff,
+            $"{result.Status}: {result.Detail}{Environment.NewLine}"
+                + $"original: {result.OriginalOpcodes}{Environment.NewLine}"
+                + $"recompiled: {result.RecompiledOpcodes}{Environment.NewLine}"
+                + string.Join(
+                    Environment.NewLine,
+                    result.FidelityDiff?.Rows.Select(row => row.Message)
+                        ?? []));
+    }
+
     [Fact]
     public void SkeletonCompilesSameAssemblyProtectedPropertyOverride()
     {

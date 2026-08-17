@@ -41,6 +41,13 @@ public class LoweredFidelityGateTests
         "AllOuterMatchInner",
         "CachedStaticMethodGroup",
         "CompoundAssignDictionaryIndexer",
+        // Reconstructing sibling Item properties makes these indexer bodies
+        // compile-back-checkable instead of failing to bind. Their newly visible
+        // differences are pre-existing benign re-lowerings: compound assignment
+        // reschedules spill locals, while the null-conditional setter uses
+        // callvirt after the explicit null guard instead of the original call.
+        "CompoundAssignIndexer",
+        "NullConditionalIndexerAssignment",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
