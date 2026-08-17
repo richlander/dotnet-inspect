@@ -82,7 +82,7 @@ The boundary preserves these properties:
 - source identity is typed and stable;
 - capabilities are explicit rather than inferred from a URL string;
 - every candidate retains the source that reported it;
-- every payload retains its producer and payload location;
+- every payload retains its producer and serving transport;
 - absence, unsupported capability, timeout, authentication failure, and
   transport failure are distinct results; and
 - no consumer above NuGetFetch constructs protocol URLs.

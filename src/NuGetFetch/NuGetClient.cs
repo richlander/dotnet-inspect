@@ -382,7 +382,10 @@ public class NuGetClient(HttpClient client)
 
     private static string NormalizeBaseAddress(string baseAddress)
     {
-        if (!Uri.TryCreate(baseAddress, UriKind.Absolute, out Uri? endpoint)
+        if (!NuGetHttpRequest.HasValidRawText(
+                baseAddress,
+                allowNonAscii: true)
+            || !Uri.TryCreate(baseAddress, UriKind.Absolute, out Uri? endpoint)
             || (endpoint.Scheme != Uri.UriSchemeHttp
                 && endpoint.Scheme != Uri.UriSchemeHttps)
             || endpoint.UserInfo.Length > 0

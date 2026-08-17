@@ -81,6 +81,18 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public void HttpProducerIdentityPreservesIpv6Brackets()
+    {
+        PackageSourceIdentity identity =
+            PackageSourceIdentity.ForHttpEndpoint(
+                new Uri("https://[::1]/v3/index.json"));
+
+        Assert.Equal(
+            "https://[::1]:443/v3/index.json",
+            identity.Value);
+    }
+
+    [Fact]
     public void DescriptorRejectsCredentialsEmbeddedInEndpoint()
     {
         ArgumentException error = Assert.Throws<ArgumentException>(
@@ -377,6 +389,7 @@ public sealed class PackageSourceClientTests
     [InlineData("https://feed.example/v3/fl^at/")]
     [InlineData("https://feed.example/v3/flat/?sig=a%")]
     [InlineData(" https://feed.example/v3/flat/")]
+    [InlineData("https://bücher.example/flat%/")]
     public async Task V3UnusablePackageBaseAddressIsInvalidResponse(
         string baseAddress)
     {

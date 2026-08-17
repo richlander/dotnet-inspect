@@ -85,8 +85,11 @@ public sealed record PackageSourceIdentity
                 nameof(endpoint));
         }
 
+        string host = endpoint.HostNameType == UriHostNameType.IPv6
+            ? $"[{endpoint.IdnHost}]"
+            : endpoint.IdnHost.ToLowerInvariant();
         var origin =
-            $"{endpoint.Scheme.ToLowerInvariant()}://{endpoint.IdnHost.ToLowerInvariant()}:{endpoint.Port}";
+            $"{endpoint.Scheme.ToLowerInvariant()}://{host}:{endpoint.Port}";
         string absolutePath = endpoint.AbsolutePath;
         string path = NormalizeEscapes(
             absolutePath.EndsWith("/", StringComparison.Ordinal)
