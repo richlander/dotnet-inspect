@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using DotnetInspector.Core;
 using InertText;
+using NuGetFetch;
 using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;
@@ -100,27 +101,22 @@ public static class NuGetCredentialScope
     public static string CanonicalizeEndpoint(Uri url)
     {
         ArgumentNullException.ThrowIfNull(url);
+        if (url.Scheme == Uri.UriSchemeHttp
+            || url.Scheme == Uri.UriSchemeHttps)
+        {
+            return PackageSourceIdentity.ForHttpEndpoint(url).Value;
+        }
 
-        // Scheme and host are case-insensitive by definition, so they fold. Path, query, and
-        // fragment are not, and are preserved as written apart from the percent-escape hex casing
-        // that RFC 3986 defines as equivalent. The path's trailing slash is dropped; the query's
-        // is not, because a trailing slash inside a query is a value, not a path terminator.
         var origin =
             $"{url.Scheme.ToLowerInvariant()}://{url.IdnHost.ToLowerInvariant()}:{url.Port}";
         string absolutePath = url.AbsolutePath;
-        var path = NormalizeEscapes(
+        string path = NormalizeEscapes(
             absolutePath.EndsWith("/", StringComparison.Ordinal)
                 ? absolutePath[..^1]
                 : absolutePath);
-        var query = NormalizeEscapes(url.Query);
-        var fragment = NormalizeEscapes(url.Fragment);
-        return $"{origin}{path}{query}{fragment}";
+        return $"{origin}{path}{NormalizeEscapes(url.Query)}{NormalizeEscapes(url.Fragment)}";
     }
 
-    /// <summary>
-    /// Upper-cases the hex digits of percent-escapes, which RFC 3986 defines as case-insensitive,
-    /// leaving every other character byte-for-byte intact.
-    /// </summary>
     private static string NormalizeEscapes(string value)
     {
         if (!value.Contains('%', StringComparison.Ordinal))
