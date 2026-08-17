@@ -40,7 +40,7 @@ internal static class CSharpSpellability
         ArgumentRefKind refKind,
         bool isDynamic = false)
         => !type.ContainsUnsupported
-            && (!isDynamic || IsDynamicParameterType(type))
+            && (!isDynamic || IsDynamicParameterType(type, host))
             && type.ExplicitParameterModifiersAreExact(refKind)
             && HasExplicitParameterTypeShape(type, ExplicitTypeContext.Parameter, host)
             && TypeIssue(type) is null;
@@ -476,7 +476,7 @@ internal static class CSharpSpellability
                     && (AllowsVoid(context) || !IsCoreLibVoid(type))
                     && (AllowsRestrictedSpecialType(context)
                         || !IsRestrictedSpecialType(type))
-                    && !CollidesWithInScopeGenericParameter(type, host);
+                    && !CollidesWithInScopeName(type, host);
 
             case TypeRefKind.GenericInstance:
                 return type.ElementType is
@@ -488,6 +488,7 @@ internal static class CSharpSpellability
                     && genericArity > 0
                     && type.TypeArguments.Length == genericArity
                     && TypeIssue(definition) is null
+                    && !CollidesWithInScopeName(type, host)
                     && type.TypeArguments.All(
                         argument => HasExplicitParameterTypeShape(
                             argument,
@@ -751,23 +752,79 @@ internal static class CSharpSpellability
             && type.Namespace == "System"
             && type.Name == "Object";
 
-    static bool IsDynamicParameterType(TypeRef type)
-        => IsCoreLibObject(
-            type.Kind == TypeRefKind.ByRef && type.ElementType is { } element
-                ? element
-                : type);
+    static bool IsDynamicParameterType(TypeRef type, IrFunction host)
+        => !IsInScopeGenericParameterName("dynamic", host)
+            && IsCoreLibObject(
+                type.Kind == TypeRefKind.ByRef && type.ElementType is { } element
+                    ? element
+                    : type);
 
-    static bool CollidesWithInScopeGenericParameter(TypeRef type, IrFunction host)
+    static bool CollidesWithInScopeName(TypeRef type, IrFunction host)
     {
-        int nested = type.Name.LastIndexOf('+');
-        string innermost = nested < 0 ? type.Name : type.Name[(nested + 1)..];
-        string simple = StripArity(innermost);
-        if (IsInScopeGenericParameterName(simple, host))
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        if (definition is not { Kind: TypeRefKind.Definition })
+            return false;
+
+        bool genericInstance = type.Kind == TypeRefKind.GenericInstance;
+        bool nested = definition.Name.Contains('+');
+        bool qualified = nested && type.PrintsAsQualifiedNestedName(host.DeclaringType);
+
+        if (nested)
+        {
+            string first = StripArity(definition.Name.Split('+')[0]);
+            if (IsInScopeGenericParameterName(first, host))
+                return true;
+        }
+
+        if (!qualified
+            && !(genericInstance && !nested)
+            && IsInScopeGenericParameterName(SimpleMetadataName(definition.Name), host))
+        {
             return true;
-        return type.Assembly == TypeRef.CoreLibrary
-            && type.Namespace == "System"
-            && PrimitiveTypeNames.TryToKeywordForSystemType(type.Name, out string? keyword)
-            && IsInScopeGenericParameterName(keyword, host);
+        }
+
+        if (!qualified
+            && !genericInstance
+            && definition.Assembly == TypeRef.CoreLibrary
+            && definition.Namespace == "System"
+            && PrimitiveTypeNames.TryToKeywordForSystemType(definition.Name, out string? keyword)
+            && IsInScopeGenericParameterName(keyword, host))
+        {
+            return true;
+        }
+
+        return CollidesWithDeclaringTypeSimpleName(definition, host, qualified);
+    }
+
+    static bool CollidesWithDeclaringTypeSimpleName(
+        TypeRef definition,
+        IrFunction host,
+        bool qualified)
+    {
+        if (qualified || IsCoreLibPrimitive(definition))
+            return false;
+
+        var hostDefinition = host.DeclaringType.Kind == TypeRefKind.GenericInstance
+            ? host.DeclaringType.ElementType
+            : host.DeclaringType;
+        if (hostDefinition is not { Kind: TypeRefKind.Definition })
+            return false;
+        if (definition.Assembly == hostDefinition.Assembly
+            && definition.Namespace == hostDefinition.Namespace
+            && definition.Name == hostDefinition.Name)
+        {
+            return false;
+        }
+
+        string printed = SimpleMetadataName(definition.Name);
+        string hostSimple = SimpleMetadataName(hostDefinition.Name);
+        return printed.Length > 0 && printed == hostSimple;
+    }
+
+    static string SimpleMetadataName(string metadataName)
+    {
+        int nested = metadataName.LastIndexOf('+');
+        return StripArity(nested < 0 ? metadataName : metadataName[(nested + 1)..]);
     }
 
     static bool IsInScopeGenericParameterName(string name, IrFunction host)

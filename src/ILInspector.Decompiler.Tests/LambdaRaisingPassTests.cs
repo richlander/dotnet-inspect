@@ -624,6 +624,132 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void NestedTypeLeadingSegmentCollidingWithHostGenericParameter_StaysLowered()
+    {
+        var nested = TypeRef.Definition("Synthetic", "Other", "Outer2+Inner");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            declaringTypeGenericParameterNames: ["Outer2"]);
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void NestedGenericInstanceLeadingSegmentCollidingWithHostGenericParameter_StaysLowered()
+    {
+        var nested = TypeRef.GenericInstance(
+            TypeRef.Definition("Synthetic", "Other", "Outer6+Inner6`1"),
+            [s_int]);
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            declaringTypeGenericParameterNames: ["Outer6"]);
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void NestedGenericInstanceLeadingGenericSegmentCollidingWithHostGenericParameter_StaysLowered()
+    {
+        var nested = TypeRef.GenericInstance(
+            TypeRef.Definition("Synthetic", "Other", "Outer`1+Inner`1"),
+            [s_int, s_int]);
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            declaringTypeGenericParameterNames: ["Outer"]);
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void NestedGenericInstanceTrailingNameMatchingGenericParameter_StillRaises()
+    {
+        var nested = TypeRef.GenericInstance(
+            TypeRef.Definition("Synthetic", "Samples", "Outer`1+Inner`1"),
+            [s_int, s_int]);
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            declaringTypeGenericParameterNames: ["Inner"]);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void GenericInstanceMatchingHostGenericParameterName_StillRaises()
+    {
+        var list = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "List`1"),
+            [s_int]);
+        var host = RunSyntheticSiblingLambdaRaise(
+            list,
+            declaringTypeGenericParameterNames: ["List"]);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            list,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void InScopeNestedTypeCollidingWithMethodGenericParameter_StaysLowered()
+    {
+        var nested = TypeRef.Definition("Synthetic", "Samples", "Outer+Inner");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            methodGenericParameterNames: ["Inner"]);
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void SameSimpleNameFromDifferentDeclaringType_StaysLowered()
+    {
+        var siblingType = TypeRef.Definition("OtherAssembly", "A", "Widget");
+        var host = RunSyntheticSiblingLambdaRaise(
+            siblingType,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Widget"));
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            siblingType,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void SameDeclaringTypeSimpleName_StillRaises()
+    {
+        var widget = TypeRef.Definition("Synthetic", "Samples", "Widget");
+        var host = RunSyntheticSiblingLambdaRaise(widget, declaringType: widget);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            widget,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
     public void ForgedDynamicOnNonObjectSibling_StaysLowered()
     {
         var host = RunSyntheticSiblingLambdaRaise(s_int);
@@ -646,6 +772,34 @@ public class LambdaRaisingPassTests
             host,
             ArgumentRefKind.Value,
             isDynamic: true));
+    }
+
+    [Fact]
+    public void DynamicObjectSiblingCollidingWithHostGenericParameter_StaysLowered()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var host = RunSyntheticSiblingLambdaRaise(
+            objectType,
+            declaringTypeGenericParameterNames: ["dynamic"]);
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            objectType,
+            host,
+            ArgumentRefKind.Value,
+            isDynamic: true));
+    }
+
+    [Fact]
+    public void ExplicitPointerSibling_MarksHostUnsafe()
+    {
+        var pointer = TypeRef.Pointer(s_int);
+        var host = RunSyntheticSiblingLambdaRaise(pointer);
+
+        Assert.Single(host.Descendants.OfType<Lambda>());
+        var result = CSharpPrinter.PrintRaised(host);
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.True(result.RequiresUnsafeBodyModifier);
+        Assert.Contains("int*", result.Output);
     }
 
     [Fact]
@@ -1012,7 +1166,8 @@ public class LambdaRaisingPassTests
     static IrFunction RunSyntheticSiblingLambdaRaise(
         TypeRef siblingType,
         ImmutableArray<string> declaringTypeGenericParameterNames = default,
-        ImmutableArray<string> methodGenericParameterNames = default)
+        ImmutableArray<string> methodGenericParameterNames = default,
+        TypeRef? declaringType = null)
     {
         var holder = TypeRef.Definition("Synthetic", "Samples", "Outer+<>c");
         var delegateType = TypeRef.Definition("Synthetic", "Samples", "RefCallback");
@@ -1036,7 +1191,7 @@ public class LambdaRaisingPassTests
         hostBody.Add(hostBlock);
         var host = new IrFunction(
             "M",
-            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            declaringType ?? TypeRef.Definition("Synthetic", "Samples", "Outer"),
             new MethodSignature(
                 delegateType,
                 [],

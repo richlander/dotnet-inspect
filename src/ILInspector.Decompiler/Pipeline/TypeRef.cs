@@ -887,6 +887,33 @@ public sealed class TypeRef : IEquatable<TypeRef>
     }
 
     /// <summary>
+    /// True when the product printer emits this nested type through its declaring
+    /// chain from <paramref name="scope"/> (<c>Outer.Inner</c> /
+    /// <c>Outer&lt;T&gt;.Inner</c>) rather than the bare innermost name. Used by
+    /// explicit-parameter spellability to test the identifier that actually binds.
+    /// </summary>
+    internal bool PrintsAsQualifiedNestedName(TypeRef? scope)
+    {
+        if (scope is null)
+            return false;
+
+        if (Kind == TypeRefKind.GenericInstance)
+        {
+            if (ElementType is not { Name: var name } || !name.Contains('+') || EnclosingInScope(scope))
+                return false;
+
+            int total = 0;
+            foreach (var segment in name.Split('+'))
+                total += ArityOf(segment);
+            return total == TypeArguments.Length;
+        }
+
+        return Name.Contains('+')
+            && !IsPrivateImplementationDetails
+            && !DefinitionEnclosingInScope(scope);
+    }
+
+    /// <summary>
     /// True when this nested definition's enclosing type is the printing scope
     /// (or contains it), so the bare innermost name binds. A non-nested
     /// definition is always "in scope" — its name has no declaring chain to lose.
@@ -916,7 +943,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         var parts = new List<string>();
         foreach (var segment in Name.Split('+'))
         {
-            string name = StripArity(segment);
+            string name = CSharpNaming.TypeNameSegment(segment);
             int arity = ArityOf(segment);
             if (arity > 0)
                 name = $"{name}<{new string(',', arity - 1)}>";

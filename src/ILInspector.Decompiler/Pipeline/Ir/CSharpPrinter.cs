@@ -2695,6 +2695,7 @@ public sealed partial class CSharpPrinter
     bool IsUnsafeOperation(IrNode node) => node switch
     {
         CallIndirect => true,
+        Lambda lambda => LambdaNeedsUnsafeContext(lambda),
         StackAllocate => true,
         // A stackalloc-backed Span (raised to `stackalloc T[n]` by
         // StackAllocSpanPass) is governed by the stackalloc rule — unsafe only
@@ -2734,6 +2735,10 @@ public sealed partial class CSharpPrinter
     /// </summary>
     static bool SignatureRequiresUnsafe(MethodRef callee)
         => ContainsPointer(callee.ReturnType) || callee.ParameterTypes.Any(ContainsPointer);
+
+    static bool LambdaNeedsUnsafeContext(Lambda lambda)
+        => !lambda.ParameterRefKinds.IsDefaultOrEmpty
+            && lambda.Parameters.Any(parameter => ContainsPointer(parameter.Type));
 
     static bool ContainsPointer(TypeRef? type)
         => type is not null
