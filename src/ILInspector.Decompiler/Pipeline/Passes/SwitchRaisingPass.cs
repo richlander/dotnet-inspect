@@ -1779,7 +1779,12 @@ public sealed class SwitchRaisingPass : IIrPass
         // temp) and ends in a comparison against it — an equality test (a case) or
         // a relational pivot.
         if (blocks[s].Children is not [.., ConditionalBranch firstBranch]
-            || !TryIntComparison(firstBranch.Condition, out var value, out _, out _))
+            || !TryIntComparison(
+                firstBranch.Condition,
+                out var value,
+                out _,
+                out _,
+                out _))
             return false;
 
         var caseLabels = new List<Constant>();
@@ -1800,10 +1805,15 @@ public sealed class SwitchRaisingPass : IIrPass
                 : (children is [ConditionalBranch] or [Branch] ? children[0] : null);
 
             if (term is ConditionalBranch cb
-                && TryIntComparison(cb.Condition, out var testValue, out int constant, out bool isEqual)
+                && TryIntComparison(
+                    cb.Condition,
+                    out var testValue,
+                    out int constant,
+                    out ComparisonKind kind,
+                    out _)
                 && PlaceIdentity.SameVariable(value, testValue))
             {
-                if (isEqual)
+                if (kind == ComparisonKind.Equal)
                 {
                     // C# forbids duplicate case labels (CS0152); a repeated constant is
                     // not a source switch. Decline rather than emit an uncompilable
@@ -1849,8 +1859,175 @@ public sealed class SwitchRaisingPass : IIrPass
             defaultOffset = blocks[dispatchEnd + 1].StartOffset;
         }
 
+        if (!IsValidSparseIntDecisionGraph(
+                blocks,
+                s,
+                dispatchEnd,
+                value,
+                caseTargetOffsets,
+                defaultOffset.Value))
+        {
+            return false;
+        }
+
         return FinishSwitchRaise(container, s, dispatchEnd, value, caseTargetOffsets,
             caseLabels, defaultOffset.Value, leaveTargets, stepper);
+    }
+
+    static bool IsValidSparseIntDecisionGraph(
+        IReadOnlyList<Block> blocks,
+        int start,
+        int dispatchEnd,
+        IrExpression value,
+        IReadOnlyCollection<int> caseTargets,
+        int defaultTarget)
+    {
+        var dispatchByOffset = Enumerable.Range(start, dispatchEnd - start + 1)
+            .ToDictionary(index => blocks[index].StartOffset);
+        if (dispatchByOffset.ContainsKey(defaultTarget)
+            || caseTargets.Any(dispatchByOffset.ContainsKey))
+        {
+            return false;
+        }
+
+        int count = dispatchEnd - start + 1;
+        var terms = new IrNode[count];
+        var cases = new Dictionary<int, int>();
+        var witnesses = new HashSet<int> { int.MinValue, int.MaxValue };
+
+        void AddWitnesses(int constant)
+        {
+            witnesses.Add(constant);
+            if (constant > int.MinValue)
+                witnesses.Add(constant - 1);
+            if (constant < int.MaxValue)
+                witnesses.Add(constant + 1);
+        }
+
+        for (int index = start; index <= dispatchEnd; index++)
+        {
+            var children = blocks[index].Children;
+            IrNode? term = index == start
+                ? (children is [.., ConditionalBranch or Branch]
+                    ? children[^1]
+                    : null)
+                : (children is [ConditionalBranch] or [Branch]
+                    ? children[0]
+                    : null);
+            if (term is null)
+                return false;
+            terms[index - start] = term;
+
+            if (term is Branch branch)
+            {
+                if (branch.TargetOffset != defaultTarget)
+                    return false;
+                continue;
+            }
+            if (term is not ConditionalBranch conditional
+                || !TryIntComparison(
+                    conditional.Condition,
+                    out var testValue,
+                    out int constant,
+                    out ComparisonKind kind,
+                    out bool isUnsigned)
+                || !PlaceIdentity.SameVariable(value, testValue)
+                || isUnsigned && kind != ComparisonKind.Equal)
+            {
+                return false;
+            }
+
+            AddWitnesses(constant);
+            if (kind == ComparisonKind.Equal)
+            {
+                if (!caseTargets.Contains(conditional.TargetOffset)
+                    || !cases.TryAdd(constant, conditional.TargetOffset))
+                {
+                    return false;
+                }
+            }
+            else if (!dispatchByOffset.ContainsKey(conditional.TargetOffset))
+            {
+                return false;
+            }
+        }
+
+        // Signed integer comparison outcomes change only at a comparison
+        // constant or immediately beside it. Traversing those boundary
+        // representatives proves every integer partition without expanding
+        // every path through compiler DAG joins. SparseIntSwitchRaisingTests
+        // gates valid joins, infeasible case leaves, and cyclic dispatch.
+        var reached = new bool[count];
+        foreach (int witness in witnesses)
+        {
+            var path = new bool[count];
+            int index = start;
+            int outcome;
+            while (true)
+            {
+                int localIndex = index - start;
+                if (localIndex < 0
+                    || localIndex >= count
+                    || path[localIndex])
+                {
+                    return false;
+                }
+                path[localIndex] = true;
+                reached[localIndex] = true;
+
+                if (terms[localIndex] is Branch branch)
+                {
+                    outcome = branch.TargetOffset;
+                    break;
+                }
+
+                var conditional = (ConditionalBranch)terms[localIndex];
+                _ = TryIntComparison(
+                    conditional.Condition,
+                    out _,
+                    out int constant,
+                    out ComparisonKind kind,
+                    out _);
+                bool takeBranch = kind switch
+                {
+                    ComparisonKind.Equal => witness == constant,
+                    ComparisonKind.LessThan => witness < constant,
+                    ComparisonKind.LessThanOrEqual => witness <= constant,
+                    ComparisonKind.GreaterThan => witness > constant,
+                    ComparisonKind.GreaterThanOrEqual => witness >= constant,
+                    _ => false,
+                };
+
+                if (takeBranch)
+                {
+                    if (kind == ComparisonKind.Equal)
+                    {
+                        outcome = conditional.TargetOffset;
+                        break;
+                    }
+                    index = dispatchByOffset[conditional.TargetOffset];
+                    continue;
+                }
+
+                if (index < dispatchEnd)
+                {
+                    index++;
+                    continue;
+                }
+                if (dispatchEnd + 1 >= blocks.Count)
+                    return false;
+                outcome = blocks[dispatchEnd + 1].StartOffset;
+                break;
+            }
+
+            int expected = cases.TryGetValue(witness, out int caseTarget)
+                ? caseTarget
+                : defaultTarget;
+            if (outcome != expected)
+                return false;
+        }
+
+        return reached.All(static value => value);
     }
 
     /// <summary>
@@ -2038,30 +2215,38 @@ public sealed class SwitchRaisingPass : IIrPass
     /// <summary>
     /// An integer comparison <c>v &lt;op&gt; const</c> (in either operand order)
     /// against an <c>int</c> constant — the equality leaves and relational pivots
-    /// of csc's sparse switch dispatch. <paramref name="isEqual"/> distinguishes a
-    /// case test (<c>==</c>) from a range pivot.
+    /// of csc's sparse switch dispatch. Comparisons with the constant on the left
+    /// are mirrored so <paramref name="kind"/> always describes
+    /// <c>value &lt;op&gt; constant</c>.
     /// </summary>
-    static bool TryIntComparison(IrExpression condition, out IrExpression value, out int constant, out bool isEqual)
+    static bool TryIntComparison(
+        IrExpression condition,
+        out IrExpression value,
+        out int constant,
+        out ComparisonKind kind,
+        out bool isUnsigned)
     {
         value = null!;
         constant = 0;
-        isEqual = false;
+        kind = default;
+        isUnsigned = false;
         if (condition is not Comparison cmp
             || cmp.Kind is not (ComparisonKind.Equal or ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
                                 or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual))
             return false;
+        isUnsigned = cmp.IsUnsigned;
         if (cmp.Right is Constant { Value: int right })
         {
             value = cmp.Left;
             constant = right;
-            isEqual = cmp.Kind == ComparisonKind.Equal;
+            kind = cmp.Kind;
             return true;
         }
         if (cmp.Left is Constant { Value: int left })
         {
             value = cmp.Right;
             constant = left;
-            isEqual = cmp.Kind == ComparisonKind.Equal;
+            kind = Conditions.Mirror(cmp.Kind);
             return true;
         }
         return false;
