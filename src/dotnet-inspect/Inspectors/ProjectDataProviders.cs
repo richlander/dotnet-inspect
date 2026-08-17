@@ -50,9 +50,11 @@ internal sealed class ProjectSkillsProvider
                 continue;
             }
 
+            long? size = null;
             try
             {
-                long size = new FileInfo(file.FullPath).Length;
+                long knownSize = new FileInfo(file.FullPath).Length;
+                size = knownSize;
                 if (_deferContent)
                 {
                     _contentStore.Add(
@@ -64,7 +66,7 @@ internal sealed class ProjectSkillsProvider
                         file.PackageName,
                         file.Version,
                         file.Path,
-                        size,
+                        knownSize,
                         "",
                         "",
                         ""));
@@ -85,7 +87,7 @@ internal sealed class ProjectSkillsProvider
                     file.PackageName,
                     file.Version,
                     file.Path,
-                    size,
+                    knownSize,
                     skillName ?? "",
                     description ?? "",
                     ""));
@@ -97,6 +99,17 @@ internal sealed class ProjectSkillsProvider
                     file.PackageName,
                     file.Path,
                     ex.Message));
+                if (size is long knownSize)
+                {
+                    skills.Add(new ProjectSkillData(
+                        file.PackageName,
+                        file.Version,
+                        file.Path,
+                        knownSize,
+                        "",
+                        "",
+                        ""));
+                }
             }
         }
 
@@ -180,7 +193,13 @@ internal sealed class ProjectAgentGuidanceProvider
                     dependency.PackageName,
                     relativePath,
                     ex.Message));
-                guidance.Add(EmptyGuidance(dependency));
+                guidance.Add(new ProjectAgentGuidanceData(
+                    dependency.PackageName,
+                    dependency.Version,
+                    relativePath,
+                    "",
+                    "",
+                    ""));
             }
         }
 
