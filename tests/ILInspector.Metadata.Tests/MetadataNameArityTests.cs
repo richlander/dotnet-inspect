@@ -355,6 +355,41 @@ public class MetadataNameArityTests
                 includeNonPublicMembers: true));
     }
 
+    [Theory]
+    [InlineData((ushort)1, (ushort)0)]
+    [InlineData((ushort)0, (ushort)0)]
+    [InlineData((ushort)0, (ushort)2)]
+    public void NonCanonicalGenericParameterIndices_AreRejected(
+        ushort firstIndex,
+        ushort secondIndex)
+    {
+        byte[] image = BuildImageWithGenericParameterIndices(
+            firstIndex,
+            secondIndex);
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(
+            handle => reader.GetString(
+                reader.GetTypeDefinition(handle).Name) == "Broken`2");
+        MethodDefinitionHandle methodHandle = Assert.Single(
+            reader.GetTypeDefinition(typeHandle).GetMethods());
+
+        Assert.Throws<BadImageFormatException>(() =>
+            ApiMemberIdentity.CreateMethodAnchor(
+                reader,
+                typeHandle,
+                reader.GetMethodDefinition(methodHandle)));
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                typeHandle,
+                includeNonPublicMembers: true));
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataDeclarationQuery.GetTypeParameters(
+                reader,
+                reader.GetTypeDefinition(typeHandle)));
+    }
+
     [Fact]
     public void MemberAnchor_SeparatesStructuralAndMissingArityBoundaries()
     {
@@ -657,6 +692,33 @@ public class MetadataNameArityTests
             metadata.GetOrAddString("C"),
             index: 1);
 
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildImageWithGenericParameterIndices(
+        ushort firstIndex,
+        ushort secondIndex)
+    {
+        var metadata = CreateMetadata("GenericParameterIndices");
+        BlobHandle signature = AddVoidMethodSignature(metadata);
+        MethodDefinitionHandle method = AddMethod(metadata, signature);
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Broken`2"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: method);
+        metadata.AddGenericParameter(
+            type,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("A"),
+            firstIndex);
+        metadata.AddGenericParameter(
+            type,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("B"),
+            secondIndex);
         return Serialize(metadata);
     }
 

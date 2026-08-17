@@ -305,33 +305,27 @@ public static class ApiDiffAnalyzer
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        bool useStructuredIdentity =
-            oldSurface.Types.All(static type => type.DefinitionName is not null)
-            && newSurface.Types.All(static type => type.DefinitionName is not null);
-        var oldTypes = BuildTypeLookup(oldSurface, useStructuredIdentity);
-        var newTypes = BuildTypeLookup(newSurface, useStructuredIdentity);
+        IReadOnlyList<TypeMatch> typeMatches =
+            BuildTypeMatches(oldSurface, newSurface);
         bool oldIdentityIncomplete =
             HasIncompleteTypeIdentity(oldSurface);
         bool newIdentityIncomplete =
             HasIncompleteTypeIdentity(newSurface);
-
-        var allTypeNames = new SortedSet<string>(StringComparer.Ordinal);
-        foreach (var key in oldTypes.Keys) allTypeNames.Add(key);
-        foreach (var key in newTypes.Keys) allTypeNames.Add(key);
 
         List<TypeDiff> typeDiffs = [];
         int totalBreaking = 0;
         int totalAdditive = 0;
         int totalPotentiallyBreaking = 0;
 
-        foreach (var typeName in allTypeNames)
+        foreach (TypeMatch match in typeMatches)
         {
-            bool inOld = oldTypes.TryGetValue(typeName, out var oldType);
-            bool inNew = newTypes.TryGetValue(typeName, out var newType);
+            string typeName = match.DisplayName;
+            ApiType? oldType = match.OldType;
+            ApiType? newType = match.NewType;
 
             List<ApiChange> changes;
 
-            if (inOld && !inNew)
+            if (oldType is not null && newType is null)
             {
                 if (newIdentityIncomplete)
                     continue;
@@ -341,7 +335,7 @@ public static class ApiDiffAnalyzer
                         Subject: ApiChangeSubject.Type(oldType, null))]
                     : [];
             }
-            else if (!inOld && inNew)
+            else if (oldType is null && newType is not null)
             {
                 if (oldIdentityIncomplete)
                     continue;
@@ -427,16 +421,131 @@ public static class ApiDiffAnalyzer
                     != ApiSurfaceInspectionFailure
                         .GenericParameterConstraintResolutionOperation);
 
-    private static Dictionary<string, ApiType> BuildTypeLookup(
-        ApiSurface surface,
-        bool useStructuredIdentity)
+    private sealed record TypeMatch(
+        string SortKey,
+        string DisplayName,
+        ApiType? OldType,
+        ApiType? NewType);
+
+    private static IReadOnlyList<TypeMatch> BuildTypeMatches(
+        ApiSurface oldSurface,
+        ApiSurface newSurface)
     {
-        var lookup = new Dictionary<string, ApiType>(StringComparer.Ordinal);
-        foreach (var type in surface.Types)
+        Dictionary<string, ApiType> oldExact =
+            BuildExactTypeLookup(oldSurface);
+        Dictionary<string, ApiType> newExact =
+            BuildExactTypeLookup(newSurface);
+        var oldRemaining = oldSurface.Types.ToHashSet();
+        var newRemaining = newSurface.Types.ToHashSet();
+        var matches = new List<TypeMatch>();
+
+        foreach (string key in oldExact.Keys
+            .Intersect(newExact.Keys, StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal))
         {
-            string key = useStructuredIdentity
-                ? type.DefinitionName!.ToEscapedFullName()
-                : type.FullName;
+            ApiType oldType = oldExact[key];
+            ApiType newType = newExact[key];
+            matches.Add(new TypeMatch(
+                $"0:{key}",
+                key,
+                oldType,
+                newType));
+            oldRemaining.Remove(oldType);
+            newRemaining.Remove(newType);
+        }
+
+        var oldByDisplay = oldRemaining
+            .GroupBy(static type => type.FullName, StringComparer.Ordinal)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group.ToArray(),
+                StringComparer.Ordinal);
+        var newByDisplay = newRemaining
+            .GroupBy(static type => type.FullName, StringComparer.Ordinal)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group.ToArray(),
+                StringComparer.Ordinal);
+        foreach (string displayName in oldByDisplay.Keys
+            .Concat(newByDisplay.Keys)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal))
+        {
+            ApiType[] oldGroup = oldByDisplay.GetValueOrDefault(displayName)
+                ?? [];
+            ApiType[] newGroup = newByDisplay.GetValueOrDefault(displayName)
+                ?? [];
+            if (oldGroup.Length == 1
+                && newGroup.Length == 1
+                && (oldGroup[0].DefinitionName is null
+                    || newGroup[0].DefinitionName is null))
+            {
+                ApiType oldType = oldGroup[0];
+                ApiType newType = newGroup[0];
+                string exactDisplay =
+                    oldType.DefinitionName?.ToEscapedFullName()
+                    ?? newType.DefinitionName?.ToEscapedFullName()
+                    ?? displayName;
+                matches.Add(new TypeMatch(
+                    $"1:{displayName}",
+                    exactDisplay,
+                    oldType,
+                    newType));
+                continue;
+            }
+
+            if ((oldGroup.Length > 1 || newGroup.Length > 1)
+                && oldGroup.Concat(newGroup).Any(
+                    static type => type.DefinitionName is null))
+            {
+                throw new InvalidOperationException(
+                    $"The API surfaces contain ambiguous legacy type identity "
+                        + $"'{displayName}'.");
+            }
+
+            foreach (ApiType oldType in oldGroup)
+            {
+                string identity =
+                    oldType.DefinitionName?.ToEscapedFullName()
+                    ?? displayName;
+                matches.Add(new TypeMatch(
+                    $"2:{identity}:old",
+                    identity,
+                    oldType,
+                    null));
+            }
+            foreach (ApiType newType in newGroup)
+            {
+                string identity =
+                    newType.DefinitionName?.ToEscapedFullName()
+                    ?? displayName;
+                matches.Add(new TypeMatch(
+                    $"2:{identity}:new",
+                    identity,
+                    null,
+                    newType));
+            }
+        }
+        return matches
+            .OrderBy(
+                static match => match.DisplayName,
+                StringComparer.Ordinal)
+            .ThenBy(
+                static match => match.SortKey,
+                StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    static Dictionary<string, ApiType> BuildExactTypeLookup(
+        ApiSurface surface)
+    {
+        var lookup = new Dictionary<string, ApiType>(
+            StringComparer.Ordinal);
+        foreach (ApiType type in surface.Types)
+        {
+            if (type.DefinitionName is not { } definitionName)
+                continue;
+            string key = definitionName.ToEscapedFullName();
             if (!lookup.TryAdd(key, type))
             {
                 throw new InvalidOperationException(

@@ -42,6 +42,30 @@ public sealed class MetadataTypeNameFormatterTests
         Assert.Equal("Outer<TOuter>.Inner<TInnerKey, TInnerValue>", displayName);
     }
 
+    [Fact]
+    public void FormatFullName_PreservesPerSegmentArityMismatch()
+    {
+        var type = new ApiType
+        {
+            Namespace = "",
+            Name = "Outer`2.Inner",
+            DefinitionName = ExactName("", "Outer`2", "Inner"),
+            IntroducedTypeParameterCounts = [1, 1],
+            TypeParameters =
+            [
+                new() { Name = "TOuter" },
+                new() { Name = "TInner" },
+            ],
+        };
+
+        Assert.Equal(
+            "Outer`2<TOuter>.Inner<TInner>",
+            MetadataTypeNameFormatter.FormatFullName(type));
+        Assert.NotEqual(
+            "Outer<TOuter, TInner>.Inner",
+            MetadataTypeNameFormatter.FormatFullName(type));
+    }
+
     [Theory]
     [InlineData("List`1", "List<T>")]
     [InlineData("Dictionary`2", "Dictionary<T1, T2>")]

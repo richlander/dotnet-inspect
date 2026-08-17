@@ -87,6 +87,28 @@ public class MetadataTypeNameBudgetTests
     }
 
     [Fact]
+    public void SegmentCountIsBoundedAtTheRelationshipNodeLimit()
+    {
+        ImmutableArray<string> atLimit =
+        [
+            .. Enumerable.Range(
+                0,
+                MetadataSafetyPolicy.MaxRelationshipNodes)
+                .Select(static index => index.ToString()),
+        ];
+        ImmutableArray<string> overLimit = [.. atLimit, "overflow"];
+
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("N", atLimit));
+        var rejected =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Rejected>(
+                MetadataTypeDefinitionName.Create("N", overLimit));
+        Assert.Equal(
+            MetadataTypeNameRejectionKind.TooManySegments,
+            rejected.Rejection.Kind);
+    }
+
+    [Fact]
     public void DeepNestedName_FlattensToTheExactMetadataSpelling()
     {
         ImmutableArray<string> segments =

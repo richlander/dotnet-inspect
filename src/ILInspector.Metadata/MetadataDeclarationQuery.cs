@@ -239,10 +239,14 @@ public static class MetadataDeclarationQuery
         int enclosingCount = 0;
         for (int index = 0; index < consumed; index++)
         {
-            int cumulativeCount = reader
-                .GetTypeDefinition(chain[index])
-                .GetGenericParameters()
-                .Count;
+            if (!MetadataTypeDeclarationProbe.TryGetGenericParameterCount(
+                    reader,
+                    chain[index],
+                    out int cumulativeCount))
+            {
+                throw new BadImageFormatException(
+                    "Generic parameter indices must be contiguous and ordered.");
+            }
             counts.Add(GetIntroducedTypeParameterCount(
                 cumulativeCount,
                 enclosingCount));
@@ -273,15 +277,26 @@ public static class MetadataDeclarationQuery
     public static IReadOnlyList<TypeParameter> GetTypeParameters(MetadataReader reader, TypeDefinition typeDef)
     {
         var handles = typeDef.GetGenericParameters();
+        ValidateGenericParameterIndices(reader, handles);
         var inheritedCount = 0;
         var declaringType = typeDef.GetDeclaringType();
         if (!declaringType.IsNil)
-            inheritedCount = reader.GetTypeDefinition(declaringType).GetGenericParameters().Count;
+        {
+            if (!MetadataTypeDeclarationProbe.TryGetGenericParameterCount(
+                    reader,
+                    declaringType,
+                    out inheritedCount))
+            {
+                throw new BadImageFormatException(
+                    "Generic parameter indices must be contiguous and ordered.");
+            }
+        }
 
         return TypeParameters(
             reader,
             handles.Skip(inheritedCount),
-            GenericContext.ForType(reader, typeDef));
+            GenericContext.ForType(reader, typeDef),
+            expectedIndex: inheritedCount);
     }
 
     public static MetadataMethodDeclaration GetMethod(
@@ -820,9 +835,14 @@ public static class MetadataDeclarationQuery
     static IReadOnlyList<TypeParameter> TypeParameters(
         MetadataReader reader,
         IEnumerable<GenericParameterHandle> handles,
-        GenericContext context)
+        GenericContext context,
+        int expectedIndex = 0)
     {
         var parameters = new List<TypeParameter>();
+        ValidateGenericParameterIndices(
+            reader,
+            handles,
+            expectedIndex);
 
         // Shared across the list for the same reason `ApiSurfaceExtractor` shares one:
         // `where T : U` chains run through it, and answering each parameter from scratch
@@ -875,6 +895,22 @@ public static class MetadataDeclarationQuery
         }
 
         return parameters;
+    }
+
+    static void ValidateGenericParameterIndices(
+        MetadataReader reader,
+        IEnumerable<GenericParameterHandle> handles,
+        int expectedIndex = 0)
+    {
+        foreach (GenericParameterHandle handle in handles)
+        {
+            if (reader.GetGenericParameter(handle).Index
+                != expectedIndex++)
+            {
+                throw new BadImageFormatException(
+                    "Generic parameter indices must be contiguous and ordered.");
+            }
+        }
     }
 
     static string? ConstraintTypeName(MetadataReader reader, EntityHandle handle, GenericContext context)
@@ -1443,10 +1479,17 @@ public static class MetadataDeclarationQuery
         return parameters;
     }
 
-    static IReadOnlyList<string> TypeParameterNames(MetadataReader reader, TypeDefinition typeDef)
-        => typeDef.GetGenericParameters()
+    static IReadOnlyList<string> TypeParameterNames(
+        MetadataReader reader,
+        TypeDefinition typeDef)
+    {
+        GenericParameterHandleCollection handles =
+            typeDef.GetGenericParameters();
+        ValidateGenericParameterIndices(reader, handles);
+        return handles
             .Select(handle => reader.GetString(reader.GetGenericParameter(handle).Name))
             .ToArray();
+    }
 
     /// <summary>
     /// The cumulative arity a metadata full name declares across its components.

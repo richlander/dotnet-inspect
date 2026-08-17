@@ -12,6 +12,7 @@ public enum MetadataTypeNameRejectionKind
     MissingNamespace,
     MissingSegments,
     MissingSegment,
+    TooManySegments,
     InvalidSerializedName,
     AssemblyQualifiedSerializedName,
     NonDefinitionSerializedName,
@@ -223,7 +224,8 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
     /// </summary>
     /// <remarks>
     /// Construction is a single linear pass over already-validated segments, and the validated
-    /// name is bounded by <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>, so a caller
+    /// name is bounded by <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>
+    /// and <see cref="MetadataSafetyPolicy.MaxRelationshipNodes"/>, so a caller
     /// can neither rebuild a growing prefix per level nor flatten an unbounded name.
     /// <c>MetadataTypeNameBudgetTests</c> gates both properties.
     /// </remarks>
@@ -263,6 +265,12 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
             return new MetadataTypeDefinitionNameResult.Rejected(
                 new MetadataTypeNameRejection(
                     MetadataTypeNameRejectionKind.MissingSegments));
+        }
+        if (segments.Length > MetadataSafetyPolicy.MaxRelationshipNodes)
+        {
+            return new MetadataTypeDefinitionNameResult.Rejected(
+                new MetadataTypeNameRejection(
+                    MetadataTypeNameRejectionKind.TooManySegments));
         }
 
         long characters = @namespace.Length;

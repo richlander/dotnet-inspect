@@ -1285,9 +1285,17 @@ public static class ApiMemberIdentity
                 throw TypeNameBudgetExceeded();
             }
             var genericParameters = type.GetGenericParameters();
+            if (!MetadataTypeDeclarationProbe.TryGetGenericParameterCount(
+                    reader,
+                    chain[i],
+                    out int cumulativeGenericCount))
+            {
+                throw new BadImageFormatException(
+                    "Generic parameter indices must be contiguous and ordered.");
+            }
             int introducedGenericCount =
                 MetadataDeclarationQuery.GetIntroducedTypeParameterCount(
-                    genericParameters.Count,
+                    cumulativeGenericCount,
                     enclosingGenericCount);
             // Only a canonical trailing `N is an arity suffix. Truncating at any
             // backtick would give a name whose backtick is literal (Widget`Literal)
@@ -1313,7 +1321,7 @@ public static class ApiMemberIdentity
 
             if (introducedGenericCount == 0)
             {
-                enclosingGenericCount = genericParameters.Count;
+                enclosingGenericCount = cumulativeGenericCount;
                 continue;
             }
 
@@ -1335,7 +1343,7 @@ public static class ApiMemberIdentity
                     escapeDot: true);
             }
             AppendAnchorName(builder, ">");
-            enclosingGenericCount = genericParameters.Count;
+            enclosingGenericCount = cumulativeGenericCount;
         }
 
         return builder.ToString();

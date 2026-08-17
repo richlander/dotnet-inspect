@@ -91,6 +91,27 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void ZeroParameterOuterArityMismatch_DoesNotAliasPlainType()
+    {
+        var exact = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "N",
+                ["Outer`1", "Inner"])).Name;
+        var malformed = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer`1.Inner",
+            Kind = "class",
+            DefinitionName = exact,
+            IntroducedTypeParameterCounts = [0, 0],
+        };
+
+        Assert.Equal(
+            "Outer`1.Inner",
+            CSharpFormatter.FormatTypeName(malformed));
+    }
+
+    [Fact]
     public void FormatsContextualTypeUnit()
     {
         var type = new ApiType

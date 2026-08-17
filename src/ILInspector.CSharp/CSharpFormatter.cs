@@ -505,7 +505,9 @@ public sealed class CSharpFormatter
                 .Select(MetadataNameArity.OfSegment)
                 .SequenceEqual(introducedTypeParameterCounts!)
             : declaredArity == typeParameters.Count;
-        bool unboundOuterDisplay = typeParameters.Count == 0;
+        bool unboundOuterDisplay =
+            typeParameters.Count == 0
+            && !hasExactParameterOwnership;
         int parameterIndex = 0;
         var parts = new List<string>(name.Segments.Length);
         for (int segmentIndex = 0;
