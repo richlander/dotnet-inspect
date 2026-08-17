@@ -1423,12 +1423,30 @@ public static class ApiOutputFormatter
     private static bool CanAnalyzeSelectedAccessor(
         ApiMember accessor,
         IReadOnlySet<string> requestedSections)
-        => accessor.HasMethodBody
-            || requestedSections.Contains(SectionNames.CustomAttributes)
-            || requestedSections.Contains(SectionNames.UnsafeOperations)
-            || !accessor.IsAbstract
-                && requestedSections.Overlaps(
-                    [SectionNames.Callers, SectionNames.CallGraph]);
+        => GetSelectedAccessorSections(accessor, requestedSections).Count > 0;
+
+    private static HashSet<string> GetSelectedAccessorSections(
+        ApiMember accessor,
+        IReadOnlySet<string> requestedSections)
+    {
+        if (accessor.HasMethodBody)
+            return new HashSet<string>(requestedSections, StringComparer.OrdinalIgnoreCase);
+
+        var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (requestedSections.Contains(SectionNames.CustomAttributes))
+            sections.Add(SectionNames.CustomAttributes);
+        if (requestedSections.Contains(SectionNames.UnsafeOperations))
+            sections.Add(SectionNames.UnsafeOperations);
+        if (!accessor.IsAbstract)
+        {
+            if (requestedSections.Contains(SectionNames.Callers))
+                sections.Add(SectionNames.Callers);
+            if (requestedSections.Contains(SectionNames.CallGraph))
+                sections.Add(SectionNames.CallGraph);
+        }
+
+        return sections;
+    }
 
     /// <summary>
     /// Synthesizes method members for a property's or event's accessors, keyed by the
@@ -1546,26 +1564,6 @@ public static class ApiOutputFormatter
         IReadOnlySet<string>? explicitSections = null,
         ApiOptions? options = null)
     {
-        var request = new MemberCodeProvider.Request(
-            DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource)
-                || requestedSections.Contains(SectionNames.SourceDiff),
-            AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
-            SourceDocument: requestedSections.Contains(SectionNames.AnnotatedSourceDocument),
-            CostOverlay: requestedSections.Contains(SectionNames.CostOverlay),
-            SemanticsOverlay: requestedSections.Contains(SectionNames.SemanticsOverlay),
-            IL: requestedSections.Contains(SectionNames.IL),
-            Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
-            Calls: requestedSections.Contains(SectionNames.Calls),
-            Callers: requestedSections.Contains(SectionNames.Callers),
-            CallGraph: requestedSections.Contains(SectionNames.CallGraph),
-            UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations),
-            Facts: requestedSections.Contains(SectionNames.Facts),
-            FidelityCauses: requestedSections.Contains(SectionNames.FidelityCauses),
-            AppliedTaste: requestedSections.Contains(SectionNames.AppliedTaste),
-            ProjectAssetsPath: options?.ProjectAssetsPath,
-            TargetFramework: options?.Tfm,
-            CaretFocus: options?.Focus);
-
         // An index-backed section that is explicitly selected (via -S or a category like
         // @Audit) renders an empty-state note instead of vanishing when it yields no rows.
         // Sections merely auto-included by verbosity stay silent when empty.
@@ -1594,19 +1592,27 @@ public static class ApiOutputFormatter
             && ApiMemberSectionDescriptors.HasAccessorTokens(owner)
             && bodyMethods is [{ HasMethodBody: false }];
         if (selectedBodylessAccessor)
-        {
-            request = request with
-            {
-                DecompiledSource = false,
-                AnnotatedSource = false,
-                SourceDocument = false,
-                CostOverlay = false,
-                SemanticsOverlay = false,
-                IL = false,
-                Facts = false,
-                AppliedTaste = false,
-            };
-        }
+            requestedSections = GetSelectedAccessorSections(bodyMethods[0], requestedSections);
+
+        var request = new MemberCodeProvider.Request(
+            DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource)
+                || requestedSections.Contains(SectionNames.SourceDiff),
+            AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
+            SourceDocument: requestedSections.Contains(SectionNames.AnnotatedSourceDocument),
+            CostOverlay: requestedSections.Contains(SectionNames.CostOverlay),
+            SemanticsOverlay: requestedSections.Contains(SectionNames.SemanticsOverlay),
+            IL: requestedSections.Contains(SectionNames.IL),
+            Attributes: requestedSections.Contains(SectionNames.CustomAttributes),
+            Calls: requestedSections.Contains(SectionNames.Calls),
+            Callers: requestedSections.Contains(SectionNames.Callers),
+            CallGraph: requestedSections.Contains(SectionNames.CallGraph),
+            UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations),
+            Facts: requestedSections.Contains(SectionNames.Facts),
+            FidelityCauses: requestedSections.Contains(SectionNames.FidelityCauses),
+            AppliedTaste: requestedSections.Contains(SectionNames.AppliedTaste),
+            ProjectAssetsPath: options?.ProjectAssetsPath,
+            TargetFramework: options?.Tfm,
+            CaretFocus: options?.Focus);
 
         if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {

@@ -126,6 +126,15 @@ public static class MetadataDeclarationQuery
                 Name = declaration.MetadataName,
                 Kind = "property",
                 SignatureModel = declaration.Signature,
+                AccessorFacts =
+                [
+                    .. (declaration.Getter.IsNil
+                        ? []
+                        : new[] { AccessorModel(reader, declaration.Getter, "get") }),
+                    .. (declaration.Setter.IsNil
+                        ? []
+                        : new[] { AccessorModel(reader, declaration.Setter, "set") }),
+                ],
                 Signature = signatureText,
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 IsStatic = declaration.IsStatic,
@@ -206,6 +215,15 @@ public static class MetadataDeclarationQuery
                         }),
                     ]
                 },
+                AccessorFacts =
+                [
+                    .. (accessors.Adder.IsNil
+                        ? []
+                        : new[] { AccessorModel(reader, accessors.Adder, "add") }),
+                    .. (accessors.Remover.IsNil
+                        ? []
+                        : new[] { AccessorModel(reader, accessors.Remover, "remove") }),
+                ],
                 SignatureDecodeStatus = degraded ? SignatureDecodeStatus.Degraded : null,
                 IsStatic = isStatic,
                 IsVirtual = isVirtual,
@@ -233,8 +251,7 @@ public static class MetadataDeclarationQuery
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
             var isRetainedImplementationAccessor = explicitImplementationBodies.Contains(methodHandle)
                 && (methodName.Contains('.', StringComparison.Ordinal)
-                    || (methodAccess != MethodAttributes.Public
-                        && explicitInterfaceImplementationBodies.Contains(methodHandle)
+                    || (explicitInterfaceImplementationBodies.Contains(methodHandle)
                         && !canonicalAccessorMethods.Contains(methodHandle)));
             if (accessorMethods.Contains(methodHandle) && !isRetainedImplementationAccessor)
                 continue;

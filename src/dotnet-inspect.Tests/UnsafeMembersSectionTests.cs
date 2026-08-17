@@ -234,6 +234,24 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
+    public async Task TypeUnsafeMembers_AuditCategoryJsonFailsClosed()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(SampleUnsafeClass).FullName,
+            AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
+            Select = [SectionCategoryNames.Audit],
+            IncludeSections = [SectionNames.UnsafeMembers],
+            JsonOutput = true,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("cannot represent the analysis rows", result.Error);
+        Assert.Contains("--jsonl", result.Error);
+        Assert.DoesNotContain("\"name\"", result.Output);
+    }
+
+    [Fact]
     public async Task TypeUnsafeMembers_InapplicableJsonSelectionStillFailsClosed()
     {
         var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions

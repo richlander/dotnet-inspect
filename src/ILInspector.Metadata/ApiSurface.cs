@@ -593,6 +593,14 @@ public class ApiMember
     public ApiSignature? SignatureModel { get; set; }
 
     /// <summary>
+    /// Complete accessor body facts in metadata token order. This remains separate from
+    /// <see cref="SignatureModel"/>, whose accessor list may omit non-public accessors from
+    /// a public-only presentation.
+    /// </summary>
+    [JsonIgnore]
+    public List<ApiAccessor> AccessorFacts { get; set; } = [];
+
+    /// <summary>
     /// Set when guarded metadata decoding substituted part of this member's signature.
     /// Null means the signature decoded completely, including for older serialized surfaces.
     /// </summary>

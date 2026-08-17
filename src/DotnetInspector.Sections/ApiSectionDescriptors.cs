@@ -772,10 +772,17 @@ public static class ApiMemberDetailSectionDescriptors
             return null;
         }
 
-        var accessors = member.SignatureModel?.Accessors;
-        return accessors is not null && ordinal > 0 && ordinal <= accessors.Count
-            ? accessors[ordinal - 1]
-            : null;
+        string[] kinds = member.Kind == "property"
+            ? [.. (member.GetterToken.HasValue ? ["get"] : Array.Empty<string>()),
+               .. (member.SetterToken.HasValue ? ["set"] : Array.Empty<string>())]
+            : [.. (member.AdderToken.HasValue ? ["add"] : Array.Empty<string>()),
+               .. (member.RemoverToken.HasValue ? ["remove"] : Array.Empty<string>())];
+        if (ordinal <= 0 || ordinal > kinds.Length)
+            return null;
+
+        string kind = kinds[ordinal - 1];
+        return member.AccessorFacts.FirstOrDefault(accessor => accessor.Kind == kind)
+            ?? member.SignatureModel?.Accessors.FirstOrDefault(accessor => accessor.Kind == kind);
     }
 
     public sealed class Summary : ISectionDescriptor<ApiType>

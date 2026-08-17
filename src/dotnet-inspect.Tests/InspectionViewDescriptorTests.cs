@@ -203,6 +203,67 @@ public class InspectionViewDescriptorTests
         Assert.Contains(SectionNames.UnsafeOperations, ids);
     }
 
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(2, false)]
+    public void MemberViews_UseTokenOrderWhenPresentationOmitsAnAccessor(
+        int accessorOrdinal,
+        bool hasExecutableBodyViews)
+    {
+        var model = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            SelectedAccessorOrdinal = accessorOrdinal,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001,
+                    SetterToken = 0x06000002,
+                    HasMethodBody = true,
+                    SignatureModel = new ApiSignature
+                    {
+                        Accessors =
+                        [
+                            new ApiAccessor
+                            {
+                                Kind = "set",
+                                HasMethodBody = false,
+                                IsAbstract = true
+                            }
+                        ]
+                    },
+                    AccessorFacts =
+                    [
+                        new ApiAccessor
+                        {
+                            Kind = "get",
+                            HasMethodBody = true,
+                            IsAbstract = false
+                        },
+                        new ApiAccessor
+                        {
+                            Kind = "set",
+                            HasMethodBody = false,
+                            IsAbstract = true
+                        }
+                    ]
+                }
+            ]
+        };
+
+        IReadOnlySet<string> ids = ApiMemberDetailSectionDescriptors.CreatePipeline()
+            .GetInspectionViews(model)
+            .Select(view => view.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal(hasExecutableBodyViews, ids.Contains(SectionNames.IL));
+        Assert.Equal(hasExecutableBodyViews, ids.Contains(SectionNames.Facts));
+    }
+
     [Fact]
     public void BodyExecution_SkipsSelectedAbstractAccessorWithoutShiftingOrdinal()
     {

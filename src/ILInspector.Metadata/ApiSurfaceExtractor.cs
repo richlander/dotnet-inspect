@@ -463,8 +463,7 @@ public static class ApiSurfaceExtractor
                 var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
                 var isRetainedImplementationAccessor = isExplicitInterfaceImplementation
                     && (methodName.Contains('.', StringComparison.Ordinal)
-                        || (methodAccess != MethodAttributes.Public
-                            && explicitInterfaceImplementationBodies.Contains(methodHandle)
+                        || (explicitInterfaceImplementationBodies.Contains(methodHandle)
                             && !canonicalAccessorMethods.Contains(methodHandle)));
                 if (accessorMethods.Contains(methodHandle) && !isRetainedImplementationAccessor)
                     continue;
@@ -626,6 +625,10 @@ public static class ApiSurfaceExtractor
                     Kind = "property",
                     Signature = propertySignature.Text,
                     SignatureModel = propertySignature.Model,
+                    AccessorFacts = AccessorFacts(
+                        reader,
+                        (accessors.Getter, "get"),
+                        (accessors.Setter, "set")),
                     SignatureDecodeStatus = propertySignature.IsDegraded
                         ? SignatureDecodeStatus.Degraded
                         : null,
@@ -869,6 +872,7 @@ public static class ApiSurfaceExtractor
                         MemberName = reader.GetString(evt.Name),
                         Accessors = accessorModels
                     },
+                    AccessorFacts = [.. accessorModels],
                     IsStatic = (adderAttributes & MethodAttributes.Static) != 0,
                     IsVirtual = isVirtualEvent,
                     IsAbstract = (adderAttributes & MethodAttributes.Abstract) != 0,
@@ -3120,6 +3124,14 @@ public static class ApiSurfaceExtractor
             IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0
         };
     }
+
+    private static List<ApiAccessor> AccessorFacts(
+        MetadataReader reader,
+        params (MethodDefinitionHandle Handle, string Kind)[] accessors)
+        => accessors
+            .Where(accessor => !accessor.Handle.IsNil)
+            .Select(accessor => AccessorModel(reader, accessor.Handle, accessor.Kind))
+            .ToList();
 
     private static bool IsAbstractMethod(MetadataReader reader, MethodDefinitionHandle handle)
         => !handle.IsNil

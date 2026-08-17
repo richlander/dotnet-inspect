@@ -260,10 +260,12 @@ public sealed class MetadataDeclarationQueryTests
                 && member.Name.EndsWith(".add_Changed", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public void TypeSurface_PreservesUnqualifiedMethodImplAccessors()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TypeSurface_PreservesUnqualifiedMethodImplAccessors(bool isPublic)
     {
-        string path = EmitUnqualifiedMethodImplAccessor();
+        string path = EmitUnqualifiedMethodImplAccessor(isPublic);
         try
         {
             using var peReader = new PEReader(File.OpenRead(path));
@@ -576,7 +578,7 @@ public sealed class MetadataDeclarationQueryTests
         return path;
     }
 
-    static string EmitUnqualifiedMethodImplAccessor()
+    static string EmitUnqualifiedMethodImplAccessor(bool isPublic)
     {
         var assemblyName = new AssemblyName("UnqualifiedMethodImplAccessor");
         var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
@@ -604,7 +606,7 @@ public sealed class MetadataDeclarationQueryTests
         type.AddInterfaceImplementation(interfaceType);
         var getter = type.DefineMethod(
             "Read",
-            MethodAttributes.Private
+            (isPublic ? MethodAttributes.Public : MethodAttributes.Private)
                 | MethodAttributes.Virtual
                 | MethodAttributes.Final
                 | MethodAttributes.NewSlot

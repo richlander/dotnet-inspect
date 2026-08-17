@@ -6055,7 +6055,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_BodylessAccessor_MetadataSectionDoesNotEnableFactsAnalysis()
+    public async Task Member_BodylessAccessor_MetadataSectionDoesNotEnableBodyAnalysis()
     {
         var (exit, output, error) = await RunAppAsync(
             "member",
@@ -6065,13 +6065,24 @@ public partial class CommandExecutionTests
             "-m",
             "Count:1",
             "-S",
-            "Facts,Custom Attributes",
+            "Calls,Callers,Call Graph,Exception Regions,Allocation Facts,Safety Facts,"
+                + "Cost Facts,Fidelity Causes,Custom Attributes",
             "--tips",
             "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.DoesNotContain("has no IL body", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Calls", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Callers", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Call Graph", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Allocation Facts", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Safety Facts", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Cost Facts", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Fidelity Causes", output, StringComparison.Ordinal);
+        Assert.Single(
+            output.Split('\n'),
+            line => line == "## Exception Regions");
     }
 
     [Fact]

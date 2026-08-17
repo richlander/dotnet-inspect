@@ -816,11 +816,21 @@ public class ApiCommand
 
         if (options.Select is { Length: > 0 } selectors)
         {
-            return selectors.Any(selector =>
+            if (selectors.Any(selector =>
                 string.Equals(
                     selector,
                     SectionNames.UnsafeMembers,
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            bool broadDocumentSelection = selectors.All(selector =>
+                selector is "*" || string.Equals(
+                    selector,
+                    "@All",
                     StringComparison.OrdinalIgnoreCase));
+            return !broadDocumentSelection;
         }
 
         return options.IncludeSections?.Contains(SectionNames.UnsafeMembers) == true;
