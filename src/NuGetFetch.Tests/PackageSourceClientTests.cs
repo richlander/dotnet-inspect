@@ -53,6 +53,23 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public void HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling()
+    {
+        PackageSourceIdentity unicode =
+            PackageSourceIdentity.ForHttpEndpoint(
+                new Uri("https://bücher.example/feed/%2f?q=%2f"));
+        PackageSourceIdentity ascii =
+            PackageSourceIdentity.ForHttpEndpoint(
+                new Uri("https://xn--bcher-kva.example:443/feed/%2F?q=%2F"));
+
+        Assert.Equal(unicode, ascii);
+        Assert.Contains(
+            "xn--bcher-kva.example:443",
+            unicode.Value,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DescriptorRejectsCredentialsEmbeddedInEndpoint()
     {
         ArgumentException error = Assert.Throws<ArgumentException>(
@@ -159,12 +176,9 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
-    public async Task NuGetOrgSearchDoesNotSendServiceIndexCredential()
+    public async Task CanonicalNuGetOrgV3DoesNotReintroduceSearchShortcut()
     {
-        var handler = new RecordingHandler
-        {
-            DefaultResponse = """{"data":[]}""",
-        };
+        var handler = new RecordingHandler();
         using var client = new HttpClient(handler);
         IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
@@ -174,15 +188,15 @@ public sealed class PackageSourceClientTests
                     new PackageSourceCredential("user", "token")),
                 client);
 
-        Assert.True(
-            runtime.Capabilities.HasFlag(
-                PackageSourceCapabilities.Search));
-        Assert.Empty(await runtime.SearchAsync(
-            "contoso",
-            cancellationToken:
-                TestContext.Current.CancellationToken));
-        Assert.Single(handler.Authentication);
-        Assert.Null(handler.Authentication[0]);
+        Assert.False(
+            runtime.Capabilities.HasFlag(PackageSourceCapabilities.Search));
+        await Assert.ThrowsAsync<PackageSourceCapabilityException>(
+            () => runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        Assert.Empty(handler.Requested);
+        Assert.Empty(handler.Authentication);
     }
 
     [Fact]
@@ -199,6 +213,21 @@ public sealed class PackageSourceClientTests
         Assert.Equal(PackageSourceKind.NuGetGallery, error.Kind);
     }
 
+    [Fact]
+    public void LegacyLocalSourceRemainsAnExplicitUnsupportedKind()
+    {
+        using var client = new HttpClient(new RecordingHandler());
+        var source = new PackageSource(
+            "local",
+            Path.GetFullPath("packages"));
+
+        PackageSourceClientUnavailableException error =
+            Assert.Throws<PackageSourceClientUnavailableException>(
+                () => PackageSourceClientFactory.Create(source, client));
+
+        Assert.Equal(PackageSourceKind.LocalFolder, error.Kind);
+    }
+
     private static string? DecodeBasic(string? parameter) =>
         parameter is null
             ? null
@@ -212,7 +241,6 @@ public sealed class PackageSourceClientTests
 
         public string this[string url] { set => _routes[url] = value; }
 
-        public string? DefaultResponse { get; init; }
         public List<string> Requested { get; } = [];
         public List<string?> Authentication { get; } = [];
 
@@ -224,9 +252,7 @@ public sealed class PackageSourceClientTests
             Requested.Add(url);
             Authentication.Add(
                 request.Headers.Authorization?.Parameter);
-            bool hasResponse =
-                _routes.ContainsKey(url)
-                || DefaultResponse is not null;
+            bool hasResponse = _routes.ContainsKey(url);
             HttpStatusCode status = hasResponse
                 ? HttpStatusCode.OK
                 : HttpStatusCode.NotFound;
@@ -234,8 +260,7 @@ public sealed class PackageSourceClientTests
             {
                 Content = new StringContent(
                     hasResponse
-                        ? _routes.GetValueOrDefault(url)
-                            ?? DefaultResponse!
+                        ? _routes.GetValueOrDefault(url)!
                         : ""),
                 RequestMessage = request,
             });

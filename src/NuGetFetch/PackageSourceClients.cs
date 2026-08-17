@@ -7,8 +7,13 @@ namespace NuGetFetch;
 /// </summary>
 public enum PackageSourceKind
 {
+    /// <summary>A standard NuGet v3 service-index source.</summary>
     NuGetV3,
+
+    /// <summary>The built-in NuGet Gallery browser transport.</summary>
     NuGetGallery,
+
+    /// <summary>A package source backed by a local directory.</summary>
     LocalFolder,
 }
 
@@ -18,10 +23,19 @@ public enum PackageSourceKind
 [Flags]
 public enum PackageSourceCapabilities
 {
+    /// <summary>No package operations are supported.</summary>
     None = 0,
+
+    /// <summary>Keyword or package-identity search.</summary>
     Search = 1 << 0,
+
+    /// <summary>Version enumeration for a package ID.</summary>
     VersionEnumeration = 1 << 1,
+
+    /// <summary>Exact package payload acquisition.</summary>
     PackagePayload = 1 << 2,
+
+    /// <summary>Exact symbol-package payload acquisition.</summary>
     SymbolPayload = 1 << 3,
 }
 
@@ -203,25 +217,34 @@ public sealed record PackageSourceDescriptor
 /// </summary>
 public interface IPackageSourceClient
 {
+    /// <summary>Gets the producer represented by this transport.</summary>
     PackageSourceIdentity Identity { get; }
+
+    /// <summary>Gets the transport family.</summary>
     PackageSourceKind Kind { get; }
+
+    /// <summary>Gets the operations implemented by this runtime client.</summary>
     PackageSourceCapabilities Capabilities { get; }
 
+    /// <summary>Searches for packages.</summary>
     Task<IReadOnlyList<SearchResult>> SearchAsync(
         string query,
         int take = 20,
         bool prerelease = false,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Gets the versions reported for a package ID.</summary>
     Task<IReadOnlyList<string>> GetVersionsAsync(
         string packageId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Gets an exact package payload owned by the returned stream.</summary>
     Task<Stream> GetPackageAsync(
         string packageId,
         string version,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Gets an exact symbol-package payload when supported and available.</summary>
     Task<Stream?> TryGetSymbolsAsync(
         string packageId,
         string version,
@@ -237,7 +260,10 @@ public sealed class PackageSourceCapabilityException(
     : NotSupportedException(
         $"Package source kind '{kind}' does not support capability '{capability}'.")
 {
+    /// <summary>Gets the source kind that rejected the operation.</summary>
     public PackageSourceKind Kind { get; } = kind;
+
+    /// <summary>Gets the unsupported operation.</summary>
     public PackageSourceCapabilities Capability { get; } = capability;
 }
 
@@ -249,6 +275,7 @@ public sealed class PackageSourceClientUnavailableException(
     : NotSupportedException(
         $"Package source kind '{kind}' does not have a runtime client implementation.")
 {
+    /// <summary>Gets the source kind without a runtime implementation.</summary>
     public PackageSourceKind Kind { get; } = kind;
 }
 
@@ -257,6 +284,9 @@ public sealed class PackageSourceClientUnavailableException(
 /// </summary>
 public static class PackageSourceClientFactory
 {
+    /// <summary>
+    /// Adapts the existing desktop source model to a typed runtime client.
+    /// </summary>
     public static IPackageSourceClient Create(
         PackageSource source,
         HttpClient client,
@@ -281,6 +311,10 @@ public static class PackageSourceClientFactory
             source.Credential);
     }
 
+    /// <summary>
+    /// Creates a runtime client from credential-free configuration and optional
+    /// ephemeral credentials.
+    /// </summary>
     public static IPackageSourceClient Create(
         PackageSourceDescriptor descriptor,
         HttpClient client,
@@ -310,7 +344,6 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
     private readonly PackageSourceDescriptor _descriptor;
     private readonly PackageSourceCredential? _credential;
     private readonly NuGetClient _nuget;
-    private readonly SearchService? _search;
 
     public NuGetV3PackageSourceClient(
         PackageSourceDescriptor descriptor,
@@ -321,44 +354,22 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         _descriptor = descriptor;
         _credential = credential;
         _nuget = new NuGetClient(client, options);
-        if (descriptor.Identity == PackageSourceIdentity.NuGetOrg)
-        {
-            _search = new SearchService(
-                client,
-                NuGetClient.NuGetOrgSearchUrl,
-                options);
-        }
     }
 
     public PackageSourceIdentity Identity => _descriptor.Identity;
     public PackageSourceKind Kind => PackageSourceKind.NuGetV3;
     public PackageSourceCapabilities Capabilities =>
         PackageSourceCapabilities.VersionEnumeration
-        | PackageSourceCapabilities.PackagePayload
-        | (_search is null
-            ? PackageSourceCapabilities.None
-            : PackageSourceCapabilities.Search);
+        | PackageSourceCapabilities.PackagePayload;
 
-    public async Task<IReadOnlyList<SearchResult>> SearchAsync(
+    public Task<IReadOnlyList<SearchResult>> SearchAsync(
         string query,
         int take = 20,
         bool prerelease = false,
-        CancellationToken cancellationToken = default)
-    {
-        if (_search is null)
-        {
-            throw new PackageSourceCapabilityException(
-                Kind,
-                PackageSourceCapabilities.Search);
-        }
-
-        return await _search.SearchAsync(
-            query,
-            take,
-            prerelease,
-            auth: null,
-            cancellationToken).ConfigureAwait(false);
-    }
+        CancellationToken cancellationToken = default) =>
+        throw new PackageSourceCapabilityException(
+            Kind,
+            PackageSourceCapabilities.Search);
 
     public async Task<IReadOnlyList<string>> GetVersionsAsync(
         string packageId,
