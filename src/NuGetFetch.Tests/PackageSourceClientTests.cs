@@ -466,6 +466,46 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task GalleryRejectsNullVersionDocument()
+    {
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = "null",
+        };
+        using var client = new HttpClient(handler);
+        IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                PackageSourceDescriptor.NuGetGallery,
+                client);
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains("not a valid version document", error.Message);
+        Assert.Equal([GalleryVersions], handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryMissingPackageHasNoVersions()
+    {
+        var handler = new RecordingHandler();
+        using var client = new HttpClient(handler);
+        IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                PackageSourceDescriptor.NuGetGallery,
+                client);
+
+        Assert.Empty(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+        Assert.Equal([GalleryVersions], handler.Requested);
+    }
+
+    [Fact]
     public void GalleryRejectsCredentials()
     {
         using var client = new HttpClient(new RecordingHandler());

@@ -55,7 +55,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         string url =
             $"{FlatContainer}{EscapeSegment(normalizedId)}/index.json";
         using var operation = CreateOperation(cancellationToken);
-        VersionIndex? index = await operation.RunRequestAsync(
+        (bool found, VersionIndex? index) = await operation.RunRequestAsync(
             async requestToken =>
             {
                 using HttpRequestMessage request =
@@ -65,18 +65,25 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                     HttpCompletionOption.ResponseHeadersRead,
                     requestToken).ConfigureAwait(false);
                 if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                    return null;
+                    return (false, null);
 
                 response.EnsureSuccessStatusCode();
-                return await NuGetMetadataReader.ReadResponseAsync(
+                VersionIndex? parsed =
+                    await NuGetMetadataReader.ReadResponseAsync(
                     response,
                     NuGetApi.DeserializeVersionIndexAsync,
                     _options,
                     _client.Timeout,
                     requestToken).ConfigureAwait(false);
+                return (true, parsed);
             }).ConfigureAwait(false);
 
-        IReadOnlyList<string> versions = index?.Versions ?? [];
+        if (!found)
+            return [];
+
+        IReadOnlyList<string> versions = index?.Versions
+            ?? throw new InvalidOperationException(
+                "The NuGet Gallery version response was not a valid version document.");
         foreach (string version in versions)
         {
             operation.ThrowIfExpired();
