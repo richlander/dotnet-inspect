@@ -446,7 +446,7 @@ public static class AssemblyContextSourceQuery
         }
     }
 
-    static async Task<AssemblyMemberSourceEntry> InspectMemberAsync(
+    internal static async Task<AssemblyMemberSourceEntry> InspectMemberAsync(
         AssemblyContextSubject subject,
         AssemblyContextParticipant participant,
         AssemblyMemberSourceRequest request,
@@ -571,7 +571,7 @@ public static class AssemblyContextSourceQuery
             decompiled);
     }
 
-    static async Task<AssemblyTypeSourceEntry> InspectTypeAsync(
+    internal static async Task<AssemblyTypeSourceEntry> InspectTypeAsync(
         AssemblyContextSubject subject,
         AssemblyContextParticipant participant,
         AssemblyTypeSourceRequest request,

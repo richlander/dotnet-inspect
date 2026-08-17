@@ -98,6 +98,7 @@
     <ProjectReference Include="..\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.MetadataRendering\DotnetInspector.MetadataRendering.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Vocabulary\DotnetInspector.Vocabulary.csproj" />
     <ProjectReference Include="..\InertText\InertText.csproj" />
   </ItemGroup>
 

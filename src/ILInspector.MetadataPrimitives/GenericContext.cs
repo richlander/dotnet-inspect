@@ -52,8 +52,21 @@ public class GenericContext
     /// Creates a context for a type definition (type parameters only).
     /// </summary>
     public static GenericContext ForType(MetadataReader reader, TypeDefinition typeDef)
+        => ForType(reader, typeDef, beforeMaterialize: null);
+
+    /// <summary>
+    /// Creates a context for a type definition while observing encoded generic-name
+    /// work before those names are materialized.
+    /// </summary>
+    public static GenericContext ForType(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        Action<int>? beforeMaterialize)
     {
-        var typeParameters = ReadParameters(reader, typeDef.GetGenericParameters());
+        var typeParameters = ReadParameters(
+            reader,
+            typeDef.GetGenericParameters(),
+            beforeMaterialize);
         return new GenericContext(typeParameters.Names, [], typeParameters.ValueTypeConstraints, []);
     }
 
@@ -62,8 +75,14 @@ public class GenericContext
     /// </summary>
     public static GenericContext ForMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition methodDef)
     {
-        var typeParameters = ReadParameters(reader, typeDef.GetGenericParameters());
-        var methodParameters = ReadParameters(reader, methodDef.GetGenericParameters());
+        var typeParameters = ReadParameters(
+            reader,
+            typeDef.GetGenericParameters(),
+            beforeMaterialize: null);
+        var methodParameters = ReadParameters(
+            reader,
+            methodDef.GetGenericParameters(),
+            beforeMaterialize: null);
         return new GenericContext(
             typeParameters.Names,
             methodParameters.Names,
@@ -71,9 +90,32 @@ public class GenericContext
             methodParameters.ValueTypeConstraints);
     }
 
+    /// <summary>
+    /// Extends an existing type context with one method's generic parameters,
+    /// observing encoded method-parameter names before materialization.
+    /// </summary>
+    public static GenericContext ForMethod(
+        MetadataReader reader,
+        GenericContext typeContext,
+        MethodDefinition methodDef,
+        Action<int>? beforeMaterialize)
+    {
+        ArgumentNullException.ThrowIfNull(typeContext);
+        var methodParameters = ReadParameters(
+            reader,
+            methodDef.GetGenericParameters(),
+            beforeMaterialize);
+        return new GenericContext(
+            typeContext.TypeParameters,
+            methodParameters.Names,
+            typeContext._typeValueTypeConstraints,
+            methodParameters.ValueTypeConstraints);
+    }
+
     static (List<string> Names, List<bool> ValueTypeConstraints) ReadParameters(
         MetadataReader reader,
-        GenericParameterHandleCollection handles)
+        GenericParameterHandleCollection handles,
+        Action<int>? beforeMaterialize)
     {
         if (handles.Count > MetadataSafetyPolicy.MaxSignatureTypeNodes)
         {
@@ -90,12 +132,13 @@ public class GenericContext
             int remainingNameLength =
                 MetadataSafetyPolicy.MaxStructuralSignatureChars
                 - totalNameLength;
-            if (reader.GetBlobReader(parameter.Name).Length
-                > remainingNameLength)
+            int encodedNameLength = reader.GetBlobReader(parameter.Name).Length;
+            if (encodedNameLength > remainingNameLength)
             {
                 throw new BadImageFormatException(
                     "The generic-parameter names exceed the metadata safety limit.");
             }
+            beforeMaterialize?.Invoke(encodedNameLength);
             string name = reader.GetString(parameter.Name);
             if (name.Length > remainingNameLength)
             {

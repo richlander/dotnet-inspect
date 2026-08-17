@@ -112,6 +112,15 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void VocabularyCommand_AcceptsSectionSelection()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["vocabulary", "-S", "Accessibility", "--json"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void BodyShapeCommand_RejectsUnknownOrCaseVariantKind()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(

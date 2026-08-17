@@ -104,6 +104,39 @@ public class TypeConfirmationTests
         Assert.NotEqual(a, b);
     }
 
+    [Theory]
+    [InlineData(
+        "System.Func<System.Int32>",
+        "System.Func`1[System.Int32]",
+        true)]
+    [InlineData(
+        "System.Func<System.Int32>",
+        "System.Func`1[System.String]",
+        false)]
+    [InlineData(
+        "display class (N.C+<>c__DisplayClass1_0)",
+        "N.C+<>c__DisplayClass1_0",
+        true)]
+    [InlineData(
+        "state machine (N.C+<M>d__1)",
+        "N.C+<M>d__1",
+        true)]
+    public void AllocationTypeMatch_PreservesExactTypeIdentity(
+        string staticType,
+        string runtimeType,
+        bool expected)
+    {
+        var candidate = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            staticType,
+            detail: "delegate allocation");
+
+        Assert.Equal(
+            expected,
+            candidate.MatchesAllocatedType(runtimeType));
+    }
+
     [Fact]
     public void ApplyTypeConfirmation_MarksUnobservedCandidate_WhenPredictedTypeIsRealizedHot()
     {
@@ -119,6 +152,30 @@ public class TypeConfirmationTests
         Assert.Equal(700_000_000, candidate.TypeConfirmedBytes);
         Assert.False(candidate.TypeConfirmedAmbiguous);
         Assert.Equal("type-hot", candidate.Status);
+    }
+
+    [Theory]
+    [InlineData("state machine (N.C+<M>d__1)", "N.C+<M>d__1")]
+    [InlineData(
+        "display class (N.C+<>c__DisplayClass1_0)",
+        "N.C+<>c__DisplayClass1_0")]
+    public void ApplyTypeConfirmation_UnwrapsProducerType(
+        string predictedType,
+        string runtimeType)
+    {
+        var candidate = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            predictedType);
+        var result = new CorrelationResult();
+        result.Candidates.Add(candidate);
+        result.RecordTypeVolume(
+            runtimeType,
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.True(candidate.TypeConfirmed);
     }
 
     [Fact]
@@ -314,6 +371,30 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void ApplyTypeConfirmation_WrappedObservedTypeExplainsRuntimeVolume()
+    {
+        var observed = CandidateWithType(
+            1,
+            "Fixture.Hot.M()",
+            "boxed System.Int32");
+        observed.AllocationHits = 1;
+        observed.AllocationBytes = 900_000_000;
+        var cold = CandidateWithType(
+            2,
+            "Fixture.Cold.M()",
+            "System.Int32");
+        var result = new CorrelationResult();
+        result.Candidates.Add(observed);
+        result.Candidates.Add(cold);
+        result.RecordTypeVolume("System.Int32", 900_000_000);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.False(cold.TypeConfirmed);
+        Assert.Equal("cold-for-this-workload", cold.Status);
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_DoesNotConfirm_BelowVolumeFloor()
     {
         var candidate = CandidateWithType(1, "Fixture.A.M()", "System.Func<string, System.Lazy<int>>");
@@ -339,7 +420,11 @@ public class TypeConfirmationTests
         Assert.All(result.Candidates, c => Assert.False(c.TypeConfirmed));
     }
 
-    static AllocationCandidate CandidateWithType(int id, string method, string predictedType)
+    static AllocationCandidate CandidateWithType(
+        int id,
+        string method,
+        string predictedType,
+        string? detail = null)
     {
         string methodKey = method[..method.IndexOf('(')];
         int lastDot = methodKey.LastIndexOf('.');
@@ -357,7 +442,7 @@ public class TypeConfirmationTests
             stackKey,
             "Delegate",
             predictedType,
-            null,
+            detail,
             false,
             "Always",
             "Escapes",

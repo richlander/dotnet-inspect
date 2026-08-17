@@ -163,6 +163,7 @@ public class PdbContext : IDisposable
 
     private MetadataReaderProvider? _pdbProvider;
     private MetadataReader? _pdbReader;
+    private Exception? _deferredDisposalFailure;
     private bool? _isReferenceAssembly;
     private readonly List<IDisposable> _disposables = [];
     private MethodBodySource? _methodBodies;
@@ -405,28 +406,22 @@ public class PdbContext : IDisposable
         DateTime? lastWriteTimeUtc,
         bool loadLocalPdb = true)
     {
-        PEReader peReader;
+        PEReader? peReader = null;
+        PdbContext? context = null;
         try
         {
-            peReader = new PEReader(stream, streamOptions);
-        }
-        catch
-        {
-            stream.Dispose();
-            throw;
-        }
-
-        var context = new PdbContext(
-            stream,
-            peReader,
-            assemblyPath,
-            assemblyDisplayName,
-            log,
-            (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
-            lastWriteTimeUtc);
-
-        try
-        {
+            // PdbContext is the sole stream owner.
+            peReader = new PEReader(
+                stream,
+                streamOptions | PEStreamOptions.LeaveOpen);
+            context = new PdbContext(
+                stream,
+                peReader,
+                assemblyPath,
+                assemblyDisplayName,
+                log,
+                (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
+                lastWriteTimeUtc);
             if (!peReader.HasMetadata)
                 return context;
 
@@ -436,9 +431,21 @@ public class PdbContext : IDisposable
 
             return context;
         }
-        catch
+        catch (Exception ex)
         {
-            context.Dispose();
+            if (context is not null)
+            {
+                context.Dispose();
+            }
+            else
+            {
+                OwnedResourceCleanup.DisposeAfterFailure(
+                    peReader,
+                    ex);
+                OwnedResourceCleanup.DisposeAfterFailure(
+                    stream,
+                    ex);
+            }
             throw;
         }
     }
@@ -514,6 +521,7 @@ public class PdbContext : IDisposable
 
         MetadataReaderProvider? provider = null;
         bool retained = false;
+        bool pdbStreamReleaseAttempted = false;
         Exception? primaryFailure = null;
         try
         {
@@ -544,8 +552,18 @@ public class PdbContext : IDisposable
 
                 provider = MetadataReaderProvider.FromPortablePdbStream(
                     pdbStream,
-                    MetadataStreamOptions.PrefetchMetadata);
+                    MetadataStreamOptions.PrefetchMetadata
+                        | MetadataStreamOptions.LeaveOpen);
                 var reader = provider.GetMetadataReader();
+                pdbStreamReleaseAttempted = true;
+                try
+                {
+                    pdbStream.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    _deferredDisposalFailure ??= ex;
+                }
                 if (!PdbMatchesAssembly(reader))
                 {
                     string suppliedName = portablePdbPath is null
@@ -556,7 +574,6 @@ public class PdbContext : IDisposable
                     return;
                 }
 
-                _disposables.Add(pdbStream);
                 _disposables.Add(provider);
                 _pdbProvider = provider;
                 _pdbReader = reader;
@@ -593,24 +610,21 @@ public class PdbContext : IDisposable
                 if (primaryFailure is null)
                 {
                     provider?.Dispose();
-                    pdbStream.Dispose();
+                    if (!pdbStreamReleaseAttempted)
+                        pdbStream.Dispose();
                 }
                 else
                 {
-                    DisposeSuppressingFailure(provider);
-                    DisposeSuppressingFailure(pdbStream);
+                    OwnedResourceCleanup.DisposeAfterFailure(
+                        provider,
+                        primaryFailure);
+                    if (!pdbStreamReleaseAttempted)
+                    {
+                        OwnedResourceCleanup.DisposeAfterFailure(
+                            pdbStream,
+                            primaryFailure);
+                    }
                 }
-            }
-        }
-
-        static void DisposeSuppressingFailure(IDisposable? disposable)
-        {
-            try
-            {
-                disposable?.Dispose();
-            }
-            catch
-            {
             }
         }
     }
@@ -1574,7 +1588,8 @@ public class PdbContext : IDisposable
         if (_disposed)
             return null;
         _disposed = true;
-        Exception? failure = null;
+        Exception? failure = _deferredDisposalFailure;
+        _deferredDisposalFailure = null;
         foreach (IDisposable disposable in _disposables)
             DisposeOwned(disposable);
         _disposables.Clear();
