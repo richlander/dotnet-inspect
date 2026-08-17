@@ -6,6 +6,8 @@ namespace ILInspector.DecompilerHarness;
 
 internal static class StructuralReview
 {
+    const int MaximumCorrespondenceGapExamples = 5;
+
     public static int Run(string path, string? afterPath, bool json)
     {
         try
@@ -48,6 +50,7 @@ internal static class StructuralReview
             comparison,
             CSharpStructuralSide.After);
         var rows = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+        var correspondenceGaps = GetCorrespondenceGaps(comparison.Correspondence);
 
         using var output = new StringWriter { NewLine = "\n" };
         output.WriteLine("# Structural review");
@@ -55,6 +58,13 @@ internal static class StructuralReview
         output.Write("Target: ");
         output.WriteLine(InlineCode(comparison.Subject));
         output.WriteLine();
+        if (correspondenceGaps.Length > 0)
+        {
+            output.WriteLine(
+                $"Structural review status: **Partial** - {correspondenceGaps.Length} unsupported or ambiguous " +
+                "nodes were excluded. Matched rows do not establish changes represented only by the gaps below.");
+            output.WriteLine();
+        }
         output.WriteLine("## Before");
         output.WriteLine();
         output.WriteLine(FencedCSharp(beforeBody));
@@ -80,8 +90,13 @@ internal static class StructuralReview
         }
         else
         {
-            output.WriteLine("| Change | Structure | Region | Before spans | After spans | Fidelity |");
-            output.WriteLine("| --- | --- | --- | --- | --- | --- |");
+            bool includeFidelity = rows.Any(static row => row.Fidelity.Length > 0);
+            output.WriteLine(includeFidelity
+                ? "| Change | Structure | Region | Fidelity |"
+                : "| Change | Structure | Region |");
+            output.WriteLine(includeFidelity
+                ? "| --- | --- | --- | --- |"
+                : "| --- | --- | --- |");
             foreach (var row in rows)
             {
                 output.Write("| ");
@@ -90,60 +105,69 @@ internal static class StructuralReview
                 output.Write(TableCell(row.Structure));
                 output.Write(" | ");
                 output.Write(TableCell(row.Region));
-                output.Write(" | ");
-                output.Write(TableCell(row.BeforeSpans));
-                output.Write(" | ");
-                output.Write(TableCell(row.AfterSpans));
-                output.Write(" | ");
-                output.Write(TableCell(row.Fidelity));
+                if (includeFidelity)
+                {
+                    output.Write(" | ");
+                    output.Write(TableCell(row.Fidelity));
+                }
                 output.WriteLine(" |");
             }
         }
 
-        WriteCorrespondenceGaps(output, comparison.Correspondence);
+        WriteCorrespondenceGaps(output, correspondenceGaps);
         return output.ToString();
+    }
+
+    static (CSharpStructuralSide Side, CSharpUnmatchedNode Node)[] GetCorrespondenceGaps(
+        CSharpNodeCorrespondenceResult? correspondence)
+    {
+        if (correspondence is null)
+            return [];
+
+        return
+        [
+            .. correspondence.UnmatchedBefore
+            .Where(static node => node.Reason != CSharpUnmatchedNodeReason.NoCounterpart)
+            .Select(static node => (CSharpStructuralSide.Before, Node: node))
+            .Concat(correspondence.UnmatchedAfter
+                .Where(static node => node.Reason != CSharpUnmatchedNodeReason.NoCounterpart)
+                .Select(static node => (CSharpStructuralSide.After, Node: node)))
+        ];
     }
 
     static void WriteCorrespondenceGaps(
         StringWriter output,
-        CSharpNodeCorrespondenceResult? correspondence)
+        (CSharpStructuralSide Side, CSharpUnmatchedNode Node)[] gaps)
     {
-        if (correspondence is null)
-            return;
-
-        var gaps = correspondence.UnmatchedBefore
-            .Where(static node => node.Reason != CSharpUnmatchedNodeReason.NoCounterpart)
-            .Select(static node => (Side: "Before", Node: node))
-            .Concat(correspondence.UnmatchedAfter
-                .Where(static node => node.Reason != CSharpUnmatchedNodeReason.NoCounterpart)
-                .Select(static node => (Side: "After", Node: node)))
-            .ToArray();
         if (gaps.Length == 0)
             return;
 
         output.WriteLine();
         output.WriteLine("## Correspondence gaps");
         output.WriteLine();
-        output.WriteLine("| Side | Node | Reason | IL provenance |");
-        output.WriteLine("| --- | ---: | --- | --- |");
-        foreach (var gap in gaps)
+        output.WriteLine("| Side | Reason | Count | Example nodes |");
+        output.WriteLine("| --- | --- | ---: | --- |");
+        foreach (var group in gaps
+                     .GroupBy(static gap => (gap.Side, gap.Node.Reason))
+                     .OrderBy(static group => group.Key.Side)
+                     .ThenBy(static group => group.Key.Reason))
         {
+            int[] nodes = [.. group.Select(static gap => gap.Node.Node.NodeId).Order()];
+            string examples = string.Join(", ", nodes.Take(MaximumCorrespondenceGapExamples));
+            if (nodes.Length > MaximumCorrespondenceGapExamples)
+                examples += $" (+{nodes.Length - MaximumCorrespondenceGapExamples} more)";
+
             output.Write("| ");
-            output.Write(gap.Side);
+            output.Write(group.Key.Side);
             output.Write(" | ");
-            output.Write(gap.Node.Node.NodeId);
+            output.Write(group.Key.Reason);
             output.Write(" | ");
-            output.Write(gap.Node.Reason);
+            output.Write(nodes.Length);
             output.Write(" | ");
-            output.Write(TableCell(FormatEvidence(gap.Node.Evidence)));
+            output.Write(examples);
             output.WriteLine(" |");
         }
     }
-
-    static string FormatEvidence(AnnotatedSourceNodeProvenance? evidence)
-        => evidence is null
-            ? ""
-            : string.Join(", ", evidence.IlOffsets.Select(static offset => $"IL_{offset:X4}"));
 
     static string FencedCSharp(string body)
     {
