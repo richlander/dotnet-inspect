@@ -934,7 +934,7 @@ public sealed class StructuringPass : IIrPass
                         && target < stop
                         && IsRegionExitTerminator(ctx, target))
                     {
-                        if (ctx.FlowFacts.PreservedTargets.Contains(blocks[target].StartOffset))
+                        if (!RegionExitBlockPredecessorsAreConsumed(ctx, target, start))
                         {
                             ctx.Recorder?.Record("region-exit-block-externally-entered");
                             return false;
@@ -2344,7 +2344,7 @@ public sealed class StructuringPass : IIrPass
                         && target < stop
                         && IsRegionExitTerminator(ctx, target))
                     {
-                        if (ctx.FlowFacts.PreservedTargets.Contains(blocks[target].StartOffset))
+                        if (!RegionExitBlockPredecessorsAreConsumed(ctx, target, start))
                             throw new InvalidOperationException("Validated region-exit block ownership was not buildable.");
                         var breakArm = BuildRegionExitBreakArm(ctx, target, block.StartOffset);
                         result.Add(new IfStatement(condition, breakArm, null));
