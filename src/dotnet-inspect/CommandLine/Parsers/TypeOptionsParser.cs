@@ -95,7 +95,16 @@ public static class TypeOptionsParser
         if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && !hasProjectSource)
         {
             if (opts.IsDiscoveryMode(parseResult))
+            {
+                if (parseResult.GetValue(opts.Effective))
+                {
+                    return new VersionError(
+                        opts.ParseSchema(parseResult)
+                            ? "--effective cannot be combined with --schema."
+                            : "--effective discovery requires a target.");
+                }
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
+            }
             return new ShowHelp();
         }
 

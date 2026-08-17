@@ -5880,6 +5880,125 @@ public partial class CommandExecutionTests
             error);
     }
 
+    [Fact]
+    public async Task Type_NoTargetDiscovery_UsesCuratedCatalog()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "-D", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("Inspection Failures", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Type Forwarders", output, StringComparison.Ordinal);
+        Assert.Contains("\"name\":\"@Surface\"", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_NoTargetSchemaDiscovery_StaysWithinListingCatalog()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "-D", "--schema", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("Inspection Failures", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Type Forwarders", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Annotated Source Document", output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("-D", "--effective")]
+    [InlineData("-D", "--schema", "--effective")]
+    public async Task Type_NoTargetEffectiveDiscovery_IsRejected(params string[] extraArgs)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            ["type", .. extraArgs, "--tips", "q"]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            extraArgs.Contains("--schema", StringComparer.Ordinal)
+                ? "--effective cannot be combined with --schema."
+                : "--effective discovery requires a target.",
+            error);
+    }
+
+    [Fact]
+    public async Task Type_MultiSectionJsonDiscovery_AttributesRowsToSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", nameof(OutputFormatterTests), "--library", TestAssemblyPath,
+            "-D", "Methods;Properties", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.EnumerateArray().ToArray();
+        Assert.Contains(rows, row =>
+            row.GetProperty("section").GetString() == "Methods"
+            && row.GetProperty("name").GetString() == "Name");
+        Assert.Contains(rows, row =>
+            row.GetProperty("section").GetString() == "Properties"
+            && row.GetProperty("name").GetString() == "Name");
+    }
+
+    [Fact]
+    public async Task Type_MultiSectionSelection_ReportsEachEmptySection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", nameof(OutputFormatterTests), "--library", TestAssemblyPath,
+            "-S", "Events;Values", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Contains(
+            "2 sections have no data for", error, StringComparison.Ordinal);
+        Assert.Contains("Events", error, StringComparison.Ordinal);
+        Assert.Contains("Values", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_EffectiveSourceLinkDiscovery_OmitsSourceFilesWithoutPdb()
+    {
+        string dotnetRoot = Path.GetFullPath(Path.Combine(
+            System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(),
+            "..", "..", ".."));
+        string referenceAssembly = Directory.GetFiles(
+                Path.Combine(dotnetRoot, "packs", "Microsoft.NETCore.App.Ref"),
+                "System.Text.Json.dll",
+                SearchOption.AllDirectories)
+            .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
+            .First();
+
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json.JsonSerializer",
+            "--library", referenceAssembly,
+            "-D", "@SourceLink", "--effective", "--tips", "q");
+
+        Assert.True(exit == 0, $"Expected success. Output: {output} Error: {error}");
+        Assert.DoesNotContain("Source Files", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "category '@SourceLink' has no data for this query",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_JsonCodeSection_RemediationOnlySuggestsMarkdown()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", nameof(OutputFormatterTests), "--library", TestAssemblyPath,
+            "-S", "Decompiled Source", "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Use --markdown for code or document sections.", error);
+        Assert.DoesNotContain("--table", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("--tsv", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("--jsonl", error, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("--table")]
     [InlineData("--tsv")]

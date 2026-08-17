@@ -1523,6 +1523,65 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public async Task DiscoverOutput_MultiSectionMachineRows_IncludeSectionIdentity()
+    {
+        var schema = new DocumentSchema()
+            .Add("Methods", "column", "Name", "Signature")
+            .Add("Properties", "column", "Name", "Type");
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(
+                ["Methods", "Properties"], schema, json: true)));
+
+        Assert.Equal(0, exit);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.EnumerateArray().ToArray();
+        Assert.Contains(rows, row =>
+            row.GetProperty("section").GetString() == "Methods"
+            && row.GetProperty("name").GetString() == "Name");
+        Assert.Contains(rows, row =>
+            row.GetProperty("section").GetString() == "Properties"
+            && row.GetProperty("name").GetString() == "Name");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DiscoverOutput_MultiSectionRowFormats_IncludeSectionIdentity(
+        bool tsv)
+    {
+        var schema = new DocumentSchema()
+            .Add("Methods", "column", "Name", "Signature")
+            .Add("Properties", "column", "Name", "Type");
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(
+                ["Methods", "Properties"],
+                schema,
+                tsv: tsv,
+                jsonl: !tsv)));
+
+        Assert.Equal(0, exit);
+        if (tsv)
+        {
+            Assert.StartsWith("section\tname\tkind", output);
+            Assert.Contains("Methods\tName\tcolumn", output);
+            Assert.Contains("Properties\tName\tcolumn", output);
+        }
+        else
+        {
+            var lines = output.ReplaceLineEndings("\n")
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Contains(lines, line =>
+                line.Contains("\"section\":\"Methods\"", StringComparison.Ordinal)
+                && line.Contains("\"name\":\"Name\"", StringComparison.Ordinal));
+            Assert.Contains(lines, line =>
+                line.Contains("\"section\":\"Properties\"", StringComparison.Ordinal)
+                && line.Contains("\"name\":\"Name\"", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
     public void CountMarkdownTableRows_CountsDataRowsOnly()
     {
         const string markdown = """

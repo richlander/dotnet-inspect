@@ -931,7 +931,7 @@ public class ApiCommand
         return merged;
     }
 
-    private static DocumentSchema RestrictSchemaToSections(DocumentSchema schema, IReadOnlyCollection<string> sectionNames)
+    internal static DocumentSchema RestrictSchemaToSections(DocumentSchema schema, IReadOnlyCollection<string> sectionNames)
     {
         var filtered = new DocumentSchema();
         foreach (var name in sectionNames)
@@ -1466,10 +1466,47 @@ public class ApiCommand
         if (unsupported.Length == 0)
             return true;
 
+        var schema = GetTypeDocumentSchema(new TypeOptions());
+        bool includesDocumentSection = unsupported.Any(
+            section => schema.GetSection(section) is { Items.Length: 0 });
         CommandError.Write(
             $"--json cannot represent the selected type section(s): {string.Join(", ", unsupported)}.",
-            "Use Markdown, --table, --tsv, or --jsonl so section-produced rows are preserved.");
+            includesDocumentSection
+                ? "Use --markdown for code or document sections."
+                : "Use Markdown, --table, --tsv, or --jsonl so section-produced rows are preserved.");
         return false;
+    }
+
+    internal static void WarnEmptySelectedSections(
+        ApiType type,
+        ApiOptions options,
+        SectionPipeline<ApiType> pipeline)
+    {
+        if (options.IncludeSections is not { Count: > 1 })
+            return;
+        if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
+            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+            return;
+
+        var filtered = BuildFilteredTypeForSections(type, options);
+        var (empty, _) = pipeline.GetEmptySections(
+            filtered, options.Verbosity, options.IncludeSections);
+        if (empty.Count == 0)
+            return;
+
+        bool filtersActive = options.MemberFilter.Count > 0
+            || options.KindFilter.Count > 0
+            || options.UnsafeOnly
+            || options.Limit.HasValue;
+        var suffix = filtersActive ? " after filters" : "";
+
+        if (empty.Count == 1)
+            CommandError.WriteNote(
+                $"section '{empty[0]}' has no data for {type.FullName}{suffix}.");
+        else
+            CommandError.WriteNote(
+                $"{empty.Count} sections have no data for {type.FullName}{suffix}: "
+                + $"{string.Join(", ", empty)}.");
     }
 
     internal static async Task<int> WriteTypeOutputAsync(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
@@ -2315,6 +2352,14 @@ public class ApiCommand
             memberPipeline.AllSectionNames);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
         var effective = memberPipeline.GetDiscoverableSections(filteredType, options.IncludeSections);
+        if (options is TypeOptions
+            && string.IsNullOrWhiteSpace(filteredType.SourceUrl)
+            && !filteredType.AdditionalSourceFiles.Any(
+                file => !string.IsNullOrWhiteSpace(file.SourceUrl)))
+        {
+            effective.RemoveAll(section => section.Equals(
+                SectionNames.SourceFiles, StringComparison.OrdinalIgnoreCase));
+        }
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
         var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };

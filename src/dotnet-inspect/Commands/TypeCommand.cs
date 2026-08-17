@@ -274,6 +274,20 @@ public static class TypeCommand
 
                     if (effectiveOptions.EffectiveDiscovery)
                     {
+                        if (effectiveOptions.DllPath is { } discoveryDllPath
+                            && ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
+                                .Contains(SectionNames.SourceFiles))
+                        {
+                            await SourceEnricher.EnrichTypeWithSourceInfoAsync(
+                                apiType,
+                                apiType.FullName,
+                                discoveryDllPath,
+                                effectiveOptions,
+                                logger,
+                                context.HttpClient,
+                                fetchSourceContent: false);
+                        }
+
                         return ApiCommand.ExecuteEffectiveDiscovery(
                             apiType, memberPipeline, effectiveOptions,
                             new ApiCommand.TypeAcquisitionContext(
@@ -329,6 +343,13 @@ public static class TypeCommand
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
                         if (writeExitCode != 0)
                             return writeExitCode;
+                    }
+
+                    if (!effectiveOptions.Tabular
+                        && effectiveOptions is not TypeOptions { ShapeOutput: true })
+                    {
+                        ApiCommand.WarnEmptySelectedSections(
+                            apiType, effectiveOptions, memberPipeline);
                     }
 
                     if (!effectiveOptions.FormatExplicitlySet && !effectiveOptions.IsRawOutput)

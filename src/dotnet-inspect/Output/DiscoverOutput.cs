@@ -43,6 +43,9 @@ public static class DiscoverOutput
         }
 
         bool machineReadable = json || tsv || jsonl;
+        bool scopedMachineRows = machineReadable
+            && discover is { Length: > 0 }
+            && ResolvedSectionCount(discover, schema, sectionCategories) > 1;
 
         // Auto-promote to tree when discovering items from multiple sections
         if (!tree
@@ -62,6 +65,32 @@ public static class DiscoverOutput
 
         if (tree)
             return WriteTree(discover, schema, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
+
+        if (scopedMachineRows)
+        {
+            var scopedRows = GetScopedDiscoveryRows(
+                discover!, schema, sectionCostAnnotations, sectionCategories);
+            if (scopedRows == null)
+                return 1;
+
+            if (json)
+            {
+                Console.WriteLine(JsonSerializer.Serialize(
+                    scopedRows, DiscoveryJsonContext.Default.ListScopedDiscoveryRow));
+            }
+            else
+            {
+                var scopedContext = new DiscoveryContext();
+                var scopedView = new ScopedDiscoveryListView { Items = scopedRows };
+                OutputFormatter.WriteTable(Console.Out, showHeader: tsv,
+                    (writer, formatter) => scopedContext.Serialize(
+                        scopedView,
+                        writer,
+                        formatter,
+                        OutputFormatter.CreateTableWriterOptions(tsv, jsonl)));
+            }
+            return 0;
+        }
 
         var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
         if (rows == null)
@@ -479,6 +508,66 @@ public static class DiscoverOutput
         return rows;
     }
 
+    private static List<ScopedDiscoveryRow>? GetScopedDiscoveryRows(
+        string[] discover,
+        DocumentSchema schema,
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations,
+        IReadOnlyDictionary<string, string[]>? sectionCategories)
+    {
+        var rows = new List<ScopedDiscoveryRow>();
+        foreach (var name in discover)
+        {
+            if (SelectResolver.TryResolveCategory(
+                    name,
+                    sectionCategories,
+                    schema.SectionNames,
+                    out _,
+                    out var categorySections))
+            {
+                foreach (var sectionName in categorySections.OrderBy(
+                             section => section, StringComparer.OrdinalIgnoreCase))
+                {
+                    rows.Add(new ScopedDiscoveryRow(
+                        sectionName,
+                        sectionName,
+                        AnnotateKind("section", sectionName, sectionCostAnnotations)));
+                }
+                continue;
+            }
+
+            if (name.StartsWith("@", StringComparison.Ordinal))
+            {
+                WriteCategoryNotFound(name, sectionCategories);
+                return null;
+            }
+
+            var resolved = ResolveDiscoverSection(name, schema);
+            if (resolved == null)
+                return null;
+
+            var items = schema.Discover(resolved);
+            if (items != null)
+            {
+                rows.AddRange(items.Select(
+                    item => new ScopedDiscoveryRow(resolved, item.Name, item.Kind)));
+            }
+
+            if (string.Equals(
+                    resolved,
+                    SectionNames.PerformanceTriage,
+                    StringComparison.OrdinalIgnoreCase)
+                || PerformanceKinds.Sections.Contains(
+                    resolved,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                rows.AddRange(PerformanceTriageQueryRows().Select(
+                    row => new ScopedDiscoveryRow(resolved, row.Name, row.Kind)));
+            }
+        }
+
+        return rows;
+    }
+
     static IEnumerable<DiscoveryRow> PerformanceTriageQueryRows()
     {
         yield return new DiscoveryRow("Triage desc", "default-order");
@@ -765,6 +854,7 @@ public static class DiscoverOutput
 }
 
 [JsonSerializable(typeof(List<DiscoveryRow>))]
+[JsonSerializable(typeof(List<ScopedDiscoveryRow>))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal partial class DiscoveryJsonContext : JsonSerializerContext
 {

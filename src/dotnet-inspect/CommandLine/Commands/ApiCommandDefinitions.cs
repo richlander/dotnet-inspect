@@ -124,6 +124,9 @@ public static class ApiCommandDefinitions
                     var typeSchemaMap = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
                     var typeFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
                     var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
+                    bool typeSchema = opts.ParseSchema(parseResult);
+                    typeSchemaMap = ApiCommand.RestrictSchemaToSections(
+                        typeSchemaMap, typePipeline.AllSectionNames);
                     return DiscoverOutput.Execute(d.Discover, typeSchemaMap, tree: d.Tree,
                         json: typeFormat == OutputFormat.Json,
                         tsv: typeFormat == OutputFormat.Tsv,
@@ -131,6 +134,12 @@ public static class ApiCommandDefinitions
                         markdown: typeFormat == OutputFormat.Markdown,
                         verbosity: (int)opts.ParseVerbosity(parseResult),
                         sectionCategories: typePipeline.GetCategoryMap(),
+                        catalogHiddenSections: typeSchema
+                            ? null
+                            : typePipeline.GetCatalogHiddenSections(),
+                        listedCategoryDoors: typeSchema
+                            ? null
+                            : typePipeline.GetListedCategoryDoors(),
                         projection: ProjectionAudit.Requested(parseResult));
 
                 case TypeOptionsParser.ShowHelp:
