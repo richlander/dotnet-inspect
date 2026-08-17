@@ -15,6 +15,7 @@ public sealed record VocabularyOptions : IProjectionOptions
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
     public bool JsonOutput { get; init; }
+    public bool PlainText { get; init; }
     public bool Tabular { get; init; }
     public bool Tsv { get; init; }
     public bool Jsonl { get; init; }

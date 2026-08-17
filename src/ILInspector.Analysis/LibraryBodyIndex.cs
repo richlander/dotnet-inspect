@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 
 using ILInspector.ControlFlow;
 using ILInspector.Findings;
@@ -197,7 +198,8 @@ public sealed class LibraryBodyIndex
                             .AddFallbackMetadata(adjusted);
                     }),
                     .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities
-                        .Where(o => !(o.Shape == "async-state-machine" && o.Amortized))
+                        .Where(o => o.Shape != "sync-call-in-async"
+                            && !(o.Shape == "async-state-machine" && o.Amortized))
                         .Select(o => o.Method.MetadataToken)))
                         .Select(OptimizationOpportunityAnalysis
                             .AddFallbackMetadata),
@@ -351,14 +353,24 @@ public sealed class LibraryBodyIndex
             if (attachFinding && opportunity.ILOffset is { } offset)
             {
                 int methodToken = opportunity.Method.MetadataToken;
-                if (_allocationOccurrences.TryGetValue(methodToken, out var occurrences))
+                int evidenceMethodToken =
+                    opportunity.EvidenceMethodToken ?? methodToken;
+                if (opportunity.Shape != "sync-call-in-async"
+                    && _allocationOccurrences.TryGetValue(
+                        evidenceMethodToken,
+                        out var occurrences))
                 {
-                    if (!allocationFindings.TryGetValue(methodToken, out var findings))
+                    if (!allocationFindings.TryGetValue(
+                            evidenceMethodToken,
+                            out var findings))
                     {
                         findings = AnalysisFindings.InspectAllocations(
                             occurrences,
-                            FindingSubjectFor(opportunity.Method));
-                        allocationFindings[methodToken] = findings;
+                            FindingSubjectFor(
+                                DeclaredMethod(evidenceMethodToken)
+                                    ?? opportunity.Method));
+                        allocationFindings[evidenceMethodToken] =
+                            findings;
                     }
                     allocation = SingleFindingAtOffset(
                         findings,
@@ -369,14 +381,18 @@ public sealed class LibraryBodyIndex
                 // newobj and GetEnumerator calls can appear in both censuses. Their triage
                 // shapes describe the allocation, so the allocation Finding owns provenance.
                 if (allocation is null
-                    && GetDirectCallsByCaller().TryGetValue(methodToken, out var calls))
+                    && GetDirectCallsByCaller().TryGetValue(
+                        evidenceMethodToken,
+                        out var calls))
                 {
-                    if (!callSiteFindings.TryGetValue(methodToken, out var findings))
+                    if (!callSiteFindings.TryGetValue(
+                            evidenceMethodToken,
+                            out var findings))
                     {
                         findings = AnalysisFindings.InspectCallSites(
                             calls,
-                            FindingSubjectFor(opportunity.Method));
-                        callSiteFindings[methodToken] = findings;
+                            FindingSubjectFor(calls[0].Caller));
+                        callSiteFindings[evidenceMethodToken] = findings;
                     }
                     callSite = SingleFindingAtOffset(
                         findings,
@@ -911,6 +927,24 @@ public sealed class LibraryBodyIndex
                 bodyScope,
                 bodyTypeScope);
 
+        if (resolver is not null
+            && UsesReferenceResolution(plan))
+        {
+            LibraryBodyRootSnapshot? rootSnapshot =
+                AcquireRootSnapshot(path);
+            if (rootSnapshot is not null)
+            {
+                using var imageReader =
+                    new PEReader(rootSnapshot.Snapshot.Content);
+                return BuildFromReader(
+                    path,
+                    imageReader,
+                    plan,
+                    resolver,
+                    rootSnapshot);
+            }
+        }
+
         // Full (unscoped) builds decode every method body in parallel; prefetch the entire image
         // so concurrent GetMethodBody reads are served from an immutable in-memory block rather
         // than seeking a shared FileStream (which is not safe for concurrent reads). Scoped builds
@@ -924,7 +958,8 @@ public sealed class LibraryBodyIndex
             path,
             peReader,
             plan,
-            resolver);
+            resolver,
+            rootSnapshot: null);
     }
 
     /// <summary>
@@ -955,27 +990,167 @@ public sealed class LibraryBodyIndex
                 bodyTypeScope);
 
         using var peReader = new PEReader(image);
+        MetadataReader reader = peReader.GetMetadataReader();
+        LibraryBodyRootSnapshot? rootSnapshot =
+            resolver is not null
+                && reader.IsAssembly
+                && UsesReferenceResolution(plan)
+                ? CreateRootSnapshot(path, reader, image)
+                : null;
         return BuildFromReader(
             path,
             peReader,
             plan,
-            resolver);
+            resolver,
+            rootSnapshot);
     }
 
     static LibraryBodyIndex BuildFromReader(
         string path,
         PEReader peReader,
         LibraryBodyAnalysisPlan plan,
-        IAssemblyReferenceResolver? resolver)
+        IAssemblyReferenceResolver? resolver,
+        LibraryBodyRootSnapshot? rootSnapshot)
     {
         if (!peReader.HasMetadata)
             throw new BadImageFormatException($"No managed metadata: {path}");
         var reader = peReader.GetMetadataReader();
-        using var builder = new LibraryBodyAnalysisBuilder(path, reader, peReader, resolver);
+        IAssemblyReferenceResolver? analysisResolver =
+            plan.Includes(
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities)
+            || plan.Includes(
+                LibraryBodyAnalysisFeatures
+                    .OwnershipFlow)
+                ? resolver
+                : null;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            analysisResolver,
+            analysisResolver is null
+                ? null
+                : rootSnapshot);
         LibraryBodyAnalysisResult analysis =
             builder.Build(plan);
         return new LibraryBodyIndex(path, analysis, plan.Features);
     }
+
+    static bool UsesReferenceResolution(
+        LibraryBodyAnalysisPlan plan) =>
+        plan.Includes(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities)
+        || plan.Includes(
+            LibraryBodyAnalysisFeatures.OwnershipFlow);
+
+    static LibraryBodyRootSnapshot? AcquireRootSnapshot(string path)
+    {
+        string fullPath = System.IO.Path.GetFullPath(path);
+        AssemblyReferenceIdentity identity;
+        DateTime lastWriteTimeUtc;
+        using (FileStream stream = File.OpenRead(fullPath))
+        using (var peReader = new PEReader(
+            stream,
+            PEStreamOptions.LeaveOpen
+                | PEStreamOptions.PrefetchMetadata))
+        {
+            if (!peReader.HasMetadata)
+            {
+                throw new BadImageFormatException(
+                    $"No managed metadata: {path}");
+            }
+
+            MetadataReader reader = peReader.GetMetadataReader();
+            if (!reader.IsAssembly)
+                return null;
+            identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    reader);
+            lastWriteTimeUtc =
+                File.GetLastWriteTimeUtc(stream.SafeFileHandle);
+        }
+
+        var assembly = ResolvedAssemblyReference.Create(
+            identity,
+            fullPath,
+            () => File.OpenRead(fullPath),
+            AssemblyResolutionProvenance.Local(
+                "LibraryBodyIndex"),
+            lastWriteTimeUtc);
+        AssemblyImageSnapshotResult result =
+            AssemblyImageSnapshot.Open(
+                assembly,
+                length => length
+                    <= AssemblyImageSnapshot
+                        .DefaultMaxRetainedImageBytes,
+                _ => { });
+        return result switch
+        {
+            AssemblyImageSnapshotResult.Ready ready =>
+                new LibraryBodyRootSnapshot(
+                    assembly,
+                    ready.Snapshot),
+            AssemblyImageSnapshotResult.Rejected rejected =>
+                throw RootSnapshotFailure(path, rejected.Failure),
+            _ => throw new InvalidOperationException(
+                "Unknown root-image acquisition result."),
+        };
+    }
+
+    static LibraryBodyRootSnapshot CreateRootSnapshot(
+        string path,
+        MetadataReader reader,
+        ImmutableArray<byte> image)
+    {
+        if (image.Length
+            > AssemblyImageSnapshot.DefaultMaxRetainedImageBytes)
+        {
+            throw new InvalidOperationException(
+                "The root assembly exceeds the retained-image budget.");
+        }
+
+        byte[] bytes = ImmutableCollectionsMarshal.AsArray(image)!;
+        var assembly = ResolvedAssemblyReference.Create(
+            AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
+            System.IO.Path.GetFullPath(path),
+            () => new MemoryStream(bytes, writable: false),
+            AssemblyResolutionProvenance.Local(
+                "LibraryBodyIndex"));
+        AssemblyImageSnapshotResult result =
+            AssemblyImageSnapshot.FromRetainedContent(
+                assembly,
+                image);
+        return result switch
+        {
+            AssemblyImageSnapshotResult.Ready ready =>
+                new LibraryBodyRootSnapshot(
+                    assembly,
+                    ready.Snapshot),
+            AssemblyImageSnapshotResult.Rejected rejected =>
+                throw RootSnapshotFailure(path, rejected.Failure),
+            _ => throw new InvalidOperationException(
+                "Unknown root-image acquisition result."),
+        };
+    }
+
+    static Exception RootSnapshotFailure(
+        string path,
+        CandidateOpenFailure failure) =>
+        failure.Kind switch
+        {
+            CandidateOpenFailureKind.InvalidImage =>
+                new BadImageFormatException(
+                    $"{failure.Detail} Path: {path}"),
+            CandidateOpenFailureKind.Unreadable =>
+                new IOException(
+                    $"{failure.Detail} Path: {path}"),
+            CandidateOpenFailureKind.ResourceBudget =>
+                new InvalidOperationException(
+                    $"{failure.Detail} Path: {path}"),
+            _ => new InvalidOperationException(
+                $"Unknown root-image failure for {path}."),
+        };
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
         => [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];

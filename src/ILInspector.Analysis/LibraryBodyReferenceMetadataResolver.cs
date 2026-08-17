@@ -5,6 +5,10 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
+internal sealed record LibraryBodyRootSnapshot(
+    ResolvedAssemblyReference Assembly,
+    AssemblyImageSnapshot Snapshot);
+
 /// <summary>
 /// Owns cross-assembly type-definition resolution and acquired metadata for one
 /// library-body analysis.
@@ -23,21 +27,35 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
     internal LibraryBodyReferenceMetadataResolver(
         string path,
         MetadataReader reader,
-        IAssemblyReferenceResolver? resolver)
+        IAssemblyReferenceResolver? resolver,
+        LibraryBodyRootSnapshot? rootSnapshot)
     {
         _reader = reader;
         if (resolver is not null && reader.IsAssembly)
         {
-            string fullPath = Path.GetFullPath(path);
-            _rootAssembly = ResolvedAssemblyReference.Create(
-                AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
-                fullPath,
-                () => File.OpenRead(fullPath),
-                AssemblyResolutionProvenance.Local(
-                    "LibraryBodyIndex"));
+            if (rootSnapshot is not null)
+            {
+                _rootAssembly = rootSnapshot.Assembly;
+            }
+            else
+            {
+                string fullPath = Path.GetFullPath(path);
+                _rootAssembly = ResolvedAssemblyReference.Create(
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
+                    fullPath,
+                    () => File.OpenRead(fullPath),
+                    AssemblyResolutionProvenance.Local(
+                        "LibraryBodyIndex"));
+            }
             _bindingPolicy =
                 new AssemblyReferenceBindingPolicy(resolver);
             _resolutionCatalog = new TypeResolutionCatalog();
+            if (rootSnapshot is not null)
+            {
+                _resolutionCatalog.RegisterRetainedSnapshot(
+                    rootSnapshot.Assembly,
+                    rootSnapshot.Snapshot);
+            }
         }
     }
 
@@ -101,11 +119,30 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
                 _reader,
                 assemblyReference);
         var scope = ScopeForReference(assemblyReference);
+        return TryResolveExternalTypeDefinition(
+            identity,
+            scope,
+            valid.Name);
+    }
+
+    internal (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
+        TryResolveExternalTypeDefinition(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope,
+            MetadataTypeDefinitionName type)
+    {
+        if (_resolutionCatalog is null
+            || _bindingPolicy is null
+            || _rootAssembly is null)
+        {
+            return null;
+        }
+
         var request = TypeResolutionRequest.FromReference(
             identity,
             AssemblyBindingOrigin.FromAssembly(_rootAssembly),
             scope,
-            valid.Name);
+            type);
         using TypeResolutionContext context =
             _resolutionCatalog.CreateContext(
                 _bindingPolicy,
@@ -118,8 +155,9 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
         }
 
         ReferencedAssemblyMetadata? metadata =
-            OpenReferencedAssembly(
-                resolved.Definition.Assembly.Assembly);
+            OpenResolvedAssembly(
+                context,
+                resolved.Definition.Assembly);
         return metadata is not null
             && resolved.Definition.Address.TryResolve(
                 metadata.Reader,
@@ -185,6 +223,27 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
             _referencedAssemblyCache[assembly.Registration] = opened;
             return opened;
         }
+    }
+
+    ReferencedAssemblyMetadata? OpenResolvedAssembly(
+        TypeResolutionContext context,
+        ResolvedAssemblyCandidate candidate)
+    {
+        lock (_referencedAssemblyCache)
+        {
+            if (_referencedAssemblyCache.TryGetValue(
+                    candidate.Assembly.Registration,
+                    out ReferencedAssemblyMetadata? cached))
+            {
+                return cached;
+            }
+        }
+
+        ResolvedAssemblyReference? retained =
+            context.RetainAssemblyReference(candidate);
+        return retained is null
+            ? null
+            : OpenReferencedAssembly(retained);
     }
 
     AssemblyResolutionScope ScopeForReference(

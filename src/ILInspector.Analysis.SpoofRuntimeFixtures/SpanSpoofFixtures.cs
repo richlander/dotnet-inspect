@@ -12,4 +12,27 @@ namespace System
     {
         public static int[] CallsFakeSpanToArray(Span<int> span) => span.ToArray();
     }
+
+    public static class AsyncAttributeSpoofer
+    {
+        public static int Read() => 42;
+
+        public static Threading.Tasks.Task<int> ReadAsync()
+            => Threading.Tasks.Task.FromResult(42);
+
+        [Runtime.CompilerServices.AsyncStateMachine(
+            typeof(object))]
+        public static int Analyze() => Read();
+    }
+}
+
+namespace System.Runtime.CompilerServices
+{
+    public sealed class AsyncStateMachineAttribute
+        : Attribute
+    {
+        public AsyncStateMachineAttribute(Type stateMachineType)
+        {
+        }
+    }
 }
