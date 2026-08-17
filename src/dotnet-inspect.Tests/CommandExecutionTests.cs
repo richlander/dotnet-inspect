@@ -14414,11 +14414,11 @@ public partial class CommandExecutionTests
         var (token, callOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x6F);
+            ILOpCode.Callvirt);
         var (returnToken, returnCallOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.UnsafeAs),
-            0x28);
+            ILOpCode.Call);
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path,
             $$"""
@@ -14456,15 +14456,15 @@ public partial class CommandExecutionTests
         var (allSignalsToken, virtualCallOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x6F);
+            ILOpCode.Callvirt);
         var (_, allocationOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x8D);
+            ILOpCode.Newarr);
         var (unsafeToken, unsafeCallOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.UnsafeAs),
-            0x28);
+            ILOpCode.Call);
 
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllLinesAsync(
@@ -14507,7 +14507,7 @@ public partial class CommandExecutionTests
         var (token, callOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x6F);
+            ILOpCode.Callvirt);
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path,
             $$"""
@@ -14536,7 +14536,7 @@ public partial class CommandExecutionTests
     private static (int Token, int Offset) FindIlCoordinate(
         Type type,
         string methodName,
-        byte opcode)
+        ILOpCode opcode)
     {
         // This suite inspects its own assembly, whose MethodDef ordering changes
         // whenever tests are added.
@@ -14547,10 +14547,13 @@ public partial class CommandExecutionTests
                 | BindingFlags.Static
                 | BindingFlags.DeclaredOnly)!;
         byte[] il = method.GetMethodBody()!.GetILAsByteArray()!;
-        int offset = Array.IndexOf(il, opcode);
+        int offset = InstructionDecoder.Decode(il)
+            .FirstOrDefault(instruction => instruction.OpCode == opcode)
+            ?.Offset
+            ?? -1;
         Assert.True(
             offset >= 0,
-            $"opcode 0x{opcode:X2} not found in {methodName}");
+            $"opcode {opcode} not found in {methodName}");
         return (method.MetadataToken, offset);
     }
 

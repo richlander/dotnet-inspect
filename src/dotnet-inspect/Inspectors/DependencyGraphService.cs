@@ -311,6 +311,14 @@ internal static class DependencyGraphService
             {
                 PackageCoordinateResolution.Invalid invalid =>
                     invalid.Message,
+                PackageCoordinateResolution.Unavailable
+                    when FeedFailureTelemetry.Current
+                        is { HasFailures: true } failures =>
+                    (failures.DescribeFailure(packageName)
+                        ?? InertString.Format(
+                            TextPolicy.Field,
+                            $"Package '{packageName}' could not be fully resolved from every authorized source."))
+                        .ToString(),
                 PackageCoordinateResolution.Unavailable unavailable =>
                     unavailable.Message,
                 _ => $"Package '{packageRef}' could not be resolved.",
@@ -337,6 +345,7 @@ internal static class DependencyGraphService
                     httpClient,
                     packageName,
                     coordinate.Version,
+                    coordinate.WasFloating,
                     reportingSources).ConfigureAwait(false));
         }
 
@@ -394,7 +403,7 @@ internal static class DependencyGraphService
                 extracted.Version
                 ?? "";
             return new PackageNuspecResolution(
-                resolvedPackageName,
+                packageName,
                 resolvedVersion,
                 nuspec?.PackageName
                     ?? resolvedPackageName,
@@ -433,13 +442,33 @@ internal static class DependencyGraphService
         HttpClient httpClient,
         string packageName,
         string version,
+        bool versionExistenceKnown,
         NuGetSourceOptions sourceOptions)
     {
-        List<string>? knownVersions =
-            await PackageExtractor.GetVersionsAsync(
+        if (FeedFailureTelemetry.Current
+            is { HasFailures: true } acquisitionFailures)
+        {
+            return (acquisitionFailures.DescribeFailure(packageName)
+                ?? InertString.Format(
+                    TextPolicy.Field,
+                    $"Package '{packageName}' could not be fully resolved from every authorized source."))
+                .ToString();
+        }
+
+        if (versionExistenceKnown)
+        {
+            return InertString.Format(
+                TextPolicy.Field,
+                $"Nuspec for package '{packageName}' version '{version}' could not be resolved.")
+                .ToString();
+        }
+
+        List<PackageVersionInfo>? knownVersions =
+            await PackageExtractor.GetVersionListingsAsync(
                 httpClient,
                 packageName,
                 includePrerelease: true,
+                includeUnlisted: true,
                 limit: null,
                 log: null,
                 sourceOptions: sourceOptions).ConfigureAwait(false);
@@ -462,9 +491,11 @@ internal static class DependencyGraphService
                 .ToString();
         }
 
-        if (!knownVersions.Contains(
-                version,
-                StringComparer.OrdinalIgnoreCase))
+        if (!knownVersions.Any(candidate =>
+                string.Equals(
+                    candidate.Version,
+                    version,
+                    StringComparison.OrdinalIgnoreCase)))
         {
             return InertString.Format(
                 TextPolicy.Field,
