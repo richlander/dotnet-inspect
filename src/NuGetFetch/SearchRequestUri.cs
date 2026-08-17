@@ -16,11 +16,12 @@ namespace NuGetFetch;
 /// <c>&amp;</c>.
 /// </para>
 /// <para>
-/// The existing query is carried through verbatim rather than re-encoded. Its
-/// exact byte sequence is what a signature was computed over, so normalizing
-/// escapes would be a correctness change disguised as tidiness. The new
-/// parameters this product contributes are escaped as it writes them, which is
-/// the half it owns.
+/// Existing parameters not owned by this product are carried through verbatim
+/// rather than re-encoded. Their exact byte sequence may be covered by a
+/// signature, so normalizing escapes would be a correctness change disguised
+/// as tidiness. A same-named existing parameter is removed before the
+/// product-owned value is appended; otherwise a server could honor the
+/// feed-supplied value instead. New parameters are escaped as they are written.
 /// </para>
 /// <para>
 /// Composition fails rather than guessing for an endpoint that is not an
@@ -59,12 +60,36 @@ internal static class SearchRequestUri
             parameters.Select(static parameter =>
                 $"{Uri.EscapeDataString(parameter.Name)}={Uri.EscapeDataString(parameter.Value)}"));
 
-        // GetLeftPart(Path) is the already-escaped scheme, authority, and path,
-        // with the query and fragment removed, so the query can be rebuilt
-        // deliberately instead of extended by accident.
-        string root = parsed.GetLeftPart(UriPartial.Path);
-        string existing =
-            parsed.Query.Length == 0 ? "" : parsed.Query[1..];
+        int fragmentDelimiter = endpoint.IndexOf('#', StringComparison.Ordinal);
+        string withoutFragment = fragmentDelimiter < 0
+            ? endpoint
+            : endpoint[..fragmentDelimiter];
+        int queryDelimiter = withoutFragment.IndexOf(
+            '?',
+            StringComparison.Ordinal);
+        string root = queryDelimiter < 0
+            ? withoutFragment
+            : withoutFragment[..queryDelimiter];
+        int authorityStart = root.IndexOf("://", StringComparison.Ordinal) + 3;
+        if (root.IndexOf('/', authorityStart) < 0)
+        {
+            root += "/";
+        }
+
+        string existing = queryDelimiter < 0
+            ? ""
+            : withoutFragment[(queryDelimiter + 1)..];
+        if (existing.Length > 0 && parameters.Count > 0)
+        {
+            var ownedNames = new HashSet<string>(
+                parameters.Select(static parameter => parameter.Name),
+                StringComparer.OrdinalIgnoreCase);
+            existing = string.Join(
+                '&',
+                existing.Split('&').Where(
+                    pair => !ownedNames.Contains(DecodeParameterName(pair))));
+        }
+
         string query = existing.Length == 0
             ? appended
             : appended.Length == 0
@@ -72,8 +97,9 @@ internal static class SearchRequestUri
                 : $"{existing}&{appended}";
 
         string composed = query.Length == 0 ? root : $"{root}?{query}";
-        if (!Uri.TryCreate(composed, UriKind.Absolute, out Uri? result)
-            || !IsHttpScheme(result))
+        if (!NuGetHttpRequest.TryCreatePreservingPathAndQuery(
+                composed,
+                out _))
         {
             return false;
         }
@@ -85,4 +111,11 @@ internal static class SearchRequestUri
     private static bool IsHttpScheme(Uri uri) =>
         uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.Ordinal)
         || uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.Ordinal);
+
+    private static string DecodeParameterName(string pair)
+    {
+        int separator = pair.IndexOf('=', StringComparison.Ordinal);
+        string name = separator < 0 ? pair : pair[..separator];
+        return Uri.UnescapeDataString(name.Replace("+", " ", StringComparison.Ordinal));
+    }
 }
