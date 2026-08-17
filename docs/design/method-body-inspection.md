@@ -307,7 +307,16 @@ gates partial-result accumulation.
 `LibraryBodyPrimaryMetadataResolver` owns primary-image method identity,
 unsafe/generated attribute judgments, token/member/type/field/calli/value-type
 and delegate facts, async-state-machine caching, and the narrow resolver
-adapters. `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
+adapters. `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped
+structural signature and generic-scope identities, canonical
+`MemberRef`/`MethodSpec` resolution caches, and their shared assembly work
+budgets. The primary resolver adapters and lifted-source-owner reference index
+consume that same resolution authority.
+`OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
+`OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
+`LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
+sharing and scope-aware identity.
+`CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
 `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
 `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
 representative identity, cached classification, and token-shape behavior.
