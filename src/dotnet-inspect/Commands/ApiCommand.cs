@@ -1156,13 +1156,8 @@ public class ApiCommand
                 .ShouldRenderSurfaceInspectionFailureTableView(
                     options))
             {
-                var failureRows =
-                    OutputFormatter.RenderProjectedTable(
-                        !options.NoHeader,
-                        options.Tsv,
-                        options.Jsonl,
-                        options.Columns,
-                        options.Fields,
+                Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions>
+                    failureSerialize =
                         (writer, formatter, writerOptions) =>
                         {
                             writerOptions.IncludeSections =
@@ -1173,10 +1168,32 @@ public class ApiCommand
                                 formatter,
                                 ApiViewContext.Default,
                                 writerOptions);
-                        });
+                        };
+                var failureRows =
+                    OutputFormatter.RenderProjectedTable(
+                        !options.NoHeader,
+                        options.Tsv,
+                        options.Jsonl,
+                        options.Columns,
+                        options.Fields,
+                        failureSerialize);
+                var failureDiagnosticOptions =
+                    OutputFormatter.CreateProjectedWriterOptions(
+                        options.Columns,
+                        options.Fields,
+                        options.Rows);
+                OutputFormatter.ConfigureTableWriterOptions(
+                    failureDiagnosticOptions,
+                    options.Tsv,
+                    options.Jsonl);
                 ProjectionDiagnostics.DiagnoseRendered(
-                    options.Fields ?? options.Columns,
-                    failureRows);
+                    options.Fields,
+                    options.Columns,
+                    failureSerialize,
+                    failureDiagnosticOptions,
+                    ApiViewContext.Default
+                        .GetSchemaInfo<CliApiSurface>()!
+                        .ToDocumentSchema());
                 if (!TryReportEmptyProjection(
                         failureRows,
                         options))
