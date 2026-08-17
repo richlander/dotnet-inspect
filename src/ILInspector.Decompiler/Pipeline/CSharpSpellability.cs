@@ -21,6 +21,9 @@ internal static class CSharpSpellability
     public static bool HasUnrepresentableMetadataName(IrNode node)
         => InspectUnrepresentableMetadataName(node) is not null;
 
+    public static bool CanSpellType(TypeRef type)
+        => TypeIssue(type) is null;
+
     internal static NameIssue? InspectUnrepresentableMetadataName(IrNode node)
     {
         foreach (var type in RenderedTypes(node))

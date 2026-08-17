@@ -295,6 +295,33 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void ByRefLambdaWithAnonymousSibling_DeclinesAtExplicitParameterBoundary()
+    {
+        var host = RunIsolatedCompilerLambdaRaise(
+            nameof(VoidLambdaRaisingSamples.ByRefLambdaWithAnonymousSibling),
+            out var candidate);
+
+        Assert.Equal(TypeRefKind.ByRef, candidate.ParameterTypes[0].Kind);
+        Assert.False(CSharpSpellability.CanSpellType(candidate.ParameterTypes[1]));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+        Assert.Single(host.Descendants.OfType<DelegateCreation>());
+    }
+
+    [Fact]
+    public void ByRefLambdaWithSpellableSibling_RaisesAtExplicitParameterBoundary()
+    {
+        var host = RunIsolatedCompilerLambdaRaise(
+            nameof(VoidLambdaRaisingSamples.ByRefLambdaWithSpellableSibling),
+            out var candidate);
+
+        Assert.Equal(TypeRefKind.ByRef, candidate.ParameterTypes[0].Kind);
+        Assert.True(CSharpSpellability.CanSpellType(candidate.ParameterTypes[1]));
+        var lambda = Assert.Single(host.Descendants.OfType<Lambda>());
+        Assert.Equal([ArgumentRefKind.Ref, ArgumentRefKind.Value], lambda.ParameterRefKinds);
+        Assert.Empty(host.Descendants.OfType<DelegateCreation>());
+    }
+
+    [Fact]
     public void RefReadonlyLambda_StaysLoweredUntilDeclarationKindIsRepresentable()
     {
         using var source = MetadataSource.Open(typeof(VoidLambdaRaisingSamples).Assembly.Location);
@@ -392,6 +419,58 @@ public class LambdaRaisingPassTests
             .Select(diagnostic => $"{diagnostic.Id}: {diagnostic.GetMessage()}")
             .ToArray();
         Assert.Empty(errors);
+    }
+
+    static IrFunction RunIsolatedCompilerLambdaRaise(
+        string methodName,
+        out MethodRef candidate)
+    {
+        using var source = MetadataSource.Open(typeof(VoidLambdaRaisingSamples).Assembly.Location);
+        var fixture = IrImporter.Import(
+            source,
+            typeof(VoidLambdaRaisingSamples).FullName!,
+            methodName);
+        Assert.NotNull(fixture);
+        var result = CSharpPrinter.PrintRaised(
+            fixture!,
+            method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        candidate = Assert.Single(fixture!.Descendants.OfType<LoadFunctionPointer>()).Method;
+        var delegateType = TypeRef.GenericInstance(
+            TypeRef.Definition(
+                typeof(VoidLambdaRaisingSamples).Assembly.GetName().Name!,
+                typeof(VoidLambdaRaisingSamples).Namespace ?? string.Empty,
+                $"{nameof(VoidLambdaRaisingSamples)}+{nameof(VoidLambdaRaisingSamples.RefSiblingCallback<int>)}`1"),
+            [candidate.ParameterTypes[1]]);
+
+        var singleton = new LoadField(
+            new FieldRef(candidate.DeclaringType, "<>9", candidate.DeclaringType),
+            instance: null);
+        var block = new Block();
+        block.Add(new Return(new DelegateCreation(
+            delegateType,
+            candidate,
+            isVirtual: false,
+            singleton)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var host = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            new MethodSignature(
+                delegateType,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        new LambdaRaisingPass().Run(
+            host,
+            new PassContext(
+                new Stepper(enabled: false),
+                importMethodBody: method => IrImporter.Import(source, method)));
+        return host;
     }
 
     [Fact]
@@ -741,6 +820,7 @@ public static class VoidLambdaRaisingSamples
     public delegate void VoidCallback();
     public delegate void RefCallback(ref int value);
     public delegate void RefReadonlyCallback(ref readonly int value);
+    public delegate void RefSiblingCallback<T>(ref int value, T sibling);
 
     // The captured parameter is also consumed by the outer body, keeping the
     // display class in a local like NLOptNet.AddLessOrEqualZeroConstraints.
@@ -787,8 +867,21 @@ public static class VoidLambdaRaisingSamples
 
     public static RefCallback ByRefVoidLambda() => (ref int value) => System.Console.WriteLine(value);
 
+    public static object ByRefLambdaWithAnonymousSibling()
+        => CreateRefSiblingCallback(
+            new { Value = 1 },
+            (ref value, sibling) => System.Console.WriteLine(value + sibling.Value));
+
+    public static RefSiblingCallback<int> ByRefLambdaWithSpellableSibling()
+        => (ref int value, int sibling) => System.Console.WriteLine(value + sibling);
+
     public static RefReadonlyCallback RefReadonlyVoidLambda()
         => (ref readonly int value) => System.Console.WriteLine(value);
+
+    static RefSiblingCallback<T> CreateRefSiblingCallback<T>(
+        T sibling,
+        RefSiblingCallback<T> callback)
+        => callback;
 
     static int Value() => 1;
 

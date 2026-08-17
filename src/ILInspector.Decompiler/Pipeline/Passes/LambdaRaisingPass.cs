@@ -366,7 +366,9 @@ public sealed class LambdaRaisingPass : IIrPass
         if (hasByRefParameter
             && (creation.Method.HasRefReadOnlyParameters
                 || creation.Method.ParameterRefKindsFacts != ParameterRefKindFacts.Known
-                || creation.Method.ParameterRefKinds.Length != body.Signature.Parameters.Length))
+                || creation.Method.ParameterRefKinds.Length != body.Signature.Parameters.Length
+                || body.Signature.Parameters.Any(
+                    parameter => !CSharpSpellability.CanSpellType(parameter.Type))))
         {
             return null;
         }
