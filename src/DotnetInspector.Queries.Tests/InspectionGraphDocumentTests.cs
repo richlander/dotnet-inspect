@@ -150,6 +150,10 @@ public sealed class InspectionGraphDocumentTests
         Assert.Equal(focus, CallGraphMember(seed.Subject));
         Assert.Equal(InspectionGraphTarget.Node(0), seed.Target);
         Assert.Equal(InspectionGraphSeedRole.Primary, seed.Role);
+        Assert.Equal(
+            InspectionGraphMode.SingleSeed,
+            document.ModeRequest.Mode);
+        Assert.Equal([seed.Subject], document.ModeRequest.Seeds);
         Assert.Contains(
             document.Limits,
             limit => ReferenceEquals(
@@ -454,6 +458,8 @@ public sealed class InspectionGraphDocumentTests
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
+                InspectionGraphModeRequest.InducedSet(
+                    InspectionGraphInducedSetRule.DocumentSubjects),
                 default(ImmutableArray<InspectionGraphNode>),
                 [],
                 [],
@@ -467,6 +473,8 @@ public sealed class InspectionGraphDocumentTests
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
+                InspectionGraphModeRequest.InducedSet(
+                    InspectionGraphInducedSetRule.DocumentSubjects),
                 [
                     new InspectionGraphNode(
                         1,
@@ -496,6 +504,8 @@ public sealed class InspectionGraphDocumentTests
         };
         var document = new InspectionGraphDocument(
             InspectionGraphDocumentScope.SessionBound,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.DocumentSubjects),
             nodes,
             [],
             [],
@@ -511,6 +521,8 @@ public sealed class InspectionGraphDocumentTests
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
+                InspectionGraphModeRequest.InducedSet(
+                    InspectionGraphInducedSetRule.DocumentSubjects),
                 document.Nodes,
                 [],
                 [],
@@ -521,6 +533,71 @@ public sealed class InspectionGraphDocumentTests
                         document.Nodes[0].Subject,
                         default,
                         InspectionGraphSeedRole.Primary),
+                ],
+                [],
+                []));
+    }
+
+    [Fact]
+    public void ModeRequest_RejectsInvalidSeedCardinalityAndDuplicates()
+    {
+        InspectionGraphSubject first = Subject("First");
+
+        Assert.Throws<ArgumentException>(
+            () => InspectionGraphModeRequest.PeerSeeds([first]));
+        Assert.Throws<ArgumentException>(
+            () => InspectionGraphModeRequest.PeerSeeds([first, first]));
+    }
+
+    [Fact]
+    public void Document_RequiresModeRequestAndSeedBindingsToAgree()
+    {
+        InspectionGraphSubject first = Subject("First");
+        InspectionGraphSubject second = Subject("Second");
+        InspectionGraphNode[] nodes =
+        [
+            new(
+                0,
+                first,
+                InspectionGraphNodeRole.Ordinary,
+                []),
+            new(
+                1,
+                second,
+                InspectionGraphNodeRole.Ordinary,
+                []),
+        ];
+
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphDocument(
+                InspectionGraphDocumentScope.SessionBound,
+                InspectionGraphModeRequest.SingleSeed(first),
+                nodes,
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+                []));
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphDocument(
+                InspectionGraphDocumentScope.SessionBound,
+                InspectionGraphModeRequest.PeerSeeds([first, second]),
+                nodes,
+                [],
+                [],
+                [],
+                [],
+                [
+                    new InspectionGraphSeed(
+                        first,
+                        InspectionGraphTarget.Node(0),
+                        InspectionGraphSeedRole.Primary),
+                    new InspectionGraphSeed(
+                        second,
+                        InspectionGraphTarget.Node(1),
+                        InspectionGraphSeedRole.Peer),
                 ],
                 [],
                 []));
@@ -569,6 +646,8 @@ public sealed class InspectionGraphDocumentTests
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
+                InspectionGraphModeRequest.InducedSet(
+                    InspectionGraphInducedSetRule.DocumentSubjects),
                 [
                     new InspectionGraphNode(
                         0,
@@ -599,6 +678,8 @@ public sealed class InspectionGraphDocumentTests
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
+                InspectionGraphModeRequest.InducedSet(
+                    InspectionGraphInducedSetRule.DocumentSubjects),
                 [
                     new InspectionGraphNode(
                         0,
@@ -647,6 +728,8 @@ public sealed class InspectionGraphDocumentTests
 
         var document = new InspectionGraphDocument(
             InspectionGraphDocumentScope.Portable,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.DocumentSubjects),
             [
                 new InspectionGraphNode(
                     0,
@@ -690,6 +773,8 @@ public sealed class InspectionGraphDocumentTests
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphDocument(
                 InspectionGraphDocumentScope.Portable,
+                InspectionGraphModeRequest.InducedSet(
+                    InspectionGraphInducedSetRule.DocumentSubjects),
                 [
                     new InspectionGraphNode(
                         0,
@@ -743,6 +828,8 @@ public sealed class InspectionGraphDocumentTests
 
         var document = new InspectionGraphDocument(
             InspectionGraphDocumentScope.Portable,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.DocumentSubjects),
             [
                 new InspectionGraphNode(
                     0,
@@ -774,6 +861,8 @@ public sealed class InspectionGraphDocumentTests
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphDocument(
                 InspectionGraphDocumentScope.Portable,
+                InspectionGraphModeRequest.InducedSet(
+                    InspectionGraphInducedSetRule.DocumentSubjects),
                 [
                     new InspectionGraphNode(
                         0,
@@ -887,6 +976,8 @@ public sealed class InspectionGraphDocumentTests
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
+                InspectionGraphModeRequest.InducedSet(
+                    InspectionGraphInducedSetRule.DocumentSubjects),
                 [
                     new InspectionGraphNode(
                         0,
@@ -925,6 +1016,8 @@ public sealed class InspectionGraphDocumentTests
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
+                InspectionGraphModeRequest.InducedSet(
+                    InspectionGraphInducedSetRule.DocumentSubjects),
                 [
                     new InspectionGraphNode(
                         0,
@@ -982,6 +1075,8 @@ public sealed class InspectionGraphDocumentTests
             InspectionGraphAggregationPolicy.Sum);
         var document = new InspectionGraphDocument(
             InspectionGraphDocumentScope.SessionBound,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.DocumentSubjects),
             [
                 new InspectionGraphNode(
                     0,
@@ -1025,6 +1120,8 @@ public sealed class InspectionGraphDocumentTests
         var evidence = new TestDiagnosticEvidence(evidenceDescriptor);
         var document = new InspectionGraphDocument(
             InspectionGraphDocumentScope.SessionBound,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.DocumentSubjects),
             [],
             [],
             [],
@@ -1040,6 +1137,8 @@ public sealed class InspectionGraphDocumentTests
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
+                InspectionGraphModeRequest.InducedSet(
+                    InspectionGraphInducedSetRule.DocumentSubjects),
                 [],
                 [],
                 [],
@@ -1069,6 +1168,8 @@ public sealed class InspectionGraphDocumentTests
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
+                InspectionGraphModeRequest.InducedSet(
+                    InspectionGraphInducedSetRule.DocumentSubjects),
                 [],
                 [],
                 [],
@@ -1114,6 +1215,8 @@ public sealed class InspectionGraphDocumentTests
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
+                InspectionGraphModeRequest.InducedSet(
+                    InspectionGraphInducedSetRule.DocumentSubjects),
                 nodes,
                 [],
                 [
@@ -1144,6 +1247,8 @@ public sealed class InspectionGraphDocumentTests
             []);
         var document = new InspectionGraphDocument(
             InspectionGraphDocumentScope.SessionBound,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.DocumentSubjects),
             nodes,
             [],
             [
@@ -1170,6 +1275,8 @@ public sealed class InspectionGraphDocumentTests
         InspectionGraphOccurrence occurrence) =>
         new(
             InspectionGraphDocumentScope.SessionBound,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.DocumentSubjects),
             nodes,
             [],
             [edge],

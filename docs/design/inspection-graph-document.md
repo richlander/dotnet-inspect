@@ -1005,9 +1005,15 @@ subject lenses it advances.
 5. **Findings and analysis adoption.** Add explicit adapters for #4091, #4121,
    and #4114 after their contracts land, without changing their native producer
    semantics.
-6. **Seed and set composition.** Apply the same envelope to #4133 package/type
-   seeds, peer seeds, and induced input sets; preserve current member-seeded
-   defaults and bounds.
+6. **Seed and set composition.** `InspectionGraphModeRequest` now makes
+   single-seed, peer-seed, and induced-set intent explicit.
+   `CallGraphInspectionGraphAdapter` preserves the current member seed;
+   `InspectionGraphPackageBoundary` and `InspectionGraphIntegrationsQuery`
+   bind type, assembly, and package subjects to exact nodes or groups; peers
+   retain equal roles; and request-free workspace projection declares its
+   workspace-participant induced-set rule. Producer admission,
+   connecting-neighborhood construction, explicit-subject induced sets, and
+   presentation lowering remain.
 
 ## Required implementation gates
 
