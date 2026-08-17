@@ -235,6 +235,13 @@ public static class TypeMatcher
     }
 
     /// <summary>
+    /// Returns true when the user supplied generic syntax, including malformed
+    /// or zero-arity syntax that must not be treated as an unspecified arity.
+    /// </summary>
+    public static bool HasExplicitGenericNotation(string pattern) =>
+        pattern.Contains('`') || pattern.Contains('<');
+
+    /// <summary>
     /// Tests whether <paramref name="text"/> matches a glob pattern (* and ? wildcards).
     /// Case-insensitive.
     /// </summary>
@@ -350,7 +357,7 @@ public static class TypeMatcher
 
             // Explicit generic notation is exact identity evidence, including
             // every nested segment's arity. Never broaden it to a base-name hit.
-            if (GetPatternArity(pattern) >= 0)
+            if (HasExplicitGenericNotation(pattern))
                 return new LookupResult(null, matches.Take(maxSuggestions).ToList());
 
             var exactSimpleNameMatch = matches.FirstOrDefault(c =>

@@ -75,7 +75,6 @@ public static class ApiCommandDefinitions
             AllowMultipleArgumentsPerToken = false
         };
         kindOption.Aliases.Add("--kind");
-
         typeCommand.Arguments.Add(argsArg);
         typeCommand.Options.Add(packageOption);
         typeCommand.Options.Add(atOption);
@@ -213,6 +212,11 @@ public static class ApiCommandDefinitions
             AllowMultipleArgumentsPerToken = false
         };
         kindOption.Aliases.Add("--kind");
+        var routerDeferredTargetOption =
+            new Option<bool>("--router-deferred-type-or-member")
+            {
+                Hidden = true
+            };
 
         memberCommand.Arguments.Add(argsArg);
         memberCommand.Options.Add(packageOption);
@@ -237,6 +241,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(callerPackageOption);
         memberCommand.Options.Add(repoOption);
         memberCommand.Options.Add(kindOption);
+        memberCommand.Options.Add(routerDeferredTargetOption);
         opts.AddSectionOptionsTo(memberCommand);
         opts.AddCountOptionTo(memberCommand);
         opts.AddPrintOptionTo(memberCommand);
@@ -257,7 +262,8 @@ public static class ApiCommandDefinitions
             allOption, memberOption, ctorOption,
             compactOption, opts.NoHeaders,
             unsafeOption, indexOption, kindOption,
-            binOption, callerProjectOption, callerPackageOption, repoOption, atOption);
+            binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
+            routerDeferredTargetOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {

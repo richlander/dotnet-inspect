@@ -42,6 +42,15 @@ public class TypeMatcherTests
         => Assert.Equal(-1, TypeMatcher.GetPatternArity(pattern));
 
     [Theory]
+    [InlineData("Option<>")]
+    [InlineData("Option`0")]
+    [InlineData("Option`")]
+    [InlineData("Option`999999999999999999999")]
+    public void HasExplicitGenericNotation_includes_zero_and_malformed_arity(
+        string pattern) =>
+        Assert.True(TypeMatcher.HasExplicitGenericNotation(pattern));
+
+    [Theory]
     [InlineData("Func<Tuple<int,int>,string>", 2)]
     [InlineData("Dictionary<List<T>,Action<T1,T2>>", 2)]
     public void GetPatternArity_handles_nested_generics(string pattern, int expected)
@@ -108,6 +117,48 @@ public class TypeMatcherTests
         Assert.Null(result.Match);
         Assert.Equal(candidates, result.Suggestions);
     }
+
+    [Theory]
+    [InlineData("Option<>")]
+    [InlineData("Option`0")]
+    [InlineData("Option`")]
+    [InlineData("Option`999999999999999999999")]
+    public void Lookup_does_not_broaden_malformed_explicit_arity(string pattern)
+    {
+        var result = TypeMatcher.Lookup(
+            ["MyNamespace.Option`1"],
+            pattern);
+
+        Assert.Null(result.Match);
+    }
+
+    [Theory]
+    [InlineData("List<T,U>")]
+    [InlineData("List`2")]
+    [InlineData("List<>")]
+    [InlineData("List`0")]
+    public void FindUniquePublicType_does_not_broaden_explicit_arity(
+        string pattern) =>
+        Assert.Null(
+            AssemblyReader.FindUniquePublicType(
+                typeof(string).Assembly.Location,
+                pattern));
+
+    [Theory]
+    [InlineData(
+        "Dictionary<TKey,TValue>.KeyCollection",
+        "System.Collections.Generic.Dictionary`2.KeyCollection")]
+    [InlineData(
+        "Dictionary`2.KeyCollection",
+        "System.Collections.Generic.Dictionary`2.KeyCollection")]
+    public void FindUniquePublicType_accepts_exact_nested_generic_identity(
+        string pattern,
+        string expected) =>
+        Assert.Equal(
+            expected,
+            AssemblyReader.FindUniquePublicType(
+                typeof(string).Assembly.Location,
+                pattern));
 
     [Fact]
     public void Lookup_handles_namespace_qualified_pattern()

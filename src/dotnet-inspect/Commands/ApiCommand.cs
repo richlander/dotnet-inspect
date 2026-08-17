@@ -34,10 +34,18 @@ public class ApiCommand
     {
         MemberOptions mo => MemberCommand.ExecuteAsync(mo),
         TypeOptions to => TypeCommand.ExecuteAsync(to),
-        _ => TypeCommand.ExecuteAsync(new TypeOptions
+        _ => TypeCommand.ExecuteAsync(ToTypeOptions(options))
+    };
+
+    internal static TypeOptions ToTypeOptions(ApiOptions options) =>
+        new()
         {
-            TypeName = options.TypeName, PackagePath = options.PackagePath, AssemblyPath = options.AssemblyPath,
+            TypeName = options.TypeName, PackagePath = options.PackagePath,
+            PackageRangeAddress = options.PackageRangeAddress,
+            AssemblyPath = options.AssemblyPath,
             PlatformAssembly = options.PlatformAssembly, PlatformFramework = options.PlatformFramework,
+            ProjectPath = options.ProjectPath, ProjectAssetsPath = options.ProjectAssetsPath,
+            SourceRepositories = options.SourceRepositories,
             Tfm = options.Tfm, IncludeAll = options.IncludeAll, Verbose = options.Verbose,
             ShowDocs = options.ShowDocs, DocsExplicitlySet = options.DocsExplicitlySet,
             UseLocalDocs = options.UseLocalDocs, ShowSamples = options.ShowSamples,
@@ -46,6 +54,12 @@ public class ApiCommand
             Tabular = options.Tabular, Tsv = options.Tsv, Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
+            FormatFlagExplicitlySet = options.FormatFlagExplicitlySet,
+            MarkdownExplicitlySet = options.MarkdownExplicitlySet,
+            PlainText = options.PlainText,
+            MermaidOutput = options.MermaidOutput,
+            EmbeddedMermaid = options.EmbeddedMermaid,
+            Bare = options.Bare,
             NoHeader = options.NoHeader, Limit = options.Limit, MemberLimit = options.Limit,
             MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
@@ -54,12 +68,18 @@ public class ApiCommand
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, SelectDefault = options.SelectDefault,
             Columns = options.Columns, Fields = options.Fields,
-            Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
+            Discover = options.Discover, Tree = options.Tree,
+            Schema = options.Schema, Count = options.Count, Rows = options.Rows,
+            JsonArray = options.JsonArray,
+            PerformanceTriage = options.PerformanceTriage,
+            SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
+            RenderConfigWarnings = options.RenderConfigWarnings,
             RequestAllTaste = options.RequestAllTaste,
-            RequestReadableLocalNames = options.RequestReadableLocalNames
-        })
-    };
+            RequestReadableLocalNames = options.RequestReadableLocalNames,
+            DllPath = options.DllPath,
+            PdbPath = options.PdbPath
+        };
 
     /// <summary>
     /// True when bare <c>-S</c> was requested, carries no explicit section values to fall back on,

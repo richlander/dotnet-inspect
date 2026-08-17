@@ -438,6 +438,25 @@ public class PlatformResolverTests
     }
 
     [Fact]
+    public void LookupTypeAcrossFrameworks_SameIdentityPrefersRuntimeContract()
+    {
+        var netstandard = PlatformResolver.ResolveFramework("netstandard");
+        Assert.SkipUnless(
+            netstandard.RefPath is not null,
+            "netstandard reference pack is not available.");
+
+        var resolved = Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
+            PlatformResolver.LookupTypeAcrossFrameworks("Span<T>"));
+
+        Assert.Equal(
+            "System.Span`1",
+            resolved.Candidate.Type.ToMetadataFullName());
+        var platform = Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
+            resolved.Candidate.Assembly.Provenance);
+        Assert.Equal("runtime", platform.Framework);
+    }
+
+    [Fact]
     public void LookupTypeAcrossFrameworks_NoCatalogs_ReturnsRejected()
     {
         var tempDir = Path.Combine(

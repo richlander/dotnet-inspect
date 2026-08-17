@@ -11,9 +11,14 @@ namespace DotnetInspector.Services;
 /// </summary>
 public sealed class PlatformTypeLookupPattern
 {
-    PlatformTypeLookupPattern(string normalized) => Normalized = normalized;
+    PlatformTypeLookupPattern(string normalized, bool hasExplicitGenericNotation)
+    {
+        Normalized = normalized;
+        HasExplicitGenericNotation = hasExplicitGenericNotation;
+    }
 
     internal string Normalized { get; }
+    internal bool HasExplicitGenericNotation { get; }
 
     public static PlatformTypeLookupPatternResult Create(string? value)
     {
@@ -26,7 +31,9 @@ public sealed class PlatformTypeLookupPattern
         }
 
         return new PlatformTypeLookupPatternResult.Valid(
-            new PlatformTypeLookupPattern(FqnParser.NormalizeTypeName(value.Trim())));
+            new PlatformTypeLookupPattern(
+                FqnParser.NormalizeTypeName(value.Trim()),
+                TypeMatcher.HasExplicitGenericNotation(value)));
     }
 
     internal bool Matches(MetadataTypeDefinitionName name) =>
@@ -37,9 +44,11 @@ public sealed class PlatformTypeLookupPattern
         string candidate = NormalizeLookup(name.ToMetadataFullName());
         string pattern = NormalizeLookup(Normalized);
         return candidate.Equals(pattern, StringComparison.OrdinalIgnoreCase)
-            || TypeMatcher.GetSimpleName(candidate).Equals(
-                pattern,
-                StringComparison.OrdinalIgnoreCase);
+            || (candidate.Length > pattern.Length
+                && candidate[candidate.Length - pattern.Length - 1] == '.'
+                && candidate.EndsWith(
+                    pattern,
+                    StringComparison.OrdinalIgnoreCase));
     }
 
     internal int GenericArity => TypeMatcher.GetPatternArity(Normalized);
@@ -233,6 +242,8 @@ internal sealed class PlatformTypeCatalog
         ];
         if (!exact.IsEmpty)
             selected = exact;
+        else if (pattern.HasExplicitGenericNotation)
+            return new PlatformTypeLookupOutcome.Missing();
 
         return selected.Length == 1
             ? new PlatformTypeLookupOutcome.Resolved(selected[0])

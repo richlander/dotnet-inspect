@@ -243,10 +243,6 @@ public static class RouterCommandDefinition
             var exactTypeLookup = LookupExactGenericPlatformType(target);
             if (exactTypeLookup is PlatformTypeLookupOutcome.Resolved exactType)
                 return RouteExactGenericPlatformType(exactType, target, tail);
-            if (hasExplicitApiSource && exactTypeLookup is not null)
-                return ["type", target, .. tail];
-            if (WritePlatformTypeLookupFailure(exactTypeLookup))
-                return tokens;
 
             if (LookupExactGenericPlatformMember(target)
                 is { } exactMember)
@@ -266,9 +262,8 @@ public static class RouterCommandDefinition
                     return
                     [
                         "member",
-                        exactMember.TypeTarget,
-                        "-m",
-                        exactMember.MemberSelector,
+                        target,
+                        "--router-deferred-type-or-member",
                         .. tail
                     ];
                 }
@@ -276,6 +271,19 @@ public static class RouterCommandDefinition
                 if (WritePlatformTypeLookupFailure(exactMember.Lookup))
                     return tokens;
             }
+
+            if (hasExplicitApiSource && exactTypeLookup is not null)
+            {
+                return
+                [
+                    "member",
+                    target,
+                    "--router-deferred-type-or-member",
+                    .. tail
+                ];
+            }
+            if (WritePlatformTypeLookupFailure(exactTypeLookup))
+                return tokens;
 
             string? platformLookupFailure = null;
             var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(
@@ -513,7 +521,14 @@ public static class RouterCommandDefinition
             string[] tail) =>
             !HasExplicitApiSource(tail)
             && TryGetExplicitPlatformSource(resolved, out var assembly, out var framework)
-                ? ["type", target, "--platform", assembly, "--framework", framework, .. tail]
+                ? [
+                    "type",
+                    target,
+                    "--platform",
+                    assembly,
+                    .. FrameworkArgsUnlessSpecified(framework, tail),
+                    .. tail
+                ]
                 : ["type", target, .. tail];
 
         private static string[] RouteExactGenericPlatformMember(
@@ -532,8 +547,7 @@ public static class RouterCommandDefinition
                     member.TypeTarget,
                     "--platform",
                     assembly,
-                    "--framework",
-                    framework,
+                    .. FrameworkArgsUnlessSpecified(framework, tail),
                     "-m",
                     member.MemberSelector,
                     .. tail
@@ -551,6 +565,13 @@ public static class RouterCommandDefinition
             || ContainsOption(tokens, "--library")
             || ContainsOption(tokens, "--platform")
             || ContainsOption(tokens, "--project");
+
+        private static string[] FrameworkArgsUnlessSpecified(
+            string framework,
+            string[] tokens) =>
+            ContainsOption(tokens, "--framework")
+                ? []
+                : ["--framework", framework];
 
         private static bool TryGetExplicitPlatformSource(
             PlatformTypeLookupOutcome.Resolved resolved,

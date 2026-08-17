@@ -1065,6 +1065,27 @@ public static class PlatformResolver
                 return new PlatformTypeLookupOutcome.Resolved(
                     assemblyPrefixMatches[0]);
             }
+
+            foreach (string framework in
+                new[] { "runtime", "aspnetcore", "netstandard" })
+            {
+                var frameworkMatches = distinct
+                    .Where(candidate =>
+                        candidate.Assembly.Provenance
+                            is AssemblyResolutionProvenance.PlatformAsset platform
+                        && platform.Framework.Equals(
+                            framework,
+                            StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                if (frameworkMatches.Length == 1)
+                {
+                    return new PlatformTypeLookupOutcome.Resolved(
+                        frameworkMatches[0]);
+                }
+
+                if (frameworkMatches.Length > 1)
+                    break;
+            }
         }
 
         return distinct.Length == 1

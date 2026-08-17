@@ -162,7 +162,7 @@ internal static class TypeFindIfMissResolver
                 .Where(r => IsExactTypeIdentity(r.FullName, normalizedQuery))
                 .ToList();
             var candidateMatches = exactIdentityMatches.Count > 0 ? exactIdentityMatches
-                : TypeMatcher.GetPatternArity(normalizedQuery) >= 0 ? []
+                : TypeMatcher.HasExplicitGenericNotation(query!) ? []
                 : exactDisplayNameMatches.Count > 0 ? exactDisplayNameMatches
                 : exactSimpleNameMatches.Count > 0 ? exactSimpleNameMatches
                 : exactMatches;

@@ -163,12 +163,11 @@ internal static class ApiServices
             if (api == null)
                 continue;
 
-            var match = api.Types.FirstOrDefault(t => TypeMatcher.Matches(t.FullName, typeName));
-
-            if (match != null)
+            var lookup = ApiTypeLookupService.LookupType(api, typeName);
+            if (lookup.Found)
             {
                 logger.Log($"Found in: {Path.GetFileName(dllFile)}");
-                return (match, Path.GetFileName(dllFile), dllFile, api);
+                return (lookup.Type, Path.GetFileName(dllFile), dllFile, api);
             }
         }
 

@@ -2980,8 +2980,13 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("List<T,U>.Add")]
     [InlineData("System.Collections.Generic.List<T,U>.Add")]
     [InlineData("System.Collections.Generic.List`2.Add")]
+    [InlineData("System.Collections.Generic.List<>")]
+    [InlineData("System.Collections.Generic.List`0.Add")]
+    [InlineData("System.Collections.Generic.List`.Add")]
+    [InlineData("System.Collections.Generic.List`999999999999999999999.Add")]
     [InlineData("System.Threading.Tasks.Task<T1,T2>")]
     public async Task Router_ExplicitMissingGenericArity_DoesNotBroaden(
         string target)
@@ -2992,6 +2997,41 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("List<T,U>")]
+    [InlineData("List`2")]
+    [InlineData("Dictionary<T>")]
+    [InlineData("Span<T,U>")]
+    public async Task Type_BareExplicitMissingGenericArity_DoesNotBroaden(
+        string target)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", target, "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("Span<T>", "System.Span")]
+    [InlineData("Task<TResult>", "System.Threading.Tasks.Task")]
+    [InlineData("IEnumerable<T>", "System.Collections.Generic.IEnumerable")]
+    public async Task Router_UnqualifiedGenericSameIdentity_UsesRuntimeContract(
+        string target,
+        string expectedType)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target, "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains($"# {expectedType}", output);
+        Assert.DoesNotContain(
+            "Platform type lookup is ambiguous",
+            error,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -3028,6 +3068,91 @@ public partial class CommandExecutionTests
             "# System.Buffers.SequenceReader&lt;T&gt;",
             output);
         Assert.Contains("TryRead", output);
+    }
+
+    [Fact]
+    public async Task Router_GenericPlatformType_UserFrameworkIsNotDuplicated()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Collections.Generic.List<T>",
+            "--framework",
+            "runtime",
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("7", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_RouterDeferredTarget_UsesMetadataMemberBoundary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Immutable.ImmutableArray<T>.Builder.Capacity",
+            "--router-deferred-type-or-member",
+            "--platform",
+            "System.Collections.Immutable",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Properties", output);
+        Assert.Contains("| Capacity |", output);
+    }
+
+    [Fact]
+    public async Task Member_RouterDeferredTarget_ExactTypeKeepsTypeRendering()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--router-deferred-type-or-member",
+            "--platform",
+            "System.Collections.Immutable",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "# System.Collections.Immutable.ImmutableArray&lt;T&gt;.Builder",
+            output);
+        Assert.Contains("Kind: class", output);
+    }
+
+    [Fact]
+    public async Task Member_RouterDeferredTarget_ExactTypePreservesVerbosity()
+    {
+        string target =
+            "System.Collections.Immutable.ImmutableArray<T>.Builder";
+        var direct = await RunAppAsync(
+            "type",
+            target,
+            "--platform",
+            "System.Collections.Immutable",
+            "-v:n",
+            "--tips",
+            "q");
+        var deferred = await RunAppAsync(
+            "member",
+            target,
+            "--router-deferred-type-or-member",
+            "--platform",
+            "System.Collections.Immutable",
+            "-v:n",
+            "--tips",
+            "q");
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
     }
 
     [Theory]

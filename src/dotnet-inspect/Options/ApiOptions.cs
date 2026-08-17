@@ -123,6 +123,7 @@ public partial record ApiOptions : IProjectionOptions
     public bool Jsonl { get; init; }
     public bool TabularExplicitlySet { get; init; }
     public bool PlainText { get; init; }
+    public bool MarkdownExplicitlySet { get; init; }
 
     /// <summary>
     /// Render the selected graph as standalone Mermaid.
@@ -260,7 +261,6 @@ public record TypeOptions : ApiOptions
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }
     public bool ShapeOutput { get; init; }
-    public bool MarkdownExplicitlySet { get; init; }
 
     /// <summary>
     /// Whether the user explicitly set --shape.
@@ -284,6 +284,7 @@ public record TypeOptions : ApiOptions
 /// </summary>
 public record MemberOptions : ApiOptions
 {
+    internal bool RouterDeferredTypeOrMember { get; init; }
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }
     public string? MemberDigest { get; init; }

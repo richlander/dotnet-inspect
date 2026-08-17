@@ -36,7 +36,8 @@ public static class MemberOptionsParser
         Option<string[]> ProjectOption,
         Option<string[]> CallerPackageOption,
         Option<string[]> RepoOption,
-        Option<string?> AtOption);
+        Option<string?> AtOption,
+        Option<bool> RouterDeferredTargetOption);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -320,6 +321,8 @@ public static class MemberOptionsParser
             TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             FormatFlagExplicitlySet = opts.IsFormatFlagExplicitlySet(parseResult),
+            MarkdownExplicitlySet =
+                parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = parseResult.GetValue(opts.PlainText),
             MermaidOutput = outputFormat == OutputFormat.Mermaid,
             EmbeddedMermaid = embeddedMermaid,
@@ -357,7 +360,9 @@ public static class MemberOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
-            SourceOptions = sourceOptions
+            SourceOptions = sourceOptions,
+            RouterDeferredTypeOrMember =
+                parseResult.GetValue(args.RouterDeferredTargetOption)
         };
 
         options = options with

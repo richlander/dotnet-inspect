@@ -36,6 +36,7 @@ public static class MemberCommand
         if (error.HasValue) return error.Value;
 
         options = (MemberOptions)preamble.Options;
+        var unresolvedOptions = options;
         var memberPipeline = preamble.MemberPipeline;
 
         var (source, sourceError) = await ApiSourceResolver.ResolveAsync(options);
@@ -83,6 +84,12 @@ public static class MemberCommand
             }
 
             var apiType = lookupResult.Type!;
+            if (options.RouterDeferredTypeOrMember
+                && lookupResult.ImpliedMember is null)
+            {
+                return await TypeCommand.ExecuteAsync(
+                    ApiCommand.ToTypeOptions(unresolvedOptions));
+            }
 
             // If the type resolved by peeling a trailing Type.Member suffix (e.g.
             // "System.String.Length" -> type System.String + member Length), apply the peeled
