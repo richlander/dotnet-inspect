@@ -28,6 +28,16 @@ public class AssemblyInspectionSessionTests
     }
 
     [Fact]
+    public void AuditMetadata_RejectsUseAfterSessionDisposal()
+    {
+        var session = AssemblyInspectionSession.Open(SelfPath);
+        session.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => session.HasMetadata);
+        Assert.Throws<ObjectDisposedException>(() => session.AuditMetadata());
+    }
+
+    [Fact]
     public void Facets_ProduceOverSharedReader_WithoutReopening()
     {
         using var session = AssemblyInspectionSession.Open(SelfPath);

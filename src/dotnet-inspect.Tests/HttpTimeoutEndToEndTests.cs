@@ -15,9 +15,8 @@ namespace DotnetInspector.Tests;
 /// This is the only cover for the wiring itself. The unit tests prove that
 /// <c>HttpClientFactory</c> applies its configured default, and the option tests prove that the
 /// CLI parses and strips the flag, but neither would notice if the parsed value were dropped on the
-/// way into <c>Initialize</c>. Here the resolved value reaches <see cref="HttpClient.Timeout"/>
-/// and comes back out in the timeout message, so the assertion reads the number the caller asked
-/// for.
+/// way into <c>Initialize</c>. Here the resolved value reaches the NuGet request deadline and
+/// comes back out in the timeout message, so the assertion reads the number the caller asked for.
 /// </para>
 /// <para>
 /// The stub has to answer the service index rather than refuse the connection. A dead index
@@ -85,6 +84,21 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     }
 
     /// <summary>
+    /// A value above the default extends the request instead of being clamped back to 30 seconds.
+    /// </summary>
+    [Fact]
+    public void HttpTimeout_AboveDefaultExtendsTheSearchRequest()
+    {
+        string error = RunSearch(
+            ["--http-timeout", "31"],
+            environmentValue: null,
+            stallServiceIndex: true);
+
+        Assert.Contains(31, TimeoutSeconds(error));
+        Assert.DoesNotContain(30, TimeoutSeconds(error));
+    }
+
+    /// <summary>
     /// The flag outranks the variable, so a stale export in a shell profile cannot quietly
     /// override what the operator typed.
     /// </summary>
@@ -100,7 +114,8 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     [Theory]
     [InlineData("explicit: net_http_request_timedout, 7")]
     [InlineData("explicit: The request was canceled due to the configured HttpClient.Timeout of 7 seconds elapsing.")]
-    public void TimeoutSeconds_RecognizesBothShippedRuntimeMessageShapes(string error)
+    [InlineData("explicit: NuGet request did not complete within 00:00:07.")]
+    public void TimeoutSeconds_RecognizesOwnedAndRuntimeMessageShapes(string error)
     {
         Assert.Contains(7, TimeoutSeconds(error));
     }
@@ -116,9 +131,10 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     /// </para>
     /// <para>
     /// The clause is isolated first so the port in the stub feed's URL cannot supply a digit.
-    /// NativeAOT emits the resource key while CoreCLR spells out the property name, so either
-    /// stable marker can locate it. Every number in the clause is returned rather than one at
-    /// a fixed offset because the surrounding runtime wording is not this repository's to pin.
+    /// NuGetFetch emits the owned request-deadline message. Older paths may still expose the
+    /// NativeAOT resource key or CoreCLR property name, so all three stable markers can locate
+    /// the clause. Every number in the clause is returned rather than one at a fixed offset
+    /// because the runtime wording is not this repository's to pin.
     /// </para>
     /// </remarks>
     private static IReadOnlyList<int> TimeoutSeconds(string error)
@@ -126,6 +142,10 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         int start = error.IndexOf("timedout", StringComparison.OrdinalIgnoreCase);
         if (start < 0)
             start = error.IndexOf("HttpClient.Timeout", StringComparison.Ordinal);
+        if (start < 0)
+            start = error.IndexOf(
+                "NuGet request did not complete within",
+                StringComparison.Ordinal);
         Assert.True(start >= 0, $"Expected a timeout in the error, got: {error}");
 
         int end = error.IndexOf('\n', start);
@@ -143,7 +163,10 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         return numbers;
     }
 
-    private string RunSearch(string[] leadingArgs, string? environmentValue)
+    private string RunSearch(
+        string[] leadingArgs,
+        string? environmentValue,
+        bool stallServiceIndex = false)
     {
         string executable = Path.Combine(
             Path.GetDirectoryName(ProductAssemblyPath())!,
@@ -165,14 +188,16 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         psi.ArgumentList.Add("search");
         psi.ArgumentList.Add("dotnet-inspect-timeout-probe");
         psi.ArgumentList.Add("--source");
-        psi.ArgumentList.Add($"http://127.0.0.1:{_port}/index.json");
+        psi.ArgumentList.Add(
+            $"http://127.0.0.1:{_port}/"
+            + (stallServiceIndex ? "slow-index.json" : "index.json"));
 
         // Explicitly cleared, not merely unset: an ambient value on the developer's machine
         // would otherwise decide the result of the cases that pass none.
         psi.Environment[HttpTimeoutConfiguration.EnvironmentVariable] = environmentValue ?? "";
 
         // Same reasoning, different variable. An ambient DOTNET_INSPECT_OFFLINE=1 makes every
-        // request throw before it can reach the stub feed, so all four cases fail somewhere
+        // request throw before it can reach the stub feed, so these cases fail somewhere
         // that has nothing to do with timeouts.
         psi.Environment["DOTNET_INSPECT_OFFLINE"] = "";
 
@@ -225,10 +250,35 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
                 string request = Encoding.ASCII.GetString(buffer, 0, read);
                 string path = request.Split(' ').Skip(1).FirstOrDefault() ?? string.Empty;
 
+                if (path.StartsWith("/slow-index.json", StringComparison.Ordinal))
+                {
+                    // Send service-index headers and a partial body, then stall. The
+                    // above-default test proves discovery does not restore the old
+                    // 30-second package-helper body clamp.
+                    byte[] indexHead = Encoding.ASCII.GetBytes(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        + "Content-Length: 1024\r\nConnection: close\r\n\r\n");
+                    await stream.WriteAsync(indexHead, cancellationToken);
+                    await stream.WriteAsync(
+                        Encoding.UTF8.GetBytes("{"),
+                        cancellationToken);
+                    await stream.FlushAsync(cancellationToken);
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    return;
+                }
+
                 if (!path.StartsWith("/index.json", StringComparison.Ordinal))
                 {
-                    // The search query. Hold the connection open without answering so the
-                    // caller stops on its own configured timeout.
+                    // The search query. Send headers and a partial body, then stall so this
+                    // reaches the body phase that historically clamped values above 30 seconds.
+                    byte[] searchHead = Encoding.ASCII.GetBytes(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        + "Content-Length: 1024\r\nConnection: close\r\n\r\n");
+                    await stream.WriteAsync(searchHead, cancellationToken);
+                    await stream.WriteAsync(
+                        Encoding.UTF8.GetBytes("{"),
+                        cancellationToken);
+                    await stream.FlushAsync(cancellationToken);
                     await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
                     return;
                 }

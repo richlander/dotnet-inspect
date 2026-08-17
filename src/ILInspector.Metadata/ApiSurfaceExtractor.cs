@@ -274,7 +274,122 @@ public static class ApiSurfaceExtractor
         ApiSurfaceExtractionScope scope,
         bool typesOnly = false,
         bool includeCompilerGenerated = false)
-        => Extract(peReader, scope, typesOnly, includeCompilerGenerated, budget: null);
+        => Extract(
+            peReader,
+            scope,
+            typesOnly,
+            includeCompilerGenerated,
+            budget: null,
+            constraintResolution: null);
+
+    /// <summary>
+    /// Extracts an API surface and classifies external named generic constraints
+    /// through one frozen type-resolution generation.
+    /// </summary>
+    /// <remarks>
+    /// The first pass records requests only for generic-parameter groups that the
+    /// selected surface actually materialized. The resolved pass rereads those groups
+    /// while <paramref name="peReader"/> remains alive and stores only
+    /// <see cref="TypeParameterTypeKind"/> on the result; no generation-scoped
+    /// resolution currency escapes with the surface.
+    /// </remarks>
+    internal static ApiSurface Extract(
+        PEReader peReader,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        bool includeAll = false,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+
+        var constraintResolution =
+            new TypeParameterConstraintResolution(
+                peReader.GetMetadataReader(),
+                source,
+                catalog.MaxTypeResolutionRequests);
+        ApiSurface surface = Extract(
+            peReader,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly,
+            includeCompilerGenerated,
+            budget: null,
+            constraintResolution);
+        if (constraintResolution.Requests.Count == 0)
+        {
+            AddConstraintResolutionFailure(
+                surface,
+                constraintResolution,
+                source.Identity);
+            return surface;
+        }
+
+        using TypeResolutionContext context =
+            catalog.CreateApiSurfaceContext(
+                bindingPolicy,
+                [source],
+                constraintResolution.Requests);
+        constraintResolution.Apply(context);
+        AddConstraintResolutionFailure(
+            surface,
+            constraintResolution,
+            source.Identity);
+        return surface;
+    }
+
+    static void AddConstraintResolutionFailure(
+        ApiSurface surface,
+        TypeParameterConstraintResolution constraintResolution,
+        AssemblyReferenceIdentity subjectAssembly)
+    {
+        foreach (MetadataTypeNameFailure budgetFailure
+            in constraintResolution.Plan.RequestBudgetFailures)
+        {
+            TrackConstraintResolutionFailure(
+                surface,
+                budgetFailure,
+                subjectAssembly);
+        }
+
+        foreach (TypeParameterKindClassifier.ResolutionPlan
+            .ResolutionFailureEntry resolutionFailure
+            in constraintResolution.Plan.ResolutionFailureEntries)
+        {
+            TrackConstraintResolutionFailure(
+                surface,
+                resolutionFailure.Failure,
+                subjectAssembly,
+                resolutionFailure.DependencyAssembly);
+        }
+    }
+
+    static void TrackConstraintResolutionFailure(
+        ApiSurface surface,
+        MetadataTypeNameFailure failure,
+        AssemblyReferenceIdentity subjectAssembly,
+        AssemblyReferenceIdentity? dependencyAssembly = null)
+    {
+        var projected = new ApiSurfaceInspectionFailure(
+            ApiSurface.ConstraintResolutionOperation,
+            failure.SubjectToken ?? 0,
+            failure.Mechanism,
+            failure.Kind,
+            failure.Detail,
+            subjectAssembly,
+            dependencyAssembly);
+        var subject = new ApiSurfaceInspectionSubject(
+            SourceAssemblyPath: null,
+            projected.SubjectToken);
+        surface.AddConstraintResolutionFailure(
+            subject,
+            projected);
+    }
 
     /// <summary>
     /// Extracts one API surface at an explicit scope under hard retention bounds, abandoning the
@@ -308,7 +423,8 @@ public static class ApiSurfaceExtractor
                 scope,
                 typesOnly,
                 includeCompilerGenerated,
-                budget);
+                budget,
+                constraintResolution: null);
             return new ApiSurfaceExtractionResult.Extracted(
                 surface,
                 budget.MetadataRows,
@@ -325,7 +441,8 @@ public static class ApiSurfaceExtractor
         ApiSurfaceExtractionScope scope,
         bool typesOnly,
         bool includeCompilerGenerated,
-        ExtractionBudget? budget)
+        ExtractionBudget? budget,
+        TypeParameterConstraintResolution? constraintResolution)
     {
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
@@ -345,10 +462,14 @@ public static class ApiSurfaceExtractor
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
+            MetadataTypeDefinitionName? owningTypeDefinition = null;
             int publicMethodCount = surface.PublicMethodCount;
             int publicPropertyCount = surface.PublicPropertyCount;
             int publicEventCount = surface.PublicEventCount;
             int publicFieldCount = surface.PublicFieldCount;
+            TypeParameterConstraintResolution.Checkpoint?
+                constraintCheckpoint =
+                    constraintResolution?.CreateCheckpoint();
             try
             {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
@@ -422,6 +543,7 @@ public static class ApiSurfaceExtractor
                 observeDecodeWork);
             budget?.BeginType();
 
+            owningTypeDefinition = definitionName;
             var apiType = new ApiType
             {
                 Namespace = typeNamespace,
@@ -429,6 +551,7 @@ public static class ApiSurfaceExtractor
                 MetadataName = flattenedMetadataName,
                 DefinitionName = definitionName,
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
+                MetadataToken = MetadataTokens.GetToken(typeDefHandle),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
                 Attributes = AttributeReader.RenderAttributes(
@@ -513,8 +636,10 @@ public static class ApiSurfaceExtractor
                 typeContext,
                 typeNullableContext,
                 includeVariance: true,
+                typeDefHandle,
                 observeText,
-                observeDecodeWork);
+                observeDecodeWork,
+                constraintResolution);
 
             // Get interfaces
             var interfaces = typeDef.GetInterfaceImplementations();
@@ -605,11 +730,13 @@ public static class ApiSurfaceExtractor
                 var signature = GetMethodSignature(
                     reader,
                     typeContext,
+                    methodHandle,
                     method,
                     typeNullableContext,
                     isExtensionMethod,
                     observeText,
-                    observeDecodeWork);
+                    observeDecodeWork,
+                    constraintResolution);
                 var isOperator = IsOperatorMethodName(methodName);
                 var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
                 var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
@@ -1117,6 +1244,8 @@ public static class ApiSurfaceExtractor
             }
             catch (MetadataRowRejectedException ex)
             {
+                if (constraintCheckpoint is { } checkpoint)
+                    constraintResolution!.Rollback(checkpoint);
                 surface.PublicMethodCount = publicMethodCount;
                 surface.PublicPropertyCount = publicPropertyCount;
                 surface.PublicEventCount = publicEventCount;
@@ -1126,10 +1255,14 @@ public static class ApiSurfaceExtractor
                     budget,
                     ex.Operation,
                     typeDefHandle,
-                    ex.Failure);
+                    ex.Failure,
+                    owningType: typeDefHandle,
+                    owningTypeDefinition: owningTypeDefinition);
             }
             catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
             {
+                if (constraintCheckpoint is { } checkpoint)
+                    constraintResolution!.Rollback(checkpoint);
                 surface.PublicMethodCount = publicMethodCount;
                 surface.PublicPropertyCount = publicPropertyCount;
                 surface.PublicEventCount = publicEventCount;
@@ -1139,7 +1272,9 @@ public static class ApiSurfaceExtractor
                     budget,
                     "type row",
                     typeDefHandle,
-                    MetadataTypeNameFailure.Malformed(typeDefHandle, ex.Message));
+                    MetadataTypeNameFailure.Malformed(typeDefHandle, ex.Message),
+                    owningType: typeDefHandle,
+                    owningTypeDefinition: owningTypeDefinition);
             }
         }
 
@@ -1409,15 +1544,21 @@ public static class ApiSurfaceExtractor
         GenericContext context,
         byte nullableContext,
         bool includeVariance,
+        EntityHandle subject,
         Action<string>? beforeRetain = null,
-        Action<int>? beforeDecodeWork = null)
+        Action<int>? beforeDecodeWork = null,
+        TypeParameterConstraintResolution? constraintResolution = null)
     {
         var parameters = new List<TypeParameter>();
+        var tracked =
+            new List<(GenericParameterHandle Handle, TypeParameter Parameter)>();
 
         // Shared across the list because `where T : U` chains run through it: answering
         // each parameter from scratch would rewalk the chain's whole tail, which is
         // quadratic in the number of parameters.
-        var chain = new TypeParameterKindClassifier.ChainState();
+        var chain = new TypeParameterKindClassifier.ChainState(
+            constraintResolution?.Plan,
+            subject);
         IReadOnlyList<string> contextNames = includeVariance
             ? context.TypeParameters
             : context.MethodParameters;
@@ -1508,8 +1649,10 @@ public static class ApiSurfaceExtractor
                 hasReferenceTypeConstraint: (attrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
                 chain);
             parameters.Add(typeParam);
+            tracked.Add((paramHandle, typeParam));
         }
 
+        constraintResolution?.Track(subject, tracked);
         return parameters;
     }
 
@@ -1937,21 +2080,10 @@ public static class ApiSurfaceExtractor
                         typeRef.ResolutionScope,
                         beforeDecodeWork);
             case HandleKind.TypeDefinition:
-                var typeDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeHandle);
-                // The genuine root object is the only `System.Object` with no
-                // base type. An adversarial assembly can define its own
-                // `System.Object` that extends the real one (a non-root fake);
-                // requiring a nil base type rejects it while still accepting the
-                // real object when inspecting the assembly that defines it.
-                return typeDef.BaseType.IsNil
-                    && string.Equals(
-                        DecodeString(reader, typeDef.Namespace, beforeDecodeWork),
-                        "System",
-                        StringComparison.Ordinal)
-                    && string.Equals(
-                        DecodeString(reader, typeDef.Name, beforeDecodeWork),
-                        "Object",
-                        StringComparison.Ordinal);
+                return CoreLibraryRootAuthentication
+                    .IsUniqueTopLevelCoreLibraryRoot(
+                        reader,
+                        (TypeDefinitionHandle)typeHandle);
             default:
                 return false;
         }
@@ -2005,59 +2137,56 @@ public static class ApiSurfaceExtractor
     {
         if (resolutionScope.Kind != HandleKind.AssemblyReference)
             return false;
-        var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)resolutionScope);
-        if (!CoreLibraryPublicKeyTokens.TryGetValue(
-                DecodeString(reader, assemblyRef.Name, beforeDecodeWork),
+        try
+        {
+            var handle = (AssemblyReferenceHandle)resolutionScope;
+            var assemblyRef = reader.GetAssemblyReference(handle);
+            beforeDecodeWork?.Invoke(
+                reader.GetBlobReader(assemblyRef.Name).Length);
+            if (!assemblyRef.PublicKeyOrToken.IsNil)
+            {
+                beforeDecodeWork?.Invoke(
+                    reader.GetBlobReader(assemblyRef.PublicKeyOrToken).Length);
+            }
+
+            return ResolvesThroughCoreLibrary(
+                AssemblyReferenceIdentity.From(
+                    handle,
+                    AssemblyReferenceIdentity.RetainedProjection(
+                        reader)));
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool ResolvesThroughCoreLibrary(
+        AssemblyReferenceIdentity reference)
+    {
+        if (reference.PublicKeyToken is not { } token
+            || !CoreLibraryPublicKeyTokens.TryGetValue(
+                reference.Name,
                 out byte[][]? expectedTokens))
+        {
             return false;
-        if (!TryComputeToken(
-                reader,
-                assemblyRef,
-                beforeDecodeWork,
-                out byte[] token))
-            return false;
+        }
+
         foreach (byte[] expected in expectedTokens)
         {
-            if (token.AsSpan().SequenceEqual(expected))
+            if (string.Equals(
+                    token,
+                    Convert.ToHexString(expected),
+                    StringComparison.OrdinalIgnoreCase))
+            {
                 return true;
+            }
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Computes the 8-byte strong-name public-key token of
-    /// <paramref name="assemblyRef"/>. An assembly reference stores either the
-    /// full public key (when <see cref="AssemblyFlags.PublicKey"/> is set) or
-    /// the already-computed token; the token is the low 8 bytes of the SHA-1
-    /// hash of the public key, in reverse order. Returns false for a nil or
-    /// wrong-length token blob.
-    /// </summary>
-    private static bool TryComputeToken(
-        MetadataReader reader,
-        System.Reflection.Metadata.AssemblyReference assemblyRef,
-        Action<int>? beforeDecodeWork,
-        out byte[] token)
-    {
-        token = [];
-        if (assemblyRef.PublicKeyOrToken.IsNil)
-            return false;
-        beforeDecodeWork?.Invoke(
-            reader.GetBlobReader(assemblyRef.PublicKeyOrToken).Length);
-        byte[] blob = reader.GetBlobBytes(assemblyRef.PublicKeyOrToken);
-        if ((assemblyRef.Flags & AssemblyFlags.PublicKey) != 0)
-        {
-            byte[] hash = System.Security.Cryptography.SHA1.HashData(blob);
-            token = new byte[8];
-            for (int i = 0; i < 8; i++)
-                token[i] = hash[hash.Length - 1 - i];
-            return true;
-        }
-
-        if (blob.Length != 8)
-            return false;
-        token = blob;
-        return true;
     }
 
     private static bool IsOperatorMethodName(string methodName) =>
@@ -2505,11 +2634,13 @@ public static class ApiSurfaceExtractor
     private static (string Text, ApiSignature Model, bool IsDegraded) GetMethodSignature(
         MetadataReader reader,
         GenericContext typeContext,
+        MethodDefinitionHandle methodHandle,
         MethodDefinition method,
         byte typeNullableContext,
         bool captureExtensionReceiver = false,
         Action<string>? beforeRetainText = null,
-        Action<int>? beforeDecodeWork = null)
+        Action<int>? beforeDecodeWork = null,
+        TypeParameterConstraintResolution? constraintResolution = null)
     {
         string name = DecodeString(
             reader,
@@ -2680,8 +2811,10 @@ public static class ApiSurfaceExtractor
             context,
             nullableDefault,
             includeVariance: false,
+            methodHandle,
             beforeRetainText,
-            beforeDecodeWork);
+            beforeDecodeWork,
+            constraintResolution);
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
@@ -3355,14 +3488,24 @@ public static class ApiSurfaceExtractor
         ExtractionBudget? budget,
         string operation,
         EntityHandle subject,
-        MetadataTypeNameFailure failure)
+        MetadataTypeNameFailure failure,
+        AssemblyReferenceIdentity? subjectAssembly = null,
+        TypeDefinitionHandle owningType = default,
+        MetadataTypeDefinitionName? owningTypeDefinition = null)
     {
         var retained = new ApiSurfaceInspectionFailure(
             operation,
             failure.SubjectToken ?? MetadataTokens.GetToken(subject),
             failure.Mechanism,
             failure.Kind,
-            failure.Detail);
+            failure.Detail,
+            subjectAssembly)
+        {
+            OwningTypeToken = owningType.IsNil
+                ? null
+                : MetadataTokens.GetToken(owningType),
+            OwningTypeDefinition = owningTypeDefinition,
+        };
         budget?.RetainInspectionFailure(retained);
         surface.InspectionFailures.Add(retained);
     }
@@ -3983,6 +4126,98 @@ public static class ApiSurfaceExtractor
         FieldAttributes.FamORAssem => "protected internal",
         _ => null // Public
     };
+
+    sealed class TypeParameterConstraintResolution
+    {
+        readonly MetadataReader _reader;
+        readonly List<Group> _groups = [];
+
+        internal TypeParameterConstraintResolution(
+            MetadataReader reader,
+            ResolvedAssemblyReference source,
+            int maxTypeResolutionRequests)
+        {
+            _reader = reader;
+            Plan = new TypeParameterKindClassifier.ResolutionPlan(
+                reader,
+                source,
+                maxTypeResolutionRequests);
+        }
+
+        internal TypeParameterKindClassifier.ResolutionPlan Plan { get; }
+
+        internal IReadOnlyCollection<TypeResolutionRequest> Requests =>
+            Plan.Requests;
+
+        internal Checkpoint CreateCheckpoint() =>
+            new(_groups.Count, Plan.Checkpoint());
+
+        internal void Rollback(Checkpoint checkpoint)
+        {
+            if (checkpoint.GroupCount < 0
+                || checkpoint.GroupCount > _groups.Count)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(checkpoint));
+            }
+
+            _groups.RemoveRange(
+                checkpoint.GroupCount,
+                _groups.Count - checkpoint.GroupCount);
+            Plan.Rollback(checkpoint.RequestCheckpoint);
+        }
+
+        internal void Track(
+            EntityHandle subject,
+            List<(GenericParameterHandle Handle, TypeParameter Parameter)>
+                group)
+        {
+            if (group.Count != 0)
+                _groups.Add(new Group(subject, group));
+        }
+
+        internal void Apply(TypeResolutionContext context)
+        {
+            Plan.Bind(context);
+            foreach (var group in _groups)
+            {
+                var chain =
+                    new TypeParameterKindClassifier.ChainState(
+                        Plan,
+                        group.Subject);
+                foreach (var (handle, parameter) in group.Parameters)
+                {
+                    GenericParameter definition =
+                        _reader.GetGenericParameter(handle);
+                    GenericParameterAttributes attributes =
+                        definition.Attributes;
+                    parameter.TypeKind =
+                        TypeParameterKindClassifier.Classify(
+                            _reader,
+                            handle,
+                            hasValueTypeConstraint:
+                                (attributes
+                                    & GenericParameterAttributes
+                                        .NotNullableValueTypeConstraint) != 0,
+                            hasReferenceTypeConstraint:
+                                (attributes
+                                    & GenericParameterAttributes
+                                        .ReferenceTypeConstraint) != 0,
+                            chain);
+                }
+            }
+        }
+
+        internal readonly record struct Checkpoint(
+            int GroupCount,
+            TypeParameterKindClassifier.ResolutionPlan.RequestCheckpoint
+                RequestCheckpoint);
+
+        readonly record struct Group(
+            EntityHandle Subject,
+            List<(GenericParameterHandle Handle, TypeParameter Parameter)>
+                Parameters);
+    }
 
     /// <summary>
     /// The running retention count of one bounded extraction.
