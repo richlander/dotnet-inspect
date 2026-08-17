@@ -391,8 +391,12 @@ host-specific central-directory entry limit.
 
 Those controls are specific to the Browser-Wasm acquisition host. Archive
 containment in the broader product does not itself bound expanded bytes, entry
-count, or disk consumption, and symbol-package expansion has its own path.
-Product-wide resource budgets remain an open requirement below.
+count, or disk consumption. Symbol acquisition now accepts optional
+host-supplied limits for response bytes, expanded PDB bytes, archive entry
+count, and in-memory retention; the Browser supplies those limits, while
+callers that do not supply them retain only the shared transport ceiling.
+Product-wide default expansion and retention budgets remain an open requirement
+below.
 
 ### Untrusted JSON rejects duplicate properties
 
@@ -849,6 +853,18 @@ SourceLink and other artifact-derived fetches must use
 connection including redirects, and rejects loopback, link-local, private,
 CGNAT, multicast, unspecified, and reserved destinations. Callers must not
 replace it with the general shared client.
+
+Browser-Wasm cannot perform the DNS-level checks that
+`SharedUntrustedFetch` performs. Its source host instead supplies an
+`ISourceFetchPolicy` that authorizes a narrow set of HTTPS source hosts before
+dispatch, omits credentials, and configures Fetch to reject redirects. A
+destination outside that set is an authored-source limitation and may fall back
+to decompilation; it is never probed. The shared `SourceFetcher` applies that
+host policy before its memory or content-store caches and before creating the
+request. `AuthoredSourceAcquisitionTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`
+and
+`BrowserEngineBoundaryTests.SourceFetchPolicy_OmitsCredentialsAndRefusesRedirects`
+gate those rules.
 
 Checksums from portable PDB documents authenticate source content when the
 workflow claims authored-source integrity. A reachable URL without a matching
@@ -1346,7 +1362,7 @@ only ordinary compiler output.
 | Surface | Required evidence |
 | --- | --- |
 | Resource extraction | Traversal and rooted names rejected before writes; valid nested and empty resources retained; malformed ranges rejected; separator/case aliases collide; existing file preserved; device/control names rejected |
-| Archive extraction | Zip-slip fixture; Browser-Wasm declared/observed expanded-size rejection; product-wide expanded-size and entry-count policy tests once those budgets exist |
+| Archive extraction | Zip-slip fixture; Browser-Wasm declared/observed expanded-size rejection; bounded symbol-response, central-directory entry-count, expanded-PDB, and retained-store rejection; product-wide default expanded-size and entry-count policy tests once those budgets exist |
 | Metadata and signatures | Malformed table/blob fixtures, depth/size limits, no process crash |
 | SourceLink | Private/loopback targets rejected per hop; attributed redirects must preserve the complete repository/revision origin; rendered network source requires the portable-PDB checksum; pre-origin-validation caches are ignored; allowed public targets and checksum paths retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |

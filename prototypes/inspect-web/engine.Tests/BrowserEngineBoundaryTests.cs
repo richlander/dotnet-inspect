@@ -24,11 +24,78 @@ public sealed class BrowserEngineBoundaryTests
         AssemblyContextSourceQueryContext second =
             BrowserInspectionEngine.CreateSourceContext();
 
-        Assert.IsType<InMemoryPdbStore>(first.PdbStore);
+        var firstStore =
+            Assert.IsType<InMemoryPdbStore>(first.PdbStore);
         Assert.IsType<InMemoryPdbStore>(second.PdbStore);
         Assert.NotSame(first.PdbStore, second.PdbStore);
+        Assert.Equal(24L * MiB, firstStore.MaxRetainedBytes);
         Assert.False(first.AllowLocalSourceReads);
         Assert.Null(first.RepositoryPaths);
+        Assert.NotNull(first.SymbolAcquisitionLimits);
+        Assert.InRange(
+            first.SymbolAcquisitionLimits.MaxSymbolPackageBytes,
+            1,
+            24L * MiB);
+        Assert.InRange(
+            first.SymbolAcquisitionLimits.MaxPortablePdbBytes,
+            1,
+            8L * MiB);
+    }
+
+    [Theory]
+    [InlineData("https://raw.githubusercontent.com/org/repo/commit/A.cs", true)]
+    [InlineData("https://dev.azure.com/org/project/_apis/git/A.cs", true)]
+    [InlineData("https://org.visualstudio.com/project/_apis/git/A.cs", true)]
+    [InlineData("https://localhost/A.cs", false)]
+    [InlineData("https://127.0.0.1/A.cs", false)]
+    [InlineData("https://example.com/A.cs", false)]
+    [InlineData("http://raw.githubusercontent.com/org/repo/commit/A.cs", false)]
+    public void SourceFetchPolicy_AuthorizesBeforeDispatch(
+        string url,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            BrowserSourceFetchPolicy.Instance.IsRequestAllowed(
+                new Uri(url)));
+    }
+
+    [Fact]
+    public void SourceFetchPolicy_OmitsCredentialsAndRefusesRedirects()
+    {
+        using var request =
+            new HttpRequestMessage(
+                HttpMethod.Get,
+                "https://raw.githubusercontent.com/org/repo/commit/A.cs");
+
+        BrowserSourceFetchPolicy.Instance.ConfigureRequest(request);
+
+        Assert.True(request.Options.TryGetValue(
+            new HttpRequestOptionsKey<IDictionary<string, object>>(
+                "WebAssemblyFetchOptions"),
+            out IDictionary<string, object>? options));
+        Assert.Equal("omit", options["credentials"]);
+        Assert.Equal("error", options["redirect"]);
+    }
+
+    [Fact]
+    public void TypeSourceParticipant_RefusesReferenceOnlyAssembly()
+    {
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = Coordinate(
+            "Reference.Source",
+            Package(
+                image,
+                "ref/net11.0/InspectWeb.Engine.Tests.dll"));
+
+        InvalidOperationException error =
+            Assert.Throws<InvalidOperationException>(
+                () => coordinate.ImplementationAsset(
+                    coordinate.DefaultAsset.AssemblyName));
+
+        Assert.Contains("reference assembly only", error.Message);
     }
 
     [Fact]

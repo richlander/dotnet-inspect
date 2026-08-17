@@ -14,6 +14,13 @@ using InspectWeb.Engine;
 [SupportedOSPlatform("browser")]
 public static partial class BrowserInspectionEngine
 {
+    const long MiB = 1024L * 1024;
+    static readonly SymbolAcquisitionLimits SourceSymbolLimits =
+        new(
+            maxSymbolPackageBytes: 24 * MiB,
+            maxPortablePdbBytes: 8 * MiB,
+            maxSymbolPackageEntries: 2048);
+
     [JSExport]
     public static Task<string> QueryMemberSource(
         string packageId,
@@ -48,7 +55,6 @@ public static partial class BrowserInspectionEngine
         (
             BrowserInspectionScope scope,
             BrowserWorkspaceParticipant participant,
-            bool implementation,
             ApiType type
         ) = await SourceTypeAsync(
             packageId,
@@ -59,10 +65,8 @@ public static partial class BrowserInspectionEngine
         var request = AssemblyTypeSourceRequest.From(
             type,
             BrowserStyleOptions.Resolve(styleOptionsJson));
-        AssemblyTypeSourceEntry result = await UseSourceParticipant(
-            scope,
+        AssemblyTypeSourceEntry result = await scope.UseImplementationParticipant(
             participant,
-            implementation,
             (group, member) => AssemblyContextSourceQuery.ExecuteTypeAsync(
                 group,
                 member,
@@ -148,7 +152,6 @@ public static partial class BrowserInspectionEngine
     static async Task<(
         BrowserInspectionScope Scope,
         BrowserWorkspaceParticipant Participant,
-        bool Implementation,
         ApiType Type)> SourceTypeAsync(
             string packageId,
             string version,
@@ -164,21 +167,18 @@ public static partial class BrowserInspectionEngine
         PackageCompileAsset surfaceAsset = coordinate.CompileAsset(assemblyName);
         BrowserWorkspaceParticipant surfaceParticipant =
             scope.SurfaceParticipant(coordinate, surfaceAsset);
-        bool implementation =
-            coordinate.Selection.FindImplementationAsset(surfaceAsset) is not null;
-        BrowserWorkspaceParticipant participant = implementation
-            ? scope.ImplementationParticipant(surfaceParticipant)
-            : surfaceParticipant;
+        _ = coordinate.ImplementationAsset(assemblyName);
+        BrowserWorkspaceParticipant participant =
+            scope.ImplementationParticipant(surfaceParticipant);
 
-        AssemblyContextApiSurfaceResult projected = UseSourceParticipant(
-            scope,
-            participant,
-            implementation,
-            (group, member) => AssemblyContextApiSurfaceQuery.ExecuteBounded(
-                group,
-                ApiSurfaceScope.IncludeAll,
-                BrowserApiSurfacePolicy.Limits,
-                [member]));
+        AssemblyContextApiSurfaceResult projected =
+            scope.UseImplementationParticipant(
+                participant,
+                (group, member) => AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                    group,
+                    ApiSurfaceScope.IncludeAll,
+                    BrowserApiSurfacePolicy.Limits,
+                    [member]));
         if (projected.Truncation is { } truncation)
         {
             throw new InvalidOperationException(
@@ -203,28 +203,23 @@ public static partial class BrowserInspectionEngine
                 $"The selected participant does not contain one exact type '{typeIdentity}'.");
         }
 
-        return (scope, participant, implementation, matches[0]);
+        return (scope, participant, matches[0]);
     }
-
-    static TResult UseSourceParticipant<TResult>(
-        BrowserInspectionScope scope,
-        BrowserWorkspaceParticipant participant,
-        bool implementation,
-        Func<AssemblyContextGroup, AssemblyContextParticipant, TResult> query) =>
-        implementation
-            ? scope.UseImplementationParticipant(participant, query)
-            : scope.UseSurfaceParticipant(participant, query);
 
     internal static AssemblyContextSourceQueryContext CreateSourceContext()
     {
         var sourceStore = new InMemorySourceContentStore();
         return new AssemblyContextSourceQueryContext(
             BrowserPackageWorkspace.NetworkClient,
-            new InMemoryPdbStore(),
+            new InMemoryPdbStore(maxRetainedBytes: 24 * MiB),
             BrowserPackageWorkspace.PackageSourceAuthorization,
             new SourceFetcher(
                 BrowserPackageWorkspace.NetworkClient,
-                sourceStore));
+                sourceStore,
+                BrowserSourceFetchPolicy.Instance))
+        {
+            SymbolAcquisitionLimits = SourceSymbolLimits,
+        };
     }
 
     internal static BrowserSource Adapt(
@@ -268,11 +263,13 @@ public static partial class BrowserInspectionEngine
                 "original",
                 AuthoredProvenance(authored.Provenance),
                 authored.Inspection.Document?.ResolvedUrl,
+                null,
                 authored.Text),
             AssemblyMemberSource.Decompiled decompiled => new BrowserSource(
                 "decompiled",
                 DecompiledProvenance(participant),
                 null,
+                AuthoredLimitation(decompiled.AuthoredAttempt.Lines),
                 decompiled.Text),
             _ => throw new InvalidOperationException(
                 "Unknown available member source result."),
@@ -287,11 +284,13 @@ public static partial class BrowserInspectionEngine
                 "original",
                 AuthoredProvenance(authored.Provenance),
                 authored.Inspection.Document?.ResolvedUrl,
+                null,
                 authored.Text),
             AssemblyTypeSource.Decompiled decompiled => new BrowserSource(
                 "decompiled",
                 DecompiledProvenance(participant),
                 null,
+                AuthoredLimitation(decompiled.AuthoredAttempt.Lines),
                 decompiled.Text),
             _ => throw new InvalidOperationException(
                 "Unknown available type source result."),
@@ -316,6 +315,17 @@ public static partial class BrowserInspectionEngine
         BrowserWorkspaceParticipant participant) =>
         $"dotnet-inspect from {participant.Coordinate.PackageId} "
         + $"{participant.Coordinate.Version} {participant.Asset.Path}";
+
+    static string? AuthoredLimitation(
+        ILInspector.Findings.FindingInspection<string> inspection) =>
+        inspection.Value switch
+        {
+            ILInspector.Findings.FindingInspection<string>.Absent absent =>
+                absent.Detail,
+            ILInspector.Findings.FindingInspection<string>.Failed failed =>
+                failed.Error.Reason,
+            _ => null,
+        };
 
     internal static InvalidOperationException SourceUnavailable(
         AssemblySourceFailure failure) =>

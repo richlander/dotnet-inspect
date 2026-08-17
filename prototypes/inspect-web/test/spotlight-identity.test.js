@@ -384,14 +384,38 @@ test("source requests carry exact type and member identities", () => {
   const memberBridge =
     engineSource.match(/export async function inspectMemberSource\(request\)[\s\S]*?\n}/)?.[0]
     ?? "";
+  const memberLoader =
+    appSource.match(/async function loadSelectedMemberSource\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
   assert.match(
     memberBridge,
     /request\.typeIdentity \?\? request\.type/);
   assert.match(memberBridge, /request\.selectorKey \?\? ""/);
   assert.match(memberBridge, /request\.metadataToken \?\? 0/);
   assert.match(
-    appSource,
+    memberLoader,
     /typeIdentity: type\.definitionId \?\? type\.id,\s+member:[\s\S]*?selectorKey:[\s\S]*?metadataToken:/);
+  assert.doesNotMatch(memberLoader, /signature:/);
+});
+
+test("call graph source identity prefers the structured type definition", () => {
+  assert.equal(
+    callGraphTargetTypeId({
+      typeDefinitionId: "Example.Outer\\+Literal",
+      typeMetadataId: ""
+    }),
+    "Example.Outer\\+Literal");
+  assert.equal(
+    callGraphTargetTypeId({ typeMetadataId: "Example.Legacy" }),
+    "Example.Legacy");
+});
+
+test("decompiled source discloses the authored-source limitation", () => {
+  const sourceDialog =
+    appSource.match(/function renderGraphSource\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(sourceDialog, /state\.graphSource\.authoredLimitation/);
+  assert.match(sourceDialog, /Original source unavailable:/);
 });
 
 test("history never applies a selection to another coordinate", () => {

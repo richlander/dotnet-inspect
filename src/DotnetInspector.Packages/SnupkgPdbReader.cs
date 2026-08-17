@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Reflection.Metadata;
 
@@ -49,7 +50,8 @@ public static class SnupkgPdbReader
         string assemblyName,
         Guid expectedGuid,
         Action<string>? log = null,
-        uint? expectedStamp = null)
+        uint? expectedStamp = null,
+        SymbolAcquisitionLimits? limits = null)
     {
         ArgumentNullException.ThrowIfNull(snupkg);
         ArgumentException.ThrowIfNullOrEmpty(assemblyName);
@@ -57,7 +59,19 @@ public static class SnupkgPdbReader
         var pdbFileName = $"{assemblyName}.pdb";
         bool windowsPdbDetected = false;
 
+        if (limits is not null)
+        {
+            ValidateArchiveEntryCount(
+                snupkg,
+                limits.MaxSymbolPackageEntries);
+        }
         using var archive = new ZipArchive(snupkg, ZipArchiveMode.Read, leaveOpen: true);
+        if (limits is not null
+            && archive.Entries.Count > limits.MaxSymbolPackageEntries)
+        {
+            throw new InvalidDataException(
+                "The symbol package exceeds the configured archive-entry limit.");
+        }
 
         // Match by file name in any directory, mirroring the desktop behavior of
         // Directory.GetFiles(root, "{assembly}.pdb", AllDirectories). Order by the
@@ -69,12 +83,25 @@ public static class SnupkgPdbReader
 
         foreach (var entry in candidates)
         {
-            byte[] bytes;
-            using (var entryStream = entry.Open())
-            using (var buffer = new MemoryStream())
+            long maxPdbBytes =
+                limits?.MaxPortablePdbBytes ?? Array.MaxLength;
+            if (entry.Length > maxPdbBytes
+                || entry.Length > Array.MaxLength)
             {
-                entryStream.CopyTo(buffer);
-                bytes = buffer.ToArray();
+                throw new InvalidDataException(
+                    "A symbol-package PDB exceeds the configured byte limit.");
+            }
+
+            byte[] bytes =
+                GC.AllocateUninitializedArray<byte>((int)entry.Length);
+            using (var entryStream = entry.Open())
+            {
+                entryStream.ReadExactly(bytes);
+                if (entryStream.ReadByte() != -1)
+                {
+                    throw new InvalidDataException(
+                        "A symbol-package PDB exceeds its declared length.");
+                }
             }
 
             var header = CheckPdbHeader(bytes);
@@ -100,6 +127,75 @@ public static class SnupkgPdbReader
         }
 
         return new SnupkgPdbResult(null, windowsPdbDetected);
+    }
+
+    static void ValidateArchiveEntryCount(
+        Stream snupkg,
+        int maxEntries)
+    {
+        if (!snupkg.CanSeek)
+        {
+            throw new InvalidDataException(
+                "Bounded symbol-package inspection requires a seekable stream.");
+        }
+
+        const uint EndOfCentralDirectorySignature = 0x06054b50;
+        const int MinimumRecordLength = 22;
+        const int MaximumCommentLength = ushort.MaxValue;
+        long originalPosition = snupkg.Position;
+        try
+        {
+            int tailLength =
+                (int)Math.Min(
+                    snupkg.Length,
+                    MinimumRecordLength + MaximumCommentLength);
+            byte[] tail = GC.AllocateUninitializedArray<byte>(tailLength);
+            snupkg.Position = snupkg.Length - tailLength;
+            snupkg.ReadExactly(tail);
+
+            for (int offset = tail.Length - MinimumRecordLength;
+                 offset >= 0;
+                 offset--)
+            {
+                ReadOnlySpan<byte> record = tail.AsSpan(offset);
+                if (BinaryPrimitives.ReadUInt32LittleEndian(record)
+                        != EndOfCentralDirectorySignature)
+                {
+                    continue;
+                }
+
+                ushort commentLength =
+                    BinaryPrimitives.ReadUInt16LittleEndian(record[20..]);
+                if (offset + MinimumRecordLength + commentLength
+                    != tail.Length)
+                {
+                    continue;
+                }
+
+                ushort entryCount =
+                    BinaryPrimitives.ReadUInt16LittleEndian(record[10..]);
+                if (entryCount == ushort.MaxValue)
+                {
+                    throw new InvalidDataException(
+                        "ZIP64 symbol packages are unavailable under bounded inspection.");
+                }
+                if (entryCount > maxEntries)
+                {
+                    throw new InvalidDataException(
+                        "The symbol package exceeds the configured archive-entry limit.");
+                }
+
+                snupkg.Position = originalPosition;
+                return;
+            }
+
+            throw new InvalidDataException(
+                "The symbol package has no valid end-of-central-directory record.");
+        }
+        finally
+        {
+            snupkg.Position = originalPosition;
+        }
     }
 
     /// <summary>

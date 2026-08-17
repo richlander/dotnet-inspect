@@ -103,6 +103,54 @@ public class SnupkgPdbReaderTests
         Assert.Equal(pdbBytes, result.PdbBytes);
     }
 
+    [Fact]
+    public void ExtractPortablePdb_EntryLimitRejectsArchiveBeforeExpansion()
+    {
+        var guid = Guid.NewGuid();
+        var (pdbBytes, _) = BuildPortablePdb(guid);
+        byte[] snupkg =
+            MakeSnupkg(
+                ("lib/net8.0/Foo.pdb", pdbBytes),
+                ("package.nuspec", "<package />"u8.ToArray()));
+        var limits = new SymbolAcquisitionLimits(
+            maxSymbolPackageBytes: snupkg.Length,
+            maxPortablePdbBytes: pdbBytes.Length,
+            maxSymbolPackageEntries: 1);
+
+        using var stream = new MemoryStream(snupkg);
+        InvalidDataException error = Assert.Throws<InvalidDataException>(
+            () => SnupkgPdbReader.ExtractPortablePdb(
+                stream,
+                "Foo",
+                guid,
+                limits: limits));
+
+        Assert.Contains("archive-entry limit", error.Message);
+    }
+
+    [Fact]
+    public void ExtractPortablePdb_ExpandedPdbLimitRejectsEntryBeforeCopy()
+    {
+        var guid = Guid.NewGuid();
+        var (pdbBytes, _) = BuildPortablePdb(guid);
+        byte[] snupkg =
+            MakeSnupkg(("lib/net8.0/Foo.pdb", pdbBytes));
+        var limits = new SymbolAcquisitionLimits(
+            maxSymbolPackageBytes: snupkg.Length,
+            maxPortablePdbBytes: pdbBytes.Length - 1,
+            maxSymbolPackageEntries: 8);
+
+        using var stream = new MemoryStream(snupkg);
+        InvalidDataException error = Assert.Throws<InvalidDataException>(
+            () => SnupkgPdbReader.ExtractPortablePdb(
+                stream,
+                "Foo",
+                guid,
+                limits: limits));
+
+        Assert.Contains("PDB exceeds", error.Message);
+    }
+
     internal static (byte[] Bytes, Guid Guid) BuildPortablePdb(
         Guid id,
         uint stamp = 0x04030201u)

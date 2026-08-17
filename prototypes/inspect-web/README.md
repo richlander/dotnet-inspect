@@ -249,18 +249,33 @@ The three source exports resolve the exact structured type identity and opaque
 member body selector against the implementation participant before calling
 `AssemblyContextSourceQuery`. The query tries checksum-verified authored source
 through Browser HTTP and explicit nuget.org authorization, then falls back to
-pathless decompilation under the workspace binding policy. Each operation uses
-fresh in-memory PDB and source stores, so source lookup adds no ambient
-filesystem dependency or unbounded retained cache. Typed rejection and
-unavailable outcomes become visible failures; only an `Available` result crosses
-the bridge. Printer options apply to decompiled fallback and never rewrite
-authored source. Whole-member source remains MethodDef-scoped: a call-graph
-accessor body reports that limitation rather than returning its owner property
-or the whole type as a success-shaped substitute.
+pathless decompilation under the workspace binding policy. Symbol-package
+responses are capped at 24 MiB, expanded PDBs at 8 MiB, and archives at 2,048
+entries before either response or expanded content is copied into the
+request-scoped store; that store independently caps all retained PDB bytes at
+24 MiB. SourceLink requests are authorized before dispatch for
+HTTPS URLs on GitHub, Azure DevOps, GitLab, and Bitbucket source hosts, and the
+Browser transport refuses redirects; unsupported hosts visibly fall back to
+decompilation.
+
+Each operation uses fresh in-memory PDB and source stores, so source lookup adds
+no ambient filesystem dependency or unbounded retained cache. Typed rejection
+and unavailable outcomes become visible failures; only an `Available` result
+crosses the bridge. Decompiled results disclose why the authored attempt was
+unavailable. Reference-only type source is refused rather than presented as a
+body-free decompilation. Printer options apply to decompiled fallback and never
+rewrite authored source. Whole-member source remains MethodDef-scoped: a
+call-graph accessor body reports that limitation rather than returning its owner
+property or the whole type as a success-shaped substitute.
 `BrowserEngineBoundaryTests.SourceContexts_UseFreshMemoryOnlyPdbStores`,
+`BrowserEngineBoundaryTests.SourceFetchPolicy_AuthorizesBeforeDispatch`,
+`BrowserEngineBoundaryTests.TypeSourceParticipant_RefusesReferenceOnlyAssembly`,
+`SnupkgPdbReaderTests.ExtractPortablePdb_EntryLimitRejectsArchiveBeforeExpansion`,
+`SymbolPackageDownloaderTests.AcquirePdbAsync_LimitedHostRejectsOversizedSymbolPackage`,
 `AssemblyContextSourceQueryTests.DecompilerFallback_AppliesRequestPrinterOptions`,
-and the JavaScript `source requests carry exact type and member identities`
-case gate these boundaries.
+and the JavaScript `source requests carry exact type and member identities` and
+`call graph source identity prefers the structured type definition` cases gate
+these boundaries.
 
 [#3964]: https://github.com/richlander/dotnet-inspect/pull/3964
 

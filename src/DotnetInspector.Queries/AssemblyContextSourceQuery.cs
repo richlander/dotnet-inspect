@@ -51,6 +51,7 @@ public sealed class AssemblyContextSourceQueryContext
     public IReadOnlyList<string>? RepositoryPaths { get; init; }
     public NuGetSourceOptions? NuGetSourceOptions { get; init; }
     public bool CacheOnly { get; init; }
+    public SymbolAcquisitionLimits? SymbolAcquisitionLimits { get; init; }
 
     /// <summary>
     /// Allows checksum-authenticated reads from absolute paths recorded in the
@@ -724,7 +725,8 @@ public static class AssemblyContextSourceQuery
             context.Log,
             context.CacheOnly,
             context.NuGetSourceOptions,
-            cancellationToken);
+            cancellationToken,
+            context.SymbolAcquisitionLimits);
 
     internal static async Task<SourceLinkOpenResult> OpenSourceLinkAsync(
         ResolvedAssemblyReference retained,

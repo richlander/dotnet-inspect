@@ -125,6 +125,8 @@ public class SymbolPackageDownloader
     private readonly IPdbStore _pdbStore;
     private readonly IPackageSourceAuthorization? _sourceAuthorization;
     private readonly bool _usePersistentMissCache;
+    private readonly SymbolAcquisitionLimits? _limits;
+    private const long DefaultMaximumSymbolBytes = 500_000_000;
 
     /// <summary>
     /// Creates a downloader backed by the default filesystem PDB cache
@@ -185,6 +187,27 @@ public class SymbolPackageDownloader
         _pdbStore = pdbStore;
         _sourceAuthorization = sourceAuthorization;
         _usePersistentMissCache = usePersistentMissCache;
+    }
+
+    /// <summary>
+    /// Creates a host-neutral downloader with explicit persistence,
+    /// authorization, and untrusted-content limits.
+    /// </summary>
+    public SymbolPackageDownloader(
+        HttpClient client,
+        IPdbStore pdbStore,
+        IPackageSourceAuthorization sourceAuthorization,
+        SymbolAcquisitionLimits limits,
+        bool usePersistentMissCache = false)
+        : this(
+            client,
+            pdbStore,
+            sourceAuthorization,
+            usePersistentMissCache)
+    {
+        _limits =
+            limits
+            ?? throw new ArgumentNullException(nameof(limits));
     }
 
     /// <summary>
@@ -553,13 +576,20 @@ public class SymbolPackageDownloader
             if (IsCachedMiss(snupkgUrl, log, "symbol package"))
                 continue;
 
-            HttpRetryHelper.HttpRetryResult httpResult;
+            HttpRetryHelper.HttpBodyFetchResult httpResult;
             try
             {
-                httpResult = await HttpRetryHelper.GetWithRetryResultAsync(
-                    _client, snupkgUrl, log: log,
+                httpResult =
+                    await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                    _client,
+                    snupkgUrl,
+                    static _ => true,
+                    log: log,
                     cancellationToken: cancellationToken,
-                    trafficKind: NetworkTrafficKind.SymbolDownload).ConfigureAwait(false);
+                    trafficKind: NetworkTrafficKind.SymbolDownload,
+                    maxDownloadSize:
+                        _limits?.MaxSymbolPackageBytes
+                        ?? DefaultMaximumSymbolBytes).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -573,10 +603,19 @@ public class SymbolPackageDownloader
                 continue;
             }
 
-            using var response = httpResult.Response;
-            if (response is not { IsSuccessStatusCode: true })
+            if (httpResult.Bytes is not { } symbolPackageBytes)
             {
-                CacheMissIfDefinitive(snupkgUrl, httpResult);
+                CacheMissIfDefinitive(
+                    snupkgUrl,
+                    new HttpRetryHelper.HttpRetryResult(
+                        null,
+                        httpResult.StatusCode));
+                if (httpResult.Status
+                    == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
+                {
+                    log?.Invoke(
+                        "Symbol package exceeds the configured download limit.");
+                }
                 continue;
             }
 
@@ -585,13 +624,19 @@ public class SymbolPackageDownloader
             {
                 log?.Invoke(
                     $"Found symbol package at: {UrlRedaction.ForDiagnostics(snupkgUrl)}");
-                extracted = await ExtractPdbFromSymbolPackage(
-                    response,
+                using var content =
+                    new MemoryStream(
+                        symbolPackageBytes,
+                        writable: false);
+                cancellationToken.ThrowIfCancellationRequested();
+                extracted = SnupkgPdbReader.ExtractPortablePdb(
+                    content,
                     assemblyName,
                     pdbGuid,
-                    portablePdbStamp,
                     log,
-                    cancellationToken).ConfigureAwait(false);
+                    portablePdbStamp,
+                    _limits);
+                cancellationToken.ThrowIfCancellationRequested();
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -660,30 +705,6 @@ public class SymbolPackageDownloader
         return new PdbProbeResult(null, windowsPdbDetected);
     }
 
-    private static async Task<SnupkgPdbResult> ExtractPdbFromSymbolPackage(
-        HttpResponseMessage response,
-        string assemblyName,
-        Guid pdbGuid,
-        uint? portablePdbStamp,
-        Action<string>? log,
-        CancellationToken cancellationToken)
-    {
-        SnupkgPdbResult extracted;
-        using (var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            extracted = SnupkgPdbReader.ExtractPortablePdb(
-                content,
-                assemblyName,
-                pdbGuid,
-                log,
-                portablePdbStamp);
-            cancellationToken.ThrowIfCancellationRequested();
-        }
-
-        return extracted;
-    }
-
     private async Task<PdbProbeResult> TryLocateFromSymbolServerAsync(
         string pdbFileName,
         string symbolKey,
@@ -745,18 +766,37 @@ public class SymbolPackageDownloader
             bool storeOperation = false;
             try
             {
-                var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(
-                    _client, url, log: log,
+                var httpResult =
+                    await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                    _client,
+                    url,
+                    static _ => true,
+                    log: log,
                     cancellationToken: cancellationToken,
-                    trafficKind: NetworkTrafficKind.SymbolDownload).ConfigureAwait(false);
-                using var response = httpResult.Response;
-                if (response == null || !response.IsSuccessStatusCode)
+                    trafficKind: NetworkTrafficKind.SymbolDownload,
+                    maxDownloadSize:
+                        _limits?.MaxPortablePdbBytes
+                        ?? DefaultMaximumSymbolBytes).ConfigureAwait(false);
+                if (httpResult.Bytes is not { } pdbBytes)
                 {
-                    CacheMissIfDefinitive(url, httpResult);
+                    CacheMissIfDefinitive(
+                        url,
+                        new HttpRetryHelper.HttpRetryResult(
+                            null,
+                            httpResult.StatusCode));
+                    if (httpResult.Status
+                        == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
+                    {
+                        log?.Invoke(
+                            "PDB response exceeds the configured download limit.");
+                    }
                     continue;
                 }
 
-                using (var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
+                using (var content =
+                       new MemoryStream(
+                           pdbBytes,
+                           writable: false))
                 {
                     storeOperation = true;
                     await _pdbStore.PutAsync(cacheKey, content, cancellationToken).ConfigureAwait(false);

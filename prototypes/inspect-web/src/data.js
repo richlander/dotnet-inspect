@@ -286,7 +286,7 @@ export function workspaceCoordinatesMatch(packages, tabs) {
 }
 
 export function callGraphTargetTypeId(target) {
-  return target?.typeMetadataId || "";
+  return target?.typeDefinitionId || target?.typeMetadataId || "";
 }
 
 export function uniqueTypeByQueryId(types, queryId) {
