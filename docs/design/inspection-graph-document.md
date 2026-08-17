@@ -734,6 +734,17 @@ The resulting document retains both its `ModeRequest` and
 `NeighborhoodRequest`; a consumer never has to infer selection or bounds from
 the surviving topology.
 
+Relationship producers may retain a stricter typed breadth budget alongside
+that shared request. The bounded call neighborhood records
+`call.traversal-node-bound` in addition to
+`queries.neighborhood-depth-bound`, because Analysis enforces its node budget
+while building the cross-library callee tree. Hitting either bound remains
+visible through call traversal incompleteness; it does not erase the member
+seed or its physical evidence. Nonzero catalog correspondence counts likewise
+remain a typed `call.correspondence-incomplete` limit rather than a
+success-shaped empty graph. `CrossLibraryCalleeNeighborhood_*` gates these
+call-specific compositions.
+
 The Integration implementation validates catalog membership before producer
 execution. Its relationship set drives the deterministic query-registry plan,
 including opportunity's Integration and extension prerequisites for

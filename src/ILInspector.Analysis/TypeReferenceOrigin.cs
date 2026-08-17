@@ -25,9 +25,17 @@ public abstract record TypeReferenceOrigin
 
     public sealed record CurrentAssembly : TypeReferenceOrigin
     {
-        internal CurrentAssembly()
-        {
-        }
+        internal CurrentAssembly(
+            AssemblyReferenceIdentity? assembly = null) =>
+            Assembly = assembly;
+
+        public AssemblyReferenceIdentity? Assembly { get; }
+
+        public bool Equals(CurrentAssembly? other)
+            => other is not null;
+
+        public override int GetHashCode()
+            => typeof(CurrentAssembly).GetHashCode();
 
         private protected override int Discriminator => 1;
     }
