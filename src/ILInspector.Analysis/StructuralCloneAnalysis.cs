@@ -34,6 +34,14 @@ public enum StructuralCloneCorrespondenceKind
     Ambiguous,
 }
 
+/// <summary>The direction of one structural edit from the left body to the right.</summary>
+public enum StructuralCloneEditKind
+{
+    Inserted,
+    Removed,
+    Changed,
+}
+
 /// <summary>The side of a comparison to which a blocker applies.</summary>
 public enum StructuralCloneSide
 {
@@ -62,6 +70,11 @@ public enum StructuralCloneBlockerKind
     EdgeLimit,
     LocalLimit,
     VerificationStepLimit,
+    NearAlignmentIndexStepLimit,
+    NearAlignmentCandidateLimit,
+    NearAlignmentVerificationStepLimit,
+    NearAlignmentAlternativeLimit,
+    NearBlockElementLimit,
     MetadataReadFailure,
 }
 
@@ -95,6 +108,61 @@ public sealed record StructuralCloneCorrespondence(
     ImmutableArray<StructuralCloneBlockClass> Blocks,
     ImmutableArray<StructuralCloneLocalClass> Locals);
 
+/// <summary>One normalized operation location and value.</summary>
+public sealed record StructuralCloneOperationReference(
+    int Block,
+    int Ordinal,
+    ILOpCode OpCode,
+    StructuralCloneOperandKind OperandKind,
+    long Value);
+
+/// <summary>One normalized directed CFG edge.</summary>
+public sealed record StructuralCloneEdgeReference(
+    int SourceBlock,
+    StructuralCloneEdgeKind Kind,
+    int Ordinal,
+    int TargetBlock);
+
+/// <summary>One block-level change in a near-clone alignment.</summary>
+public sealed record StructuralCloneBlockEdit(
+    StructuralCloneEditKind Kind,
+    ImmutableArray<int> LeftBlocks,
+    ImmutableArray<int> RightBlocks);
+
+/// <summary>One operation-level change in a near-clone alignment.</summary>
+public sealed record StructuralCloneOperationEdit(
+    StructuralCloneEditKind Kind,
+    StructuralCloneOperationReference? Left,
+    StructuralCloneOperationReference? Right);
+
+/// <summary>One edge-level change in a near-clone alignment.</summary>
+public sealed record StructuralCloneEdgeEdit(
+    StructuralCloneEditKind Kind,
+    StructuralCloneEdgeReference? Left,
+    StructuralCloneEdgeReference? Right);
+
+/// <summary>
+/// One complete one-edit explanation whose unchanged remainder is exact.
+/// </summary>
+public sealed record StructuralCloneAlignmentAlternative(
+    StructuralCloneCorrespondence Correspondence,
+    ImmutableArray<StructuralCloneBlockEdit> Blocks,
+    ImmutableArray<StructuralCloneOperationEdit> Operations,
+    ImmutableArray<StructuralCloneEdgeEdit> Edges);
+
+/// <summary>Bounded candidate and witness-search work for near alignment.</summary>
+public sealed record StructuralCloneAlignmentReceipt(
+    int IndexSteps,
+    int Candidates,
+    int VerificationSteps,
+    bool Exhausted);
+
+/// <summary>All complete minimal alternatives for a bounded near clone.</summary>
+public sealed record StructuralCloneAlignment(
+    StructuralCloneCorrespondenceKind Kind,
+    ImmutableArray<StructuralCloneAlignmentAlternative> Alternatives,
+    StructuralCloneAlignmentReceipt Receipt);
+
 /// <summary>Bounded-work receipt for one comparison.</summary>
 public sealed record StructuralCloneVerificationReceipt(
     int LeftBodyBytes,
@@ -112,14 +180,19 @@ public sealed record StructuralCloneVerificationReceipt(
     bool SearchExhausted,
     bool WitnessFound);
 
-/// <summary>Resource limits for exact structural comparison.</summary>
+/// <summary>Resource limits for exact and near structural comparison.</summary>
 public sealed record StructuralCloneComparisonLimits(
     int MaximumInstructions = 10_000,
     int MaximumBlocks = 128,
     int MaximumEdges = 100_000,
     int MaximumLocals = 256,
     int MaximumVerificationSteps = 100_000,
-    int MaximumBodyBytes = 1_000_000);
+    int MaximumBodyBytes = 1_000_000,
+    int MaximumNearAlignmentIndexSteps = 1_000_000,
+    int MaximumNearAlignmentCandidates = 10_000,
+    int MaximumNearAlignmentVerificationSteps = 1_000_000,
+    int MaximumNearAlignmentAlternatives = 128,
+    int MaximumNearBlockElements = 128);
 
 /// <summary>
 /// Product-owned result for one A-vs-A structural body comparison.
@@ -134,8 +207,10 @@ public sealed record StructuralCloneComparison
         StructuralCloneDisposition disposition,
         StructuralCloneRelation? relation,
         StructuralCloneCorrespondence? correspondence,
+        StructuralCloneAlignment? alignment,
         ImmutableArray<StructuralCloneBlocker> blockers,
-        StructuralCloneVerificationReceipt receipt)
+        StructuralCloneVerificationReceipt receipt,
+        StructuralCloneAlignmentReceipt? alignmentReceipt)
     {
         if (disposition == StructuralCloneDisposition.Completed
             && relation is null)
@@ -165,6 +240,34 @@ public sealed record StructuralCloneComparison
                 "Only an exact structural clone comparison carries correspondence.",
                 nameof(correspondence));
         }
+        if (relation == StructuralCloneRelation.Near
+            && alignment is null)
+        {
+            throw new ArgumentException(
+                "A near structural clone comparison requires alignment.",
+                nameof(alignment));
+        }
+        if (relation != StructuralCloneRelation.Near
+            && alignment is not null)
+        {
+            throw new ArgumentException(
+                "Only a near structural clone comparison carries alignment.",
+                nameof(alignment));
+        }
+        if (alignment is not null
+            && alignment.Receipt != alignmentReceipt)
+        {
+            throw new ArgumentException(
+                "A near alignment and its comparison receipt must agree.",
+                nameof(alignmentReceipt));
+        }
+        if (disposition == StructuralCloneDisposition.Completed
+            && alignmentReceipt is { Exhausted: false })
+        {
+            throw new ArgumentException(
+                "A completed comparison cannot carry an incomplete alignment receipt.",
+                nameof(alignmentReceipt));
+        }
         if (disposition == StructuralCloneDisposition.Completed
             && !blockers.IsEmpty)
         {
@@ -185,8 +288,10 @@ public sealed record StructuralCloneComparison
         Disposition = disposition;
         Relation = relation;
         Correspondence = correspondence;
+        Alignment = alignment;
         Blockers = blockers;
         Receipt = receipt;
+        AlignmentReceipt = alignmentReceipt;
     }
 
     public MetadataMethodAddress Left { get; }
@@ -194,36 +299,52 @@ public sealed record StructuralCloneComparison
     public StructuralCloneDisposition Disposition { get; }
     public StructuralCloneRelation? Relation { get; }
     public StructuralCloneCorrespondence? Correspondence { get; }
+    public StructuralCloneAlignment? Alignment { get; }
     public ImmutableArray<StructuralCloneBlocker> Blockers { get; }
     public StructuralCloneVerificationReceipt Receipt { get; }
+    public StructuralCloneAlignmentReceipt? AlignmentReceipt { get; }
 
     internal static StructuralCloneComparison Completed(
         MetadataMethodAddress left,
         MetadataMethodAddress right,
         StructuralCloneRelation relation,
         StructuralCloneCorrespondence? correspondence,
-        StructuralCloneVerificationReceipt receipt)
+        StructuralCloneVerificationReceipt receipt,
+        StructuralCloneAlignment? alignment = null,
+        StructuralCloneAlignmentReceipt? alignmentReceipt = null)
         => new(
             left,
             right,
             StructuralCloneDisposition.Completed,
             relation,
             correspondence,
+            alignment,
             [],
-            receipt);
+            receipt,
+            alignmentReceipt);
 
     internal static StructuralCloneComparison NotCompleted(
         MetadataMethodAddress left,
         MetadataMethodAddress right,
         StructuralCloneDisposition disposition,
         ImmutableArray<StructuralCloneBlocker> blockers,
-        StructuralCloneVerificationReceipt receipt)
-        => new(left, right, disposition, null, null, blockers, receipt);
+        StructuralCloneVerificationReceipt receipt,
+        StructuralCloneAlignmentReceipt? alignmentReceipt = null)
+        => new(
+            left,
+            right,
+            disposition,
+            null,
+            null,
+            null,
+            blockers,
+            receipt,
+            alignmentReceipt);
 }
 
 /// <summary>
-/// Exact normalized structural comparison and bounded discovery over method
-/// bodies in one retained PE image.
+/// Exact and one-edit near structural comparison, plus bounded exact discovery
+/// over method bodies in one retained PE image.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -410,6 +531,35 @@ public static partial class StructuralCloneAnalysis
         StructuralCloneBodyFacts left,
         StructuralCloneBodyFacts right,
         StructuralCloneComparisonLimits? limits = null)
+        => CompareBodies(
+            left,
+            right,
+            limits,
+            includeNear: true,
+            witnessConstraints: null,
+            verificationBudget: null);
+
+    internal static StructuralCloneComparison CompareExact(
+        StructuralCloneBodyFacts left,
+        StructuralCloneBodyFacts right,
+        StructuralCloneComparisonLimits? limits = null,
+        StructuralCloneWitnessConstraints? witnessConstraints = null,
+        NearAlignmentVerificationBudget? verificationBudget = null)
+        => CompareBodies(
+            left,
+            right,
+            limits,
+            includeNear: false,
+            witnessConstraints,
+            verificationBudget);
+
+    static StructuralCloneComparison CompareBodies(
+        StructuralCloneBodyFacts left,
+        StructuralCloneBodyFacts right,
+        StructuralCloneComparisonLimits? limits,
+        bool includeNear,
+        StructuralCloneWitnessConstraints? witnessConstraints,
+        NearAlignmentVerificationBudget? verificationBudget)
     {
         ArgumentNullException.ThrowIfNull(left);
         ArgumentNullException.ThrowIfNull(right);
@@ -429,8 +579,7 @@ public static partial class StructuralCloneAnalysis
 
         if (left.Signature != right.Signature
             || left.InitLocals != right.InitLocals
-            || left.Locals.Length != right.Locals.Length
-            || left.Graph.Blocks.Length != right.Graph.Blocks.Length)
+            || left.Locals.Length != right.Locals.Length)
         {
             return StructuralCloneComparison.Completed(
                 left.Method,
@@ -440,10 +589,26 @@ public static partial class StructuralCloneAnalysis
                 Receipt(left, right, 0, 0, true, false));
         }
 
-        RefinedColors colors = Refine(left, right);
-        WitnessResult witness =
-            FindWitness(left, right, colors, limits.MaximumVerificationSteps);
-        if (witness.LimitReached)
+        if (left.Graph.Blocks.Length != right.Graph.Blocks.Length)
+        {
+            StructuralCloneComparison different =
+                StructuralCloneComparison.Completed(
+                    left.Method,
+                    right.Method,
+                    StructuralCloneRelation.Different,
+                    correspondence: null,
+                    Receipt(left, right, 0, 0, true, false));
+            return includeNear
+                ? AlignNear(left, right, limits, different)
+                : different;
+        }
+
+        RefinedColors colors = Refine(
+            left,
+            right,
+            verificationBudget,
+            out bool refinementLimitReached);
+        if (refinementLimitReached)
         {
             return StructuralCloneComparison.NotCompleted(
                 left.Method,
@@ -453,7 +618,64 @@ public static partial class StructuralCloneAnalysis
                     new StructuralCloneBlocker(
                         StructuralCloneBlockerKind.VerificationStepLimit,
                         StructuralCloneSide.Both,
-                        $"Exact witness search exceeded {limits.MaximumVerificationSteps} steps."),
+                        "Exact refinement exhausted the near-alignment "
+                            + "verification budget."),
+                ],
+                Receipt(
+                    left,
+                    right,
+                    colors.Rounds,
+                    0,
+                    false,
+                    false));
+        }
+        int witnessLimit = verificationBudget is null
+            ? limits.MaximumVerificationSteps
+            : Math.Min(
+                limits.MaximumVerificationSteps,
+                verificationBudget.Remaining);
+        if (witnessLimit < 1)
+        {
+            return StructuralCloneComparison.NotCompleted(
+                left.Method,
+                right.Method,
+                StructuralCloneDisposition.LimitReached,
+                [
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.VerificationStepLimit,
+                        StructuralCloneSide.Both,
+                        "Exact witness search exhausted the near-alignment "
+                            + "verification budget."),
+                ],
+                Receipt(
+                    left,
+                    right,
+                    colors.Rounds,
+                    0,
+                    false,
+                    false));
+        }
+        WitnessResult witness =
+            FindWitness(
+                left,
+                right,
+                colors,
+                witnessLimit,
+                witnessConstraints);
+        bool aggregateWitnessLimit =
+            verificationBudget is not null
+            && !verificationBudget.TryCharge(witness.Steps);
+        if (witness.LimitReached || aggregateWitnessLimit)
+        {
+            return StructuralCloneComparison.NotCompleted(
+                left.Method,
+                right.Method,
+                StructuralCloneDisposition.LimitReached,
+                [
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.VerificationStepLimit,
+                        StructuralCloneSide.Both,
+                        $"Exact witness search exceeded {witnessLimit} steps."),
                 ],
                 Receipt(
                     left,
@@ -465,7 +687,8 @@ public static partial class StructuralCloneAnalysis
         }
         if (!witness.Found)
         {
-            return StructuralCloneComparison.Completed(
+            StructuralCloneComparison different =
+                StructuralCloneComparison.Completed(
                 left.Method,
                 right.Method,
                 StructuralCloneRelation.Different,
@@ -477,6 +700,9 @@ public static partial class StructuralCloneAnalysis
                     witness.Steps,
                     true,
                     false));
+            return includeNear
+                ? AlignNear(left, right, limits, different)
+                : different;
         }
 
         StructuralCloneCorrespondence correspondence =
@@ -1672,7 +1898,9 @@ public static partial class StructuralCloneAnalysis
 
     static RefinedColors Refine(
         StructuralCloneBodyFacts left,
-        StructuralCloneBodyFacts right)
+        StructuralCloneBodyFacts right,
+        NearAlignmentVerificationBudget? verificationBudget,
+        out bool limitReached)
     {
         int[] leftBlocks = new int[left.Graph.Blocks.Length];
         int[] rightBlocks = new int[right.Graph.Blocks.Length];
@@ -1684,6 +1912,19 @@ public static partial class StructuralCloneAnalysis
 
         for (int ceiling = 0; ceiling < maximumRounds; ceiling++)
         {
+            if (verificationBudget is not null
+                && !verificationBudget.TryCharge(
+                    RefinementElementWork(left)
+                    + RefinementElementWork(right)))
+            {
+                limitReached = true;
+                return new RefinedColors(
+                    leftBlocks,
+                    rightBlocks,
+                    leftLocals,
+                    rightLocals,
+                    rounds);
+            }
             (int[] nextLeftBlocks, int[] nextRightBlocks) = AssignColors(
                 BuildBlockKeys(left, leftBlocks, leftLocals),
                 BuildBlockKeys(right, rightBlocks, rightLocals));
@@ -1704,6 +1945,7 @@ public static partial class StructuralCloneAnalysis
                 break;
         }
 
+        limitReached = false;
         return new RefinedColors(
             leftBlocks,
             rightBlocks,
@@ -1821,7 +2063,8 @@ public static partial class StructuralCloneAnalysis
         StructuralCloneBodyFacts left,
         StructuralCloneBodyFacts right,
         RefinedColors colors,
-        int maximumSteps)
+        int maximumSteps,
+        StructuralCloneWitnessConstraints? constraints)
     {
         var blockMap = new int[left.Graph.Blocks.Length];
         var reverseBlocks = new int[right.Graph.Blocks.Length];
@@ -1836,7 +2079,8 @@ public static partial class StructuralCloneAnalysis
         int steps = 0;
         bool limitReached = false;
 
-        if (colors.LeftBlocks[0] != colors.RightBlocks[0])
+        if (colors.LeftBlocks[0] != colors.RightBlocks[0]
+            || !BlockPairAllowed(0, 0, constraints))
             return new WitnessResult(false, false, steps);
         var entryAssignments = new List<(int Left, int Right)>();
         if (!TryMatchBlockOperations(
@@ -1847,7 +2091,8 @@ public static partial class StructuralCloneAnalysis
                 colors,
                 localMap,
                 reverseLocals,
-                entryAssignments))
+                entryAssignments,
+                constraints))
         {
             return new WitnessResult(false, false, steps);
         }
@@ -1878,6 +2123,10 @@ public static partial class StructuralCloneAnalysis
                     if (reverseBlocks[rightIndex] < 0
                         && colors.LeftBlocks[leftIndex]
                             == colors.RightBlocks[rightIndex]
+                        && BlockPairAllowed(
+                            leftIndex,
+                            rightIndex,
+                            constraints)
                         && EdgesConsistent(
                             left,
                             right,
@@ -1914,7 +2163,8 @@ public static partial class StructuralCloneAnalysis
                         colors,
                         localMap,
                         reverseLocals,
-                        assignments))
+                        assignments,
+                        constraints))
                 {
                     continue;
                 }
@@ -1952,6 +2202,8 @@ public static partial class StructuralCloneAnalysis
                 {
                     continue;
                 }
+                if (!LocalPairAllowed(nextLeft, rightIndex, constraints))
+                    continue;
                 localMap[nextLeft] = rightIndex;
                 reverseLocals[rightIndex] = nextLeft;
                 if (CompleteLocals())
@@ -1968,6 +2220,32 @@ public static partial class StructuralCloneAnalysis
         return new WitnessResult(found, limitReached, steps);
     }
 
+    static bool BlockPairAllowed(
+        int left,
+        int right,
+        StructuralCloneWitnessConstraints? constraints)
+    {
+        if (constraints is not { } value)
+            return true;
+        if ((left == value.RequiredLeftBlock
+                && right != value.RequiredRightBlock)
+            || (right == value.RequiredRightBlock
+                && left != value.RequiredLeftBlock))
+        {
+            return false;
+        }
+        return left != value.ForbiddenLeftBlock
+            || right != value.ForbiddenRightBlock;
+    }
+
+    static bool LocalPairAllowed(
+        int left,
+        int right,
+        StructuralCloneWitnessConstraints? constraints)
+        => constraints is not { } value
+            || left != value.ForbiddenLeftLocal
+            || right != value.ForbiddenRightLocal;
+
     static bool TryMatchBlockOperations(
         StructuralCloneBodyFacts left,
         StructuralCloneBodyFacts right,
@@ -1976,7 +2254,8 @@ public static partial class StructuralCloneAnalysis
         RefinedColors colors,
         int[] localMap,
         int[] reverseLocals,
-        List<(int Left, int Right)> assignments)
+        List<(int Left, int Right)> assignments,
+        StructuralCloneWitnessConstraints? constraints)
     {
         StructuralCloneBlock leftValue = left.Graph.Blocks[leftBlock];
         StructuralCloneBlock rightValue = right.Graph.Blocks[rightBlock];
@@ -2013,7 +2292,11 @@ public static partial class StructuralCloneAnalysis
             int rightLocal = checked((int)rightOperation.Value);
             if (colors.LeftLocals[leftLocal]
                     != colors.RightLocals[rightLocal]
-                || !left.Locals[leftLocal].Equals(right.Locals[rightLocal]))
+                || !left.Locals[leftLocal].Equals(right.Locals[rightLocal])
+                || !LocalPairAllowed(
+                    leftLocal,
+                    rightLocal,
+                    constraints))
             {
                 RollBackLocals(assignments, localMap, reverseLocals);
                 return false;
@@ -2393,10 +2676,26 @@ public static partial class StructuralCloneAnalysis
         ArgumentOutOfRangeException.ThrowIfLessThan(
             limits.MaximumBodyBytes,
             1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            limits.MaximumNearAlignmentIndexSteps,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            limits.MaximumNearAlignmentCandidates,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            limits.MaximumNearAlignmentVerificationSteps,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            limits.MaximumNearAlignmentAlternatives,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            limits.MaximumNearBlockElements,
+            1);
     }
 }
 
-internal enum StructuralCloneOperandKind
+/// <summary>The normalized operand category used by structural comparison.</summary>
+public enum StructuralCloneOperandKind
 {
     None,
     Immediate,
@@ -2407,7 +2706,8 @@ internal enum StructuralCloneOperandKind
     SignatureToken,
 }
 
-internal enum StructuralCloneEdgeKind
+/// <summary>The normalized role family of a CFG edge.</summary>
+public enum StructuralCloneEdgeKind
 {
     Branch,
     FallThrough,
@@ -2621,6 +2921,14 @@ internal sealed record RefinedColors(
     int[] LeftLocals,
     int[] RightLocals,
     int Rounds);
+
+internal readonly record struct StructuralCloneWitnessConstraints(
+    int RequiredLeftBlock = -1,
+    int RequiredRightBlock = -1,
+    int ForbiddenLeftBlock = -1,
+    int ForbiddenRightBlock = -1,
+    int ForbiddenLeftLocal = -1,
+    int ForbiddenRightLocal = -1);
 
 internal readonly record struct WitnessResult(
     bool Found,
