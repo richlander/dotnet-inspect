@@ -211,6 +211,59 @@ public class AssemblyReferenceResolverTests
         }
     }
 
+    [Fact]
+    public void PathlessDescriptor_DoesNotProbeIdentityDerivedSidecarPath()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"pathless-symbols-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath =
+            typeof(AssemblyReferenceResolverTests).Assembly.Location;
+        string pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        Assert.True(File.Exists(pdbPath));
+        string apparentImagePath =
+            Path.Combine(directory, "PathlessDescriptor.dll");
+        try
+        {
+            File.Copy(
+                pdbPath,
+                Path.Combine(directory, Path.GetFileName(pdbPath)));
+            File.Copy(
+                pdbPath,
+                Path.ChangeExtension(apparentImagePath, ".pdb"));
+            AssemblyReferenceIdentity identity =
+                ReadIdentity(assemblyPath) with
+                {
+                    Name = apparentImagePath,
+                };
+            ResolvedAssemblyReference descriptor =
+                ResolvedAssemblyReference.Create(
+                    identity,
+                    path: null,
+                    () => File.OpenRead(assemblyPath),
+                    AssemblyResolutionProvenance.Local("test"));
+            var resolver =
+                new MetadataSource.SiblingAssemblyReferenceResolver(
+                    apparentImagePath);
+            using MetadataSource source =
+                MetadataSource.Open(
+                    descriptor,
+                    externalPdbPath: null,
+                    resolver);
+
+            Assert.NotNull(IrImporter.Import(
+                source,
+                typeof(CfgSampleClass).FullName!,
+                nameof(CfgSampleClass.DoWhileSum)));
+            Assert.Equal(DecompilerSymbolSource.None, source.Symbols);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     static AssemblyReferenceIdentity ReadIdentity(string path)
     {
         using var stream = File.OpenRead(path);
