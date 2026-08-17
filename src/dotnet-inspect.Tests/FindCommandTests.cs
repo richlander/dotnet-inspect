@@ -5,6 +5,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using InertText;
 using Markout;
 
 namespace DotnetInspector.Tests;
@@ -39,7 +40,7 @@ public class FindCommandTests
     }
 
     [Fact]
-    public void TableFormatter_NormalizesTabsAndNewlinesInTsvCells()
+    public void TableFormatter_VisiblyEncodesTabsAndNewlinesInTsvCells()
     {
         var results = new List<TypeFindResult>
         {
@@ -50,10 +51,91 @@ public class FindCommandTests
         var view = FindOutputFormatter.BuildView(results);
         var fields = RenderFindTable(view, tsv: true, showHeader: false).TrimEnd().Split('\t');
 
-        // "Ns Value", not "Ns  Value": containment (issue #3319) folds CRLF as a
-        // single line ending before the TSV normalizer sees it, where the
-        // normalizer alone would have replaced CR and LF with a space each.
-        Assert.Equal(["Line Break", "Ns Value", "class", "Tab Lib", "runtime"], fields);
+        Assert.Equal(
+            [@"Line\^JBreak", @"Ns\^M\^JValue", "class", @"Tab\^ILib", "runtime"],
+            fields);
+    }
+
+    [Fact]
+    public void Views_CarryConcernProvenanceAcrossMarkoutFormats()
+    {
+        const string hostile = "Name\u202E\n";
+        TextConcern expectedConcerns = TextConcern.Format | TextConcern.Control;
+        var view = FindOutputFormatter.BuildView(
+            [
+                new TypeFindResult
+                {
+                    Pattern = hostile,
+                    Match = MatchKind.Exact,
+                    Similarity = 1.0,
+                    Type = hostile,
+                    Namespace = hostile,
+                    Kind = hostile,
+                    Library = hostile,
+                    Source = hostile,
+                    SourceVersion = hostile,
+                },
+            ],
+            hostile);
+        var memberView = FindOutputFormatter.BuildMemberView(
+            [
+                new MemberFindResult
+                {
+                    Pattern = hostile,
+                    Match = MatchKind.Exact,
+                    Member = hostile,
+                    Kind = hostile,
+                    DeclaringType = hostile,
+                    Signature = hostile,
+                    Library = hostile,
+                    Source = hostile,
+                    SourceVersion = hostile,
+                },
+            ],
+            hostile);
+
+        FindRow row = Assert.Single(view.Results!);
+        FindMemberRow memberRow = Assert.Single(memberView.Results!);
+        Assert.Equal(expectedConcerns, view.TitleText.Concerns);
+        Assert.Equal(expectedConcerns, row.TypeText.Concerns);
+        Assert.Equal(expectedConcerns, row.SourceText.Concerns);
+        Assert.Equal(expectedConcerns, memberView.TitleText.Concerns);
+        Assert.Equal(expectedConcerns, memberRow.SignatureText.Concerns);
+        Assert.Equal(@"Name\u202E\^J", row.Type);
+
+        string markdown = MarkoutSerializer.Serialize(view, SearchViewContext.Default);
+        string tsv = RenderFindTable(view, tsv: true, showHeader: false);
+        string jsonl = RenderFindTable(view, tsv: false, showHeader: false, jsonl: true);
+        string json = OutputFormatter.RenderProjectedJson(
+            columns: null,
+            fields: null,
+            (writer, formatter, writerOptions) =>
+                MarkoutSerializer.Serialize(
+                    view,
+                    writer,
+                    formatter,
+                    SearchViewContext.Default,
+                    writerOptions));
+
+        Assert.DoesNotContain("\u202E", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u202E", tsv, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u202E", jsonl, StringComparison.Ordinal);
+        Assert.Contains(@"\u202E", markdown, StringComparison.Ordinal);
+        Assert.Contains(@"\^J", markdown, StringComparison.Ordinal);
+        Assert.Contains(@"\u202E", tsv, StringComparison.Ordinal);
+        Assert.Contains(@"\^J", tsv, StringComparison.Ordinal);
+
+        using var jsonlDocument = System.Text.Json.JsonDocument.Parse(jsonl);
+        Assert.Equal(
+            @"Name\u202E\^J",
+            jsonlDocument.RootElement.GetProperty("type").GetString());
+
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        string? jsonType = document.RootElement
+            .GetProperty("results")[0]
+            .GetProperty("type")
+            .GetString();
+        Assert.Equal(@"Name\u202E\^J", jsonType);
     }
 
     [Fact]
@@ -171,7 +253,12 @@ public class FindCommandTests
         Assert.Equal("type\tsimilarity\nIsLong\t0.50\n", output.ReplaceLineEndings("\n"));
     }
 
-    private static string RenderFindTable(FindResultView view, bool tsv, bool showHeader, string[]? columns = null) =>
+    private static string RenderFindTable(
+        FindResultView view,
+        bool tsv,
+        bool showHeader,
+        string[]? columns = null,
+        bool jsonl = false) =>
         OutputFormatter.RenderTable(showHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(
                 view,
@@ -184,7 +271,7 @@ public class FindCommandTests
                         Projection = OutputFormatter.BuildProjection(columns)
                     },
                     tsv,
-                    jsonl: false)));
+                    jsonl)));
 }
 
 /// <summary>

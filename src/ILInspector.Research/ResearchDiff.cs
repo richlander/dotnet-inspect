@@ -334,13 +334,56 @@ public static class ResearchDiff
         ApiDiffInspectionFailure failure)
     {
         string token = $"0x{failure.SubjectToken:X8}";
-        string detail = $"{failure.Operation}: "
+        string? assemblyKey =
+            failure.SubjectAssembly is null
+                ? null
+                : AssemblyIdentityKey(failure.SubjectAssembly);
+        string? assemblyDisplay =
+            failure.SubjectAssembly is null
+                ? null
+                : AssemblyIdentityDisplay(failure.SubjectAssembly);
+        string? dependencyKey =
+            failure.DependencyAssembly is null
+                ? null
+                : AssemblyIdentityKey(failure.DependencyAssembly);
+        string? dependencyDisplay =
+            failure.DependencyAssembly is null
+                ? null
+                : AssemblyIdentityDisplay(failure.DependencyAssembly);
+        string? sourcePathKey =
+            failure.SourceAssemblyPath is null
+                ? null
+                : Uri.EscapeDataString(
+                    failure.SourceAssemblyPath);
+        string? sourceDisplay =
+            failure.SourceAssemblyPath is null
+                ? null
+                : Path.GetFileName(
+                    failure.SourceAssemblyPath);
+        string? scopeKey = assemblyKey ?? sourcePathKey;
+        string? scopeDisplay =
+            assemblyDisplay ?? sourceDisplay;
+        string subjectKey =
+            scopeKey is null
+                ? $"api:{failure.Side}:{token}"
+                : $"api:{failure.Side}:{scopeKey}:{token}";
+        if (dependencyKey is not null)
+            subjectKey += $":dependency:{dependencyKey}";
+        string subjectDisplay =
+            scopeDisplay is null
+                ? $"{failure.Side} metadata {token}"
+                : $"{failure.Side} metadata {scopeDisplay} {token}";
+        if (dependencyDisplay is not null)
+            subjectDisplay += $" via {dependencyDisplay}";
+        string detail = (scopeDisplay is null
+                ? $"{failure.Operation}: "
+                : $"{failure.Operation} in {scopeDisplay}: ")
             + $"{failure.Mechanism}/{failure.Kind}: {failure.Detail}";
         return new ResearchChange(
             new ResearchSubjectKey(
                 ResearchSubjectKind.Type,
-                $"api:{failure.Side}:{token}",
-                $"{failure.Side} metadata {token}"),
+                subjectKey,
+                subjectDisplay),
             ResearchChangeMechanism.Api,
             Descriptor(
                 "api.identity-resolution-failure",
@@ -351,6 +394,23 @@ public static class ResearchDiff
             detail: detail,
             category: ResearchChangeCategory.Signature);
     }
+
+    static string AssemblyIdentityKey(
+        AssemblyReferenceIdentity identity) =>
+        string.Join(
+            "/",
+            Uri.EscapeDataString(identity.Name),
+            Uri.EscapeDataString(
+                identity.Version?.ToString() ?? ""),
+            Uri.EscapeDataString(identity.Culture ?? ""),
+            Uri.EscapeDataString(identity.PublicKeyToken ?? ""));
+
+    static string AssemblyIdentityDisplay(
+        AssemblyReferenceIdentity identity) =>
+        $"{identity.Name}, Version={identity.Version}, "
+            + $"Culture={identity.Culture ?? "neutral"}, "
+            + "PublicKeyToken="
+            + $"{identity.PublicKeyToken ?? "null"}";
 
     static void AddBodySignalDiff(
         ResultBuilder builder,
@@ -1308,21 +1368,138 @@ public static class ResearchDiff
         if (input.AssemblyPaths.Count == 0)
             return null;
 
-        var surfaces = input.AssemblyPaths.Select(path => AssemblyReader.ExtractApiSurface(path, includeAll)).ToArray();
-        if (surfaces.Any(surface => surface is null))
-            throw new InvalidOperationException("Could not extract API surface for one or more diff inputs.");
-        if (surfaces.Length == 1)
-            return surfaces[0];
-
-        return new ApiSurface
+        var assemblies = new List<ResolvedAssemblyReference>();
+        var merged = new ApiSurface();
+        foreach (string path in input.AssemblyPaths)
         {
-            Name = string.Join(",", surfaces.Select(surface => surface!.Name).Where(name => !string.IsNullOrEmpty(name))),
-            Types = [.. surfaces.SelectMany(surface => surface!.Types)],
-            InspectionFailures =
-            [
-                .. surfaces.SelectMany(surface => surface!.InspectionFailures),
-            ],
-        };
+            try
+            {
+                ResolvedAssemblyReference? assembly =
+                    ResolvedAssemblyReference
+                        .CreateFromPathIfManaged(
+                            path,
+                            AssemblyResolutionProvenance.Local(
+                                "Research API comparison"));
+                if (assembly is not null)
+                {
+                    assemblies.Add(assembly);
+                    continue;
+                }
+            }
+            catch (Exception ex) when (
+                ex is IOException
+                    or UnauthorizedAccessException
+                    or BadImageFormatException
+                    or InvalidOperationException
+                    or ArgumentException
+                    or NotSupportedException
+                    or OverflowException
+                    or IndexOutOfRangeException)
+            {
+            }
+
+            ApiSurface? moduleSurface =
+                AssemblyReader.ExtractModuleApiSurface(
+                    path,
+                    includeAll);
+            if (moduleSurface is not null)
+            {
+                MergeSurface(merged, moduleSurface);
+                continue;
+            }
+
+            merged.InspectionFailures.Add(
+                new ApiSurfaceInspectionFailure(
+                    "acquire API surface",
+                    0,
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    "Unavailable",
+                    "The selected assembly could not be acquired.")
+                {
+                    SourceAssemblyPath = path,
+                });
+        }
+        var policy =
+            new ResearchAssemblyGroupBindingPolicy(
+                assemblies);
+        using var catalog = new TypeResolutionCatalog();
+        foreach (ResolvedAssemblyReference assembly
+            in assemblies)
+        {
+            ResolutionAwareApiSurfaceOutcome outcome =
+                catalog.ExtractApiSurface(
+                    assembly,
+                    policy,
+                    includeAll);
+            if (outcome
+                is ResolutionAwareApiSurfaceOutcome.Rejected rejected)
+            {
+                merged.InspectionFailures.Add(
+                    new ApiSurfaceInspectionFailure(
+                        "extract API surface",
+                        0,
+                        MetadataTypeNameFailureMechanism.Metadata,
+                        rejected.Failure.Kind.ToString(),
+                        rejected.Failure.Detail,
+                        assembly.Identity)
+                    {
+                        SourceAssemblyPath = assembly.Path,
+                    });
+                continue;
+            }
+
+            ApiSurface surface =
+                ((ResolutionAwareApiSurfaceOutcome.Read)outcome)
+                    .Surface;
+            if (assembly.Path is { } path)
+                surface.SetInspectionSourceAssemblyPath(path);
+            MergeSurface(merged, surface);
+        }
+
+        merged.Types = merged.Types
+            .OrderBy(static type => type.FullName)
+            .ToList();
+        return merged;
+    }
+
+    static void MergeSurface(
+        ApiSurface destination,
+        ApiSurface source)
+    {
+        destination.Types.AddRange(source.Types);
+        destination.MergeInspectionFailuresFrom(source);
+    }
+
+    sealed class ResearchAssemblyGroupBindingPolicy(
+        IReadOnlyList<ResolvedAssemblyReference> assemblies)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } =
+            new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request)
+        {
+            if (request.Target
+                is not AssemblyBindingTarget.AssemblyReference reference)
+            {
+                return AssemblyBindingSelection.NotFound();
+            }
+
+            ImmutableArray<ResolvedAssemblyReference> matches =
+                assemblies.Where(
+                    assembly =>
+                        assembly.Identity
+                            .IsEquivalentTo(reference.Identity))
+                    .ToImmutableArray();
+            return matches.Length switch
+            {
+                0 => AssemblyBindingSelection.NotFound(),
+                1 => AssemblyBindingSelection.Found(
+                    matches[0]),
+                _ => AssemblyBindingSelection.Multiple(matches),
+            };
+        }
     }
 
     static IEnumerable<(LibraryBodyIndex Old, LibraryBodyIndex New)> PairedBodyIndexes(ResearchDiffInput oldInput, ResearchDiffInput newInput)

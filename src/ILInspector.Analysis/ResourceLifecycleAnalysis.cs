@@ -87,8 +87,25 @@ public static class ResourceLifecycleAnalysis
 
         try
         {
-            var occurrences = openIndex()
-                .LeakTriage
+            LeakTriageResult result =
+                openIndex().LeakTriage;
+            if (!result.Failures.IsEmpty)
+            {
+                LeakTriageFailure first = result.Failures[0];
+                string count = result.Failures.Length == 1
+                    ? "one method"
+                    : $"{result.Failures.Length} methods";
+                return new FindingInspection<ResourceLifecycleOccurrence>.Failed(
+                    new InspectionError(
+                        subject,
+                        AnalysisFindings.ResourceLifecycleDescriptor,
+                        $"Resource lifecycle analysis was incomplete for {count}; "
+                        + $"first failure at method token 0x{first.MethodToken:X8} "
+                        + $"during {FailurePhase(first.Kind)} "
+                        + $"({first.Reason})."));
+            }
+
+            var occurrences = result
                 .ExceptionPathCandidates
                 .Select(CreateOccurrence);
             return new FindingInspection<ResourceLifecycleOccurrence>.Complete(
@@ -123,4 +140,20 @@ public static class ResourceLifecycleAnalysis
                     boundary.ILOffset,
                     boundary.Operation))
                 .ToImmutableArray());
+
+    static string FailurePhase(LeakTriageFailureKind kind) =>
+        kind switch
+        {
+            LeakTriageFailureKind.InstructionDecoding =>
+                "instruction decoding",
+            LeakTriageFailureKind.MethodResolution =>
+                "method resolution",
+            LeakTriageFailureKind.MethodMetadata =>
+                "method metadata validation",
+            LeakTriageFailureKind.BodyAcquisition =>
+                "method body acquisition",
+            LeakTriageFailureKind.ControlFlowAnalysis =>
+                "control-flow analysis",
+            _ => "analysis",
+        };
 }

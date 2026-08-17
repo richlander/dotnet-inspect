@@ -861,6 +861,60 @@ public class HttpRetryHelperTests
         Assert.True(handler.StreamingRequested);
     }
 
+    [Fact]
+    public async Task StringBodyRead_RequiresBrowserStreamingResponse()
+    {
+        var handler = new BrowserStreamingOptionHandler();
+        using var client = new HttpClient(handler);
+
+        string? result = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://example.test/index.json",
+            cancellationToken: TestContext.Current.CancellationToken,
+            configureRequest: static request =>
+                request.Options.Set(
+                    new HttpRequestOptionsKey<bool>(
+                        "WebAssemblyEnableStreamingResponse"),
+                    false));
+
+        Assert.Equal("source", result);
+        Assert.True(handler.StreamingRequested);
+    }
+
+    [Fact]
+    public async Task StreamedResponse_RequiresBrowserStreamingResponse()
+    {
+        var handler = new BrowserStreamingOptionHandler();
+        using var client = new HttpClient(handler);
+
+        using HttpResponseMessage? response =
+            await HttpRetryHelper.GetStreamedWithRetryAsync(
+                client,
+                "https://example.test/package.nupkg",
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotNull(response);
+        Assert.True(handler.StreamingRequested);
+    }
+
+    [Fact]
+    public async Task RangeResponse_RequiresBrowserStreamingResponse()
+    {
+        var handler = new BrowserStreamingOptionHandler();
+        using var client = new HttpClient(handler);
+
+        HttpRetryHelper.HttpRetryResult result =
+            await HttpRetryHelper.GetWithRetryResultAsync(
+                client,
+                "https://example.test/package.nupkg",
+                cancellationToken: TestContext.Current.CancellationToken,
+                range: new RangeHeaderValue(0, 0));
+        using HttpResponseMessage? response = result.Response;
+
+        Assert.NotNull(response);
+        Assert.True(handler.StreamingRequested);
+    }
+
     [Theory]
     [InlineData(RetryFailureMode.NonRetryableStatus)]
     [InlineData(RetryFailureMode.NonRetryableSocket)]
