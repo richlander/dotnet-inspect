@@ -465,12 +465,13 @@ public static class AssemblyContextSourceQuery
                     context,
                     cancellationToken)
                 .ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
         AuthoredMemberSourceInspection authored;
         if (sourceResult.Source is { } source)
         {
+            AssemblyMemberSourceEntry.Available? authoredEntry = null;
             using (source)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 EnsureBindingPolicyVersion(
                     participant,
                     bindingPolicyVersion);
@@ -493,18 +494,28 @@ public static class AssemblyContextSourceQuery
                 if (authored.IsComplete
                     && authored.Text is { } authoredText)
                 {
-                    return new AssemblyMemberSourceEntry.Available(
-                        subject,
-                        request,
-                        new AssemblyMemberSource.Authored(
-                            authoredText,
-                            authored,
-                            Provenance(source)));
+                    authoredEntry =
+                        new AssemblyMemberSourceEntry.Available(
+                            subject,
+                            request,
+                            new AssemblyMemberSource.Authored(
+                                authoredText,
+                                authored,
+                                Provenance(source)));
                 }
+            }
+            if (authoredEntry is not null)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                EnsureBindingPolicyVersion(
+                    participant,
+                    bindingPolicyVersion);
+                return authoredEntry;
             }
         }
         else
         {
+            cancellationToken.ThrowIfCancellationRequested();
             EnsureBindingPolicyVersion(
                 participant,
                 bindingPolicyVersion);
@@ -575,12 +586,13 @@ public static class AssemblyContextSourceQuery
                     context,
                     cancellationToken)
                 .ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
         AuthoredTypeSourceInspection authored;
         if (sourceResult.Source is { } source)
         {
+            AssemblyTypeSourceEntry.Available? authoredEntry = null;
             using (source)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 EnsureBindingPolicyVersion(
                     participant,
                     bindingPolicyVersion);
@@ -602,18 +614,28 @@ public static class AssemblyContextSourceQuery
                 if (authored.IsComplete
                     && authored.Text is { } authoredText)
                 {
-                    return new AssemblyTypeSourceEntry.Available(
-                        subject,
-                        request,
-                        new AssemblyTypeSource.Authored(
-                            authoredText,
-                            authored,
-                            Provenance(source)));
+                    authoredEntry =
+                        new AssemblyTypeSourceEntry.Available(
+                            subject,
+                            request,
+                            new AssemblyTypeSource.Authored(
+                                authoredText,
+                                authored,
+                                Provenance(source)));
                 }
+            }
+            if (authoredEntry is not null)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                EnsureBindingPolicyVersion(
+                    participant,
+                    bindingPolicyVersion);
+                return authoredEntry;
             }
         }
         else
         {
+            cancellationToken.ThrowIfCancellationRequested();
             EnsureBindingPolicyVersion(
                 participant,
                 bindingPolicyVersion);

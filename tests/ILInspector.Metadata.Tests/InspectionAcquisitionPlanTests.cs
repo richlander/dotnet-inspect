@@ -334,7 +334,9 @@ public class InspectionAcquisitionPlanTests
     [InlineData(StreamCancellationPoint.FlushAsyncCompletion)]
     [InlineData(StreamCancellationPoint.ReadAsyncArrayCompletion)]
     [InlineData(StreamCancellationPoint.ReadAsyncMemoryCompletion)]
+    [InlineData(StreamCancellationPoint.WriteAsyncArrayCompletion)]
     [InlineData(StreamCancellationPoint.WriteAsyncMemoryCompletion)]
+    [InlineData(StreamCancellationPoint.CopyToAsyncCompletion)]
     [InlineData(StreamCancellationPoint.DisposeAsyncCompletion)]
     public async Task ObserveOpenReadCancellation_PreservesRegistrationAndReportsStreamOperationCancellation(
         StreamCancellationPoint cancellationPoint)
@@ -426,6 +428,7 @@ public class InspectionAcquisitionPlanTests
                             TestContext.Current.CancellationToken));
                     break;
                 case StreamCancellationPoint.WriteAsyncArray:
+                case StreamCancellationPoint.WriteAsyncArrayCompletion:
                     await stream.WriteAsync(
                         buffer,
                         offset: 0,
@@ -447,6 +450,7 @@ public class InspectionAcquisitionPlanTests
                     }
                     break;
                 case StreamCancellationPoint.CopyToAsync:
+                case StreamCancellationPoint.CopyToAsyncCompletion:
                     using (var destination = new MemoryStream())
                     {
                         await stream.CopyToAsync(
@@ -1263,7 +1267,9 @@ public class InspectionAcquisitionPlanTests
         FlushAsyncCompletion,
         ReadAsyncArrayCompletion,
         ReadAsyncMemoryCompletion,
+        WriteAsyncArrayCompletion,
         WriteAsyncMemoryCompletion,
+        CopyToAsyncCompletion,
         DisposeAsyncCompletion,
     }
 
@@ -1348,14 +1354,24 @@ public class InspectionAcquisitionPlanTests
             byte[] buffer,
             int offset,
             int count,
-            CancellationToken cancellationToken) =>
-            cancellationPoint == StreamCancellationPoint.WriteAsyncArray
-                ? throw cancellation
-                : base.WriteAsync(
-                    buffer,
-                    offset,
-                    count,
-                    cancellationToken);
+            CancellationToken cancellationToken)
+        {
+            if (cancellationPoint
+                == StreamCancellationPoint.WriteAsyncArray)
+            {
+                throw cancellation;
+            }
+            if (cancellationPoint
+                == StreamCancellationPoint.WriteAsyncArrayCompletion)
+            {
+                return Task.FromException(cancellation);
+            }
+            return base.WriteAsync(
+                buffer,
+                offset,
+                count,
+                cancellationToken);
+        }
 
         public override ValueTask WriteAsync(
             ReadOnlyMemory<byte> buffer,
@@ -1386,13 +1402,20 @@ public class InspectionAcquisitionPlanTests
         public override Task CopyToAsync(
             Stream destination,
             int bufferSize,
-            CancellationToken cancellationToken) =>
-            cancellationPoint == StreamCancellationPoint.CopyToAsync
-                ? throw cancellation
-                : base.CopyToAsync(
-                    destination,
-                    bufferSize,
-                    cancellationToken);
+            CancellationToken cancellationToken)
+        {
+            if (cancellationPoint == StreamCancellationPoint.CopyToAsync)
+                throw cancellation;
+            if (cancellationPoint
+                == StreamCancellationPoint.CopyToAsyncCompletion)
+            {
+                return Task.FromException(cancellation);
+            }
+            return base.CopyToAsync(
+                destination,
+                bufferSize,
+                cancellationToken);
+        }
 
         public override ValueTask DisposeAsync()
         {

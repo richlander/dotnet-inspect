@@ -1414,6 +1414,174 @@ public sealed class AssemblyContextSourceQueryTests
         Assert.Equal(1, stream.DisposeCount);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PostPdbCancellation_DisposesOpenedSourceLinkService(
+        bool typeQuery)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        using var cancellation = new CancellationTokenSource();
+        var pdbStore =
+            new StateChangingPdbStore(
+                cancellation.Cancel);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            pdbStore: pdbStore);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        if (typeQuery)
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => AssemblyContextSourceQuery.ExecuteTypeAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.TypeRequest(
+                        typeof(SourceFixture).Name),
+                    host.Context,
+                    cancellation.Token));
+        }
+        else
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => AssemblyContextSourceQuery.ExecuteMemberAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.MemberRequest(
+                        nameof(SourceFixture.Describe)),
+                    host.Context,
+                    cancellation.Token));
+        }
+
+        Assert.Equal(
+            2,
+            Assert.IsType<BlockingDisposeStream>(
+                    pdbStore.AuthoritativeStream)
+                .DisposeCount);
+        Assert.Empty(host.SourceRequests);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task AuthoredSuccessStateChangeDuringPdbDisposal_IsObserved(
+        bool memberQuery,
+        bool rotatePolicy)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        using var cancellation = new CancellationTokenSource();
+        using var disposeEntered = new ManualResetEventSlim();
+        using var disposeRelease = new ManualResetEventSlim();
+        var pdbStore =
+            new StateChangingPdbStore(
+                afterLocalPath: null,
+                disposeEntered,
+                disposeRelease);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            pdbStore: pdbStore);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+        Task actor = Task.Run(
+            () =>
+            {
+                Assert.True(
+                    disposeEntered.Wait(
+                        TimeSpan.FromSeconds(10)),
+                    "Timed out waiting for PDB disposal.");
+                if (rotatePolicy)
+                    assembly.Policy.ChangeVersion();
+                else
+                    cancellation.Cancel();
+                disposeRelease.Set();
+            },
+            TestContext.Current.CancellationToken);
+
+        try
+        {
+            if (rotatePolicy)
+            {
+                Exception error;
+                if (memberQuery)
+                {
+                    var unavailable =
+                        Assert.IsType<
+                            AssemblyMemberSourceEntry.Unavailable>(
+                                await AssemblyContextSourceQuery
+                                    .ExecuteMemberAsync(
+                                        group,
+                                        assembly.Participant,
+                                        assembly.MemberRequest(
+                                            nameof(SourceFixture.Describe)),
+                                        host.Context,
+                                        cancellation.Token));
+                    error = unavailable.Failure.Error!;
+                }
+                else
+                {
+                    var unavailable =
+                        Assert.IsType<
+                            AssemblyTypeSourceEntry.Unavailable>(
+                                await AssemblyContextSourceQuery
+                                    .ExecuteTypeAsync(
+                                        group,
+                                        assembly.Participant,
+                                        assembly.TypeRequest(
+                                            typeof(SourceFixture).Name),
+                                        host.Context,
+                                        cancellation.Token));
+                    error = unavailable.Failure.Error!;
+                }
+                Assert.IsType<InvalidOperationException>(error);
+            }
+            else if (memberQuery)
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                    () => AssemblyContextSourceQuery.ExecuteMemberAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.MemberRequest(
+                            nameof(SourceFixture.Describe)),
+                        host.Context,
+                        cancellation.Token));
+            }
+            else
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                    () => AssemblyContextSourceQuery.ExecuteTypeAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest(
+                            typeof(SourceFixture).Name),
+                        host.Context,
+                        cancellation.Token));
+            }
+        }
+        finally
+        {
+            disposeRelease.Set();
+            await actor;
+        }
+
+        Assert.Equal(
+            2,
+            Assert.IsType<BlockingDisposeStream>(
+                    pdbStore.AuthoritativeStream)
+                .DisposeCount);
+        Assert.Single(host.SourceRequests);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+    }
+
     [Fact]
     public async Task MalformedPdbDocument_PreservesAuthoredFailureAndFallsBackForType()
     {
@@ -2625,6 +2793,114 @@ public sealed class AssemblyContextSourceQueryTests
 
         public string? TryGetLocalPath(string key) =>
             null;
+    }
+
+    sealed class StateChangingPdbStore(
+        Action? afterLocalPath,
+        ManualResetEventSlim? disposeEntered = null,
+        ManualResetEventSlim? disposeRelease = null)
+        : IPdbStore
+    {
+        readonly InMemoryPdbStore _inner = new();
+        bool _wrapNextOpen;
+
+        internal Stream? AuthoritativeStream { get; private set; }
+
+        public async ValueTask<Stream?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+        {
+            Stream? stream =
+                await _inner.TryOpenAsync(
+                    key,
+                    cancellationToken);
+            if (stream is null || !_wrapNextOpen)
+                return stream;
+
+            _wrapNextOpen = false;
+            AuthoritativeStream =
+                new BlockingDisposeStream(
+                    stream,
+                    disposeEntered,
+                    disposeRelease);
+            return AuthoritativeStream;
+        }
+
+        public ValueTask PutAsync(
+            string key,
+            Stream content,
+            CancellationToken cancellationToken = default) =>
+            _inner.PutAsync(
+                key,
+                content,
+                cancellationToken);
+
+        public string? TryGetLocalPath(string key)
+        {
+            _wrapNextOpen = true;
+            afterLocalPath?.Invoke();
+            return null;
+        }
+    }
+
+    sealed class BlockingDisposeStream(
+        Stream inner,
+        ManualResetEventSlim? entered,
+        ManualResetEventSlim? release)
+        : Stream
+    {
+        internal int DisposeCount { get; private set; }
+
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => inner.CanSeek;
+        public override bool CanWrite => inner.CanWrite;
+        public override long Length => inner.Length;
+        public override long Position
+        {
+            get => inner.Position;
+            set => inner.Position = value;
+        }
+
+        public override void Flush() =>
+            inner.Flush();
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            inner.Read(buffer, offset, count);
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin) =>
+            inner.Seek(offset, origin);
+
+        public override void SetLength(long value) =>
+            inner.SetLength(value);
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            inner.Write(buffer, offset, count);
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisposeCount++;
+                if (DisposeCount == 2 && entered is not null)
+                {
+                    entered.Set();
+                    Assert.True(
+                        release!.Wait(
+                            TimeSpan.FromSeconds(10)),
+                        "Timed out waiting for PDB disposal release.");
+                }
+                inner.Dispose();
+            }
+            base.Dispose(disposing);
+        }
     }
 
     sealed class CancellationOnReadStream(byte[] bytes)
