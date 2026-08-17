@@ -286,6 +286,70 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void TopLeverageQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    {
+        const string MethodName = "Method\u202EName";
+        const string Stable = "Method\u202EName~1234567890";
+        const string Selector = "Method\u202EName";
+        var method = new MethodIdentity(
+            "Hostile",
+            Guid.Empty,
+            TypeRef.Definition("Hostile", "Namespace", "Type\u202EName"),
+            MethodName,
+            [TypeRef.CoreLib("System", "Int32")],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            IsStatic: true);
+        var leverage = new MethodLeverage(
+            method,
+            DirectCallerCount: 5,
+            Fanout: 4,
+            MaxDepth: 3,
+            LoopCallCount: 2,
+            RootReach: 6);
+        var result = new TopLeverageResult.Available(
+            [leverage],
+            ImmutableHashSet<string>.Empty,
+            [new AnalysisDiagnostic(0x06000001, MethodName, "decode\nfailed")]);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyTopLeverageResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            result,
+            () => new Dictionary<int, (string? Stable, string Visibility, string Selector)>
+            {
+                [method.MetadataToken] = (Stable, "public", Selector),
+            });
+
+        var available = Assert.IsType<TopLeverageResult.Available>(
+            inspection.TopLeverageQueryResult);
+        MethodLeverage queryMethod = Assert.Single(available.Methods);
+        MethodLeverageSummary summary = Assert.Single(inspection.TopLeverage!);
+        TopLeverageRow row = Assert.Single(
+            new LibraryInspectionView(inspection).TopLeverageSection!);
+
+        Assert.Same(leverage, queryMethod);
+        Assert.Same(method, queryMethod.Method);
+        Assert.Equal(MethodName, queryMethod.Method.Name);
+        Assert.Contains(MethodName, summary.Member, StringComparison.Ordinal);
+        Assert.Equal(Stable, summary.Stable);
+        Assert.Equal(Selector, summary.Selector);
+        Assert.Equal(result.Diagnostics, available.Diagnostics);
+
+        Assert.DoesNotContain('\u202E', row.Member);
+        Assert.DoesNotContain('\u202E', row.Stable!);
+        Assert.DoesNotContain('\u202E', row.Selector!);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Member));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Stable!));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Selector!));
+        Assert.StartsWith("<code>", row.Member, StringComparison.Ordinal);
+        Assert.StartsWith("<code>", row.Stable, StringComparison.Ordinal);
+        Assert.StartsWith("<code>", row.Selector, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void UnsafeEvidenceQueryProjection_UsesDistinctPerMethodFindingSubjects()
     {
         static MethodIdentity Method(string name, int token) => new(

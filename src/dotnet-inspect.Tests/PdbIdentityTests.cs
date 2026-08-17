@@ -72,6 +72,7 @@ public class PdbIdentityTests
 
             Assert.True(context.HasPdb);
             Assert.Null(context.PortablePdbPath);
+            Assert.True(stream.IsDisposed);
             Assert.NotEmpty(context.EnumeratePdbDocuments());
         }
         finally

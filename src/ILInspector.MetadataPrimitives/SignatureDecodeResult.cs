@@ -124,9 +124,13 @@ public static class GuardedSignatureDecoder
     public static SignatureDecodeResult<string> DecodeTypeSpecification(
         MetadataReader reader,
         TypeSpecificationHandle handle,
-        GenericContext? context = null)
+        GenericContext? context = null,
+        Action<int>? beforeMaterialize = null)
         => SignatureDecoder.Decode(() =>
         {
+            beforeMaterialize?.Invoke(
+                reader.GetBlobReader(
+                    reader.GetTypeSpecification(handle).Signature).Length);
             if (!TypeSpecGuard.TryEnter(
                 reader,
                 handle,
@@ -144,8 +148,11 @@ public static class GuardedSignatureDecoder
 
             using (scope)
             {
-                return reader.GetTypeSpecification(handle)
-                    .DecodeSignature(SignatureDecoder.Instance, context);
+                return reader.GetTypeSpecification(handle).DecodeSignature(
+                    beforeMaterialize is null
+                        ? SignatureDecoder.Instance
+                        : new SignatureDecoder(beforeMaterialize),
+                    context);
             }
         });
 }

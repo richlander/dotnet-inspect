@@ -69,6 +69,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Rendering Model](design/rendering-model.md) | Historical/current rendering model notes; prefer [Progressive Disclosure](design/progressive-disclosure.md) for current agent-facing behavior. |
 | [Section Model](design/section-model.md) | Section selection design notes; use with [Progressive Disclosure](design/progressive-disclosure.md). |
 | [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |
+| [Query Vocabulary](design/vocabulary.md) | Shared static catalogs for legal query values across CLI and browser hosts. |
 | [Hidden-Fact Annotations](design/hidden-fact-annotations.md) | Allocation/unsafety/lifetime annotation model and the static IL pair-agreement oracle strategy. |
 | [Caret Stacking](design/caret-stacking.md) | `--focus` display model: one caret per fact extent, packed onto as few rows as fit, with the numbered fact texts listed below. |
 | [Decompiler Inspection & Oracle](design/decompiler-inspection-oracle.md) | Unifies single-method inspection (dump/stages) with the corpus-wide fidelity check oracle; product-vs-tool scoping. |

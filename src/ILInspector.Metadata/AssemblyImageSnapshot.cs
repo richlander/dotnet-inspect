@@ -111,7 +111,9 @@ public sealed class AssemblyImageSnapshot
         try
         {
             AssemblyImageSnapshot snapshot;
-            using (Stream stream = OpenSource(assembly))
+            Stream stream = OpenSource(assembly);
+            Exception? primaryFailure = null;
+            try
             {
                 DateTime? lastWriteTimeUtc = stream is FileStream fileStream
                     ? File.GetLastWriteTimeUtc(fileStream.SafeFileHandle)
@@ -160,6 +162,24 @@ public sealed class AssemblyImageSnapshot
                     assembly.Registration,
                     lastWriteTimeUtc);
             }
+            catch (Exception ex)
+            {
+                primaryFailure = ex;
+                throw;
+            }
+            finally
+            {
+                if (primaryFailure is null)
+                {
+                    stream.Dispose();
+                }
+                else
+                {
+                    OwnedResourceCleanup.DisposeAfterFailure(
+                        stream,
+                        primaryFailure);
+                }
+            }
 
             var result = new AssemblyImageSnapshotResult.Ready(
                 snapshot);
@@ -195,15 +215,23 @@ public sealed class AssemblyImageSnapshot
     internal static Stream OpenSource(
         ResolvedAssemblyReference assembly)
     {
-        Stream? stream = assembly.OpenRead();
-        if (stream is null || !stream.CanRead)
+        Stream? stream = null;
+        try
         {
-            stream?.Dispose();
-            throw new IOException(
-                "The assembly opener did not return a readable stream.");
-        }
+            stream = assembly.OpenRead();
+            if (stream is null || !stream.CanRead)
+            {
+                throw new IOException(
+                    "The assembly opener did not return a readable stream.");
+            }
 
-        return stream;
+            return stream;
+        }
+        catch (Exception ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(stream, ex);
+            throw;
+        }
     }
 
     internal static long ReadRemainingLength(Stream stream)

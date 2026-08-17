@@ -10,27 +10,47 @@ namespace ILInspector.Metadata;
 internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, GenericContext?>
 {
     public static TypeNodeProvider Instance { get; } = new();
+    readonly Action<string>? _beforeRetain;
+    readonly Action<int>? _beforeMaterialize;
+
+    public TypeNodeProvider(
+        Action<string>? beforeRetain = null,
+        Action<int>? beforeMaterialize = null)
+    {
+        _beforeRetain = beforeRetain;
+        _beforeMaterialize = beforeMaterialize;
+    }
 
     // Delegate to existing SignatureDecoder for name resolution to avoid duplication.
     private static readonly SignatureDecoder NameDecoder = SignatureDecoder.Instance;
 
     public TypeNode GetPrimitiveType(PrimitiveTypeCode typeCode)
     {
+        _beforeMaterialize?.Invoke(16);
         string name = NameDecoder.GetPrimitiveType(typeCode);
+        _beforeRetain?.Invoke(name);
         bool isRef = typeCode is PrimitiveTypeCode.String or PrimitiveTypeCode.Object;
         return new PrimitiveTypeNode(name, isRef);
     }
 
     public TypeNode GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
     {
-        string name = NameDecoder.GetTypeFromDefinition(reader, handle, rawTypeKind);
+        string name = TypeResolver.GetTypeNameFromDefinition(
+            reader,
+            handle,
+            _beforeMaterialize);
+        _beforeRetain?.Invoke(name);
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
         return new NamedTypeNode(name, isRef);
     }
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
-        string name = NameDecoder.GetTypeFromReference(reader, handle, rawTypeKind);
+        string name = TypeResolver.GetTypeNameFromReference(
+            reader,
+            handle,
+            _beforeMaterialize);
+        _beforeRetain?.Invoke(name);
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
         return new NamedTypeNode(name, isRef);
     }
@@ -45,41 +65,77 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         }
     }
 
-    public TypeNode GetSZArrayType(TypeNode elementType) => new SZArrayTypeNode(elementType);
+    public TypeNode GetSZArrayType(TypeNode elementType)
+    {
+        _beforeMaterialize?.Invoke(16);
+        var node = new SZArrayTypeNode(elementType);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
 
-    public TypeNode GetArrayType(TypeNode elementType, ArrayShape shape) => new MDArrayTypeNode(elementType, shape.Rank);
+    public TypeNode GetArrayType(TypeNode elementType, ArrayShape shape)
+    {
+        ObserveMaterialization(16L + Math.Max(shape.Rank, 0));
+        var node = new MDArrayTypeNode(elementType, shape.Rank);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
 
-    public TypeNode GetByReferenceType(TypeNode elementType) => new ByRefTypeNode(elementType);
+    public TypeNode GetByReferenceType(TypeNode elementType)
+    {
+        _beforeMaterialize?.Invoke(16);
+        var node = new ByRefTypeNode(elementType);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
 
-    public TypeNode GetPointerType(TypeNode elementType) => new PointerTypeNode(elementType);
+    public TypeNode GetPointerType(TypeNode elementType)
+    {
+        _beforeMaterialize?.Invoke(16);
+        var node = new PointerTypeNode(elementType);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
 
     public TypeNode GetGenericInstantiation(TypeNode genericType, ImmutableArray<TypeNode> typeArguments)
     {
+        _beforeMaterialize?.Invoke(checked(16 + typeArguments.Length * 4));
+        ObserveMaterialization(genericType.EstimatedRenderedLength);
         string rawName = genericType is NamedTypeNode n ? n.Name : genericType.Render();
         var backtickIndex = rawName.IndexOf('`');
+        GenericTypeNode node;
         if (backtickIndex < 0)
-            return new GenericTypeNode(rawName, genericType.IsReferenceType, typeArguments);
+        {
+            node = new GenericTypeNode(rawName, genericType.IsReferenceType, typeArguments);
+        }
+        else
+        {
+            // Strip only the arity digits at the first backtick, keeping any trailing
+            // nested-type segment (Dictionary`2.Enumerator -> base "Dictionary",
+            // suffix ".Enumerator") so the instantiation renders Dictionary<…>.Enumerator
+            // rather than collapsing to Dictionary<…>.
+            var baseName = rawName[..backtickIndex];
+            var suffixStart = backtickIndex + 1;
+            while (suffixStart < rawName.Length && char.IsDigit(rawName[suffixStart]))
+                suffixStart++;
+            var nestedSuffix = TypeResolver.FormatDisplayName(rawName[suffixStart..]);
+            node = new GenericTypeNode(
+                baseName,
+                genericType.IsReferenceType,
+                typeArguments,
+                nestedSuffix,
+                genericType.IsDegraded);
+        }
 
-        // Strip only the arity digits at the first backtick, keeping any trailing
-        // nested-type segment (Dictionary`2.Enumerator -> base "Dictionary",
-        // suffix ".Enumerator") so the instantiation renders Dictionary<…>.Enumerator
-        // rather than collapsing to Dictionary<…>.
-        var baseName = rawName[..backtickIndex];
-        var suffixStart = backtickIndex + 1;
-        while (suffixStart < rawName.Length && char.IsDigit(rawName[suffixStart]))
-            suffixStart++;
-        var nestedSuffix = TypeResolver.FormatDisplayName(rawName[suffixStart..]);
-        return new GenericTypeNode(
-            baseName,
-            genericType.IsReferenceType,
-            typeArguments,
-            nestedSuffix,
-            genericType.IsDegraded);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
     }
 
     public TypeNode GetGenericMethodParameter(GenericContext? context, int index)
     {
+        _beforeMaterialize?.Invoke(16);
         string name = NameDecoder.GetGenericMethodParameter(context, index);
+        _beforeRetain?.Invoke(name);
         return new GenericParameterNode(
             name,
             hasValueTypeConstraint: context?.HasMethodParameterValueTypeConstraint(index) == true);
@@ -87,15 +143,38 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetGenericTypeParameter(GenericContext? context, int index)
     {
+        _beforeMaterialize?.Invoke(16);
         string name = NameDecoder.GetGenericTypeParameter(context, index);
+        _beforeRetain?.Invoke(name);
         return new GenericParameterNode(
             name,
             hasValueTypeConstraint: context?.HasTypeParameterValueTypeConstraint(index) == true);
     }
 
-    public TypeNode GetFunctionPointerType(MethodSignature<TypeNode> signature) => new FunctionPointerTypeNode(signature);
+    public TypeNode GetFunctionPointerType(MethodSignature<TypeNode> signature)
+    {
+        _beforeMaterialize?.Invoke(checked(16 + signature.ParameterTypes.Length * 4));
+        var node = new FunctionPointerTypeNode(signature);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
 
-    public TypeNode GetModifiedType(TypeNode modifier, TypeNode unmodifiedType, bool isRequired) => new ModifiedTypeNode(modifier, unmodifiedType, isRequired);
+    public TypeNode GetModifiedType(TypeNode modifier, TypeNode unmodifiedType, bool isRequired)
+    {
+        _beforeMaterialize?.Invoke(16);
+        var node = new ModifiedTypeNode(modifier, unmodifiedType, isRequired);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
 
-    public TypeNode GetPinnedType(TypeNode elementType) => new PassthroughTypeNode(elementType);
+    public TypeNode GetPinnedType(TypeNode elementType)
+    {
+        _beforeMaterialize?.Invoke(16);
+        var node = new PassthroughTypeNode(elementType);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
+
+    void ObserveMaterialization(long units)
+        => _beforeMaterialize?.Invoke((int)Math.Min(units, int.MaxValue));
 }

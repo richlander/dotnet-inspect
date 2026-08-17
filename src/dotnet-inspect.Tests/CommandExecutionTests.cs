@@ -1596,6 +1596,8 @@ public partial class CommandExecutionTests
         Assert.Contains("\"finding\": \"analysis.allocation\"", output);
         Assert.Contains("\"provenance\": \"exact\"", output);
         Assert.Contains("\"operation\": \"box\"", output);
+        Assert.Contains("\"assembly\": \"", output);
+        Assert.Contains("\"method_token\": \"0x06", output);
         Assert.Contains("\"token\": \"0x", output);
     }
 
@@ -7028,7 +7030,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Discover_FilteredUnboundedSection_DoesNotExecuteItsScanner()
+    public async Task Discover_FilteredUnboundedSection_DoesNotExecuteItsQuery()
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
@@ -7041,7 +7043,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
         Assert.Contains("trace: library", error);
-        Assert.DoesNotContain(LibrarySections.ScannerTopLeverage, error);
+        Assert.DoesNotContain(TopLeverageQuery.Definition.Name, error);
         Assert.DoesNotContain("body index", error);
         Assert.DoesNotContain("drill map", error);
     }
@@ -16300,17 +16302,17 @@ public partial class CommandExecutionTests
         // Both runs select by name and therefore share a verbosity, isolating prerequisite
         // sufficiency from verbosity-dependent rendering.
         //
-        // Body-index-backed scanners are excluded for run time only, not correctness: each costs
-        // seconds and this test does one run per section. A new body-index scanner added here
+        // Body-index-backed producers are excluded for run time only, not correctness: each costs
+        // seconds and this test does one run per section. A new body-index producer added here
         // would only make the test slower, never wrong.
         string[] bodyIndexScanners =
         [
-            LibrarySections.ScannerTopLeverage,
             LibrarySections.ScannerOptimizationOpportunities,
             LibrarySections.ScannerResourceTriage,
         ];
         InspectionQueryDefinition[] bodyIndexQueries =
         [
+            TopLeverageQuery.Definition,
             UnsafeEvidenceQuery.Definition,
         ];
 
