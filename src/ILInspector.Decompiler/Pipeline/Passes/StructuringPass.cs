@@ -816,9 +816,9 @@ public sealed class StructuringPass : IIrPass
                     // the break, so this block ends its region cleanly.
                     i++;
                     break;
-                case Leave leave when regionExitBreakTarget == breakTarget
-                    && IsRegionExitLeave(ctx, leave)
-                    && CanRaiseRetryLeave(leave):
+                case Leave leave when regionExitBreakTarget is not null
+                    && regionExitBreakTarget == breakTarget
+                    && IsRegionExitLeave(ctx, leave):
                     i++;
                     break;
                 case Leave leave when offsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
@@ -883,7 +883,14 @@ public sealed class StructuringPass : IIrPass
                         // the body is built; ordinary branches to the condition
                         // remain outside this slice so nested arm exclusivity is
                         // not lost.
-                        var loopRegionExitBreakTarget = LoopExitReachesRegionExit(ctx, loop.ContinueAt, stop)
+                        // RegionExitLeaveWithBodyEntryToTail_DoesNotBecomeBreak
+                        // keeps this proof latch-only before cloned leaves lose
+                        // their original TryFinally ancestry.
+                        var loopRegionExitBreakTarget = LoopExitReachesRegionExit(
+                            ctx,
+                            branchTarget,
+                            loop.ContinueAt,
+                            stop)
                             ? loop.ContinueAt
                             : (int?)null;
                         if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget, loopRegionExitBreakTarget))
@@ -921,6 +928,15 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
+                    if (regionExitBreakTarget is not null
+                        && regionExitBreakTarget == breakTarget
+                        && target > i
+                        && target < stop
+                        && IsRegionExitTerminator(ctx, target))
+                    {
+                        i++;
+                        break;
+                    }
                     // Terminator guard: `if (c) goto T` where T is a short
                     // throw/return-only block no goto targets. Inlining a copy
                     // of T dissolves the branch — position-independent, so T may
@@ -936,6 +952,14 @@ public sealed class StructuringPass : IIrPass
                         return false;  // backward = loop (later slice)
                     }
                     int falseStart = i + 1;
+                    if (regionExitBreakTarget is not null
+                        && regionExitBreakTarget == breakTarget
+                        && falseStart + 1 == target
+                        && IsRegionExitTerminator(ctx, falseStart))
+                    {
+                        i = target;
+                        break;
+                    }
                     if (falseStart + 1 == target
                         && IsRegionExitTerminator(ctx, falseStart)
                         && Validate(ctx, target, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget))
@@ -1604,20 +1628,42 @@ public sealed class StructuringPass : IIrPass
             && IsRegionExitLeave(ctx, leave);
     }
 
-    static bool LoopExitReachesRegionExit(Ctx ctx, int loopExitIndex, int stop)
+    static bool LoopExitReachesRegionExit(
+        Ctx ctx,
+        int latchStartIndex,
+        int loopExitIndex,
+        int stop)
     {
         if (ctx.RegionExitLeaveTarget is null || stop != ctx.Blocks.Count)
             return false;
         if (loopExitIndex == stop)
             return true;
-        if (loopExitIndex < 0 || loopExitIndex >= stop)
+        if (latchStartIndex < 0
+            || latchStartIndex >= loopExitIndex
+            || loopExitIndex < 0
+            || loopExitIndex >= stop)
             return false;
 
         for (int i = loopExitIndex; i < stop; i++)
         {
             if (ctx.DroppableBlocks.Contains(i) || ctx.Blocks[i].Children.Count == 0)
                 continue;
-            return i == stop - 1 && IsRegionExitTerminator(ctx, i);
+            if (i != stop - 1 || !IsRegionExitTerminator(ctx, i))
+                return false;
+        }
+
+        var edges = Cfg.Build(ctx.Blocks);
+        for (int source = 0; source < loopExitIndex; source++)
+        {
+            foreach (int target in edges[source].Successors)
+            {
+                if (target >= loopExitIndex
+                    && target < stop
+                    && source < latchStartIndex)
+                {
+                    return false;
+                }
+            }
         }
         return true;
     }
@@ -2096,9 +2142,9 @@ public sealed class StructuringPass : IIrPass
                     result.Add(last);
                     i++;
                     break;
-                case Leave leave when regionExitBreakTarget == breakTarget
-                    && IsRegionExitLeave(ctx, leave)
-                    && CanRaiseRetryLeave(leave):
+                case Leave leave when regionExitBreakTarget is not null
+                    && regionExitBreakTarget == breakTarget
+                    && IsRegionExitLeave(ctx, leave):
                 {
                     var next = new Break();
                     next.InheritSourceOffset(leave);
@@ -2165,7 +2211,11 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (FindWhileShape(ctx, i, branchTarget, stop) is { } loop)
                     {
-                        var loopRegionExitBreakTarget = LoopExitReachesRegionExit(ctx, loop.ContinueAt, stop)
+                        var loopRegionExitBreakTarget = LoopExitReachesRegionExit(
+                            ctx,
+                            branchTarget,
+                            loop.ContinueAt,
+                            stop)
                             ? loop.ContinueAt
                             : (int?)null;
                         var body = BuildRegion(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget, loopRegionExitBreakTarget);
@@ -2230,6 +2280,17 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
+                    if (regionExitBreakTarget is not null
+                        && regionExitBreakTarget == breakTarget
+                        && target > i
+                        && target < stop
+                        && IsRegionExitTerminator(ctx, target))
+                    {
+                        var breakArm = BuildRegionExitBreakArm(ctx, target, block.StartOffset);
+                        result.Add(new IfStatement(condition, breakArm, null));
+                        i++;
+                        break;
+                    }
                     // Terminator guard: the taken path is the inlined terminator,
                     // so the condition is not negated. T's statements are cloned
                     // from the pre-mutation snapshot.
@@ -2241,6 +2302,16 @@ public sealed class StructuringPass : IIrPass
                         break;
                     }
                     int falseStart = i + 1;
+                    if (regionExitBreakTarget is not null
+                        && regionExitBreakTarget == breakTarget
+                        && falseStart + 1 == target
+                        && IsRegionExitTerminator(ctx, falseStart))
+                    {
+                        var breakArm = BuildRegionExitBreakArm(ctx, falseStart, block.StartOffset);
+                        result.Add(new IfStatement(Negate(condition), breakArm, null));
+                        i = target;
+                        break;
+                    }
                     if (falseStart + 1 == target && IsRegionExitTerminator(ctx, falseStart))
                     {
                         var takenArm = BuildRegion(ctx, target, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget);
@@ -2353,6 +2424,24 @@ public sealed class StructuringPass : IIrPass
             }
         }
         return result;
+    }
+
+    static Block BuildRegionExitBreakArm(Ctx ctx, int blockIndex, int startOffset)
+    {
+        var source = ctx.Blocks[blockIndex];
+        var arm = new Block(startOffset);
+        // The leave block may set failure state before exiting the protected
+        // region. Clone that prefix into every guard that now exits via break.
+        for (int i = 0; i < source.Children.Count - 1; i++)
+            arm.Add(source.Children[i].Clone());
+        SuppressClonedSourceLabels(arm);
+
+        var leave = (Leave)source.Children[^1];
+        var next = new Break();
+        next.InheritSourceOffset(leave);
+        ctx.GeneratedLoopTransfers.Add(next);
+        arm.Add(next);
+        return arm;
     }
 
     static void ReplaceRetryLeavesWithContinues(IrNode root, int targetOffset)

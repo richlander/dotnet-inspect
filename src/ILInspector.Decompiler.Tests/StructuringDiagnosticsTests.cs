@@ -258,6 +258,40 @@ public class StructuringDiagnosticsTests
     }
 
     [Fact]
+    public void ForeachRegionExitBeforeLatch_StructuresWithoutLeaveStop()
+    {
+        var diag = RunWithDiagnostics(nameof(CfgSampleClass.CollectValidDoubles));
+
+        Assert.True(diag.Structured > 0);
+        Assert.DoesNotContain("leave-region-exit-not-region-end", diag.Stops);
+        Assert.Empty(diag.Stops);
+    }
+
+    [Fact]
+    public void ForeachRegionExitBeforeLatch_RaisesWithoutGotoResidue()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.CollectValidDoubles));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+
+        var output = result.Output!.ReplaceLineEndings("\n");
+        Assert.Contains("foreach (", output);
+        Assert.Equal(3, output.Split("result = null;").Length - 1);
+        Assert.True(
+            output.LastIndexOf("break;", StringComparison.Ordinal)
+                < output.IndexOf("result.Add(", StringComparison.Ordinal),
+            output);
+        Assert.DoesNotContain("goto IL_", output);
+        Assert.DoesNotContain("// leave", output);
+    }
+
+    [Fact]
     public void LeaveToCommonExit_StructuresAfterRecoveredTryFinally()
     {
         var function = BuildTryFinallyWithLeaveToCommonExit();
