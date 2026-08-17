@@ -51,13 +51,15 @@ internal static class ExplicitFilterGuard
             return null;
         }
 
-        var startInfo = new ProcessStartInfo("dotnet")
+        ProcessStartInfo? startInfo = CreatePreflightStartInfo(assemblyPath);
+        if (startInfo is null)
         {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        startInfo.ArgumentList.Add(assemblyPath);
+            return InfrastructureError;
+        }
+
+        startInfo.RedirectStandardOutput = true;
+        startInfo.RedirectStandardError = true;
+        startInfo.UseShellExecute = false;
         startInfo.ArgumentList.Add(PreflightArgument);
         foreach (string arg in args)
         {
@@ -89,6 +91,69 @@ internal static class ExplicitFilterGuard
         catch (Exception)
         {
             return InfrastructureError;
+        }
+    }
+
+    private static ProcessStartInfo? CreatePreflightStartInfo(
+        string assemblyPath)
+    {
+        string? processPath = Environment.ProcessPath;
+        string? dotnetHostPath =
+            Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
+        if (!string.IsNullOrEmpty(dotnetHostPath))
+        {
+            var result = new ProcessStartInfo(dotnetHostPath);
+            if (!PathsEqual(dotnetHostPath, processPath)
+                || IsDotnetMuxer(dotnetHostPath))
+            {
+                result.ArgumentList.Add(assemblyPath);
+            }
+
+            return result;
+        }
+
+        if (string.IsNullOrEmpty(processPath))
+        {
+            return null;
+        }
+
+        var fallback = new ProcessStartInfo(processPath);
+        if (IsDotnetMuxer(processPath))
+        {
+            fallback.ArgumentList.Add(assemblyPath);
+        }
+
+        return fallback;
+    }
+
+    private static bool IsDotnetMuxer(string path) =>
+        string.Equals(
+            Path.GetFileNameWithoutExtension(path),
+            "dotnet",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool PathsEqual(string left, string? right)
+    {
+        if (right is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(left),
+                Path.GetFullPath(right),
+                OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal);
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException
+            or NotSupportedException
+            or PathTooLongException)
+        {
+            return false;
         }
     }
 

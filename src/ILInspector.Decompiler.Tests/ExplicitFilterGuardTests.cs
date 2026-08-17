@@ -50,6 +50,9 @@ public class ExplicitFilterGuardTests
             "ILInspector.Decompiler.Tests.GateArgumentExpanderTests.ThisMethodDoesNotExist";
 
         ProcessResult valid = await RunHostAsync("-method", validMethod);
+        ProcessResult appHostWithoutDotnetPath = await RunAppHostAsync(
+            "-method",
+            validMethod);
         ProcessResult mixed = await RunHostWithResponseFileAsync(
             "-class", validClass,
             "-class", missingClass,
@@ -118,6 +121,13 @@ public class ExplicitFilterGuardTests
             valid.ExitCode == 0,
             $"Expected a valid filter to pass, got {valid.ExitCode}.\n{valid.Output}\n{valid.Error}");
         Assert.Contains("Total: 1,", valid.Output);
+
+        Assert.True(
+            appHostWithoutDotnetPath.ExitCode == 0,
+            "Expected the apphost to run a valid filter without dotnet on PATH, "
+            + $"got {appHostWithoutDotnetPath.ExitCode}.\n"
+            + $"{appHostWithoutDotnetPath.Output}\n{appHostWithoutDotnetPath.Error}");
+        Assert.Contains("Total: 1,", appHostWithoutDotnetPath.Output);
 
         Assert.Equal(2, mixed.ExitCode);
         Assert.Contains("explicit xUnit filter matched no discovered tests", mixed.Error);
@@ -215,17 +225,60 @@ public class ExplicitFilterGuardTests
     private static Task<ProcessResult> RunHostAsync(params string[] arguments) =>
         RunHostAsync(null, arguments);
 
+    private static async Task<ProcessResult> RunAppHostAsync(
+        params string[] arguments)
+    {
+        string assemblyPath = typeof(Program).Assembly.Location;
+        string appHostPath = Path.Combine(
+            Path.GetDirectoryName(assemblyPath)
+                ?? throw new InvalidOperationException("Test assembly has no directory."),
+            Path.GetFileNameWithoutExtension(assemblyPath)
+                + (OperatingSystem.IsWindows() ? ".exe" : string.Empty));
+        Assert.True(File.Exists(appHostPath), $"Test apphost not found: {appHostPath}");
+
+        var environment = new Dictionary<string, string?>
+        {
+            ["PATH"] = Path.Combine(
+                Path.GetTempPath(),
+                $"filter-guard-empty-path-{Guid.NewGuid():N}"),
+            ["DOTNET_HOST_PATH"] = null,
+        };
+        string? dotnetHostPath =
+            Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
+        if (!string.IsNullOrEmpty(dotnetHostPath))
+        {
+            environment["DOTNET_ROOT"] = Path.GetDirectoryName(dotnetHostPath);
+        }
+
+        return await RunProcessAsync(appHostPath, null, environment, arguments);
+    }
+
     private static async Task<ProcessResult> RunHostAsync(
+        IReadOnlyDictionary<string, string?>? environment,
+        params string[] arguments) =>
+        await RunProcessAsync(
+            "dotnet",
+            typeof(Program).Assembly.Location,
+            environment,
+            arguments);
+
+    private static async Task<ProcessResult> RunProcessAsync(
+        string fileName,
+        string? firstArgument,
         IReadOnlyDictionary<string, string?>? environment,
         params string[] arguments)
     {
-        var startInfo = new ProcessStartInfo("dotnet")
+        var startInfo = new ProcessStartInfo(fileName)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
         };
-        startInfo.ArgumentList.Add(typeof(Program).Assembly.Location);
+        if (firstArgument is not null)
+        {
+            startInfo.ArgumentList.Add(firstArgument);
+        }
+
         foreach (string argument in arguments)
         {
             startInfo.ArgumentList.Add(argument);
@@ -235,7 +288,14 @@ public class ExplicitFilterGuardTests
         {
             foreach ((string name, string? value) in environment)
             {
-                startInfo.Environment[name] = value;
+                if (value is null)
+                {
+                    startInfo.Environment.Remove(name);
+                }
+                else
+                {
+                    startInfo.Environment[name] = value;
+                }
             }
         }
 
