@@ -228,55 +228,11 @@ public class LibraryCommand
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
         {
-            const string ilCoordinateRequired =
-                "IL coordinate sections require --il-offset <token>+<offset>.";
-            var heapCoordinateRequired =
-                $"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".";
-            var removedILCoordinateSections = false;
-            var removedHeapSection = false;
-
-            if (selectResult.Sections.Overlaps(ILCoordinateSections)
-                && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
+            if (ApplyCoordinateSectionRequirements(
+                    options,
+                    selectResult) is { } coordinateError)
             {
-                if (!selectResult.ExactSections.Overlaps(ILCoordinateSections))
-                {
-                    var count = selectResult.Sections.Count;
-                    selectResult.Sections.ExceptWith(ILCoordinateSections);
-                    removedILCoordinateSections = selectResult.Sections.Count != count;
-                }
-                else if (options.Discover == null)
-                {
-                    CommandError.Write(ilCoordinateRequired);
-                    return 1;
-                }
-            }
-
-            if (selectResult.Sections.Contains(MetadataSectionNames.Heap)
-                && string.IsNullOrWhiteSpace(options.HeapParameter))
-            {
-                // Same discipline as the IL coordinate sections above: reached through the
-                // @Metadata door the section is simply dropped, because a category selection is a
-                // request for whatever applies; reached by an exact name or compatible alias it is
-                // an error, because the caller asked for a specific section that cannot exist
-                // without its coordinate.
-                if (!selectResult.ExactSections.Contains(MetadataSectionNames.Heap))
-                {
-                    removedHeapSection = selectResult.Sections.Remove(MetadataSectionNames.Heap);
-                }
-                else if (options.Discover == null)
-                {
-                    CommandError.Write(heapCoordinateRequired);
-                    return 1;
-                }
-            }
-
-            if (selectResult.Sections.Count == 0
-                && (removedILCoordinateSections || removedHeapSection))
-            {
-                if (removedILCoordinateSections)
-                    CommandError.Write(ilCoordinateRequired);
-                else if (removedHeapSection)
-                    CommandError.Write(heapCoordinateRequired);
+                CommandError.Write(coordinateError);
                 return 1;
             }
 
@@ -1328,6 +1284,66 @@ public class LibraryCommand
         }, null);
     }
 
+    internal static string? ApplyCoordinateSectionRequirements(
+        LibraryOptions options,
+        SelectResult selectResult)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(selectResult);
+        if (selectResult.Sections is not { } sections)
+            return null;
+
+        const string ilCoordinateRequired =
+            "IL coordinate sections require --il-offset <token>+<offset>.";
+        var heapCoordinateRequired =
+            $"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".";
+        var removedILCoordinateSections = false;
+        var removedHeapSection = false;
+
+        if (sections.Overlaps(ILCoordinateSections)
+            && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
+        {
+            if (!selectResult.ExactSections.Overlaps(ILCoordinateSections))
+            {
+                var count = sections.Count;
+                sections.ExceptWith(ILCoordinateSections);
+                removedILCoordinateSections = sections.Count != count;
+            }
+            else if (options.Discover == null)
+            {
+                return ilCoordinateRequired;
+            }
+        }
+
+        if (sections.Contains(MetadataSectionNames.Heap)
+            && string.IsNullOrWhiteSpace(options.HeapParameter))
+        {
+            // Reached through @Metadata the section is dropped because a category selects whatever
+            // applies. An exact selector is an error because the section cannot exist without its
+            // coordinate.
+            if (!selectResult.ExactSections.Contains(
+                    MetadataSectionNames.Heap))
+            {
+                removedHeapSection = sections.Remove(
+                    MetadataSectionNames.Heap);
+            }
+            else if (options.Discover == null)
+            {
+                return heapCoordinateRequired;
+            }
+        }
+
+        if (sections.Count != 0
+            || (!removedILCoordinateSections && !removedHeapSection))
+        {
+            return null;
+        }
+
+        return removedILCoordinateSections
+            ? ilCoordinateRequired
+            : heapCoordinateRequired;
+    }
+
     // Catalog-hidden set for the effective (real-assembly) -D flows. Base-category
     // members form the flat catalog; separate domains remain behind their category
     // doors even when a coordinate or other explicit input makes a member effective.
@@ -1335,13 +1351,16 @@ public class LibraryCommand
         => pipeline.GetCatalogHiddenSections();
 
     /// <summary>
-    /// Rejects rendered metadata-lens rows when a package resolved to more than one assembly.
-    /// The lens renders raw ECMA-335 tables of one image: row ids are image-relative and section
-    /// names carry no assembly, so several assemblies would emit repeated
+    /// Rejects direct-library metadata-lens rows when a package resolved to more than one assembly.
+    /// That renderer carries no per-image provenance: several assemblies would emit repeated
     /// <c>## Metadata: TypeDef</c> headings whose rows silently belong to different images and
     /// whose row numbering restarts without saying so. Aggregate counts remain safe because they
-    /// do not expose image-relative row identities; the rejection and count allowance are gated by
-    /// <c>MetadataLens_MultipleAssemblies_IsRejected</c> in dotnet-inspect.Tests.
+    /// do not expose image-relative row identities. Package <c>--all-libraries</c> is a separate
+    /// renderer that suffixes each metadata heading with the package-relative assembly path. The
+    /// direct-library rejection and count allowance are gated by
+    /// <c>MetadataLens_MultipleAssemblies_IsRejected</c> in dotnet-inspect.Tests; all-libraries
+    /// provenance is gated by
+    /// <c>PackageCommand_AllLibraries_BareSelectCount_MapDescribesBareSelectRender</c>.
     /// </summary>
     private static bool RejectMultiAssemblyMetadataSelection(
         IReadOnlyCollection<LibraryInspection> inspections, LibraryOptions options)

@@ -3363,7 +3363,21 @@ public class PackageCommand
             selectDefault: libraryOptions.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
-            libraryOptions = libraryOptions with { IncludeSections = selectResult.Sections };
+        {
+            if (LibraryCommand.ApplyCoordinateSectionRequirements(
+                    libraryOptions,
+                    selectResult) is { } coordinateError)
+            {
+                CommandError.Write(coordinateError);
+                return 1;
+            }
+
+            libraryOptions = libraryOptions with
+            {
+                IncludeSections = selectResult.Sections,
+                ExactIncludeSectionsOverride = selectResult.ExactSections,
+            };
+        }
 
         if (libraryOptions.Count
             && !CountOutput.ValidateSectionsSelected(
@@ -3558,6 +3572,10 @@ public class PackageCommand
             return completionExitCode;
         }
 
+        Dictionary<string, int>? sectionCounts = libraryOptions.Count
+            ? new Dictionary<string, int>(
+                StringComparer.OrdinalIgnoreCase)
+            : null;
         var markdown = RenderAllLibrariesMarkdown(
             packageName,
             version,
@@ -3565,7 +3583,7 @@ public class PackageCommand
             sections,
             libraryOptions,
             pipeline,
-            out var sectionCounts);
+            sectionCounts);
         if (libraryOptions.Count)
         {
             var ordered = OutputFormatter.ResolveCountMapSections(
@@ -3575,7 +3593,7 @@ public class PackageCommand
             if (ordered != null)
             {
                 CountOutput.WriteCountMap(
-                    sectionCounts,
+                    sectionCounts!,
                     ordered,
                     options.OutputPath);
             }
@@ -4093,11 +4111,9 @@ public class PackageCommand
         List<string> sections,
         LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline,
-        out Dictionary<string, int> sectionCounts)
+        Dictionary<string, int>? sectionCounts)
     {
         var sb = new StringBuilder();
-        sectionCounts = new Dictionary<string, int>(
-            StringComparer.OrdinalIgnoreCase);
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
         AppendBlock(sb, $"# {title}");
 
@@ -4108,8 +4124,14 @@ public class PackageCommand
                 AppendAggregatedSection(sb, section, inspections, options.Rows);
             else
                 AppendPerLibrarySections(sb, section, inspections, options, pipeline);
-            sectionCounts[section] = CountOutput.CountMarkdownTableRows(
-                sb.ToString(sectionStart, sb.Length - sectionStart));
+            if (sectionCounts is not null)
+            {
+                sectionCounts[section] =
+                    CountOutput.CountMarkdownTableRows(
+                        sb.ToString(
+                            sectionStart,
+                            sb.Length - sectionStart));
+            }
         }
 
         return sb.ToString().TrimEnd();

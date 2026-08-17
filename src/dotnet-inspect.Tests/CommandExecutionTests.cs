@@ -17107,6 +17107,9 @@ public partial class CommandExecutionTests
                     "q");
 
             Assert.Equal(0, metadataExit);
+            Assert.DoesNotContain(
+                $"| {MetadataSectionNames.Heap} |",
+                metadataOutput);
             var metadataImageRow = metadataOutput
                 .ReplaceLineEndings("\n")
                 .Split('\n')
@@ -17116,7 +17119,31 @@ public partial class CommandExecutionTests
             var metadataImageCount = int.Parse(
                 metadataImageRow.Split('|')[2].Trim(),
                 CultureInfo.InvariantCulture);
-            Assert.True(metadataImageCount > 0);
+            var (metadataImageRenderExit, metadataImageRender, _) =
+                await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    MetadataSectionNames.Image,
+                    "--tips",
+                    "q");
+            Assert.Equal(0, metadataImageRenderExit);
+            Assert.Equal(
+                CountOutput.CountMarkdownTableRows(
+                    metadataImageRender),
+                metadataImageCount);
+            Assert.Contains(
+                $"## {MetadataSectionNames.Image} (ref/",
+                metadataImageRender);
+            Assert.Equal(
+                2,
+                metadataImageRender
+                    .ReplaceLineEndings("\n")
+                    .Split('\n')
+                    .Count(line => line.StartsWith(
+                        $"## {MetadataSectionNames.Image} (",
+                        StringComparison.Ordinal)));
             Assert.DoesNotContain(
                 "unprojected output",
                 metadataError,
