@@ -72,11 +72,12 @@ The library catalog calls `WithoutComputedPoles`; it does not expose computed
 
 ```csharp
 registry.Add(
-    ScannerUnsafeMembers,
+    ScannerTopLeverage,
     SectionCost.Unbounded,
-    ctx => ctx.Model.UnsafeMembers =
-        LibraryMetadataService.ScanUnsafeMembers(
+    ctx => ctx.Model.TopLeverage =
+        LibraryMetadataService.ScanTopLeverage(
             ctx.BodyIndex,
+            ctx.DrillMap,
             ctx.AssemblyPath,
             ctx.Logger));
 ```
@@ -92,10 +93,12 @@ Methods, and Signals; one demand set executes it once against the command-owned
 `AssemblyInspectionSession`. `Signals` also binds `AuditMetadataQuery` and
 `AssemblyReferencesQuery`; the host applies all three typed results before
 CLI-owned signal composition, then recomposes only model-derived rows after
-later source evidence lands.
+later source evidence lands. `Unsafe Members` binds the unbounded
+`UnsafeEvidenceQuery`, which consumes the command's shared Analysis body index
+and retains raw unsafe evidence through the Finding and presentation boundary.
 
 The residual `ScannerRegistry` now contains only the unbounded Analysis-backed
-Unsafe Members, Top Leverage, Performance, and Resource Triage producers.
+Top Leverage, Performance, and Resource Triage producers.
 
 The registry rejects:
 
