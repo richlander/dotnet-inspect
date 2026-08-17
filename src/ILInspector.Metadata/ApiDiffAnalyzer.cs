@@ -1,5 +1,6 @@
 using CSharpText;
 using ILInspector.MetadataPrimitives;
+using InertText;
 
 namespace ILInspector.Metadata;
 
@@ -147,23 +148,66 @@ public record ApiChange(
 
     /// <summary>
     /// The human-readable description, which embeds untrusted type and member
-    /// names. Containment happens here rather than at each of the eight sites
-    /// that compose a message, so a ninth cannot reopen the hole. Identity lives
-    /// in <see cref="Subject"/> and stays raw (issue #3319).
+    /// names. The string facade keeps its legacy spelling while the
+    /// <see cref="GetMessageText"/> carrier preserves typed containment for
+    /// structural sinks. Identity lives in <see cref="Subject"/> and stays raw
+    /// (issue #3319). The
+    /// <c>ApiChangeText_WithLiteralEscapeSpellings_RemainsRenderable</c> test
+    /// gates literal escape-like text and record-copy updates.
     /// </summary>
-    public string Message { get; init; } = CSharpIdentifierCore.ContainComposedName(Message);
+    private ApiChangeText _messageText = ApiChangeText.Create(Message);
+
+    public string Message
+    {
+        get => _messageText.Legacy;
+        init => _messageText = ApiChangeText.Create(value);
+    }
 
     /// <inheritdoc cref="Message"/>
-    public string? OldValue { get; init; } = OldValue is null ? null : CSharpIdentifierCore.ContainComposedName(OldValue);
+    private ApiChangeText? _oldValueText = ApiChangeText.CreateOptional(OldValue);
+
+    public string? OldValue
+    {
+        get => _oldValueText?.Legacy;
+        init => _oldValueText = ApiChangeText.CreateOptional(value);
+    }
 
     /// <inheritdoc cref="Message"/>
-    public string? NewValue { get; init; } = NewValue is null ? null : CSharpIdentifierCore.ContainComposedName(NewValue);
+    private ApiChangeText? _newValueText = ApiChangeText.CreateOptional(NewValue);
+
+    public string? NewValue
+    {
+        get => _newValueText?.Legacy;
+        init => _newValueText = ApiChangeText.CreateOptional(value);
+    }
+
+    /// <summary>Gets the message contained from its untreated input.</summary>
+    public InertString GetMessageText() => _messageText.Inert;
+
+    /// <summary>Gets the old value contained from its untreated input.</summary>
+    public InertString? GetOldValueText() => _oldValueText?.Inert;
+
+    /// <summary>Gets the new value contained from its untreated input.</summary>
+    public InertString? GetNewValueText() => _newValueText?.Inert;
 
     /// <inheritdoc cref="Kind"/>
     public ApiChangeCategory Category { get; init; } = Category;
 
     /// <inheritdoc cref="Kind"/>
     public ApiChangeSubject? Subject { get; init; } = Subject;
+
+    private readonly record struct ApiChangeText(
+        string Legacy,
+        InertString Inert)
+    {
+        public static ApiChangeText Create(string value) =>
+            new(
+                CSharpIdentifierCore.ContainComposedName(value),
+                new InertString(TextPolicy.Field, value));
+
+        public static ApiChangeText? CreateOptional(string? value) =>
+            value is null ? null : Create(value);
+    }
 }
 
 /// <summary>

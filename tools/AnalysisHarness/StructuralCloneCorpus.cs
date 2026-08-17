@@ -27,7 +27,19 @@ public sealed record StructuralCloneCorpusCase(
     [property: JsonRequired] string Difficulty,
     [property: JsonRequired] string Intent,
     [property: JsonRequired] string Actionability,
-    [property: JsonRequired] ImmutableArray<string> Tags);
+    [property: JsonRequired] ImmutableArray<string> Tags,
+    StructuralCloneCorpusEditSummary? ExpectedEdits);
+
+public sealed record StructuralCloneCorpusEditSummary(
+    int InsertedBlocks,
+    int RemovedBlocks,
+    int ChangedBlocks,
+    int InsertedOperations,
+    int RemovedOperations,
+    int ChangedOperations,
+    int InsertedEdges,
+    int RemovedEdges,
+    int ChangedEdges);
 
 public sealed record StructuralCloneCorpusMethod(
     [property: JsonRequired] string Type,
@@ -39,9 +51,11 @@ public sealed record StructuralCloneCorpusCaseResult(
     StructuralCloneCorpusMethod Right,
     StructuralCloneDisposition ExpectedDisposition,
     StructuralCloneRelation? ExpectedRelation,
+    StructuralCloneCorpusEditSummary? ExpectedEdits,
     StructuralCloneDisposition ActualDisposition,
     StructuralCloneRelation? ActualRelation,
     StructuralCloneCorrespondenceKind? Correspondence,
+    ImmutableArray<StructuralCloneCorpusEditSummary> ActualEdits,
     ImmutableArray<StructuralCloneBlocker> Blockers,
     StructuralCloneVerificationReceipt Receipt,
     bool Passed);
@@ -96,6 +110,8 @@ public static class StructuralCloneCorpus
         ImmutableHashSet.Create(
             StringComparer.Ordinal,
             "authored-duplicate",
+            "authored-near",
+            "authored-hard-negative",
             "control-flow-contrast",
             "semantic-hazard",
             "unsupported-boundary");
@@ -163,6 +179,14 @@ public static class StructuralCloneCorpus
             bool passed =
                 comparison.Disposition == item.ExpectedDisposition
                 && comparison.Relation == item.ExpectedRelation;
+            ImmutableArray<StructuralCloneCorpusEditSummary> actualEdits =
+                Summaries(comparison);
+            if (item.ExpectedEdits is { } expectedEdits)
+            {
+                passed = passed
+                    && !actualEdits.IsEmpty
+                    && actualEdits.All(edit => edit == expectedEdits);
+            }
             results.Add(
                 new StructuralCloneCorpusCaseResult(
                     item.Id,
@@ -170,9 +194,12 @@ public static class StructuralCloneCorpus
                     item.Right,
                     item.ExpectedDisposition,
                     item.ExpectedRelation,
+                    item.ExpectedEdits,
                     comparison.Disposition,
                     comparison.Relation,
-                    comparison.Correspondence?.Kind,
+                    comparison.Correspondence?.Kind
+                        ?? comparison.Alignment?.Kind,
+                    actualEdits,
                     comparison.Blockers,
                     comparison.Receipt,
                     passed));
@@ -262,7 +289,17 @@ public static class StructuralCloneCorpus
             {
                 output.Append(" (");
                 output.Append(correspondence);
-                output.Append(" correspondence)");
+                output.Append(
+                    item.ActualRelation == StructuralCloneRelation.Near
+                        ? " alignment)"
+                        : " correspondence)");
+            }
+            if (!item.ActualEdits.IsEmpty)
+            {
+                output.Append(": edits ");
+                output.Append(string.Join(
+                    " | ",
+                    item.ActualEdits.Select(FormatEdits)));
             }
             output.AppendLine();
         }
@@ -287,10 +324,10 @@ public static class StructuralCloneCorpus
 
     static void Validate(StructuralCloneCorpusDocument document)
     {
-        if (document.SchemaVersion != 2)
+        if (document.SchemaVersion != 3)
         {
             throw new InvalidDataException(
-                $"Unsupported structural clone corpus schema {document.SchemaVersion}; expected 2.");
+                $"Unsupported structural clone corpus schema {document.SchemaVersion}; expected 3.");
         }
         if (document.Cases.IsDefaultOrEmpty)
             throw new InvalidDataException(
@@ -318,6 +355,31 @@ public static class StructuralCloneCorpus
             {
                 throw new InvalidDataException(
                     $"Corpus case '{item.Id}' must separate disposition from relation: completed requires a relation and other dispositions forbid one.");
+            }
+            if ((item.ExpectedRelation == StructuralCloneRelation.Near)
+                != (item.ExpectedEdits is not null))
+            {
+                throw new InvalidDataException(
+                    $"Corpus case '{item.Id}' must declare expectedEdits "
+                        + "exactly when its relation is Near.");
+            }
+            if (item.ExpectedEdits is { } edits
+                && new[]
+                {
+                    edits.InsertedBlocks,
+                    edits.RemovedBlocks,
+                    edits.ChangedBlocks,
+                    edits.InsertedOperations,
+                    edits.RemovedOperations,
+                    edits.ChangedOperations,
+                    edits.InsertedEdges,
+                    edits.RemovedEdges,
+                    edits.ChangedEdges,
+                }.Any(static count => count < 0))
+            {
+                throw new InvalidDataException(
+                    $"Corpus case '{item.Id}' expectedEdits counts "
+                        + "must be non-negative.");
             }
             if (!s_difficulties.Contains(item.Difficulty))
                 throw InvalidAxis(item.Id, "difficulty", item.Difficulty);
@@ -371,6 +433,7 @@ public static class StructuralCloneCorpus
                     MethodKey(item.Left),
                     MethodKey(item.Right));
             }
+
         }
 
         return
@@ -390,6 +453,34 @@ public static class StructuralCloneCorpus
                 .OrderBy(ClusterKey, StringComparer.Ordinal),
         ];
     }
+
+    static ImmutableArray<StructuralCloneCorpusEditSummary> Summaries(
+        StructuralCloneComparison comparison)
+        => comparison.Alignment is null
+            ? []
+            :
+            [
+                .. comparison.Alignment.Alternatives.Select(
+                    static alternative => new StructuralCloneCorpusEditSummary(
+                        alternative.Blocks.Count(static edit =>
+                            edit.Kind == StructuralCloneEditKind.Inserted),
+                        alternative.Blocks.Count(static edit =>
+                            edit.Kind == StructuralCloneEditKind.Removed),
+                        alternative.Blocks.Count(static edit =>
+                            edit.Kind == StructuralCloneEditKind.Changed),
+                        alternative.Operations.Count(static edit =>
+                            edit.Kind == StructuralCloneEditKind.Inserted),
+                        alternative.Operations.Count(static edit =>
+                            edit.Kind == StructuralCloneEditKind.Removed),
+                        alternative.Operations.Count(static edit =>
+                            edit.Kind == StructuralCloneEditKind.Changed),
+                        alternative.Edges.Count(static edit =>
+                            edit.Kind == StructuralCloneEditKind.Inserted),
+                        alternative.Edges.Count(static edit =>
+                            edit.Kind == StructuralCloneEditKind.Removed),
+                        alternative.Edges.Count(static edit =>
+                            edit.Kind == StructuralCloneEditKind.Changed))),
+            ];
 
     static void Union(
         Dictionary<string, string> parent,
@@ -423,6 +514,11 @@ public static class StructuralCloneCorpus
 
     static string MethodKey(StructuralCloneCorpusMethod method)
         => $"{method.Type}\0{method.Method}";
+
+    static string FormatEdits(StructuralCloneCorpusEditSummary edits)
+        => $"blocks +{edits.InsertedBlocks}/-{edits.RemovedBlocks}/~{edits.ChangedBlocks}, "
+            + $"operations +{edits.InsertedOperations}/-{edits.RemovedOperations}/~{edits.ChangedOperations}, "
+            + $"edges +{edits.InsertedEdges}/-{edits.RemovedEdges}/~{edits.ChangedEdges}";
 
     static MethodDefinitionHandle Resolve(
         MetadataReader reader,

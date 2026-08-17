@@ -4,6 +4,10 @@
 
 ### Inspection reliability
 
+- Diff presentation now carries titles, summaries, versions, grouped type
+  names, row values, and composed document fields through typed inert-text
+  boundaries while preserving Markdown, table, JSONL, and document JSON shapes
+  (#3463).
 - **Breaking:** `library` and `package --all-libraries` now return a non-zero
   exit status when an explicitly selected section is empty because its
   inspection failed. Resource Triage reports incomplete method analysis as a

@@ -13,12 +13,13 @@ boundaries. Typed query-planning slices are implemented for project guidance,
 library metadata-image, direct-reference, assembly-context reference, package
 dependency-group, loaded dependency-coordinate match,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
-union-type, classified-method, audit-metadata, switch, SourceLink, Integrations,
-implementation relationships, type/member search,
+union-type, classified-method, audit-metadata, unsafe-evidence, switch,
+SourceLink, Integrations, implementation relationships, type/member search,
 extension reachability, API-comparison, Analysis body-signal comparison, and
-Implementation comparison inspection. The `diff` Changes, Analysis Diff, and
-Implementation Diff sections consume producer-owned comparison results over
-host-resolved surfaces, body indexes, and retained assembly content.
+Implementation comparison inspection, plus group-scoped
+authored-or-decompiled type/member source. The `diff` Changes, Analysis Diff,
+and Implementation Diff sections consume producer-owned comparison results
+over host-resolved surfaces, body indexes, and retained assembly content.
 The library CLI, package `--all-libraries`, `extensions`, `implements`, and
 `find` now host workspace-backed queries. Independent search fan-out remains
 sequential and bounded to one retained participant at a time; group-scoped
@@ -32,15 +33,16 @@ substrates, and inspection producers that will extend that space.
   and content-shaped metadata, reference, package dependency-group,
   loaded dependency-coordinate match,
   extension-method, custom-attribute, manifest-resource, type-forwarder,
-  union-type, classified-method, audit-metadata, SourceLink,
-  implementation-relationship,
-  type/member search, extension-reachability, API-comparison, and progressive
-  call-graph queries. It has no Markout, console, or filesystem-path dependency.
+  union-type, classified-method, audit-metadata, unsafe-evidence, SourceLink,
+  implementation-relationship, type/member search, extension-reachability,
+  API-comparison, progressive call-graph, and group-scoped source queries. The
+  source query owns a Decompiler fallback over retained assembly content. The
+  project has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
   implementation assembly content, returning typed results without pulling
-  Research or Decompiler dependencies into the core query assembly.
+  Research into the core query assembly.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
