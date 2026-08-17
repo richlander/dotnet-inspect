@@ -378,8 +378,7 @@ public class ExtensionsCommand
     {
         var view = ExtensionsOutputFormatter.BuildView(
             targetType,
-            results,
-            options.Verbosity);
+            results);
         return CountOutput.TryWriteProjected(
             view,
             SearchViewContext.Default,

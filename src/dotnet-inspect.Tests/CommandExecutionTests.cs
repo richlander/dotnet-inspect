@@ -8354,6 +8354,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Extensions_CountIsIndependentOfQuietSummaryShape()
+    {
+        var normal = await RunAppAsync(
+            "extensions", "IEnumerable<T>", "--platform", "System.Linq",
+            "--count", "--tips", "q");
+        var quiet = await RunAppAsync(
+            "extensions", "IEnumerable<T>", "--platform", "System.Linq",
+            "--count", "-v", "q", "--tips", "q");
+        var quietWindowed = await RunAppAsync(
+            "extensions", "IEnumerable<T>", "--platform", "System.Linq",
+            "--count", "-v", "q", "--rows", "1", "--tips", "q");
+
+        Assert.Equal(0, normal.Exit);
+        Assert.Equal(normal.Output, quiet.Output);
+        Assert.NotEqual("0", normal.Output.Trim());
+        Assert.Equal("1", quietWindowed.Output.Trim());
+    }
+
+    [Fact]
     public async Task SearchCounts_ApplyRowsAndValidateProjectedColumns()
     {
         var find = await RunAppAsync(
