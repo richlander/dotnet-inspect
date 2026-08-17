@@ -16,10 +16,11 @@ also binds mixed peer seeds without selecting a primary and declares its
 request-free workspace projection as an induced set over workspace
 participants.
 
-This first executable mode slice binds request intent to graph subjects without
-changing producer demand or topology. Request-driven neighborhood construction,
-relationship-specific admission, traversal bounds, induced explicit-subject
-sets, and command/presentation surfaces remain design targets.
+The current executable mode slices bind request intent to graph subjects and
+make seed admission a descriptor-owned relationship contract without changing
+producer demand or topology. Request-driven relationship selection, admission
+validation and neighborhood construction, traversal bounds, induced
+explicit-subject sets, and command/presentation surfaces remain design targets.
 
 `CallAdapter_PreservesTypedTopologyAndDisclosesEvidenceGap`,
 `PackageSeed_BindsToNodeOrGroupSelectedByLens`,
@@ -27,8 +28,10 @@ sets, and command/presentation surfaces remain design targets.
 `Execute_BindsAssemblySeedToExactNode`,
 `Execute_BindsPackageSeedToDetailedLensGroup`,
 `Execute_BindsPeerSeedsWithoutChoosingPrimary`, and
-`Execute_DefaultsToWorkspaceInducedSetWithoutSeeds` gate the implemented
-contract.
+`Execute_DefaultsToWorkspaceInducedSetWithoutSeeds` gate mode binding.
+`RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions`,
+`AdmissionsMatchDeclaredEndpointDomains`, and
+`RelationshipCatalogsDeclareCurrentSeedAdmissions` gate descriptor admission.
 
 | Mode | Focus | Input | Primary question |
 | --- | --- | --- | --- |
@@ -168,16 +171,25 @@ single-seed default.
 
 Mode does not impose one expansion algorithm on every producer:
 
-| Relationship | Example seed admission |
+| Current relationship | Declared seed admission |
 | --- | --- |
-| Call | Member directly; type/assembly/package through typed owned-member admission |
-| Metadata reference | Member/type/assembly directly, with descriptor-approved roll-up |
-| Extension or implementation | Type/member directly; package through owned API evidence |
-| Integration or opportunity | API/type/package according to producer-issued subjects |
-| Dependency or ownership | Assembly/package directly |
+| `call` | Member at either logical edge endpoint |
+| `api.extension`, `integration.observed` | Member at the logical source, type at the logical target, assembly/package through source-owned subjects |
+| `metadata.reference` | Assembly at either logical endpoint, package through source- or target-owned subjects |
+| `integration.opportunity` | Assembly at the logical source, type at the original occurrence source or logical target, package through source-owned subjects |
 
-Unsupported combinations fail discovery or execution with guidance. They do
-not drop the seed, relabel it, or substitute a different relationship.
+`EdgeEndpoint` and `OccurrenceEndpoint` admissions must name a subject kind in
+the descriptor's corresponding semantic source or target domain.
+`OwnedSubjects` must name a strict typed owner of at least one subject kind in
+that semantic endpoint domain; it does not fabricate an edge at the owner's
+subject kind.
+
+The current slice declares and validates these descriptor capabilities. Once
+request-driven relationship selection lands, unsupported combinations must
+fail before producer execution with guidance rather than dropping or relabeling
+the seed. Induced-set requests have no seeds and therefore need no seed
+admission. This slice does not yet use admission to select producers or
+construct a bounded neighborhood.
 
 ## Shared contract
 
@@ -212,9 +224,11 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
 1. **Implemented:** preserve and name the current member-seeded call behavior.
 2. **Implemented:** add generic typed seed roles to the inspection-graph mode
    request and document.
-3. **Partially implemented:** bind type, assembly, and realized-package seeds
-   to existing Integration/package graph subjects. Descriptor-owned producer
-   admission remains.
+3. **Implemented:** bind type, assembly, and realized-package seeds to existing
+   Integration/package graph subjects, declare direct endpoint and
+   strict typed owned-subject admission on each relationship descriptor.
+   Admission-driven request validation, producer selection, and neighborhood
+   construction remain.
 4. **Partially implemented:** bind peer-seed requests without choosing a hero
    node. Connecting-neighborhood construction remains.
 5. **Partially implemented:** declare workspace-participant and
