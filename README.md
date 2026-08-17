@@ -357,6 +357,8 @@ allocation remains unattributed rather than being credited to an outer caller.
 When the same site arrives from both `--library` and `--triage`, the
 shape-compatible triage row supplies the richer single attribution; the raw
 library row is marked `superseded-by-triage`, not workload-cold.
+Type-level ambiguity and its site cap count that shared coordinate once rather
+than counting the two input rows as separate allocation sites.
 
 `CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` expose a separate
 cross-method repetition fact. `CallerLoop=direct` means a resolved invocation

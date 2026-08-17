@@ -2810,15 +2810,63 @@ internal static class ProgramSupport
         {
             if (!runtimeByCanon.TryGetValue(canon, out var volume) || volume < TypeConfirmMinBytes)
                 continue;
-            if (candidates.Count > TypeConfirmMaxSites)
+
+            var physicalCandidates = PreferTriagePhysicalSites(candidates);
+            if (physicalCandidates.Count > TypeConfirmMaxSites)
                 continue;
-            foreach (var candidate in candidates)
+            foreach (var candidate in physicalCandidates)
             {
                 candidate.TypeConfirmedBytes = volume;
-                candidate.TypeConfirmedSiteCount = candidates.Count;
+                candidate.TypeConfirmedSiteCount = physicalCandidates.Count;
             }
         }
     }
+
+    static IReadOnlyList<AllocationCandidate> PreferTriagePhysicalSites(
+        IReadOnlyList<AllocationCandidate> candidates)
+    {
+        var triageCandidates = candidates
+            .Where(static candidate =>
+                string.Equals(
+                    candidate.Source,
+                    "triage",
+                    StringComparison.Ordinal)
+                && candidate.HasRuntimeCoordinate)
+            .ToArray();
+        if (triageCandidates.Length == 0)
+            return candidates;
+
+        foreach (var libraryCandidate in candidates.Where(static candidate =>
+                     string.Equals(
+                         candidate.Source,
+                         "library",
+                         StringComparison.Ordinal)
+                     && candidate.HasRuntimeCoordinate))
+        {
+            if (triageCandidates.Any(triageCandidate =>
+                    SamePhysicalSite(
+                        libraryCandidate,
+                        triageCandidate)))
+            {
+                libraryCandidate.SupersededByTriage = true;
+            }
+        }
+
+        return candidates
+            .Where(static candidate =>
+                !candidate.SupersededByTriage)
+            .ToArray();
+    }
+
+    static bool SamePhysicalSite(
+        AllocationCandidate left,
+        AllocationCandidate right)
+        => left.MethodToken == right.MethodToken
+            && left.IlOffset == right.IlOffset
+            && string.Equals(
+                left.AssemblyName,
+                right.AssemblyName,
+                StringComparison.OrdinalIgnoreCase);
 
     // Canonical type signature: the ordered leaf identifier tokens of a type name, with generic-arity
     // digits and namespaces dropped and C# keyword aliases mapped to CLR simple names. This reconciles

@@ -197,6 +197,151 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void ApplyTypeConfirmation_PrefersTriageForDuplicatePhysicalSite()
+    {
+        var library = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library");
+        var triage = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.String",
+            source: "triage");
+        var result = new CorrelationResult();
+        result.Candidates.Add(library);
+        result.Candidates.Add(triage);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.True(library.SupersededByTriage);
+        Assert.False(library.TypeConfirmed);
+        Assert.Equal("superseded-by-triage", library.Status);
+        Assert.True(triage.TypeConfirmed);
+        Assert.Equal(1, triage.TypeConfirmedSiteCount);
+        Assert.Equal("type-hot", triage.Status);
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_UsesPhysicalSitesForCap()
+    {
+        var result = new CorrelationResult();
+        var triageCandidates = new List<AllocationCandidate>();
+        var libraryCandidates = new List<AllocationCandidate>();
+        for (int i = 0; i < ProgramSupport.TypeConfirmMaxSites; i++)
+        {
+            int token = 0x06000001 + i;
+            var library = CandidateWithType(
+                (i * 2) + 1,
+                $"Fixture.T{i}.M()",
+                "System.String",
+                source: "library",
+                methodToken: token);
+            var triage = CandidateWithType(
+                (i * 2) + 2,
+                $"Fixture.T{i}.M()",
+                "System.String",
+                source: "triage",
+                methodToken: token);
+            libraryCandidates.Add(library);
+            triageCandidates.Add(triage);
+            result.Candidates.Add(library);
+            result.Candidates.Add(triage);
+        }
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.All(
+            libraryCandidates,
+            candidate =>
+            {
+                Assert.True(candidate.SupersededByTriage);
+                Assert.False(candidate.TypeConfirmed);
+            });
+        Assert.All(
+            triageCandidates,
+            candidate =>
+            {
+                Assert.True(candidate.TypeConfirmed);
+                Assert.Equal(
+                    ProgramSupport.TypeConfirmMaxSites,
+                    candidate.TypeConfirmedSiteCount);
+            });
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_StillRejectsAbovePhysicalSiteCap()
+    {
+        var result = new CorrelationResult();
+        var triageCandidates = new List<AllocationCandidate>();
+        for (int i = 0; i <= ProgramSupport.TypeConfirmMaxSites; i++)
+        {
+            int token = 0x06000001 + i;
+            result.Candidates.Add(CandidateWithType(
+                (i * 2) + 1,
+                $"Fixture.T{i}.M()",
+                "System.String",
+                source: "library",
+                methodToken: token));
+            var triage = CandidateWithType(
+                (i * 2) + 2,
+                $"Fixture.T{i}.M()",
+                "System.String",
+                source: "triage",
+                methodToken: token);
+            triageCandidates.Add(triage);
+            result.Candidates.Add(triage);
+        }
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.All(
+            triageCandidates,
+            candidate => Assert.False(candidate.TypeConfirmed));
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_DoesNotDeduplicateDifferentAssemblies()
+    {
+        var library = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            assemblyName: "Fixture.One");
+        var triage = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.String",
+            source: "triage",
+            assemblyName: "Fixture.Two");
+        var result = new CorrelationResult();
+        result.Candidates.Add(library);
+        result.Candidates.Add(triage);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.False(library.SupersededByTriage);
+        Assert.True(library.TypeConfirmed);
+        Assert.True(triage.TypeConfirmed);
+        Assert.Equal(2, library.TypeConfirmedSiteCount);
+        Assert.Equal(2, triage.TypeConfirmedSiteCount);
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_LeavesColdCandidateCold_WhenTypeNotRealized()
     {
         var candidate = CandidateWithType(1, "Fixture.A.M()", "System.Func<string, System.Lazy<int>>");
@@ -424,19 +569,23 @@ public class TypeConfirmationTests
         int id,
         string method,
         string predictedType,
-        string? detail = null)
+        string? detail = null,
+        string source = "library",
+        string assemblyName = "Fixture",
+        int methodToken = 0x06000001,
+        int ilOffset = 0x0010)
     {
         string methodKey = method[..method.IndexOf('(')];
         int lastDot = methodKey.LastIndexOf('.');
         string stackKey = lastDot < 0 ? methodKey : $"{methodKey[..lastDot]}::{methodKey[(lastDot + 1)..]}";
         return new(
             id,
-            "library",
+            source,
             "/tmp/Fixture.dll",
-            "Fixture",
+            assemblyName,
             null,
-            0x06000001,
-            0x0010,
+            methodToken,
+            ilOffset,
             method,
             methodKey,
             stackKey,
