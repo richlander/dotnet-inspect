@@ -99,6 +99,45 @@ internal static class PromotionWorkflowContract
             "",
             ValidateStaging,
             "Staging workflow contract accepted Azure app build.");
+
+        const string productionJob =
+            """
+                environment:
+                  name: inspect-web-production
+                  url: https://dotnet-inspect.net
+                runs-on: ubuntu-26.04
+                steps:
+            """;
+        const string productionBashEnv =
+            """
+                environment:
+                  name: inspect-web-production
+                  url: https://dotnet-inspect.net
+                runs-on: ubuntu-26.04
+                env:
+                  BASH_ENV: artifacts/inspect-web-publish/wwwroot/payload.sh
+                steps:
+            """;
+        AssertMutationRejected(
+            promotionWorkflow,
+            productionJob,
+            productionBashEnv,
+            ValidatePromotion,
+            "Promotion workflow contract accepted inherited BASH_ENV.");
+
+        AssertRejected(
+            promotionWorkflow +
+            """
+
+              bypass:
+                name: Bypass production
+                environment: inspect-web-production
+                runs-on: ubuntu-26.04
+                steps:
+                  - run: echo bypass
+            """,
+            ValidatePromotion,
+            "Promotion workflow contract accepted an extra environment-scoped job.");
     }
 
     private static void ValidatePromotion(string workflow)
@@ -115,8 +154,22 @@ internal static class PromotionWorkflowContract
         YamlMappingNode root = RequireMapping(
             yaml.Documents[0].RootNode,
             "promotion workflow root");
+        RequireExactKeys(
+            root,
+            ["name", "on", "permissions", "concurrency", "jobs"],
+            "promotion workflow");
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "promotion workflow");
+        RequireExactKeys(jobs, ["resolve", "deploy"], "promotion jobs");
+        YamlMappingNode resolve = GetRequiredMapping(jobs, "resolve", "promotion jobs");
+        RequireExactKeys(
+            resolve,
+            ["name", "runs-on", "outputs", "steps"],
+            "jobs.resolve");
         YamlMappingNode deploy = GetRequiredMapping(jobs, "deploy", "promotion jobs");
+        RequireExactKeys(
+            deploy,
+            ["name", "needs", "environment", "runs-on", "steps"],
+            "jobs.deploy");
         RequireScalarValue(deploy, "needs", "resolve", "jobs.deploy");
         RequireScalarValue(deploy, "runs-on", "ubuntu-26.04", "jobs.deploy");
 
@@ -287,10 +340,26 @@ internal static class PromotionWorkflowContract
         YamlMappingNode root = RequireMapping(
             yaml.Documents[0].RootNode,
             "staging workflow root");
+        RequireExactKeys(
+            root,
+            ["name", "on", "permissions", "concurrency", "env", "jobs"],
+            "staging workflow");
+        RequireExactScalarValues(
+            GetRequiredMapping(root, "env", "staging workflow"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true",
+                ["DOTNET_NOLOGO"] = "true",
+                ["DOTNET_SDK_VERSION"] = "11.0.100-preview.6.26359.118",
+            },
+            "staging workflow.env");
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "staging workflow");
+        RequireExactKeys(jobs, ["build", "deploy"], "staging jobs");
         YamlMappingNode build = GetRequiredMapping(jobs, "build", "staging jobs");
-        RequireAbsent(build, "environment", "jobs.build");
-        RequireAbsent(build, "outputs", "jobs.build");
+        RequireExactKeys(
+            build,
+            ["name", "if", "runs-on", "steps"],
+            "jobs.build");
         YamlSequenceNode buildSteps = GetRequiredSequence(build, "steps", "jobs.build");
         YamlMappingNode upload = RequireNamedStep(
             buildSteps,
@@ -317,6 +386,10 @@ internal static class PromotionWorkflowContract
             "staging artifact upload step.with");
 
         YamlMappingNode deploy = GetRequiredMapping(jobs, "deploy", "staging jobs");
+        RequireExactKeys(
+            deploy,
+            ["name", "needs", "if", "environment", "runs-on", "steps"],
+            "jobs.deploy");
         RequireScalarValue(deploy, "needs", "build", "jobs.deploy");
         YamlMappingNode environment =
             GetRequiredMapping(deploy, "environment", "jobs.deploy");
@@ -448,6 +521,12 @@ internal static class PromotionWorkflowContract
             throw new InvalidOperationException($"Mutation did not apply: {message}");
         ExpectFailure(() => validate(mutated), message);
     }
+
+    private static void AssertRejected(
+        string workflow,
+        Action<string> validate,
+        string message) =>
+        ExpectFailure(() => validate(workflow), message);
 
     private static YamlMappingNode RequireStep(
         YamlSequenceNode steps,
