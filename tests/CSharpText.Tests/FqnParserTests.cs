@@ -237,6 +237,16 @@ public class FqnParserTests
         Assert.Equal(malformed, FqnParser.NormalizeMemberName(malformed));
     }
 
+    [Theory]
+    [InlineData("ConvertAll<TOutput><>")]
+    [InlineData("ConvertAll<<TOutput>>")]
+    public void NormalizeMemberName_MalformedGenericSuffixIsPreserved(
+        string malformed)
+    {
+        Assert.Equal(malformed, FqnParser.NormalizeMemberName(malformed));
+        Assert.Null(FqnParser.GetMemberGenericArity(malformed));
+    }
+
     // ── ParseMemberFilter tests ──────────────────────────────────────────
 
     [Theory]

@@ -37,6 +37,21 @@ public class ApiCommand
         _ => TypeCommand.ExecuteAsync(ToTypeOptions(options))
     };
 
+    internal static string? GetDeferredTypeIncompatibleOption(
+        MemberOptions options)
+    {
+        if (options.Focus is not null) return "--focus";
+        if (options.OverloadIndex.HasValue) return "--index";
+        if (options.CtorOnly) return "--ctor";
+        if (options.Limit.HasValue) return "--limit";
+        if (options.CallerScopeDirectories.Length > 0) return "--bin";
+        if (options.CallerScopeProjects.Length > 0) return "--project";
+        if (options.CallerScopePackages.Length > 0) return "--caller-package";
+        if (options.SourceRepositories.Length > 0) return "--repo";
+        if (options.MermaidOutput) return "--mermaid";
+        return null;
+    }
+
     internal static TypeOptions ToTypeOptions(ApiOptions options) =>
         new()
         {

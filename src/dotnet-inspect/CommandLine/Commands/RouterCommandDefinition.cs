@@ -200,7 +200,9 @@ public static class RouterCommandDefinition
             if (ContainsOption(tokens, "--member") || ContainsOption(tokens, "-m"))
                 return ["member", target, .. tail];
 
-            if (ContainsOption(tokens, "--library"))
+            if (ContainsOption(tokens, "--library")
+                && !(GetOptionValue(tail, "--library") is { Length: > 0 }
+                    && TypeMatcher.HasExplicitGenericNotation(target)))
                 return ["package", .. tokens];
 
             if (tokens.Length >= 2
@@ -436,7 +438,7 @@ public static class RouterCommandDefinition
         {
             var operatorIndex = target.LastIndexOf(
                 ".operator",
-                StringComparison.OrdinalIgnoreCase);
+                StringComparison.Ordinal);
             if (operatorIndex <= 0)
             {
                 typeTarget = "";
@@ -446,7 +448,9 @@ public static class RouterCommandDefinition
 
             typeTarget = target[..operatorIndex];
             memberSelector = target[(operatorIndex + 1)..];
-            return memberSelector.Length > "operator".Length;
+            return MemberTargetSelector.Parse(memberSelector).Name.StartsWith(
+                "op_",
+                StringComparison.Ordinal);
         }
 
         private static string[] RouteDeferredTypeOrMember(

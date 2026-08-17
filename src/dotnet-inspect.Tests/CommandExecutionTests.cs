@@ -3220,6 +3220,54 @@ public partial class CommandExecutionTests
         Assert.Equal(0, deferred.Exit);
     }
 
+    [Theory]
+    [InlineData("--focus", "allocation")]
+    [InlineData("--index", "1")]
+    public async Task Router_DeferredExactTypeRejectsMemberOnlyOption(
+        params string[] memberOnlyOption)
+    {
+        string[] arguments =
+        [
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--platform",
+            "System.Collections.Immutable",
+            .. memberOnlyOption,
+            "--tips",
+            "q"
+        ];
+        var (exit, output, error) = await RunAppAsync(arguments);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Unrecognized option '{memberOnlyOption[0]}'",
+            error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitLibraryGenericTypeUsesAssemblySource()
+    {
+        const string target =
+            "DotnetInspector.Tests.SampleGenericClass<T>";
+        string[] arguments =
+        [
+            target,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
     [Fact]
     public async Task Member_UserCannotActivateRouterDeferredTarget()
     {
@@ -19367,6 +19415,30 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
     }
 
+    [Theory]
+    [InlineData("ConvertAll<TOutput><>")]
+    [InlineData("ConvertAll<<TOutput>>")]
+    public async Task Member_MalformedGenericMethodSelectorDoesNotBroaden(
+        string memberSelector)
+    {
+        var target =
+            $"System.Collections.Generic.List<T>.{memberSelector}";
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            target,
+            "--platform",
+            "System.Collections",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.NotEmpty(error);
+    }
+
     [Fact]
     public async Task Member_SourcelessGenericShiftOperator_ResolvesTheMember()
     {
@@ -19395,6 +19467,41 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
         Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitSourceOperatorPrefixedIdentifierUsesMetadataBoundary()
+    {
+        const string target =
+            "DotnetInspector.Tests.Operators<T>.Apply";
+        string[] arguments =
+        [
+            target,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            "member",
+            "DotnetInspector.Tests.Operators<T>",
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "Apply",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
     }
 
     [Fact]
@@ -23368,6 +23475,11 @@ public sealed class MemberGenericSelectorFixture
 {
     public string GenericChoice(string value) => value;
     public T GenericChoice<T>(T value) => value;
+}
+
+public sealed class Operators<T>
+{
+    public T Apply(T value) => value;
 }
 
 public sealed class CommandExecutionSourceDiffFixture

@@ -31,6 +31,18 @@ public class MemberTargetResolverTests
         Assert.Equal(genericArity, selector.GenericArity);
     }
 
+    [Theory]
+    [InlineData("Map<T><>")]
+    [InlineData("Map<<T>>")]
+    public void Parse_MalformedGenericSelectorDoesNotBroaden(
+        string malformed)
+    {
+        var selector = MemberTargetSelector.Parse(malformed);
+
+        Assert.Equal(malformed, selector.Name);
+        Assert.Null(selector.GenericArity);
+    }
+
     [Fact]
     public void Resolve_NameSelectsOnlyOverload()
     {

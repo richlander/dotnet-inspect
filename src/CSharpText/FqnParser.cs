@@ -175,27 +175,55 @@ public static class FqnParser
     {
         memberName = memberName.Trim();
         var angleIdx = memberName.IndexOf('<');
-        if (angleIdx > 0)
+        if (angleIdx > 0 && GetMemberGenericArity(memberName).HasValue)
         {
-            var closeIdx = memberName.LastIndexOf('>');
-            if (closeIdx > angleIdx && closeIdx == memberName.Length - 1)
-                memberName = memberName[..angleIdx];
+            memberName = memberName[..angleIdx];
         }
         else
         {
             var backtickIdx = memberName.LastIndexOf('`');
-            if (backtickIdx > 0
-                && backtickIdx < memberName.Length - 1
-                && memberName.AsSpan((backtickIdx + 1)..).IndexOfAnyExceptInRange('0', '9') < 0
-                && int.TryParse(
-                    memberName.AsSpan((backtickIdx + 1)..),
-                    System.Globalization.NumberStyles.None,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out _))
+            if (backtickIdx > 0 && GetMemberGenericArity(memberName).HasValue)
                 memberName = memberName[..backtickIdx];
         }
 
         return NormalizeOperatorOrSpecialMemberName(memberName);
+    }
+
+    /// <summary>
+    /// Returns the arity of a well-formed generic member selector.
+    /// </summary>
+    public static int? GetMemberGenericArity(string memberName)
+    {
+        memberName = memberName.Trim();
+        var angleIdx = memberName.IndexOf('<');
+        if (angleIdx > 0)
+        {
+            var closeIdx = FindMatchingAngleBracket(memberName, angleIdx);
+            if (closeIdx != memberName.Length - 1
+                || !TryCountTypeParameters(
+                    memberName.AsSpan((angleIdx + 1)..closeIdx),
+                    out var arity))
+            {
+                return null;
+            }
+
+            return arity;
+        }
+
+        var backtickIdx = memberName.LastIndexOf('`');
+        if (backtickIdx > 0
+            && backtickIdx < memberName.Length - 1
+            && memberName.AsSpan((backtickIdx + 1)..).IndexOfAnyExceptInRange('0', '9') < 0
+            && int.TryParse(
+                memberName.AsSpan((backtickIdx + 1)..),
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var metadataArity))
+        {
+            return metadataArity;
+        }
+
+        return null;
     }
 
     private static string NormalizeOperatorOrSpecialMemberName(string memberName)

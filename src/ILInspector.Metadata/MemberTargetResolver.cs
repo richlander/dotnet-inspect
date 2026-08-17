@@ -72,7 +72,7 @@ public sealed record MemberTargetSelector(
 
         var (digestHead, digest) = SplitDigest(work);
         var (overloadHead, overloadIndex) = FqnParser.TrySplitOverload(digestHead);
-        var genericArity = TryGetGenericArity(overloadHead);
+        var genericArity = FqnParser.GetMemberGenericArity(overloadHead);
         var name = FqnParser.NormalizeMemberName(overloadHead);
         return new MemberTargetSelector(
             requested,
@@ -108,43 +108,6 @@ public sealed record MemberTargetSelector(
         return (value[..tilde], digest.ToLowerInvariant());
     }
 
-    static int? TryGetGenericArity(string value)
-    {
-        var backtick = value.LastIndexOf('`');
-        if (backtick > 0
-            && int.TryParse(
-                value.AsSpan((backtick + 1)..),
-                System.Globalization.NumberStyles.None,
-                System.Globalization.CultureInfo.InvariantCulture,
-                out var metadataArity))
-            return metadataArity;
-
-        var angleStart = value.IndexOf('<');
-        if (angleStart <= 0)
-            return null;
-
-        var angleEnd = value.LastIndexOf('>');
-        if (angleEnd <= angleStart || angleEnd != value.Length - 1)
-            return null;
-
-        var arguments = value.AsSpan((angleStart + 1)..angleEnd);
-        if (arguments.IsEmpty || arguments.IsWhiteSpace())
-            return 0;
-
-        var count = 1;
-        var depth = 0;
-        foreach (var ch in arguments)
-        {
-            if (ch == '<')
-                depth++;
-            else if (ch == '>')
-                depth--;
-            else if (ch == ',' && depth == 0)
-                count++;
-        }
-
-        return count;
-    }
 }
 
 public sealed record BodyTarget(

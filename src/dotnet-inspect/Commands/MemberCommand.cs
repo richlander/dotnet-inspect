@@ -88,8 +88,56 @@ public static class MemberCommand
             if (options.RouterDeferredTypeOrMember
                 && lookupResult.ImpliedMember is null)
             {
+                if (ApiCommand.GetDeferredTypeIncompatibleOption(unresolvedOptions)
+                    is { } incompatibleOption)
+                {
+                    CommandError.Write(
+                        $"Unrecognized option '{incompatibleOption}'.");
+                    return 1;
+                }
+
                 return await TypeCommand.ExecuteAsync(
                     ApiCommand.ToTypeOptions(unresolvedOptions));
+            }
+
+            if (lookupResult.ImpliedMember is { } impliedMember)
+            {
+                var mergeOptions = options.RouterDeferredTypeOrMember
+                    ? unresolvedOptions
+                    : options;
+                var impliedSelector = MemberTargetSelector.Parse(impliedMember);
+                if (mergeOptions.MemberGenericArity is { } explicitArity
+                    && impliedSelector.GenericArity is { } impliedArity
+                    && explicitArity != impliedArity)
+                {
+                    CommandError.Write("A member selection cannot combine different generic arities.");
+                    return 1;
+                }
+
+                var mergedFilter = new HashSet<string>(
+                    mergeOptions.MemberFilter,
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    impliedSelector.Name
+                };
+                var mergedArity =
+                    mergeOptions.MemberGenericArity
+                    ?? impliedSelector.GenericArity;
+                if (mergedArity.HasValue && mergedFilter.Count != 1)
+                {
+                    CommandError.Write("A generic arity selector requires exactly one member name.");
+                    return 1;
+                }
+
+                mergeOptions = mergeOptions with
+                {
+                    MemberFilter = mergedFilter,
+                    MemberGenericArity = mergedArity
+                };
+                if (options.RouterDeferredTypeOrMember)
+                    unresolvedOptions = mergeOptions;
+                else
+                    options = mergeOptions;
             }
 
             if (options.RouterDeferredTypeOrMember)
@@ -108,39 +156,6 @@ public static class MemberCommand
                     PackagePath = source.ResolvedPackagePath,
                     PackageRangeAddress = null,
                     ProjectAssetsPath = projectAssetsPath,
-                };
-            }
-
-            // If the type resolved by peeling a trailing Type.Member suffix (e.g.
-            // "System.String.Length" -> type System.String + member Length), apply the peeled
-            // segment as a member filter. Selector-bearing suffixes like ":N"/"~hash" are split
-            // in the parser, but generic arity can still arrive here from Type.M<T>.
-            if (lookupResult.ImpliedMember is { } impliedMember)
-            {
-                var impliedSelector = MemberTargetSelector.Parse(impliedMember);
-                if (options.MemberGenericArity is { } explicitArity
-                    && impliedSelector.GenericArity is { } impliedArity
-                    && explicitArity != impliedArity)
-                {
-                    CommandError.Write("A member selection cannot combine different generic arities.");
-                    return 1;
-                }
-
-                var mergedFilter = new HashSet<string>(options.MemberFilter, StringComparer.OrdinalIgnoreCase)
-                {
-                    impliedSelector.Name
-                };
-                var mergedArity = options.MemberGenericArity ?? impliedSelector.GenericArity;
-                if (mergedArity.HasValue && mergedFilter.Count != 1)
-                {
-                    CommandError.Write("A generic arity selector requires exactly one member name.");
-                    return 1;
-                }
-
-                options = options with
-                {
-                    MemberFilter = mergedFilter,
-                    MemberGenericArity = mergedArity
                 };
             }
             else if (options.MemberFilter.Count == 0 && options.Select is { Length: > 0 })
