@@ -1504,6 +1504,9 @@ internal static class LibraryMetadataService
                 .Select(opportunity => new OptimizationOpportunitySummary
                 {
                     Member = FormatMethod(opportunity.Method),
+                    Assembly = opportunity.Method.AssemblyName,
+                    MethodToken = FormatToken(
+                        opportunity.Method.MetadataToken),
                     Candidate = opportunity.CandidateId,
                     Finding = opportunity.SourceFinding,
                     Provenance = FormatProvenance(opportunity.Provenance),
