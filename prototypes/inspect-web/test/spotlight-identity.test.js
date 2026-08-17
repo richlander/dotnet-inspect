@@ -389,6 +389,26 @@ test("member source request identity includes decompiler taste", () => {
     memberRequestKey(request, ["prefer-explicit-types"]));
 });
 
+test("member request identity distinguishes colliding type queries", () => {
+  const memberSignature =
+    appSource.match(/function memberRequestSignature\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    memberSignature,
+    /type\?\.queryId \?\? type\?\.id,\s+type\?\.definitionId \?\? type\?\.id/);
+
+  const request = [
+    "Example.Package",
+    "1.0.0",
+    "net8.0",
+    "Example.dll",
+    "Example.Outer.Inner"
+  ];
+  assert.notEqual(
+    memberRequestKey([...request, "Example.Outer+Inner", "M:Run"]),
+    memberRequestKey([...request, "Example.Outer\\.Inner", "M:Run"]));
+});
+
 test("type source identity includes decompiler taste", () => {
   const typeSignature =
     appSource.match(/function typeSourceSignature\(item\)[\s\S]*?\n}/)?.[0]

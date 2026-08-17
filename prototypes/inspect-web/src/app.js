@@ -6205,6 +6205,7 @@ function memberRequestSignature(
     pkg?.activeFramework,
     type?.assembly,
     type?.queryId ?? type?.id,
+    type?.definitionId ?? type?.id,
     overload?.stableSelector ?? overload?.canonicalSignature ?? overload?.signature
   ];
   if (includeBody) {
