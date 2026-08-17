@@ -277,10 +277,8 @@ public static class TypeCommand
                     if (effectiveOptions.EffectiveDiscovery)
                     {
                         if (effectiveOptions.DllPath is { } discoveryDllPath
-                            && (effectiveOptions is TypeOptions
-                                    { Effective: true, Discover: null or { Length: 0 } }
-                                || ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
-                                    .Contains(SectionNames.SourceFiles)))
+                            && ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
+                                .Contains(SectionNames.SourceFiles))
                         {
                             await SourceEnricher.EnrichTypeWithSourceInfoAsync(
                                 apiType,

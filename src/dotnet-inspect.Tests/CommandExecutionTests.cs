@@ -6554,7 +6554,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_BareEffectiveDiscoveryProbesSourceLink()
+    public async Task Type_BareEffectiveDiscoveryPreservesStructuralSourceLinkDoor()
     {
         var (assemblyPath, fixtureDir) =
             CreateSourceLinkDiscoveryAssembly(includeSourceLink: true);
@@ -6563,11 +6563,14 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "type", "DiscoveryFixtures.NoSourceLink",
                 "--library", assemblyPath,
-                "-D", "--effective", "--tips", "q");
+                "-D", "--effective", "--verbose", "--tips", "q");
 
             Assert.Equal(0, exit);
-            Assert.Empty(error);
             Assert.Contains("| @SourceLink | category |", output);
+            Assert.DoesNotContain(
+                "Loaded PDB",
+                error,
+                StringComparison.Ordinal);
         }
         finally
         {

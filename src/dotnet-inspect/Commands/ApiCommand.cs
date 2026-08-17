@@ -2735,6 +2735,8 @@ public class ApiCommand
         var filteredType = BuildFilteredTypeForSections(apiType, options);
         var effective = memberPipeline.GetDiscoverableSections(filteredType, options.IncludeSections);
         if (options is TypeOptions { Effective: true }
+            && GetRequestedMemberSections(filteredType, options)
+                .Contains(SectionNames.SourceFiles)
             && string.IsNullOrWhiteSpace(filteredType.SourceUrl)
             && !filteredType.AdditionalSourceFiles.Any(
                 file => !string.IsNullOrWhiteSpace(file.SourceUrl)))
