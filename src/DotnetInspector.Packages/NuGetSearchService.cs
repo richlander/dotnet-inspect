@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
 using System.Text.Json;
 using NuGetFetch;
 using DotnetInspector.Core;
@@ -122,9 +123,21 @@ public static class NuGetSearchService
             client.Timeout);
         using var operationCancellation = new CancellationTokenSource(
             fetchOptions.OperationTimeout);
+        long operationStarted = Stopwatch.GetTimestamp();
 
         foreach (NuGetSource source in sources)
         {
+            if (HasOperationExpired(
+                    operationStarted,
+                    fetchOptions.OperationTimeout))
+            {
+                failures.Add(
+                    $"{PackageSourceDisplay.ForDiagnostics(source)}: search failed "
+                    + $"({nameof(NuGetOperationTimeoutException)}: "
+                    + $"NuGet operation did not complete within {fetchOptions.OperationTimeout}.)");
+                break;
+            }
+
             using var failureScope = FeedFailureTelemetry.Scope();
             HttpClient sourceClient = useFactoryClients
                 && Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? sourceUri)
@@ -149,9 +162,16 @@ public static class NuGetSearchService
                         log,
                         requestCancellation.Token,
                         Timeout.InfiniteTimeSpan);
+                    ThrowIfOperationExpired(
+                        operationStarted,
+                        fetchOptions.OperationTimeout,
+                        operationCancellation.Token);
                 }
                 catch (OperationCanceledException ex)
-                    when (operationCancellation.IsCancellationRequested)
+                    when (operationCancellation.IsCancellationRequested
+                        || HasOperationExpired(
+                            operationStarted,
+                            fetchOptions.OperationTimeout))
                 {
                     throw new NuGetOperationTimeoutException(
                         fetchOptions.OperationTimeout,
@@ -173,6 +193,8 @@ public static class NuGetSearchService
                     $"{PackageSourceDisplay.ForDiagnostics(source)}: service index unavailable "
                     + $"at {UrlRedaction.ForDiagnostics(source.Url)} "
                     + $"({DescribeTransportFailure(ex)})");
+                if (ex is NuGetOperationTimeoutException)
+                    break;
                 continue;
             }
 
@@ -192,6 +214,16 @@ public static class NuGetSearchService
             string? lastSearchUrl = null;
             foreach (string searchUrl in searchUrls.Take(MaxEquivalentSearchEndpoints))
             {
+                if (HasOperationExpired(
+                        operationStarted,
+                        fetchOptions.OperationTimeout))
+                {
+                    lastFailure = CreateOperationTimeoutException(
+                        fetchOptions.OperationTimeout,
+                        operationCancellation.Token);
+                    break;
+                }
+
                 lastSearchUrl = searchUrl;
                 var auth = NuGetCredentialScope.AuthFor(source, searchUrl, log);
                 log?.Invoke(
@@ -223,6 +255,10 @@ public static class NuGetSearchService
                             prerelease,
                             auth,
                             operationCancellation.Token);
+                    ThrowIfOperationExpired(
+                        operationStarted,
+                        fetchOptions.OperationTimeout,
+                        operationCancellation.Token);
                     break;
                 }
                 catch (Exception ex) when (ex is HttpRequestException or JsonException
@@ -230,15 +266,15 @@ public static class NuGetSearchService
                     or IOException or TimeoutException)
                 {
                     lastFailure = ex;
-                    if (operationCancellation.IsCancellationRequested)
+                    if (operationCancellation.IsCancellationRequested
+                        || HasOperationExpired(
+                            operationStarted,
+                            fetchOptions.OperationTimeout))
                     {
-                        lastFailure = new NuGetOperationTimeoutException(
+                        lastFailure = CreateOperationTimeoutException(
                             fetchOptions.OperationTimeout,
-                            ex as OperationCanceledException
-                                ?? new OperationCanceledException(
-                                    "NuGet search operation deadline expired.",
-                                    ex,
-                                    operationCancellation.Token));
+                            operationCancellation.Token,
+                            ex);
                         break;
                     }
                 }
@@ -254,6 +290,8 @@ public static class NuGetSearchService
                     $"{PackageSourceDisplay.ForDiagnostics(source)}: search failed "
                     + $"at {UrlRedaction.ForDiagnostics(lastSearchUrl)} "
                     + $"({DescribeTransportFailure(lastFailure!)})");
+                if (lastFailure is NuGetOperationTimeoutException)
+                    break;
                 continue;
             }
 
@@ -310,6 +348,32 @@ public static class NuGetSearchService
         error is TaskCanceledException or TimeoutException
             ? $"{error.GetType().Name}: {error.Message}"
             : error.GetType().Name;
+
+    private static bool HasOperationExpired(
+        long started,
+        TimeSpan timeout) =>
+        Stopwatch.GetElapsedTime(started) >= timeout;
+
+    private static void ThrowIfOperationExpired(
+        long started,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        if (HasOperationExpired(started, timeout))
+            throw CreateOperationTimeoutException(timeout, cancellationToken);
+    }
+
+    private static NuGetOperationTimeoutException CreateOperationTimeoutException(
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        Exception? innerException = null) =>
+        new(
+            timeout,
+            innerException as OperationCanceledException
+                ?? new OperationCanceledException(
+                    "NuGet search operation deadline expired.",
+                    innerException,
+                    cancellationToken));
 
     private static string DescribeServiceIndexFailure(
         NuGetSource source,
