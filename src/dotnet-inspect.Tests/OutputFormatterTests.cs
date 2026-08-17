@@ -1027,6 +1027,19 @@ public class OutputFormatterTests
     [Fact]
     public void IncludePerformanceOpportunity_DoesNotTreatDisplayCollisionAsGeneratedFramework()
     {
+        var compilerGenerated = TypeRef.Definition(
+            "Asm",
+            "Ns",
+            "GeneratedOuter+Leaf+<>c__DisplayClass0_0");
+        var collidingGenerated = TypeRef.Definition(
+            "Asm",
+            "Ns.GeneratedOuter",
+            "Leaf");
+        Assert.Equal(
+            collidingGenerated.ToQualifiedDisplayString()
+                + ".<>c__DisplayClass0_0",
+            compilerGenerated.ToQualifiedDisplayString());
+
         var opportunity = Opp(
             "<Build>b__0",
             inLoop: false,
@@ -1037,19 +1050,13 @@ public class OutputFormatterTests
         {
             Method = opportunity.Method with
             {
-                DeclaringType = TypeRef.Definition(
-                    "Asm",
-                    "Ns",
-                    "GeneratedOuter+<>c__DisplayClass0_0"),
+                DeclaringType = compilerGenerated,
             },
         };
 
         Assert.True(LibraryMetadataService.IncludePerformanceOpportunity(
             opportunity,
-            new HashSet<TypeRef>
-            {
-                TypeRef.Definition("Asm", "Ns.GeneratedOuter", "Leaf"),
-            }));
+            new HashSet<TypeRef> { collidingGenerated }));
     }
 
     [Fact]
