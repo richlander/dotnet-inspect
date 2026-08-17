@@ -97,8 +97,6 @@ public static class OperatorMetadata
             var conversionSource = encodedConversionSource.WithoutByRef();
             var conversionTarget = signature.ReturnType.WithoutByRef();
             if (conversionSource.MatchesExactly(conversionTarget)
-                || HasUnresolvedExternalType(conversionSource)
-                || HasUnresolvedExternalType(conversionTarget)
                 || IsKnownInterface(reader, conversionSource)
                 || IsKnownInterface(reader, conversionTarget)
                 || IsForbiddenNullableSelfConversion(
@@ -106,9 +104,9 @@ public static class OperatorMetadata
                     conversionTarget,
                     declaringIdentity)
                 || SameOrDerivedRelationship(reader, conversionSource, conversionTarget)
-                    != TypeRelationship.No
+                    == TypeRelationship.Yes
                 || SameOrDerivedRelationship(reader, conversionTarget, conversionSource)
-                    != TypeRelationship.No)
+                    == TypeRelationship.Yes)
             {
                 return false;
             }
@@ -267,6 +265,14 @@ public static class OperatorMetadata
                     ? TypeRelationship.Yes
                     : TypeRelationship.No;
         }
+        if (IsTrustedSystemType(candidate, "String"))
+        {
+            return IsTrustedSystemType(requiredBase, "Object")
+                ? TypeRelationship.Yes
+                : TypeRelationship.No;
+        }
+        if (IsTrustedSystemType(requiredBase, "String"))
+            return TypeRelationship.No;
 
         var visited = new HashSet<TypeDefinitionHandle>();
         for (int depth = 0; depth < 64; depth++)
@@ -303,18 +309,6 @@ public static class OperatorMetadata
         => type.Identity.Kind == HandleKind.TypeDefinition
             && (reader.GetTypeDefinition((TypeDefinitionHandle)type.Identity).Attributes
                 & TypeAttributes.Interface) != 0;
-
-    static bool HasUnresolvedExternalType(OperatorSignatureType type)
-    {
-        if (type.Identity.Kind == HandleKind.TypeReference && !type.IsNullable)
-            return true;
-        foreach (var argument in type.TypeArguments)
-        {
-            if (HasUnresolvedExternalType(argument))
-                return true;
-        }
-        return false;
-    }
 
     static bool IsKnownValueType(
         MetadataReader reader,

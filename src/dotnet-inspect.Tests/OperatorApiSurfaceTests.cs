@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using CSharpText;
 using DotnetInspector.Services;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Metadata;
@@ -576,43 +577,62 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
-    public void CSharpOperatorDeclaration_RejectsUnresolvedExternalInterfaceConversion()
+    public void CSharpOperatorDeclaration_AcceptsExternalConversionEndpoints()
     {
         using var image = OperatorImage.Build(builder =>
         {
-            var method = builder.DefineMethod(
-                "op_Explicit",
-                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
-                typeof(IDisposable),
-                [builder]);
-            var il = method.GetILGenerator();
-            il.Emit(OpCodes.Ldnull);
-            il.Emit(OpCodes.Ret);
-        });
-
-        Assert.False(image.IsCSharpOperatorDeclaration("op_Explicit"));
-    }
-
-    [Fact]
-    public void CSharpOperatorDeclaration_RejectsUnresolvedExternalBaseConversion()
-    {
-        using var image = OperatorImage.Build(
-            builder =>
+            void Define(string name, Type parameterType)
             {
                 var method = builder.DefineMethod(
-                    "op_Explicit",
+                    name,
                     MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
-                    typeof(Stream),
-                    [builder]);
+                    builder,
+                    [parameterType]);
                 var il = method.GetILGenerator();
                 il.Emit(OpCodes.Ldnull);
                 il.Emit(OpCodes.Ret);
-            },
-            "OperatorSurface",
-            TypeAttributes.Public | TypeAttributes.Class,
-            typeof(MemoryStream));
+            }
 
-        Assert.False(image.IsCSharpOperatorDeclaration("op_Explicit"));
+            Define("op_Implicit", typeof(decimal));
+            Define("op_Explicit", typeof(string));
+        });
+
+        Assert.True(image.IsCSharpOperatorDeclaration("op_Implicit"));
+        Assert.True(image.IsCSharpOperatorDeclaration("op_Explicit"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_AcceptsCompilerEmittedCrossAssemblyConversions()
+    {
+        Type[] declaringTypes =
+        [
+            typeof(System.Numerics.BigInteger),
+            typeof(System.Xml.Linq.XElement),
+        ];
+
+        foreach (var declaringType in declaringTypes)
+        {
+            using var stream = File.OpenRead(declaringType.Assembly.Location);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var typeHandle = Assert.Single(
+                reader.TypeDefinitions,
+                handle => FullName(reader, reader.GetTypeDefinition(handle))
+                    == declaringType.FullName);
+            var conversions = reader.GetTypeDefinition(typeHandle).GetMethods()
+                .Select(reader.GetMethodDefinition)
+                .Where(method => OperatorNames.IsConversionOperatorMethodName(
+                    reader.GetString(method.Name)))
+                .ToList();
+
+            Assert.NotEmpty(conversions);
+            foreach (var conversion in conversions)
+            {
+                Assert.True(
+                    OperatorMetadata.IsCSharpOperatorDeclaration(reader, conversion),
+                    $"{declaringType.FullName}.{reader.GetString(conversion.Name)}");
+            }
+        }
     }
 
     [Fact]

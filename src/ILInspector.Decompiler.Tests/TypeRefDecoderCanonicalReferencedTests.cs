@@ -72,10 +72,42 @@ public sealed class TypeRefDecoderCanonicalReferencedTests
         Assert.False(CrossAssemblyTypeResolver.SameSignatureType(
             core,
             attacker,
-            allowCoreLibraryAliases: true));
+            coreLibraryAliasIdentity: null));
     }
 
-    static TypeRef DecodeTypeReference(string assemblyName, byte[]? token)
+    [Fact]
+    public void CoreLibraryAliasMatchingRequiresTheExactTrustedDeclaringFacade()
+    {
+        var resolved = TypeRef.Definition(
+            TypeRef.CoreLibrary,
+            "System.Numerics",
+            "Vector2");
+        var facade = DecodeTypeReference(
+            "System.Numerics.Vectors",
+            PlatformToken,
+            "System.Numerics",
+            "Vector2");
+        var forgedFacade = DecodeTypeReference(
+            "System.Numerics.Vectors",
+            ForgedToken,
+            "System.Numerics",
+            "Vector2");
+
+        Assert.True(CrossAssemblyTypeResolver.SameSignatureType(
+            resolved,
+            facade,
+            coreLibraryAliasIdentity: facade.ResolutionAssembly));
+        Assert.False(CrossAssemblyTypeResolver.SameSignatureType(
+            resolved,
+            forgedFacade,
+            coreLibraryAliasIdentity: facade.ResolutionAssembly));
+    }
+
+    static TypeRef DecodeTypeReference(
+        string assemblyName,
+        byte[]? token,
+        string @namespace = "System",
+        string name = "Decimal")
     {
         var mb = new MetadataBuilder();
         mb.AddModule(
@@ -95,8 +127,8 @@ public sealed class TypeRefDecoderCanonicalReferencedTests
 
         var typeRef = mb.AddTypeReference(
             scope,
-            mb.GetOrAddString("System"),
-            mb.GetOrAddString("Decimal"));
+            mb.GetOrAddString(@namespace),
+            mb.GetOrAddString(name));
 
         var root = new MetadataRootBuilder(mb);
         var image = new BlobBuilder();
