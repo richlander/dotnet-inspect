@@ -370,7 +370,7 @@ only neutral mechanics with one bounded answer.**
 | --- | --- | --- |
 | Owner | `ILInspector.Metadata.ApiMemberIdentity` | `ILInspector.Research.ResearchMemberIdentity` |
 | Value | `MemberAnchor` | `MethodIdentity` |
-| Type identity | `MemberAnchor.TypeFullName` | `MemberIdentity.DeclaringType` |
+| Type identity | `MemberAnchor.TypeFullName` | `MethodIdentity.DeclaringType` |
 | Nested types | `Outer.Inner` (`MetadataReaderExtensions.GetFullTypeName`) | `Outer+Inner` (`MetadataTypeDefinitionName.ToNestedMetadataName`) |
 
 `member-target-resolution.md` states the divergence is deliberate: "Body identity
