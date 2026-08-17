@@ -36,6 +36,7 @@ public class ProviderSignatureDecodeBoundaryTests
     {
         Path.Combine("src", "ILInspector.Metadata"),
         Path.Combine("src", "ILInspector.MetadataPrimitives"),
+        Path.Combine("src", "ILInspector.ILDiff"),
         Path.Combine("src", "ILInspector.Instructions"),
         Path.Combine("src", "ILInspector.Analysis"),
         Path.Combine("src", "ILInspector.Decompiler"),
@@ -1998,7 +1999,11 @@ public class ProviderSignatureDecodeBoundaryTests
         {
             var dir = Path.Combine(root, assemblyRoot);
             if (!Directory.Exists(dir))
-                continue;
+            {
+                throw new DirectoryNotFoundException(
+                    $"Signature decode census root does not exist: {assemblyRoot}");
+            }
+
             foreach (var file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
                 yield return file;
         }

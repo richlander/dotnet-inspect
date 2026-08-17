@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\dotnet-inspect\dotnet-inspect.csproj" />
+    <ProjectReference Include="..\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
     <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />

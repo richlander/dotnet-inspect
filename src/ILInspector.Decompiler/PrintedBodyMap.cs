@@ -27,7 +27,11 @@ public readonly record struct PrintedExtent(
 /// </param>
 /// <param name="Kind">The stable rendered-syntax kind for these characters, e.g. <c>ObjectCreationExpression</c>.</param>
 /// <param name="Extent">The exact characters the node printed.</param>
-public readonly record struct PrintedNodeSpan(int Id, string Kind, PrintedExtent Extent);
+public readonly record struct PrintedNodeSpan(int Id, string Kind, PrintedExtent Extent)
+{
+    /// <summary>Product-owned IL provenance retained by this rendered C# node.</summary>
+    public AnnotatedSourceNodeProvenance? Provenance { get; init; }
+}
 
 /// <summary>
 /// One fact, positioned at the characters it is about.
@@ -291,7 +295,9 @@ public sealed record PrintedBodyMap
     {
         ArgumentNullException.ThrowIfNull(ranges);
 
-        var (lines, nodes, regions, nodeIds) = Project(ranges);
+        var (lines, nodes, regions, nodeIds) = Project(
+            ranges,
+            includeNodeProvenance: annotations is not null);
 
         var facts = new List<PrintedAnnotationSpan>();
         if (annotations is not null)
@@ -355,7 +361,10 @@ public sealed record PrintedBodyMap
         string[] Lines,
         PrintedNodeSpan[] Nodes,
         List<PrintedRegion> Regions,
-        Dictionary<IrNode, int> NodeIds) Project(PrintedRangeMap ranges)
+        Dictionary<IrNode, int> NodeIds) Project(
+            PrintedRangeMap ranges,
+            bool includeNodeProvenance,
+            IReadOnlySet<int>? provenanceOffsetAllowList = null)
     {
         string[] lines = ranges.Output.Length == 0
             ? []
@@ -384,6 +393,7 @@ public sealed record PrintedBodyMap
 
         var nodes = new List<PrintedNodeSpan>(recorded.Count);
         var nodeIds = new Dictionary<IrNode, int>(recorded.Count, ReferenceEqualityComparer.Instance);
+        var contributors = new List<List<IrNode>>(recorded.Count);
         foreach (var (node, kind, extent, _) in recorded)
         {
             int id;
@@ -397,8 +407,35 @@ public sealed record PrintedBodyMap
             {
                 id = nodes.Count;
                 nodes.Add(new PrintedNodeSpan(id, kind, extent));
+                contributors.Add([]);
             }
             nodeIds[node] = id;
+            contributors[id].Add(node);
+        }
+
+        if (includeNodeProvenance)
+        {
+            for (int id = 0; id < nodes.Count; id++)
+            {
+                int[] offsets =
+                [
+                    .. contributors[id]
+                        .SelectMany(static node => node.Descendants.Prepend(node))
+                        .Select(static node => node.SourceOffset)
+                        .Where(static offset => offset >= 0)
+                        .Distinct()
+                        .Order()
+                ];
+                if (offsets.Length == 0
+                    || provenanceOffsetAllowList is not null
+                        && offsets.Any(offset => !provenanceOffsetAllowList.Contains(offset)))
+                    continue;
+
+                nodes[id] = nodes[id] with
+                {
+                    Provenance = new AnnotatedSourceNodeProvenance(offsets)
+                };
+            }
         }
 
         var regions = new List<PrintedRegion>(ranges.PrintedRegions.Count);
@@ -416,17 +453,25 @@ public sealed record PrintedBodyMap
     /// <param name="ranges">The printer's node-keyed character ranges.</param>
     /// <param name="function">The printed function after raising or lowering.</param>
     /// <param name="annotations">The complete fact set for the member.</param>
+    /// <param name="provenanceOffsetAllowList">
+    /// Instruction boundaries in the physical method the document describes.
+    /// A node retaining any other method's offset remains unsupported.
+    /// </param>
     /// <returns>A portable C# body map with precise fact extents where available.</returns>
     public static PrintedBodyMap Create(
         PrintedRangeMap ranges,
         IrFunction function,
-        IReadOnlyList<IAnnotation> annotations)
+        IReadOnlyList<IAnnotation> annotations,
+        IReadOnlySet<int>? provenanceOffsetAllowList = null)
     {
         ArgumentNullException.ThrowIfNull(ranges);
         ArgumentNullException.ThrowIfNull(function);
         ArgumentNullException.ThrowIfNull(annotations);
 
-        var (lines, nodes, regions, nodeIds) = Project(ranges);
+        var (lines, nodes, regions, nodeIds) = Project(
+            ranges,
+            includeNodeProvenance: true,
+            provenanceOffsetAllowList: provenanceOffsetAllowList);
         var printedNodes = AnnotationAnchor.ComputePrintedNodes(annotations, function, ranges);
         var statementSpans = AnnotationAnchor.ComputeSpans(function);
         var facts = new List<PrintedAnnotationSpan>(annotations.Count);
