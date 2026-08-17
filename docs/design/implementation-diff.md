@@ -19,7 +19,7 @@ family.
 
 - `ILInspector.Decompiler` owns C# body diff production and display rows through
   `CSharpBodyDiff` and `CSharpDiffPrinter`.
-- `ILInspector.Instructions` owns IL/body diff production and display rows
+- `ILInspector.ILDiff` owns IL/body diff production and display rows
   through `IlBodyDiff`, `IlAssemblyDiff`, and `IlDiffPrinter`.
 - `ILInspector.Research` owns the join. `ImplementationDiff` compares assemblies
   with decompiled C# and IL/body mechanisms, accepts checksum-gated authored
@@ -37,32 +37,105 @@ family.
 
 ### Structural body comparison
 
-`CSharpBodyDiff.CompareStructure` is the node/span extension of the same C# body
-diff owner. It accepts two C# `AnnotatedSourceDocument` values, explicit
-occurrence selections, and owner-issued one-to-one node correspondence. Node ids
-remain local to the document that minted them. Equal ids, coordinates, selected
-text, kind labels, and display order never establish cross-document identity.
+`CSharpBodyDiff.IssueCorrespondence` is the product correspondence owner for
+two exact `AnnotatedSourceDocument` values describing the same physical method
+body. Each product document carries assembly name, MVID, MethodDef token, body
+fingerprint, and source-facing member label. Each supported C# node carries the
+sorted IL-origin set retained by its contributing IR subtree. The issuer first
+requires equal physical method provenance, hashes each exact document revision,
+and then matches only origin sets unique on both sides. A repeated origin set is
+ambiguous even when nested nodes happen to occupy corresponding depths: wrapper
+substitution can shift those depths without preserving identity. A unique
+one-sided set is `NoCounterpart` only when every opposite-side node carries
+provenance; otherwise the incomplete population leaves it ambiguous. Equal
+document-local ids, source coordinates, selected text, kind labels, and display
+order never establish cross-document identity.
+
+The producer checks every origin against an instruction boundary in the
+fingerprinted physical body. A subtree that retains any offset imported from a
+nested or reconstructed companion method is unsupported as a whole; foreign
+offsets are never intersected into a plausible-looking partial identity.
+
+The issued `CSharpNodeCorrespondenceResult` retains the exact documents and
+their revision identities, document-scoped node identities, the
+`IlOriginSet` provenance for every match, and explicit unmatched Before and
+After nodes. Missing evidence is `Unsupported`, non-unique evidence is
+`Ambiguous`, and a unique one-sided key is `NoCounterpart`. Unsupported or
+ambiguous nodes never become guessed additions or removals.
+
+`CSharpBodyDiff.CompareStructure` is the node/span consumer. Its product-issued
+overload validates the complete result against the exact documents, projects
+the mixed annotated-source documents to C# without re-parsing rendered syntax,
+and maps matches plus `NoCounterpart` nodes into the existing selected-node
+comparison. The explicit-input overload is an internal construction seam for
+focused presentation tests; it is not a portable input contract.
 
 The result is one `CSharpStructuralComparison` with explicit `Added`, `Removed`,
 `Changed`, and `Moved` outcomes. Movement is orthogonal, so a node may be both
-changed and moved. Stable kind ids and display labels come from
+changed and moved. After provenance establishes identity, the issuer classifies
+the smallest deterministic set outside the longest order-preserving match
+sequence as moved; local order participates only in that classification, never
+in identity. Stable kind ids and display labels come from
 `AnnotatedSourceNodeKinds`; the comparison does not expose raw IR type names.
 Each row retains exact absolute UTF-16 spans and the smallest enclosing region
 role on both sides. Optional compile-back fidelity is separately supplied typed
 evidence, not a conclusion inferred from C# text.
 
+`CSharpStructuralDiffDocument` is the portable artifact paired with
+`AnnotatedSourceDocument`. It carries schema and methodology versions, the
+exact revision-bound `CSharpNodeCorrespondenceResult`, and optional independent
+fidelity evidence. It also retains the generated structural rows so the JSON is
+the diff artifact, not only a recipe for recreating one. Its top-level Before
+and After values are the exact C#-only projections that own those row ids and
+spans; the correspondence payload separately retains the original mixed
+annotated-source documents. Construction and strict deserialization reissue
+correspondence from those originals, derive both projections and the expected
+rows, and require exact agreement before `ToComparison` exposes them. This
+keeps the artifact product-issued rather than accepting caller-authored
+mappings, projections, or rows.
+`CSharpStructuralComparisonTests.StructuralDiffDocument_RejectsTamperedCorrespondence`
+`CSharpStructuralComparisonTests.StructuralDiffDocument_RejectsTamperedProjection`,
+and
+`StructuralDiffDocument_RejectsTamperedRows` are the non-vacuity gates for that
+replay check.
+`StructuralDiffDocument_ProjectsInterleavedIlWithoutInferringFromText` gates
+that the top-level projections own the serialized row coordinates.
+
+The C# name is intentional. `AnnotatedSourceDocument` may interleave C# and IL,
+but this artifact compares the C# node/span projection. Native IL comparison
+remains owned by `ILInspector.ILDiff` through `IlBodyDiffResult`; a future
+portable IL envelope should retain that typed result rather than manufacture a
+parallel generic structural-row hierarchy. Research remains the owner of any
+combined C# + IL implementation-diff document.
+
 `CSharpStructuralDiffPrinter` projects that one result into complete-body caret
-overlays and compact rich-diff rows. It performs no correspondence. The
+overlays and compact rich-diff rows. For a changed single-span node, each caret
+annotation reads the exact counterpart text from the already-corresponded
+document and names it as `changed to` or `changed from`. Text remains
+presentation evidence and never participates in identity. Multiline,
+multi-span, long, ill-formed UTF-16, and whitespace-lossy transitions use the
+bounded `text changed` label symmetrically rather than allocating or injecting
+unbounded or inexact text into an annotation. A display-unsafe counterpart also
+uses that fallback; rendering a document whose own source is display-unsafe
+remains rejected by the existing safety gate. It performs no correspondence.
+`CSharpStructuralComparisonTests.RenderAnnotatedBody_WrappedExactTransitionReconstructsCounterpart`
+gates the lossless wrapped-text claim.
 DecompilerHarness `--structural-review` mode owns Markdown orchestration and
-consumes the same result for both presentations. It reads untrusted input
-through Decompiler-owned `AnnotatedSourceJson`, so the CLI document writer and
-harness reader share one model-owned contract while retaining separate writer
-and strict-reader policies. This model exists only for node/span structure that
-the line-oriented `CSharpDiffRow` cannot represent; it does not introduce
-another generic diff-row hierarchy. Ordinary indented spans reuse the
-annotation comment gutter and its stacking rules. A span too close to the left
-edge for that gutter uses an exact gutter-free caret row instead; it is never
-shifted, widened, clipped, or silently dropped.
+consumes the same result for both presentations. With two documents it invokes
+the product issuer; `--json` emits the resulting
+`CSharpStructuralDiffDocument`. The one-file form accepts only that generated
+artifact, reissues its correspondence, and renders it later. Both forms read
+untrusted input through Decompiler-owned `AnnotatedSourceJson`, so the CLI
+document writer and harness reader share one model-owned contract while
+retaining separate writer and strict-reader policies. Unsupported and ambiguous
+nodes remain a separate correspondence-gap section; an incomplete result is
+never reported as "no structural changes."
+This model exists only for node/span structure that the line-oriented
+`CSharpDiffRow` cannot represent; it does not introduce another generic
+diff-row hierarchy. Ordinary indented spans reuse the annotation comment gutter
+and its stacking rules. A span too close to the left edge for that gutter uses
+an exact gutter-free caret row instead; it is never shifted, widened, clipped,
+or silently dropped.
 
 ## Research comparison model
 
@@ -132,14 +205,14 @@ produced:
   Metadata layer.
 - **Body-substrate rows** are produced below member selection: they compare one
   already-resolved body's operation or signal stream and hold no member
-  identity. `IlDiffRow`/`CanonicalIlOperation` in `ILInspector.Instructions`
+  identity. `IlDiffRow`/`CanonicalIlOperation` in `ILInspector.ILDiff`
   carries only `HunkId`, `IlDiffKind` polarity, the operation, and a
   producer-owned `Message`; analysis/body-signal facts sit at the same altitude.
   The caller that already resolved the enclosing member supplies the stable
   currency by wrapping — `IlAssemblyDiff.CompareMembers` returns an
   `IlMemberDiffSubject`, and Research attaches a `ResearchSubjectKey` from
   `ResearchMemberIdentity.SubjectFromMethod`. This is altitude, not a
-  Metadata-dependency ban: `ILInspector.Instructions` already references
+  Metadata-dependency ban: `ILInspector.ILDiff` already references
   `MetadataPrimitives`, so it *could* embed a `MemberAnchor`; it deliberately
   does not, because a body substrate that diffs a single pre-resolved body pair
   has no member to name and the enclosing member subject already owns that fact.

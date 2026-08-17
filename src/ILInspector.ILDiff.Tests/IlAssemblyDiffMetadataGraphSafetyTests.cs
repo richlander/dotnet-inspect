@@ -8,7 +8,7 @@ using ILInspector.Metadata;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace ILInspector.Instructions.Tests;
+namespace ILInspector.ILDiff.Tests;
 
 public class IlAssemblyDiffMetadataGraphSafetyTests
 {
@@ -58,8 +58,15 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
     [Fact]
     public void MetadataGraphEdgeCensus_HasNoLocalIdentityRelationshipWalk()
     {
-        string sourceDirectory = Path.Combine(FindRepositoryRoot(), "src", "ILInspector.Instructions");
-        var actual = Directory.EnumerateFiles(sourceDirectory, "*.cs", SearchOption.AllDirectories)
+        string sourceRoot = Path.Combine(FindRepositoryRoot(), "src");
+        string[] componentDirectories =
+        [
+            Path.Combine(sourceRoot, "ILInspector.ILDiff"),
+            Path.Combine(sourceRoot, "ILInspector.Instructions"),
+        ];
+        var actual = componentDirectories
+            .SelectMany(directory =>
+                Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories))
             .Select(path =>
             {
                 var root = CSharpSyntaxTree.ParseText(
@@ -68,7 +75,8 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
                     cancellationToken: TestContext.Current.CancellationToken)
                     .GetRoot(TestContext.Current.CancellationToken);
                 return new GraphEdgeCount(
-                    Path.GetRelativePath(sourceDirectory, path),
+                    Path.GetRelativePath(sourceRoot, path)
+                        .Replace(Path.DirectorySeparatorChar, '/'),
                     root.DescendantNodes()
                         .OfType<InvocationExpressionSyntax>()
                         .Count(invocation =>
@@ -88,10 +96,10 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
             // constructor to identify CompilerGeneratedAttribute. That is a single hop,
             // not a relationship chain: its nesting walk goes through the bounded
             // MetadataRelationshipTraversal, which is why this count is 1 and not 2.
-            new("CompilerGeneratedOrdinals.cs", DeclaringTypeEdges: 1, TypeReferenceEdges: 0),
-            new("IlAssemblyDiff.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
-            new("IlBodyDiff.cs", DeclaringTypeEdges: 5, TypeReferenceEdges: 8),
-            new("MetadataStackTypeResolver.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
+            new("ILInspector.ILDiff/CompilerGeneratedOrdinals.cs", DeclaringTypeEdges: 1, TypeReferenceEdges: 0),
+            new("ILInspector.ILDiff/IlAssemblyDiff.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
+            new("ILInspector.ILDiff/IlMetadataOperandResolver.cs", DeclaringTypeEdges: 5, TypeReferenceEdges: 8),
+            new("ILInspector.Instructions/MetadataStackTypeResolver.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
         ];
         Assert.Equal(expected, actual);
     }

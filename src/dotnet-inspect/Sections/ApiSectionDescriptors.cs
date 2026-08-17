@@ -43,6 +43,7 @@ public static class ApiTypeSectionDescriptors
             .Add<Interfaces>(ApiSurfaceQuery.Definition)
             .Add<Enums>(ApiSurfaceQuery.Definition)
             .Add<Delegates>(ApiSurfaceQuery.Definition)
+            .Add<InspectionFailures>(ApiSurfaceQuery.Definition)
             .SetInfoSections(SectionNames.ApiInfo)
             .AddBaseCategory(SectionCategoryNames.Surface,
                 SectionNames.ApiInfo,
@@ -121,6 +122,15 @@ public static class ApiTypeSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "delegate");
+    }
+
+    public sealed class InspectionFailures : ISectionDescriptor<ApiSurface>
+    {
+        public static string Name => SectionNames.InspectionFailures;
+        public static bool IsExpensive => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiSurface model)
+            => model.InspectionFailures.Count > 0;
     }
 }
 

@@ -24,29 +24,105 @@ dotnet "$DLL" --generated-fixtures alloc --json  # grade a subset (id/prefix/tag
 dotnet "$DLL" --generated-fixtures exception.unsuffixed.external --keep  # keep temp projects
 ```
 
-The structural clone relationship corpus is a separate product/harness
-boundary:
+Top-level harness modes are mutually exclusive. Supplying more than one names
+the conflicting flags and exits 2 instead of silently running the first
+dispatch branch.
+
+The structural clone corpus is a separate product/harness boundary and the
+first exact-discovery demo:
 
 ```bash
 dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll
 dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll --json
 ```
 
+The text demo reports direct comparison and discovery independently:
+
+```text
+Structural clone relationship corpus: 6/6 passed
+PASS banal.authored.exact: expected Completed/Exact, actual Completed/Exact (Unique correspondence)
+...
+PASS closed-world exact discovery: expected 4 clusters, actual 4 clusters, disposition Completed
+  ...::ExactPositiveA = ...::ExactPositiveB
+  ...::MetadataOperandsA = ...::MetadataOperandsB
+  ...::SignatureHazardByte = ...::SignatureHazardUInt
+  ...::SignatureHazardObject = ...::SignatureHazardString
+```
+
 The committed
-`corpus/structural-clone-relationships.json` ledger supplies candidate pairs
-and separately expected disposition/relation. It also records orthogonal
-difficulty, intent, actionability, and tag axes. The harness resolves the
-declared type and method names to SRM handles, then grades only
-`StructuralCloneAnalysis.Compare`; it owns no clone normalization,
-correspondence, or verification logic.
+`corpus/structural-clone-relationships.json` ledger supplies candidate pairs,
+separate expected disposition/relation, and an explicit closed-world discovery
+population. It also records orthogonal difficulty, intent, actionability, and
+tag axes. The harness derives expected exact connected components only from
+the ledger's expected relations. It then resolves the declared identities to
+SRM handles, grades `StructuralCloneAnalysis.Compare`, runs
+`StructuralCloneAnalysis.Discover`, and requires the complete discovered
+clusters to equal those components. A missed family or an undeclared
+cross-component merge fails the discovery card.
+
+The harness owns no candidate fingerprint, clone normalization,
+correspondence, clustering, or verification logic. Negative cluster membership
+is graded only after discovery reports `Completed` with no suppressed buckets.
+Unsupported direct-comparison cases remain visible direct gates and do not
+downgrade an otherwise complete discovery pass.
 
 The ledger is strict: missing or unknown fields, integer enum values, schema
 versions, duplicate IDs, unknown axis values, incomplete identities, and
 relation/disposition contradictions fail instead of silently shrinking
-coverage. An explicitly supplied `--relationship-ledger` must name a file;
-it never falls back to the committed corpus. `StructuralCloneCorpusTests` also
-requires every public method in the dedicated fixture type to appear in the
-ledger, preventing fixture or relationship inventory drift.
+coverage. The discovery population must contain each distinct relationship
+method exactly once. An explicitly supplied `--relationship-ledger` must name
+a file; it never falls back to the committed corpus.
+`StructuralCloneCorpusTests` also requires every public method in the dedicated
+fixture type to appear in both ledger views, preventing fixture, relationship,
+or discovery-population drift.
+
+The whole-assembly census is the scale and seed-to-family demo:
+
+```bash
+dotnet "$DLL" --clone-census ILInspector.Analysis.Fixtures.dll \
+  --seed ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture::ExactPositiveA
+
+dotnet "$DLL" --clone-census System.Private.CoreLib.dll \
+  --seed System.Reflection.EventInfo::op_Equality --top 8
+dotnet "$DLL" --clone-census System.Private.CoreLib.dll \
+  --seed 0x0600873D --json
+```
+
+The harness enumerates every MethodDef once and calls
+`StructuralCloneAnalysis.Discover`; it owns no fingerprint, verification, or
+clustering logic. Every projected method carries its full MethodDef token.
+`Type::Method` is a convenience selector only: overloads fail as ambiguous and
+list the tokens callers can use instead. Nested type names use `Outer+Inner`.
+
+Text output bounds families and members with `--top`, but always pins the
+selected seed and at least one exact peer. JSON contains every family, family
+member, suppressed bucket, non-completed method, and unresolved comparison.
+Both formats expose the effective method/candidate-comparison limits and the
+complete product receipt.
+`--max-methods` changes atomic population admission;
+`--max-comparisons` changes candidate comparisons, not total body work.
+
+A clustered seed is positive evidence even if unrelated methods make the
+overall census partial. `Singleton` is reported only when discovery is
+`Completed`; otherwise an eligible seed without an emitted family is
+`Unresolved`, and the exact-singleton count is absent. `Unsupported`,
+`LimitReached`, and `Failed` seed production remain distinct. The command exits
+0 only for completed discovery, 1 for a visible product limit/failure, and 2
+for invalid arguments or input.
+
+The 2026-08-16 CoreLib canary used
+`System.Private.CoreLib.dll` from .NET
+`11.0.0-preview.7.26381.103`, SHA-256
+`6c14b54d28c604613aef5a690fa10aa768e584556e90a736b506f40022f8afea`,
+MVID `82790b72-6139-4dc6-8bd5-0d6b13d1c5e8`, and the second command above.
+The default limits processed all 44,801 methods: 41,498 were eligible, 3,296
+unsupported, and seven exceeded the 128-block body limit. All 940 candidate
+buckets completed, producing 938 exact families over 10,146 methods from 9,210
+comparisons. The overall disposition was therefore `LimitReached`, with no
+singleton inference. The selected `EventInfo::op_Equality` seed still carried
+positive evidence as one member of a nine-method reflection equality family.
+There is no performance baseline; elapsed time and memory remain
+machine-specific run evidence.
 
 Each fixture builds in isolation: a consumer assembly (the inspected one) plus, when the
 fixture is cross-assembly, a referenced external assembly (with an extern alias for the

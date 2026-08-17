@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Instructions;
@@ -21,6 +20,20 @@ public sealed record LeakTriageCandidate(
     string Evidence,
     int? RentOffset,
     int? ILOffset);
+
+public enum LeakTriageFailureKind
+{
+    InstructionDecoding,
+    MethodResolution,
+    MethodMetadata,
+    BodyAcquisition,
+    ControlFlowAnalysis,
+}
+
+public readonly record struct LeakTriageFailure(
+    int MethodToken,
+    LeakTriageFailureKind Kind,
+    string Reason);
 
 public readonly record struct ArrayPoolExceptionBoundary(
     int ILOffset,
@@ -65,12 +78,23 @@ public sealed record LeakTriageResult(
     ImmutableArray<LeakTriageCandidate> Candidates)
 {
     public ImmutableArray<ArrayPoolExceptionPathCandidate> ExceptionPathCandidates { get; init; } = [];
+    /// <summary>
+    /// Method-local failures that make the assembly result incomplete.
+    /// <c>DetailedAnalysis_MethodResolutionBudgetFailureIsTyped</c> and
+    /// <c>ResourceLifecycleAnalysis_MalformedMethodTokenIsVisible</c> gate
+    /// production and presentation propagation.
+    /// </summary>
+    public ImmutableArray<LeakTriageFailure> Failures { get; init; } = [];
 }
 
 public static class LeakTriageAnalyzer
 {
     public static ImmutableArray<LeakTriageFinding> AnalyzeAssembly(string path)
-        => AnalyzeAssemblyDetailed(path).Findings;
+    {
+        LeakTriageResult result = AnalyzeAssemblyDetailed(path);
+        ThrowIfFailed(result);
+        return result.Findings;
+    }
 
     public static LeakTriageResult AnalyzeAssemblyDetailed(string path)
     {
@@ -102,7 +126,16 @@ public static class LeakTriageAnalyzer
         byte[] il,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         Func<int, MemberRef> resolveMethod)
-        => AnalyzeMethodDetailed(method, il, exceptionRegions, resolveMethod, null).Findings;
+    {
+        LeakTriageResult result = AnalyzeMethodDetailed(
+            method,
+            il,
+            exceptionRegions,
+            resolveMethod,
+            null);
+        ThrowIfFailed(result);
+        return result.Findings;
+    }
 
     public static ImmutableArray<LeakTriageFinding> AnalyzeMethod(
         MethodIdentity method,
@@ -110,7 +143,16 @@ public static class LeakTriageAnalyzer
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         Func<int, MemberRef> resolveMethod,
         Func<int, TypeRef?>? resolveCatchType)
-        => AnalyzeMethodDetailed(method, il, exceptionRegions, resolveMethod, resolveCatchType).Findings;
+    {
+        LeakTriageResult result = AnalyzeMethodDetailed(
+            method,
+            il,
+            exceptionRegions,
+            resolveMethod,
+            resolveCatchType);
+        ThrowIfFailed(result);
+        return result.Findings;
+    }
 
     public static LeakTriageResult AnalyzeMethodDetailed(
         MethodIdentity method,
@@ -134,27 +176,77 @@ public static class LeakTriageAnalyzer
         if (il.Length == 0)
             return Empty;
 
-        bool hasArrayPoolRent = false;
+        ImmutableArray<DecodedInstruction> instructions;
         try
         {
-            var instructions = InstructionDecoder.Decode(il);
-            var calls = BuildCallMap(instructions, resolveMethod);
-            hasArrayPoolRent = calls.Values.Any(IsArrayPoolRent);
-            if (!hasArrayPoolRent)
-                return Empty;
+            instructions = InstructionDecoder.Decode(il);
+        }
+        catch (Exception ex) when (IsRecoverable(ex))
+        {
+            return Failed(
+                method,
+                LeakTriageFailureKind.InstructionDecoding,
+                ex);
+        }
 
+        IReadOnlyDictionary<int, MemberRef> calls;
+        try
+        {
+            calls = ArrayPoolUseClassifier.BuildCallMap(
+                instructions,
+                resolveMethod);
+        }
+        catch (Exception ex) when (IsRecoverable(ex))
+        {
+            return Failed(
+                method,
+                LeakTriageFailureKind.MethodResolution,
+                ex);
+        }
+
+        if (!calls.Values.Any(
+                ArrayPoolUseClassifier.IsArrayPoolRent))
+            return Empty;
+
+        IReadOnlySet<(
+            int TryOffset,
+            int TryLength,
+            int HandlerOffset)> catchAllCleanup;
+        try
+        {
+            catchAllCleanup =
+                ArrayPoolExceptionPathAnalyzer
+                    .ComputeCreditableCatchCleanup(
+                        exceptionRegions,
+                        resolveCatchType);
+        }
+        catch (Exception ex) when (IsRecoverable(ex))
+        {
+            return Failed(
+                method,
+                LeakTriageFailureKind.MethodResolution,
+                ex);
+        }
+
+        try
+        {
             var graph = BlockGraph.Build(il.Length, instructions, exceptionRegions);
             if (!graph.IsComplete)
-                return Suppressed(method, "incomplete-cfg-or-rd-suppressed", graph.IncompleteReason ?? "Incomplete CFG/RD evidence.", null, null);
+                return Failed(
+                    method.MetadataToken,
+                    LeakTriageFailureKind.ControlFlowAnalysis,
+                    "IncompleteControlFlow");
 
             var reaching = ReachingDefinitions.Analyze(il, ArgumentSlotCount(method), exceptionRegions);
             if (!reaching.IsComplete)
-                return Suppressed(method, "incomplete-cfg-or-rd-suppressed", reaching.IncompleteReason ?? "Incomplete CFG/RD evidence.", null, null);
+                return Failed(
+                    method.MetadataToken,
+                    LeakTriageFailureKind.ControlFlowAnalysis,
+                    "IncompleteReachingDefinitions");
 
-            var catchAllCleanup = ComputeCreditableCatchCleanup(exceptionRegions, resolveCatchType);
             var candidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
             var exceptionPathCandidates = ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
-            var rents = FindRents(method, instructions, graph, reaching, calls, candidates).ToImmutableArray();
+            var rents = ArrayPoolUseClassifier.FindRents(method, instructions, graph, reaching, calls, candidates).ToImmutableArray();
             if (rents.Length == 0)
                 return new LeakTriageResult([], candidates.ToImmutable());
 
@@ -182,9 +274,10 @@ public static class LeakTriageAnalyzer
         }
         catch (Exception ex) when (IsRecoverable(ex))
         {
-            return hasArrayPoolRent
-                ? Suppressed(method, "incomplete-cfg-or-rd-suppressed", ex.Message, null, null)
-                : Empty;
+            return Failed(
+                method,
+                LeakTriageFailureKind.ControlFlowAnalysis,
+                ex);
         }
     }
 
@@ -192,6 +285,41 @@ public static class LeakTriageAnalyzer
 
     static LeakTriageResult Suppressed(MethodIdentity method, string shape, string evidence, int? rentOffset, int? ilOffset)
         => new([], [new LeakTriageCandidate(method, shape, evidence, rentOffset, ilOffset)]);
+
+    internal static LeakTriageResult Failed(
+        MethodIdentity method,
+        LeakTriageFailureKind kind,
+        Exception exception) =>
+        Failed(
+            method.MetadataToken,
+            kind,
+            exception.GetType().Name);
+
+    internal static LeakTriageResult Failed(
+        int methodToken,
+        LeakTriageFailureKind kind,
+        string reason) =>
+        new([], [])
+        {
+            Failures =
+            [
+                new LeakTriageFailure(
+                    methodToken,
+                    kind,
+                    reason),
+            ],
+        };
+
+    static void ThrowIfFailed(LeakTriageResult result)
+    {
+        if (result.Failures.IsEmpty)
+            return;
+        LeakTriageFailure first = result.Failures[0];
+        throw new InvalidOperationException(
+            $"Leak analysis was incomplete at method token "
+            + $"0x{first.MethodToken:X8} during {first.Kind} "
+            + $"({first.Reason}).");
+    }
 
     static void AnalyzeRent(
         MethodIdentity method,
@@ -201,7 +329,7 @@ public static class LeakTriageAnalyzer
         IReadOnlyDictionary<int, MemberRef> calls,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
-        RentedLocal rent,
+        ArrayPoolUseClassifier.RentedLocal rent,
         ImmutableArray<LeakTriageFinding>.Builder findings,
         ImmutableArray<LeakTriageCandidate>.Builder candidates,
         ImmutableArray<ArrayPoolExceptionPathCandidate>.Builder exceptionPathCandidates)
@@ -221,13 +349,13 @@ public static class LeakTriageAnalyzer
                 if (firstAmbiguous is null)
                 {
                     const string shape = "alias-or-field-suppressed";
-                    AddCandidate(candidates, method, shape, "Rented array address is observed.", rent.RentOffset, use.Offset);
+                    ArrayPoolUseClassifier.AddCandidate(candidates, method, shape, "Rented array address is observed.", rent.RentOffset, use.Offset);
                     firstAmbiguous = new AmbiguousUse(use.Offset, shape);
                 }
                 continue;
             }
 
-            var classification = ClassifyUse(
+            var classification = ArrayPoolUseClassifier.ClassifyUse(
                 instructions,
                 calls,
                 use.Offset,
@@ -235,16 +363,16 @@ public static class LeakTriageAnalyzer
                 rent.Type);
             switch (classification.Kind)
             {
-                case UseKind.Release:
+                case ArrayPoolUseClassifier.UseKind.Release:
                     releases.Add(use.Offset);
                     break;
-                case UseKind.LocalUse:
+                case ArrayPoolUseClassifier.UseKind.LocalUse:
                     safeUses.Add(use.Offset);
                     break;
                 default:
                     if (firstAmbiguous is null)
                     {
-                        AddCandidate(candidates, method, classification.CandidateShape, classification.Evidence, rent.RentOffset, use.Offset);
+                        ArrayPoolUseClassifier.AddCandidate(candidates, method, classification.CandidateShape, classification.Evidence, rent.RentOffset, use.Offset);
                         firstAmbiguous = new AmbiguousUse(use.Offset, classification.CandidateShape);
                     }
                     if (classification.CandidateShape == "cross-method-suppressed"
@@ -257,9 +385,9 @@ public static class LeakTriageAnalyzer
                             directUseOffsets.TryAdd(boundary.ILOffset, use.Offset);
                         }
                         if ((classification.NonThrowingSetupBoundary
-                                || IsTransparentWrapperBoundary(
+                                || ArrayPoolUseClassifier.IsTransparentWrapperBoundary(
                                     boundary.Operation))
-                            && FindBoundaryAfterSetup(
+                            && ArrayPoolExceptionPathAnalyzer.FindBoundaryAfterSetup(
                             instructions,
                             reaching,
                             calls,
@@ -278,7 +406,7 @@ public static class LeakTriageAnalyzer
         if (firstAmbiguous is { } ambiguous)
         {
             if (ambiguous.Shape == "cross-method-suppressed"
-                && UnprotectedThrowingBoundaries(
+                && ArrayPoolExceptionPathAnalyzer.UnprotectedThrowingBoundaries(
                     graph,
                     exceptionRegions,
                     catchAllCleanup,
@@ -286,7 +414,7 @@ public static class LeakTriageAnalyzer
                     throwingBoundaries.ToImmutable()) is { Length: > 0 } unprotectedBoundaries)
             {
                 var directUnprotectedBoundaries =
-                    UnprotectedThrowingBoundaries(
+                    ArrayPoolExceptionPathAnalyzer.UnprotectedThrowingBoundaries(
                         graph,
                         exceptionRegions,
                         catchAllCleanup,
@@ -300,7 +428,7 @@ public static class LeakTriageAnalyzer
                         directUseOffsets.GetValueOrDefault(
                             throwingBoundary,
                             throwingBoundary);
-                    AddCandidate(
+                    ArrayPoolUseClassifier.AddCandidate(
                         candidates,
                         method,
                         "exception-path-leak-candidate",
@@ -320,18 +448,18 @@ public static class LeakTriageAnalyzer
         // Multiple releases often encode correlated branch predicates (`if (c) return; if (!c) return`).
         // Without predicate facts, fail closed on leaks and only keep same-block misuse shapes below.
         var exitKind = releaseOffsets.Length <= 1
-            ? PathExitsWithoutRelease(instructions, graph, calls, rent.StoreOffset, releaseOffsets)
-            : LeakExitKind.None;
-        if (exitKind != LeakExitKind.None)
+            ? ArrayPoolExceptionPathAnalyzer.PathExitsWithoutRelease(instructions, graph, calls, rent.StoreOffset, releaseOffsets)
+            : ArrayPoolExceptionPathAnalyzer.LeakExitKind.None;
+        if (exitKind != ArrayPoolExceptionPathAnalyzer.LeakExitKind.None)
         {
-            AddCandidate(
+            ArrayPoolUseClassifier.AddCandidate(
                 candidates,
                 method,
-                exitKind == LeakExitKind.Exception ? "exception-path-leak-candidate" : "normal-path-leak-candidate",
-                $"ArrayPool<T>.Shared.Rent at IL_{rent.RentOffset:X4} reaches an unreleased {(exitKind == LeakExitKind.Exception ? "exception" : "normal")} exit.",
+                exitKind == ArrayPoolExceptionPathAnalyzer.LeakExitKind.Exception ? "exception-path-leak-candidate" : "normal-path-leak-candidate",
+                $"ArrayPool<T>.Shared.Rent at IL_{rent.RentOffset:X4} reaches an unreleased {(exitKind == ArrayPoolExceptionPathAnalyzer.LeakExitKind.Exception ? "exception" : "normal")} exit.",
                 rent.RentOffset,
                 rent.RentOffset);
-            if (exitKind == LeakExitKind.Exception)
+            if (exitKind == ArrayPoolExceptionPathAnalyzer.LeakExitKind.Exception)
             {
                 exceptionPathCandidates.Add(
                     new ArrayPoolExceptionPathCandidate(method, rent.RentOffset, []));
@@ -347,10 +475,10 @@ public static class LeakTriageAnalyzer
 
         // Same-block reachability avoids inventing impossible paths across correlated branches.
         if (releaseOffsets.Length > 0
-            && safeUseOffsets.Any(use => releaseOffsets.Any(release => ReachesInSameBlock(graph, release, use))))
+            && safeUseOffsets.Any(use => releaseOffsets.Any(release => ArrayPoolExceptionPathAnalyzer.ReachesInSameBlock(graph, release, use))))
         {
-            int useAfterReturn = safeUseOffsets.Where(use => releaseOffsets.Any(release => ReachesInSameBlock(graph, release, use))).Min();
-            AddCandidate(
+            int useAfterReturn = safeUseOffsets.Where(use => releaseOffsets.Any(release => ArrayPoolExceptionPathAnalyzer.ReachesInSameBlock(graph, release, use))).Min();
+            ArrayPoolUseClassifier.AddCandidate(
                 candidates,
                 method,
                 "use-after-return-candidate",
@@ -367,9 +495,9 @@ public static class LeakTriageAnalyzer
         }
 
         if (releaseOffsets.Length > 1
-            && releaseOffsets.Any(first => releaseOffsets.Any(second => first != second && ReachesInSameBlock(graph, first, second))))
+            && releaseOffsets.Any(first => releaseOffsets.Any(second => first != second && ArrayPoolExceptionPathAnalyzer.ReachesInSameBlock(graph, first, second))))
         {
-            AddCandidate(
+            ArrayPoolUseClassifier.AddCandidate(
                 candidates,
                 method,
                 "double-return-candidate",
@@ -386,1152 +514,12 @@ public static class LeakTriageAnalyzer
         }
     }
 
-    static void AddCandidate(
-        ImmutableArray<LeakTriageCandidate>.Builder candidates,
-        MethodIdentity method,
-        string shape,
-        string evidence,
-        int? rentOffset,
-        int? ilOffset)
-        => candidates.Add(new LeakTriageCandidate(method, shape, evidence, rentOffset, ilOffset));
-
-    static LeakExitKind PathExitsWithoutRelease(
-        ImmutableArray<DecodedInstruction> instructions,
-        BlockGraph graph,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        int startOffset,
-        ImmutableArray<int> releases)
-    {
-        int startBlock = graph.BlockIndexAt(startOffset);
-        if (startBlock < 0)
-            return LeakExitKind.None;
-
-        var releaseSet = releases.ToHashSet();
-        var visited = new HashSet<(int Block, bool Released)>();
-        var stack = new Stack<(int Block, bool Released, int StartOffset)>();
-        stack.Push((startBlock, Released: false, StartOffset: startOffset));
-        bool sawExceptionExit = false;
-
-        while (stack.Count > 0)
-        {
-            var (blockIndex, releasedIn, blockStartOffset) = stack.Pop();
-            if (!visited.Add((blockIndex, releasedIn)))
-                continue;
-
-            var block = graph.Blocks[blockIndex];
-            bool released = ProcessBlockForRelease(instructions, calls, block, blockStartOffset, releaseSet, releasedIn);
-            var successors = block.Edges.Successors;
-            if (!released && block.Edges.ExitsMethod && successors.Count == 0)
-            {
-                if (BlockExitsByException(instructions, calls, block))
-                    sawExceptionExit = true;
-                else
-                    return LeakExitKind.Normal;
-            }
-            foreach (int successor in successors)
-                stack.Push((successor, released, graph.Blocks[successor].Start));
-        }
-
-        return sawExceptionExit ? LeakExitKind.Exception : LeakExitKind.None;
-    }
-
-    static bool ProcessBlockForRelease(
-        ImmutableArray<DecodedInstruction> instructions,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        InstructionBlock block,
-        int startOffset,
-        IReadOnlySet<int> releases,
-        bool released)
-    {
-        foreach (var instruction in instructions)
-        {
-            if (instruction.Offset < block.Start || instruction.Offset >= block.End)
-                continue;
-            if (instruction.Offset < startOffset)
-                continue;
-            if (releases.Contains(instruction.Offset))
-                released = true;
-            if (!released && IsDefinitelyThrowingCall(instruction, calls))
-                return false;
-        }
-        return released;
-    }
-
-    static bool IsDefinitelyThrowingCall(DecodedInstruction instruction, IReadOnlyDictionary<int, MemberRef> calls)
-        => instruction.OpCode is ILOpCode.Throw or ILOpCode.Rethrow
-           || (calls.TryGetValue(instruction.Offset, out var callee)
-               && FrameworkIdentity.IsCoreLibraryType(callee.DeclaringType, "System", "ThrowHelper"));
-
-    static bool BlockExitsByException(
-        ImmutableArray<DecodedInstruction> instructions,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        InstructionBlock block)
-    {
-        foreach (var instruction in instructions)
-        {
-            if (instruction.Offset < block.Start || instruction.Offset >= block.End)
-                continue;
-            if (IsDefinitelyThrowingCall(instruction, calls))
-                return true;
-        }
-
-        return false;
-    }
-
-    static bool ReachesInSameBlock(BlockGraph graph, int fromOffset, int toOffset)
-    {
-        int fromBlock = graph.BlockIndexAt(fromOffset);
-        int toBlock = graph.BlockIndexAt(toOffset);
-        return fromBlock >= 0 && fromBlock == toBlock && fromOffset < toOffset;
-    }
-
-    static bool ReleasedBeforeUseInSameBlock(BlockGraph graph, ImmutableArray<int> releases, int useOffset)
-        => releases.Any(release => ReachesInSameBlock(graph, release, useOffset));
-
-    static ImmutableArray<ArrayPoolExceptionBoundary> UnprotectedThrowingBoundaries(
-        BlockGraph graph,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
-        IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
-        ImmutableArray<int> releases,
-        ImmutableArray<ArrayPoolExceptionBoundary> throwingBoundaries)
-    {
-        var result = ImmutableArray.CreateBuilder<ArrayPoolExceptionBoundary>();
-        var seenOffsets = new HashSet<int>();
-        foreach (var boundary in throwingBoundaries.OrderBy(static boundary => boundary.ILOffset))
-        {
-            if (seenOffsets.Add(boundary.ILOffset)
-                && !ReleasedBeforeUseInSameBlock(graph, releases, boundary.ILOffset)
-                && !HasCleanupReleaseForUse(
-                    exceptionRegions,
-                    catchAllCleanup,
-                    releases,
-                    boundary.ILOffset))
-            {
-                result.Add(boundary);
-            }
-        }
-
-        return result.ToImmutable();
-    }
-
-    static bool HasCleanupReleaseForUse(
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
-        IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
-        ImmutableArray<int> releases,
-        int useOffset)
-    {
-        // Exception regions are ordered innermost-first (ECMA-335 II.19: most-nested clauses
-        // precede enclosing ones), which is also EH search order. Walk the handlers that cover the
-        // boundary in that order: a `finally`/`fault` always runs, so a release inside one protects
-        // the boundary. A catch-all (`catch {}` / `catch (Exception)`) protects the boundary only
-        // if it is the FIRST catch/filter that covers it - any earlier catch/filter (a sibling
-        // typed catch, or an inner catch on a nested try) would handle the exception first and, if
-        // it does not release, the array still leaks.
-        bool interceptingCatchSeen = false;
-        foreach (var region in exceptionRegions)
-        {
-            if (!ContainsOffset(region.TryOffset, region.TryLength, useOffset))
-                continue;
-
-            if (region.Kind is ExceptionRegionKind.Finally or ExceptionRegionKind.Fault)
-            {
-                if (releases.Any(release => ContainsOffset(region.HandlerOffset, region.HandlerLength, release)))
-                    return true;
-                continue;
-            }
-
-            if (region.Kind is not (ExceptionRegionKind.Catch or ExceptionRegionKind.Filter))
-                continue;
-
-            if (!interceptingCatchSeen
-                && catchAllCleanup.Contains((region.TryOffset, region.TryLength, region.HandlerOffset))
-                && releases.Any(release => ContainsOffset(region.HandlerOffset, region.HandlerLength, release)))
-                return true;
-
-            interceptingCatchSeen = true;
-        }
-
-        return false;
-    }
-
-    // Try-range/handler identity of catch-all clauses (`catch {}` = `System.Object`, or
-    // `catch (Exception)`) - the catch shapes that catch every managed exception (non-CLS throws
-    // are wrapped as RuntimeWrappedException by the default
-    // RuntimeCompatibility(WrapNonExceptionThrows=true)). Whether such a clause actually protects a
-    // given boundary is decided per-boundary in HasCleanupReleaseForUse, which fails closed if an
-    // earlier catch/filter could intercept the exception first. Empty when no catch-type resolver
-    // is supplied (e.g. direct AnalyzeMethod callers), preserving the prior finally/fault-only
-    // behavior. Conditional releases inside the handler are credited at the same fidelity as the
-    // existing finally/fault check (containment, not post-domination).
-    static IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> ComputeCreditableCatchCleanup(
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
-        Func<int, TypeRef?>? resolveCatchType)
-    {
-        if (resolveCatchType is null)
-            return EmptyCatchCleanup;
-
-        HashSet<(int, int, int)>? creditable = null;
-        foreach (var region in exceptionRegions)
-        {
-            if (region.Kind is not ExceptionRegionKind.Catch || region.CatchType.IsNil)
-                continue;
-            var catchType = resolveCatchType(MetadataTokens.GetToken(region.CatchType));
-            if (catchType is null
-                || !(FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Object")
-                    || FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Exception")))
-                continue;
-            (creditable ??= []).Add((region.TryOffset, region.TryLength, region.HandlerOffset));
-        }
-
-        return creditable is null ? EmptyCatchCleanup : creditable;
-    }
-
-    static readonly IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> EmptyCatchCleanup =
-        ImmutableHashSet<(int, int, int)>.Empty;
-
-    internal static TypeRef? ResolveCatchTypeRef(
-        MetadataReader reader,
-        EntityHandle handle,
-        GenericScope scope)
-        => handle.Kind switch
-    {
-        HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)handle, 0),
-        HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(reader, (TypeReferenceHandle)handle, 0),
-        HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(reader, scope, (TypeSpecificationHandle)handle, 0),
-        _ => null,
-    };
-
-    static bool ContainsOffset(int start, int length, int offset)
-        => offset >= start && offset < start + length;
-
-    internal static IEnumerable<RentedLocal> FindRents(
-        MethodIdentity method,
-        ImmutableArray<DecodedInstruction> instructions,
-        BlockGraph graph,
-        ReachingDefinitionsResult reaching,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        ImmutableArray<LeakTriageCandidate>.Builder candidates)
-    {
-        foreach (var instruction in instructions)
-        {
-            if (!calls.TryGetValue(instruction.Offset, out var callee) || !IsArrayPoolRent(callee))
-                continue;
-            if (!RentUsesSharedReceiver(instructions, graph, calls, instruction.Offset))
-            {
-                AddCandidate(
-                    candidates,
-                    method,
-                    "ownership-transfer-suppressed",
-                    $"ArrayPool<T>.Rent at IL_{instruction.Offset:X4} does not use the Shared receiver.",
-                    instruction.Offset,
-                    instruction.Offset);
-                continue;
-            }
-            if (!TryFindNextNonNop(instructions, instruction.NextOffset, out var store)
-                || !TryReadStoreLocal(store, out int slot))
-            {
-                AddCandidate(
-                    candidates,
-                    method,
-                    "ownership-transfer-suppressed",
-                    $"ArrayPool<T>.Shared.Rent at IL_{instruction.Offset:X4} is not stored to a modeled local.",
-                    instruction.Offset,
-                    instruction.Offset);
-                continue;
-            }
-
-            var definition = reaching.Definitions.FirstOrDefault(d =>
-                !d.IsArgument && d.Slot == slot && d.Offset == store.Offset);
-            if (definition is null)
-            {
-                AddCandidate(
-                    candidates,
-                    method,
-                    "incomplete-cfg-or-rd-suppressed",
-                    $"ArrayPool<T>.Shared.Rent local definition at IL_{store.Offset:X4} is missing from reaching definitions.",
-                    instruction.Offset,
-                    store.Offset);
-                continue;
-            }
-
-            yield return new RentedLocal(
-                instruction.Offset,
-                store.Offset,
-                slot,
-                definition,
-                callee.ReturnType);
-        }
-    }
-
-    static bool RentUsesSharedReceiver(
-        ImmutableArray<DecodedInstruction> instructions,
-        BlockGraph graph,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        int rentOffset)
-    {
-        int blockIndex = graph.BlockIndexAt(rentOffset);
-        if (blockIndex < 0)
-            return false;
-        var block = graph.Blocks[blockIndex];
-        for (int i = instructions.Length - 1, inspected = 0; i >= 0; i--)
-        {
-            var instruction = instructions[i];
-            if (instruction.Offset < block.Start)
-                return false;
-            if (instruction.Offset >= rentOffset || instruction.OpCode == ILOpCode.Nop)
-                continue;
-            if (calls.TryGetValue(instruction.Offset, out var callee))
-                return IsArrayPoolSharedGetter(callee);
-            if (!IsSimpleArgumentPush(instruction.OpCode))
-                return false;
-            if (++inspected > 4)
-                return false;
-        }
-        return false;
-    }
-
-    internal static UseClassification ClassifyUse(
-        ImmutableArray<DecodedInstruction> instructions,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        int loadOffset,
-        int slot,
-        TypeRef? valueType = null,
-        bool isArgument = false)
-    {
-        if (!TryFindInstruction(instructions, loadOffset, out int index, out var load)
-            || !IsLoadSlotOrAddress(load, slot, isArgument))
-            return UseClassification.OwnershipTransfer("Rented array use could not be classified.");
-
-        int extra = 0;
-        for (int i = index + 1; i < instructions.Length; i++)
-        {
-            var instruction = instructions[i];
-            var opcode = instruction.OpCode;
-            if (IsSimpleArgumentPush(opcode))
-            {
-                extra++;
-                continue;
-            }
-            if (opcode == ILOpCode.Ldlen)
-                return extra == 0 ? UseClassification.LocalUse : UseClassification.OwnershipTransfer("Rented array length use is ambiguous.");
-            if (IsElementRead(opcode))
-                return extra == 1 ? UseClassification.LocalUse : UseClassification.OwnershipTransfer("Rented array element read is ambiguous.");
-            if (IsElementStore(opcode))
-                return extra == 2 ? UseClassification.LocalUse : UseClassification.OwnershipTransfer("Rented array element store is ambiguous.");
-            if (IsFieldStore(opcode))
-                return UseClassification.StoreAt(instruction.Offset);
-            if (IsLocalStore(opcode))
-                return UseClassification.AliasOrField("Rented array is stored into another local.");
-            if (opcode == ILOpCode.Ret)
-            {
-                return extra == 0
-                    ? UseClassification.ReturnAt(instruction.Offset)
-                    : UseClassification.OwnershipTransfer(
-                        "Rented array return shape is ambiguous.");
-            }
-            if (calls.TryGetValue(instruction.Offset, out var callee))
-            {
-                int parameterIndex =
-                    callee.ParameterTypes.Length - extra - 1;
-                if (IsArrayPoolReturn(callee)
-                    && parameterIndex == 0)
-                {
-                    return UseClassification.ReleaseAt(
-                        instruction.Offset);
-                }
-                int consumedArguments =
-                    callee.ParameterTypes.Length
-                    + (instruction.OpCode != ILOpCode.Newobj && callee.HasThis
-                        ? 1
-                        : 0);
-                if (consumedArguments <= extra)
-                {
-                    extra -= consumedArguments;
-                    if (instruction.OpCode == ILOpCode.Newobj
-                        || !FrameworkIdentity.IsCoreLibraryType(
-                            callee.ReturnType,
-                            "System",
-                            "Void"))
-                    {
-                        extra++;
-                    }
-                    continue;
-                }
-                return UseClassification.CrossMethod(
-                    $"Rented array is passed to {callee.DeclaringType.Name}::{callee.Name}.",
-                    IsNonThrowingSetupBoundary(callee, valueType),
-                    new ArrayPoolExceptionBoundary(instruction.Offset, callee),
-                    parameterIndex);
-            }
-            return UseClassification.OwnershipTransfer($"Rented array reaches unsupported opcode {opcode}.");
-        }
-
-        return UseClassification.OwnershipTransfer("Rented array use reaches the end of the instruction stream.");
-    }
-
-    static IReadOnlyDictionary<int, MemberRef> BuildCallMap(
-        ImmutableArray<DecodedInstruction> instructions,
-        Func<int, MemberRef> resolveMethod)
-    {
-        var calls = new Dictionary<int, MemberRef>();
-        foreach (var instruction in instructions)
-        {
-            if (instruction.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj))
-                continue;
-            calls[instruction.Offset] = resolveMethod(checked((int)instruction.OperandValue));
-        }
-        return calls;
-    }
-
-    static ArrayPoolExceptionBoundary? FindBoundaryAfterSetup(
-        ImmutableArray<DecodedInstruction> instructions,
-        ReachingDefinitionsResult reaching,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        ArrayPoolExceptionBoundary setup,
-        int depth = 0)
-    {
-        if (depth >= 4)
-            return null;
-
-        if (!TryFindInstruction(
-            instructions,
-            setup.ILOffset,
-            out int setupIndex,
-            out var setupInstruction))
-        {
-            return null;
-        }
-
-        // Constructor signatures return void, but newobj pushes the constructed value.
-        if (setupInstruction.OpCode != ILOpCode.Newobj
-            && FrameworkIdentity.IsCoreLibraryType(
-                setup.Operation.ReturnType,
-                "System",
-                "Void"))
-        {
-            // Roslyn can initialize a value-type wrapper local through
-            // ldloca + call .ctor instead of newobj + stloc.
-            if (TryFindInPlaceWrapperLocal(
-                    instructions,
-                    setupIndex,
-                    setup.Operation,
-                    out int slot))
-            {
-                return FindBoundaryAfterInPlaceSetup(
-                    instructions,
-                    reaching,
-                    calls,
-                    setupIndex,
-                    slot,
-                    depth);
-            }
-
-            return null;
-        }
-
-        int extraArguments = 0;
-        for (int i = setupIndex + 1;
-            i < instructions.Length && i <= setupIndex + 16;
-            i++)
-        {
-            var instruction = instructions[i];
-            if (instruction.OpCode == ILOpCode.Nop)
-                continue;
-            if (IsSetupArgumentPush(instruction.OpCode))
-            {
-                extraArguments++;
-                continue;
-            }
-
-            if (extraArguments == 0
-                && TryReadStoreLocal(instruction, out int slot))
-            {
-                var definition = reaching.Definitions.FirstOrDefault(candidate =>
-                    !candidate.IsArgument
-                    && candidate.Slot == slot
-                    && candidate.Offset == instruction.Offset);
-                if (definition is null)
-                    return null;
-
-                return FindBoundaryFromLocalDefinition(
-                    instructions,
-                    reaching,
-                    calls,
-                    definition,
-                    depth);
-            }
-
-            if (!calls.TryGetValue(instruction.Offset, out var callee))
-                return null;
-
-            int consumedArguments =
-                callee.ParameterTypes.Length
-                + (instruction.OpCode != ILOpCode.Newobj && callee.HasThis
-                    ? 1
-                    : 0);
-            if (consumedArguments <= extraArguments)
-            {
-                extraArguments -= consumedArguments;
-                if (instruction.OpCode == ILOpCode.Newobj
-                    || !FrameworkIdentity.IsCoreLibraryType(
-                        callee.ReturnType,
-                        "System",
-                        "Void"))
-                {
-                    extraArguments++;
-                }
-
-                continue;
-            }
-
-            var boundary =
-                new ArrayPoolExceptionBoundary(instruction.Offset, callee);
-            if (!IsNonThrowingSetupBoundary(callee))
-            {
-                return boundary;
-            }
-
-            if (FrameworkIdentity.IsCoreLibraryType(
-                callee.ReturnType,
-                "System",
-                "Void"))
-            {
-                return null;
-            }
-
-            extraArguments = 0;
-        }
-
-        return null;
-    }
-
-    static ArrayPoolExceptionBoundary? FindBoundaryFromLocalDefinition(
-        ImmutableArray<DecodedInstruction> instructions,
-        ReachingDefinitionsResult reaching,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        LocalDefinition definition,
-        int depth)
-        => FindBoundaryFromLocalUses(
-            instructions,
-            reaching,
-            calls,
-            reaching.UsesOf(definition),
-            definition.Slot,
-            depth);
-
-    static ArrayPoolExceptionBoundary? FindBoundaryFromLocalUses(
-        ImmutableArray<DecodedInstruction> instructions,
-        ReachingDefinitionsResult reaching,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        IEnumerable<LocalUse> uses,
-        int slot,
-        int depth)
-    {
-        if (depth >= 4)
-            return null;
-
-        foreach (var use in uses.OrderBy(static use => use.Offset))
-        {
-            var classification = ClassifyUse(
-                instructions,
-                calls,
-                use.Offset,
-                slot);
-            if (classification.CandidateShape
-                    != "cross-method-suppressed"
-                || classification.Boundary is not { } boundary)
-            {
-                if (classification.CandidateShape
-                        == "alias-or-field-suppressed"
-                    && FindBoundaryAfterLocalAlias(
-                        instructions,
-                        reaching,
-                        calls,
-                        use.Offset,
-                        depth + 1) is { } aliasBoundary)
-                {
-                    return aliasBoundary;
-                }
-                continue;
-            }
-            if (!classification.NonThrowingSetupBoundary)
-                return boundary;
-
-            if (FindBoundaryAfterSetup(
-                    instructions,
-                    reaching,
-                    calls,
-                    boundary,
-                    depth + 1) is { } downstream)
-            {
-                return downstream;
-            }
-        }
-
-        return null;
-    }
-
-    static ArrayPoolExceptionBoundary? FindBoundaryAfterLocalAlias(
-        ImmutableArray<DecodedInstruction> instructions,
-        ReachingDefinitionsResult reaching,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        int loadOffset,
-        int depth)
-    {
-        if (depth >= 4
-            || !TryFindInstruction(
-                instructions,
-                loadOffset,
-                out _,
-                out var load)
-            || !TryFindNextNonNop(
-                instructions,
-                load.NextOffset,
-                out var store)
-            || !TryReadStoreLocal(store, out int aliasSlot))
-        {
-            return null;
-        }
-
-        var definition = reaching.Definitions.FirstOrDefault(candidate =>
-            !candidate.IsArgument
-            && candidate.Slot == aliasSlot
-            && candidate.Offset == store.Offset);
-        return definition is null
-            ? null
-            : FindBoundaryFromLocalDefinition(
-                instructions,
-                reaching,
-                calls,
-                definition,
-                depth);
-    }
-
-    static ArrayPoolExceptionBoundary? FindBoundaryAfterInPlaceSetup(
-        ImmutableArray<DecodedInstruction> instructions,
-        ReachingDefinitionsResult reaching,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        int setupIndex,
-        int slot,
-        int depth)
-        => FindBoundaryFromLocalUses(
-            instructions,
-            reaching,
-            calls,
-            FindNormalFlowLocalUses(
-                instructions,
-                calls,
-                setupIndex,
-                slot),
-            slot,
-            depth);
-
-    static ImmutableArray<LocalUse> FindNormalFlowLocalUses(
-        ImmutableArray<DecodedInstruction> instructions,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        int setupIndex,
-        int slot)
-    {
-        if (setupIndex + 1 >= instructions.Length)
-            return [];
-
-        var definitionReceivers = new HashSet<int>();
-        for (int i = 0; i < instructions.Length; i++)
-        {
-            if (TryFindAddressWriteLocal(
-                    instructions,
-                    i,
-                    out int writeSlot,
-                    out int receiverIndex)
-                && writeSlot == slot)
-            {
-                definitionReceivers.Add(receiverIndex);
-                continue;
-            }
-
-            if (calls.TryGetValue(instructions[i].Offset, out var member)
-                && TryFindInPlaceWrapperLocal(
-                    instructions,
-                    i,
-                    member,
-                    out int constructorSlot,
-                    out receiverIndex)
-                && constructorSlot == slot)
-            {
-                definitionReceivers.Add(receiverIndex);
-            }
-        }
-
-        var indexByOffset = instructions
-            .Select((instruction, index) =>
-                (instruction.Offset, Index: index))
-            .ToDictionary(static pair => pair.Offset, static pair => pair.Index);
-        var pending = new Stack<int>();
-        var visited = new HashSet<int>();
-        var uses = new Dictionary<int, LocalUse>();
-
-        // The local is defined only when the constructor returns, so follow
-        // normal IL edges and stop before any later write to the same slot.
-        pending.Push(setupIndex + 1);
-        while (pending.TryPop(out int index))
-        {
-            if (!visited.Add(index))
-                continue;
-
-            var instruction = instructions[index];
-            if (definitionReceivers.Contains(index)
-                || (TryReadStoreLocal(instruction, out int storedSlot)
-                    && storedSlot == slot))
-            {
-                continue;
-            }
-
-            if (IsLoadLocalOrAddress(instruction, slot))
-            {
-                bool address = TryReadLoadLocalAddress(
-                    instruction,
-                    out _);
-                uses.TryAdd(
-                    instruction.Offset,
-                    new LocalUse(
-                        slot,
-                        IsArgument: false,
-                        instruction.Offset,
-                        address,
-                        []));
-            }
-
-            if (instruction.LeavesRegion)
-                continue;
-
-            foreach (int target in instruction.BranchTargets)
-                if (indexByOffset.TryGetValue(target, out int targetIndex))
-                    pending.Push(targetIndex);
-
-            if (instruction.FallsThrough && index + 1 < instructions.Length)
-                pending.Push(index + 1);
-        }
-
-        return uses.Values
-            .OrderBy(static use => use.Offset)
-            .ToImmutableArray();
-    }
-
-    static bool TryFindAddressWriteLocal(
-        ImmutableArray<DecodedInstruction> instructions,
-        int writeIndex,
-        out int slot,
-        out int receiverIndex)
-    {
-        slot = -1;
-        receiverIndex = -1;
-        int pushedValues = instructions[writeIndex].OpCode switch
-        {
-            ILOpCode.Initobj => 0,
-            ILOpCode.Stobj or ILOpCode.Cpobj => 1,
-            _ => -1,
-        };
-        if (pushedValues < 0)
-            return false;
-
-        int index = writeIndex - 1;
-        for (int remaining = pushedValues; remaining > 0; remaining--)
-        {
-            while (index >= 0 && instructions[index].OpCode == ILOpCode.Nop)
-                index--;
-            if (index < 0
-                || !IsSetupArgumentPush(instructions[index].OpCode))
-            {
-                return false;
-            }
-            index--;
-        }
-
-        while (index >= 0 && instructions[index].OpCode == ILOpCode.Nop)
-            index--;
-        if (index < 0
-            || !TryReadLoadLocalAddress(instructions[index], out slot))
-        {
-            return false;
-        }
-
-        receiverIndex = index;
-        return true;
-    }
-
-    static bool TryFindInPlaceWrapperLocal(
-        ImmutableArray<DecodedInstruction> instructions,
-        int setupIndex,
-        MemberRef member,
-        out int slot)
-        => TryFindInPlaceWrapperLocal(
-            instructions,
-            setupIndex,
-            member,
-            out slot,
-            out _);
-
-    static bool TryFindInPlaceWrapperLocal(
-        ImmutableArray<DecodedInstruction> instructions,
-        int setupIndex,
-        MemberRef member,
-        out int slot,
-        out int receiverIndex)
-    {
-        slot = -1;
-        receiverIndex = -1;
-        if (instructions[setupIndex].OpCode != ILOpCode.Call
-            || !member.HasThis
-            || member.Name != ".ctor"
-            || !IsTypedWrapperType(member.DeclaringType))
-        {
-            return false;
-        }
-
-        int index = setupIndex - 1;
-        for (int remaining = member.ParameterTypes.Length;
-            remaining > 0;
-            remaining--)
-        {
-            while (index >= 0 && instructions[index].OpCode == ILOpCode.Nop)
-                index--;
-            if (index < 0
-                || !IsSetupArgumentPush(instructions[index].OpCode))
-            {
-                return false;
-            }
-            index--;
-        }
-
-        while (index >= 0 && instructions[index].OpCode == ILOpCode.Nop)
-            index--;
-        if (index < 0
-            || !TryReadLoadLocalAddress(instructions[index], out slot))
-        {
-            return false;
-        }
-
-        receiverIndex = index;
-        return true;
-    }
-
-    static bool TryFindNextNonNop(ImmutableArray<DecodedInstruction> instructions, int offset, out DecodedInstruction instruction)
-    {
-        foreach (var candidate in instructions)
-        {
-            if (candidate.Offset < offset || candidate.OpCode == ILOpCode.Nop)
-                continue;
-            instruction = candidate;
-            return true;
-        }
-        instruction = default!;
-        return false;
-    }
-
-    static bool TryFindInstruction(ImmutableArray<DecodedInstruction> instructions, int offset, out int index, out DecodedInstruction instruction)
-    {
-        for (int i = 0; i < instructions.Length; i++)
-        {
-            if (instructions[i].Offset != offset)
-                continue;
-            index = i;
-            instruction = instructions[i];
-            return true;
-        }
-        index = -1;
-        instruction = default!;
-        return false;
-    }
-
-    static bool TryReadStoreLocal(DecodedInstruction instruction, out int slot)
-    {
-        slot = instruction.OpCode switch
-        {
-            ILOpCode.Stloc_0 => 0,
-            ILOpCode.Stloc_1 => 1,
-            ILOpCode.Stloc_2 => 2,
-            ILOpCode.Stloc_3 => 3,
-            ILOpCode.Stloc_s or ILOpCode.Stloc => checked((int)instruction.OperandValue),
-            _ => -1,
-        };
-        return slot >= 0;
-    }
-
-    static bool IsLoadLocal(DecodedInstruction instruction, int slot)
-        => instruction.OpCode switch
-        {
-            ILOpCode.Ldloc_0 => slot == 0,
-            ILOpCode.Ldloc_1 => slot == 1,
-            ILOpCode.Ldloc_2 => slot == 2,
-            ILOpCode.Ldloc_3 => slot == 3,
-            ILOpCode.Ldloc_s or ILOpCode.Ldloc => instruction.OperandValue == slot,
-            _ => false,
-        };
-
-    static bool IsLoadLocalOrAddress(
-        DecodedInstruction instruction,
-        int slot)
-        => IsLoadLocal(instruction, slot)
-            || (TryReadLoadLocalAddress(instruction, out int addressSlot)
-                && addressSlot == slot);
-
-    static bool TryReadLoadLocalAddress(
-        DecodedInstruction instruction,
-        out int slot)
-    {
-        slot = instruction.OpCode switch
-        {
-            ILOpCode.Ldloca_s or ILOpCode.Ldloca =>
-                checked((int)instruction.OperandValue),
-            _ => -1,
-        };
-        return slot >= 0;
-    }
-
-    static bool IsLoadSlotOrAddress(
-        DecodedInstruction instruction,
-        int slot,
-        bool isArgument)
-        => isArgument
-            ? instruction.OpCode switch
-            {
-                ILOpCode.Ldarg_0 => slot == 0,
-                ILOpCode.Ldarg_1 => slot == 1,
-                ILOpCode.Ldarg_2 => slot == 2,
-                ILOpCode.Ldarg_3 => slot == 3,
-                ILOpCode.Ldarg_s or ILOpCode.Ldarg
-                    or ILOpCode.Ldarga_s or ILOpCode.Ldarga
-                    => instruction.OperandValue == slot,
-                _ => false,
-            }
-            : IsLoadLocalOrAddress(instruction, slot);
-
-    static bool IsSimpleArgumentPush(ILOpCode opcode)
-        => opcode is ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
-            or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
-            or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4
-            or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
-            or ILOpCode.Ldarg_s or ILOpCode.Ldarg
-            or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
-            or ILOpCode.Ldloc_s or ILOpCode.Ldloc
-            or ILOpCode.Ldnull;
-
-    static bool IsSetupArgumentPush(ILOpCode opcode)
-        => IsSimpleArgumentPush(opcode)
-            || opcode is ILOpCode.Ldc_i8 or ILOpCode.Ldc_r4 or ILOpCode.Ldc_r8
-                or ILOpCode.Ldarga_s or ILOpCode.Ldarga
-                or ILOpCode.Ldloca_s or ILOpCode.Ldloca
-                or ILOpCode.Ldstr
-                or ILOpCode.Ldsfld or ILOpCode.Ldsflda
-                or ILOpCode.Ldtoken or ILOpCode.Ldftn
-                or ILOpCode.Sizeof or ILOpCode.Arglist;
-
-    static bool IsElementRead(ILOpCode opcode)
-        => opcode is ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2
-            or ILOpCode.Ldelem_i4 or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8
-            or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4 or ILOpCode.Ldelem_ref;
-
-    static bool IsElementStore(ILOpCode opcode)
-        => opcode is ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
-            or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
-            or ILOpCode.Stelem_ref;
-
-    static bool IsFieldStore(ILOpCode opcode)
-        => opcode is ILOpCode.Stfld or ILOpCode.Stsfld;
-
-    static bool IsLocalStore(ILOpCode opcode)
-        => opcode is ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
-            or ILOpCode.Stloc_s or ILOpCode.Stloc;
-
-    internal static bool IsArrayPoolRent(MemberRef member)
-        => member.Kind != MemberKind.Unsupported
-           && member.Name == "Rent"
-           && member.HasThis
-           && member.ParameterTypes.Length == 1
-           && FrameworkIdentity.IsCoreLibraryType(member.ParameterTypes[0], "System", "Int32")
-           && member.ReturnType.Kind == TypeRefKind.SzArray
-           && IsArrayPoolType(member.DeclaringType);
-
-    static bool IsArrayPoolReturn(MemberRef member)
-        => member.Kind != MemberKind.Unsupported
-           && member.Name == "Return"
-           && member.HasThis
-           && member.ReturnType.Equals(TypeRef.CoreLib("System", "Void"))
-           && member.ParameterTypes.Length is 1 or 2
-           && member.ParameterTypes[0].Kind == TypeRefKind.SzArray
-           && IsArrayPoolType(member.DeclaringType);
-
-    static bool IsArrayPoolSharedGetter(MemberRef member)
-        => member.Kind != MemberKind.Unsupported
-           && member.Name == "get_Shared"
-           && !member.HasThis
-           && member.ParameterTypes.Length == 0
-           && IsArrayPoolType(member.DeclaringType)
-           && IsArrayPoolType(member.ReturnType);
-
-    static bool IsArrayPoolType(TypeRef type)
-        => FrameworkIdentity.IsKnownFrameworkType(type, "System.Buffers", "System.Buffers", "ArrayPool`1")
-           || FrameworkIdentity.IsCoreLibraryType(type, "System.Buffers", "ArrayPool`1");
-
-    static bool IsNonThrowingSetupBoundary(
-        MemberRef member,
-        TypeRef? valueType = null)
-    {
-        if (member.Kind == MemberKind.Unsupported)
-            return false;
-
-        if (member.Name == "KeepAlive" && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "GC"))
-            return true;
-
-        if (member.Name == "Copy" && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "Array"))
-            return true;
-
-        if (member.Name == "Clear" && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "Array"))
-            return true;
-
-        if (member.Name == "CopyTo" && IsSpanType(member.DeclaringType))
-            return true;
-
-        if (member.Name == "AsSpan"
-            && (FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "MemoryExtensions")
-                || FrameworkIdentity.IsKnownFrameworkType(member.DeclaringType, "System.Memory", "System", "MemoryExtensions")))
-        {
-            return true;
-        }
-
-        if (IsArrayToTypedWrapperConversion(member)
-            && valueType?.Equals(member.ParameterTypes[0]) == true)
-        {
-            return true;
-        }
-
-        if (IsExactArrayWrapperConstructor(member, valueType)
-            || IsMutableToReadOnlyWrapperConversion(member))
-        {
-            return true;
-        }
-
-        return member.Name is "Clear" or "Fill"
-            && IsSpanType(member.DeclaringType);
-    }
-
-    static bool IsTransparentWrapperBoundary(MemberRef member)
-        => member.Name == ".ctor"
-            && member.ParameterTypes is [{ Kind: TypeRefKind.SzArray }, ..]
-            && IsTypedWrapperType(member.DeclaringType);
-
-    static bool IsArrayToTypedWrapperConversion(MemberRef member)
-        => member.Name == "op_Implicit"
-            && member.ParameterTypes is [{ Kind: TypeRefKind.SzArray }]
-            && IsTypedWrapperType(member.ReturnType);
-
-    static bool IsExactArrayWrapperConstructor(
-        MemberRef member,
-        TypeRef? valueType)
-        => member.Name == ".ctor"
-            && member.ParameterTypes is [{ Kind: TypeRefKind.SzArray } array]
-            && valueType?.Equals(array) == true
-            && IsTypedWrapperType(member.DeclaringType);
-
-    static bool IsMutableToReadOnlyWrapperConversion(MemberRef member)
-        => member.Name == "op_Implicit"
-            && member.ParameterTypes is [var source]
-            && ((IsFrameworkGenericType(source, "Memory`1")
-                    && IsFrameworkGenericType(
-                        member.ReturnType,
-                        "ReadOnlyMemory`1"))
-                || (IsSpanType(source)
-                    && IsReadOnlySpanType(member.ReturnType)))
-            && source.TypeArguments.SequenceEqual(
-                member.ReturnType.TypeArguments);
-
-    static bool IsTypedWrapperType(TypeRef type)
-        => IsSpanType(type)
-            || IsReadOnlySpanType(type)
-            || IsFrameworkGenericType(type, "Memory`1")
-            || IsFrameworkGenericType(type, "ReadOnlyMemory`1");
-
-    static bool IsSpanType(TypeRef type)
-        => IsFrameworkGenericType(type, "Span`1");
-
-    static bool IsReadOnlySpanType(TypeRef type)
-        => IsFrameworkGenericType(type, "ReadOnlySpan`1");
-
-    static bool IsFrameworkGenericType(TypeRef type, string name)
-    {
-        if (type.Kind != TypeRefKind.GenericInstance || type.ElementType is not { } definition)
-            return false;
-
-        return FrameworkIdentity.IsCoreLibraryType(definition, "System", name)
-            || FrameworkIdentity.IsKnownFrameworkType(
-                definition,
-                "System.Memory",
-                "System",
-                name);
-    }
-
     static int ArgumentSlotCount(MethodIdentity method)
         => method.ParameterTypes.Length + (method.IsStatic ? 0 : 1);
 
     internal static bool IsRecoverable(Exception ex)
         => ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException;
 
-    internal sealed record RentedLocal(
-        int RentOffset,
-        int StoreOffset,
-        int Slot,
-        LocalDefinition Definition,
-        TypeRef Type);
-
     sealed record AmbiguousUse(int Offset, string Shape);
 
-    internal enum UseKind
-    {
-        Release,
-        LocalUse,
-        Store,
-        Return,
-        Forward,
-        Unknown,
-    }
-
-    internal readonly record struct UseClassification(
-        UseKind Kind,
-        string CandidateShape,
-        string Evidence,
-        bool NonThrowingSetupBoundary = false,
-        ArrayPoolExceptionBoundary? Boundary = null,
-        int OperationOffset = -1,
-        int ParameterIndex = -1)
-    {
-        public static UseClassification ReleaseAt(int offset) =>
-            new(UseKind.Release, "", "", OperationOffset: offset);
-        public static UseClassification LocalUse { get; } = new(UseKind.LocalUse, "", "");
-        public static UseClassification StoreAt(int offset) =>
-            new(UseKind.Store, "alias-or-field-suppressed", "Rented array is stored into a field.", OperationOffset: offset);
-        public static UseClassification ReturnAt(int offset) =>
-            new(UseKind.Return, "ownership-transfer-suppressed", "Rented array escapes through the return value.", OperationOffset: offset);
-        public static UseClassification AliasOrField(string evidence) => new(UseKind.Unknown, "alias-or-field-suppressed", evidence);
-        public static UseClassification CrossMethod(
-            string evidence,
-            bool nonThrowingSetupBoundary,
-            ArrayPoolExceptionBoundary boundary,
-            int parameterIndex)
-            => new(
-                UseKind.Forward,
-                "cross-method-suppressed",
-                evidence,
-                nonThrowingSetupBoundary,
-                boundary,
-                boundary.ILOffset,
-                parameterIndex);
-        public static UseClassification OwnershipTransfer(string evidence) => new(UseKind.Unknown, "ownership-transfer-suppressed", evidence);
-    }
-
-    enum LeakExitKind
-    {
-        None,
-        Normal,
-        Exception,
-    }
 }

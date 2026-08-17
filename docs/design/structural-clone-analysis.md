@@ -5,8 +5,9 @@ body structure. The first slice answers one bounded question: are two IL method
 bodies in the same retained PE image exactly equal under the documented
 normalization?
 
-This is an internal product API. It does not discover candidate pairs or expose
-a CLI command.
+This is an internal product API. The second slice adds bounded exact discovery
+over a caller-supplied same-PE population. It does not expose a public CLI
+command.
 
 ## Result contract
 
@@ -90,6 +91,75 @@ corresponding fail-closed metadata boundaries.
 `StructuralCloneAnalysisTests` gates this policy with compiler-produced and
 synthetic close-positive/close-negative cases.
 
+## Exact discovery
+
+`StructuralCloneAnalysis.Discover` partitions a caller-supplied set of
+`MethodDefinitionHandle` values from one retained `PEReader`. It does not
+enumerate the PE or widen the population. Duplicate handles and invalid handles
+are caller errors. Method-count admission is atomic: when the population
+exceeds the method limit, no metadata or body work starts.
+
+Discovery has two bounded production passes:
+
+1. Produce each admitted method once, emit its side-free outcome and receipt,
+   calculate a compact retrieval fingerprint, and discard the full body facts.
+2. Re-produce only multi-member candidate buckets, retain one bucket at a time,
+   and partition it by exact comparisons against current group
+   representatives.
+
+The fingerprint contains only necessary exact invariants: normalized method
+signature shape and `InitLocals`; local count and an order-independent local
+type multiset; block, instruction, and edge counts; an order-independent
+multiset of per-block operation/exit fingerprints; and duplicate-preserving
+global incoming and outgoing edge-role multisets. Local slot numbers and CFG
+target identities are excluded. Offsets, body size, `MaxStack`, declared
+parameter and non-void return identities, and block order are also excluded.
+Hash collisions can add comparisons but cannot establish identity. Only the
+existing exact comparator can put two methods in one cluster.
+
+Overall discovery disposition is separate from per-method production:
+
+| Discovery disposition | Meaning |
+| --- | --- |
+| `Completed` | Every admitted candidate bucket was fully partitioned. |
+| `LimitReached` | A method, comparison, or verification budget suppressed work. |
+| `Failed` | Malformed metadata or operational body production failed. |
+
+Unsupported methods remain explicit per-method outcomes and do not downgrade
+an otherwise complete run. Failure takes precedence over a limit when both
+occur. A comparison consumes budget when attempted, so reaching the exact
+budget after the last required comparison is still complete.
+
+Every emitted cluster is complete for its candidate bucket. A cluster carries
+sorted typed method addresses and exact representative comparisons for every
+non-anchor member. If a bucket cannot be fully verified, discovery emits no
+cluster from it; instead it emits the full affected method set and a typed
+suppression reason. Completed clusters from other buckets remain visible, but
+absence from a cluster is negative evidence only when the overall disposition
+is `Completed` and there are no suppressed buckets.
+
+Cluster identity is the module MVID plus the sorted, unique full MethodDef
+tokens of its members. This is deterministic and collision-free within one
+admitted PE/population. It is not a global identity: MVIDs can be duplicated,
+and membership changes when the input population changes.
+
+The discovery receipt reports admitted and suppressed methods, per-disposition
+method counts, candidate/completed/suppressed buckets, exact/different/
+unresolved comparisons, and total body productions.
+
+`Discover_CompilerProducedPopulation_FindsClosedExactFamilies` gates realistic
+retrieval, exact families, the edge-role close negative, and unsupported
+methods. `Discover_ThreeMemberFamily_UsesRepresentativeEvidence` and
+`Discover_InputOrder_DoesNotChangeClusterIdentity` gate representative
+partitioning and deterministic identity.
+`Discover_ExactComparisonBudget_CanComplete`,
+`Discover_MidBucketBudget_EmitsNoPartialCluster`, and
+`Discover_MethodLimitAdmission_IsAtomic` gate bounded completeness and
+suppression. `Discover_DuplicateHandles_AreCallerError`,
+`Discover_InvalidLimits_AreCallerError`, and
+`Discover_MalformedModuleIdentity_ReturnsTypedFailure` gate caller and
+malformed-input boundaries.
+
 ## Correspondence and automorphisms
 
 Joint block/local refinement narrows possible correspondence classes until it
@@ -114,16 +184,60 @@ independent candidate relationships and expected outcomes. Each case records:
 - expected disposition and, separately, expected relation;
 - difficulty, intent, actionability, and tags.
 
+Schema 2 also declares the closed-world discovery population.
 `analysis-harness --clone-corpus` resolves those identities through SRM and
-grades only the public `StructuralCloneAnalysis.Compare` API. It does not own
-normalization, CFG correspondence, or verification logic.
-`StructuralCloneCorpusTests` gates ledger validity, fixture inventory coverage,
-and all committed outcomes.
+grades comparison and discovery independently. Expected exact connected
+components derive only from declared expected relations. Complete actual
+clusters must equal them, so both missed families and undeclared
+cross-component merges fail. The harness does not own retrieval,
+normalization, clustering, CFG correspondence, or verification logic.
+`StructuralCloneCorpusTests` gates ledger validity, both fixture inventory
+views, all direct outcomes, and exact closed-world clustering.
 
 The initial corpus includes authored arithmetic and metadata-operand exact
 pairs, a control-flow close negative, exact parameter-type and return-type
-semantic hazards, and the EH unsupported boundary. Candidate discovery, fuzzy
-ranking, precision/recall measurement, and CoreLib scale runs are later slices.
+semantic hazards, and the EH unsupported boundary. Exact discovery finds four
+families and rejects the close negative. Fuzzy ranking, precision/recall
+measurement, and CoreLib scale runs are later slices.
+
+## Census and demo projection
+
+`analysis-harness --clone-census` is the harness-only whole-assembly and
+seed-to-family projection. It enumerates one PE's MethodDef table, calls
+`StructuralCloneAnalysis.Discover` exactly once, and presents product-owned
+clusters, evidence, blockers, suppression, method outcomes, and receipts. It
+does not filter candidate methods, reconstruct fingerprints, compare pairs, or
+form clusters.
+
+Every projected method includes its full MethodDef token. Type and method names
+are display and selector conveniences, never identity. A `Type::Method`
+selector must resolve uniquely; overloads fail and require a token. Nested type
+display uses `Outer+Inner`.
+
+Text output is bounded, but a selected seed and at least one member of its
+exact family are always pinned. Structured output retains every cluster/member,
+suppressed bucket, non-completed method, and unresolved comparison. Elapsed
+time measures the one product discovery call and is run evidence, not a
+performance baseline.
+
+Seed status preserves discovery completeness:
+
+- `Clustered` is positive product evidence and remains valid when unrelated
+  methods make the overall run partial.
+- `Unsupported`, `LimitReached`, and `Failed` preserve the seed's production
+  disposition.
+- `Singleton` is emitted only for a completed, unsuppressed discovery run.
+- `Unresolved` replaces negative inference on partial runs.
+
+The census reports eligible methods without an emitted family in every run,
+but names that count `ExactSingletonMethods` only when discovery completed.
+Product method and candidate-comparison limits remain separate and are echoed
+in output.
+
+`StructuralCloneCensusTests` gates exact-family and close-negative seed
+behavior, unsupported and partial seed status, token selection, overload
+ambiguity, seed pinning under truncation, complete structured output,
+malformed metadata, and CLI argument/exit behavior.
 
 Clone detection is intentionally neutral about why two bodies are similar.
 Deduplication, refactoring, provenance investigation, copied-code detection,

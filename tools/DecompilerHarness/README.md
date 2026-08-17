@@ -37,27 +37,55 @@ dotnet run --project tools/HarnessReportDiff -c Release -- \
 
 ## Modes
 
-**Structural review** (`--structural-review <comparison.json>`): renders the
-complete Before and After C# documents with generated structural caret comments,
-then emits a compact rich-diff table from the same
-`CSharpStructuralComparison`. The JSON uses the
-`CSharpStructuralComparisonInput` shape: two C#-only
-`AnnotatedSourceDocument` values, explicit selected node ids, and owner-issued
-one-to-one correspondence. Node ids remain local to the document that minted
-them; the comparison never matches by coordinates, selected text, or display
-labels. The harness uses the Decompiler-owned strict reader: missing required
-fields, duplicate and unknown properties, numeric, composite, case-variant, or
-otherwise undeclared enum tokens, malformed UTF-16, and invalid document
-topology are rejected. Required fields and object-array elements may not be
-null. Rejection messages identify the violated contract without relaying
-artifact-provided property names or values. Optional
-`fidelity` retains an independently measured `OpcodeDiff -> Exact`-style
-transition and note. This is an exclusive mode; combine no other harness flag
-or assembly/package input with it.
+**Structural review** (`--structural-review <before.json> <after.json>`): reads
+two product-emitted `AnnotatedSourceDocument` values through the
+Decompiler-owned strict JSON contract, asks
+`CSharpBodyDiff.IssueCorrespondence` for trusted node correspondence, and
+renders complete Before and After C# documents with generated structural caret
+comments plus a compact rich-diff table from the resulting
+`CSharpStructuralComparison`.
+
+The documents must carry equal physical method provenance. The issuer binds its
+result to SHA-256 identities of the exact document values and matches only
+unique product-owned IL-origin sets. Repeated sets remain ambiguous even when
+rendered nodes occupy corresponding ancestry depths, because wrapper
+substitution can shift those depths without preserving identity. A unique
+one-sided set becomes `NoCounterpart` only when the opposite node population
+has complete provenance. Document-local ids, rendered coordinates, text, kind
+labels, and display order never establish identity. Other nodes remain explicit
+`Unsupported`, `Ambiguous`, or `NoCounterpart` rows;
+unsupported and ambiguous rows appear under **Correspondence gaps** rather than
+being guessed as additions or removals.
+
+Add `--json` to emit a `CSharpStructuralDiffDocument`. That product-issued
+artifact carries schema and methodology versions, both exact documents and
+revision identities, matches, unmatched nodes, generated structural rows, and
+optional independently measured fidelity. Strict reading reissues
+correspondence from the embedded mixed documents, derives the C#-only
+Before/After projections that own the row ids and spans, and requires exact
+agreement with those projections and the serialized rows. Pass one diff
+document instead of two source documents to validate and render a previously
+emitted artifact. The retired `CSharpStructuralComparisonInput` wire format is
+not accepted.
+
+Both forms reject missing required fields, duplicate and unknown properties,
+numeric, composite, case-variant, or otherwise undeclared enum tokens,
+malformed UTF-16, and invalid document topology. Required fields and
+object-array elements may not be null. Rejection messages identify the violated
+contract without relaying artifact-provided property names or values. Structural
+review is an exclusive mode; combine no unrelated harness flag or
+assembly/package input with it.
 
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- \
-  --structural-review /tmp/comparison.json
+  --structural-review /tmp/before.json /tmp/after.json
+
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --structural-review /tmp/before.json /tmp/after.json --json \
+  > /tmp/structural-diff.json
+
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --structural-review /tmp/structural-diff.json
 ```
 
 **Inverse ledger regeneration** (`--emit-inverse-ledger <path>`): evaluates `[InverseOf]` and `[NotInverted]` attributes on the decompiler's node schema and renders the Markdown representation to the specified path. Use this command to update the single-source-of-truth document at `docs/design/inverse-ledger.generated.md` after adding or changing inverse annotations in the IR types. A drift-gate test enforces that the committed file matches this command's output.

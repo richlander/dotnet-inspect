@@ -1,3 +1,4 @@
+using InertText;
 using Markout;
 
 namespace DotnetInspector.Views;
@@ -8,8 +9,16 @@ namespace DotnetInspector.Views;
     FieldLayout = FieldLayout.Table)]
 public class FindResultView
 {
-    [MarkoutIgnore] public string Title { get; set; } = "";
-    [MarkoutIgnore] [MarkoutSkipNull] public string? Description { get; set; }
+    public FindResultView(InertString titleText, InertString? descriptionText = null)
+    {
+        TitleText = titleText;
+        DescriptionText = descriptionText;
+    }
+
+    [MarkoutIgnore] public InertString TitleText { get; }
+    [MarkoutIgnore] public InertString? DescriptionText { get; }
+    [MarkoutIgnore] public string Title => TitleText.ToString();
+    [MarkoutIgnore] [MarkoutSkipNull] public string? Description => DescriptionText?.ToString();
     [MarkoutIgnore] public int Matches { get; set; }
 
     [MarkoutSection(Name = "Results")]
@@ -30,14 +39,25 @@ public class FindResultView
 
 [MarkoutSerializable]
 public record FindRow(
-    string Pattern,
-    string Type,
-    string Namespace,
-    string Kind,
-    string Library,
-    string Source,
-    string Match,
-    [property: MarkoutPropertyName("Sim")] string Similarity);
+    [property: MarkoutIgnore] InertString PatternText,
+    [property: MarkoutIgnore] InertString TypeText,
+    [property: MarkoutIgnore] InertString NamespaceText,
+    [property: MarkoutIgnore] InertString KindText,
+    [property: MarkoutIgnore] InertString LibraryText,
+    [property: MarkoutIgnore] InertString SourceText,
+    [property: MarkoutIgnore] InertString MatchText,
+    [property: MarkoutIgnore] InertString SimilarityText)
+{
+    public string Pattern => PatternText.ToString();
+    public string Type => TypeText.ToString();
+    public string Namespace => NamespaceText.ToString();
+    public string Kind => KindText.ToString();
+    public string Library => LibraryText.ToString();
+    public string Source => SourceText.ToString();
+    public string Match => MatchText.ToString();
+    [MarkoutPropertyName("Sim")]
+    public string Similarity => SimilarityText.ToString();
+}
 
 [MarkoutSerializable(
     TitleProperty = nameof(Title),
@@ -45,8 +65,16 @@ public record FindRow(
     FieldLayout = FieldLayout.Table)]
 public class FindMembersResultView
 {
-    [MarkoutIgnore] public string Title { get; set; } = "";
-    [MarkoutIgnore] [MarkoutSkipNull] public string? Description { get; set; }
+    public FindMembersResultView(InertString titleText, InertString? descriptionText = null)
+    {
+        TitleText = titleText;
+        DescriptionText = descriptionText;
+    }
+
+    [MarkoutIgnore] public InertString TitleText { get; }
+    [MarkoutIgnore] public InertString? DescriptionText { get; }
+    [MarkoutIgnore] public string Title => TitleText.ToString();
+    [MarkoutIgnore] [MarkoutSkipNull] public string? Description => DescriptionText?.ToString();
     [MarkoutIgnore] public int Matches { get; set; }
 
     [MarkoutSection(Name = "Members")]
@@ -63,13 +91,22 @@ public class FindMembersResultView
 
 [MarkoutSerializable]
 public record FindMemberRow(
-    string Pattern,
-    string Member,
-    string Kind,
-    string Type,
-    string Signature,
-    string Library,
-    string Source);
+    [property: MarkoutIgnore] InertString PatternText,
+    [property: MarkoutIgnore] InertString MemberText,
+    [property: MarkoutIgnore] InertString KindText,
+    [property: MarkoutIgnore] InertString TypeText,
+    [property: MarkoutIgnore] InertString SignatureText,
+    [property: MarkoutIgnore] InertString LibraryText,
+    [property: MarkoutIgnore] InertString SourceText)
+{
+    public string Pattern => PatternText.ToString();
+    public string Member => MemberText.ToString();
+    public string Kind => KindText.ToString();
+    public string Type => TypeText.ToString();
+    public string Signature => SignatureText.ToString();
+    public string Library => LibraryText.ToString();
+    public string Source => SourceText.ToString();
+}
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(FindResultView))]

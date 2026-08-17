@@ -3,6 +3,142 @@ using ILInspector.Decompiler.Annotations;
 namespace ILInspector.Decompiler;
 
 /// <summary>
+/// Product-owned IL provenance for one rendered C# syntax node.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <see cref="IlOffsets"/> is the sorted, distinct set of imported IL offsets
+/// retained by the contributing IR subtree. It is not a source-text coordinate
+/// or display-derived identity.
+/// </para>
+/// <para>
+/// The set is correspondence evidence, not a universal node identity. The
+/// correspondence issuer uses it only inside two documents proven to describe
+/// the same physical method body, and only when the set is unique on both
+/// sides.
+/// </para>
+/// </remarks>
+public sealed record AnnotatedSourceNodeProvenance
+{
+    /// <summary>Creates validated node provenance.</summary>
+    public AnnotatedSourceNodeProvenance(IReadOnlyList<int> IlOffsets)
+    {
+        ArgumentNullException.ThrowIfNull(IlOffsets);
+
+        var offsets = IlOffsets.ToArray();
+        if (offsets.Length == 0)
+            throw new ArgumentException("IL provenance must contain at least one offset.", nameof(IlOffsets));
+        for (int index = 0; index < offsets.Length; index++)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(offsets[index], nameof(IlOffsets));
+            if (index > 0 && offsets[index - 1] >= offsets[index])
+            {
+                throw new ArgumentException(
+                    "IL provenance offsets must be strictly increasing.",
+                    nameof(IlOffsets));
+            }
+        }
+
+        this.IlOffsets = Array.AsReadOnly(offsets);
+    }
+
+    /// <summary>Sorted, distinct imported IL offsets retained by the rendered node.</summary>
+    public IReadOnlyList<int> IlOffsets { get; }
+
+    /// <inheritdoc/>
+    public bool Equals(AnnotatedSourceNodeProvenance? other)
+        => other is not null
+            && IlOffsets.SequenceEqual(other.IlOffsets);
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (int offset in IlOffsets)
+            hash.Add(offset);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>
+/// Physical method-body provenance for one annotated-source document.
+/// </summary>
+/// <remarks>
+/// MVID and MethodDef token provide the durable metadata address; the body
+/// fingerprint closes the documented MVID-collision boundary. Correspondence
+/// requires this value to be present and exactly equal on both documents.
+/// <c>CSharpStructuralComparisonTests.ProductBodyFingerprint_HashesExactSignatureAndMethodBodyBytes</c>
+/// and
+/// <c>CSharpStructuralComparisonTests.ProductBodyFingerprint_HashesChainedMethodDataSections</c>
+/// gate that the fingerprint covers the physical signature and complete raw
+/// method body, including its header and every method-data section.
+/// </remarks>
+public sealed record AnnotatedSourceDocumentSource
+{
+    /// <summary>Creates validated physical method provenance.</summary>
+    public AnnotatedSourceDocumentSource(
+        string AssemblyName,
+        Guid ModuleVersionId,
+        int MethodToken,
+        string BodyFingerprint,
+        string Subject)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(AssemblyName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(BodyFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(Subject);
+        AnnotatedSourceText.ValidateWellFormedUtf16(
+            AssemblyName,
+            nameof(AssemblyName),
+            "Assembly name");
+        AnnotatedSourceText.ValidateWellFormedUtf16(
+            Subject,
+            nameof(Subject),
+            "Source-facing subject");
+        if (ModuleVersionId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Module version id must be a non-empty MVID.",
+                nameof(ModuleVersionId));
+        }
+        if ((MethodToken & unchecked((int)0xFF000000)) != 0x06000000
+            || (MethodToken & 0x00FFFFFF) == 0)
+        {
+            throw new ArgumentException(
+                $"Method token 0x{MethodToken:X8} is not a MethodDef token.",
+                nameof(MethodToken));
+        }
+        if (BodyFingerprint.Length != 64
+            || BodyFingerprint.Any(static character => !Uri.IsHexDigit(character)))
+        {
+            throw new ArgumentException(
+                "Body fingerprint must be a 64-character SHA-256 hexadecimal value.",
+                nameof(BodyFingerprint));
+        }
+
+        this.AssemblyName = AssemblyName;
+        this.ModuleVersionId = ModuleVersionId;
+        this.MethodToken = MethodToken;
+        this.BodyFingerprint = BodyFingerprint.ToUpperInvariant();
+        this.Subject = Subject;
+    }
+
+    /// <summary>Simple assembly name.</summary>
+    public string AssemblyName { get; }
+
+    /// <summary>Physical module MVID.</summary>
+    public Guid ModuleVersionId { get; }
+
+    /// <summary>MethodDef token within the physical module.</summary>
+    public int MethodToken { get; }
+
+    /// <summary>SHA-256 fingerprint of the exact method signature and body.</summary>
+    public string BodyFingerprint { get; }
+
+    /// <summary>Owner-issued source-facing member label.</summary>
+    public string Subject { get; }
+}
+
+/// <summary>
 /// One contiguous run of characters in an <see cref="AnnotatedSourceDocument"/>'s
 /// text buffer.
 /// </summary>
@@ -80,7 +216,8 @@ public sealed record AnnotatedSourceNode
         string Kind,
         SourceLineKind Medium,
         IReadOnlyList<AnnotatedSourceSpan> Spans,
-        int? IlOffset = null)
+        int? IlOffset = null,
+        AnnotatedSourceNodeProvenance? Provenance = null)
     {
         ArgumentNullException.ThrowIfNull(Kind);
         ArgumentNullException.ThrowIfNull(Spans);
@@ -114,12 +251,19 @@ public sealed record AnnotatedSourceNode
                 $"Node {Id} is {Kind}, not an {InstructionKind}, so it cannot carry an IL offset.",
                 nameof(IlOffset));
         }
+        if (Medium == SourceLineKind.Il && Provenance is not null)
+        {
+            throw new ArgumentException(
+                $"Node {Id} is IL text, so it cannot carry C# node provenance.",
+                nameof(Provenance));
+        }
 
         this.Id = Id;
         this.Kind = Kind;
         this.Medium = Medium;
         this.Spans = AnnotatedSourceSpans.Snapshot(Spans, nameof(Spans));
         this.IlOffset = IlOffset;
+        this.Provenance = Provenance;
     }
 
     /// <summary>This node's identity within its document: contiguous from <c>0</c> in list order.</summary>
@@ -137,6 +281,9 @@ public sealed record AnnotatedSourceNode
     /// <summary>The IL offset these characters disassemble, or <see langword="null"/> when the node is not an IL instruction. Non-null exactly on <see cref="SourceLineKind.Il"/> nodes whose <see cref="Kind"/> is <see cref="InstructionKind"/>.</summary>
     public int? IlOffset { get; }
 
+    /// <summary>Product-owned IL provenance for this rendered C# node, when available.</summary>
+    public AnnotatedSourceNodeProvenance? Provenance { get; }
+
     /// <inheritdoc/>
     public bool Equals(AnnotatedSourceNode? other)
         => other is not null
@@ -144,6 +291,7 @@ public sealed record AnnotatedSourceNode
             && Kind == other.Kind
             && Medium == other.Medium
             && IlOffset == other.IlOffset
+            && Provenance == other.Provenance
             && Spans.SequenceEqual(other.Spans);
 
     /// <inheritdoc/>
@@ -154,6 +302,7 @@ public sealed record AnnotatedSourceNode
         hash.Add(Kind);
         hash.Add(Medium);
         hash.Add(IlOffset);
+        hash.Add(Provenance);
         foreach (var span in Spans)
             hash.Add(span);
         return hash.ToHashCode();
@@ -327,7 +476,8 @@ public sealed record AnnotatedSourceDocument
         IReadOnlyList<AnnotatedSourceNode> Nodes,
         IReadOnlyList<AnnotatedSourceRegion> Regions,
         IReadOnlyList<AnnotatedSourceFact> Facts,
-        IReadOnlyList<AnnotatedSourceTarget> Targets)
+        IReadOnlyList<AnnotatedSourceTarget> Targets,
+        AnnotatedSourceDocumentSource? Source = null)
     {
         ArgumentNullException.ThrowIfNull(Text);
         ArgumentNullException.ThrowIfNull(Nodes);
@@ -335,7 +485,7 @@ public sealed record AnnotatedSourceDocument
         ArgumentNullException.ThrowIfNull(Facts);
         ArgumentNullException.ThrowIfNull(Targets);
 
-        ValidateWellFormedUtf16(Text, nameof(Text), "Text");
+        AnnotatedSourceText.ValidateWellFormedUtf16(Text, nameof(Text), "Text");
 
         var nodes = Nodes.ToArray();
         if (nodes.Any(node => node is null))
@@ -357,6 +507,7 @@ public sealed record AnnotatedSourceDocument
         this.Regions = Array.AsReadOnly(regions);
         this.Facts = Array.AsReadOnly(facts);
         this.Targets = Array.AsReadOnly(targets);
+        this.Source = Source;
     }
 
     /// <summary>The rendered interleaved C#/IL text: the canonical artifact every span indexes. Always well-formed UTF-16.</summary>
@@ -374,6 +525,9 @@ public sealed record AnnotatedSourceDocument
     /// <summary>Which node each fact is about; a fact with no row here is unanchored.</summary>
     public IReadOnlyList<AnnotatedSourceTarget> Targets { get; }
 
+    /// <summary>Physical method-body provenance, when the producer can issue it.</summary>
+    public AnnotatedSourceDocumentSource? Source { get; }
+
     /// <summary>An empty annotated source document.</summary>
     public static AnnotatedSourceDocument Empty { get; } = new("", [], [], [], []);
 
@@ -384,7 +538,8 @@ public sealed record AnnotatedSourceDocument
             && Nodes.SequenceEqual(other.Nodes)
             && Regions.SequenceEqual(other.Regions)
             && Facts.SequenceEqual(other.Facts)
-            && Targets.SequenceEqual(other.Targets);
+            && Targets.SequenceEqual(other.Targets)
+            && Source == other.Source;
 
     /// <inheritdoc/>
     public override int GetHashCode()
@@ -399,40 +554,8 @@ public sealed record AnnotatedSourceDocument
             hash.Add(fact);
         foreach (var target in Targets)
             hash.Add(target);
+        hash.Add(Source);
         return hash.ToHashCode();
-    }
-
-    static void ValidateWellFormedUtf16(
-        string value,
-        string parameterName,
-        string valueName)
-    {
-        // A portable document is only useful if every string replays exactly:
-        // a lone surrogate has no UTF-8 form, so System.Text.Json writes U+FFFD
-        // in its place and the round trip comes back with different content.
-        // For Text, that would also invalidate every absolute span after it.
-        // Producers already contain this before a document exists: ILStringEscaper
-        // spells an unpaired code unit as visible ASCII \uXXXX, and the portable
-        // fact escaping does the same.
-        for (int index = 0; index < value.Length; index++)
-        {
-            char c = value[index];
-            if (!char.IsSurrogate(c))
-                continue;
-            if (char.IsHighSurrogate(c)
-                && index + 1 < value.Length
-                && char.IsLowSurrogate(value[index + 1]))
-            {
-                index++;
-                continue;
-            }
-
-            string half = char.IsHighSurrogate(c) ? "high" : "low";
-            throw new ArgumentException(
-                $"{valueName} must be well-formed UTF-16, but carries an unpaired {half} surrogate U+{(int)c:X4} at index {index}; "
-                    + "exact JSON replay would substitute U+FFFD for it.",
-                parameterName);
-        }
     }
 
     static void ValidateNodes(AnnotatedSourceNode[] nodes, string text)
@@ -447,7 +570,10 @@ public sealed record AnnotatedSourceDocument
                     $"Node ids must be contiguous from 0 in list order; slot {index} carries id {node.Id}.",
                     "Nodes");
             }
-            ValidateWellFormedUtf16(node.Kind, "Nodes", $"Node {index} kind");
+            AnnotatedSourceText.ValidateWellFormedUtf16(
+                node.Kind,
+                "Nodes",
+                $"Node {index} kind");
             AnnotatedSourceSpans.ValidateBounds(node.Spans, text, "Nodes");
 
             // Only the offset-bearing nodes are ordered, and only against each
@@ -485,10 +611,21 @@ public sealed record AnnotatedSourceDocument
             }
             if (fact.Descriptor is null || fact.Category is null)
                 throw new ArgumentException("Fact descriptors and categories cannot be null.", "Facts");
-            ValidateWellFormedUtf16(fact.Descriptor, "Facts", $"Fact {index} descriptor");
-            ValidateWellFormedUtf16(fact.Category, "Facts", $"Fact {index} category");
+            AnnotatedSourceText.ValidateWellFormedUtf16(
+                fact.Descriptor,
+                "Facts",
+                $"Fact {index} descriptor");
+            AnnotatedSourceText.ValidateWellFormedUtf16(
+                fact.Category,
+                "Facts",
+                $"Fact {index} category");
             if (fact.Detail is { } detail)
-                ValidateWellFormedUtf16(detail, "Facts", $"Fact {index} detail");
+            {
+                AnnotatedSourceText.ValidateWellFormedUtf16(
+                    detail,
+                    "Facts",
+                    $"Fact {index} detail");
+            }
             if (!Enum.IsDefined(fact.Conditionality))
                 throw new ArgumentException($"Unknown fact conditionality: {fact.Conditionality}.", "Facts");
             if (!Enum.IsDefined(fact.Origin))
@@ -582,6 +719,55 @@ public sealed record AnnotatedSourceDocument
                     "Targets");
             }
         }
+    }
+}
+
+static class AnnotatedSourceText
+{
+    internal static void ValidateWellFormedUtf16(
+        string value,
+        string parameterName,
+        string valueName)
+    {
+        // A portable document is only useful if every string replays exactly:
+        // a lone surrogate has no UTF-8 form, so System.Text.Json writes U+FFFD
+        // in its place and the round trip comes back with different content.
+        // For Text, that would also invalidate every absolute span after it.
+        // Producers already contain this before a document exists: ILStringEscaper
+        // spells an unpaired code unit as visible ASCII \uXXXX, and the portable
+        // fact escaping does the same.
+        int index = IndexOfUnpairedSurrogate(value);
+        if (index >= 0)
+        {
+            char c = value[index];
+            string half = char.IsHighSurrogate(c) ? "high" : "low";
+            throw new ArgumentException(
+                $"{valueName} must be well-formed UTF-16, but carries an unpaired {half} surrogate U+{(int)c:X4} at index {index}; "
+                    + "exact JSON replay would substitute U+FFFD for it.",
+                parameterName);
+        }
+    }
+
+    internal static bool IsWellFormedUtf16(ReadOnlySpan<char> value)
+        => IndexOfUnpairedSurrogate(value) < 0;
+
+    static int IndexOfUnpairedSurrogate(ReadOnlySpan<char> value)
+    {
+        for (int index = 0; index < value.Length; index++)
+        {
+            char c = value[index];
+            if (!char.IsSurrogate(c))
+                continue;
+            if (char.IsHighSurrogate(c)
+                && index + 1 < value.Length
+                && char.IsLowSurrogate(value[index + 1]))
+            {
+                index++;
+                continue;
+            }
+            return index;
+        }
+        return -1;
     }
 }
 

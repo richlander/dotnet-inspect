@@ -6,7 +6,8 @@ namespace DotnetInspector.Queries;
 public sealed record ApiSurfaceQueryContext(
     AssemblyInspectionSession Session,
     bool IncludeAll,
-    bool TypesOnly = false);
+    bool TypesOnly = false,
+    Func<bool, bool, ApiSurface?>? SurfaceFactory = null);
 
 /// <summary>Typed result of extracting one assembly's API surface.</summary>
 public abstract record ApiSurfaceResult
@@ -34,8 +35,12 @@ public static class ApiSurfaceQuery
 
         try
         {
-            return new ApiSurfaceResult.Available(
-                context.Session.ApiSurface(context.IncludeAll, context.TypesOnly));
+            var surface = context.SurfaceFactory is null
+                ? context.Session.ApiSurface(context.IncludeAll, context.TypesOnly)
+                : context.SurfaceFactory(context.IncludeAll, context.TypesOnly)
+                    ?? throw new InvalidOperationException(
+                        "The API surface factory returned no surface.");
+            return new ApiSurfaceResult.Available(surface);
         }
         catch (Exception ex)
         {
