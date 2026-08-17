@@ -64,7 +64,7 @@ public class TypeRefAritySpellingTests
         TypeRef literal = ResolvedDefinition("A`1+B", "A`1+B");
 
         Assert.Equal("A.B", nested.ToDisplayString());
-        Assert.Equal("A`1+B", literal.ToDisplayString());
+        Assert.Equal(@"A`1\+B", literal.ToDisplayString());
         Assert.NotEqual(nested.ToDisplayString(), literal.ToDisplayString());
     }
 
