@@ -207,6 +207,13 @@ public static class ApiOutputFormatter
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var includeSections = pipeline.ComputeIncludeSections(
             api, options.Verbosity, options.IncludeSections);
+        if (options.IncludeSections is null
+            && options.Verbosity != Verbosity.Quiet
+            && api.InspectionFailures.Count > 0
+            && includeSections is not null)
+        {
+            includeSections.Add(SectionNames.InspectionFailures);
+        }
 
         return new MarkoutWriterOptions
         {
