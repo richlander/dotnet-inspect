@@ -91,6 +91,7 @@ public class E2EFixtureTests
                       {
                         "member": "RunFaster.AllocationFixture.Program.AllocateOne()",
                         "assembly": "{{occurrence.Method.AssemblyName}}",
+                        "module_version_id": "{{occurrence.Method.ModuleVersionId:D}}",
                         "method_token": "0x{{allocateOne.MetadataToken:X8}}",
                         "shape": "fixture-object",
                         "operation": "newobj",
@@ -135,6 +136,10 @@ public class E2EFixtureTests
                 allocateOne.MetadataToken,
                 candidate.GetProperty("methodToken").GetInt32());
             Assert.Equal(
+                occurrence.Method.ModuleVersionId,
+                candidate.GetProperty(
+                    "moduleVersionId").GetGuid());
+            Assert.Equal(
                 0x0A000001,
                 candidate.GetProperty("operandToken").GetInt32());
             Assert.True(
@@ -143,6 +148,53 @@ public class E2EFixtureTests
             Assert.True(
                 candidate.GetProperty(
                     "unambiguousIlOffsetJoinObserved").GetBoolean());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_RejectsMalformedTriageModuleVersionId()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {
+                  "performance": {
+                    "objects": [
+                      {
+                        "member": "RunFaster.AllocationFixture.Program.AllocateOne()",
+                        "assembly": "RunFaster.AllocationFixture",
+                        "module_version_id": "not-a-guid",
+                        "method_token": "0x06000002",
+                        "shape": "object-allocation",
+                        "il": "IL_0000",
+                        "allocation": "System.Object"
+                      }
+                    ]
+                  }
+                }
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"));
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                "Invalid module version ID 'not-a-guid'",
+                result.Error);
+            Assert.Empty(result.Output);
         }
         finally
         {
@@ -217,6 +269,10 @@ public class E2EFixtureTests
         {
             Assert.False(row.RootElement.TryGetProperty("kind", out _));
             Assert.False(row.RootElement.TryGetProperty("shape", out _));
+            Assert.False(
+                row.RootElement.TryGetProperty(
+                    "module_version_id",
+                    out _));
             Assert.True(row.RootElement.TryGetProperty("priority", out _));
         }
 

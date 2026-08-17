@@ -441,6 +441,50 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void ApplyTypeConfirmation_CollapsesOnlyMatchingTriageModuleVersion()
+    {
+        Guid firstMvid = Guid.Parse(
+            "11111111-1111-1111-1111-111111111111");
+        Guid secondMvid = Guid.Parse(
+            "22222222-2222-2222-2222-222222222222");
+        var firstVersion = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            moduleVersionId: firstMvid);
+        var secondVersion = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            moduleVersionId: secondMvid);
+        var triage = CandidateWithType(
+            3,
+            "Fixture.A.M()",
+            "System.String",
+            source: "triage",
+            moduleVersionId: firstMvid);
+        var result = new CorrelationResult();
+        result.Candidates.Add(firstVersion);
+        result.Candidates.Add(secondVersion);
+        result.Candidates.Add(triage);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.True(firstVersion.SupersededByTriage);
+        Assert.False(firstVersion.TypeConfirmed);
+        Assert.False(secondVersion.SupersededByTriage);
+        Assert.True(secondVersion.TypeConfirmed);
+        Assert.True(triage.TypeConfirmed);
+        Assert.Equal(2, secondVersion.TypeConfirmedSiteCount);
+        Assert.Equal(2, triage.TypeConfirmedSiteCount);
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_DoesNotDeduplicateDifferentAssemblies()
     {
         var library = CandidateWithType(

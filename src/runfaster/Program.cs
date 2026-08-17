@@ -434,7 +434,10 @@ static bool TryLoadTriageFile(string triageFile, CorrelationResult result, out i
             new TriageInput(path, rows, loaded, correlatable));
         return true;
     }
-    catch (Exception ex) when (ex is JsonException or IOException)
+    catch (Exception ex) when (
+        ex is JsonException
+            or IOException
+            or InvalidDataException)
     {
         Console.Error.WriteLine($"Error: cannot read triage JSON/JSONL '{triageFile}': {ex.Message}");
         exitCode = 1;
@@ -595,6 +598,14 @@ static bool TryCreateCandidateFromJson(
         "method_token",
         "MethodToken",
         "methodToken");
+    string? moduleVersionIdText = GetJsonString(
+        element,
+        "Module Version ID",
+        "module_version_id",
+        "ModuleVersionId",
+        "moduleVersionId",
+        "MVID",
+        "mvid");
     string? operandTokenText = GetJsonString(
         element,
         "MetadataToken",
@@ -617,6 +628,19 @@ static bool TryCreateCandidateFromJson(
         ? parsedOperandToken
         : null;
     int offset = TryParseFlexibleInt(offsetText, out var parsedOffset) ? parsedOffset : -1;
+    Guid? moduleVersionId = null;
+    if (moduleVersionIdText is not null)
+    {
+        if (!Guid.TryParse(
+                moduleVersionIdText,
+                out var parsedModuleVersionId))
+        {
+            throw new InvalidDataException(
+                $"Invalid module version ID '{moduleVersionIdText}'.");
+        }
+
+        moduleVersionId = parsedModuleVersionId;
+    }
 
     if (method is null && methodToken == 0)
         return false;
@@ -632,7 +656,7 @@ static bool TryCreateCandidateFromJson(
         GetJsonString(element, "Assembly", "assembly")
             ?? defaultAssembly
             ?? "",
-        null,
+        moduleVersionId,
         methodToken,
         offset,
         method ?? DisplayHelpers.FormatToken(methodToken),
@@ -1808,6 +1832,8 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     writer.WriteString("source", candidate.Source);
     writer.WriteString("library", candidate.LibraryPath);
     writer.WriteString("assembly", candidate.AssemblyName);
+    if (candidate.ModuleVersionId is Guid moduleVersionId)
+        writer.WriteString("moduleVersionId", moduleVersionId);
     writer.WriteString("method", candidate.Method);
     writer.WriteBoolean(
         "runtimeCorrelatable",
@@ -2847,11 +2873,13 @@ internal static class ProgramSupport
                          candidate.MethodToken,
                          candidate.IlOffset)))
         {
-            var triageCandidates = coordinateGroup
+            var triageGroups = coordinateGroup
                 .Where(static candidate => string.Equals(
                     candidate.Source,
                     "triage",
                     StringComparison.Ordinal))
+                .GroupBy(static candidate =>
+                    candidate.ModuleVersionId)
                 .ToArray();
             var libraryGroups = coordinateGroup
                 .Where(static candidate => string.Equals(
@@ -2873,24 +2901,42 @@ internal static class ProgramSupport
                         StringComparison.Ordinal))
                 .ToArray();
 
-            bool oneResolvableSite = triageCandidates.Length > 0
-                && libraryGroups.Length == 1
-                && otherCandidates.Length == 0;
-            if (oneResolvableSite)
+            var remainingLibraryGroups = libraryGroups.ToList();
+            foreach (var triageGroup in triageGroups.Where(
+                         static group => group.Key is not null))
             {
                 siteCount++;
-                selected.AddRange(triageCandidates);
-                supersededLibraries.AddRange(
-                    libraryGroups[0]);
-                continue;
+                selected.AddRange(triageGroup);
+                int matchingLibrary = remainingLibraryGroups.FindIndex(
+                    libraryGroup =>
+                        libraryGroup.Key == triageGroup.Key);
+                if (matchingLibrary >= 0)
+                {
+                    supersededLibraries.AddRange(
+                        remainingLibraryGroups[matchingLibrary]);
+                    remainingLibraryGroups.RemoveAt(
+                        matchingLibrary);
+                }
             }
 
-            if (triageCandidates.Length > 0)
+            var unknownTriageGroup = triageGroups.SingleOrDefault(
+                static group => group.Key is null);
+            if (unknownTriageGroup is not null)
             {
                 siteCount++;
-                selected.AddRange(triageCandidates);
+                selected.AddRange(unknownTriageGroup);
+                bool oneResolvableLegacySite =
+                    triageGroups.Length == 1
+                    && remainingLibraryGroups.Count == 1
+                    && otherCandidates.Length == 0;
+                if (oneResolvableLegacySite)
+                {
+                    supersededLibraries.AddRange(
+                        remainingLibraryGroups[0]);
+                    remainingLibraryGroups.Clear();
+                }
             }
-            foreach (var libraryGroup in libraryGroups)
+            foreach (var libraryGroup in remainingLibraryGroups)
             {
                 siteCount++;
                 selected.AddRange(libraryGroup);

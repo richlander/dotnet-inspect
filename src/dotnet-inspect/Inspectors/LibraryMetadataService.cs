@@ -1469,6 +1469,8 @@ internal static class LibraryMetadataService
                 {
                     Member = FormatMethod(opportunity.Method),
                     Assembly = opportunity.Method.AssemblyName,
+                    ModuleVersionId =
+                        opportunity.Method.ModuleVersionId,
                     MethodToken = FormatToken(
                         opportunity.Method.MetadataToken),
                     Candidate = opportunity.CandidateId,
