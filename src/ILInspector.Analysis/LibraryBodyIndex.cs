@@ -785,11 +785,14 @@ public sealed class LibraryBodyIndex
             .GroupBy(evidence => evidence.Member.MetadataToken)
             .ToDictionary(group => group.Key, group => group.ToImmutableArray());
 
-    IReadOnlySet<string>? _generatedFrameworkTypes;
+    IReadOnlySet<TypeRef>? _generatedFrameworkTypes;
 
     /// <summary>
-    /// Qualified names of types recognized as protobuf/gRPC generated implementation detail,
-    /// detected structurally (no attributes are emitted on this code). A type qualifies when
+    /// Exact <see cref="TypeRef"/> identities of types recognized as protobuf/gRPC
+    /// generated implementation detail, detected structurally (no attributes are
+    /// emitted on this code). Keys are definition identities, not qualified display
+    /// strings: namespace <c>N.A</c> plus root <c>B</c> is distinct from namespace
+    /// <c>N</c> plus nested <c>A+B</c>. A type qualifies when
     /// any of its methods bootstraps protobuf generated infrastructure — calling
     /// <c>Google.Protobuf.Reflection.FileDescriptor.FromGeneratedCode</c>, constructing
     /// <c>Google.Protobuf.Reflection.GeneratedClrTypeInfo</c>, or constructing the
@@ -808,9 +811,26 @@ public sealed class LibraryBodyIndex
     /// appear in generated protobuf/gRPC code, so perf triage can mark them in Top Leverage and
     /// suppress them from Performance Triage like other generated detail.
     /// </summary>
-    public IReadOnlySet<string> GeneratedFrameworkTypeNames
+    public IReadOnlySet<TypeRef> GeneratedFrameworkTypes
         => _generatedFrameworkTypes ??=
             GeneratedFrameworkTypeAnalysis.Collect(DirectCalls, Methods);
+
+    /// <summary>
+    /// True when <paramref name="type"/> is in
+    /// <see cref="GeneratedFrameworkTypes"/> or is a metadata nested type of one.
+    /// </summary>
+    public bool IsGeneratedFrameworkType(TypeRef type)
+        => IsGeneratedFrameworkType(GeneratedFrameworkTypes, type);
+
+    /// <summary>
+    /// True when <paramref name="type"/> is a classified generated-framework type
+    /// or a metadata nested type of one. Walks <c>+</c> containing-type names;
+    /// does not parse qualified display text.
+    /// </summary>
+    public static bool IsGeneratedFrameworkType(
+        IReadOnlySet<TypeRef> generatedFrameworkTypes,
+        TypeRef type)
+        => GeneratedFrameworkTypeAnalysis.Contains(generatedFrameworkTypes, type);
 
     public static LibraryBodyIndex Open(string path)
         => Open(path, resolver: null);

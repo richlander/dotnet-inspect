@@ -857,7 +857,7 @@ public class LibraryInspectionView
                         drill.Visibility,
                         Generated: LibraryMetadataService.IsGeneratedMethod(
                             entry.Method,
-                            available.GeneratedFrameworkTypeNames)
+                            available.GeneratedFrameworkTypes)
                                 ? "generated"
                                 : null,
                         Stable: drill.Stable is { } stable
