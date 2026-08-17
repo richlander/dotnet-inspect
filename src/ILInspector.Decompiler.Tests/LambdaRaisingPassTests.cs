@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using ILInspector.Decompiler.Pipeline;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using ArrayShape = System.Reflection.Metadata.ArrayShape;
 using SignatureAttributes = System.Reflection.Metadata.SignatureAttributes;
 using SignatureCallingConvention = System.Reflection.Metadata.SignatureCallingConvention;
 using SignatureHeader = System.Reflection.Metadata.SignatureHeader;
@@ -368,6 +369,57 @@ public class LambdaRaisingPassTests
             ArgumentRefKind.Value));
         Assert.Empty(host.Descendants.OfType<Lambda>());
         Assert.Single(host.Descendants.OfType<DelegateCreation>());
+    }
+
+    [Fact]
+    public void ByRefLambdaWithMdArraySibling_Raises()
+    {
+        var host = RunIsolatedCompilerLambdaRaise(
+            typeof(VoidLambdaRaisingSamples),
+            nameof(VoidLambdaRaisingSamples.ByRefLambdaWithMdArraySibling),
+            out var candidate);
+
+        Assert.Equal(TypeRefKind.Array, candidate.ParameterTypes[1].Kind);
+        Assert.True(candidate.ParameterTypes[1].ArrayShapeIsExact);
+        Assert.Equal("int[,]", candidate.ParameterTypes[1].ToDisplayString());
+        Assert.Single(host.Descendants.OfType<Lambda>());
+        Assert.Empty(host.Descendants.OfType<DelegateCreation>());
+    }
+
+    [Fact]
+    public void ByRefLambdaWithNestedArraySibling_RaisesWithExactSuffixOrder()
+    {
+        var host = RunIsolatedCompilerLambdaRaise(
+            typeof(VoidLambdaRaisingSamples),
+            nameof(VoidLambdaRaisingSamples.ByRefLambdaWithNestedArraySibling),
+            out var candidate);
+
+        Assert.Equal("int[][,]", candidate.ParameterTypes[1].ToDisplayString());
+        Assert.Single(host.Descendants.OfType<Lambda>());
+        Assert.Empty(host.Descendants.OfType<DelegateCreation>());
+    }
+
+    [Fact]
+    public void MdArrayDecoder_AcceptsOnlyDefaultLowerBounds()
+    {
+        var exact = TypeRefDecoder.Instance.GetArrayType(
+            s_int,
+            new ArrayShape(2, [], [0, 0]));
+        var lossy = TypeRefDecoder.Instance.GetArrayType(
+            s_int,
+            new ArrayShape(2, [], [1, 0]));
+        var host = RunSyntheticSiblingLambdaRaise(s_int);
+
+        Assert.True(exact.ArrayShapeIsExact);
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            exact,
+            host,
+            ArgumentRefKind.Value));
+        Assert.False(lossy.ArrayShapeIsExact);
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            lossy,
+            host,
+            ArgumentRefKind.Value));
     }
 
     [Fact]
@@ -1319,6 +1371,8 @@ public static class VoidLambdaRaisingSamples
     public delegate void RefCallback(ref int value);
     public delegate void RefReadonlyCallback(ref readonly int value);
     public delegate void RefSiblingCallback<T>(ref int value, T sibling);
+    public delegate void RefMdArrayCallback(ref int value, int[,] sibling);
+    public delegate void RefNestedArrayCallback(ref int value, int[][,] sibling);
     public unsafe delegate void RefReadonlyFunctionPointerSiblingCallback(
         ref int value,
         delegate*<ref readonly int, void> sibling);
@@ -1375,6 +1429,12 @@ public static class VoidLambdaRaisingSamples
 
     public static RefSiblingCallback<int> ByRefLambdaWithSpellableSibling()
         => (ref int value, int sibling) => System.Console.WriteLine(value + sibling);
+
+    public static RefMdArrayCallback ByRefLambdaWithMdArraySibling()
+        => (ref int value, int[,] sibling) => System.Console.WriteLine(value);
+
+    public static RefNestedArrayCallback ByRefLambdaWithNestedArraySibling()
+        => (ref int value, int[][,] sibling) => System.Console.WriteLine(value);
 
     public static unsafe RefReadonlyFunctionPointerSiblingCallback
         ByRefLambdaWithRefReadonlyFunctionPointerSibling()

@@ -139,7 +139,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// <summary>
     /// Whether an MD-array has no explicit bounds or sizes that the C# type
     /// syntax would erase. Gated by
-    /// <c>LambdaRaisingPassTests.ByRefLambdaWithUnspellableSibling_StaysLowered</c>.
+    /// <c>LambdaRaisingPassTests.ByRefLambdaWithMdArraySibling_Raises</c> and
+    /// <c>ByRefLambdaWithUnspellableSibling_StaysLowered</c>.
     /// </summary>
     public bool ArrayShapeIsExact { get; private init; } = true;
 
@@ -799,10 +800,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         TypeRefKind.Definition => RenderDefinition(scope),
         TypeRefKind.GenericInstance => RenderGenericInstance(scope),
-        TypeRefKind.SzArray => $"{ElementType!.ToDisplayString(scope)}[]",
-        TypeRefKind.Array => Rank > 0
-            ? $"{ElementType!.ToDisplayString(scope)}[{new string(',', Rank - 1)}]"
-            : $"{ElementType!.ToDisplayString(scope)}[rank:{Rank}]",
+        TypeRefKind.SzArray or TypeRefKind.Array => RenderArray(scope),
         TypeRefKind.ByRef => $"ref {ElementType!.ToDisplayString(scope)}",
         TypeRefKind.Pointer => $"{ElementType!.ToDisplayString(scope)}*",
         TypeRefKind.Pinned => $"pinned {ElementType!.ToDisplayString(scope)}",
@@ -813,6 +811,22 @@ public sealed class TypeRef : IEquatable<TypeRef>
     };
 
     public override string ToString() => ToDisplayString();
+
+    string RenderArray(TypeRef? scope)
+    {
+        var suffixes = new List<string>();
+        TypeRef element = this;
+        while (element.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
+        {
+            suffixes.Add(element.Kind == TypeRefKind.SzArray
+                ? "[]"
+                : element.Rank > 0
+                    ? $"[{new string(',', element.Rank - 1)}]"
+                    : $"[rank:{element.Rank}]");
+            element = element.ElementType!;
+        }
+        return element.ToDisplayString(scope) + string.Concat(suffixes);
+    }
 
     bool IsPrivateImplementationDetails
         => Kind == TypeRefKind.Definition

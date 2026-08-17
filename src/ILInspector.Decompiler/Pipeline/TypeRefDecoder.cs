@@ -289,7 +289,9 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         => TypeRef.MdArray(
             elementType,
             shape.Rank,
-            arrayShapeIsExact: shape.Sizes.IsDefaultOrEmpty && shape.LowerBounds.IsDefaultOrEmpty);
+            arrayShapeIsExact: shape.Sizes.IsDefaultOrEmpty
+                && (shape.LowerBounds.IsDefaultOrEmpty
+                    || shape.LowerBounds.All(bound => bound == 0)));
 
     public TypeRef GetByReferenceType(TypeRef elementType) => TypeRef.ByRef(elementType);
 
