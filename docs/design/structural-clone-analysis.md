@@ -123,10 +123,13 @@ over-approximations whose members are not independently selectable.
 
 Candidate enumeration indexes masked block shapes and body-level block
 multisets, so only removals that can preserve necessary exact invariants reach
-the verifier. Operation order, entry/exit shape, local types, and incoming and
-outgoing edge-role multisets participate; CFG target identities do not. The
-index uses two aggregate hashes. A collision can add exact comparisons but
-cannot establish or suppress a relationship.
+the verifier. Operation order, entry/exit shape, local types, local-use sites,
+and incoming and outgoing edge-role multisets participate; raw local slots and
+CFG target identities do not. Removing an operation incrementally rewrites the
+use-site keys for locals used in that block; removing an edge rewrites local
+contexts in its source and target blocks. The index uses aggregate hashes. A
+collision can add exact comparisons but cannot establish or suppress a
+relationship.
 
 Enumeration remains exhaustive within explicit candidate,
 exact-verification-work, alternative, and block-affected-element limits. Each
@@ -147,6 +150,7 @@ adding near cases cannot merge discovery clusters.
 `Compare_ChangedOperationsRequireOneJointBlockWitness`,
 `Compare_ChangedLocalUseHasJointRestoringWitness`,
 `Compare_LargeMultiBlockNearUsesMaskedCandidateIndex`,
+`Compare_LargeLocalNearUsesLocalUseIndex`,
 `Compare_OneEdgeChangeInsertionAndRemoval_AreNear`,
 `Compare_UnreachableBlockInsertionAndRemovalCarriesContents`,
 `Compare_SymmetricGraph_ReportsStableExactAndNearAmbiguity`, and

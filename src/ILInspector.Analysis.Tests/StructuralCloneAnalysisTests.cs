@@ -1714,6 +1714,25 @@ public class StructuralCloneAnalysisTests
     }
 
     [Fact]
+    public void Compare_LargeLocalNearUsesLocalUseIndex()
+    {
+        StructuralCloneBodyFacts left =
+            LargeLocalNearGraph(token: 1, changedLocal: 30);
+        StructuralCloneBodyFacts right =
+            LargeLocalNearGraph(token: 2, changedLocal: 31);
+
+        StructuralCloneComparison forward =
+            StructuralCloneAnalysis.Compare(left, right);
+        StructuralCloneComparison reverse =
+            StructuralCloneAnalysis.Compare(right, left);
+
+        AssertNearOperationChange(forward);
+        AssertNearOperationChange(reverse);
+        Assert.InRange(forward.AlignmentReceipt!.Candidates, 1, 4);
+        Assert.InRange(reverse.AlignmentReceipt!.Candidates, 1, 4);
+    }
+
+    [Fact]
     public void Compare_OneEdgeChangeInsertionAndRemoval_AreNear()
     {
         StructuralCloneBodyFacts original = Facts(
@@ -2425,6 +2444,114 @@ public class StructuralCloneAnalysisTests
                 static block => block.Operations.Length),
             InitLocals: false,
             Locals: [],
+            Signature: s_staticIntToInt,
+            RebuildTestGraph(blocks.ToImmutable()));
+    }
+
+    static StructuralCloneBodyFacts LargeLocalNearGraph(
+        int token,
+        int changedLocal)
+    {
+        const int LocalCount = 60;
+        const int ErrorBlock = LocalCount + 1;
+        const int SuccessBlock = LocalCount + 2;
+        ImmutableArray<StructuralCloneOperation> initialization =
+        [
+            .. Enumerable.Range(0, LocalCount).SelectMany(local =>
+                new[]
+                {
+                    new StructuralCloneOperation(
+                        ILOpCode.Ldc_i4,
+                        StructuralCloneOperandKind.Immediate,
+                        local),
+                    new StructuralCloneOperation(
+                        ILOpCode.Stloc,
+                        StructuralCloneOperandKind.Local,
+                        local),
+                }),
+        ];
+        var blocks =
+            ImmutableArray.CreateBuilder<StructuralCloneBlock>(
+                SuccessBlock + 1);
+        blocks.Add(new StructuralCloneBlock(
+            0,
+            0,
+            false,
+            initialization,
+            [
+                new(
+                    new(StructuralCloneEdgeKind.FallThrough, 0),
+                    1),
+            ],
+            []));
+        for (int guard = 0; guard < LocalCount; guard++)
+        {
+            blocks.Add(new StructuralCloneBlock(
+                guard + 1,
+                guard + 1,
+                false,
+                [
+                    new(
+                        ILOpCode.Ldloc,
+                        StructuralCloneOperandKind.Local,
+                        guard == 30 ? changedLocal : guard),
+                ],
+                [
+                    new(
+                        new(StructuralCloneEdgeKind.Branch, 0),
+                        ErrorBlock),
+                    new(
+                        new(StructuralCloneEdgeKind.FallThrough, 0),
+                        guard + 1 < LocalCount
+                            ? guard + 2
+                            : SuccessBlock),
+                ],
+                []));
+        }
+        blocks.Add(new StructuralCloneBlock(
+            ErrorBlock,
+            ErrorBlock,
+            true,
+            [
+                new(
+                    ILOpCode.Ldc_i4,
+                    StructuralCloneOperandKind.Immediate,
+                    -1),
+                new(
+                    ILOpCode.Ret,
+                    StructuralCloneOperandKind.None,
+                    0),
+            ],
+            [],
+            []));
+        blocks.Add(new StructuralCloneBlock(
+            SuccessBlock,
+            SuccessBlock,
+            true,
+            [
+                new(
+                    ILOpCode.Ldc_i4,
+                    StructuralCloneOperandKind.Immediate,
+                    0),
+                new(
+                    ILOpCode.Ret,
+                    StructuralCloneOperandKind.None,
+                    0),
+            ],
+            [],
+            []));
+        return new StructuralCloneBodyFacts(
+            Address(token),
+            BodyBytes: blocks.Count,
+            InstructionCount: blocks.Sum(
+                static block => block.Operations.Length),
+            InitLocals: true,
+            Locals:
+            [
+                .. Enumerable.Repeat(
+                    StructuralCloneTypeIdentity.Create(s_int),
+                    LocalCount),
+            ],
             Signature: s_staticIntToInt,
             RebuildTestGraph(blocks.ToImmutable()));
     }

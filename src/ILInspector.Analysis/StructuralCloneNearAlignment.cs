@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using System.Text;
 
 namespace ILInspector.Analysis;
@@ -287,8 +288,26 @@ public static partial class StructuralCloneAnalysis
             FullBlockKeys(left);
         ImmutableArray<NearBlockKey> rightBlockKeys =
             FullBlockKeys(right);
-        NearBodyKey leftBodyKey = BodyKey(leftBlockKeys);
-        NearBodyKey rightBodyKey = BodyKey(rightBlockKeys);
+        NearBodyKey leftBodyKey = BodyKey(
+            left,
+            leftBlockKeys,
+            out ImmutableArray<NearLocalKey> leftLocalKeys);
+        NearBodyKey rightBodyKey = BodyKey(
+            right,
+            rightBlockKeys,
+            out ImmutableArray<NearLocalKey> rightLocalKeys);
+        ImmutableArray<NearOperationCandidateKey> leftOperationKeys =
+            OperationMaskedCandidateKeys(
+                left,
+                leftBlockKeys,
+                leftLocalKeys,
+                leftBodyKey);
+        ImmutableArray<NearOperationCandidateKey> rightOperationKeys =
+            OperationMaskedCandidateKeys(
+                right,
+                rightBlockKeys,
+                rightLocalKeys,
+                rightBodyKey);
         int operationDelta =
             leftOperations.Length - rightOperations.Length;
         if (operationDelta == 0)
@@ -296,135 +315,99 @@ public static partial class StructuralCloneAnalysis
             var rightIndex = new Dictionary<
                 (NearBodyKey Body, NearBlockKey Block, int Ordinal),
                 List<(int Block, int Ordinal)>>();
-            foreach (StructuralCloneBlock rightBlock in right.Graph.Blocks)
+            foreach (NearOperationCandidateKey item
+                in rightOperationKeys)
             {
-                ImmutableArray<NearBlockKey> masked =
-                    OperationMaskedBlockKeys(right, rightBlock);
-                for (int ordinal = 0; ordinal < masked.Length; ordinal++)
+                var key = (item.Body, item.BlockShape, item.Ordinal);
+                if (!rightIndex.TryGetValue(
+                        key,
+                        out List<(int Block, int Ordinal)>? locations))
                 {
-                    var key = (
-                        ReplaceBlock(
-                            rightBodyKey,
-                            rightBlockKeys[rightBlock.Index],
-                            masked[ordinal]),
-                        masked[ordinal],
-                        ordinal);
-                    if (!rightIndex.TryGetValue(key, out List<
-                            (int Block, int Ordinal)>? locations))
-                    {
-                        rightIndex.Add(key, locations = []);
-                    }
-                    locations.Add((rightBlock.Index, ordinal));
+                    rightIndex.Add(key, locations = []);
                 }
+                locations.Add((item.Block, item.Ordinal));
             }
-            foreach (StructuralCloneBlock leftBlock in left.Graph.Blocks)
+            foreach (NearOperationCandidateKey item
+                in leftOperationKeys)
             {
-                ImmutableArray<NearBlockKey> masked =
-                    OperationMaskedBlockKeys(left, leftBlock);
-                for (int ordinal = 0; ordinal < masked.Length; ordinal++)
+                var key = (item.Body, item.BlockShape, item.Ordinal);
+                if (!rightIndex.TryGetValue(
+                        key,
+                        out List<(int Block, int Ordinal)>? matches))
                 {
-                    var key = (
-                        ReplaceBlock(
-                            leftBodyKey,
-                            leftBlockKeys[leftBlock.Index],
-                            masked[ordinal]),
-                        masked[ordinal],
-                        ordinal);
-                    if (!rightIndex.TryGetValue(
-                            key,
-                            out List<(int Block, int Ordinal)>? matches))
+                    continue;
+                }
+                foreach ((int rightBlock, int rightOrdinal) in matches)
+                {
+                    StructuralCloneOperation leftOperation = left.Graph
+                        .Blocks[item.Block]
+                        .Operations[item.Ordinal];
+                    StructuralCloneOperation rightOperation = right.Graph
+                        .Blocks[rightBlock]
+                        .Operations[rightOrdinal];
+                    if (!MayBeChangedOperation(
+                            leftOperation,
+                            rightOperation))
                     {
                         continue;
                     }
-                    foreach ((int rightBlock, int rightOrdinal) in matches)
+                    Add(new NearCandidate(
+                        NearCandidateKind.ChangeOperation,
+                        item.Block,
+                        item.Ordinal,
+                        rightBlock,
+                        rightOrdinal));
+                    if (candidateLimitReached)
                     {
-                        StructuralCloneOperation leftOperation =
-                            leftBlock.Operations[ordinal];
-                        StructuralCloneOperation rightOperation = right.Graph
-                            .Blocks[rightBlock]
-                            .Operations[rightOrdinal];
-                        if (!MayBeChangedOperation(
-                                leftOperation,
-                                rightOperation))
-                        {
-                            continue;
-                        }
-                        Add(new NearCandidate(
-                            NearCandidateKind.ChangeOperation,
-                            leftBlock.Index,
-                            ordinal,
-                            rightBlock,
-                            rightOrdinal));
-                        if (candidateLimitReached)
-                        {
-                            limitReached =
-                                StructuralCloneBlockerKind
-                                    .NearAlignmentCandidateLimit;
-                            return candidates;
-                        }
+                        limitReached =
+                            StructuralCloneBlockerKind
+                                .NearAlignmentCandidateLimit;
+                        return candidates;
                     }
                 }
             }
         }
         else if (operationDelta == 1)
         {
-            foreach (StructuralCloneBlock block in left.Graph.Blocks)
+            foreach (NearOperationCandidateKey item
+                in leftOperationKeys)
             {
-                ImmutableArray<NearBlockKey> masked =
-                    OperationMaskedBlockKeys(left, block);
-                for (int ordinal = 0; ordinal < masked.Length; ordinal++)
+                if (item.Body != rightBodyKey)
+                    continue;
+                Add(new NearCandidate(
+                    NearCandidateKind.RemoveLeftOperation,
+                    item.Block,
+                    item.Ordinal,
+                    -1,
+                    -1));
+                if (candidateLimitReached)
                 {
-                    if (ReplaceBlock(
-                            leftBodyKey,
-                            leftBlockKeys[block.Index],
-                            masked[ordinal]) != rightBodyKey)
-                    {
-                        continue;
-                    }
-                    Add(new NearCandidate(
-                        NearCandidateKind.RemoveLeftOperation,
-                        block.Index,
-                        ordinal,
-                        -1,
-                        -1));
-                    if (candidateLimitReached)
-                    {
-                        limitReached =
-                            StructuralCloneBlockerKind
-                                .NearAlignmentCandidateLimit;
-                        return candidates;
-                    }
+                    limitReached =
+                        StructuralCloneBlockerKind
+                            .NearAlignmentCandidateLimit;
+                    return candidates;
                 }
             }
         }
         else if (operationDelta == -1)
         {
-            foreach (StructuralCloneBlock block in right.Graph.Blocks)
+            foreach (NearOperationCandidateKey item
+                in rightOperationKeys)
             {
-                ImmutableArray<NearBlockKey> masked =
-                    OperationMaskedBlockKeys(right, block);
-                for (int ordinal = 0; ordinal < masked.Length; ordinal++)
+                if (item.Body != leftBodyKey)
+                    continue;
+                Add(new NearCandidate(
+                    NearCandidateKind.RemoveRightOperation,
+                    -1,
+                    -1,
+                    item.Block,
+                    item.Ordinal));
+                if (candidateLimitReached)
                 {
-                    if (ReplaceBlock(
-                            rightBodyKey,
-                            rightBlockKeys[block.Index],
-                            masked[ordinal]) != leftBodyKey)
-                    {
-                        continue;
-                    }
-                    Add(new NearCandidate(
-                        NearCandidateKind.RemoveRightOperation,
-                        -1,
-                        -1,
-                        block.Index,
-                        ordinal));
-                    if (candidateLimitReached)
-                    {
-                        limitReached =
-                            StructuralCloneBlockerKind
-                                .NearAlignmentCandidateLimit;
-                        return candidates;
-                    }
+                    limitReached =
+                        StructuralCloneBlockerKind
+                            .NearAlignmentCandidateLimit;
+                    return candidates;
                 }
             }
         }
@@ -434,9 +417,17 @@ public static partial class StructuralCloneAnalysis
         ImmutableArray<(int Block, int Ordinal)> rightEdges =
             EdgeLocations(right);
         ImmutableArray<NearEdgeCandidateKey> leftEdgeKeys =
-            EdgeMaskedCandidateKeys(left, leftBlockKeys, leftBodyKey);
+            EdgeMaskedCandidateKeys(
+                left,
+                leftBlockKeys,
+                leftLocalKeys,
+                leftBodyKey);
         ImmutableArray<NearEdgeCandidateKey> rightEdgeKeys =
-            EdgeMaskedCandidateKeys(right, rightBlockKeys, rightBodyKey);
+            EdgeMaskedCandidateKeys(
+                right,
+                rightBlockKeys,
+                rightLocalKeys,
+                rightBodyKey);
         int edgeDelta = leftEdges.Length - rightEdges.Length;
         if (edgeDelta == 0)
         {
@@ -572,9 +563,87 @@ public static partial class StructuralCloneAnalysis
         ];
     }
 
+    static ImmutableArray<NearOperationCandidateKey>
+        OperationMaskedCandidateKeys(
+            StructuralCloneBodyFacts body,
+            ImmutableArray<NearBlockKey> fullBlockKeys,
+            ImmutableArray<NearLocalKey> fullLocalKeys,
+            NearBodyKey bodyKey)
+    {
+        var results =
+            ImmutableArray.CreateBuilder<NearOperationCandidateKey>();
+        foreach (StructuralCloneBlock block in body.Graph.Blocks)
+        {
+            ImmutableArray<NearBlockKey> maskedBlockKeys =
+                OperationMaskedBlockKeys(body, block);
+            for (int removed = 0;
+                removed < block.Operations.Length;
+                removed++)
+            {
+                NearBlockKey maskedBlock = maskedBlockKeys[removed];
+                NearBodyKey candidateBody = ReplaceBlock(
+                    bodyKey,
+                    fullBlockKeys[block.Index],
+                    maskedBlock);
+                var updatedLocals =
+                    new Dictionary<int, NearLocalKey>();
+                for (int ordinal = 0;
+                    ordinal < block.Operations.Length;
+                    ordinal++)
+                {
+                    StructuralCloneOperation operation =
+                        block.Operations[ordinal];
+                    if (operation.OperandKind
+                        != StructuralCloneOperandKind.Local)
+                    {
+                        continue;
+                    }
+                    int local = checked((int)operation.Value);
+                    NearLocalKey updated =
+                        updatedLocals.GetValueOrDefault(
+                            local,
+                            fullLocalKeys[local]);
+                    updated = RemoveLocalUse(
+                        updated,
+                        LocalUseCode(
+                            fullBlockKeys[block.Index],
+                            operation.OpCode,
+                            ordinal));
+                    if (ordinal != removed)
+                    {
+                        updated = AddLocalUse(
+                            updated,
+                            LocalUseCode(
+                                maskedBlock,
+                                operation.OpCode,
+                                ordinal > removed
+                                    ? ordinal - 1
+                                    : ordinal));
+                    }
+                    updatedLocals[local] = updated;
+                }
+                foreach ((int local, NearLocalKey updated)
+                    in updatedLocals)
+                {
+                    candidateBody = ReplaceLocal(
+                        candidateBody,
+                        fullLocalKeys[local],
+                        updated);
+                }
+                results.Add(new NearOperationCandidateKey(
+                    block.Index,
+                    removed,
+                    candidateBody,
+                    maskedBlock));
+            }
+        }
+        return results.ToImmutable();
+    }
+
     static ImmutableArray<NearEdgeCandidateKey> EdgeMaskedCandidateKeys(
         StructuralCloneBodyFacts body,
         ImmutableArray<NearBlockKey> fullKeys,
+        ImmutableArray<NearLocalKey> fullLocalKeys,
         NearBodyKey bodyKey)
     {
         var incomingRoleHashes =
@@ -620,10 +689,12 @@ public static partial class StructuralCloneAnalysis
                         IncomingRoles =
                             incomingRoleHashes[(source.Index, edge.Role)],
                     };
-                    candidateBody = ReplaceBlock(
+                    candidateBody = ReplaceBlocksAndLocalUses(
+                        body,
                         bodyKey,
-                        fullKeys[source.Index],
-                        selfMasked);
+                        fullKeys,
+                        fullLocalKeys,
+                        [(source.Index, selfMasked)]);
                     sourceMasked = selfMasked;
                 }
                 else
@@ -643,13 +714,15 @@ public static partial class StructuralCloneAnalysis
                         };
                         incomingMasks.Add(incomingKey, targetMasked);
                     }
-                    candidateBody = ReplaceBlock(
-                        ReplaceBlock(
-                            bodyKey,
-                            fullKeys[source.Index],
-                            sourceMasked),
-                        fullKeys[edge.Target],
-                        targetMasked);
+                    candidateBody = ReplaceBlocksAndLocalUses(
+                        body,
+                        bodyKey,
+                        fullKeys,
+                        fullLocalKeys,
+                        [
+                            (source.Index, sourceMasked),
+                            (edge.Target, targetMasked),
+                        ]);
                 }
                 results.Add(new NearEdgeCandidateKey(
                     source.Index,
@@ -662,7 +735,69 @@ public static partial class StructuralCloneAnalysis
         return results.ToImmutable();
     }
 
-    static NearBodyKey BodyKey(ImmutableArray<NearBlockKey> blocks)
+    static NearBodyKey ReplaceBlocksAndLocalUses(
+        StructuralCloneBodyFacts body,
+        NearBodyKey bodyKey,
+        ImmutableArray<NearBlockKey> fullBlockKeys,
+        ImmutableArray<NearLocalKey> fullLocalKeys,
+        ImmutableArray<(int Block, NearBlockKey Key)> replacements)
+    {
+        NearBodyKey candidateBody = bodyKey;
+        var updatedLocals = new Dictionary<int, NearLocalKey>();
+        foreach ((int blockIndex, NearBlockKey newBlock)
+            in replacements)
+        {
+            NearBlockKey oldBlock = fullBlockKeys[blockIndex];
+            candidateBody = ReplaceBlock(
+                candidateBody,
+                oldBlock,
+                newBlock);
+            StructuralCloneBlock block = body.Graph.Blocks[blockIndex];
+            for (int ordinal = 0;
+                ordinal < block.Operations.Length;
+                ordinal++)
+            {
+                StructuralCloneOperation operation =
+                    block.Operations[ordinal];
+                if (operation.OperandKind
+                    != StructuralCloneOperandKind.Local)
+                {
+                    continue;
+                }
+                int local = checked((int)operation.Value);
+                NearLocalKey updated =
+                    updatedLocals.GetValueOrDefault(
+                        local,
+                        fullLocalKeys[local]);
+                updated = RemoveLocalUse(
+                    updated,
+                    LocalUseCode(
+                        oldBlock,
+                        operation.OpCode,
+                        ordinal));
+                updated = AddLocalUse(
+                    updated,
+                    LocalUseCode(
+                        newBlock,
+                        operation.OpCode,
+                        ordinal));
+                updatedLocals[local] = updated;
+            }
+        }
+        foreach ((int local, NearLocalKey updated) in updatedLocals)
+        {
+            candidateBody = ReplaceLocal(
+                candidateBody,
+                fullLocalKeys[local],
+                updated);
+        }
+        return candidateBody;
+    }
+
+    static NearBodyKey BodyKey(
+        StructuralCloneBodyFacts body,
+        ImmutableArray<NearBlockKey> blocks,
+        out ImmutableArray<NearLocalKey> locals)
     {
         ulong sum = 0;
         ulong sumSquares = 0;
@@ -672,7 +807,51 @@ public static partial class StructuralCloneAnalysis
             sum = unchecked(sum + code);
             sumSquares = unchecked(sumSquares + code * code);
         }
-        return new NearBodyKey(sum, sumSquares);
+        NearLocalKey[] localValues =
+        [
+            .. body.Locals.Select(local => new NearLocalKey(
+                local.GetHashCode(),
+                UseCount: 0,
+                Uses: 0,
+                UseSquares: 0)),
+        ];
+        foreach (StructuralCloneBlock block in body.Graph.Blocks)
+        {
+            for (int ordinal = 0;
+                ordinal < block.Operations.Length;
+                ordinal++)
+            {
+                StructuralCloneOperation operation =
+                    block.Operations[ordinal];
+                if (operation.OperandKind
+                    != StructuralCloneOperandKind.Local)
+                {
+                    continue;
+                }
+                int local = checked((int)operation.Value);
+                localValues[local] = AddLocalUse(
+                    localValues[local],
+                    LocalUseCode(
+                        blocks[block.Index],
+                        operation.OpCode,
+                        ordinal));
+            }
+        }
+        ulong localSum = 0;
+        ulong localSumSquares = 0;
+        foreach (NearLocalKey local in localValues)
+        {
+            ulong code = LocalCode(local);
+            localSum = unchecked(localSum + code);
+            localSumSquares = unchecked(
+                localSumSquares + code * code);
+        }
+        locals = [.. localValues];
+        return new NearBodyKey(
+            sum,
+            sumSquares,
+            localSum,
+            localSumSquares);
     }
 
     static NearBodyKey ReplaceBlock(
@@ -687,7 +866,67 @@ public static partial class StructuralCloneAnalysis
             unchecked(
                 body.SumSquares
                 - oldCode * oldCode
-                + newCode * newCode));
+                + newCode * newCode),
+            body.LocalSum,
+            body.LocalSumSquares);
+    }
+
+    static NearBodyKey ReplaceLocal(
+        NearBodyKey body,
+        NearLocalKey oldLocal,
+        NearLocalKey newLocal)
+    {
+        ulong oldCode = LocalCode(oldLocal);
+        ulong newCode = LocalCode(newLocal);
+        return body with
+        {
+            LocalSum = unchecked(
+                body.LocalSum - oldCode + newCode),
+            LocalSumSquares = unchecked(
+                body.LocalSumSquares
+                - oldCode * oldCode
+                + newCode * newCode),
+        };
+    }
+
+    static NearLocalKey AddLocalUse(
+        NearLocalKey local,
+        ulong use)
+        => local with
+        {
+            UseCount = local.UseCount + 1,
+            Uses = unchecked(local.Uses + use),
+            UseSquares = unchecked(local.UseSquares + use * use),
+        };
+
+    static NearLocalKey RemoveLocalUse(
+        NearLocalKey local,
+        ulong use)
+        => local with
+        {
+            UseCount = local.UseCount - 1,
+            Uses = unchecked(local.Uses - use),
+            UseSquares = unchecked(local.UseSquares - use * use),
+        };
+
+    static ulong LocalCode(NearLocalKey local)
+    {
+        const ulong Prime = 1099511628211;
+        ulong hash = unchecked((uint)local.TypeHash);
+        hash = unchecked(hash * Prime + (uint)local.UseCount);
+        hash = unchecked(hash * Prime + local.Uses);
+        return unchecked(hash * Prime + local.UseSquares);
+    }
+
+    static ulong LocalUseCode(
+        NearBlockKey block,
+        ILOpCode operation,
+        int ordinal)
+    {
+        const ulong Prime = 1099511628211;
+        ulong hash = BlockCode(block);
+        hash = unchecked(hash * Prime + (uint)operation);
+        return unchecked(hash * Prime + (uint)ordinal);
     }
 
     static ulong BlockCode(NearBlockKey block)
@@ -1444,7 +1683,21 @@ readonly record struct NearBlockKey(
 
 readonly record struct NearBodyKey(
     ulong Sum,
-    ulong SumSquares);
+    ulong SumSquares,
+    ulong LocalSum,
+    ulong LocalSumSquares);
+
+readonly record struct NearLocalKey(
+    int TypeHash,
+    int UseCount,
+    ulong Uses,
+    ulong UseSquares);
+
+readonly record struct NearOperationCandidateKey(
+    int Block,
+    int Ordinal,
+    NearBodyKey Body,
+    NearBlockKey BlockShape);
 
 readonly record struct NearEdgeCandidateKey(
     int Block,
