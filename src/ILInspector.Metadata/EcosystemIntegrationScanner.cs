@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.MetadataPrimitives;
@@ -35,11 +36,18 @@ public record EcosystemIntegrationSignalInfo(
     string Name,
     string Shape = IntegrationSignalShape.Type)
 {
-    internal EcosystemIntegrationApiEvidence? ApiEvidence { get; init; }
+    internal ImmutableArray<EcosystemIntegrationApiEvidence> ApiEvidence
+        { get; init; } = [];
+    internal bool ApiEvidenceUnavailable { get; init; }
     internal MetadataTypeDefinitionName? TypeDefinition { get; init; }
 
     public EcosystemIntegrationApiEvidence? GetApiEvidence() =>
-        ApiEvidence;
+        ApiEvidence.IsEmpty ? null : ApiEvidence[0];
+
+    public ImmutableArray<EcosystemIntegrationApiEvidence>
+        GetApiEvidenceSet() => ApiEvidence;
+
+    public bool IsApiEvidenceIncomplete() => ApiEvidenceUnavailable;
 
     public MetadataTypeDefinitionName? GetTypeDefinition() =>
         TypeDefinition;

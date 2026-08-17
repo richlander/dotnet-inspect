@@ -103,18 +103,19 @@ public static class InspectionGraphIntegrationsCatalog
             occurrence.Evidence switch
             {
                 InspectionGraphExtensionEvidence extension =>
-                    (
+                    new NamedTypeOccurrenceIdentity(
                         extension.Registration,
                         extension.Member,
+                        integration: null,
                         extension.ExtendedType),
                 InspectionGraphIntegrationEvidence integration =>
-                    (
+                    new NamedTypeOccurrenceIdentity(
                         integration.Registration,
                         integration.Member,
                         integration.Integration,
                         integration.TargetType),
                 InspectionGraphReferenceEvidence reference =>
-                    (
+                    new ReferenceOccurrenceIdentity(
                         reference.SourceRegistration,
                         reference.Reference),
                 InspectionGraphOpportunityEvidence opportunity =>
@@ -127,6 +128,133 @@ public static class InspectionGraphIntegrationsCatalog
                     "Unsupported Integration graph occurrence evidence.",
                     nameof(occurrence)),
             };
+
+        sealed class NamedTypeOccurrenceIdentity :
+            IEquatable<NamedTypeOccurrenceIdentity>
+        {
+            readonly AssemblyAcquisitionRegistration _registration;
+            readonly MemberAnchor _member;
+            readonly string? _integration;
+            readonly MetadataNamedTypeReference _reference;
+
+            internal NamedTypeOccurrenceIdentity(
+                AssemblyAcquisitionRegistration registration,
+                MemberAnchor member,
+                string? integration,
+                MetadataNamedTypeReference reference)
+            {
+                _registration = registration;
+                _member = member;
+                _integration = integration;
+                _reference = reference;
+            }
+
+            public bool Equals(NamedTypeOccurrenceIdentity? other) =>
+                other is not null
+                && ReferenceEquals(
+                    _registration,
+                    other._registration)
+                && _member == other._member
+                && string.Equals(
+                    _integration,
+                    other._integration,
+                    StringComparison.Ordinal)
+                && NamedTypeReferencesAreEquivalent(
+                    _reference,
+                    other._reference);
+
+            public override bool Equals(object? obj) =>
+                obj is NamedTypeOccurrenceIdentity other
+                && Equals(other);
+
+            public override int GetHashCode() =>
+                HashCode.Combine(
+                    _registration,
+                    _member,
+                    _integration,
+                    NamedTypeReferenceHashCode(_reference));
+        }
+
+        sealed class ReferenceOccurrenceIdentity :
+            IEquatable<ReferenceOccurrenceIdentity>
+        {
+            readonly AssemblyAcquisitionRegistration _registration;
+            readonly AssemblyReferenceIdentity _reference;
+
+            internal ReferenceOccurrenceIdentity(
+                AssemblyAcquisitionRegistration registration,
+                AssemblyReferenceIdentity reference)
+            {
+                _registration = registration;
+                _reference = reference;
+            }
+
+            public bool Equals(ReferenceOccurrenceIdentity? other) =>
+                other is not null
+                && ReferenceEquals(
+                    _registration,
+                    other._registration)
+                && _reference.IsEquivalentTo(other._reference);
+
+            public override bool Equals(object? obj) =>
+                obj is ReferenceOccurrenceIdentity other
+                && Equals(other);
+
+            public override int GetHashCode() =>
+                HashCode.Combine(
+                    _registration,
+                    AssemblyReferenceIdentity.EquivalentComparer
+                        .GetHashCode(_reference));
+        }
+
+        static bool NamedTypeReferencesAreEquivalent(
+            MetadataNamedTypeReference left,
+            MetadataNamedTypeReference right) =>
+            left.Type == right.Type
+            && ScopesAreEquivalent(left.Scope, right.Scope);
+
+        static bool ScopesAreEquivalent(
+            MetadataTypeReferenceScope left,
+            MetadataTypeReferenceScope right) =>
+            (left, right) switch
+            {
+                (MetadataTypeReferenceScope.CurrentAssembly,
+                    MetadataTypeReferenceScope.CurrentAssembly) => true,
+                (MetadataTypeReferenceScope.IntrinsicCoreLibrary,
+                    MetadataTypeReferenceScope.IntrinsicCoreLibrary) => true,
+                (MetadataTypeReferenceScope.AssemblyReference x,
+                    MetadataTypeReferenceScope.AssemblyReference y) =>
+                    x.Assembly.IsEquivalentTo(y.Assembly),
+                (MetadataTypeReferenceScope.ModuleReference x,
+                    MetadataTypeReferenceScope.ModuleReference y) =>
+                    string.Equals(
+                        x.Name,
+                        y.Name,
+                        StringComparison.Ordinal),
+                _ => false,
+            };
+
+        static int NamedTypeReferenceHashCode(
+            MetadataNamedTypeReference reference)
+        {
+            int scopeHash = reference.Scope switch
+            {
+                MetadataTypeReferenceScope.CurrentAssembly => 0,
+                MetadataTypeReferenceScope.IntrinsicCoreLibrary => 1,
+                MetadataTypeReferenceScope.AssemblyReference assembly =>
+                    HashCode.Combine(
+                        2,
+                        AssemblyReferenceIdentity.EquivalentComparer
+                            .GetHashCode(assembly.Assembly)),
+                MetadataTypeReferenceScope.ModuleReference module =>
+                    HashCode.Combine(
+                        3,
+                        StringComparer.Ordinal.GetHashCode(module.Name)),
+                _ => throw new InvalidOperationException(
+                    "Unknown metadata type-reference scope."),
+            };
+            return HashCode.Combine(reference.Type, scopeHash);
+        }
     }
 
     sealed class OpportunityEndpointProjectionImpl :
@@ -445,6 +573,14 @@ public static class InspectionGraphIntegrationsQuery
                                 type),
                             available.Subject.Registration);
                     }
+                    else if (signal.Shape == IntegrationSignalShape.Type)
+                    {
+                        AddFailure(
+                            "integrations",
+                            available.Subject.Registration,
+                            InspectionGraphIntegrationFailureKind
+                                .StructuredEvidenceUnavailable);
+                    }
                 }
             }
         }
@@ -544,73 +680,27 @@ public static class InspectionGraphIntegrationsQuery
                         foreach (EcosystemIntegrationSignalInfo signal
                             in available.EcosystemSignals)
                         {
-                            if (signal.GetApiEvidence() is not { } api)
+                            if (signal.Shape
+                                != IntegrationSignalShape.Api)
                             {
-                                if (signal.Shape
-                                    == IntegrationSignalShape.Api)
-                                {
-                                    AddFailure(
-                                        "integrations",
-                                        available.Subject.Registration,
-                                        InspectionGraphIntegrationFailureKind
-                                            .StructuredEvidenceUnavailable);
-                                }
                                 continue;
                             }
-                            if (api.ReturnType is not { } targetType)
+                            if (signal.IsApiEvidenceIncomplete())
                             {
                                 AddFailure(
                                     "integrations",
                                     available.Subject.Registration,
                                     InspectionGraphIntegrationFailureKind
                                         .StructuredEvidenceUnavailable);
-                                continue;
                             }
-
-                            InspectionGraphSubject.MemberSubject source =
-                                MemberSubject(
-                                    available.Subject.Registration,
-                                    api.Member);
-                            AddNode(
-                                source,
-                                available.Subject.Registration);
-                            if (!TryResolveType(
-                                    available.Subject.Registration,
-                                    targetType,
-                                    "integrations",
-                                    source,
-                                    out InspectionGraphSubject.TypeSubject?
-                                        target))
+                            foreach (EcosystemIntegrationApiEvidence api
+                                in signal.GetApiEvidenceSet())
                             {
-                                continue;
-                            }
-
-                            AddNode(
-                                target,
-                                Registration(target));
-                            if (_extensionReceivers.TryGetValue(
-                                    source,
-                                    out InspectionGraphSubject.TypeSubject?
-                                        receiver))
-                            {
-                                _fulfilledOpportunities.Add(
-                                    new OpportunityFulfillmentKey(
-                                        receiver,
-                                        signal.Integration,
-                                        target));
-                            }
-                            AddOccurrence(
-                                source,
-                                target,
-                                source,
-                                target,
-                                InspectionGraphIntegrationsCatalog
-                                    .IntegrationObserved,
-                                new InspectionGraphIntegrationEvidence(
+                                AddIntegration(
                                     available.Subject.Registration,
-                                    api.Member,
-                                    signal.Integration,
-                                    targetType));
+                                    signal,
+                                    api);
+                            }
                         }
                         break;
                     case AssemblyIntegrationsEntry.Rejected rejected:
@@ -630,6 +720,58 @@ public static class InspectionGraphIntegrationsQuery
                             error: failed.Error);
                         break;
                 }
+            }
+
+            void AddIntegration(
+                AssemblyAcquisitionRegistration registration,
+                EcosystemIntegrationSignalInfo signal,
+                EcosystemIntegrationApiEvidence api)
+            {
+                if (api.ReturnType is not { } targetType)
+                {
+                    AddFailure(
+                        "integrations",
+                        registration,
+                        InspectionGraphIntegrationFailureKind
+                            .StructuredEvidenceUnavailable);
+                    return;
+                }
+
+                InspectionGraphSubject.MemberSubject source =
+                    MemberSubject(registration, api.Member);
+                AddNode(source, registration);
+                if (!TryResolveType(
+                        registration,
+                        targetType,
+                        "integrations",
+                        source,
+                        out InspectionGraphSubject.TypeSubject? target))
+                {
+                    return;
+                }
+
+                AddNode(target, Registration(target));
+                if (_extensionReceivers.TryGetValue(
+                        source,
+                        out InspectionGraphSubject.TypeSubject? receiver))
+                {
+                    _fulfilledOpportunities.Add(
+                        new OpportunityFulfillmentKey(
+                            receiver,
+                            signal.Integration,
+                            target));
+                }
+                AddOccurrence(
+                    source,
+                    target,
+                    source,
+                    target,
+                    InspectionGraphIntegrationsCatalog.IntegrationObserved,
+                    new InspectionGraphIntegrationEvidence(
+                        registration,
+                        api.Member,
+                        signal.Integration,
+                        targetType));
             }
         }
 

@@ -421,6 +421,112 @@ public sealed class InspectionGraphIntegrationsQueryTests
             occurrence.Evidence);
     }
 
+    [Fact]
+    public void ExtensionOccurrenceIdentity_NormalizesEquivalentScopes()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphOccurrence occurrence = Assert.Single(
+            document.Occurrences,
+            occurrence =>
+                occurrence.Relationship
+                    == InspectionGraphIntegrationsCatalog.Extension
+                && TypeName(occurrence.TargetSubject)
+                    == "OpenAI.Chat.ChatClient");
+        var evidence =
+            Assert.IsType<InspectionGraphExtensionEvidence>(
+                occurrence.Evidence);
+        var scope =
+            Assert.IsType<
+                MetadataTypeReferenceScope.AssemblyReference>(
+                    evidence.ExtendedType.Scope);
+        var equivalentAssembly = new AssemblyReferenceIdentity(
+            scope.Assembly.Name.ToLowerInvariant(),
+            scope.Assembly.Version,
+            "neutral",
+            scope.Assembly.PublicKeyToken?.ToUpperInvariant());
+        var equivalentEvidence = evidence with
+        {
+            ExtendedType = new MetadataNamedTypeReference(
+                new MetadataTypeReferenceScope.AssemblyReference(
+                    equivalentAssembly),
+                evidence.ExtendedType.Type),
+        };
+        var equivalentOccurrence = new InspectionGraphOccurrence(
+            occurrence.Id,
+            occurrence.Relationship,
+            occurrence.SourceSubject,
+            occurrence.TargetSubject,
+            equivalentEvidence,
+            occurrence.DerivedFromOccurrenceIds);
+
+        Assert.Equal(
+            occurrence.Relationship.OccurrenceIdentity.Project(
+                occurrence),
+            occurrence.Relationship.OccurrenceIdentity.Project(
+                equivalentOccurrence));
+    }
+
+    [Fact]
+    public void Execute_RetainsOverloadedAdapterEvidence()
+    {
+        using var fixture = IntegrationFixture.Create(
+            overloadedOpenAiAdapter: true);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+
+        Assert.Equal(
+            2,
+            document.Occurrences.Count(occurrence =>
+                occurrence.Relationship
+                    == InspectionGraphIntegrationsCatalog
+                        .IntegrationObserved
+                && Assert.IsType<InspectionGraphIntegrationEvidence>(
+                    occurrence.Evidence).Registration
+                    is { } registration
+                && AcquiredAssemblyName(document, registration)
+                    == "Microsoft.Extensions.AI.OpenAI"));
+        Assert.DoesNotContain(
+            document.Edges,
+            edge =>
+                edge.Relationship
+                    == InspectionGraphIntegrationsCatalog
+                        .IntegrationOpportunity
+                && AssemblyName(document.Nodes[edge.FromNodeId].Subject)
+                    == "OpenAI"
+                && TypeName(document.Nodes[edge.ToNodeId].Subject)
+                    == "Microsoft.Extensions.AI.IChatClient");
+    }
+
+    [Fact]
+    public void Execute_ReportsTypeWhoseStructuredEvidenceIsUnavailable()
+    {
+        using var fixture = IntegrationFixture.Create(
+            overBudgetIntegrationTypeName: true);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+
+        Assert.Contains(
+            document.Failures,
+            failure =>
+                failure.Target is
+                    {
+                        Kind: InspectionGraphTargetKind.Node,
+                    } target
+                && AssemblyName(document.Nodes[target.Id].Subject)
+                    == "Oversized.Logging"
+                && Assert.IsType<
+                    InspectionGraphIntegrationFailureEvidence>(
+                        failure.Evidence).Details.Any(detail =>
+                            detail.Producer == "integrations"
+                            && detail.Kind
+                                == InspectionGraphIntegrationFailureKind
+                                    .StructuredEvidenceUnavailable));
+    }
+
     static InspectionGraphNode Node(
         InspectionGraphDocument document,
         InspectionGraphSubject subject) =>
@@ -530,7 +636,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
             bool equivalentReferenceVariants = false,
             bool unavailableOpenAiBinding = false,
             bool duplicateExtensionMethodRows = false,
-            bool multipleUnavailableReferenceBindings = false)
+            bool multipleUnavailableReferenceBindings = false,
+            bool overloadedOpenAiAdapter = false,
+            bool overBudgetIntegrationTypeName = false)
         {
             (
                 PersistedAssemblyBuilder abstractions,
@@ -541,9 +649,14 @@ public sealed class InspectionGraphIntegrationsQueryTests
             var openAi = new PersistedAssemblyBuilder(
                 new AssemblyName("OpenAI"),
                 typeof(object).Assembly);
+            ModuleBuilder openAiModule =
+                openAi.DefineDynamicModule("OpenAI");
             Type chatClient = DefineClass(
-                openAi.DefineDynamicModule("OpenAI"),
+                openAiModule,
                 "OpenAI.Chat.ChatClient");
+            Type otherClient = DefineClass(
+                openAiModule,
+                "OpenAI.Chat.OtherClient");
 
             var bedrock = new PersistedAssemblyBuilder(
                 new AssemblyName("AWSSDK.BedrockRuntime"),
@@ -566,7 +679,8 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 chatClient,
                 openAiAdapterReturnsDifferentAiType
                     ? iEmbeddingGenerator
-                    : iChatClient);
+                    : iChatClient,
+                overloadedOpenAiAdapter ? otherClient : null);
             var bedrockAdapter = Adapter(
                 "AWSSDK.Extensions.Bedrock.MEAI",
                 "Microsoft.Extensions.AI.AmazonBedrockRuntimeExtensions",
@@ -661,6 +775,22 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 assemblies.Add(UnavailableReferencesAssembly());
                 packageIds.Add("unavailable.references");
             }
+            if (overBudgetIntegrationTypeName)
+            {
+                var oversized = new PersistedAssemblyBuilder(
+                    new AssemblyName("Oversized.Logging"),
+                    typeof(object).Assembly);
+                oversized
+                    .DefineDynamicModule("Oversized.Logging")
+                    .DefineType(
+                        "Microsoft.Extensions.Logging."
+                            + new string('x', 5000),
+                        TypeAttributes.Public | TypeAttributes.Class)
+                    .CreateType();
+                assemblies.Add(
+                    Assembly(oversized, "oversized.logging"));
+                packageIds.Add("oversized.logging");
+            }
             var policy = new FixtureBindingPolicy(
                 assemblies,
                 unavailableOpenAiBinding,
@@ -717,7 +847,8 @@ public sealed class InspectionGraphIntegrationsQueryTests
             string assemblyName,
             string typeName,
             Type receiver,
-            Type returnType)
+            Type returnType,
+            Type? priorReceiver = null)
         {
             var builder = new PersistedAssemblyBuilder(
                 new AssemblyName(assemblyName),
@@ -734,15 +865,21 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     Type.EmptyTypes)!,
                 []);
             extensions.SetCustomAttribute(extensionAttribute);
-            MethodBuilder method = extensions.DefineMethod(
-                "AsIChatClient",
-                MethodAttributes.Public | MethodAttributes.Static,
-                returnType,
-                [receiver]);
-            method.SetCustomAttribute(extensionAttribute);
-            ILGenerator body = method.GetILGenerator();
-            body.Emit(OpCodes.Ldnull);
-            body.Emit(OpCodes.Ret);
+            Type[] receiverTypes = priorReceiver is null
+                ? [receiver]
+                : [priorReceiver, receiver];
+            foreach (Type receiverType in receiverTypes)
+            {
+                MethodBuilder method = extensions.DefineMethod(
+                    "AsIChatClient",
+                    MethodAttributes.Public | MethodAttributes.Static,
+                    returnType,
+                    [receiverType]);
+                method.SetCustomAttribute(extensionAttribute);
+                ILGenerator body = method.GetILGenerator();
+                body.Emit(OpCodes.Ldnull);
+                body.Emit(OpCodes.Ret);
+            }
             extensions.CreateType();
             return builder;
         }

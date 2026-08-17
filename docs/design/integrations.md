@@ -138,6 +138,9 @@ guarded traversal. Type rows retain their exact
 source definition and, where policy names an exact candidate, a structured
 assembly/type target. These values are composition currency; consumers must not
 recover graph endpoints from `Name`, `API`, `LookFor`, or other display text.
+One compact API presentation row may retain multiple structured overload
+observations; presentation deduplication does not discard their distinct member
+anchors or signature endpoints.
 
 `EcosystemIntegrationScannerTests.Scan_ProjectsExactOrderedPublicCurrencyAndPresence`
 gates public-method filtering, signal kind and shape, row order, and parity
@@ -222,6 +225,9 @@ occurrence identity before document construction. Metadata-reference rows first
 normalize by semantic ECMA assembly identity. Missing out-of-context references
 remain outside the selected graph, while unavailable, ambiguous, rejected, or
 selected-outside-context bindings remain visible as failures.
+Named signature scopes use the same semantic assembly-identity equivalence for
+occurrence identity, so case and neutral-culture spelling variants do not
+fabricate distinct extension or Integration observations.
 Multiple producer failures for one graph subject aggregate into one targeted
 failure with typed per-producer details, preserving the document's
 descriptor/target uniqueness contract without discarding evidence. Reference

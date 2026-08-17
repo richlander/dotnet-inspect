@@ -219,10 +219,22 @@ internal static class EcosystemIntegrationProjection
         string kind,
         EcosystemIntegrationApiEvidence? evidence)
     {
-        if (!bucket.Apis.TryAdd(api, kind))
+        bucket.Apis.TryAdd(api, kind);
+        if (evidence is null)
+        {
+            bucket.ApiEvidenceUnavailable.Add(api);
             return;
-        if (evidence is not null)
-            bucket.ApiEvidence.Add(api, evidence);
+        }
+
+        if (!bucket.ApiEvidence.TryGetValue(
+                api,
+                out List<EcosystemIntegrationApiEvidence>? evidenceSet))
+        {
+            evidenceSet = [];
+            bucket.ApiEvidence.Add(api, evidenceSet);
+        }
+        if (!evidenceSet.Contains(evidence))
+            evidenceSet.Add(evidence);
     }
 
     private static void AddRows(List<EcosystemIntegrationSignalInfo> results, IntegrationBucket bucket)
@@ -234,7 +246,12 @@ internal static class EcosystemIntegrationProjection
                 api,
                 IntegrationSignalShape.Api)
             {
-                ApiEvidence = bucket.ApiEvidence.GetValueOrDefault(api),
+                ApiEvidence =
+                [
+                    .. bucket.ApiEvidence.GetValueOrDefault(api) ?? [],
+                ],
+                ApiEvidenceUnavailable =
+                    bucket.ApiEvidenceUnavailable.Contains(api),
             });
 
         foreach (var type in OrderTypes(bucket.Types))
@@ -338,8 +355,10 @@ internal static class EcosystemIntegrationProjection
         public string Integration { get; } = integration;
         public string ApiKind { get; } = apiKind;
         public Dictionary<string, string> Apis { get; } = new(StringComparer.Ordinal);
-        public Dictionary<string, EcosystemIntegrationApiEvidence>
+        public Dictionary<string, List<EcosystemIntegrationApiEvidence>>
             ApiEvidence { get; } = new(StringComparer.Ordinal);
+        public HashSet<string> ApiEvidenceUnavailable { get; } =
+            new(StringComparer.Ordinal);
         public Dictionary<string, string> Types { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, string> Kinds { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, MetadataTypeDefinitionName>
