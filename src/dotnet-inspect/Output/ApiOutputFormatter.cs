@@ -91,8 +91,7 @@ public static class ApiOutputFormatter
             }
         };
 
-        if (api.InspectionFailures.Count > 0
-            && options.Verbosity >= Verbosity.Normal)
+        if (RendersInspectionFailures(api, options))
         {
             view.InspectionFailures = api.InspectionFailures
                 .Select(failure => new ApiInspectionFailureRow(
@@ -100,7 +99,18 @@ public static class ApiOutputFormatter
                     $"0x{failure.SubjectToken:X8}",
                     failure.Mechanism.ToString(),
                     failure.Kind,
-                    failure.Detail))
+                    CSharpIdentifier.ContainRenderedText(
+                        failure.Detail),
+                    failure.SubjectAssembly is null
+                        ? null
+                        : CSharpIdentifier.ContainRenderedText(
+                            AssemblyIdentityFormatter.Format(
+                                failure.SubjectAssembly)),
+                    failure.DependencyAssembly is null
+                        ? null
+                        : CSharpIdentifier.ContainRenderedText(
+                            AssemblyIdentityFormatter.Format(
+                                failure.DependencyAssembly))))
                 .ToList();
         }
 
@@ -132,6 +142,21 @@ public static class ApiOutputFormatter
         }
 
         return (view, truncatedCount);
+    }
+
+    internal static bool RendersInspectionFailures(
+        ApiSurface api,
+        ApiOptions options)
+    {
+        if (api.InspectionFailures.Count == 0)
+            return false;
+
+        HashSet<string>? includeSections =
+            BuildWriterOptions(api, options)
+                .IncludeSections;
+        return includeSections is null
+            || includeSections.Contains(
+                SectionNames.InspectionFailures);
     }
 
     private static void PopulateTypeSections(
@@ -322,6 +347,13 @@ public static class ApiOutputFormatter
     internal static bool ShouldRenderSurfaceFactTableView(ApiOptions options)
         => options.IncludeSections is { Count: 1 } sections
            && sections.Contains(SectionNames.ApiInfo);
+
+    internal static bool
+        ShouldRenderSurfaceInspectionFailureTableView(
+            ApiOptions options) =>
+        options.IncludeSections is { Count: 1 } sections
+        && sections.Contains(
+            SectionNames.InspectionFailures);
 
     internal static bool ShouldRenderSectionedTabularView(ApiType type, ApiOptions options)
     {

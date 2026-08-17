@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
+using InertText;
 using Markout;
 
 namespace DotnetInspector.Tests;
@@ -11,15 +12,16 @@ namespace DotnetInspector.Tests;
 /// </summary>
 public class JsonSectionFormatterTests
 {
-    private static FindResultView BuildView() => new()
+    private static FindResultView BuildView() => new(Field("Find: Cache"))
     {
-        Title = "Find: Cache",
         Results =
         [
-            new FindRow("Cache", "MemoryCache", "System.Runtime.Caching", "class", "System.Runtime.Caching", "runtime", "Exact", "1.00"),
-            new FindRow("Cache", "HybridCache", "Microsoft.Extensions.Caching.Hybrid", "class", "Microsoft.Extensions.Caching.Abstractions", "nuget", "Partial", "0.80"),
+            new FindRow(Field("Cache"), Field("MemoryCache"), Field("System.Runtime.Caching"), Field("class"), Field("System.Runtime.Caching"), Field("runtime"), Field("Exact"), Field("1.00")),
+            new FindRow(Field("Cache"), Field("HybridCache"), Field("Microsoft.Extensions.Caching.Hybrid"), Field("class"), Field("Microsoft.Extensions.Caching.Abstractions"), Field("nuget"), Field("Partial"), Field("0.80")),
         ],
     };
+
+    private static InertString Field(string value) => new(TextPolicy.Field, value);
 
     private static string Render(MarkoutWriterOptions options)
     {
