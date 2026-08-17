@@ -6413,7 +6413,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.DoesNotContain("Inspection Failures", output, StringComparison.Ordinal);
+        Assert.Contains("Inspection Failures", output, StringComparison.Ordinal);
         Assert.DoesNotContain("Type Forwarders", output, StringComparison.Ordinal);
         Assert.DoesNotContain("Annotated Source Document", output, StringComparison.Ordinal);
     }

@@ -36,4 +36,30 @@ public sealed class ApiSurfaceQueryTests
         var failed = Assert.IsType<ApiSurfaceResult.Failed>(result);
         Assert.NotNull(failed.Error);
     }
+
+    [Fact]
+    public void Execute_WithSurfaceFactory_UsesResolutionAwareExtraction()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(ApiSurfaceQueryTests).Assembly.Location);
+        var expected = new ApiSurface { Name = "resolution-aware" };
+        bool called = false;
+
+        var result = ApiSurfaceQuery.Execute(
+            new ApiSurfaceQueryContext(
+                session,
+                IncludeAll: true,
+                TypesOnly: false,
+                SurfaceFactory: (includeAll, typesOnly) =>
+                {
+                    Assert.True(includeAll);
+                    Assert.False(typesOnly);
+                    called = true;
+                    return expected;
+                }));
+
+        var available = Assert.IsType<ApiSurfaceResult.Available>(result);
+        Assert.True(called);
+        Assert.Same(expected, available.Surface);
+    }
 }
