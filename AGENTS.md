@@ -78,7 +78,9 @@ change ready to merge.
   local validation, fetch and integrate the effective base and record that base
   tip. Once the smallest local test, lint, or build gate covering the authored
   behavior passes, commit and push promptly. Keep that head fixed while broader
-  local validation, CI, and review run concurrently.
+  local validation, CI, and eligible fixed-head review run concurrently,
+  subject to the per-round CI and conflict gates under
+  [Adversarial review](#adversarial-review).
 - Do not fetch or integrate the base again merely because it advances, because
   another PR is expected to land, or because later integration would make the
   branch look newer. Base movement alone does not invalidate a candidate. A
@@ -501,10 +503,11 @@ moving](#clean-reviews-are-not-spent-by-main-moving), which preserves the clean
 reviews and does not open another round.
 
 Documentation-only PRs follow the same sequencing. Their focused pre-push gate
-is Markdown linting, and a clean exact-head review may run concurrently with
-that gate when the candidate is already settled. Lint must still pass before
-merge, and an ordinary subsequent round still requires the five-minute
-current-head status check described below.
+is Markdown linting, and a clean exact-head first-round review may run
+concurrently with that gate when the candidate is already settled. Lint must
+still pass before merge, and an ordinary subsequent round requires a
+current-head status check confirming zero merge conflicts and green
+`ci-required`.
 
 Adversarial review is scarce, but serial wall-clock time is also a cost. Spend
 review only on a named frozen head with focused local evidence, then accept the
@@ -581,9 +584,9 @@ so again before every subsequent round:
   - If `mergeable` is `UNKNOWN`, it does not satisfy the zero-conflict gate. If
     current-head `ci-required` is already green, use the REST fallback above;
     a null result follows its five-minute recovery cadence. If CI is also
-    pending, schedule the documentation-only follow-up at 10 minutes plus small
-    random jitter, or the non-documentation follow-up for the expected
-    35-minute completion point.
+    pending, schedule the documentation-only follow-up for at least 10 minutes
+    plus small random jitter after the five-minute check, or the
+    non-documentation follow-up for the expected 35-minute completion point.
   - If `mergeable` is `MERGEABLE` and the PR is documentation-only, use that
     five-minute result as the expected CI completion check. Do not schedule a
     longer planned wait; documentation CI should be complete by then. If it is
@@ -614,14 +617,17 @@ so again before every subsequent round:
   decision depends on an immediate result.
 - **Before merge, every PR in a stack meets the applicable conditions above**,
   not only the slice under review. A known-conflicted or known-red parent blocks
-  review of everything above it; a pending parent does not, provided each layer
-  has a settled pushed head and passed focused local evidence. A slice rebases
-  onto its parent, never onto `main`: only the stack's bottom open slice takes
-  `origin/main` as its base, and rebasing an upper slice onto `main` pulls in
-  work its parent has not landed and makes the slice's diff report its parent's
-  changes as its own. `ci.yml` applies no base-branch filter, so every
-  non-documentation slice schedules the same CI wherever it targets; a
-  non-documentation slice reporting *no* checks is therefore not green.
+  review of everything above it. A pending parent does not block a slice's
+  first or conflict-recovery round, provided each layer has a settled pushed
+  head and passed focused local evidence. An ordinary subsequent round requires
+  green current-head `ci-required` for every stack layer whose head moved to
+  form the candidate. A slice rebases onto its parent, never onto `main`: only
+  the stack's bottom open slice takes `origin/main` as its base, and rebasing an
+  upper slice onto `main` pulls in work its parent has not landed and makes the
+  slice's diff report its parent's changes as its own. `ci.yml` applies no base-
+  branch filter, so every non-documentation slice schedules the same CI
+  wherever it targets; a non-documentation slice reporting *no* checks is
+  therefore not green.
   Re-query after the registration window, following the status-discovery
   cadence above, and verify the current head; if no matching workflow run
   appears, that is a scheduling bug to investigate, since a PR that triggers no
@@ -669,7 +675,9 @@ The carry-forward continuation is the sole exception to the fixed-head review
 rule. It does not authorize carrying reviews across author changes,
 conflict-resolution changes, or a restack that occurred after the recorded
 reviewed head. It is also the sole default path that permits integrating the
-base without a review-driven fix or an actual merge conflict.
+base when no actual conflict, review-driven fix, author change, current-head
+merge-path failure, or explicit user workflow adjustment has ended the
+candidate.
 
 This is the one place the settled-branch rule yields, and it has to, or the
 budget is unbounded: on a busy `main`, a round takes longer than the interval
@@ -752,10 +760,10 @@ required fixed-head review is clean.
 
 A round starts when its reviewers are dispatched. A clean round ends when its
 feedback is reconciled and posted. A round with actionable findings ends when
-the resulting fixes are committed and pushed as the replacement candidate. A
-conflict-superseded attempt is incomplete: it does not consume a round number,
-does not receive a completion report, and restarts with the same number after
-conflict recovery.
+the resulting fixes are committed and pushed as the replacement candidate and
+the public reconciliation is posted. A conflict-superseded attempt is
+incomplete: it does not consume a round number, does not receive a completion
+report, and restarts with the same number after conflict recovery.
 
 After every completed round and before starting the next one, print this report
 in the terminal, filling every field and choosing exactly one feedback
