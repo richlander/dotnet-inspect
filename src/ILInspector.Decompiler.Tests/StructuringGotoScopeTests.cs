@@ -192,54 +192,38 @@ public class StructuringGotoScopeTests
     [Fact]
     public void RegionExitLeaveWithBodyEntryToTail_DoesNotBecomeBreak()
     {
-        var tryBody = new BlockContainer();
-        var enter = new Block(0);
-        enter.Add(new Branch(32));
-        var firstGuard = new Block(8);
-        firstGuard.Add(new ConditionalBranch(Cond(), 24));
-        var secondGuard = new Block(12);
-        secondGuard.Add(new ConditionalBranch(Cond(), 24));
-        var alternateExit = new Block(16);
-        alternateExit.Add(new ConditionalBranch(Cond(), 40));
-        var normalBody = new Block(20);
-        normalBody.Add(new StoreLocal(0, Int32, new Constant(42, Int32)));
-        normalBody.Add(new Branch(32));
-        var regionExit = new Block(24);
-        regionExit.Add(new Leave(64));
-        var condition = new Block(32);
-        condition.Add(new ConditionalBranch(Cond(), 8));
-        var tail = new Block(40);
-        foreach (var block in (Block[])[enter, firstGuard, secondGuard, alternateExit, normalBody, regionExit, condition, tail])
-            tryBody.Add(block);
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.CollectValidDoubles))!;
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass is StructuringPass)
+                break;
+            pass.Run(function, PassContext.None);
+        }
 
-        var finallyBody = new BlockContainer();
-        var finallyBlock = new Block(48);
-        finallyBlock.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
-        finallyBody.Add(finallyBlock);
-
-        var root = new BlockContainer();
-        var holder = new Block(0);
-        holder.Add(new TryFinally(tryBody, finallyBody));
-        var continuation = new Block(64);
-        continuation.Add(new Return(new LoadLocal(0, Int32)));
-        root.Add(holder);
-        root.Add(continuation);
-        var function = new IrFunction(
-            "M",
-            Owner,
-            new MethodSignature(
-                Int32,
-                [new Parameter("a", Int32)],
-                HasThis: false,
-                GenericParameterCount: 0),
-            [Int32],
-            root);
+        var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
+        var normalBody = Assert.Single(
+            tryFinally.TryBody.Blocks,
+            block => block.StartOffset == 0x0062);
+        var alternateExitArm = new Block();
+        alternateExitArm.Add(new Branch(0x0077));
+        normalBody.Add(new IfStatement(
+            new Comparison(
+                ComparisonKind.Equal,
+                isUnsigned: false,
+                new LoadLocal(2, Int32),
+                new Constant(0, Int32)),
+            alternateExitArm,
+            elseArm: null));
 
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();
 
         string output = CSharpPrinter.Print(function).Output ?? "";
-        Assert.True(function.Descendants.OfType<Leave>().Any(leave => leave.TargetOffset == 64), output);
+        Assert.True(function.Descendants.OfType<Leave>().Any(leave => leave.TargetOffset == 0x0087), output);
         Assert.Empty(function.Descendants.OfType<Break>());
     }
 

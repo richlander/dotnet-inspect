@@ -1652,6 +1652,22 @@ public sealed class StructuringPass : IIrPass
                 return false;
         }
 
+        // Clone predecessors are collected from the pristine container and
+        // include transfers nested inside already-structured nodes. Cfg.Build
+        // supplies lexical fallthrough below, but intentionally sees only each
+        // block's top-level terminator.
+        for (int target = loopExitIndex; target < stop; target++)
+        {
+            int targetOffset = ctx.Blocks[target].StartOffset;
+            if (ctx.FlowFacts.ClonePredecessorIndices.TryGetValue(
+                    targetOffset,
+                    out var predecessors)
+                && predecessors.Any(source => source < latchStartIndex))
+            {
+                return false;
+            }
+        }
+
         var edges = Cfg.Build(ctx.Blocks);
         for (int source = 0; source < loopExitIndex; source++)
         {
