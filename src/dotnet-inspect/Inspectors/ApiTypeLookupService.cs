@@ -95,7 +95,7 @@ internal static class ApiTypeLookupService
             var memberSelector = MemberTargetSelector.Parse(member);
             if (dot > 1
                 && typeName[dot - 1] == '.'
-                && memberSelector.Name is ".ctor" or ".cctor")
+                && memberSelector.Name is ".ctor" or "cctor" or ".cctor")
             {
                 member = $".{member}";
                 typeEnd--;
