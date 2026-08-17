@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 using DotnetInspector.Models;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
@@ -90,7 +91,7 @@ public class LibraryInspectionView
     public List<InspectionFailureRow>? InspectionFailuresSection =>
         _data.InspectionFailures?
             .Select(failure => new InspectionFailureRow(
-                failure.Section,
+                LibraryViewText.Field(failure.Section),
                 failure.Finding,
                 failure.Reason))
             .ToList();
@@ -130,7 +131,11 @@ public class LibraryInspectionView
     public List<UnionTypeRow>? UnionTypesSection =>
         _data.UnionTypeInspection.PayloadsForRendering()
             .OrderBy(t => t.TypeName, StringComparer.OrdinalIgnoreCase)
-            .Select(t => new UnionTypeRow(t.TypeName, t.Kind, t.ImplementsIUnion ? "Yes" : "No", string.Join(", ", t.CaseTypes)))
+            .Select(t => new UnionTypeRow(
+                t.TypeName,
+                t.Kind,
+                LibraryViewText.Field(t.ImplementsIUnion ? "Yes" : "No"),
+                string.Join(", ", t.CaseTypes)))
             .ToList() is { Count: > 0 } rows ? rows : null;
 
     [MarkoutIgnore]
@@ -185,7 +190,10 @@ public class LibraryInspectionView
     [MarkoutSection(Name = "References")]
     public List<ReferenceRow>? AssemblyReferencesSection =>
         _data.AssemblyReferenceInspection.PayloadsForRendering().OrderBy(r => r.Name)
-            .Select(r => new ReferenceRow(r.Name, r.Version, r.PublicKeyToken ?? "-"))
+            .Select(r => new ReferenceRow(
+                r.Name,
+                r.Version,
+                LibraryViewText.Field(r.PublicKeyToken ?? "-")))
             .ToList() is { Count: > 0 } list ? list : null;
 
     [MarkoutIgnore]
@@ -259,8 +267,9 @@ public class LibraryInspectionView
             .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
             .Select(r => new ResourceRow(
                 r.Name,
-                r.IsPublic ? "public" : "private",
-                r.Size == 0 ? "" : ByteSizeFormatter.FormatBytes(r.Size)))
+                LibraryViewText.Field(r.IsPublic ? "public" : "private"),
+                LibraryViewText.Field(
+                    r.Size == 0 ? "" : ByteSizeFormatter.FormatBytes(r.Size))))
             .ToList() is { Count: > 0 } rows ? rows : null;
 
     [MarkoutIgnore]
@@ -700,8 +709,10 @@ public class LibraryInspectionView
     [MarkoutSection(Name = SectionNames.SourceLinkAvailability, ShowWhenProperty = nameof(HasSourceLinkAudit))]
     public SourceLinkAuditSection? SourceLinkAuditSection => !HasSourceLinkAudit ? null : new SourceLinkAuditSection
     {
-        Status = _data.AllSourcesAccessible == true ? "Complete" : "Partial",
-        SourceFiles = $"{_data.AccessibleSourceFiles}/{_data.TotalSourceFiles} available",
+        StatusText = LibraryViewText.Field(
+            _data.AllSourcesAccessible == true ? "Complete" : "Partial"),
+        SourceFilesText = LibraryViewText.Field(
+            $"{_data.AccessibleSourceFiles}/{_data.TotalSourceFiles} available"),
         Embedded = _data.EmbeddedSourceFiles,
         Missing = _data.MissingSourceFiles?.Count ?? 0
     };
@@ -712,15 +723,21 @@ public class LibraryInspectionView
     [MarkoutSection(Name = SectionNames.SourceLinkIntegrity, ShowWhenProperty = nameof(HasSourceIntegrity))]
     public SourceIntegritySection? SourceIntegritySection => !HasSourceIntegrity ? null : new SourceIntegritySection
     {
-        CrlfMismatch = _data.SourceIntegrityLineEndingNormalized > 0
-            ? $"{_data.SourceIntegrityLineEndingNormalized} normalized"
+        CrlfMismatchText = _data.SourceIntegrityLineEndingNormalized > 0
+            ? LibraryViewText.Field(
+                $"{_data.SourceIntegrityLineEndingNormalized} normalized")
             : null,
         Mismatched = _data.SourceIntegrityMismatched,
-        MismatchedFiles = _data.SourceIntegrityMismatches is { Count: > 0 } mismatches
-            ? string.Join(", ", mismatches.Select(MarkoutInline.Code))
+        MismatchedFilesText = _data.SourceIntegrityMismatches is { Count: > 0 } mismatches
+            ? InertString.Join(
+                ", ",
+                TextPolicy.Field,
+                mismatches.Select(path =>
+                    MarkoutInline.CodeText(LibraryViewText.Field(path))))
             : null,
-        Status = _data.SourceIntegrityMismatched > 0 ? "Mismatch"
-            : _data.SourceIntegrityUnverifiable > 0 ? "Partial" : "Verified",
+        StatusText = LibraryViewText.Field(
+            _data.SourceIntegrityMismatched > 0 ? "Mismatch"
+                : _data.SourceIntegrityUnverifiable > 0 ? "Partial" : "Verified"),
         Unverifiable = _data.SourceIntegrityUnverifiable,
         Verified = _data.SourceIntegrityVerified,
     };
@@ -855,11 +872,13 @@ public class LibraryInspectionView
         var rows = _data.OptimizationOpportunities?
             .Where(o => PerformanceKinds.SectionForShape(o.Shape) == section)
             .Select(o => new PerformanceRow(
-                MarkoutInline.Code(o.Member),
-                MarkoutInline.Code(o.Evidence),
-                o.Allocation is null ? null : MarkoutInline.Code(o.Allocation),
+                MarkoutInline.CodeText(LibraryViewText.Field(o.Member)),
+                MarkoutInline.CodeText(LibraryViewText.Field(o.Evidence)),
+                o.Allocation is null
+                    ? null
+                    : MarkoutInline.CodeText(LibraryViewText.Field(o.Allocation)),
                 string.IsNullOrEmpty(o.Loop) ? null : o.Loop,
-                o.RootReach.ToString(),
+                LibraryViewText.Field(o.RootReach.ToString()),
                 o.Weight,
                 o.Priority,
                 o.Confidence))
@@ -933,17 +952,19 @@ public class LibraryInspectionView
         (_data.ResourceTriage ?? [])
             .SelectMany(row => row.Boundaries.Select(boundary =>
                 new ResourceTriageRow(
-                    MarkoutInline.Code(row.Member),
-                    MarkoutInline.Code(row.Candidate),
+                    MarkoutInline.CodeText(LibraryViewText.Field(row.Member)),
+                    MarkoutInline.CodeText(LibraryViewText.Field(row.Candidate)),
                     row.Finding,
                     row.Provenance,
                     row.Resource,
                     row.Shape,
                     row.Impact,
                     row.Actionability,
-                    MarkoutInline.Code(boundary.Operation),
-                    MarkoutInline.Code($"IL_{row.AcquireOffset:X4}"),
-                    MarkoutInline.Code($"IL_{boundary.ILOffset:X4}"),
+                    MarkoutInline.CodeText(LibraryViewText.Field(boundary.Operation)),
+                    MarkoutInline.CodeText(
+                        LibraryViewText.Field($"IL_{row.AcquireOffset:X4}")),
+                    MarkoutInline.CodeText(
+                        LibraryViewText.Field($"IL_{boundary.ILOffset:X4}")),
                     row.Evidence,
                     row.Direction,
                     row.Confidence,
@@ -1088,13 +1109,16 @@ public class LibraryInspectionView
 /// overrides that break out of a Markdown table cell (issue #3319).
 /// Containment lives on the display records themselves rather than at the row
 /// construction sites, so a new call site cannot reopen the hole. These records
-/// are presentation-only, never identity, and containment is a no-op on clean
-/// text.
+/// are presentation-only, never identity. Typed values also disambiguate
+/// literal canonical escape spellings so their visual form remains invertible.
 /// </summary>
 internal static class LibraryViewText
 {
     [return: NotNullIfNotNull(nameof(value))]
     public static string? Contain(string? value) => value is null ? null : CSharpIdentifier.ContainRenderedText(value);
+
+    public static InertString Field(string value) =>
+        new(TextPolicy.Field, value);
 
     public static string DocumentTitle(LibraryInspection inspection)
     {
@@ -1114,16 +1138,24 @@ internal static class LibraryViewText
 public record ReferenceRow(
     string Name,
     string Version,
-    string PublicKeyToken)
+    InertString PublicKeyTokenText)
 {
+    public ReferenceRow(string name, string version, string publicKeyToken)
+        : this(name, version, LibraryViewText.Field(publicKeyToken))
+    {
+    }
+
     /// <inheritdoc cref="LibraryViewText"/>
     public string Name { get; init; } = LibraryViewText.Contain(Name);
 
     /// <inheritdoc cref="LibraryViewText"/>
     public string Version { get; init; } = LibraryViewText.Contain(Version);
 
+    [MarkoutIgnore, JsonIgnore]
+    public InertString PublicKeyTokenText { get; init; } = PublicKeyTokenText;
+
     [MarkoutPropertyName("Public Key Token")]
-    public string PublicKeyToken { get; init; } = PublicKeyToken;
+    public string PublicKeyToken => PublicKeyTokenText.ToString();
 }
 
 [MarkoutSerializable]
@@ -1150,16 +1182,33 @@ public record ExtensionMethodRow(
 [MarkoutSerializable]
 public record ClassifiedMethodRow(
     string Name,
-    string DeclaringType,
-    string Signature)
+    InertString DeclaringTypeText,
+    InertString SignatureText)
 {
+    public ClassifiedMethodRow(
+        string name,
+        string declaringType,
+        string signature)
+        : this(
+            name,
+            LibraryViewText.Field(declaringType),
+            LibraryViewText.Field(signature))
+    {
+    }
+
     /// <inheritdoc cref="LibraryViewText"/>
     public string Name { get; init; } = LibraryViewText.Contain(Name);
 
-    [MarkoutPropertyName("Declaring Type")]
-    public string DeclaringType { get; init; } = DeclaringType;
+    [MarkoutIgnore, JsonIgnore]
+    public InertString DeclaringTypeText { get; init; } = DeclaringTypeText;
 
-    public string Signature { get; init; } = Signature;
+    [MarkoutPropertyName("Declaring Type")]
+    public string DeclaringType => DeclaringTypeText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString SignatureText { get; init; } = SignatureText;
+
+    public string Signature => SignatureText.ToString();
 }
 
 [MarkoutSerializable]
@@ -1542,30 +1591,44 @@ public record ILOffsetCostContextRow(
 [MarkoutSerializable]
 public record ResourceRow(
     string Name,
-    string Visibility,
-    string Size)
+    InertString VisibilityText,
+    InertString SizeText)
 {
+    public ResourceRow(string name, string visibility, string size)
+        : this(
+            name,
+            LibraryViewText.Field(visibility),
+            LibraryViewText.Field(size))
+    {
+    }
+
     /// <inheritdoc cref="LibraryViewText"/>
     public string Name { get; init; } = LibraryViewText.Contain(Name);
 
-    public string Visibility { get; init; } = Visibility;
+    [MarkoutIgnore, JsonIgnore]
+    public InertString VisibilityText { get; init; } = VisibilityText;
 
-    public string Size { get; init; } = Size;
+    public string Visibility => VisibilityText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString SizeText { get; init; } = SizeText;
+
+    public string Size => SizeText.ToString();
 }
 
 [MarkoutSerializable]
 public record ResourceTriageRow(
-    string Member,
-    string Candidate,
+    InertString MemberText,
+    InertString CandidateText,
     string Finding,
     string Provenance,
     string Resource,
     string Shape,
     string Impact,
     string Actionability,
-    string Boundary,
-    string AcquireIL,
-    string BoundaryIL,
+    InertString BoundaryText,
+    InertString AcquireILText,
+    InertString BoundaryILText,
     string Evidence,
     string Direction,
     string Confidence,
@@ -1573,12 +1636,56 @@ public record ResourceTriageRow(
     string? Stable,
     string? Selector)
 {
-    // All or none, in constructor order -- see UnsafeMemberRow. The four
-    // already-code-wrapped columns are redeclared unchanged so the positional
-    // order survives; the rest carry analyzer classification text.
-    public string Member { get; init; } = Member;
+    public ResourceTriageRow(
+        string member,
+        string candidate,
+        string finding,
+        string provenance,
+        string resource,
+        string shape,
+        string impact,
+        string actionability,
+        string boundary,
+        string acquireIL,
+        string boundaryIL,
+        string evidence,
+        string direction,
+        string confidence,
+        string? visibility,
+        string? stable,
+        string? selector)
+        : this(
+            MarkoutInline.CodeText(LibraryViewText.Field(member)),
+            MarkoutInline.CodeText(LibraryViewText.Field(candidate)),
+            finding,
+            provenance,
+            resource,
+            shape,
+            impact,
+            actionability,
+            MarkoutInline.CodeText(LibraryViewText.Field(boundary)),
+            MarkoutInline.CodeText(LibraryViewText.Field(acquireIL)),
+            MarkoutInline.CodeText(LibraryViewText.Field(boundaryIL)),
+            evidence,
+            direction,
+            confidence,
+            visibility,
+            stable,
+            selector)
+    {
+    }
 
-    public string Candidate { get; init; } = Candidate;
+    // All or none, in constructor order -- see UnsafeMemberRow. The typed code
+    // columns retain their concerns; the rest carry analyzer classification text.
+    [MarkoutIgnore, JsonIgnore]
+    public InertString MemberText { get; init; } = MemberText;
+
+    public string Member => MemberText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString CandidateText { get; init; } = CandidateText;
+
+    public string Candidate => CandidateText.ToString();
 
     /// <inheritdoc cref="LibraryViewText"/>
     public string Finding { get; init; } = LibraryViewText.Contain(Finding);
@@ -1598,13 +1705,22 @@ public record ResourceTriageRow(
     /// <inheritdoc cref="LibraryViewText"/>
     public string Actionability { get; init; } = LibraryViewText.Contain(Actionability);
 
-    public string Boundary { get; init; } = Boundary;
+    [MarkoutIgnore, JsonIgnore]
+    public InertString BoundaryText { get; init; } = BoundaryText;
+
+    public string Boundary => BoundaryText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString AcquireILText { get; init; } = AcquireILText;
 
     [MarkoutPropertyName("Acquire IL")]
-    public string AcquireIL { get; init; } = AcquireIL;
+    public string AcquireIL => AcquireILText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString BoundaryILText { get; init; } = BoundaryILText;
 
     [MarkoutPropertyName("Boundary IL")]
-    public string BoundaryIL { get; init; } = BoundaryIL;
+    public string BoundaryIL => BoundaryILText.ToString();
 
     /// <inheritdoc cref="LibraryViewText"/>
     public string Evidence { get; init; } = LibraryViewText.Contain(Evidence);
@@ -1629,28 +1745,63 @@ public record ResourceTriageRow(
 // (provenance, path counts, post-dominance, token, fix guidance) live in the JSON projection.
 [MarkoutSerializable]
 public record PerformanceRow(
-    string Member,
-    string Evidence,
-    string? Allocation,
+    InertString MemberText,
+    InertString EvidenceText,
+    InertString? AllocationText,
     string? Loop,
-    string Reach,
+    InertString ReachText,
     string? Weight,
     string Priority,
     string Confidence)
 {
-    // All or none, in constructor order — see UnsafeMemberRow.
-    public string Member { get; init; } = Member;
+    public PerformanceRow(
+        string member,
+        string evidence,
+        string? allocation,
+        string? loop,
+        string reach,
+        string? weight,
+        string priority,
+        string confidence)
+        : this(
+            MarkoutInline.CodeText(LibraryViewText.Field(member)),
+            MarkoutInline.CodeText(LibraryViewText.Field(evidence)),
+            allocation is null
+                ? null
+                : MarkoutInline.CodeText(LibraryViewText.Field(allocation)),
+            loop,
+            LibraryViewText.Field(reach),
+            weight,
+            priority,
+            confidence)
+    {
+    }
 
-    public string Evidence { get; init; } = Evidence;
+    // All or none, in constructor order — see UnsafeMemberRow.
+    [MarkoutIgnore, JsonIgnore]
+    public InertString MemberText { get; init; } = MemberText;
+
+    public string Member => MemberText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString EvidenceText { get; init; } = EvidenceText;
+
+    public string Evidence => EvidenceText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? AllocationText { get; init; } = AllocationText;
 
     [MarkoutSkipNull]
-    public string? Allocation { get; init; } = Allocation;
+    public string? Allocation => AllocationText?.ToString();
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
     public string? Loop { get; init; } = LibraryViewText.Contain(Loop);
 
-    public string Reach { get; init; } = Reach;
+    [MarkoutIgnore, JsonIgnore]
+    public InertString ReachText { get; init; } = ReachText;
+
+    public string Reach => ReachText.ToString();
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
@@ -1766,11 +1917,16 @@ public record SourceLinkDiagnosticRow(
 
 [MarkoutSerializable]
 public record InspectionFailureRow(
-    string Section,
+    [property: MarkoutIgnore, JsonIgnore] InertString SectionText,
     string Finding,
     string Reason)
 {
-    public string Section { get; init; } = Section;
+    public InspectionFailureRow(string section, string finding, string reason)
+        : this(LibraryViewText.Field(section), finding, reason)
+    {
+    }
+
+    public string Section => SectionText.ToString();
 
     /// <inheritdoc cref="LibraryViewText"/>
     public string Finding { get; init; } = LibraryViewText.Contain(Finding);
@@ -1912,9 +2068,14 @@ public class LibraryInfoSection
 public record UnionTypeRow(
     string Type,
     string Kind,
-    string IUnion,
+    InertString IUnionText,
     string Cases)
 {
+    public UnionTypeRow(string type, string kind, string iUnion, string cases)
+        : this(type, kind, LibraryViewText.Field(iUnion), cases)
+    {
+    }
+
     /// <summary>
     /// Crosses exact union identity into field-safe presentation text.
     /// Gate: LibraryFindingConsumerTests.UnionTypesQueryProjection_PreservesIdentityUntilInertViewBoundary.
@@ -1926,8 +2087,11 @@ public record UnionTypeRow(
     public string Kind { get; init; } =
         new InertString(TextPolicy.Field, Kind).ToString();
 
+    [MarkoutIgnore, JsonIgnore]
+    public InertString IUnionText { get; init; } = IUnionText;
+
     [MarkoutPropertyName("IUnion")]
-    public string IUnion { get; init; } = IUnion;
+    public string IUnion => IUnionText.ToString();
 
     /// <inheritdoc cref="Type"/>
     public string Cases { get; init; } =
@@ -1972,8 +2136,14 @@ public class SourceLinkAuditSection
 {
     public int Embedded { get; init; }
     public int Missing { get; init; }
-    public string SourceFiles { get; init; } = "";
-    public string Status { get; init; } = "";
+    [MarkoutIgnore, JsonIgnore]
+    public InertString SourceFilesText { get; init; } =
+        LibraryViewText.Field(string.Empty);
+    public string SourceFiles => SourceFilesText.ToString();
+    [MarkoutIgnore, JsonIgnore]
+    public InertString StatusText { get; init; } =
+        LibraryViewText.Field(string.Empty);
+    public string Status => StatusText.ToString();
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
@@ -1981,11 +2151,18 @@ public class SourceLinkAuditSection
 public class SourceIntegritySection
 {
     [MarkoutPropertyName("CR/LF Mismatch")]
-    public string? CrlfMismatch { get; init; }
+    public string? CrlfMismatch => CrlfMismatchText?.ToString();
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? CrlfMismatchText { get; init; }
     public int Mismatched { get; init; }
     [MarkoutPropertyName("Mismatched Files")]
-    public string? MismatchedFiles { get; init; }
-    public string Status { get; init; } = "";
+    public string? MismatchedFiles => MismatchedFilesText?.ToString();
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? MismatchedFilesText { get; init; }
+    public string Status => StatusText.ToString();
+    [MarkoutIgnore, JsonIgnore]
+    public InertString StatusText { get; init; } =
+        LibraryViewText.Field(string.Empty);
     public int Unverifiable { get; init; }
     public int Verified { get; init; }
 }

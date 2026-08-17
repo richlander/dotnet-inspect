@@ -58,8 +58,8 @@ namespace DotnetInspector.Tests;
 /// had to be corrected for. It is the exact complement of the set that contains
 /// <i>in the row</i>. Membership is a fact about which idiom a column uses; some
 /// entries are producer-contained and correct as they stand, and the remainder
-/// are the residual tracked by issue #3463 -- which this measures at 279 members
-/// across 65 types after the diff view boundary moved to typed inert text.</para>
+/// are the residual tracked by issue #3463 -- which this measures at 261 members
+/// across 56 types after the library-inspection boundary moved to typed inert text.</para>
 ///
 /// <para>Asserting it as a set is what makes the weaker property still bite. A
 /// column cannot leave the self-containing set without failing here, which is
@@ -171,8 +171,6 @@ public class MarkoutRowContainmentTests
         "CallerSiteRow.OperandToken",
         "CallerSiteRow.ReturnAddress",
         "CallerSiteRow.Source",
-        "ClassifiedMethodRow.DeclaringType",
-        "ClassifiedMethodRow.Signature",
         "CliApiSurface.Description",
         "CliApiSurface.Library",
         "CliApiSurface.Name",
@@ -250,7 +248,6 @@ public class MarkoutRowContainmentTests
         "InfoView.Output",
         "InfoView.Readme",
         "InfoView.Time",
-        "InspectionFailureRow.Section",
         "InterfaceRow.Interface",
         "MemberIndexRow.CanonicalSignature",
         "MemberIndexRow.Decode",
@@ -308,22 +305,10 @@ public class MarkoutRowContainmentTests
         "PackageSearchRow.Downloads",
         "PackageSearchRow.Package",
         "PackageSearchRow.Version",
-        "PerformanceRow.Allocation",
-        "PerformanceRow.Evidence",
-        "PerformanceRow.Member",
-        "PerformanceRow.Reach",
         "PropertySummaryRow.Accessors",
         "PropertySummaryRow.Decode",
         "PropertySummaryRow.Name",
         "PropertySummaryRow.ReturnType",
-        "ReferenceRow.PublicKeyToken",
-        "ResourceRow.Size",
-        "ResourceRow.Visibility",
-        "ResourceTriageRow.AcquireIL",
-        "ResourceTriageRow.Boundary",
-        "ResourceTriageRow.BoundaryIL",
-        "ResourceTriageRow.Candidate",
-        "ResourceTriageRow.Member",
         "SafetyFactRow.Evidence",
         "SafetyFactRow.ILOffset",
         "SafetyFactRow.Member",
@@ -333,11 +318,6 @@ public class MarkoutRowContainmentTests
         "SampleRow.Description",
         "SampleRow.Type",
         "SampleRow.Url",
-        "SourceIntegritySection.CrlfMismatch",
-        "SourceIntegritySection.MismatchedFiles",
-        "SourceIntegritySection.Status",
-        "SourceLinkAuditSection.SourceFiles",
-        "SourceLinkAuditSection.Status",
         "TopLeverageRow.Callers",
         "TopLeverageRow.Depth",
         "TopLeverageRow.Fanout",
@@ -389,7 +369,6 @@ public class MarkoutRowContainmentTests
         "TypeView.Title",
         "TypeView.TypeParametersInline",
         "TypeView.Version",
-        "UnionTypeRow.IUnion",
         "UnsafeMemberRow.Detail",
         "UnsafeMemberRow.IL",
         "UnsafeMemberRow.Member",
