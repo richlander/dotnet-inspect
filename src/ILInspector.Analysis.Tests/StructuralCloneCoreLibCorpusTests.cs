@@ -141,6 +141,12 @@ public class StructuralCloneCoreLibCorpusTests
             "6c14b54d28c604613aef5a690fa10aa768e584556e90a736b506f40022f8afea",
             corpus.Artifact.Sha256);
         Assert.Equal(
+            "82790b72-6139-4dc6-8bd5-0d6b13d1c5e8",
+            corpus.Artifact.ModuleVersionId);
+        Assert.Equal(
+            "https://github.com/dotnet/dotnet",
+            corpus.Source.Repository);
+        Assert.Equal(
             "e2c1e00b3d0f96afb892fb261d5921565b400246",
             corpus.Source.Commit);
         Assert.Equal(38, corpus.Methods.Length);
