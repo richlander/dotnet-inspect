@@ -401,7 +401,7 @@ public sealed class CSharpTypePrinter
                 requestedPolicy,
                 request.PrimaryConstructorParameters.Count,
                 parameterName);
-            var policy = ResolveMemberPolicy(requestedPolicy, snapshot);
+            var policy = ResolveMemberPolicy(requestedPolicy, type, snapshot);
             ValidateResolvedBodyPolicy(
                 type,
                 snapshot,
@@ -434,8 +434,12 @@ public sealed class CSharpTypePrinter
 
     static CSharpMemberPolicy ResolveMemberPolicy(
         CSharpMemberPolicy policy,
+        ApiType type,
         ApiMember snapshot)
-        => policy.BodyPolicy == CSharpBodyPolicy.Skeleton && IsExplicitInterfaceEvent(snapshot)
+        => policy.BodyPolicy == CSharpBodyPolicy.Skeleton
+            && type.Kind != "interface"
+            && !snapshot.IsAbstract
+            && IsExplicitInterfaceEvent(snapshot)
             ? new CSharpMemberPolicy(
                 policy.Member,
                 CSharpBodyPolicy.Stub,

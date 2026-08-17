@@ -346,6 +346,41 @@ public sealed class CSharpTypePrinterTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("interface", false)]
+    [InlineData("class", true)]
+    public void ExplicitInterfaceEventSkeletonRemainsSkeletonWhenBodiesAreIllegal(
+        string typeKind,
+        bool isAbstract)
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Kind = typeKind;
+        var explicitEvent = new ApiMember
+        {
+            Name = "Samples.IEvents.Changed",
+            Kind = "event",
+            Accessibility = "private",
+            IsExplicitInterfaceImplementation = true,
+            IsAbstract = isAbstract,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Samples.IEvents.Changed",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "add" },
+                    new ApiAccessor { Kind = "remove" }
+                ]
+            }
+        };
+        type.Members.Add(explicitEvent);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("Samples.IEvents.Changed", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("throw null;", result.Source, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void FrameworkExplicitInterfaceEventSkeletonUsesThrowAccessors()
     {

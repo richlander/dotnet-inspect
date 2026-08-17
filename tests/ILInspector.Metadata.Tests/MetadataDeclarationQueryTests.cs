@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using ILInspector.Metadata;
@@ -515,6 +516,180 @@ public sealed class MetadataDeclarationQueryTests
             },
             (accessors.Adder, "add_"),
             (accessors.Remover, "remove_")));
+
+        Assert.False(ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
+            eventName,
+            new Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
+            {
+                [accessors.Adder] =
+                [
+                    adderTarget with
+                    {
+                        InterfaceType = adderTarget.InterfaceType with
+                        {
+                            Key = "assembly-a"
+                        }
+                    }
+                ],
+                [accessors.Remover] =
+                [
+                    removerTarget with
+                    {
+                        InterfaceType = removerTarget.InterfaceType with
+                        {
+                            Key = "assembly-b"
+                        }
+                    }
+                ]
+            },
+            (accessors.Adder, "add_"),
+            (accessors.Remover, "remove_")));
+    }
+
+    [Fact]
+    public void ExplicitInterfaceTypeIdentity_DistinguishesArrayShapesAndAssemblyEquivalence()
+    {
+        var provider = new ExplicitInterfaceTypeIdentityProvider();
+        var element = provider.GetPrimitiveType(PrimitiveTypeCode.Int32);
+        var vector = provider.GetSZArrayType(element);
+        var variableBound = provider.GetArrayType(
+            element,
+            new ArrayShape(1, [], []));
+        var sized = provider.GetArrayType(
+            element,
+            new ArrayShape(1, [4], [1]));
+
+        Assert.NotEqual(vector.Key, variableBound.Key);
+        Assert.NotEqual(variableBound.Key, sized.Key);
+        Assert.Equal(
+            ExplicitInterfaceTypeIdentityProvider.AssemblyKey(
+                new AssemblyReferenceIdentity(
+                    "Dependency",
+                    new Version(1, 0, 0, 0),
+                    "neutral",
+                    "AABBCC")),
+            ExplicitInterfaceTypeIdentityProvider.AssemblyKey(
+                new AssemblyReferenceIdentity(
+                    "dependency",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    "aabbcc")));
+
+        var invalidVariable = provider.GetGenericTypeParameter(
+            new ExplicitInterfaceSignatureContext(
+                Names: null,
+                TypeArguments: default,
+                TypeParameterCount: 0),
+            index: 0);
+        Assert.True(invalidVariable.IsDegraded);
+
+        Assert.NotNull(typeof(Dictionary<,>.KeyCollection));
+        var nestedReference = PeReader.GetMetadataReader()
+            .TypeReferences
+            .Single(handle =>
+                PeReader.GetMetadataReader().GetString(
+                    PeReader.GetMetadataReader().GetTypeReference(handle).Name)
+                    == "KeyCollection");
+        Assert.Equal(
+            2,
+            provider.FromHandle(
+                PeReader.GetMetadataReader(),
+                nestedReference,
+                context: null).GenericArity);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceTypeIdentity_RejectsOversizedAssemblyIdentityBlob()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Synthetic.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        var assemblyReference = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Dependency"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: metadata.GetOrAddBlob(
+                new byte[ExplicitInterfaceTypeIdentityProvider.MaxAssemblyIdentityBlobBytes + 1]),
+            flags: default,
+            hashValue: default);
+        var typeReference = metadata.AddTypeReference(
+            assemblyReference,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("IContract"));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        using var peReader = new PEReader(new MemoryStream(image.ToArray()));
+
+        Assert.Throws<BadImageFormatException>(() =>
+            new ExplicitInterfaceTypeIdentityProvider().FromHandle(
+                peReader.GetMetadataReader(),
+                typeReference,
+                context: null));
+    }
+
+    [Fact]
+    public void ExplicitAggregateIdentity_AcceptsIndexerMetadataAlias()
+    {
+        var accessor = MetadataTokens.MethodDefinitionHandle(1);
+        var interfaceType = new ExplicitInterfaceTypeIdentity(
+            "ilist",
+            "System.Collections.IList");
+
+        Assert.True(ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
+            "System.Collections.IList.this[]",
+            new Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
+            {
+                [accessor] =
+                [
+                    new ExplicitInterfaceMethodTarget(
+                        default,
+                        interfaceType,
+                        "get_Item")
+                ]
+            },
+            (accessor, "get_")));
+    }
+
+    [Fact]
+    public void TypeSurface_ClassifiesNativeIntegerExplicitInterfaceAggregates()
+    {
+        using var peReader = new PEReader(File.OpenRead(typeof(nint).Assembly.Location));
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = GetTypeDefinitionHandle(reader, "System.IntPtr");
+
+        var queried = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+
+        Assert.Contains(
+            queried.Members,
+            member => member.IsExplicitInterfaceImplementation
+                && member.Name.Contains("IMinMaxValue<nint>.MinValue", StringComparison.Ordinal));
     }
 
     [Fact]

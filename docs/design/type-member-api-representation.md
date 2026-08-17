@@ -109,14 +109,23 @@ disclosure mode used to select the property.
 
 Aggregate MethodImpl classification compares reader-local structural interface
 identity and substituted method signatures. Resolution scope, generic
-arguments, primitive metadata names, and array shape participate in the match;
-C# display spelling does not.
+arguments, primitive metadata names, raw type kind, nested-name segments, exact
+array shape, modifiers, and function-pointer signatures participate in the
+match. Assembly scopes use metadata-equivalent normalized identity, repeated
+scope decoding is cached, and oversized identity blobs fail visibly before
+materialization. C# display spelling does not participate in structural
+identity; narrowly owned aggregate aliases cover native-integer metadata names
+and compiler-synthesized `this[]` indexers.
 `MetadataDeclarationQueryTests.TypeSurface_ClassifiesGenericExplicitInterfaceAggregates`,
 `MetadataDeclarationQueryTests.ExplicitAggregateIdentity_RejectsSignatureIncompatibleMethodImplTargets`,
+`MetadataDeclarationQueryTests.ExplicitInterfaceTypeIdentity_DistinguishesArrayShapesAndAssemblyEquivalence`,
+`MetadataDeclarationQueryTests.ExplicitInterfaceTypeIdentity_RejectsOversizedAssemblyIdentityBlob`,
+`MetadataDeclarationQueryTests.ExplicitAggregateIdentity_AcceptsIndexerMetadataAlias`,
+`MetadataDeclarationQueryTests.TypeSurface_ClassifiesNativeIntegerExplicitInterfaceAggregates`,
 and
 `CSharpTypePrinterTests.GenericExplicitInterfaceAggregatesCompileBack` gate the
-generic, alias, array, close-negative, producer-parity, and C# projection
-contract.
+generic, alias, array, scope-coherence, close-negative, producer-parity, and C#
+projection contract.
 
 #### `ILInspector.Analysis`
 

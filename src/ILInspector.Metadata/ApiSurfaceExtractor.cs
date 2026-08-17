@@ -2104,16 +2104,18 @@ public static class ApiSurfaceExtractor
             TypeDefinition typeDef)
     {
         var context = GenericContext.ForType(reader, typeDef);
+        var identityProvider = new ExplicitInterfaceTypeIdentityProvider();
         HashSet<string> implementedInterfaces = [];
         foreach (var interfaceHandle in typeDef.GetInterfaceImplementations())
         {
             var interfaceType = reader.GetInterfaceImplementation(interfaceHandle).Interface;
-            var interfaceIdentity = ExplicitInterfaceTypeIdentityProvider.FromHandle(
+            var interfaceIdentity = identityProvider.FromHandle(
                 reader,
                 interfaceType,
                 context);
-            if (!interfaceIdentity.IsDegraded)
-                implementedInterfaces.Add(interfaceIdentity.Key);
+            if (interfaceIdentity.IsDegraded)
+                throw new BadImageFormatException("The implemented interface identity could not be decoded.");
+            implementedInterfaces.Add(interfaceIdentity.Key);
         }
 
         Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>> targets = [];
@@ -2128,6 +2130,7 @@ public static class ApiSurfaceExtractor
                     implementation.MethodDeclaration,
                     implementedInterfaces,
                     context,
+                    identityProvider,
                     out var target))
             {
                 var body = (MethodDefinitionHandle)implementation.MethodBody;
@@ -2155,7 +2158,9 @@ public static class ApiSurfaceExtractor
 
         string interfaceName = name[..separator];
         string memberName = name[(separator + 1)..];
+        string declarationMemberName = memberName == "this[]" ? "Item" : memberName;
         bool hasAccessor = false;
+        HashSet<string>? commonInterfaceKeys = null;
         foreach (var accessor in accessors)
         {
             if (accessor.Handle.IsNil)
@@ -2163,16 +2168,30 @@ public static class ApiSurfaceExtractor
             hasAccessor = true;
             if (!explicitInterfaceImplementationTargets.TryGetValue(
                     accessor.Handle,
-                    out var targets)
-                || !targets.Any(target =>
-                    target.InterfaceType.MetadataName == interfaceName
-                    && target.MethodName == accessor.DeclarationPrefix + memberName))
+                    out var targets))
             {
                 return false;
             }
+
+            var matchingKeys = targets
+                .Where(target =>
+                    (target.InterfaceType.MetadataName == interfaceName
+                        || target.InterfaceType.AggregateAliasName == interfaceName)
+                    && target.MethodName
+                        == accessor.DeclarationPrefix + declarationMemberName)
+                .Select(target => target.InterfaceType.Key)
+                .ToHashSet(StringComparer.Ordinal);
+            if (matchingKeys.Count == 0)
+                return false;
+            if (commonInterfaceKeys is null)
+                commonInterfaceKeys = matchingKeys;
+            else
+                commonInterfaceKeys.IntersectWith(matchingKeys);
+            if (commonInterfaceKeys.Count == 0)
+                return false;
         }
 
-        return hasAccessor;
+        return hasAccessor && commonInterfaceKeys is { Count: > 0 };
     }
 
     private static bool TryGetInterfaceMethodDeclaration(
@@ -2182,6 +2201,7 @@ public static class ApiSurfaceExtractor
         EntityHandle declaration,
         IReadOnlySet<string> implementedInterfaces,
         GenericContext context,
+        ExplicitInterfaceTypeIdentityProvider identityProvider,
         out ExplicitInterfaceMethodTarget target)
     {
         target = default;
@@ -2205,18 +2225,20 @@ public static class ApiSurfaceExtractor
         if (methodName is null)
             return false;
 
-        var declaringTypeIdentity = ExplicitInterfaceTypeIdentityProvider.FromHandle(
+        var declaringTypeIdentity = identityProvider.FromHandle(
             reader,
             declaringType,
             context);
-        if (declaringTypeIdentity.IsDegraded
-            || !implementedInterfaces.Contains(declaringTypeIdentity.Key)
+        if (declaringTypeIdentity.IsDegraded)
+            throw new BadImageFormatException("The MethodImpl interface identity could not be decoded.");
+        if (!implementedInterfaces.Contains(declaringTypeIdentity.Key)
             || !MethodImplSignaturesMatch(
                 reader,
                 typeDef,
                 bodyHandle,
                 declaration,
-                context))
+                context,
+                identityProvider))
             return false;
 
         if (declaringType.Kind == HandleKind.TypeDefinition
@@ -2238,18 +2260,22 @@ public static class ApiSurfaceExtractor
         TypeDefinition typeDef,
         MethodDefinitionHandle bodyHandle,
         EntityHandle declaration,
-        GenericContext typeContext)
+        GenericContext typeContext,
+        ExplicitInterfaceTypeIdentityProvider identityProvider)
     {
         var body = reader.GetMethodDefinition(bodyHandle);
         var bodyResult = GuardedProviderDecode.MethodResult(
             reader,
             body,
-            ExplicitInterfaceTypeIdentityProvider.Instance,
+            identityProvider,
             ExplicitInterfaceSignatureContext.Open(
                 GenericContext.ForMethod(reader, typeDef, body)),
-            new ExplicitInterfaceTypeIdentity("<invalid>", "<invalid>"));
+            new ExplicitInterfaceTypeIdentity(
+                "<invalid>",
+                "<invalid>",
+                IsDegraded: true));
         if (bodyResult.IsDegraded)
-            return false;
+            throw new BadImageFormatException("The MethodImpl body signature could not be decoded.");
 
         MethodSignature<ExplicitInterfaceTypeIdentity> declarationSignature;
         switch (declaration.Kind)
@@ -2260,28 +2286,38 @@ public static class ApiSurfaceExtractor
                 var declarationResult = GuardedProviderDecode.MethodResult(
                     reader,
                     method,
-                    ExplicitInterfaceTypeIdentityProvider.Instance,
+                    identityProvider,
                     ExplicitInterfaceSignatureContext.Open(
                         GenericContext.ForMethod(reader, declaringType, method)),
-                    new ExplicitInterfaceTypeIdentity("<invalid>", "<invalid>"));
+                    new ExplicitInterfaceTypeIdentity(
+                        "<invalid>",
+                        "<invalid>",
+                        IsDegraded: true));
                 if (declarationResult.IsDegraded)
-                    return false;
+                    throw new BadImageFormatException(
+                        "The MethodImpl declaration signature could not be decoded.");
                 declarationSignature = declarationResult.Value;
                 break;
             case HandleKind.MemberReference:
                 var member = reader.GetMemberReference((MemberReferenceHandle)declaration);
+                var parentIdentity = identityProvider.FromHandle(
+                    reader,
+                    member.Parent,
+                    typeContext);
+                if (parentIdentity.IsDegraded)
+                {
+                    throw new BadImageFormatException(
+                        "The MethodImpl declaration parent could not be decoded.");
+                }
                 declarationSignature = GuardedProviderDecode.MemberRefMethod(
                     reader,
                     member,
-                    ExplicitInterfaceTypeIdentityProvider.Instance,
+                    identityProvider,
                     ExplicitInterfaceSignatureContext
                         .Open(typeContext)
                         .WithTypeArguments(
-                            ExplicitInterfaceTypeIdentityProvider.FromHandle(
-                                reader,
-                                member.Parent,
-                                typeContext)
-                            .GenericArguments),
+                            parentIdentity.GenericArguments,
+                            parentIdentity.GenericArity),
                     new ExplicitInterfaceTypeIdentity(
                         "<invalid>",
                         "<invalid>",
@@ -2291,8 +2327,19 @@ public static class ApiSurfaceExtractor
                 return false;
         }
 
+        if (HasDegradedType(bodyResult.Value)
+            || HasDegradedType(declarationSignature))
+        {
+            throw new BadImageFormatException("The MethodImpl signature contains an unsupported type.");
+        }
+
         return MethodSignaturesMatch(bodyResult.Value, declarationSignature);
     }
+
+    private static bool HasDegradedType(
+        MethodSignature<ExplicitInterfaceTypeIdentity> signature)
+        => signature.ReturnType.IsDegraded
+            || signature.ParameterTypes.Any(parameter => parameter.IsDegraded);
 
     private static bool MethodSignaturesMatch(
         MethodSignature<ExplicitInterfaceTypeIdentity> left,
@@ -2300,12 +2347,8 @@ public static class ApiSurfaceExtractor
         => left.Header.Equals(right.Header)
             && left.GenericParameterCount == right.GenericParameterCount
             && left.RequiredParameterCount == right.RequiredParameterCount
-            && !left.ReturnType.IsDegraded
-            && !right.ReturnType.IsDegraded
             && left.ReturnType.Key == right.ReturnType.Key
             && left.ParameterTypes.Length == right.ParameterTypes.Length
-            && !left.ParameterTypes.Any(parameter => parameter.IsDegraded)
-            && !right.ParameterTypes.Any(parameter => parameter.IsDegraded)
             && left.ParameterTypes
                 .Select(parameter => parameter.Key)
                 .SequenceEqual(right.ParameterTypes.Select(parameter => parameter.Key));
