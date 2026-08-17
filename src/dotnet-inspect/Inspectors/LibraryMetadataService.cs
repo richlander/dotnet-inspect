@@ -67,6 +67,19 @@ internal static class LibraryMetadataService
             var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(
                 requiredScanners,
                 requiredQueries);
+            IAssemblyReferenceResolver? bodyReferenceResolver =
+                bodyAnalysisFeatures.HasFlag(
+                    Analysis.LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities)
+                    ? new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(path)
+                        {
+                            TargetFramework = options.Tfm,
+                            IncludeDepsJsonAssets = false,
+                            IncludeAspNetCoreSharedFramework = false,
+                            PreferImplementationAssemblies = true,
+                        })
+                    : null;
             using var service = assemblyReference is not null
                 ? bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
                     ? SourceLinkService.Open(assemblyReference, logger.Log)
@@ -112,6 +125,7 @@ internal static class LibraryMetadataService
                     {
                         AssemblyPath = path,
                         AssemblyReference = assemblyReference,
+                        BodyReferenceResolver = bodyReferenceResolver,
                         Model = nativeAudit,
                         Logger = logger,
                         MetadataContext = pdbContext,
@@ -247,6 +261,7 @@ internal static class LibraryMetadataService
                 {
                     AssemblyPath = path,
                     AssemblyReference = assemblyReference,
+                    BodyReferenceResolver = bodyReferenceResolver,
                     Model = inspection,
                     Logger = logger,
                     MetadataContext = pdbContext,
@@ -1442,6 +1457,7 @@ internal static class LibraryMetadataService
         try
         {
             var index = openIndex();
+            ReportOptimizationDiagnostics(index);
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             var rows = FilterAndOrderTriageOpportunities(
                     TriageOpportunities(index, options)
@@ -1462,6 +1478,8 @@ internal static class LibraryMetadataService
                     Shape = opportunity.Shape,
                     Operation = opportunity.Operation,
                     Token = FormatToken(opportunity.OperandToken),
+                    EvidenceMethod = FormatToken(
+                        opportunity.EvidenceMethodToken),
                     Evidence = opportunity.Evidence,
                     Fix = opportunity.SafeFixDirection,
                     Priority = TriagePriority(opportunity),
@@ -1496,6 +1514,22 @@ internal static class LibraryMetadataService
         {
             logger.LogWarning($"Error scanning optimization opportunities in {path}: {ex.Message}");
             return null;
+        }
+    }
+
+    internal static void ReportOptimizationDiagnostics(
+        Analysis.LibraryBodyIndex index,
+        Func<Analysis.AnalysisDiagnostic, bool>? include = null)
+    {
+        foreach (Analysis.AnalysisDiagnostic diagnostic
+            in index.Diagnostics)
+        {
+            if (include is not null && !include(diagnostic))
+                continue;
+            CommandError.WriteWarning(
+                $"performance analysis incomplete for "
+                + $"{diagnostic.Method}: "
+                + diagnostic.Message);
         }
     }
 
@@ -1900,6 +1934,7 @@ internal static class LibraryMetadataService
             "Shape" => opportunity.Shape,
             "Operation" => opportunity.Operation,
             "Token" => FormatToken(opportunity.OperandToken),
+            "EvidenceMethod" => FormatToken(opportunity.EvidenceMethodToken),
             "Evidence" => opportunity.Evidence,
             "Fix" => opportunity.SafeFixDirection,
             "Priority" => TriagePriority(opportunity),
