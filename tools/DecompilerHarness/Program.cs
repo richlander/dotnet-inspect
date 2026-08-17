@@ -449,7 +449,9 @@ static class Program
             return Fail(preempted);
         }
         if (structuralReview is not null
-            && (args.Length != 2 || !string.Equals(args[0], "--structural-review", StringComparison.Ordinal)))
+            && (!string.Equals(args[0], "--structural-review", StringComparison.Ordinal)
+                || !((args.Length == 2 && inputs.Count == 0)
+                    || (args.Length == 3 && inputs.Count == 1))))
         {
             return Fail("--structural-review is an exclusive mode and cannot be combined with other flags or inputs.");
         }
@@ -473,9 +475,11 @@ static class Program
 
         if (structuralReview is not null)
         {
-            if (inputs.Count > 0 || packages.Count > 0)
-                return Fail("--structural-review reads its documents from the comparison artifact; do not pass assembly or package inputs.");
-            return StructuralReview.Run(structuralReview);
+            if (inputs.Count > 1 || packages.Count > 0)
+                return Fail("--structural-review reads product documents or a legacy comparison artifact; do not pass assembly or package inputs.");
+            return StructuralReview.Run(
+                structuralReview,
+                inputs.Count == 1 ? inputs[0] : null);
         }
 
         if (fixtureSourceInventory)
@@ -2143,12 +2147,14 @@ static class Program
                                 (GeneratedFixtureCatalog). Use --json for a
                                 machine-readable inventory. Migrated Dynamic
                                 sites must appear here as Built or Generated.
-          --structural-review <comparison.json>
-                                render full-body Before/After structural carets
-                                plus a rich diff from two C# annotated documents,
-                                selected node ids, and owner-issued correspondence.
-                                The JSON shape is CSharpStructuralComparisonInput;
-                                node ids remain local to their own document.
+          --structural-review <before.json> <after.json>
+                                issue trusted correspondence from two product
+                                AnnotatedSourceDocument values, then render
+                                full-body carets and a rich diff. The documents
+                                must carry equal physical method provenance.
+                                The legacy one-file
+                                CSharpStructuralComparisonInput form remains
+                                accepted for existing artifacts.
           --return-to-sender      prototype fact-planned compile-back harness:
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL
