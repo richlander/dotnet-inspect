@@ -3561,28 +3561,25 @@ public class PackageCommand
             return 1;
         }
 
+        if (tabularOutput
+            && libraryOptions.IncludeSections is { Count: > 0 })
+        {
+            var candidateSections = pipeline.GetCandidateSections(
+                libraryOptions.Verbosity,
+                libraryOptions.IncludeSections,
+                libraryOptions.FixedOverview);
+            string? unsupportedSection = candidateSections.FirstOrDefault(
+                section => !SupportsAllLibrariesTableSection(section));
+            if (unsupportedSection is not null)
+            {
+                CommandError.Write($"--all-libraries row output does not support section: {unsupportedSection}.");
+                CommandError.WriteLine("Use Markdown output, or select Library Info, Switches, Integration: Opportunities, or a focused Integration: section.");
+                return 1;
+            }
+        }
+
         if (sections.Count == 0)
         {
-            if (tabularOutput)
-            {
-                var candidateSections = pipeline.GetCandidateSections(
-                    libraryOptions.Verbosity,
-                    libraryOptions.IncludeSections,
-                    libraryOptions.FixedOverview);
-                if (candidateSections.Count == 1
-                    && BuildAllLibrariesTable(
-                        packageName,
-                        version,
-                        inspections,
-                        candidateSections.Single(),
-                        libraryOptions.Rows) is null)
-                {
-                    CommandError.Write($"--all-libraries row output does not support section: {candidateSections.Single()}.");
-                    CommandError.WriteLine("Use Markdown output, or select Library Info, Switches, Integration: Opportunities, or a focused Integration: section.");
-                    return 1;
-                }
-            }
-
             CommandError.WriteNote("matched sections have no data across all libraries.");
             // An empty match is still an answer to --count, and returning without projecting
             // would report the absence as unprojected output.
@@ -4101,6 +4098,17 @@ public class PackageCommand
         string[] StableHeaders,
         string[][] Rows,
         bool HasRowsBeforeWindow);
+
+    private static bool SupportsAllLibrariesTableSection(string section) =>
+        section.Equals("Library Info", StringComparison.OrdinalIgnoreCase)
+        || section.Equals("Switches", StringComparison.OrdinalIgnoreCase)
+        || section.Equals(
+            IntegrationSectionNames.Opportunities,
+            StringComparison.OrdinalIgnoreCase)
+        || LibraryIntegrationCatalog.All.Any(
+            descriptor => descriptor.SectionName.Equals(
+                section,
+                StringComparison.OrdinalIgnoreCase));
 
     private static AllLibrariesTable? BuildAllLibrariesTable(
         string packageName,

@@ -20060,6 +20060,29 @@ public partial class CommandExecutionTests
                 Assert.Equal("stale", File.ReadAllText(outputPath));
             }
 
+            File.WriteAllText(outputPath, "stale");
+            var unsupportedSelection = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "-S",
+                "Inspection Failures",
+                "--tsv",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, unsupportedSelection.Exit);
+            Assert.Empty(unsupportedSelection.Output);
+            Assert.Contains(
+                "does not support section: Inspection Failures",
+                unsupportedSelection.Error,
+                StringComparison.Ordinal);
+            Assert.Equal("stale", File.ReadAllText(outputPath));
+
             string invalidPath = Path.Combine(
                 tempDir,
                 "missing",
