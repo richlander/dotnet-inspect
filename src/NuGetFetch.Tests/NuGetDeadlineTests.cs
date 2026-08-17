@@ -26,6 +26,28 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task OperationCeiling_RejectsWorkAfterACompletedRequest()
+    {
+        using var operation = new NuGetOperationDeadline(
+            Options(
+                request: TimeSpan.FromSeconds(5),
+                operation: TimeSpan.FromMilliseconds(40)),
+            Timeout.InfiniteTimeSpan,
+            TestContext.Current.CancellationToken);
+
+        _ = await operation.RunRequestAsync(
+            _ => Task.FromResult(42));
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(80),
+            TestContext.Current.CancellationToken);
+
+        NuGetOperationTimeoutException error =
+            Assert.Throws<NuGetOperationTimeoutException>(
+                operation.ThrowIfExpired);
+        Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+    }
+
+    [Fact]
     public void RequestTimeout_DoesNotCreateASecondResponseBodyTimer()
     {
         var options = new NuGetFetchOptions
