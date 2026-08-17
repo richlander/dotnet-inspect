@@ -98,7 +98,7 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
             // MetadataRelationshipTraversal, which is why this count is 1 and not 2.
             new("ILInspector.ILDiff/CompilerGeneratedOrdinals.cs", DeclaringTypeEdges: 1, TypeReferenceEdges: 0),
             new("ILInspector.ILDiff/IlAssemblyDiff.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
-            new("ILInspector.ILDiff/IlBodyDiff.cs", DeclaringTypeEdges: 5, TypeReferenceEdges: 8),
+            new("ILInspector.ILDiff/IlMetadataOperandResolver.cs", DeclaringTypeEdges: 5, TypeReferenceEdges: 8),
             new("ILInspector.Instructions/MetadataStackTypeResolver.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
         ];
         Assert.Equal(expected, actual);
