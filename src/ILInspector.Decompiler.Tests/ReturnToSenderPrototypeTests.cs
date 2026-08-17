@@ -3427,6 +3427,44 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ClosureSelectsConversionByReturnType()
+    {
+        var assemblyPath = CompileFixture("""
+            public readonly struct Value
+            {
+                public static explicit operator int(Value value) => 0;
+                public static explicit operator checked int(Value value) => 1;
+                public static explicit operator long(Value value) => 0L;
+                public static explicit operator checked long(Value value) => 1L;
+            }
+
+            public static class Consumer
+            {
+                public static long Convert(Value value) => checked((long)value);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Convert", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains(
+                "explicit operator checked long(",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_ClosurePairsOperatorsWithDifferentRefKinds()
     {
         var assemblyPath = CompileFixture("""
