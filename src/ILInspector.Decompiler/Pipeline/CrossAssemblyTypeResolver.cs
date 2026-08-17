@@ -325,20 +325,19 @@ internal sealed class CrossAssemblyTypeResolver
             && remainingWork-- > 0)
         {
             var (current, localAssembly) = pending.Pop();
-            if (TypeDefinitionIdentity.Create(
-                    current,
-                    localAssembly?.Identity) is not { } currentIdentity)
+            if (NamedDefinition(current) is not { } definition)
             {
                 unresolved = true;
                 continue;
             }
-            if (!seen.Add(currentIdentity))
+            if (Locate(definition, localAssembly) is not { } resolved)
+            {
+                unresolved = true;
                 continue;
-
-            if (NamedDefinition(current) is not { } definition)
+            }
+            if (!seen.Add(ResolvedIdentity(definition, resolved)))
                 continue;
-            if (Locate(definition, localAssembly) is not { } resolved
-                || _context.Open(resolved, out var handle) is not { } assembly)
+            if (_context.Open(resolved, out var handle) is not { } assembly)
             {
                 unresolved = true;
                 continue;
@@ -415,20 +414,19 @@ internal sealed class CrossAssemblyTypeResolver
         while (pending.Count > 0 && seen.Count < 256)
         {
             var (current, localAssembly) = pending.Pop();
-            if (TypeDefinitionIdentity.Create(
-                    current,
-                    localAssembly?.Identity) is not { } currentIdentity)
+            if (NamedDefinition(current) is not { } definition)
             {
                 unresolved = true;
                 continue;
             }
-            if (!seen.Add(currentIdentity))
+            if (Locate(definition, localAssembly) is not { } resolved)
+            {
+                unresolved = true;
                 continue;
-
-            if (NamedDefinition(current) is not { } definition)
+            }
+            if (!seen.Add(ResolvedIdentity(definition, resolved)))
                 continue;
-            if (Locate(definition, localAssembly) is not { } resolved
-                || _context.Open(resolved, out var handle) is not { } assembly)
+            if (_context.Open(resolved, out var handle) is not { } assembly)
             {
                 unresolved = true;
                 continue;
@@ -1130,6 +1128,16 @@ internal sealed class CrossAssemblyTypeResolver
 
     static TypeRef? NamedDefinition(TypeRef type)
         => type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+
+    // Resolution supplies the exact structured name and bound assembly identity
+    // that legacy caller-constructed TypeRefs may not carry.
+    static TypeDefinitionIdentity ResolvedIdentity(
+        TypeRef definition,
+        ResolvedTypeDefinition resolved)
+        => new(
+            definition,
+            resolved.Type,
+            resolved.Assembly.Assembly.Identity);
 
     static bool TryCoordinates(
         TypeRef type,
