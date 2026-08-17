@@ -6410,6 +6410,73 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SingleType_ColumnAliasViaFieldsJsonlHasNoFalseDiagnostic()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-S", "Methods", "--fields", "Name", "--jsonl", "--rows", "1");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("name", out _));
+    }
+
+    [Fact]
+    public async Task SingleType_MarkdownProjectionReportsMissingField()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-S", "Type Info", "--fields", "Kind,Version", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Kind", output, StringComparison.Ordinal);
+        Assert.Contains("1 field has no data: Version", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_DefaultProjectedJsonOmitsInlineSummary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer.Serialize:1", "--platform", "System.Text.Json",
+            "--json", "--columns", "Digest", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var row = Assert.Single(
+            document.RootElement.GetProperty("signature").EnumerateArray());
+        Assert.True(row.TryGetProperty("digest", out _));
+    }
+
+    [Fact]
+    public async Task SingleType_QuietProjectedJsonOmitsInlineFields()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonSerializer", "--platform", "System.Text.Json",
+            "-v:q", "--json", "--columns", "Name", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("{}", output.Trim());
+        Assert.Contains("1 column has no data: Name", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("formatter seam", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SingleType_MarkdownExplicitProjectedJsonOmitsInlineFields()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonSerializer", "--platform", "System.Text.Json",
+            "--markdown", "--json", "--columns", "Name", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.False(document.RootElement.TryGetProperty("kind", out _));
+        Assert.True(document.RootElement.TryGetProperty("method_groups", out _));
+    }
+
+    [Fact]
     public async Task TypeListing_QuietFieldUnderProjectedJsonUsesApiInfo()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -6764,15 +6831,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task UnsupportedInlineFieldShapeUnderProjectedJsonFailsAtomically()
+    public async Task QuietInlineFieldIsPromotedToTypeInfoUnderProjectedJson()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.String", "--platform", "System.Runtime",
-            "-v:q", "--fields", "Kind", "--json");
+            "-v:q", "--fields", "Kind", "--json", "--compact");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("without its value at the formatter seam", error, StringComparison.Ordinal);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var row = Assert.Single(
+            document.RootElement.GetProperty("type_info").EnumerateArray());
+        Assert.Equal("Kind", row.GetProperty("field").GetString());
+        Assert.Equal("class", row.GetProperty("value").GetString());
     }
 
     [Fact]

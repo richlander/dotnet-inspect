@@ -1236,7 +1236,8 @@ public class OutputFormatterTests
         var schema = new DocumentSchema()
             .Add("Methods", "column", "Field", "Signature | Display")
             .Add("Library Info", "field", "Assembly Version")
-            .Add("Other Section", "field", "Methods");
+            .Add("Other Section", "field", "Methods")
+            .AddSection("Dynamic Info");
         var formatter = new RenderManifestFormatter(schema);
         var options = MarkoutWriterOptions.Default;
         var sectionLevel = Math.Clamp(2 + options.HeadingLevelOffset, 1, 6);
@@ -1263,6 +1264,13 @@ public class OutputFormatterTests
             TextWriter.Null,
             [new MarkoutField("Methods", "polluting value")],
             bold: false);
+        formatter.FormatHeading(TextWriter.Null, sectionLevel, "Dynamic Info", context: null);
+        formatter.FormatTable(
+            TextWriter.Null,
+            ["Value", "Field"],
+            [["tests", "Authors"]],
+            skippedRows: 0,
+            MarkoutWriterOptions.Default);
         formatter.BeginDocument(options);
         formatter.FormatFields(
             TextWriter.Null,
@@ -1282,6 +1290,9 @@ public class OutputFormatterTests
         var otherFields = Assert.IsAssignableFrom<IReadOnlySet<string>>(
             formatter.Manifest.GetFields("Other Section"));
         Assert.Contains("Methods", otherFields);
+        var dynamicFields = Assert.IsAssignableFrom<IReadOnlySet<string>>(
+            formatter.Manifest.GetFields("Dynamic Info"));
+        Assert.Contains("Authors", dynamicFields);
         Assert.DoesNotContain("Kind", otherFields);
     }
 

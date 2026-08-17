@@ -228,6 +228,15 @@ public static class ApiOutputFormatter
         if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
             && !includeSections.Contains(SectionNames.Summary))
             includeSections = [SectionNames.Summary, .. includeSections];
+        if (options.JsonOutput
+            && !options.Count
+            && options.Fields is { Length: > 0 }
+            && options is not MemberOptions { OverloadIndex: not null }
+            && includeSections is { } selected
+            && !selected.Contains(SectionNames.TypeInfo))
+        {
+            includeSections = [SectionNames.TypeInfo, .. selected];
+        }
 
         return new MarkoutWriterOptions
         {
@@ -449,7 +458,9 @@ public static class ApiOutputFormatter
         }
 
         var explicitSections = options.IncludeSections is { Count: > 0 };
-        string? typeParamsInline = options.Verbosity == Verbosity.Quiet && !explicitSections
+        string? typeParamsInline = !options.JsonOutput
+            && options.Verbosity == Verbosity.Quiet
+            && !explicitSections
             ? typeParamsSummary
             : null;
 
@@ -489,8 +500,9 @@ public static class ApiOutputFormatter
             baseclassRows = [new BaseclassRow { Type = baseType }];
         }
 
-        bool topFieldsOnly = (options.Verbosity == Verbosity.Quiet && !explicitSections)
-            || (options is TypeOptions { MarkdownExplicitlySet: true } && !memberDetail);
+        bool topFieldsOnly = !options.JsonOutput
+            && ((options.Verbosity == Verbosity.Quiet && !explicitSections)
+                || (options is TypeOptions { MarkdownExplicitlySet: true } && !memberDetail));
         var title = memberDetail
             ? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(selectedMember!.Name)}"
             : $"{FormatGenericFullName(type)}{packageInfo}";
@@ -499,7 +511,7 @@ public static class ApiOutputFormatter
         {
             Title = title,
             Description = description,
-            Summary = memberDetail
+            Summary = memberDetail && !options.JsonOutput
                 ? BuildMemberDetailSummary(type, foundIn, packageName, packageVersion, apiSource, selectedTfm)
                 : null,
             Kind = topFieldsOnly ? type.Kind : null,

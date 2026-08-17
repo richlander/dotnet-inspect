@@ -221,9 +221,14 @@ public static class ProjectionDiagnostics
         IReadOnlyList<string> emittedColumns,
         DocumentSchema schema)
     {
-        ReportMissing(UnmatchedRequests(fields, emittedFields), "field");
+        var displayColumns = ExpandDisplayColumns(emittedColumns, schema);
         ReportMissing(
-            UnmatchedRequests(columns, ExpandDisplayColumns(emittedColumns, schema)),
+            UnmatchedRequests(
+                fields,
+                emittedFields.Concat(displayColumns).ToArray()),
+            "field");
+        ReportMissing(
+            UnmatchedRequests(columns, displayColumns),
             "field");
     }
 

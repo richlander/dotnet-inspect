@@ -1810,13 +1810,18 @@ public class ApiCommand
         else
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize =
+                (writer, formatter, projectedOptions) =>
+                {
+                    var markoutWriter = new MarkoutWriter(writer, formatter, projectedOptions);
+                    ApiOutputFormatter.SerializeTypeDocument(
+                        view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                        explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, markoutWriter);
+                    markoutWriter.Flush();
+                };
             if (options.PlainText)
             {
-                var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
-                ApiOutputFormatter.SerializeTypeDocument(
-                    view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
-                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
-                writer.Flush();
+                serialize(sink, options.CreateFormatter(), writerOptions);
             }
             else
             {
@@ -1824,13 +1829,19 @@ public class ApiCommand
 
                 writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var sw = new StringWriter { NewLine = "\n" };
-                var writer = new Markout.MarkoutWriter(sw, options.CreateFormatter(), writerOptions);
-                ApiOutputFormatter.SerializeTypeDocument(
-                    view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
-                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
-                writer.Flush();
+                serialize(sw, options.CreateFormatter(), writerOptions);
                 var markdown = sw.ToString().TrimEnd();
                 OutputFormatter.WriteLfLine(sink, markdown);
+            }
+
+            if (options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 })
+            {
+                ProjectionDiagnostics.DiagnoseRendered(
+                    options.Fields,
+                    options.Columns,
+                    serialize,
+                    writerOptions,
+                    GetTypeDocumentSchema(options));
             }
         }
         ApiOutputFormatter.WriteSignatureDecodeWarning(view);

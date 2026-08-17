@@ -79,6 +79,7 @@ internal sealed class RenderManifestFormatter :
     IStreamingTableFormatter
 {
     private readonly HashSet<string> _fieldSections;
+    private readonly HashSet<string> _columnSections;
     private string? _currentHeading;
     private string? _streamingTableSection;
     private int _streamingFieldIndex = -1;
@@ -90,6 +91,12 @@ internal sealed class RenderManifestFormatter :
             .Select(schema.GetSection)
             .Where(section => section is not null
                 && section.ItemKind.Equals("field", StringComparison.OrdinalIgnoreCase))
+            .Select(section => section!.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _columnSections = schema.SectionNames
+            .Select(schema.GetSection)
+            .Where(section => section is not null
+                && section.ItemKind.Equals("column", StringComparison.OrdinalIgnoreCase))
             .Select(section => section!.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
@@ -156,7 +163,7 @@ internal sealed class RenderManifestFormatter :
             "Field",
             StringComparer.OrdinalIgnoreCase);
         if (!IsFieldSection(_currentHeading)
-            && !(_currentHeading is null && fieldIndex >= 0))
+            && (fieldIndex < 0 || IsColumnSection(_currentHeading)))
             return;
 
         foreach (var row in rows)
@@ -182,7 +189,7 @@ internal sealed class RenderManifestFormatter :
             if (_streamingFieldIndex < 0)
                 _streamingFieldIndex = 0;
         }
-        else if (_currentHeading is not null)
+        else if (_streamingFieldIndex < 0 || IsColumnSection(_currentHeading))
         {
             _streamingFieldIndex = -1;
         }
@@ -202,4 +209,7 @@ internal sealed class RenderManifestFormatter :
 
     private bool IsFieldSection(string? section)
         => section is not null && _fieldSections.Contains(section);
+
+    private bool IsColumnSection(string? section)
+        => section is not null && _columnSections.Contains(section);
 }
