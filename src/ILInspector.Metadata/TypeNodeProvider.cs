@@ -119,7 +119,22 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetGenericInstantiation(TypeNode genericType, ImmutableArray<TypeNode> typeArguments)
     {
-        string rawName = genericType is NamedTypeNode n ? n.Name : genericType.Render();
+        string rawName;
+        if (genericType is NamedTypeNode named)
+        {
+            // Retained charge is the rendered generic spelling (arity digits drop
+            // out). Do not EnsureCanMaterialize the raw `N metadata name (Sol R14).
+            // Refuse multi-MB raw names before GetString via structural type-name max.
+            long counted = named.GetCountedCharacterLength();
+            if (counted > MetadataSafetyPolicy.MaxTypeNameCharacters)
+                return new DegradedTypeNode();
+            rawName = named.MaterializeNameWithoutRetainedPreflight();
+        }
+        else
+        {
+            rawName = genericType.Render();
+        }
+
         var backtickIndex = rawName.IndexOf('`');
         if (backtickIndex < 0)
             return new GenericTypeNode(rawName, genericType.IsReferenceType, typeArguments);

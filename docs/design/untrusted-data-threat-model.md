@@ -440,6 +440,7 @@ shared-string and single-signature amplification shapes.
 `GiantErasedModoptTypeRef_DoesNotConsumeRetainedBudget`,
 `CyclicTypeRefReturn_DoesNotStackOverflowUnderBudget`,
 `SameLengthUnrecognizedModreq_DoesNotConsumeRetainedBudget`,
+`PaddedGenericArityMetadataName_DoesNotConsumeRetainedBudget`,
 `GiantAttributeTypeName_IsStoppedBeforeGetStringMaterialization`,
 `GiantNullableTransformArray_IsRejectedBeforeAllocation`,
 `GiantFinalizeMethodImplName_IsStoppedBeforeGetStringMaterialization`, and

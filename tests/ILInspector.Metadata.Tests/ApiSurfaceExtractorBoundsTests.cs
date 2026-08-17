@@ -602,6 +602,42 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void PaddedGenericArityMetadataName_DoesNotConsumeRetainedBudget()
+    {
+        // Sol R14: GetGenericInstantiation forced NamedTypeNode.Name (raw metadata
+        // spelling with padded `000000001 arity markers) through EnsureCanMaterialize
+        // before RenderLength of the shorter rendered generic form.
+        byte[] image = BuildPaddedGenericArityBaseImage();
+        var generous = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            Extract(image, new ApiSurfaceExtractionBounds(
+                int.MaxValue,
+                int.MaxValue,
+                int.MaxValue,
+                int.MaxValue,
+                int.MaxValue,
+                int.MaxValue)));
+        int largestModel = checked(
+            (int)generous.Surface.Types.Select(ApiSurfaceRetainedText.TypeHeader)
+                .Concat(
+                    generous.Surface.Types.SelectMany(
+                        type => type.Members.Select(ApiSurfaceRetainedText.Member)))
+                .DefaultIfEmpty(0)
+                .Max());
+
+        Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            Extract(
+                image,
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    largestModel)));
+    }
+
+    [Fact]
     public void GiantAttributeTypeName_IsStoppedBeforeGetStringMaterialization()
     {
         // Sol R7: attribute type names were GetString'd during presence checks and
@@ -1504,6 +1540,43 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.GetOrAddBlob(signature),
             bodyOffset: 0,
             parameterList: MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildPaddedGenericArityBaseImage()
+    {
+        var metadata = CreateMetadata("PaddedArity");
+        TypeDefinitionHandle surface = AddModuleAndSurfaceTypes(metadata);
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        // Raw FQN longer than rendered N.A<int>.B<int>.C<int> due to padded arity.
+        TypeReferenceHandle generic = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("A`000000001.B`000000001.C`000000001"));
+        var typeSpec = new BlobBuilder();
+        typeSpec.WriteByte(0x15); // ELEMENT_TYPE_GENERICINST
+        typeSpec.WriteByte(0x12); // ELEMENT_TYPE_CLASS
+        typeSpec.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(generic));
+        typeSpec.WriteCompressedInteger(3);
+        typeSpec.WriteByte(0x08); // int
+        typeSpec.WriteByte(0x08);
+        typeSpec.WriteByte(0x08);
+        TypeSpecificationHandle baseType =
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(typeSpec));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Derived"),
+            baseType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        _ = surface;
         return Serialize(metadata);
     }
 

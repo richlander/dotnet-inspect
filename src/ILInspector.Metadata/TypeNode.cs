@@ -348,6 +348,18 @@ internal sealed class NamedTypeNode : TypeNode
         return MaterializeName() == expected;
     }
 
+    /// <summary>
+    /// Counted UTF-16 length without retained-budget preflight.
+    /// </summary>
+    public long GetCountedCharacterLength() => CountedCharacters();
+
+    /// <summary>
+    /// Materializes the metadata spelling without retained-budget preflight.
+    /// Used for structural generic arity parsing where the retained charge is the
+    /// shorter rendered generic form (Sol R14).
+    /// </summary>
+    public string MaterializeNameWithoutRetainedPreflight() => MaterializeName();
+
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
         byte b = ConsumeByte(bytes, ref position, defaultByte);
