@@ -289,7 +289,7 @@ public static class OperatorMetadata
                 IsTypeParameter: false,
                 TypeParameterIndex: -1,
                 handle,
-                IsTrustedCoreLibrary(reader),
+                ApiSurfaceExtractor.IsCoreLibraryAssemblyDefinition(reader),
                 reader.GetString(definition.Namespace),
                 reader.GetString(definition.Name),
                 IsNullable: false,
@@ -412,14 +412,6 @@ public static class OperatorMetadata
             };
         }
 
-        static bool IsTrustedCoreLibrary(MetadataReader reader)
-        {
-            if (!reader.IsAssembly)
-                return false;
-            var identity = AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-            return identity.Name is "System.Private.CoreLib" or "mscorlib"
-                && PlatformKeys.IsPlatform(identity.PublicKeyToken);
-        }
     }
 
     sealed class OperatorSignatureTypeProvider : ISignatureTypeProvider<OperatorSignatureType, object?>

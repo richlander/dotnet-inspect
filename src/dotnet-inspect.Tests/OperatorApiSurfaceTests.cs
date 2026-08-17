@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Services;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Metadata;
 
@@ -357,6 +358,42 @@ public sealed class OperatorApiSurfaceTests
                 OperatorMetadata.IsCSharpOperatorDeclaration(reader, method),
                 $"{typeName}.{operatorName} should classify as a C# operator declaration.");
         }
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_AcceptsPrimitiveEncodedReferenceAssemblyOperators()
+    {
+        var referenceAssemblies = PlatformResolver.GetAllPacksDirectories()
+            .Select(root => Path.Combine(root, "Microsoft.NETCore.App.Ref"))
+            .Where(Directory.Exists)
+            .SelectMany(pack => Directory.EnumerateFiles(
+                pack,
+                "System.Runtime.dll",
+                SearchOption.AllDirectories))
+            .OrderDescending()
+            .ToList();
+        Assert.NotEmpty(referenceAssemblies);
+
+        using var stream = File.OpenRead(referenceAssemblies[0]);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = Assert.Single(
+            reader.TypeDefinitions,
+            handle => FullName(reader, reader.GetTypeDefinition(handle)) == "System.String");
+        var method = Assert.Single(
+            reader.GetTypeDefinition(typeHandle).GetMethods()
+                .Select(reader.GetMethodDefinition),
+            candidate => reader.GetString(candidate.Name) == "op_Equality");
+
+        Assert.True(OperatorMetadata.IsMetadataOperator(reader, method));
+        Assert.True(OperatorMetadata.IsCSharpOperatorDeclaration(reader, method));
+
+        var member = Assert.Single(
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true).Types
+                .Single(type => type.FullName == "System.String")
+                .Members,
+            candidate => candidate.Name == "op_Equality");
+        Assert.Equal(true, member.CSharpOperatorDeclaration);
     }
 
     [Theory]

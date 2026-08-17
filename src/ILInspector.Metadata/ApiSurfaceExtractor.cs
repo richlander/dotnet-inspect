@@ -1608,14 +1608,36 @@ public static class ApiSurfaceExtractor
         if (resolutionScope.Kind != HandleKind.AssemblyReference)
             return false;
         var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)resolutionScope);
-        if (!CoreLibraryPublicKeyTokens.TryGetValue(reader.GetString(assemblyRef.Name), out byte[][]? expectedTokens))
-            return false;
         if (!TryComputeToken(reader, assemblyRef, out byte[] token))
             return false;
+        return IsCoreLibraryIdentity(
+            reader.GetString(assemblyRef.Name),
+            Convert.ToHexString(token));
+    }
+
+    internal static bool IsCoreLibraryAssemblyDefinition(MetadataReader reader)
+    {
+        if (!reader.IsAssembly)
+            return false;
+        var identity = AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+        return IsCoreLibraryIdentity(identity.Name, identity.PublicKeyToken);
+    }
+
+    private static bool IsCoreLibraryIdentity(string name, string? publicKeyToken)
+    {
+        if (publicKeyToken is null
+            || !CoreLibraryPublicKeyTokens.TryGetValue(name, out byte[][]? expectedTokens))
+        {
+            return false;
+        }
         foreach (byte[] expected in expectedTokens)
         {
-            if (token.AsSpan().SequenceEqual(expected))
+            if (publicKeyToken.Equals(
+                Convert.ToHexString(expected),
+                StringComparison.OrdinalIgnoreCase))
+            {
                 return true;
+            }
         }
 
         return false;
