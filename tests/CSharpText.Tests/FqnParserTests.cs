@@ -46,6 +46,9 @@ public class FqnParserTests
     [Theory]
     [InlineData("Dictionary<int,List<string>>", "Dictionary`2")]
     [InlineData("Action<Func<int,string>>", "Action`1")]
+    [InlineData("Dictionary<List<T>?,string>", "Dictionary`2")]
+    [InlineData("Dictionary<List<T>[],string>", "Dictionary`2")]
+    [InlineData("Dictionary<List<T>.Enumerator,string>", "Dictionary`2")]
     public void NestedGenericType_NormalizesCorrectly(string input, string expectedType)
     {
         var result = FqnParser.Parse(input);
@@ -60,6 +63,9 @@ public class FqnParserTests
     [InlineData("Dictionary<TKey,,TValue>")]
     [InlineData("Dictionary<List<>,TValue>")]
     [InlineData("Dictionary<TKey,<TValue>>")]
+    [InlineData("Dictionary<List<T>U,TValue>")]
+    [InlineData("Dictionary<List<T> U,TValue>")]
+    [InlineData("Dictionary<List<T>?U,TValue>")]
     public void MalformedGenericType_IsNotNormalizedToValidMetadataIdentity(
         string input) =>
         Assert.Equal(input, FqnParser.NormalizeTypeName(input));

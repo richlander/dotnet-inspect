@@ -439,7 +439,7 @@ public static class RouterCommandDefinition
         {
             var operatorIndex = target.LastIndexOf(
                 ".operator",
-                StringComparison.Ordinal);
+                StringComparison.OrdinalIgnoreCase);
             if (operatorIndex <= 0)
             {
                 typeTarget = "";

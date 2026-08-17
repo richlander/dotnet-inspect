@@ -92,10 +92,10 @@ internal static class ApiTypeLookupService
         {
             var member = typeName[(dot + 1)..];
             var typeEnd = dot;
+            var memberSelector = MemberTargetSelector.Parse(member);
             if (dot > 1
                 && typeName[dot - 1] == '.'
-                && (member.Equals("ctor", StringComparison.OrdinalIgnoreCase)
-                    || member.Equals("cctor", StringComparison.OrdinalIgnoreCase)))
+                && memberSelector.Name is ".ctor" or ".cctor")
             {
                 member = $".{member}";
                 typeEnd--;

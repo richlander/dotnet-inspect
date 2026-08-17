@@ -300,6 +300,7 @@ public static class FqnParser
 
         count = 1;
         var segmentStart = 0;
+        var completedNestedType = false;
         for (var i = 0; i < typeParams.Length; i++)
         {
             switch (typeParams[i])
@@ -322,6 +323,7 @@ public static class FqnParser
                     }
 
                     i = close;
+                    completedNestedType = true;
                     break;
                 case '>':
                     count = 0;
@@ -335,6 +337,20 @@ public static class FqnParser
 
                     count++;
                     segmentStart = i + 1;
+                    completedNestedType = false;
+                    break;
+                case '.':
+                case '+':
+                    completedNestedType = false;
+                    break;
+                default:
+                    if (completedNestedType
+                        && !char.IsWhiteSpace(typeParams[i])
+                        && typeParams[i] is not ('?' or '*' or '&' or '[' or ']'))
+                    {
+                        count = 0;
+                        return false;
+                    }
                     break;
             }
         }

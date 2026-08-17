@@ -3017,6 +3017,7 @@ public partial class CommandExecutionTests
     [InlineData("System.Collections.Generic.Dictionary<,TValue>")]
     [InlineData("System.Collections.Generic.Dictionary<List<>,TValue>")]
     [InlineData("System.Collections.Generic.Dictionary<TKey,<TValue>>")]
+    [InlineData("System.Collections.Generic.Dictionary<List<T>U,TValue>")]
     [InlineData("System.Threading.Tasks.Task<T1,T2>")]
     public async Task Router_ExplicitMissingGenericArity_DoesNotBroaden(
         string target)
@@ -3377,8 +3378,11 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
     }
 
-    [Fact]
-    public async Task Router_DeferredConstructorSuffixUsesMemberRendering()
+    [Theory]
+    [InlineData(".ctor")]
+    [InlineData(".ctor:1")]
+    public async Task Router_DeferredConstructorSuffixUsesMemberRendering(
+        string memberSelector)
     {
         const string typeName =
             "DotnetInspector.Tests.Operators<T>";
@@ -3390,12 +3394,12 @@ public partial class CommandExecutionTests
             "--library",
             TestAssemblyPath,
             "-m",
-            ".ctor",
+            memberSelector,
             .. projection
         ]);
         var routed = await RunAppAsync(
         [
-            $"{typeName}..ctor",
+            $"{typeName}.{memberSelector}",
             "--library",
             TestAssemblyPath,
             .. projection
@@ -3403,6 +3407,49 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_DeferredConstructorDigestSurvivesMetadataBoundary()
+    {
+        const string typeName =
+            "DotnetInspector.Tests.Operators<T>";
+        var inventory = await RunAppAsync(
+            "member",
+            typeName,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            ".ctor",
+            "-S",
+            "Member Index",
+            "--columns",
+            "Stable",
+            "--tsv",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, inventory.Exit);
+        Assert.Empty(inventory.Error);
+        var stableSelector = inventory.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1)
+            .First();
+        Assert.StartsWith(".ctor~", stableSelector);
+
+        var (exit, output, error) = await RunAppAsync(
+            $"{typeName}.{stableSelector}",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
     }
 
     [Fact]
@@ -19966,11 +20013,14 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
     }
 
-    [Fact]
-    public async Task Router_ExplicitSourceGenericShiftOperator_ResolvesTheMember()
+    [Theory]
+    [InlineData("operator<<")]
+    [InlineData("Operator<<")]
+    public async Task Router_ExplicitSourceGenericShiftOperator_ResolvesTheMember(
+        string memberSelector)
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Numerics.Vector<T>.operator<<",
+            $"System.Numerics.Vector<T>.{memberSelector}",
             "--platform",
             "System.Numerics.Vectors",
             "-S",

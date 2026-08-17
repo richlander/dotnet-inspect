@@ -63,7 +63,11 @@ public class ApiTypeLookupServiceTests
 
     [Theory]
     [InlineData(".ctor")]
+    [InlineData(".ctor:1")]
+    [InlineData(".ctor~abcdef")]
     [InlineData(".cctor")]
+    [InlineData(".cctor:1")]
+    [InlineData(".cctor~abcdef")]
     public void LookupType_ConstructorMember_PreservesSpecialName(
         string memberName)
     {
