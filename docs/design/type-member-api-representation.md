@@ -369,10 +369,9 @@ consumers may use which: Analysis's decoder resolves function pointers and
 custom modifiers to `Unsupported` through
 `TypeRefDecoder.GetFunctionPointerType` and `GetModifiedType`. The Decompiler carries
 `FunctionPointer` as a first-class kind and has `TypeRefCustomModifier` storage,
-but its decoder sees through ordinary declaration-site modifiers. It retains
-only the focused modifier subset needed for supported function-pointer
-semantics (`InAttribute`, `OutAttribute`, `IsReadOnlyAttribute`,
-`RequiresLocationAttribute`, and `CallConvSuppressGCTransition`).
+retaining successfully decoded declaration-site modifiers as non-rendered
+evidence for exact signature matching. Rendering and structural `TypeRef`
+equality continue to see through that evidence.
 
 That difference is not cosmetic. `docs/design/type-spelling-identity-display.md`
 records it as a blocking round-2 review finding:
