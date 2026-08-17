@@ -404,8 +404,8 @@ and report `NameBudget` rather than malformed or success-shaped output.
 Display string APIs (`GetFullName`, `GetTypeNameFrom*`) keep only the encoded
 cap so a 5,030-character classifier fixture can still be spelled;
 `Resolve*`/`Read` remain on the 4,096-character policy.
-`SeedMaterialized` charges the declaring name's actual UTF-8 byte count, not
-its UTF-16 length. Shared #Strings entries, many individually
+`AppendLeaf` continues the declaring walk's live encoded and character
+ledgers rather than reseeding them from rendered text. Shared #Strings entries, many individually
 small segments, projected WinRT virtual strings, TypeSpec `NameBudget` kind
 preservation, and the display/structured split are gated by
 `SharedOversizeHeapString_IsRejectedBeforeAggregateMaterialization`,

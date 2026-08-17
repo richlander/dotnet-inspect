@@ -137,8 +137,16 @@ public static class TypeResolver
     /// </summary>
     public static RelationshipTraversalResult<string> ResolveTypeNameFromReference(
         MetadataReader reader,
+        TypeReferenceHandle handle)
+        => ResolveTypeNameFromReference(
+            reader,
+            handle,
+            enforceCharacterBudget: true);
+
+    public static RelationshipTraversalResult<string> ResolveTypeNameFromReference(
+        MetadataReader reader,
         TypeReferenceHandle handle,
-        bool enforceCharacterBudget = true)
+        bool enforceCharacterBudget)
         => ResolveTypeNameFromReference(
             reader,
             handle,
@@ -305,8 +313,16 @@ public static class TypeResolver
     /// </summary>
     public static RelationshipTraversalResult<string> ResolveTypeNameFromDefinition(
         MetadataReader reader,
+        TypeDefinitionHandle handle)
+        => ResolveTypeNameFromDefinition(
+            reader,
+            handle,
+            enforceCharacterBudget: true);
+
+    public static RelationshipTraversalResult<string> ResolveTypeNameFromDefinition(
+        MetadataReader reader,
         TypeDefinitionHandle handle,
-        bool enforceCharacterBudget = true)
+        bool enforceCharacterBudget)
         => ResolveTypeNameFromDefinition(
             reader,
             handle,
@@ -364,8 +380,16 @@ public static class TypeResolver
     /// </summary>
     public static RelationshipTraversalResult<string> ResolveTypeNameFromExportedType(
         MetadataReader reader,
+        ExportedTypeHandle handle)
+        => ResolveTypeNameFromExportedType(
+            reader,
+            handle,
+            enforceCharacterBudget: true);
+
+    public static RelationshipTraversalResult<string> ResolveTypeNameFromExportedType(
+        MetadataReader reader,
         ExportedTypeHandle handle,
-        bool enforceCharacterBudget = true)
+        bool enforceCharacterBudget)
         => ResolveTypeNameFromExportedType(
             reader,
             handle,
@@ -471,8 +495,20 @@ public static class TypeResolver
         MetadataReader reader,
         TypeSpecificationHandle handle,
         GenericContext? context = null,
-        Action<int>? beforeMaterialize = null,
-        bool enforceCharacterBudget = true)
+        Action<int>? beforeMaterialize = null)
+        => DecodeTypeNameFromSpecification(
+            reader,
+            handle,
+            context,
+            beforeMaterialize,
+            enforceCharacterBudget: true);
+
+    public static SignatureDecodeResult<string> DecodeTypeNameFromSpecification(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        GenericContext? context,
+        Action<int>? beforeMaterialize,
+        bool enforceCharacterBudget)
         => GuardedSignatureDecoder.DecodeTypeSpecification(
             reader,
             handle,

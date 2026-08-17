@@ -13,14 +13,14 @@ public enum RelationshipTraversalRejectionKind
     /// <summary>The relationship chain exceeded the fixed node ceiling.</summary>
     NodeBudget,
 
+    /// <summary>SRM rejected a row or relationship handle.</summary>
+    MalformedMetadata,
+
     /// <summary>
     /// The namespace and root-to-leaf segments exceed
     /// <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>.
     /// </summary>
     NameBudget,
-
-    /// <summary>SRM rejected a row or relationship handle.</summary>
-    MalformedMetadata,
 }
 
 /// <summary>Inspectable evidence for a rejected metadata relationship walk.</summary>
