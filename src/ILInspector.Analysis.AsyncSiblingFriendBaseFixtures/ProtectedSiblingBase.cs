@@ -22,3 +22,11 @@ public class ProtectedSiblingBase
     internal Task<int> InternalReadAsync()
         => Task.FromResult(42);
 }
+
+public sealed class FriendSiblingGrantor
+{
+    public int Read() => 42;
+
+    internal Task<int> ReadAsync()
+        => Task.FromResult(42);
+}

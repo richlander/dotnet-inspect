@@ -1336,7 +1336,7 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
-        OptimizationOpportunities_ReceiverErasureSuppressesUnsealedFriendCandidates()
+        OptimizationOpportunities_FriendAccessRequiresProvableReceiver()
     {
         string path =
             FixtureCatalog.AnalysisAsyncSiblingFriend
@@ -1356,7 +1356,9 @@ public class LibraryBodyIndexTests
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
-                    == "AnalyzeAsync");
+                    == "AnalyzeAsync"
+                && opportunity.Method.DeclaringType.Name
+                    == "FriendProtectedReceiver");
         Assert.DoesNotContain(
             index.OptimizationOpportunities,
             opportunity => opportunity.Shape
@@ -1369,6 +1371,17 @@ public class LibraryBodyIndexTests
                     == "sync-call-in-async"
                 && opportunity.Method.Name
                     == "InternalAnalyzeAsync");
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == "AnalyzeAsync"
+                && opportunity.Method.DeclaringType.Name
+                    == "FriendSiblingConsumer"
+                && opportunity.Evidence.Contains(
+                    "FriendSiblingGrantor::ReadAsync",
+                    StringComparison.Ordinal));
         var diagnostic = Assert.Single(index.Diagnostics);
         Assert.Contains(
             "MalformedAsyncSourceFixture::AnalyzeAsync",

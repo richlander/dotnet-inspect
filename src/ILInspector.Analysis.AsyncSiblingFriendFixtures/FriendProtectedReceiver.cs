@@ -28,6 +28,16 @@ public sealed class FriendProtectedReceiver
     }
 }
 
+public static class FriendSiblingConsumer
+{
+    public static async Task<int> AnalyzeAsync(
+        FriendSiblingGrantor grantor)
+    {
+        await Task.Yield();
+        return grantor.Read();
+    }
+}
+
 public static class MalformedAsyncSourceFixture
 {
     [AsyncStateMachine(null!)]
