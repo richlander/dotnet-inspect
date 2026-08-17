@@ -14,6 +14,7 @@ internal sealed class BrowserSourceFetchPolicy : ISourceFetchPolicy
             "raw.githubusercontent.com",
             "dev.azure.com",
             "gitlab.com",
+            "api.bitbucket.org",
             "bitbucket.org",
         };
 

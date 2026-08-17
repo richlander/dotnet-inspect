@@ -50,6 +50,7 @@ public sealed class BrowserEngineBoundaryTests
     [InlineData("https://raw.githubusercontent.com/org/repo/commit/A.cs", true)]
     [InlineData("https://dev.azure.com/org/project/_apis/git/A.cs", true)]
     [InlineData("https://org.visualstudio.com/project/_apis/git/A.cs", true)]
+    [InlineData("https://api.bitbucket.org/2.0/repositories/org/repo/src/commit/A.cs", true)]
     [InlineData("https://localhost/A.cs", false)]
     [InlineData("https://127.0.0.1/A.cs", false)]
     [InlineData("https://example.com/A.cs", false)]
