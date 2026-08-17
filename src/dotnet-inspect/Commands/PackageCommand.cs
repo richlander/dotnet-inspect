@@ -3533,7 +3533,12 @@ public class PackageCommand
 
         if (libraryOptions.JsonOutput && !libraryOptions.Count)
         {
-            Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
+            string json = JsonSerializer.Serialize(
+                inspections.ToArray(),
+                JsonContext.Default.LibraryInspectionArray);
+            WriteAllLibrariesOutput(
+                libraryOptions.OutputPath,
+                writer => OutputFormatter.WriteLfLine(writer, json));
             return completionExitCode;
         }
 
@@ -3605,7 +3610,11 @@ public class PackageCommand
             }
         }
         else
-            OutputFormatter.WriteLfLine(Console.Out, markdown);
+        {
+            WriteAllLibrariesOutput(
+                libraryOptions.OutputPath,
+                writer => OutputFormatter.WriteLfLine(writer, markdown));
+        }
         return completionExitCode;
     }
 
@@ -3951,14 +3960,45 @@ public class PackageCommand
             return true;
         }
 
-        OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
+        WriteAllLibrariesOutput(options.OutputPath, output =>
         {
-            var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
-            var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
-            markoutWriter.WriteTable(table.Headers, table.StableHeaders, table.Rows);
-            markoutWriter.Flush();
+            OutputFormatter.WriteTable(output, !options.NoHeader, (writer, formatter) =>
+            {
+                var writerOptions = OutputFormatter.CreateTableWriterOptions(
+                    options.Tsv,
+                    options.Jsonl);
+                var markoutWriter = new MarkoutWriter(
+                    writer,
+                    formatter,
+                    writerOptions);
+                markoutWriter.WriteTable(
+                    table.Headers,
+                    table.StableHeaders,
+                    table.Rows);
+                markoutWriter.Flush();
+            });
         });
         return true;
+    }
+
+    private static void WriteAllLibrariesOutput(
+        string? outputPath,
+        Action<TextWriter> write)
+    {
+        if (string.IsNullOrEmpty(outputPath))
+        {
+            write(Console.Out);
+            return;
+        }
+
+        using var output = new StreamWriter(
+            outputPath,
+            append: false,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
+        {
+            NewLine = "\n"
+        };
+        write(output);
     }
 
     private sealed record AllLibrariesTable(

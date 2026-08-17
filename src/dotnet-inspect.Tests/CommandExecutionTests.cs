@@ -19814,6 +19814,58 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageCommand_AllLibraries_NonCountFormats_WriteToOutputFile()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var formats = new (string Name, string[] Arguments)[]
+            {
+                ("markdown", ["-S", "Library Info", "--rows", "2"]),
+                ("json", ["--json"]),
+                ("table", ["-S", "Library Info", "--rows", "2", "--table"]),
+                ("tsv", ["-S", "Library Info", "--rows", "2", "--tsv"]),
+                ("jsonl", ["-S", "Library Info", "--rows", "2", "--jsonl"])
+            };
+
+            foreach (var (name, arguments) in formats)
+            {
+                string outputPath = Path.Combine(tempDir, $"{name}.txt");
+                var baseline = await RunAppAsync(
+                    [
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "--tips",
+                        "q",
+                        .. arguments
+                    ]);
+                var redirected = await RunAppAsync(
+                    [
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "--tips",
+                        "q",
+                        .. arguments,
+                        "--out",
+                        outputPath
+                    ]);
+
+                Assert.Equal(0, baseline.Exit);
+                Assert.Equal(baseline.Exit, redirected.Exit);
+                Assert.Equal(baseline.Error, redirected.Error);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_LegacyFileSectionNames_StillResolve()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
