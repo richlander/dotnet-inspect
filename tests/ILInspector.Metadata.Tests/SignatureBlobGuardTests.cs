@@ -345,6 +345,22 @@ public class SignatureBlobGuardTests
     public void GenericInstanceClassArgument_IsSafe()
         => Assert.True(GuardTypeSpec([GenericInst, Class, 0x06, 0x01, I4]));
 
+    [Fact]
+    public void MultiByteTypeCodePointerChain_IsUnsafe()
+    {
+        // SRM reads type codes as compressed integers, so 0x80 0x0F is PTR.
+        // A wide GENERICINST argument count would otherwise let the guard treat
+        // each 0x80 as a leaf and miss the nested pointer chain.
+        var blob = new List<byte> { GenericInst, Class, 0x06, 0x04 };
+        for (int i = 0; i < 3; i++)
+        {
+            blob.Add(0x80);
+            blob.Add(Ptr);
+        }
+        blob.Add(I4);
+        Assert.False(GuardTypeSpec(blob.ToArray()));
+    }
+
     static bool GuardTypeSpec(byte[] typeBlob)
     {
         var (reader, handle) = BuildTypeSpec(typeBlob);

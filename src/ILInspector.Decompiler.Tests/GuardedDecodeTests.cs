@@ -152,6 +152,31 @@ public class GuardedDecodeTests
     }
 
     [Fact]
+    public void GetTypeFromSpecification_MultiByteTypeCodePointerChain_DegradesToUnsupported()
+    {
+        byte[] blob =
+        [
+            0x15, // GENERICINST
+            0x12, // CLASS
+            0x06,
+            0x04, // 4 arguments
+            0x80, 0x0f,
+            0x80, 0x0f,
+            0x80, 0x0f,
+            0x08,
+        ];
+        var (reader, handle) = BuildTypeSpec(blob);
+
+        var result = TypeRefDecoder.Instance.GetTypeFromSpecification(
+            reader,
+            GenericScope.Empty,
+            handle,
+            0);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+    }
+
+    [Fact]
     public void GetTypeFromSpecification_GenericInstanceSmuggledHugeArrayShape_DegradesToUnsupported()
     {
         // GENERICINST ARRAY I4 rank=4 sizesCount~536M. If the generic-type slot

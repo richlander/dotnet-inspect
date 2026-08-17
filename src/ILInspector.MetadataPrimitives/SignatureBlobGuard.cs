@@ -333,6 +333,12 @@ public static class SignatureBlobGuard
         ref int remainingTypeNodes)
     {
         byte code = blob.ReadByte();
+        // SRM reads type codes as compressed integers. Canonical codes are a
+        // single byte below 0x80; a multi-byte encoding such as 0x80 0x0F is
+        // PTR to SRM but a leaf here, which desynchronizes the walk and can
+        // hide a deep pointer chain inside a wide GENERICINST argument list.
+        if (code >= 0x80)
+            return true;
         switch (code)
         {
             case ElementTypeCmodReqd:

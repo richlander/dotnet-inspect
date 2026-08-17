@@ -510,6 +510,11 @@ public class LambdaRaisingPassTests
         { "value TypedReference", TypeRef.CoreLib("System", "TypedReference") },
         { "value ArgIterator", TypeRef.CoreLib("System", "ArgIterator") },
         { "value RuntimeArgumentHandle", TypeRef.CoreLib("System", "RuntimeArgumentHandle") },
+        { "function-pointer TypedReference parameter",
+            TypeRef.FunctionPointer(
+                TypeRef.CoreLib("System", "Void"),
+                [TypeRef.CoreLib("System", "TypedReference")],
+                "") },
     };
 
     [Theory]
@@ -906,6 +911,19 @@ public class LambdaRaisingPassTests
             s_int.WithCustomModifier(
                 TypeRef.Unsupported("unsupported modifier"),
                 isRequired: true) },
+        { "TypedReference array",
+            TypeRef.SzArray(TypeRef.CoreLib("System", "TypedReference")) },
+        { "ArgIterator generic argument",
+            TypeRef.GenericInstance(
+                TypeRef.CoreLib("System.Collections.Generic", "List`1"),
+                [TypeRef.CoreLib("System", "ArgIterator")]) },
+        { "TypedReference function-pointer return",
+            TypeRef.FunctionPointer(
+                TypeRef.CoreLib("System", "TypedReference"),
+                [],
+                "") },
+        { "ref RuntimeArgumentHandle",
+            TypeRef.ByRef(TypeRef.CoreLib("System", "RuntimeArgumentHandle")) },
     };
 
     [Theory]

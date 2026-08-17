@@ -463,7 +463,9 @@ internal static class CSharpSpellability
             case TypeRefKind.Definition:
                 return TryGetTotalGenericArity(type.Name, out int definitionArity)
                     && definitionArity == 0
-                    && (AllowsVoid(context) || !IsCoreLibVoid(type));
+                    && (AllowsVoid(context) || !IsCoreLibVoid(type))
+                    && (AllowsRestrictedSpecialType(context)
+                        || !IsRestrictedSpecialType(type));
 
             case TypeRefKind.GenericInstance:
                 return type.ElementType is
@@ -500,7 +502,6 @@ internal static class CSharpSpellability
             case TypeRefKind.ByRef:
                 return AllowsByRef(context)
                     && type.ElementType is { } byRefElement
-                    && !IsRestrictedByRefType(byRefElement)
                     && HasExplicitParameterTypeShape(
                         byRefElement,
                         ExplicitTypeContext.Element,
@@ -573,6 +574,11 @@ internal static class CSharpSpellability
     static bool AllowsVoid(ExplicitTypeContext context)
         => context is ExplicitTypeContext.PointerElement
             or ExplicitTypeContext.FunctionPointerReturn;
+
+    static bool AllowsRestrictedSpecialType(ExplicitTypeContext context)
+        => context is ExplicitTypeContext.Parameter
+            or ExplicitTypeContext.FunctionPointerParameter
+            or ExplicitTypeContext.PointerElement;
 
     static bool GenericParameterIsInScope(
         TypeRef type,
@@ -724,7 +730,7 @@ internal static class CSharpSpellability
             && type.Namespace == "System"
             && type.Name == "Void";
 
-    static bool IsRestrictedByRefType(TypeRef type)
+    static bool IsRestrictedSpecialType(TypeRef type)
         => type.Assembly == TypeRef.CoreLibrary
             && type.Namespace == "System"
             && type.Name is "TypedReference" or "ArgIterator" or "RuntimeArgumentHandle";
