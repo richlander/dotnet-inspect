@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using NuGetFetch;
 
@@ -518,6 +519,49 @@ public sealed class PackageSourceClientTests
                     new PackageSourceCredential("user", "token")));
 
         Assert.Contains("does not accept credentials", error.Message);
+    }
+
+    [Fact]
+    public void GalleryRejectsAmbientAuthorization()
+    {
+        var handler = new RecordingHandler();
+        using var client = new HttpClient(handler);
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "secret");
+
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => PackageSourceClientFactory.Create(
+                PackageSourceDescriptor.NuGetGallery,
+                client));
+
+        Assert.Contains(
+            "without a default Authorization header",
+            error.Message);
+        Assert.Empty(handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryRejectsAuthorizationAddedAfterRegistration()
+    {
+        var handler = new RecordingHandler();
+        using var client = new HttpClient(handler);
+        IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                PackageSourceDescriptor.NuGetGallery,
+                client);
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "secret");
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "gained a default Authorization header",
+            error.Message);
+        Assert.Empty(handler.Requested);
     }
 
     [Fact]

@@ -571,7 +571,9 @@ indexes as runtime-only configuration rather than admitting them into a
 portable descriptor.
 The Gallery descriptor creates a runtime client that uses the known search,
 flat-container, package, and symbol CDN routes without requesting the NuGet.org
-service index. Its initial version-enumeration result is the complete raw
+service index. It requires a dedicated credential-free `HttpClient`; a default
+`Authorization` header is rejected at registration and rechecked before every
+operation. Its initial version-enumeration result is the complete raw
 flat-container list. The current string-only result cannot carry per-version
 Gallery listing state, so the registration join and listing-aware candidate
 contract remain follow-up work; callers must not write this result into a
