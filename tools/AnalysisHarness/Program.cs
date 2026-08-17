@@ -32,9 +32,10 @@ const string Usage =
           true/false-positive judgement. No automatic oracle.
 
       --clone-corpus <assembly> [--relationship-ledger <file>] [--json]
-          Grade product-owned structural clone comparison and exact discovery against the
-          committed closed-world corpus. The harness resolves typed metadata identities and does
-          not reconstruct candidate retrieval, normalization, correspondence, or verification.
+          Grade product-owned exact/near structural clone comparison and exact discovery against
+          the committed closed-world corpus. The harness resolves typed metadata identities and
+          does not reconstruct retrieval, normalization, alignment, correspondence, or
+          verification.
 
       --clone-census <assembly> [--seed <0xMethodDef|Type::Method>] [--top N]
           Run bounded product-owned exact discovery over every MethodDef in one assembly.

@@ -120,6 +120,42 @@ public class AuthoredSourceAcquisitionTests
     }
 
     [Fact]
+    public void FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence()
+    {
+        byte[] content = Encoding.UTF8.GetBytes(
+            new string(
+                '\n',
+                AuthoredSourceAcquisition
+                    .MaxAuthoredSourceLineCount));
+        var mapping =
+            new ILInspector.SourceLink.SourceLinkResolver
+                .TypeSourceInfo(
+                    "/_/Sample.cs",
+                    "https://example.test/Sample.cs",
+                    LineNumber: null,
+                    GitHubBrowseUrl: null);
+
+        AuthoredTypeSourceInspection result =
+            AuthoredSourceAcquisition.FromTypeContent(
+                mapping,
+                Document(content),
+                content,
+                Subject);
+
+        var failed =
+            Assert.IsType<FindingInspection<string>.Failed>(
+                result.Lines.Value);
+        Assert.Contains(
+            "finding complexity limit",
+            failed.Error.Reason,
+            StringComparison.Ordinal);
+        Assert.Null(result.Text);
+        Assert.Equal(
+            SourceChecksumVerification.Exact,
+            result.ChecksumVerification);
+    }
+
+    [Fact]
     public void VerifyChecksum_AcceptsLineEndingNormalization()
     {
         byte[] expected = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\n"));

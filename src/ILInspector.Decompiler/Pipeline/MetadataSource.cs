@@ -26,7 +26,7 @@ public sealed class MetadataSource : IDisposable
     DecompilerSymbolSource _symbols = DecompilerSymbolSource.None;
     readonly string? _externalPdbPath;
     readonly bool _readSymbols;
-    readonly IAssemblyReferenceResolver _resolver;
+    readonly IAssemblyBindingPolicy _bindingPolicy;
     readonly ResolvedAssemblyReference _assembly;
     readonly MetadataContext? _suppliedContext;
     MetadataContext? _crossContext;
@@ -34,7 +34,7 @@ public sealed class MetadataSource : IDisposable
     CrossAssemblyTypeResolver? _crossAssembly;
     readonly object _crossLock = new();
 
-    MetadataSource(string path, string? filePath, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyReferenceResolver resolver, MetadataContext? context)
+    MetadataSource(string path, string? filePath, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyBindingPolicy bindingPolicy, MetadataContext? context)
     {
         Path = path;
         FilePath = filePath;
@@ -45,7 +45,7 @@ public sealed class MetadataSource : IDisposable
         _assembly = assembly;
         _externalPdbPath = externalPdbPath;
         _readSymbols = readSymbols;
-        _resolver = resolver;
+        _bindingPolicy = bindingPolicy;
         _suppliedContext = context;
     }
 
@@ -144,6 +144,22 @@ public sealed class MetadataSource : IDisposable
         => OpenCore(assembly, externalPdbPath, readSymbols: true, resolver, context);
 
     /// <summary>
+    /// Opens a descriptor-backed assembly under an existing immutable
+    /// assembly-binding policy.
+    /// </summary>
+    public static MetadataSource Open(
+        ResolvedAssemblyReference assembly,
+        string? externalPdbPath,
+        IAssemblyBindingPolicy bindingPolicy,
+        MetadataContext? context = null)
+        => OpenCore(
+            assembly,
+            externalPdbPath,
+            readSymbols: true,
+            bindingPolicy,
+            context);
+
+    /// <summary>
     /// Opens an assembly without consulting any portable PDB, so local names are
     /// never recovered and the printer renders <c>V_index</c> slots. Use this for
     /// deterministic, symbol-independent output: the same DLL renders identically
@@ -157,6 +173,17 @@ public sealed class MetadataSource : IDisposable
 
     public static MetadataSource OpenWithoutSymbols(ResolvedAssemblyReference assembly, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
         => OpenCore(assembly, externalPdbPath: null, readSymbols: false, resolver, context);
+
+    public static MetadataSource OpenWithoutSymbols(
+        ResolvedAssemblyReference assembly,
+        IAssemblyBindingPolicy bindingPolicy,
+        MetadataContext? context = null)
+        => OpenCore(
+            assembly,
+            externalPdbPath: null,
+            readSymbols: false,
+            bindingPolicy,
+            context);
 
     /// <summary>
     /// Default referenced-assembly probing policy for callers that need to share
@@ -193,8 +220,18 @@ public sealed class MetadataSource : IDisposable
                 fullPath,
                 () => File.OpenRead(fullPath),
                 AssemblyResolutionProvenance.Local("MetadataSource"));
-            // The path overload was opened from a file, so FilePath is that same path.
-            return new MetadataSource(path, path, stream, peReader, reader, assemblyName, assembly, externalPdbPath, readSymbols, effectiveResolver, context);
+            return new MetadataSource(
+                path,
+                path,
+                stream,
+                peReader,
+                reader,
+                assemblyName,
+                assembly,
+                externalPdbPath,
+                readSymbols,
+                new AssemblyReferenceBindingPolicy(effectiveResolver),
+                context);
         }
         catch
         {
@@ -205,7 +242,22 @@ public sealed class MetadataSource : IDisposable
     }
 
     static MetadataSource OpenCore(ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyReferenceResolver resolver, MetadataContext? context)
+        => OpenCore(
+            assembly,
+            externalPdbPath,
+            readSymbols,
+            new AssemblyReferenceBindingPolicy(resolver),
+            context);
+
+    static MetadataSource OpenCore(
+        ResolvedAssemblyReference assembly,
+        string? externalPdbPath,
+        bool readSymbols,
+        IAssemblyBindingPolicy bindingPolicy,
+        MetadataContext? context)
     {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
         var stream = assembly.OpenRead();
         PEReader? peReader = null;
         try
@@ -218,8 +270,18 @@ public sealed class MetadataSource : IDisposable
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : assembly.Identity.Name;
             string path = assembly.Path ?? assembly.Identity.Name;
-            // A stream-backed descriptor has no file, and Path fell back to its identity name.
-            return new MetadataSource(path, assembly.Path, stream, peReader, reader, assemblyName, assembly, externalPdbPath, readSymbols, resolver, context);
+            return new MetadataSource(
+                path,
+                assembly.Path,
+                stream,
+                peReader,
+                reader,
+                assemblyName,
+                assembly,
+                externalPdbPath,
+                readSymbols,
+                bindingPolicy,
+                context);
         }
         catch
         {
@@ -336,7 +398,8 @@ public sealed class MetadataSource : IDisposable
                 {
                     if (_crossContext is null)
                     {
-                        _crossContext = new MetadataContext(_resolver);
+                        _crossContext = new MetadataContext(
+                            _bindingPolicy);
                         _ownsCrossContext = true;
                     }
                 }
@@ -927,10 +990,11 @@ public sealed class MetadataSource : IDisposable
     }
 
     /// <summary>
-    /// The associated portable PDB reader — embedded in the PE or a sidecar
-    /// <c>.pdb</c> next to it — opened once and cached. Null when no PDB is
-    /// found or it cannot be read; the importer then leaves local names absent
-    /// and the printer falls back to <c>V_index</c>.
+    /// The associated portable PDB reader — embedded in the PE, or a sidecar
+    /// <c>.pdb</c> when the assembly descriptor exposes a path — opened once
+    /// and cached. Null when no PDB is found or it cannot be read; the importer
+    /// then leaves local names absent and the printer falls back to
+    /// <c>V_index</c>.
     /// </summary>
     readonly object _pdbLock = new();
     
@@ -951,7 +1015,19 @@ public sealed class MetadataSource : IDisposable
             }
         try
         {
-            if (Pe.TryOpenAssociatedPortablePdb(Path, p => File.Exists(p) ? File.OpenRead(p) : null, out var provider, out var pdbPath)
+            string peImagePath = FilePath ?? Path;
+            Func<string, Stream?> pdbStreamProvider =
+                FilePath is null
+                    ? static _ => null
+                    : static path =>
+                        File.Exists(path)
+                            ? File.OpenRead(path)
+                            : null;
+            if (Pe.TryOpenAssociatedPortablePdb(
+                    peImagePath,
+                    pdbStreamProvider,
+                    out var provider,
+                    out var pdbPath)
                 && provider is not null)
             {
                 _pdbProvider = provider;

@@ -3457,25 +3457,35 @@ public class PackageCommand
         var queryRegistry = catalog.QueryRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
-        if (libraryOptions.Discover == null && libraryOptions.SelectDefault)
+        libraryOptions = LibraryCommand.NormalizeBareSelect(libraryOptions);
+        libraryOptions = libraryOptions with
         {
-            libraryOptions = libraryOptions with { SelectDefault = false };
-            if (libraryOptions.Select is null && libraryOptions.Verbosity == Verbosity.Minimal)
-            {
-                libraryOptions = libraryOptions with
-                {
-                    Verbosity = Verbosity.Normal,
-                    FixedOverview = true
-                };
-            }
-        }
+            UserVerbosityOverride = libraryOptions.Verbosity,
+        };
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
-            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap(),
+            libraryOptions.Select,
+            pipeline.SelectableSectionNames,
+            pipeline.InfoSectionNames,
+            pipeline.GetCategoryMap(),
             selectDefault: libraryOptions.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
-            libraryOptions = libraryOptions with { IncludeSections = selectResult.Sections };
+        {
+            if (LibraryCommand.ApplyCoordinateSectionRequirements(
+                    libraryOptions,
+                    selectResult) is { } coordinateError)
+            {
+                CommandError.Write(coordinateError);
+                return 1;
+            }
+
+            libraryOptions = libraryOptions with
+            {
+                IncludeSections = selectResult.Sections,
+                ExactIncludeSectionsOverride = selectResult.ExactSections,
+            };
+        }
 
         if (libraryOptions.Count)
         {
@@ -3506,13 +3516,17 @@ public class PackageCommand
                 candidates.Contains(SectionNames.IdentifierConfusion),
         };
 
-        var scanners = pipeline.GetRequiredScanners(libraryOptions.Verbosity, libraryOptions.IncludeSections);
+        var scanners = pipeline.GetRequiredScanners(
+            libraryOptions.Verbosity,
+            libraryOptions.IncludeSections,
+            libraryOptions.FixedOverview);
         List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
         if (libraryOptions.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
         var queries = pipeline.GetRequiredQueries(
             libraryOptions.Verbosity,
             libraryOptions.IncludeSections,
+            libraryOptions.FixedOverview,
             commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
@@ -3668,7 +3682,7 @@ public class PackageCommand
             return completionExitCode;
         }
 
-        if (libraryOptions.TabularExplicitlySet)
+        if (libraryOptions.TabularExplicitlySet && !libraryOptions.Count)
         {
             if (!WriteAllLibrariesTable(packageName, version, inspections, sections, libraryOptions))
                 return 1;
@@ -3958,7 +3972,10 @@ public class PackageCommand
             var sections = selectAll
                 ? pipeline.GetAllSelectorSections(inspection)
                 : pipeline.GetEffectiveSections(
-                    inspection, options.Verbosity, options.IncludeSections, options.FixedOverview);
+                    inspection,
+                    options.Verbosity,
+                    options.IncludeSections,
+                    options.FixedOverview);
             foreach (var section in sections)
             {
                 if (!union.Contains(section, StringComparer.OrdinalIgnoreCase))
@@ -4193,7 +4210,8 @@ public class PackageCommand
         List<LibraryInspection> inspections,
         List<string> sections,
         LibraryOptions options,
-        SectionPipeline<LibraryInspection> pipeline)
+        SectionPipeline<LibraryInspection> pipeline,
+        Dictionary<string, int>? sectionCounts)
     {
         var sb = new StringBuilder();
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
@@ -4201,10 +4219,19 @@ public class PackageCommand
 
         foreach (var section in sections)
         {
+            var sectionStart = sb.Length;
             if (IsAggregatedAllLibrariesSection(section))
                 AppendAggregatedSection(sb, section, inspections, options.Rows);
             else
                 AppendPerLibrarySections(sb, section, inspections, options, pipeline);
+            if (sectionCounts is not null)
+            {
+                sectionCounts[section] =
+                    CountOutput.CountMarkdownTableRows(
+                        sb.ToString(
+                            sectionStart,
+                            sb.Length - sectionStart));
+            }
         }
 
         return sb.ToString().TrimEnd();
@@ -4426,11 +4453,18 @@ public class PackageCommand
         foreach (var inspection in inspections)
         {
             if (!pipeline.GetEffectiveSections(
-                    inspection, options.Verbosity, options.IncludeSections, options.FixedOverview)
+                    inspection,
+                    options.Verbosity,
+                    options.IncludeSections,
+                    options.FixedOverview)
                 .Contains(section, StringComparer.OrdinalIgnoreCase))
                 continue;
 
-            var rendered = RenderLibrarySection(inspection, section, options);
+            var rendered = RenderLibrarySection(
+                inspection,
+                section,
+                options,
+                pipeline);
             if (rendered.Length == 0)
                 continue;
 
@@ -4438,29 +4472,25 @@ public class PackageCommand
         }
     }
 
-    private static string RenderLibrarySection(LibraryInspection inspection, string section, LibraryOptions options)
+    private static string RenderLibrarySection(
+        LibraryInspection inspection,
+        string section,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
     {
-        string markdown;
-        if (MetadataSectionNames.IsMetadataSection(section))
+        var view = new LibraryInspectionView(inspection);
+        var writerOptions = new MarkoutWriterOptions
         {
-            markdown = MetadataLensRenderer.RenderMarkdown(
-                    inspection,
-                    [section],
-                    options.Fields ?? options.Columns) ?? "";
-            markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows).Trim();
-        }
-        else
-        {
-            var view = new LibraryInspectionView(inspection);
-            var output = new StringWriter { NewLine = "\n" };
-            MarkoutSerializer.Serialize(
+            IncludeSections = [section],
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields),
+        };
+        var markdown = OutputFormatter.SerializeLibraryMarkdown(
                 view,
-                output,
-                InspectionContext.Default,
-                CreateAllLibrariesWriterOptions(section, options));
-            markdown = output.ToString().Trim();
-        }
-
+                inspection,
+                writerOptions,
+                pipeline,
+                options.Rows)
+            .Trim();
         if (markdown.Length == 0)
             return "";
 
