@@ -9782,6 +9782,65 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void Member_BodylessAccessorDoesNotAuthorizeSourceResolution()
+    {
+        var type = new ApiType
+        {
+            Name = "IContract",
+            Kind = "interface",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001,
+                    AccessorFacts =
+                    [
+                        new ApiAccessor
+                        {
+                            Kind = "get",
+                            MethodName = "get_Value",
+                            IsAbstract = true,
+                            HasMethodBody = false,
+                        }
+                    ],
+                }
+            ],
+        };
+        var options = new MemberOptions
+        {
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.OriginalSource,
+            },
+        };
+
+        Assert.False(MemberCommand.NeedsMemberSourceResolution(type, options));
+    }
+
+    [Fact]
+    public async Task Member_BodylessConcreteAccessor_DecompiledSourceRendersDiagnostic()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Environment",
+            "--platform",
+            "System.Runtime",
+            "ExitCode:1",
+            "-S",
+            "Decompiled Source",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("DEC0001", output, StringComparison.Ordinal);
+        Assert.Contains("has no IL body", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Member_HostileIlOperand_StaysInsideMarkdownAndJsonCodeSections()
     {
         const string injected = "public int Injected() => 42; //";

@@ -611,6 +611,9 @@ public class ApiAccessor
     public string? Accessibility { get; set; }
     public List<string> ReturnAttributes { get; set; } = [];
 
+    [JsonIgnore]
+    public string? MethodName { get; set; }
+
     /// <summary>
     /// Body facts for the accessor MethodDef. These remain in-process because the serialized
     /// API shape predates accessor-level body inspection.

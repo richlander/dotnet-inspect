@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Output;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
 
@@ -14,10 +15,12 @@ public class ApiSurfaceExtractorTests
     static readonly CSharpFormatter AttributeFormatter = new(
         new CSharpFormatOptions { IncludeCustomAttributes = true });
 
-    [Fact]
-    public void Extract_EventAccessorFactsPreserveDistinctAccessibility()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Extract_EventAccessorFactsPreserveDistinctAccessibility(bool publicAdder)
     {
-        string path = EmitEventWithDistinctAccessorAccessibility();
+        string path = EmitEventWithDistinctAccessorAccessibility(publicAdder);
         try
         {
             using var peReader = new PEReader(File.OpenRead(path));
@@ -25,12 +28,20 @@ public class ApiSurfaceExtractorTests
             var type = Assert.Single(surface.Types, type => type.Name == "EventAccess");
             var evt = Assert.Single(type.Members, member => member.Kind == "event");
 
-            Assert.Null(Assert.Single(evt.AccessorFacts, accessor => accessor.Kind == "add")
-                .Accessibility);
-            Assert.Equal(
-                "private",
-                Assert.Single(evt.AccessorFacts, accessor => accessor.Kind == "remove")
-                    .Accessibility);
+            var add = Assert.Single(evt.AccessorFacts, accessor => accessor.Kind == "add");
+            var remove = Assert.Single(evt.AccessorFacts, accessor => accessor.Kind == "remove");
+            Assert.Equal(publicAdder ? null : "private", add.Accessibility);
+            Assert.Equal(publicAdder ? "private" : null, remove.Accessibility);
+
+            var defaultSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+            Assert.Contains(
+                Assert.Single(defaultSurface.Types, type => type.Name == "EventAccess").Members,
+                member => member.Kind == "event");
+
+            var publicAccessor = Assert.Single(
+                ApiOutputFormatter.AccessorMethods(evt, type),
+                accessor => accessor.Name == (publicAdder ? "add_Changed" : "remove_Changed"));
+            Assert.Null(publicAccessor.Accessibility);
         }
         finally
         {
@@ -1587,7 +1598,7 @@ public class ApiSurfaceExtractorTests
         return path;
     }
 
-    static string EmitEventWithDistinctAccessorAccessibility()
+    static string EmitEventWithDistinctAccessorAccessibility(bool publicAdder)
     {
         var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
             new System.Reflection.AssemblyName("EventAccessEmit"),
@@ -1596,19 +1607,21 @@ public class ApiSurfaceExtractorTests
         var type = module.DefineType(
             "EventAccess",
             System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+        var publicAttributes = System.Reflection.MethodAttributes.Public
+            | System.Reflection.MethodAttributes.SpecialName
+            | System.Reflection.MethodAttributes.HideBySig;
+        var privateAttributes = System.Reflection.MethodAttributes.Private
+            | System.Reflection.MethodAttributes.SpecialName
+            | System.Reflection.MethodAttributes.HideBySig;
         var adder = type.DefineMethod(
             "add_Changed",
-            System.Reflection.MethodAttributes.Public
-                | System.Reflection.MethodAttributes.SpecialName
-                | System.Reflection.MethodAttributes.HideBySig,
+            publicAdder ? publicAttributes : privateAttributes,
             typeof(void),
             [typeof(Action)]);
         adder.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
         var remover = type.DefineMethod(
             "remove_Changed",
-            System.Reflection.MethodAttributes.Private
-                | System.Reflection.MethodAttributes.SpecialName
-                | System.Reflection.MethodAttributes.HideBySig,
+            publicAdder ? privateAttributes : publicAttributes,
             typeof(void),
             [typeof(Action)]);
         remover.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);

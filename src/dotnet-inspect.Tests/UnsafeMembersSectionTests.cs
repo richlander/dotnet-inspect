@@ -344,11 +344,6 @@ public class UnsafeMembersSectionTests
     public void TypeUnsafeMembers_RendersFailuresFromNonSurfaceDeclaredMethods()
     {
         var index = LibraryBodyIndex.Open(typeof(SampleUnsafeClass).Assembly.Location);
-        var generatedMethod = Assert.Single(
-            index.DeclaredMethods,
-            method => method.Name.StartsWith(
-                "<InvokeDiagnosticProbe>g__DiagnosticProbe",
-                StringComparison.Ordinal));
         var otherTypeMethod = Assert.Single(
             index.DeclaredMethods,
             method => method.Name == nameof(SamplePInvokeClass.GetCurrentProcessId));
@@ -357,6 +352,7 @@ public class UnsafeMembersSectionTests
             Namespace = typeof(SampleUnsafeClass).Namespace,
             Name = nameof(SampleUnsafeClass),
             Kind = "class",
+            MetadataToken = 0x0200FFFE,
         };
         var view = new TypeView();
 
@@ -366,20 +362,22 @@ public class UnsafeMembersSectionTests
             index,
             [
                 new AnalysisDiagnostic(
-                    generatedMethod.MetadataToken,
-                    generatedMethod.Name,
-                    "BadImageFormatException: malformed body"),
+                    0x0600FFFE,
+                    "MalformedIdentity",
+                    "BadImageFormatException: malformed signature",
+                    type.MetadataToken),
                 new AnalysisDiagnostic(
                     otherTypeMethod.MetadataToken,
                     otherTypeMethod.Name,
-                    "BadImageFormatException: unrelated body")
+                    "BadImageFormatException: unrelated body",
+                    0x0200FFFF)
             ]);
 
         var row = Assert.Single(
             view.UnsafeMemberRows!,
             candidate => candidate.Kind == "diagnostic");
         Assert.Equal("Analysis failed", row.Reason);
-        Assert.Contains("malformed body", row.Detail);
+        Assert.Contains("malformed signature", row.Detail);
         Assert.DoesNotContain(
             view.UnsafeMemberRows!,
             candidate => candidate.Detail.Contains("unrelated body", StringComparison.Ordinal));

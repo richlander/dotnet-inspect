@@ -129,23 +129,23 @@ public static class ApiMemberSectionDescriptors
             .Add<Events>()
             .Add<MethodAttributes>()
             .Add<UnsafeMembers>()
-            .Add<ExceptionRegions>(HasExecutableBodyMembers, HasExecutableBodyMembers)
-            .Add<CalledTypes>(HasExecutableBodyMembers, HasExecutableBodyMembers)
-            .Add<AllocationFacts>(HasExecutableBodyMembers, HasExecutableBodyMembers)
-            .Add<SafetyFacts>(HasExecutableBodyMembers, HasExecutableBodyMembers)
-            .Add<CostFacts>(HasExecutableBodyMembers, HasExecutableBodyMembers)
-            .Add<TopLeverage>(HasExecutableBodyMembers, HasExecutableBodyMembers)
-            .Add<OptimizationOpportunities>(HasExecutableBodyMembers, HasExecutableBodyMembers)
+            .Add<ExceptionRegions>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<CalledTypes>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<AllocationFacts>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<SafetyFacts>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<CostFacts>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<TopLeverage>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<OptimizationOpportunities>(HasBodyBackedMembers, HasExecutableBodyMembers)
             .Add<SourceFiles>(HasSourceFiles, HasSourceFiles)
             .Add<DecompiledSource>(
-                HasExecutableBodyMembersOrEnum,
+                HasBodyBackedMembersOrEnum,
                 HasExecutableBodyMembersOrEnum)
-            .Add<OriginalSource>(HasExecutableBodyMembers, HasExecutableBodyMembers)
+            .Add<OriginalSource>(HasBodyBackedMembers, HasExecutableBodyMembers)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(
                 HasSingleExecutableBodyMember,
                 isViewApplicable: HasSingleExecutableBodyMember)
-            .Add<ILBody>(HasExecutableBodyMembers, HasExecutableBodyMembers)
-            .Add<Facts>(HasSingleExecutableBodyMember, HasSingleExecutableBodyMember)
+            .Add<ILBody>(HasBodyBackedMembers, HasExecutableBodyMembers)
+            .Add<Facts>(HasSingleBodyBackedMember, HasSingleExecutableBodyMember)
             .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
     }
 
@@ -587,11 +587,20 @@ public static class ApiMemberSectionDescriptors
     private static bool HasExecutableBodyMembers(ApiType model)
         => model.Members.Any(HasExecutableBody);
 
+    private static bool HasBodyBackedMembers(ApiType model)
+        => model.Members.Any(IsBodyBacked);
+
+    private static bool HasSingleBodyBackedMember(ApiType model)
+        => model.Members.Count == 1 && model.Members.Any(IsBodyBacked);
+
     private static bool HasSingleExecutableBodyMember(ApiType model)
         => model.Members.Count == 1 && model.Members.Any(HasExecutableBody);
 
     private static bool HasExecutableBodyMembersOrEnum(ApiType model)
         => model.Kind == "enum" || HasExecutableBodyMembers(model);
+
+    private static bool HasBodyBackedMembersOrEnum(ApiType model)
+        => model.Kind == "enum" || HasBodyBackedMembers(model);
 }
 
 /// <summary>

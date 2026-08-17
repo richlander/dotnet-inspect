@@ -109,6 +109,8 @@ public static class MetadataDeclarationQuery
         var accessorMethods = ApiSurfaceExtractor.GetAccessorMethods(reader, typeDef);
         var canonicalAccessorMethods =
             ApiSurfaceExtractor.GetCanonicalAccessorMethods(reader, typeDef);
+        var hiddenAggregateAccessorMethods =
+            ApiSurfaceExtractor.GetNonPublicAggregateAccessorMethods(reader, typeDef);
         var explicitImplementationBodies =
             ApiSurfaceExtractor.GetExplicitImplementationBodies(reader, typeDef);
         var explicitInterfaceImplementationBodies =
@@ -252,7 +254,9 @@ public static class MetadataDeclarationQuery
             var isRetainedImplementationAccessor = explicitImplementationBodies.Contains(methodHandle)
                 && (methodName.Contains('.', StringComparison.Ordinal)
                     || (explicitInterfaceImplementationBodies.Contains(methodHandle)
-                        && !canonicalAccessorMethods.Contains(methodHandle)));
+                        && (!canonicalAccessorMethods.Contains(methodHandle)
+                            || (!includeNonPublicMembers
+                                && hiddenAggregateAccessorMethods.Contains(methodHandle)))));
             if (accessorMethods.Contains(methodHandle) && !isRetainedImplementationAccessor)
                 continue;
             if (methodName.StartsWith('<'))
@@ -331,8 +335,10 @@ public static class MetadataDeclarationQuery
         return new ApiAccessor
         {
             Kind = kind,
+            MethodName = reader.GetString(method.Name),
             Accessibility = NonPublicAccessibility(
                 method.Attributes & MethodAttributes.MemberAccessMask),
+            ReturnAttributes = ReturnAttributes(reader, method.GetParameters()).ToList(),
             HasMethodBody = method.RelativeVirtualAddress != 0,
             IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
         };

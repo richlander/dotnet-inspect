@@ -576,7 +576,11 @@ public static class MemberCommand
 
     internal static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {
-        var sections = ApiCommand.GetRequestedMemberSections(apiType, options);
+        var requestedSections = ApiCommand.GetRequestedMemberSections(apiType, options);
+        var sections = ApiOutputFormatter.ResolveExecutionSections(
+            apiType,
+            requestedSections,
+            options.OverloadIndex);
         if (sections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
             return true;
 

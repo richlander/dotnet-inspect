@@ -1452,6 +1452,13 @@ public class ApiCommand
             using var service = SourceLinkService.Open(dllPath, logger.Log);
             var context = service.Context;
 
+            // A member with no IL body has no authored source and needs no PDB acquisition.
+            // Ask metadata first so bodyless accessor selections cannot trigger symbol-server
+            // or source work for a view that will only render an unavailable-state diagnostic.
+            bool memberHasNoBody = metadataToken != 0 && context.MethodHasBody(metadataToken) == false;
+            if (memberHasNoBody)
+                return new ResolvedMethodSource(null, context.PortablePdbPath, MemberHasNoBody: true);
+
             // Acquire PDB if needed (same flow as SourceEnricher)
             if (context.NeedsPdb)
             {
@@ -1468,12 +1475,6 @@ public class ApiCommand
             // Capture the acquired portable PDB path now so the decompiler can reuse it for local
             // names even when SourceLink/source resolution below fails (PDB available, source not).
             string? pdbPath = context.PortablePdbPath;
-
-            // A member with no IL body has no authored source to resolve, whatever the PDB and
-            // SourceLink situation is. Ask metadata for that fact before the resolution attempt,
-            // so an empty result can say why instead of looking like a silent failure
-            // (issue #3299). Only a definite "no" counts; an unreadable token stays unknown.
-            bool memberHasNoBody = metadataToken != 0 && context.MethodHasBody(metadataToken) == false;
 
             if (!fetchSource || !service.HasPdb || !service.HasSourceLink)
                 return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);

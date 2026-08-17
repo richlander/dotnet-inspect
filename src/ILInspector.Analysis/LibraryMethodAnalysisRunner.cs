@@ -389,7 +389,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                 MethodLabel(
                     typeHandle,
                     methodHandle),
-                $"{ex.GetType().Name}: {ex.Message}");
+                $"{ex.GetType().Name}: {ex.Message}",
+                MetadataTokens.GetToken(typeHandle));
             if (includeLeakTriage
                 && result.LeakTriage is null)
             {

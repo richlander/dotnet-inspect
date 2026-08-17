@@ -46,6 +46,46 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void AccessorMethods_PreserveMethodDefNameAndPublicAccessibility()
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            Accessibility = "private",
+            GetterToken = 0x06000001,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Value",
+                Accessors = [new ApiAccessor { Kind = "get", Accessibility = "private" }],
+            },
+            AccessorFacts =
+            [
+                new ApiAccessor
+                {
+                    Kind = "get",
+                    MethodName = "Read",
+                    Accessibility = null,
+                    HasMethodBody = true,
+                }
+            ],
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members = [property],
+        };
+
+        var accessor = Assert.Single(ApiOutputFormatter.AccessorMethods(property, type));
+
+        Assert.Equal("Read", accessor.Name);
+        Assert.Null(accessor.Accessibility);
+    }
+
+    [Fact]
     public void SameType_NestedType_StillMatches()
     {
         // A genuinely nested type: analysis TypeRef uses the metadata '+'

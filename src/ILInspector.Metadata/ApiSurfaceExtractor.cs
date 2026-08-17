@@ -578,6 +578,8 @@ public static class ApiSurfaceExtractor
                 GetExplicitInterfaceImplementationBodies(reader, typeDef);
             var accessorMethods = GetAccessorMethods(reader, typeDef);
             var canonicalAccessorMethods = GetCanonicalAccessorMethods(reader, typeDef);
+            var hiddenAggregateAccessorMethods =
+                GetNonPublicAggregateAccessorMethods(reader, typeDef);
 
             // Methods whose explicit `.override` MethodImpl targets
             // `System.Object::Finalize` — i.e. genuine class finalizers, the
@@ -594,7 +596,9 @@ public static class ApiSurfaceExtractor
                 var isRetainedImplementationAccessor = isExplicitInterfaceImplementation
                     && (methodName.Contains('.', StringComparison.Ordinal)
                         || (explicitInterfaceImplementationBodies.Contains(methodHandle)
-                            && !canonicalAccessorMethods.Contains(methodHandle)));
+                            && (!canonicalAccessorMethods.Contains(methodHandle)
+                                || (!includeAll
+                                    && hiddenAggregateAccessorMethods.Contains(methodHandle)))));
                 if (accessorMethods.Contains(methodHandle) && !isRetainedImplementationAccessor)
                     continue;
                 if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
@@ -923,7 +927,15 @@ public static class ApiSurfaceExtractor
 
                 var adder = reader.GetMethodDefinition(accessors.Adder);
                 var adderAccess = adder.Attributes & MethodAttributes.MemberAccessMask;
-                if (adderAccess != MethodAttributes.Public && !includeAll)
+                var bestAccess = adderAccess;
+                if (!accessors.Remover.IsNil)
+                {
+                    var remover = reader.GetMethodDefinition(accessors.Remover);
+                    var removerAccess = remover.Attributes & MethodAttributes.MemberAccessMask;
+                    if (removerAccess > bestAccess)
+                        bestAccess = removerAccess;
+                }
+                if (bestAccess != MethodAttributes.Public && !includeAll)
                     continue;
 
                 // Skip EditorBrowsable(Never) events unless --all; obsolete are surfaced with marker.
@@ -1020,7 +1032,7 @@ public static class ApiSurfaceExtractor
                     IsSealed = isOverrideEvent && (adderAttributes & MethodAttributes.Final) != 0,
                     IsUnsafe = HasUnsafeSignature(reader, evt)
                         || AttributeReader.HasRequiresUnsafeAttribute(reader, evt.GetCustomAttributes()),
-                    Accessibility = GetAccessibility(adderAccess),
+                    Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     AdderToken = accessors.Adder.IsNil
@@ -1967,6 +1979,61 @@ public static class ApiSurfaceExtractor
         }
 
         return methods;
+    }
+
+    internal static HashSet<MethodDefinitionHandle> GetNonPublicAggregateAccessorMethods(
+        MetadataReader reader,
+        TypeDefinition type)
+    {
+        HashSet<MethodDefinitionHandle> methods = [];
+
+        foreach (var propertyHandle in type.GetProperties())
+        {
+            var accessors = reader.GetPropertyDefinition(propertyHandle).GetAccessors();
+            if (BestAccessorAccess(accessors.Getter, accessors.Setter) != MethodAttributes.Public)
+            {
+                Add(accessors.Getter);
+                Add(accessors.Setter);
+            }
+        }
+
+        foreach (var eventHandle in type.GetEvents())
+        {
+            var accessors = reader.GetEventDefinition(eventHandle).GetAccessors();
+            if (BestAccessorAccess(accessors.Adder, accessors.Remover) != MethodAttributes.Public)
+            {
+                Add(accessors.Adder);
+                Add(accessors.Remover);
+            }
+        }
+
+        return methods;
+
+        MethodAttributes BestAccessorAccess(
+            MethodDefinitionHandle first,
+            MethodDefinitionHandle second)
+        {
+            MethodAttributes best = 0;
+            AddAccess(first);
+            AddAccess(second);
+            return best;
+
+            void AddAccess(MethodDefinitionHandle handle)
+            {
+                if (handle.IsNil)
+                    return;
+                var access = reader.GetMethodDefinition(handle).Attributes
+                    & MethodAttributes.MemberAccessMask;
+                if (access > best)
+                    best = access;
+            }
+        }
+
+        void Add(MethodDefinitionHandle handle)
+        {
+            if (!handle.IsNil)
+                methods.Add(handle);
+        }
     }
 
     internal static HashSet<MethodDefinitionHandle> GetCanonicalAccessorMethods(
@@ -3285,6 +3352,7 @@ public static class ApiSurfaceExtractor
         return new ApiAccessor
         {
             Kind = kind,
+            MethodName = reader.GetString(method.Name),
             Accessibility = GetAccessorAccessibility(method.Attributes),
             ReturnAttributes = ReturnParameterAttributes(reader, method.GetParameters()),
             HasMethodBody = method.RelativeVirtualAddress != 0,

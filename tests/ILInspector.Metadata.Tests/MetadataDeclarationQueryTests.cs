@@ -393,6 +393,41 @@ public sealed class MetadataDeclarationQueryTests
             Assert.DoesNotContain(surface.Members, member => member.Name == "get_IListItem");
             Assert.DoesNotContain(surface.Members, member => member.Name == "set_IListItem");
         }
+
+        var defaultQueried = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: false);
+        var defaultExtracted = Assert.Single(
+            ApiSurfaceExtractor.Extract(peReader, includeAll: false).Types,
+            type => type.FullName == "Microsoft.VisualBasic.Collection");
+        foreach (var surface in new[] { defaultQueried, defaultExtracted })
+        {
+            Assert.DoesNotContain(surface.Members, member => member.Name == "ICollectionCount");
+            Assert.Contains(surface.Members, member => member.Name == "get_ICollectionCount");
+        }
+    }
+
+    [Fact]
+    public void TypeSurface_AccessorFactsPreserveReturnAttributes()
+    {
+        var surface = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures)),
+            includeNonPublicMembers: true);
+        var property = Assert.Single(
+            surface.Members,
+            member => member.Name == nameof(
+                MetadataDeclarationQueryFixtures.PropertyWithReturnNotNull));
+        var getter = Assert.Single(
+            property.AccessorFacts,
+            accessor => accessor.Kind == "get");
+
+        Assert.Contains(
+            getter.ReturnAttributes,
+            attribute => attribute.Contains(
+                "System.Diagnostics.CodeAnalysis.NotNull",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -765,6 +800,12 @@ public class MetadataDeclarationQueryFixtures
     public int @while { get; set; }
 
     public int Restricted { get; private set; }
+
+    public string PropertyWithReturnNotNull
+    {
+        [return: System.Diagnostics.CodeAnalysis.NotNull]
+        get => "value";
+    }
 
     public int @event = 1;
 

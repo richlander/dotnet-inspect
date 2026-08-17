@@ -635,6 +635,34 @@ public class SectionPipelineTests
         Assert.DoesNotContain(SectionNames.SourceFiles, discoverable);
     }
 
+    [Fact]
+    public void MemberPipeline_AbstractMemberKeepsExplicitlyRenderableSectionsDiscoverable()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "IContract",
+            Kind = "interface",
+            Members =
+            [
+                new ApiMember
+                {
+                    Kind = "method",
+                    Name = "Run",
+                    IsAbstract = true,
+                    HasMethodBody = false,
+                }
+            ],
+        };
+
+        var discoverable = pipeline.GetDiscoverableSections(type);
+
+        Assert.Contains(SectionNames.DecompiledSource, discoverable);
+        Assert.Contains(SectionNames.CalledTypes, discoverable);
+        Assert.Contains(SectionNames.ExceptionRegions, discoverable);
+    }
+
     private static readonly string[] SingleOverloadSections =
     [
         SectionNames.Signature,
