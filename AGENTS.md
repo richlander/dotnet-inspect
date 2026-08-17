@@ -474,9 +474,9 @@ Review is a locked-head feedback loop: freeze and push one exact head, review
 that head, reconcile the feedback, make any resulting fixes, and freeze the
 replacement head. Do not edit a head while its head lock is held. The lock ends
 when both reviewers have returned, their feedback has been reconciled for
-action, and every required current-head check and local gate allowed to run
-concurrently has succeeded. The fixed replacement is a new candidate and its
-review is a new round.
+action, current-head zero-conflict evidence is confirmed, and every required
+current-head check and local gate allowed to run concurrently has succeeded.
+The fixed replacement is a new candidate and its review is a new round.
 
 A fixed-head review is **review-clean** when its public reconciliation leaves no
 finding unresolved **and the reviewed head did not move in response to that
@@ -803,11 +803,11 @@ head is review-clean.
 
 A round starts when its reviewers are dispatched. It ends when all current and
 carried feedback is publicly reconciled, every resulting fix is committed and
-pushed, and every required current-head check and post-push local gate for that
-round has completed successfully. A no-fix round with publicly justified
-dismissals can therefore end review-clean; a round that pushes fixes is
-complete but not review-clean, and its replacement head still requires the next
-numbered review.
+pushed, current-head zero-conflict evidence is confirmed, and every required
+current-head check and post-push local gate for that round has completed
+successfully. A no-fix round with publicly justified dismissals can therefore
+end review-clean; a round that pushes fixes is complete but not review-clean,
+and its replacement head still requires the next numbered review.
 
 Superseded attempts follow [Canonical round flow](#canonical-round-flow);
 supersession never retires a finding.
