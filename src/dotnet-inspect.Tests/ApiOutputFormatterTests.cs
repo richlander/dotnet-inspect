@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
@@ -2289,6 +2291,13 @@ public class ApiOutputFormatterTests
             Namespace = null,
             Name = "A+B",
             MetadataName = "A+B",
+            DefinitionName = Assert
+                .IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "",
+                        ["A+B"]))
+                .Name,
+            IntroducedTypeParameterCounts = [0],
             MetadataToken = 0x02000002,
             Members = [],
         };
@@ -2296,8 +2305,39 @@ public class ApiOutputFormatterTests
         var filtered = ApiCommand.BuildFilteredTypeForSections(type, new ApiOptions());
 
         Assert.Equal("A+B", filtered.MetadataName);
+        Assert.Equal(type.DefinitionName, filtered.DefinitionName);
+        Assert.Equal([0], filtered.IntroducedTypeParameterCounts);
         Assert.Equal(0x02000002, filtered.MetadataToken);
         Assert.True(ApiAnalysisInspection.SameType(TypeRef.Definition(Asm, "", "A+B"), filtered));
+    }
+
+    [Fact]
+    public void SourceGeneratedJson_RoundTripsAllLegalMetadataNameCharacters()
+    {
+        MetadataTypeDefinitionName exact = Assert
+            .IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N",
+                    ["A[]*&,.", "B+C"]))
+            .Name;
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "A[]*&,..B+C",
+            Kind = "class",
+            DefinitionName = exact,
+            IntroducedTypeParameterCounts = [0, 0],
+        };
+
+        string json = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+
+        Assert.Equal(exact, restored.DefinitionName);
+        Assert.Equal([0, 0], restored.IntroducedTypeParameterCounts);
     }
 
     [Fact]

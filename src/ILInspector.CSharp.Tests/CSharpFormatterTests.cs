@@ -65,6 +65,32 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void NestedPerSegmentArityMismatch_DoesNotAliasValidType()
+    {
+        var exact = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "N",
+                ["Outer`1", "Inner`1"])).Name;
+        var malformed = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer`1.Inner`1",
+            Kind = "class",
+            DefinitionName = exact,
+            IntroducedTypeParameterCounts = [2, 0],
+            TypeParameters =
+            [
+                new TypeParameter { Name = "A" },
+                new TypeParameter { Name = "B" },
+            ],
+        };
+
+        Assert.Equal(
+            "Outer`1.Inner`1",
+            CSharpFormatter.FormatTypeName(malformed));
+    }
+
+    [Fact]
     public void FormatsContextualTypeUnit()
     {
         var type = new ApiType

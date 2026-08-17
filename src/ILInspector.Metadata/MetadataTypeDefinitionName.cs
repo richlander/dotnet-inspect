@@ -80,26 +80,101 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
             Type typeToConvert,
             JsonSerializerOptions options)
         {
-            string serializedName = reader.GetString()
-                ?? throw new JsonException(
-                    "A metadata type definition name cannot be null.");
-            return MetadataTypeDefinitionName.ParseSerialized(serializedName) switch
+            if (reader.TokenType != JsonTokenType.StartObject)
             {
-                MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
-                MetadataTypeDefinitionNameResult.Rejected rejected =>
-                    throw new JsonException(
-                        $"Invalid metadata type definition name: "
-                            + $"{rejected.Rejection.Kind}."),
-                _ => throw new JsonException(
-                    "Unexpected metadata type definition name result."),
-            };
+                throw new JsonException(
+                    "A metadata type definition name must be an object.");
+            }
+
+            string? @namespace = null;
+            bool hasNamespace = false;
+            ImmutableArray<string>.Builder? segments = null;
+            while (reader.Read()
+                && reader.TokenType != JsonTokenType.EndObject)
+            {
+                if (reader.TokenType != JsonTokenType.PropertyName)
+                    throw new JsonException("Expected a property name.");
+                string propertyName = reader.GetString()!;
+                if (!reader.Read())
+                    throw new JsonException("Unexpected end of JSON.");
+
+                if (propertyName == "namespace")
+                {
+                    if (reader.TokenType != JsonTokenType.String)
+                        throw new JsonException(
+                            "The metadata namespace must be a string.");
+                    @namespace = reader.GetString();
+                    hasNamespace = true;
+                }
+                else if (propertyName == "segments")
+                {
+                    if (reader.TokenType != JsonTokenType.StartArray)
+                        throw new JsonException(
+                            "Metadata name segments must be an array.");
+                    segments = ImmutableArray.CreateBuilder<string>();
+                    while (reader.Read()
+                        && reader.TokenType != JsonTokenType.EndArray)
+                    {
+                        if (reader.TokenType != JsonTokenType.String)
+                            throw new JsonException(
+                                "A metadata name segment must be a string.");
+                        if (segments.Count
+                            == MetadataSafetyPolicy.MaxRelationshipNodes)
+                        {
+                            throw new JsonException(
+                                "The metadata name has too many segments.");
+                        }
+                        segments.Add(reader.GetString()!);
+                    }
+                    if (reader.TokenType != JsonTokenType.EndArray)
+                        throw new JsonException(
+                            "Unexpected end of metadata name segments.");
+                }
+                else
+                {
+                    reader.Skip();
+                }
+            }
+            if (reader.TokenType != JsonTokenType.EndObject)
+                throw new JsonException("Unexpected end of JSON.");
+            if (!hasNamespace || segments is null)
+                throw new JsonException(
+                    "A metadata type definition name requires namespace and segments.");
+
+            return RequireValid(
+                MetadataTypeDefinitionName.Create(
+                    @namespace,
+                    segments.ToImmutable()));
+
+            static MetadataTypeDefinitionName RequireValid(
+                MetadataTypeDefinitionNameResult result) =>
+                result switch
+                {
+                    MetadataTypeDefinitionNameResult.Valid valid =>
+                        valid.Name,
+                    MetadataTypeDefinitionNameResult.Rejected rejected =>
+                        throw new JsonException(
+                            $"Invalid metadata type definition name: "
+                                + $"{rejected.Rejection.Kind}."),
+                    _ => throw new JsonException(
+                        "Unexpected metadata type definition name result."),
+                };
         }
 
         public override void Write(
             Utf8JsonWriter writer,
             MetadataTypeDefinitionName value,
-            JsonSerializerOptions options) =>
-            writer.WriteStringValue(value.ToEscapedFullName());
+            JsonSerializerOptions options)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("namespace", value.Namespace);
+            writer.WritePropertyName("segments");
+            writer.WriteStartArray();
+            foreach (string segment in value.Segments)
+                writer.WriteStringValue(segment);
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
     }
 
     public string Namespace { get; }

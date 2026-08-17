@@ -4155,6 +4155,37 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void SnapshotTypeForRendering_CarriesSegmentParameterOwnership()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer`1.Inner`1",
+            DefinitionName = Assert
+                .IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "N",
+                        ["Outer`1", "Inner`1"]))
+                .Name,
+            IntroducedTypeParameterCounts = [2, 0],
+            Kind = "class",
+            TypeParameters =
+            [
+                new TypeParameter { Name = "A" },
+                new TypeParameter { Name = "B" },
+            ],
+        };
+
+        ApiType snapshot =
+            CSharpTypePrinter.SnapshotTypeForRendering(type, []);
+
+        Assert.Equal([2, 0], snapshot.IntroducedTypeParameterCounts);
+        Assert.Equal(
+            "Outer`1.Inner`1",
+            CSharpFormatter.FormatTypeName(snapshot));
+    }
+
+    [Fact]
     public void RenderingSnapshotDoesNotRetainMutableMetadataAliases()
     {
         var typeParameter = new TypeParameter

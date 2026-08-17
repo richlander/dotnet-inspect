@@ -332,6 +332,30 @@ public class MetadataNameArityTests
     }
 
     [Fact]
+    public void DecreasingNestedGenericParameterCounts_AreRejected()
+    {
+        byte[] image = BuildImageWithDecreasingGenericParameterCounts();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle leafHandle = reader.TypeDefinitions.Single(
+            handle => reader.GetString(
+                reader.GetTypeDefinition(handle).Name) == "Leaf`1");
+        TypeDefinition leaf = reader.GetTypeDefinition(leafHandle);
+        MethodDefinitionHandle methodHandle = Assert.Single(leaf.GetMethods());
+
+        Assert.Throws<BadImageFormatException>(() =>
+            ApiMemberIdentity.CreateMethodAnchor(
+                reader,
+                leafHandle,
+                reader.GetMethodDefinition(methodHandle)));
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                leafHandle,
+                includeNonPublicMembers: true));
+    }
+
+    [Fact]
     public void MemberAnchor_SeparatesStructuralAndMissingArityBoundaries()
     {
         byte[] image = BuildImageWithAnchorBoundaryCollisions();
@@ -574,6 +598,63 @@ public class MetadataNameArityTests
             inner,
             GenericParameterAttributes.None,
             metadata.GetOrAddString("U"),
+            index: 1);
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildImageWithDecreasingGenericParameterCounts()
+    {
+        var metadata = CreateMetadata("DecreasingGenericParameterCounts");
+        BlobHandle signature = AddVoidMethodSignature(metadata);
+        MethodDefinitionHandle method = AddMethod(metadata, signature);
+        TypeDefinitionHandle outer = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Outer`2"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: method);
+        TypeDefinitionHandle middle = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic,
+            default,
+            metadata.GetOrAddString("Middle"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: method);
+        TypeDefinitionHandle leaf = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic,
+            default,
+            metadata.GetOrAddString("Leaf`1"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: method);
+        metadata.AddNestedType(middle, outer);
+        metadata.AddNestedType(leaf, middle);
+        metadata.AddGenericParameter(
+            outer,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("A"),
+            index: 0);
+        metadata.AddGenericParameter(
+            outer,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("B"),
+            index: 1);
+        metadata.AddGenericParameter(
+            middle,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("A"),
+            index: 0);
+        metadata.AddGenericParameter(
+            leaf,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("A"),
+            index: 0);
+        metadata.AddGenericParameter(
+            leaf,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("C"),
             index: 1);
 
         return Serialize(metadata);

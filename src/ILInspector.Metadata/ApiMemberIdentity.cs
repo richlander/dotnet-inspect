@@ -1266,9 +1266,10 @@ public static class ApiMemberIdentity
                 throw TypeNameBudgetExceeded();
             }
             var genericParameters = type.GetGenericParameters();
-            int introducedGenericCount = Math.Max(
-                0,
-                genericParameters.Count - enclosingGenericCount);
+            int introducedGenericCount =
+                MetadataDeclarationQuery.GetIntroducedTypeParameterCount(
+                    genericParameters.Count,
+                    enclosingGenericCount);
             // Only a canonical trailing `N is an arity suffix. Truncating at any
             // backtick would give a name whose backtick is literal (Widget`Literal)
             // the same anchor as the plain name (Widget). A suffix that disagrees

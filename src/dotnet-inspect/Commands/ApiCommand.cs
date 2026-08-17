@@ -782,6 +782,8 @@ public class ApiCommand
             // lossy '+'→'.' fallback) when it reaches the type-scope analysis path.
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
+            IntroducedTypeParameterCounts =
+                type.IntroducedTypeParameterCounts,
             Kind = type.Kind,
             // Every identity fact carries over: this copy exists to narrow Members, and anything
             // else it drops silently changes what sections and discovery see. Omitting the two
@@ -2823,6 +2825,8 @@ public class ApiCommand
                 Name = type.Name,
                 MetadataName = type.MetadataName,
                 DefinitionName = type.DefinitionName,
+                IntroducedTypeParameterCounts =
+                    type.IntroducedTypeParameterCounts,
                 Kind = type.Kind,
                 IsSealed = type.IsSealed,
                 IsAbstract = type.IsAbstract,
@@ -2947,6 +2951,8 @@ public class ApiCommand
             Name = type.Name,
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
+            IntroducedTypeParameterCounts =
+                type.IntroducedTypeParameterCounts,
             Kind = type.Kind,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,

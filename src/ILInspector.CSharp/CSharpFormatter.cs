@@ -467,6 +467,7 @@ public sealed class CSharpFormatter
             return FormatExactTypeName(
                 exactName,
                 type.TypeParameters,
+                type.IntroducedTypeParameterCounts,
                 includeVariance);
 
         bool ambiguousLegacyName = HasArityBeforeFlatBoundary(type.Name);
@@ -483,13 +484,27 @@ public sealed class CSharpFormatter
     static string FormatExactTypeName(
         MetadataTypeDefinitionName name,
         IReadOnlyList<TypeParameter> typeParameters,
+        IReadOnlyList<int>? introducedTypeParameterCounts,
         bool includeVariance)
     {
         long declaredArity = 0;
         foreach (string segment in name.Segments)
             declaredArity += MetadataNameArity.OfSegment(segment);
 
-        bool arityMatches = declaredArity == typeParameters.Count;
+        bool hasExactParameterOwnership =
+            introducedTypeParameterCounts is not null
+            && introducedTypeParameterCounts.Count
+                == name.Segments.Length
+            && introducedTypeParameterCounts.All(
+                static count => count >= 0)
+            && introducedTypeParameterCounts.Sum(
+                static count => (long)count)
+                == typeParameters.Count;
+        bool arityMatches = hasExactParameterOwnership
+            ? name.Segments
+                .Select(MetadataNameArity.OfSegment)
+                .SequenceEqual(introducedTypeParameterCounts!)
+            : declaredArity == typeParameters.Count;
         bool unboundOuterDisplay = typeParameters.Count == 0;
         int parameterIndex = 0;
         var parts = new List<string>(name.Segments.Length);

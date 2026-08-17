@@ -829,6 +829,8 @@ public sealed class CSharpTypePrinter
             Name = type.Name,
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
+            IntroducedTypeParameterCounts =
+                type.IntroducedTypeParameterCounts?.ToList(),
             Accessibility = type.Accessibility,
             Kind = type.Kind,
             Attributes = attributes?.ToList()!,

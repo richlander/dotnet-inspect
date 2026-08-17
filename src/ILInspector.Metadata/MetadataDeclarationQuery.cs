@@ -243,10 +243,24 @@ public static class MetadataDeclarationQuery
                 .GetTypeDefinition(chain[index])
                 .GetGenericParameters()
                 .Count;
-            counts.Add(Math.Max(0, cumulativeCount - enclosingCount));
+            counts.Add(GetIntroducedTypeParameterCount(
+                cumulativeCount,
+                enclosingCount));
             enclosingCount = cumulativeCount;
         }
         return counts;
+    }
+
+    internal static int GetIntroducedTypeParameterCount(
+        int cumulativeCount,
+        int enclosingCount)
+    {
+        if (cumulativeCount < enclosingCount)
+        {
+            throw new BadImageFormatException(
+                "A nested type has fewer generic parameters than its declaring type.");
+        }
+        return cumulativeCount - enclosingCount;
     }
 
     /// <summary>
