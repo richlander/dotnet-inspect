@@ -3,7 +3,9 @@ namespace ILInspector.Analysis;
 internal sealed record LibraryBodyAnalysisPlan(
     LibraryBodyAnalysisFeatures Features,
     IReadOnlySet<int>? MethodScope,
-    Func<TypeRef, bool>? TypeScope)
+    Func<TypeRef, bool>? TypeScope,
+    IReadOnlyDictionary<int, TypeRef>?
+        TypeScopeEvidenceSources = null)
 {
     internal bool IsScoped
         => MethodScope is not null || TypeScope is not null;

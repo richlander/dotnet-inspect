@@ -78,9 +78,16 @@ internal abstract class CandidateSessionResult
 
     internal sealed class Ready : CandidateSessionResult
     {
-        internal Ready(AssemblyInspectionSession session) => Session = session;
+        internal Ready(
+            AssemblyInspectionSession session,
+            AssemblyImageSnapshot snapshot)
+        {
+            Session = session;
+            Snapshot = snapshot;
+        }
 
         internal AssemblyInspectionSession Session { get; }
+        internal AssemblyImageSnapshot Snapshot { get; }
     }
 
     internal sealed class Rejected : CandidateSessionResult
@@ -224,6 +231,63 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         }
     }
 
+    internal void RegisterRetainedSnapshot(
+        ResolvedAssemblyReference assembly,
+        AssemblyImageSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        ResolvedAssemblyReference retained =
+            snapshot.RetainAssemblyReference(assembly);
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_sharedEntriesByRegistration.TryGetValue(
+                    assembly.Registration,
+                    out CandidateEntry? existing))
+            {
+                if (ReferenceEquals(
+                        existing.RetainedSnapshot,
+                        snapshot))
+                {
+                    _entriesByRegistration.TryAdd(
+                        assembly.Registration,
+                        existing);
+                    return;
+                }
+
+                throw new InvalidOperationException(
+                    "The acquisition registration already owns a different image source.");
+            }
+            if (_registrations.Count >= _options.MaxCandidates)
+            {
+                throw new InvalidOperationException(
+                    "The inspection candidate budget was exhausted.");
+            }
+            if (snapshot.Length
+                > _options.MaxRetainedImageBytes - _retainedImageBytes)
+            {
+                throw new InvalidOperationException(
+                    "The retained-image budget was exhausted.");
+            }
+
+            var id = new AssemblyCandidateId(Guid.NewGuid());
+            var candidate = new ResolvedAssemblyCandidate(
+                CatalogId,
+                id,
+                retained);
+            var entry = new CandidateEntry(this, candidate, snapshot);
+            _entriesByRegistration.Add(assembly.Registration, entry);
+            _sharedEntriesByRegistration.Add(
+                assembly.Registration,
+                entry);
+            _registrations.Add(assembly.Registration);
+            _entriesById.Add(id, entry);
+            _retainedImageBytes += snapshot.Length;
+        }
+    }
+
     internal CandidateSessionResult OpenSession(
         ResolvedAssemblyCandidate candidate)
     {
@@ -255,29 +319,45 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         }
     }
 
+    internal ResolvedAssemblyReference? RetainAssemblyReference(
+        ResolvedAssemblyCandidate candidate)
+        => OpenSession(candidate)
+            is CandidateSessionResult.Ready ready
+                ? ready.Snapshot.RetainAssemblyReference(
+                    candidate.Assembly)
+                : null;
+
     CandidateRegistrationResult ReadInventory(CandidateEntry entry)
     {
         _sourceOpenGate.Enter();
         long reservedBytes = 0;
         try
         {
-            AssemblyImageSnapshotResult snapshotResult =
-                AssemblyImageSnapshot.Open(
-                    entry.Candidate.Assembly,
-                    TryReserveInventoryImage,
-                    ReleaseInventoryImage);
-            if (snapshotResult
-                is AssemblyImageSnapshotResult.Rejected rejected)
+            AssemblyImageSnapshot snapshot;
+            if (entry.RetainedSnapshot is { } retainedSnapshot)
             {
-                return new CandidateRegistrationResult.Rejected(
-                    entry.Candidate.Assembly,
-                    rejected.Failure);
+                snapshot = retainedSnapshot;
             }
+            else
+            {
+                AssemblyImageSnapshotResult snapshotResult =
+                    AssemblyImageSnapshot.Open(
+                        entry.Candidate.Assembly,
+                        TryReserveInventoryImage,
+                        ReleaseInventoryImage);
+                if (snapshotResult
+                    is AssemblyImageSnapshotResult.Rejected rejected)
+                {
+                    return new CandidateRegistrationResult.Rejected(
+                        entry.Candidate.Assembly,
+                        rejected.Failure);
+                }
 
-            AssemblyImageSnapshot snapshot =
-                ((AssemblyImageSnapshotResult.Ready)snapshotResult)
-                    .Snapshot;
-            reservedBytes = snapshot.Length;
+                snapshot =
+                    ((AssemblyImageSnapshotResult.Ready)snapshotResult)
+                        .Snapshot;
+                reservedBytes = snapshot.Length;
+            }
             ImmutableArray<byte> contentDigest =
                 ImmutableArray.CreateRange(
                     SHA256.HashData(snapshot.Content.AsSpan()));
@@ -472,7 +552,9 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             AssemblyInspectionSession session =
                 AssemblyInspectionSession.Open(snapshot);
             retainReservation = true;
-            return new CandidateSessionResult.Ready(session);
+            return new CandidateSessionResult.Ready(
+                session,
+                snapshot);
         }
         catch (Exception ex) when (
             ex is IOException
@@ -499,6 +581,51 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             if (!retainReservation)
                 ReleaseImage(reservedBytes);
             _sourceOpenGate.Exit();
+        }
+    }
+
+    CandidateSessionResult OpenRetainedSession(
+        CandidateEntry entry,
+        AssemblyImageSnapshot snapshot)
+    {
+        CandidateRegistrationResult inventoryResult =
+            entry.Inventory.Value;
+        if (inventoryResult is CandidateRegistrationResult.Rejected rejected)
+            return new CandidateSessionResult.Rejected(rejected.Failure);
+
+        AssemblyInspectionSession? session = null;
+        try
+        {
+            session = AssemblyInspectionSession.Open(snapshot);
+            var inventory =
+                (CandidateRegistrationResult.Ready)inventoryResult;
+            byte[] contentDigest =
+                SHA256.HashData(snapshot.Content.AsSpan());
+            if (!session.HasMetadata
+                || !AssemblyImageSnapshot.IdentityMatches(
+                    entry.Candidate.Assembly.Identity,
+                    session.AssemblyIdentity())
+                || session.ModuleVersionId()
+                    != inventory.Inventory.ModuleVersionId
+                || !CryptographicOperations.FixedTimeEquals(
+                    contentDigest,
+                    inventory.Inventory.ContentDigest.AsSpan()))
+            {
+                return new CandidateSessionResult.Rejected(
+                    new CandidateOpenFailure(
+                        CandidateOpenFailureKind.InvalidImage,
+                        "The retained image does not match the inventoried candidate."));
+            }
+
+            var ready = new CandidateSessionResult.Ready(
+                session,
+                snapshot);
+            session = null;
+            return ready;
+        }
+        finally
+        {
+            session?.Dispose();
         }
     }
 
@@ -593,6 +720,12 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                     sessions.Add(ready.Session);
                 }
             }
+            _entriesByRegistration.Clear();
+            _rootEntriesByRegistration.Clear();
+            _sharedEntriesByRegistration.Clear();
+            _registrations.Clear();
+            _entriesById.Clear();
+            _retainedImageBytes = 0;
         }
 
         foreach (AssemblyInspectionSession session in sessions)
@@ -613,7 +746,24 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 () => owner.OpenSessionCore(this),
                 LazyThreadSafetyMode.ExecutionAndPublication);
         }
+
+        internal CandidateEntry(
+            InspectionAcquisitionPlan owner,
+            ResolvedAssemblyCandidate candidate,
+            AssemblyImageSnapshot snapshot)
+        {
+            Candidate = candidate;
+            RetainedSnapshot = snapshot;
+            Inventory = new Lazy<CandidateRegistrationResult>(
+                () => owner.ReadInventory(this),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+            Session = new Lazy<CandidateSessionResult>(
+                () => owner.OpenRetainedSession(this, snapshot),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+        }
+
         internal ResolvedAssemblyCandidate Candidate { get; }
+        internal AssemblyImageSnapshot? RetainedSnapshot { get; }
         internal CandidateOpenFailure? RootAdjacencyFailure { get; private set; }
         internal Lazy<CandidateRegistrationResult> Inventory { get; }
         internal Lazy<CandidateSessionResult> Session { get; }
