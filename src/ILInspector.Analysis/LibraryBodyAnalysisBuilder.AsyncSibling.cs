@@ -535,12 +535,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         MethodAttributes synchronousAccess =
             synchronousAttributes
                 & MethodAttributes.MemberAccessMask;
+        InternalAccessEvidence internalAccess =
+            sameAssembly
+                ? new(Granted: true, MayApply: true)
+                : InternalAccessToSource(candidateReader);
         bool friendAccessMayApply =
             !sameAssembly
             && synchronousAccess
                 == MethodAttributes.FamORAssem
-            && MayGrantInternalAccessToSource(
-                candidateReader);
+            && internalAccess.MayApply;
         bool protectedReceiverProven = sameType
             || (method.Attributes
                     & MethodAttributes.Static) != 0
@@ -564,12 +567,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         return access switch
         {
             MethodAttributes.Public => true,
-            MethodAttributes.Assembly => sameAssembly,
+            MethodAttributes.Assembly =>
+                internalAccess.Granted,
             MethodAttributes.Family =>
                 derived == TypeRelation.Yes
                 && protectedReceiverProven,
             MethodAttributes.FamORAssem =>
-                sameAssembly
+                internalAccess.Granted
                 || derived == TypeRelation.Yes
                     && protectedReceiverProven,
             MethodAttributes.Private => sameAssembly
@@ -585,11 +589,20 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         };
     }
 
-    bool MayGrantInternalAccessToSource(
+    readonly record struct InternalAccessEvidence(
+        bool Granted,
+        bool MayApply);
+
+    InternalAccessEvidence InternalAccessToSource(
         MetadataReader candidateReader)
     {
-        if (!candidateReader.IsAssembly)
-            return true;
+        if (!candidateReader.IsAssembly
+            || !_reader.IsAssembly)
+        {
+            return new(
+                Granted: false,
+                MayApply: true);
+        }
 
         foreach (CustomAttributeHandle handle
             in candidateReader.GetAssemblyDefinition()
@@ -622,37 +635,105 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                         "System",
                         "String"))
                 {
-                    return true;
+                    return new(
+                        Granted: false,
+                        MayApply: true);
                 }
 
                 BlobReader value =
                     candidateReader.GetBlobReader(
                         attribute.Value);
                 if (value.ReadUInt16() != 0x0001)
-                    return true;
+                {
+                    return new(
+                        Granted: false,
+                        MayApply: true);
+                }
                 string? friend = value.ReadSerializedString();
                 if (friend is null)
-                    return true;
-                int separator = friend.IndexOf(',');
-                string name = (
-                    separator < 0
-                        ? friend
-                        : friend[..separator]).Trim();
+                {
+                    return new(
+                        Granted: false,
+                        MayApply: true);
+                }
+                var friendIdentity = new AssemblyName(friend);
                 if (string.Equals(
-                        name,
+                        friendIdentity.Name,
                         _assemblyIdentity.Name,
                         StringComparison.OrdinalIgnoreCase))
                 {
-                    return true;
+                    byte[] sourcePublicKey =
+                        _reader.GetBlobBytes(
+                            _reader.GetAssemblyDefinition()
+                                .PublicKey);
+                    byte[] friendPublicKey =
+                        friendIdentity.GetPublicKey()
+                        ?? [];
+                    byte[] friendPublicKeyToken =
+                        friendIdentity.GetPublicKeyToken()
+                        ?? [];
+                    bool supportedIdentity =
+                        friendIdentity.Version is null
+                        && string.IsNullOrEmpty(
+                            friendIdentity.CultureName)
+                        && friendIdentity.ContentType
+                            == AssemblyContentType.Default
+                        && HasSupportedFriendIdentityClauses(
+                            friend)
+                        && (friendPublicKey.Length != 0
+                            || friendPublicKeyToken.Length == 0);
+                    return new(
+                        Granted: supportedIdentity
+                            && sourcePublicKey.AsSpan()
+                            .SequenceEqual(friendPublicKey),
+                        MayApply: true);
                 }
             }
             catch (Exception ex)
-                when (IsRecoverableMethodFailure(ex))
+                when (IsRecoverableMethodFailure(ex)
+                    || ex is FileLoadException)
             {
-                return true;
+                return new(
+                    Granted: false,
+                    MayApply: true);
             }
         }
-        return false;
+        return new(
+            Granted: false,
+            MayApply: false);
+    }
+
+    static bool HasSupportedFriendIdentityClauses(string friend)
+    {
+        int separator = friend.IndexOf(',');
+        if (separator < 0)
+            return true;
+
+        bool sawPublicKey = false;
+        ReadOnlySpan<char> remaining =
+            friend.AsSpan(separator + 1);
+        while (!remaining.IsEmpty)
+        {
+            int next = remaining.IndexOf(',');
+            ReadOnlySpan<char> clause = (
+                next < 0
+                    ? remaining
+                    : remaining[..next]).Trim();
+            int equals = clause.IndexOf('=');
+            if (equals <= 0
+                || sawPublicKey
+                || !clause[..equals].Trim().Equals(
+                    "PublicKey",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            sawPublicKey = true;
+            remaining = next < 0
+                ? []
+                : remaining[(next + 1)..];
+        }
+        return true;
     }
 
     bool SharesPrivateAccessDomain(
@@ -2077,12 +2158,32 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 == method.HasThis;
     }
 
-    static bool IsSupportedAsyncSiblingType(TypeRef type)
-        => type.Kind != TypeRefKind.Unsupported
-            && (type.ElementType is null
-                || IsSupportedAsyncSiblingType(type.ElementType))
-            && type.TypeArguments.All(
-                IsSupportedAsyncSiblingType);
+    internal static bool IsSupportedAsyncSiblingType(TypeRef type)
+    {
+        var pending = new Stack<TypeRef>();
+        var visited = new HashSet<TypeRef>(
+            ReferenceEqualityComparer.Instance);
+        pending.Push(type);
+        while (pending.Count > 0)
+        {
+            TypeRef current = pending.Pop();
+            if (!visited.Add(current))
+                continue;
+            if (visited.Count
+                > MetadataSafetyPolicy.MaxRelationshipNodes)
+            {
+                throw new BadImageFormatException(
+                    "The constructed type classification exceeds the metadata relationship limit.");
+            }
+            if (current.Kind == TypeRefKind.Unsupported)
+                return false;
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            foreach (TypeRef argument in current.TypeArguments)
+                pending.Push(argument);
+        }
+        return true;
+    }
 
     bool HasConstrainedMatchingMethod(
         MetadataReader reader,
@@ -2731,6 +2832,18 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 return false;
             }
 
+            ResolvableTypeReference? leftResolution =
+                DefinitionResolution(currentLeft);
+            ResolvableTypeReference? rightResolution =
+                DefinitionResolution(currentRight);
+            if (leftResolution is not null
+                && rightResolution is not null
+                && leftResolution.Type
+                    != rightResolution.Type)
+            {
+                return false;
+            }
+
             TypeRef leftDefinition =
                 DefinitionType(currentLeft);
             TypeRef rightDefinition =
@@ -2749,8 +2862,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             }
             if (!coreLibraryType
                 && !ExactNonCoreOriginsMatch(
-                    DefinitionResolution(currentLeft),
-                    DefinitionResolution(currentRight)))
+                    leftResolution,
+                    rightResolution))
             {
                 return false;
             }
@@ -3013,13 +3126,20 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         while (pending.Count > 0)
         {
             TypeRef current = pending.Pop();
+            long arrayRankCharacters =
+                current.Kind == TypeRefKind.Array
+                    ? current.Rank
+                    : 0;
             if (++nodes
                     > MetadataSafetyPolicy.MaxRelationshipNodes
+                || current.Kind == TypeRefKind.Array
+                    && current.Rank <= 0
                 || characters
                     > MaxDisplayCharacters
                         - current.Namespace.Length
                         - current.Name.Length
-                        - 16)
+                        - 16
+                        - arrayRankCharacters)
             {
                 throw new BadImageFormatException(
                     "The constructed type display exceeds the analysis output limit.");

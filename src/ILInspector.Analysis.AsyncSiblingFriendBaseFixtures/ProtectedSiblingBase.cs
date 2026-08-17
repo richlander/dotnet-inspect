@@ -16,4 +16,9 @@ public class ProtectedSiblingBase
 
     public Task<int> PublicReadAsync()
         => Task.FromResult(42);
+
+    internal int InternalRead() => 42;
+
+    internal Task<int> InternalReadAsync()
+        => Task.FromResult(42);
 }

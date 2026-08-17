@@ -228,6 +228,70 @@ public class MemberIdentityValueEqualityTests
                 differentLowerBound));
     }
 
+    [Fact]
+    public void AsyncSiblingFindingDisplay_RejectsExcessiveArrayRank()
+    {
+        TypeRef array = TypeRef.MdArray(
+            TypeRef.CoreLib("System", "Int32"),
+            rank: 1_000_000);
+
+        Assert.Throws<BadImageFormatException>(
+            () => LibraryBodyAnalysisBuilder
+                .EnsureAsyncSiblingDisplayIsBounded(array));
+    }
+
+    [Fact]
+    public void AsyncSiblingTypeSupport_IsLinearForSharedDag()
+    {
+        TypeRef value = TypeRef.CoreLib("System", "Int32");
+        TypeRef pair =
+            TypeRef.Definition("Sample", "Sample", "Pair`2");
+        for (int depth = 0; depth < 30; depth++)
+            value = TypeRef.GenericInstance(pair, [value, value]);
+
+        Assert.True(
+            LibraryBodyAnalysisBuilder
+                .IsSupportedAsyncSiblingType(value));
+    }
+
+    [Fact]
+    public void AsyncSiblingTypeMatching_DistinguishesStructuredNames()
+    {
+        var assembly = new AssemblyReferenceIdentity(
+            "Dependency",
+            new Version(1, 0),
+            null,
+            null);
+        MetadataTypeDefinitionName literal =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Probe",
+                    ["A+B"]))
+            .Name;
+        MetadataTypeDefinitionName nested =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Probe",
+                    ["A", "B"]))
+            .Name;
+        static TypeRef Create(
+            AssemblyReferenceIdentity assembly,
+            MetadataTypeDefinitionName name) =>
+            TypeRef.Definition(
+                assembly.Name,
+                name.Namespace,
+                name.ToNestedMetadataName(),
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin
+                        .AssemblyReference(assembly),
+                    name));
+
+        Assert.False(
+            LibraryBodyAnalysisBuilder.AsyncSiblingTypesMatch(
+                Create(assembly, literal),
+                Create(assembly, nested)));
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     static long MeasureEqualityAllocations(
         TypeRef left,

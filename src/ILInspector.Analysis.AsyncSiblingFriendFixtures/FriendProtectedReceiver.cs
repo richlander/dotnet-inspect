@@ -19,6 +19,13 @@ public sealed class FriendProtectedReceiver
         await Task.Yield();
         return other.PublicRead();
     }
+
+    public async Task<int> InternalAnalyzeAsync(
+        ProtectedSiblingBase other)
+    {
+        await Task.Yield();
+        return other.InternalRead();
+    }
 }
 
 public static class MalformedAsyncSourceFixture

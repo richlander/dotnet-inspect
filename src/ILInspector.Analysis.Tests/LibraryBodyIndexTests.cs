@@ -1061,7 +1061,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_FriendAccessDoesNotProveProtectedReceiver()
+    public void OptimizationOpportunities_FriendAccessHonorsInternalWithoutProvingProtectedReceiver()
     {
         string path =
             FixtureCatalog.AnalysisAsyncSiblingFriend
@@ -1088,6 +1088,12 @@ public class LibraryBodyIndexTests
                     == "sync-call-in-async"
                 && opportunity.Method.Name
                     == "PublicAnalyzeAsync");
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == "InternalAnalyzeAsync");
         var diagnostic = Assert.Single(index.Diagnostics);
         Assert.Contains(
             "MalformedAsyncSourceFixture::AnalyzeAsync",

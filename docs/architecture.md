@@ -803,16 +803,21 @@ Research overlay bridge, and the application layer:
   bound structural identity, comparison, and finding-display work;
   `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
   `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`, and
-  `AsyncSiblingIdentityAndMatching_DistinguishArrayShape` gate exact identity,
+  `AsyncSiblingIdentityAndMatching_DistinguishArrayShape`, and
+  `AsyncSiblingTypeMatching_DistinguishesStructuredNames` gate exact identity,
   while `AsyncSiblingFindingDisplay_RejectsExponentialDagExpansion`,
   `AsyncSiblingFindingDisplay_AcceptsWideFlatSignature`, and
-  `AsyncSiblingFindingDisplay_BoundsAggregateMemberText` gate per-type
-  relationship and aggregate-output limits. Trusted framework-contract identities, exact
+  `AsyncSiblingFindingDisplay_BoundsAggregateMemberText`, and
+  `AsyncSiblingFindingDisplay_RejectsExcessiveArrayRank` gate per-type
+  relationship and aggregate-output limits.
+  `AsyncSiblingTypeSupport_IsLinearForSharedDag` gates signature
+  classification work. Trusted framework-contract identities, exact
   interface-slot correspondence, friend-aware protected access, and nested
   private-access domains are gated by
   `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,
   `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
-  `OptimizationOpportunities_FriendAccessDoesNotProveProtectedReceiver`, and
+  `OptimizationOpportunities_FriendAccessHonorsInternalWithoutProvingProtectedReceiver`,
+  and
   `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`.
   Performance command projections report body-index diagnostics independently
   of unsafe scanning, and reject document JSON rather than silently omitting
