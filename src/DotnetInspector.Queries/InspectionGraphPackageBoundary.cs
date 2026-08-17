@@ -29,6 +29,9 @@ public sealed class InspectionGraphPackageBoundary
     readonly ImmutableArray<Package> _packages;
     readonly IReadOnlyDictionary<
         AssemblyAcquisitionRegistration,
+        InspectionGraphSubject.AssemblySubject> _assembliesByRegistration;
+    readonly IReadOnlyDictionary<
+        AssemblyAcquisitionRegistration,
         InspectionGraphSubject.PackageSubject> _packagesByRegistration;
 
     InspectionGraphPackageBoundary(
@@ -36,10 +39,14 @@ public sealed class InspectionGraphPackageBoundary
         ImmutableArray<Package> packages,
         IReadOnlyDictionary<
             AssemblyAcquisitionRegistration,
+            InspectionGraphSubject.AssemblySubject> assembliesByRegistration,
+        IReadOnlyDictionary<
+            AssemblyAcquisitionRegistration,
             InspectionGraphSubject.PackageSubject> packagesByRegistration)
     {
         _artifacts = artifacts;
         _packages = packages;
+        _assembliesByRegistration = assembliesByRegistration;
         _packagesByRegistration = packagesByRegistration;
     }
 
@@ -76,6 +83,9 @@ public sealed class InspectionGraphPackageBoundary
         var artifacts = ImmutableArray.CreateBuilder<Artifact>();
         var artifactsByRegistration =
             new Dictionary<AssemblyAcquisitionRegistration, Artifact>();
+        var assembliesByRegistration = new Dictionary<
+            AssemblyAcquisitionRegistration,
+            InspectionGraphSubject.AssemblySubject>();
         var packages = ImmutableArray.CreateBuilder<Package>();
         var packagesByCoordinate =
             new Dictionary<RealizedMemberCoordinate.Package, Package>();
@@ -149,13 +159,31 @@ public sealed class InspectionGraphPackageBoundary
                     InspectionGraphSubject.ForAcquiredAssembly(assembly),
                 packageSubject);
             artifactsByRegistration.Add(registration, artifact);
+            assembliesByRegistration.Add(
+                registration,
+                artifact.Subject);
             artifacts.Add(artifact);
         }
 
         return new InspectionGraphPackageBoundary(
             artifacts.ToImmutable(),
             packages.ToImmutable(),
+            assembliesByRegistration,
             packagesByRegistration);
+    }
+
+    /// <summary>
+    /// Gets the acquired assembly subject for one workspace participant.
+    /// </summary>
+    public bool TryGetAssemblySubject(
+        AssemblyAcquisitionRegistration registration,
+        [NotNullWhen(true)]
+        out InspectionGraphSubject.AssemblySubject? assembly)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        return _assembliesByRegistration.TryGetValue(
+            registration,
+            out assembly);
     }
 
     /// <summary>
@@ -176,9 +204,21 @@ public sealed class InspectionGraphPackageBoundary
     /// Projects package ownership as structured groups, package nodes, or both.
     /// </summary>
     public InspectionGraphDocument Project(
-        InspectionGraphPackageBoundaryLens lens)
+        InspectionGraphPackageBoundaryLens lens) =>
+        Project(
+            lens,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.WorkspaceParticipants));
+
+    /// <summary>
+    /// Projects package ownership with explicit graph-mode intent.
+    /// </summary>
+    public InspectionGraphDocument Project(
+        InspectionGraphPackageBoundaryLens lens,
+        InspectionGraphModeRequest modeRequest)
     {
         InspectionGraphCollections.RequireDefined(lens, nameof(lens));
+        ArgumentNullException.ThrowIfNull(modeRequest);
 
         bool includeArtifacts =
             lens is InspectionGraphPackageBoundaryLens.PackageGroups
@@ -231,16 +271,25 @@ public sealed class InspectionGraphPackageBoundary
             }
         }
 
+        ImmutableArray<InspectionGraphSeed> seeds =
+            InspectionGraphSeedBinder.Bind(
+                modeRequest,
+                nodes,
+                groups,
+                lens == InspectionGraphPackageBoundaryLens.PackageGroups
+                    ? InspectionGraphSeedTargetPreference.Group
+                    : InspectionGraphSeedTargetPreference.Node);
         return new InspectionGraphDocument(
             includeArtifacts
                 ? InspectionGraphDocumentScope.SessionBound
                 : InspectionGraphDocumentScope.Portable,
+            modeRequest,
             nodes,
             groups,
             [],
             [],
             [],
-            [],
+            seeds,
             [],
             []);
     }

@@ -34,6 +34,17 @@ public sealed class MetadataSourceFindingsTests
         return adjusted * 2;
     }
 
+    static class MultiDocumentOnlyTypeProbe
+    {
+#line 100 "Generated/MultiDocumentOnlyType.g.cs"
+        public static int Transform(int value)
+        {
+            int adjusted = value + 1;
+#line default
+            return adjusted * 2;
+        }
+    }
+
     sealed class OrderedTypeSourceProbe
     {
 #line 100 "Generated/OrderedType.Z.cs"
@@ -41,6 +52,23 @@ public sealed class MetadataSourceFindingsTests
 #line 100 "Generated/OrderedType.A.cs"
         public static int Second() => 2;
 #line default
+    }
+
+    sealed class TypeCaseCollisionProbe
+    {
+        public sealed class Target
+        {
+#line 100 "Generated/TypeCaseCollision.Upper.cs"
+            public static int Value() => 1;
+#line default
+        }
+
+        public sealed class TARGET
+        {
+#line 100 "Generated/TypeCaseCollision.Lower.cs"
+            public static int Value() => 2;
+#line default
+        }
     }
 
     [Fact]
@@ -306,6 +334,113 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void ExactTypeSourceResolution_IsOrdinalAndDoesNotInferDocuments()
+    {
+        using var context = PdbContext.Open(
+            typeof(MetadataSourceFindingsTests).Assembly.Location);
+        var map = SourceLinkFetch.SourceLinkResolver.Parse(
+            """{"documents":{"*":"https://example.test/*"}}""");
+        var resolver = new SourceLinkResolver(context, map);
+        var upperName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                typeof(MetadataSourceFindingsTests).Namespace,
+                [
+                    nameof(MetadataSourceFindingsTests),
+                    nameof(TypeCaseCollisionProbe),
+                    nameof(TypeCaseCollisionProbe.Target),
+                ]))
+            .Name;
+        var lowerName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                typeof(MetadataSourceFindingsTests).Namespace,
+                [
+                    nameof(MetadataSourceFindingsTests),
+                    nameof(TypeCaseCollisionProbe),
+                    nameof(TypeCaseCollisionProbe.TARGET),
+                ]))
+            .Name;
+
+        var upper = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource(upperName));
+        var lower = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource(lowerName));
+
+        Assert.EndsWith(
+            "TypeCaseCollision.Upper.cs",
+            upper.SourceFilePath,
+            StringComparison.Ordinal);
+        Assert.EndsWith(
+            "TypeCaseCollision.Lower.cs",
+            lower.SourceFilePath,
+            StringComparison.Ordinal);
+        Assert.Empty(upper.AdditionalSourceFiles);
+        Assert.Empty(lower.AdditionalSourceFiles);
+    }
+
+    [Fact]
+    public void ExactTypeIndexes_PreserveStructuredSegmentsAndRejectDuplicateIdentity()
+    {
+        static MetadataTypeDefinitionName Name(
+            string @namespace,
+            params string[] segments) =>
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    @namespace,
+                    [.. segments]))
+                .Name;
+
+        MetadataTypeDefinitionName topLevel =
+            Name("A.B", "C");
+        MetadataTypeDefinitionName nested =
+            Name("A", "B", "C");
+        var topLevelInfo = new PdbTypeDocumentInfo(
+            "A.B.C",
+            "C",
+            [new PdbDocumentReference(1, "TopLevel.cs")])
+        {
+            DefinitionName = topLevel,
+        };
+        var nestedInfo = new PdbTypeDocumentInfo(
+            "A.B.C",
+            "C",
+            [new PdbDocumentReference(2, "Nested.cs")])
+        {
+            DefinitionName = nested,
+        };
+
+        var indexes =
+            SourceLinkResolver.BuildTypeIndexes(
+                [topLevelInfo, nestedInfo]);
+
+        Assert.Same(
+            topLevelInfo,
+            indexes.ExactDefinitionNames[topLevel]);
+        Assert.Same(
+            nestedInfo,
+            indexes.ExactDefinitionNames[nested]);
+
+        var duplicate = topLevelInfo with
+        {
+            Documents =
+            [
+                new PdbDocumentReference(
+                    3,
+                    "Duplicate.cs"),
+            ],
+        };
+        var ambiguous =
+            SourceLinkResolver.BuildTypeIndexes(
+                [topLevelInfo, duplicate, nestedInfo]);
+
+        Assert.False(
+            ambiguous.ExactDefinitionNames.ContainsKey(
+                topLevel));
+        Assert.Same(
+            nestedInfo,
+            ambiguous.ExactDefinitionNames[nested]);
+    }
+
+    [Fact]
     public void EmptyPortablePdbDocumentPath_IsMalformedMetadata()
     {
         var exception = Assert.Throws<BadImageFormatException>(
@@ -468,6 +603,46 @@ public sealed class MetadataSourceFindingsTests
             direct.FilePath.Replace('\\', '/'),
             StringComparison.Ordinal);
         Assert.Equal(primary.SequencePointStartLines, direct.SequencePointStartLines);
+    }
+
+    [Fact]
+    public void TypeDocumentCorrelation_UsesVisibleDocumentsWhenRootIsOmitted()
+    {
+        using var source =
+            SourceLinkService.Open(
+                typeof(MetadataSourceFindingsTests)
+                    .Assembly.Location);
+        MetadataTypeDefinitionName expectedName =
+            Assert.IsType<
+                MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        typeof(MetadataSourceFindingsTests)
+                            .Namespace,
+                        [
+                            nameof(MetadataSourceFindingsTests),
+                            nameof(MultiDocumentOnlyTypeProbe),
+                        ]))
+                .Name;
+
+        PdbTypeDocumentInfo type =
+            Assert.Single(
+                source.Context.EnumerateTypeDocuments(),
+                candidate =>
+                    candidate.DefinitionName
+                    == expectedName);
+
+        Assert.Contains(
+            type.FilePaths,
+            path =>
+                path.Replace('\\', '/').EndsWith(
+                    "tests/ILInspector.Metadata.Tests/MetadataSourceFindingsTests.cs",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            type.FilePaths,
+            path =>
+                path.Replace('\\', '/').EndsWith(
+                    "Generated/MultiDocumentOnlyType.g.cs",
+                    StringComparison.Ordinal));
     }
 
     [Fact]

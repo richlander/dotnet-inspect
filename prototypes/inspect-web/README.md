@@ -252,8 +252,8 @@ beside a product-selected compile asset).
 
 Three exports touch **no artifact at all** and say so in place: `SearchTypes`
 (ranking names the client already holds, through `TypeMatcher`),
-`PackageCacheStats`, and `ListStyleTiers`/`ListStyleOptions` (the
-`StyleOptionCatalog`).
+`PackageCacheStats`, and `ListVocabulary` (the shared product-owned vocabulary
+catalog).
 
 `QueryPackageIntegrations` groups the query's own
 `EcosystemIntegrationSignalInfo` values by the integration name the scanner
@@ -311,15 +311,15 @@ ambiguity and diagnostic cases gate these host behaviors.
 
 ## Unsupported
 
-Each remaining gap is a missing public query that takes an `AssemblyContextGroup`
-(or a group participant) and owns its own session, the way the six supported
-queries do. Each export keeps the signature the browser bridge binds and throws a
-`NotSupportedException` naming the gap, so the site reports the engine's refusal
-rather than fixture results or success-shaped empty output.
+Each remaining gap is either a missing public query that owns its own group
+session or missing Browser host capability and adapter wiring around such a
+query. Each export keeps the signature the browser bridge binds and throws a
+`NotSupportedException` naming the gap, so the site reports the engine's
+refusal rather than fixture results or success-shaped empty output.
 
-| Unsupported export | Missing query |
+| Unsupported export | Missing product or host wiring |
 | --- | --- |
-| `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | SourceLink and decompiled whole-member source over a group participant, plus symbol acquisition that yields group participants |
+| `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | `AssemblyContextSourceQuery` now owns pathless SourceLink and decompiled source; the Browser host still needs symbol/source clients, authorization, in-memory stores, and typed-result adaptation |
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
@@ -367,6 +367,13 @@ dotnet run -c Release
 Open `http://127.0.0.1:5198`. Create a deployable static bundle with
 `dotnet publish -c Release`. Remote addresses require HTTPS because the .NET
 loader uses secure-context browser APIs.
+
+On a bare visit, `app.js` waits for the home page's first contentful paint
+before dynamically importing `engine.js`. Search and demo controls remain
+inert behind a loading indicator until the Wasm engine is ready; package and
+shared-workspace deep links retain the full loading interstitial. The
+`bare home paints before wasm engine download` JavaScript test gates this
+startup boundary.
 
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
@@ -430,8 +437,9 @@ not answer report the engine's failure rather than fixture results.
 - Arrow keys or `j`/`k` navigate the type index.
 - Number keys switch the active scope's lenses when an input is not focused.
 - `share` copies the package, version, framework, type, and lens selection.
-- The Taste popover and Settings page render their groups, summaries, and
-  ordering from `StyleOptionCatalog`; the browser does not restate that taxonomy.
+- The Taste popover and Settings page consume the same `C# Style Tiers` and
+  `C# Style Choices` vocabulary sections as the CLI; the browser does not
+  restate their taxonomy.
 
 ## Deploy
 

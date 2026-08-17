@@ -11,13 +11,14 @@ using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 namespace DotnetInspector.Tests;
 
 /// <summary>
-/// Tests for searching non-nuget.org feeds: SearchQueryService discovery from a V3 service index,
-/// the origin scope that keeps feed credentials from following a feed-supplied URL, and the
-/// refusal to render an unsearchable feed set as "no packages found". Issue #3417.
+/// Tests for searching configured NuGet feeds: SearchQueryService discovery from a V3 service
+/// index, the origin scope that keeps feed credentials from following a feed-supplied URL, and
+/// the refusal to render an unsearchable feed set as "no packages found". Issue #3417.
 /// </summary>
 public class NuGetSearchSourcesTests
 {
     private const string IndexUrl = "https://feed.example/v3/index.json";
+    private const string NuGetOrgIndexUrl = "https://api.nuget.org/v3/index.json";
     private const string SearchUrl = "https://feed.example/v3/query";
 
     private static string ServiceIndex(string searchId) => $$"""
@@ -31,15 +32,298 @@ public class NuGetSearchSourcesTests
         """;
 
     [Fact]
+    public void SearchTimeoutOptions_DeriveFourRequestDeadlines()
+    {
+        NuGetFetchOptions options =
+            NuGetFetchOptions.FromRequestTimeout(
+                TimeSpan.FromSeconds(60));
+
+        Assert.Equal(TimeSpan.FromSeconds(60), options.RequestTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(240), options.OperationTimeout);
+    }
+
+    [Fact]
     public async Task GetSearchQueryServiceAsync_DiscoversVersionedSearchResource()
     {
         var handler = new RouteHandler { [IndexUrl] = ServiceIndex(SearchUrl) };
         using var client = new HttpClient(handler);
 
         string? discovered = await PackageExtractor.GetSearchQueryServiceAsync(
-            client, new NuGetSource("contoso", IndexUrl));
+            client,
+            new NuGetSource("contoso", IndexUrl),
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(SearchUrl, discovered);
+    }
+
+    [Fact]
+    public async Task GetSearchQueryServiceAsync_PreservesDeclaredQueryBytes()
+    {
+        const string declared =
+            "https://feed.example/v3/query?s%69g=%73ecret&opaque=%7E%41";
+        var handler = new RouteHandler { [IndexUrl] = ServiceIndex(declared) };
+        using var client = new HttpClient(handler);
+
+        string? discovered = await PackageExtractor.GetSearchQueryServiceAsync(
+            client,
+            new NuGetSource("contoso", IndexUrl),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(declared, discovered);
+    }
+
+    [Fact]
+    public async Task GetSearchQueryServiceAsync_ServiceIndexRequiresBrowserStreamingResponse()
+    {
+        var handler = new RouteHandler { [IndexUrl] = ServiceIndex(SearchUrl) };
+        using var client = new HttpClient(handler);
+
+        await PackageExtractor.GetSearchQueryServiceAsync(
+            client,
+            new NuGetSource("contoso", IndexUrl),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(handler.BrowserStreamingRequested);
+    }
+
+    [Fact]
+    public async Task SearchAsync_UsesHighestSearchCapabilityVersion()
+    {
+        const string olderSearch = "https://feed.example/v3/query-old";
+        const string currentSearch = "https://feed.example/v3/query-current";
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = $$"""
+                {"resources":[
+                  {"@id":"{{olderSearch}}","@type":"SearchQueryService/3.0.0"},
+                  {"@id":"{{currentSearch}}","@type":"SearchQueryService/3.5.0"}
+                ]}
+                """,
+            [olderSearch] = """{"data":[{"id":"Wrong.Package","version":"1.0.0"}]}""",
+            [currentSearch] = """{"data":[{"id":"Contoso.Package","version":"1.0.0"}]}""",
+        };
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "Contoso",
+            sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] });
+
+        Assert.Equal("Contoso.Package", Assert.Single(outcome.Results).PackageId);
+        Assert.DoesNotContain(
+            handler.Requested,
+            request => request.StartsWith(olderSearch, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchAsync_UnsupportedFutureCapability_UsesHighestSupportedVersion()
+    {
+        const string futureSearch = "https://feed.example/v4/query";
+        const string currentSearch = "https://feed.example/v3/query-current";
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = $$"""
+                {"resources":[
+                  {"@id":"{{futureSearch}}","@type":"SearchQueryService/4.0.0"},
+                  {"@id":"{{currentSearch}}","@type":"SearchQueryService/3.5.0"}
+                ]}
+                """,
+            [futureSearch] = "<html>unsupported protocol</html>",
+            [currentSearch] = """{"data":[{"id":"Contoso.Package","version":"1.0.0"}]}""",
+        };
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "Contoso",
+            sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] });
+
+        Assert.Equal("Contoso.Package", Assert.Single(outcome.Results).PackageId);
+        Assert.DoesNotContain(
+            handler.Requested,
+            request => request.StartsWith(futureSearch, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchAsync_MalformedEquivalentEndpoint_TriesNextInIndexOrder()
+    {
+        const string firstSearch = "https://feed.example/v3/query-a";
+        const string secondSearch = "https://feed.example/v3/query-b";
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = $$"""
+                {"resources":[
+                  {"@id":"{{firstSearch}}","@type":"SearchQueryService/3.5.0"},
+                  {"@id":"{{secondSearch}}","@type":"SearchQueryService/3.5.0"}
+                ]}
+                """,
+            [firstSearch] = "<html>sign in</html>",
+            [secondSearch] = """{"data":[{"id":"Contoso.Package","version":"1.0.0"}]}""",
+        };
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "Contoso",
+            sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] });
+
+        Assert.Empty(outcome.Failures);
+        Assert.Equal("Contoso.Package", Assert.Single(outcome.Results).PackageId);
+        Assert.Collection(
+            handler.Requested,
+            request => Assert.Equal(IndexUrl, request),
+            request => Assert.StartsWith(firstSearch + "?", request, StringComparison.Ordinal),
+            request => Assert.StartsWith(secondSearch + "?", request, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchAsync_OperationCanceledEndpoint_TriesNextEquivalentEndpoint()
+    {
+        const string firstSearch = "https://feed.example/v3/query-cancelled";
+        const string secondSearch = "https://feed.example/v3/query-success";
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = $$"""
+                {"resources":[
+                  {"@id":"{{firstSearch}}","@type":"SearchQueryService/3.5.0"},
+                  {"@id":"{{secondSearch}}","@type":"SearchQueryService/3.5.0"}
+                ]}
+                """,
+            [secondSearch] = """{"data":[{"id":"Contoso.Package","version":"1.0.0"}]}""",
+        };
+        handler.Throw(firstSearch, new OperationCanceledException());
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "Contoso",
+            sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] });
+
+        Assert.Equal("Contoso.Package", Assert.Single(outcome.Results).PackageId);
+        Assert.Collection(
+            handler.Requested,
+            request => Assert.Equal(IndexUrl, request),
+            request => Assert.StartsWith(firstSearch + "?", request, StringComparison.Ordinal),
+            request => Assert.StartsWith(secondSearch + "?", request, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchAsync_EquivalentEndpointFailover_IsBounded()
+    {
+        string[] searchUrls =
+        [
+            "https://feed.example/v3/query-0",
+            "https://feed.example/v3/query-1",
+            "https://feed.example/v3/query-2",
+            "https://feed.example/v3/query-3",
+            "https://feed.example/v3/query-4",
+            "https://feed.example/v3/query-5",
+        ];
+        string resources = string.Join(
+            ",",
+            searchUrls.Select(
+                url => $$"""{"@id":"{{url}}","@type":"SearchQueryService/3.5.0"}"""));
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = $$"""{"resources":[{{resources}}]}""",
+            [searchUrls[0]] = "<html>failure 0</html>",
+            [searchUrls[1]] = "<html>failure 1</html>",
+            [searchUrls[2]] = "<html>failure 2</html>",
+            [searchUrls[3]] = "<html>failure 3</html>",
+            [searchUrls[4]] = """{"data":[{"id":"Too.Late","version":"1.0.0"}]}""",
+        };
+        using var client = new HttpClient(handler);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            NuGetSearchService.SearchAsync(
+                client,
+                "Contoso",
+                sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] }));
+
+        Assert.Collection(
+            handler.Requested,
+            request => Assert.Equal(IndexUrl, request),
+            request => Assert.StartsWith(searchUrls[0] + "?", request, StringComparison.Ordinal),
+            request => Assert.StartsWith(searchUrls[1] + "?", request, StringComparison.Ordinal),
+            request => Assert.StartsWith(searchUrls[2] + "?", request, StringComparison.Ordinal),
+            request => Assert.StartsWith(searchUrls[3] + "?", request, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchAsync_EquivalentEndpointFailover_SharesOperationCeiling()
+    {
+        const string firstSearch = "https://feed.example/v3/query-fast-failure";
+        const string secondSearch = "https://feed.example/v3/query-stalled";
+        const string thirdSearch = "https://feed.example/v3/query-too-late";
+        var handler = new SearchBudgetHandler(
+            IndexUrl,
+            firstSearch,
+            secondSearch,
+            thirdSearch);
+        using var client = new HttpClient(handler)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            NuGetSearchService.SearchAsync(
+                client,
+                "Contoso",
+                sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] },
+                fetchOptions: new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(10),
+                    OperationTimeout = TimeSpan.FromSeconds(2),
+                }));
+
+        Assert.Equal(
+            [IndexUrl, firstSearch, secondSearch],
+            handler.Requested.Select(RouteHandler.WithoutQuery));
+        Assert.Contains(
+            nameof(NuGetOperationTimeoutException),
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SearchAsync_OperationTimeoutDescribesEveryRemainingSource()
+    {
+        const string firstIndex = "https://first.example/v3/index.json";
+        const string secondIndex = "https://second.example/v3/index.json";
+        const string thirdIndex = "https://third.example/v3/index.json";
+        var handler = new RouteHandler();
+        handler.RespondWithContent(
+            firstIndex,
+            static () => new StallingBodyContent());
+        using var client = new HttpClient(handler)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                NuGetSearchService.SearchAsync(
+                    client,
+                    "Contoso",
+                    sourceOptions: new NuGetSourceOptions
+                    {
+                        Sources = [firstIndex, secondIndex, thirdIndex],
+                    },
+                    fetchOptions: new NuGetFetchOptions
+                    {
+                        RequestTimeout = TimeSpan.FromSeconds(5),
+                        OperationTimeout = TimeSpan.FromMilliseconds(100),
+                    }));
+
+        Assert.Contains("first.example", error.Message, StringComparison.Ordinal);
+        Assert.Contains("second.example", error.Message, StringComparison.Ordinal);
+        Assert.Contains("third.example", error.Message, StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            error.Message.Split(
+                "search not attempted",
+                StringSplitOptions.None).Length - 1);
     }
 
     [Fact]
@@ -53,7 +337,9 @@ public class NuGetSearchSourcesTests
         using var client = new HttpClient(handler);
 
         string? discovered = await PackageExtractor.GetSearchQueryServiceAsync(
-            client, new NuGetSource("contoso", IndexUrl));
+            client,
+            new NuGetSource("contoso", IndexUrl),
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(discovered);
     }
@@ -64,7 +350,9 @@ public class NuGetSearchSourcesTests
         using var client = new HttpClient(new RouteHandler());
 
         string? discovered = await PackageExtractor.GetSearchQueryServiceAsync(
-            client, new NuGetSource("local", @"D:\packages"));
+            client,
+            new NuGetSource("local", @"D:\packages"),
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(discovered);
     }
@@ -86,6 +374,33 @@ public class NuGetSearchSourcesTests
         NuGetSearchResult result = Assert.Single(outcome.Results);
         Assert.Equal("Contoso.Internal", result.PackageId);
         Assert.Contains(handler.Requested, u => u.StartsWith(SearchUrl + "?", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchAsync_ConfiguredDeadlineBoundsServiceIndexBody()
+    {
+        var handler = new RouteHandler();
+        handler.RespondWithContent(IndexUrl, static () => new StallingBodyContent());
+        using var client = new HttpClient(handler)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await NuGetSearchService.SearchAsync(
+                client,
+                "Contoso",
+                sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] },
+                fetchOptions: new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(40),
+                    OperationTimeout = TimeSpan.FromSeconds(5),
+                }));
+
+        Assert.Contains(
+            "NuGetRequestTimeoutException",
+            ex.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -165,6 +480,66 @@ public class NuGetSearchSourcesTests
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await NuGetSearchService.SearchAsync(
                 client, "Contoso", sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] }));
+    }
+
+    [Theory]
+    [InlineData(NuGetOrgIndexUrl)]
+    [InlineData(NuGetOrgIndexUrl + "/")]
+    public async Task SearchAsync_NuGetOrgMalformedBody_UsesStandardDiscoveryAndFailure(
+        string indexUrl)
+    {
+        var handler = new RouteHandler
+        {
+            [indexUrl] = ServiceIndex(SearchUrl),
+            [SearchUrl] = "<html>sign in</html>"
+        };
+        using var client = new HttpClient(handler);
+        using var config = new TempNuGetConfig([("nuget.org", indexUrl)]);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await NuGetSearchService.SearchAsync(
+                client,
+                "Contoso",
+                sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path }));
+
+        Assert.Contains("No configured NuGet source could be searched", exception.Message);
+        Assert.Contains("nuget.org: search failed", exception.Message);
+        Assert.Contains(nameof(System.Text.Json.JsonException), exception.Message);
+        Assert.DoesNotContain("<html>", exception.Message);
+        Assert.Collection(
+            handler.Requested,
+            requested => Assert.Equal(indexUrl, requested),
+            requested => Assert.StartsWith(SearchUrl + "?", requested, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(
+        """{"data":[{"id":null,"version":"1.0.0"}]}""",
+        nameof(System.Text.Json.JsonException))]
+    [InlineData(
+        """{"data":[{"id":"Contoso.Package","version":"not-a-version"}]}""",
+        nameof(InvalidOperationException))]
+    public async Task SearchAsync_InvalidResultIdentity_ReportsSourceFailure(
+        string body,
+        string failureType)
+    {
+        var handler = new RouteHandler
+        {
+            [IndexUrl] = ServiceIndex(SearchUrl),
+            [SearchUrl] = body,
+        };
+        using var client = new HttpClient(handler);
+        using var config = new TempNuGetConfig([("contoso", IndexUrl)]);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await NuGetSearchService.SearchAsync(
+                client,
+                "Contoso",
+                sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path }));
+
+        Assert.Contains("contoso: search failed", exception.Message);
+        Assert.Contains(failureType, exception.Message);
+        Assert.DoesNotContain("Value cannot be null", exception.Message);
     }
 
     [Fact]
@@ -258,29 +633,38 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
-    public async Task SearchAsync_DuplicateAcrossSources_ReturnedOnce()
+    public async Task SearchAsync_SemanticallyEquivalentVersionsAcrossSources_ReturnedOnce()
     {
         const string indexA = "https://a.example/v3/index.json";
         const string indexB = "https://b.example/v3/index.json";
         const string searchA = "https://a.example/v3/query";
         const string searchB = "https://b.example/v3/query";
-        const string body = """{"data":[{"id":"Shared.Package","version":"1.0.0"}]}""";
 
         var handler = new RouteHandler
         {
             [indexA] = $$"""{"resources":[{"@id":"{{searchA}}","@type":"SearchQueryService"}]}""",
             [indexB] = $$"""{"resources":[{"@id":"{{searchB}}","@type":"SearchQueryService"}]}""",
-            [searchA] = body,
-            [searchB] = body
+            [searchA] = """{"data":[{"id":"Shared.Package","version":"1.0.0"}]}""",
+            [searchB] = """
+                {"data":[
+                  {"id":"shared.package","version":"1.0.0.0"},
+                  {"id":"Unique.Package","version":"2.0.0"}
+                ]}
+                """
         };
         using var client = new HttpClient(handler);
         using var config = new TempNuGetConfig([("a", indexA), ("b", indexB)]);
 
         NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
-            client, "Shared", sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path });
+            client,
+            "Package",
+            take: 2,
+            sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path });
 
         Assert.Empty(outcome.Failures);
-        Assert.Single(outcome.Results);
+        Assert.Equal(
+            ["Shared.Package", "Unique.Package"],
+            outcome.Results.Select(result => result.PackageId));
     }
 
     [Fact]
@@ -1343,18 +1727,15 @@ public class NuGetSearchSourcesTests
     }
 
     /// <summary>
-    /// The nuget.org shortcut answers from the well-known search endpoint without reading a
-    /// service index. It must therefore key on the canonical service index URL and not merely on a
-    /// nuget.org host: another path on that host is a different endpoint the user named
-    /// deliberately, and answering it from the well-known endpoint would report results the
-    /// requested URL never served — the same "searched the wrong feed" failure this change exists
-    /// to remove.
+    /// A nuget.org URL that is not the canonical service index is still the exact source the user
+    /// named. Standard discovery must consult that source rather than substituting another
+    /// nuget.org endpoint.
     /// </summary>
     [Theory]
     [InlineData("https://api.nuget.org/definitely-not-a-service-index")]
     [InlineData("https://api.nuget.org/v3/index.json//")]
     [InlineData("https://api.nuget.org/v3/index.json#custom")]
-    public async Task SearchAsync_NoncanonicalNuGetOrgSource_DoesNotUseWellKnownEndpoint(
+    public async Task SearchAsync_NoncanonicalNuGetOrgSource_UsesNamedServiceIndex(
         string odd)
     {
         var handler = new RouteHandler();
@@ -1363,8 +1744,7 @@ public class NuGetSearchSourcesTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => NuGetSearchService.SearchAsync(
             client, "Newtonsoft.Json", sourceOptions: new NuGetSourceOptions { Sources = [odd] }));
 
-        // The source was consulted through ordinary service-index discovery; nuget.org's
-        // well-known search endpoint was not substituted for it.
+        // The named source was consulted through ordinary service-index discovery.
         Assert.NotEmpty(handler.Requested);
         Assert.DoesNotContain(
             handler.Requested,
@@ -1464,6 +1844,8 @@ public class NuGetSearchSourcesTests
     /// </summary>
     private sealed class RouteHandler : HttpMessageHandler
     {
+        private static readonly HttpRequestOptionsKey<bool> BrowserStreamingResponse =
+            new("WebAssemblyEnableStreamingResponse");
         private readonly Dictionary<string, (HttpStatusCode Status, string Body)> _routes =
             new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, Func<HttpContent>> _contentRoutes =
@@ -1475,6 +1857,7 @@ public class NuGetSearchSourcesTests
         public string this[string url] { set => _routes[url] = (HttpStatusCode.OK, value); }
 
         public IReadOnlyList<string> Requested => _requests.Select(r => r.Url).ToList();
+        public bool BrowserStreamingRequested { get; private set; }
 
         public void RespondWith(string url, HttpStatusCode status, string body = "") =>
             _routes[url] = (status, body);
@@ -1493,6 +1876,10 @@ public class NuGetSearchSourcesTests
         {
             string url = request.RequestUri!.ToString();
             _requests.Add((url, request.Headers.Authorization));
+            BrowserStreamingRequested |= request.Options.TryGetValue(
+                BrowserStreamingResponse,
+                out bool enabled)
+                && enabled;
             string routeUrl = WithoutQuery(url);
 
             if (_exceptions.TryGetValue(routeUrl, out Exception? exception))
@@ -1526,10 +1913,60 @@ public class NuGetSearchSourcesTests
             return Task.FromResult(response);
         }
 
-        private static string WithoutQuery(string url)
+        public static string WithoutQuery(string url)
         {
             int q = url.IndexOf('?', StringComparison.Ordinal);
             return q < 0 ? url : url[..q];
+        }
+    }
+
+    private sealed class SearchBudgetHandler(
+        string indexUrl,
+        string firstSearch,
+        string secondSearch,
+        string thirdSearch) : HttpMessageHandler
+    {
+        private readonly List<string> _requested = [];
+
+        public IReadOnlyList<string> Requested => _requested;
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            _requested.Add(url);
+
+            string body;
+            if (url.Equals(indexUrl, StringComparison.Ordinal))
+            {
+                body = $$"""
+                    {"resources":[
+                      {"@id":"{{firstSearch}}","@type":"SearchQueryService/3.5.0"},
+                      {"@id":"{{secondSearch}}","@type":"SearchQueryService/3.5.0"},
+                      {"@id":"{{thirdSearch}}","@type":"SearchQueryService/3.5.0"}
+                    ]}
+                    """;
+            }
+            else if (url.StartsWith(firstSearch, StringComparison.Ordinal))
+            {
+                body = "<html>failure</html>";
+            }
+            else if (url.StartsWith(secondSearch, StringComparison.Ordinal))
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("Unreachable after infinite delay.");
+            }
+            else
+            {
+                body = """{"data":[{"id":"Too.Late","version":"1.0.0"}]}""";
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body),
+                RequestMessage = request,
+            };
         }
     }
 
@@ -1570,6 +2007,57 @@ public class NuGetSearchSourcesTests
             length = 0;
             return false;
         }
+    }
+
+    private sealed class StallingBodyContent : HttpContent
+    {
+        protected override Task<Stream> CreateContentReadStreamAsync() =>
+            Task.FromResult<Stream>(new StallingBodyStream());
+
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context) =>
+            Task.FromException(
+                new InvalidOperationException(
+                    "Headers-first metadata must read the response stream."));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
+    private sealed class StallingBodyStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
     }
 
     private sealed class PrefixThenFailStream : Stream

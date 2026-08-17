@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using DotnetInspector.Options;
 using DotnetInspector.Queries;
@@ -404,12 +405,55 @@ public class LibraryInspection
     /// Members with unsafe signature or body-level unsafe evidence.
     /// P/Invoke-only methods are excluded and remain in P/Invoke Methods.
     /// </summary>
+    private List<UnsafeMemberSummary>? _unsafeMembers;
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<UnsafeMemberSummary>? UnsafeMembers { get; set; }
+    public List<UnsafeMemberSummary>? UnsafeMembers
+    {
+        get => UnsafeEvidenceInspection.Failure() is null ? _unsafeMembers : null;
+        set => _unsafeMembers = value;
+    }
+
+    private FindingInspection<UnsafeEvidence>? _unsafeEvidenceInspection;
+
+    /// <summary>Typed unsafe declaration and body evidence with path-scoped provenance.</summary>
+    [JsonIgnore]
+    public FindingInspection<UnsafeEvidence>? UnsafeEvidenceInspection
+    {
+        get => _unsafeEvidenceInspection;
+        set
+        {
+            _unsafeEvidenceInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    /// <summary>Per-method failures that made the unsafe-evidence census incomplete.</summary>
+    [JsonIgnore]
+    public ImmutableArray<AnalysisDiagnostic> UnsafeEvidenceDiagnostics { get; set; } = [];
+
+    private TopLeverageResult? _topLeverageQueryResult;
+
+    /// <summary>Typed whole-assembly call-graph leverage evidence.</summary>
+    [JsonIgnore]
+    public TopLeverageResult? TopLeverageQueryResult
+    {
+        get => _topLeverageQueryResult;
+        set
+        {
+            _topLeverageQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    /// <summary>CLI-owned member coordinates joined to typed leverage evidence.</summary>
+    [JsonIgnore]
+    public IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>?
+        TopLeverageDrillMap { get; set; }
 
     /// <summary>
-    /// Methods ranked by call-graph leverage (distinct direct callers, then outbound
-    /// shape). Assembly-wide; populated only when the Top Leverage section is selected.
+    /// Compatibility projection of methods ranked by call-graph leverage. Assembly-wide;
+    /// populated only when the Top Leverage section is selected.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<MethodLeverageSummary>? TopLeverage { get; set; }
@@ -683,6 +727,14 @@ public class LibraryInspection
             AddFailure(failures, "Compilation Options", CompilationOptionInspection);
             AddFailure(failures, "Compilation References", CompilationReferenceInspection);
             AddFailure(failures, "Classified Methods", ClassifiedMethodInspection);
+            AddFailure(failures, SectionNames.UnsafeMembers, UnsafeEvidenceInspection);
+            if (TopLeverageQueryResult is TopLeverageResult.Failed leverageFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    SectionNames.TopLeverage,
+                    TopLeverageQuery.Definition.Name,
+                    leverageFailure.Error.Message));
+            }
             AddFailure(failures, "Extension Methods", ExtensionMemberInspection);
             AddFailure(failures, LibraryIntegrationCatalog.RollupName, EcosystemIntegrationInspection);
             AddFailure(failures, EcosystemIntegrationNames.OpenTelemetry, OpenTelemetryInspection);
@@ -842,7 +894,7 @@ public class LibraryInspection
     public List<AuditSignal>? AuditSignals { get; set; }
 
     /// <summary>
-    /// Assembly-derived audit metadata, cached from the one session the audit scanner ran in.
+    /// Assembly-derived audit metadata retained from the typed query result.
     ///
     /// Audit signals are recomputed after the source-audit and integrity passes fold in evidence
     /// those passes produce. Recomputing them used to reopen the assembly each time — up to four
@@ -1172,6 +1224,10 @@ public record class MethodLeverageSummary
 public record class OptimizationOpportunitySummary
 {
     public string Member { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Assembly { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? MethodToken { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Candidate { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

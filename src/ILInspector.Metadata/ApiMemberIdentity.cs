@@ -52,6 +52,10 @@ public sealed record ExtensionMemberAnchorInfo(
         get => _extendedType;
         init => _extendedType = value ?? throw new ArgumentNullException(nameof(value));
     }
+
+    public MetadataNamedTypeReference? ReturnTypeReference { get; init; }
+
+    public MetadataNamedTypeReference? ExtendedTypeReference { get; init; }
 }
 
 /// <summary>
@@ -839,7 +843,9 @@ public static class ApiMemberIdentity
     /// members read live. Non-divergent (non-tuple) members are left untouched, keeping
     /// their serialized form and digests unchanged.
     /// </summary>
-    public static void PopulateCanonicalIdentities(ApiSurface surface)
+    public static void PopulateCanonicalIdentities(
+        ApiSurface surface,
+        Action<string>? beforeRetain = null)
     {
         foreach (var type in surface.Types)
         {
@@ -848,7 +854,9 @@ public static class ApiMemberIdentity
                 if (member.SignatureModel is not { } signature || !HasCanonicalDivergence(member, signature))
                     continue;
 
-                member.CanonicalSignature = GetCanonicalSignature(type, member);
+                string canonical = GetCanonicalSignature(type, member);
+                beforeRetain?.Invoke(canonical);
+                member.CanonicalSignature = canonical;
             }
         }
     }
@@ -1006,10 +1014,25 @@ public static class ApiMemberIdentity
         if (shape.ParameterTypes.Length == 0)
             throw new BadImageFormatException("An extension method must have a receiver parameter.");
 
+        MethodSignature<MetadataNamedTypeReference?>? namedSignature =
+            MetadataNamedTypeSignatureDecoder.DecodeMethod(
+                reader,
+                method,
+                GenericContext.ForMethod(
+                    reader,
+                    reader.GetTypeDefinition(typeHandle),
+                    method));
         return new ExtensionMemberAnchorInfo(
             shape.Anchor,
             shape.ReturnType,
-            shape.ParameterTypes[0]);
+            shape.ParameterTypes[0])
+        {
+            ReturnTypeReference = namedSignature?.ReturnType,
+            ExtendedTypeReference =
+                namedSignature is { ParameterTypes.Length: > 0 }
+                    ? namedSignature.Value.ParameterTypes[0]
+                    : null,
+        };
     }
 
     internal static ExtensionMemberAnchorInfo CreateExtensionPropertyDeclarationAnchorInfo(

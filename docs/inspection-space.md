@@ -16,8 +16,9 @@ shared contracts, not dynamically loaded plugins.
 This document describes the target core architecture and the principles that
 govern its migration. Library metadata, direct-reference, extension-method,
 custom-attribute, manifest-resource, type-forwarder, union-type, switch,
-SourceLink, and API-comparison inspection plus implementation-relationship and
-type/member search inspection are the first typed-query canaries: commands and
+SourceLink, authored-or-decompiled type/member source, and API-comparison
+inspection plus implementation-relationship and type/member search inspection
+are the first typed-query canaries: commands and
 section catalogs plan typed demand while queries remain independent of
 acquisition and output. The `diff` Changes section consumes one API-comparison result over
 host-resolved surfaces, retaining Metadata-owned Finding correspondence and
@@ -295,6 +296,15 @@ descriptor.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.
+When stream inspection is already propagating cancellation or a fatal failure,
+owned-stream cleanup cannot replace that primary failure.
+`AssemblyContextSourceQueryTests.SnapshotPrimaryFailure_IsNotMaskedByCleanupFailure`
+gates the end-to-end member and type paths, while
+`PdbContextDescriptorTests.DescriptorOpenPrimaryFailure_IsNotMaskedByCleanupFailure`
+gates descriptor-backed metadata contexts, assembly images, and prefetched
+sessions, and
+`PdbContextDescriptorTests.PdbContextConstructionPrimaryFailure_ReleasesOwnedStream`
+gates the post-reader context-construction boundary.
 `InspectionWorkspaceTests.OwnedResources_AreDisposedBeforeSnapshots` gates the
 derived-resource-before-snapshot disposal order.
 `InspectionWorkspaceTests.AsyncParticipantRelease_PreservesOwnedResourceDisposalOrder`
@@ -318,8 +328,28 @@ supplies the same validated PDB bytes to browser/Wasm hosts, paired with the
 same explicit `IPackageSourceAuthorization` used for package acquisition.
 Stored Portable PDB content is keyed by GUID plus stamp, so the content
 reference remains repeatable across otherwise-colliding symbol-server lookup
-keys. This capability does not itself add a group query; it is the symbol-input
-seam such a query consumes.
+keys. `AssemblyContextSourceQuery` now consumes that seam for one selected group
+participant. Type requests carry an exact `MetadataTypeDefinitionName`; member
+requests add a `MemberAnchor` and MethodDef token, so target identity is never
+recovered from display text. The query resolves that target against the
+participant's retained immutable image, then takes a content-backed reference
+for asynchronous source work without consuming the participant snapshot.
+Checksum-verified authored source wins when available. Otherwise the
+Decompiler runs over the same content reference and the participant's frozen
+`IAssemblyBindingPolicy`; an authored integrity failure remains attached to a
+successful decompiled result rather than being rewritten as absence. When both
+producers are unavailable, the result carries both typed attempts instead of
+empty text.
+
+The query's moderated network work requires explicit symbol HTTP, `IPdbStore`,
+`IPackageSourceAuthorization`, source-fetch, and source-content-store
+capabilities. `InMemoryPdbStore` and `InMemorySourceContentStore` provide the
+filesystem-free host shape. Absolute source paths recorded in a PDB are
+disabled by default at this boundary and require an explicit opt-in.
+`AssemblyContextSourceQueryTests.PathlessMember_AcquiresVerifiedAuthoredSource`,
+`MissingAuthoredSource_FallsBackToDecompiler`,
+`AuthoredIntegrityFailure_IsPreservedBesideDecompiler`, and
+`NeitherSourceAvailable_ReturnsTypedFailure` gate these claims.
 
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
 gates asynchronous host work over a retained descriptor without reopening its
@@ -413,6 +443,63 @@ package node, or both.
 gates the compiled package-acquisition path, and
 `PackageBoundary_KeepsEffectiveTargetAcrossAssetFallback` gates the
 effective/physical target distinction.
+`InspectionGraphIntegrationsQuery` composes extensions, Integrations,
+opportunities, references, and that package boundary over the same complete
+loaded context. The registry baseline remains sequential: prerequisite queries
+run in deterministic plan order, participant rows retain group order, and
+composition never requires threads. Signature endpoints are resolved through
+the participant's frozen binding policy and verified against the selected
+retained image before entering the graph. Participant and endpoint failures
+remain typed graph failures beside healthy evidence.
+`InspectionGraphIntegrationsQueryTests.Execute_ProjectsLockedIChatClientEvidenceAcrossPackageGroups`
+gates the compiled multi-assembly path, while
+`Execute_DoesNotJoinAmbiguousMatchingAssemblyIdentities` gates the rule that
+matching metadata identity or display text cannot replace acquisition
+registration.
+The query's `InspectionGraphModeRequest` now distinguishes seed intent from
+that workspace scope. Its request-free overload explicitly produces a
+workspace-participant induced set; type and assembly seeds bind exact nodes,
+package seeds bind exact package groups in the detailed Integration lens, and
+mixed peers remain equal. Mode binding happens after the same deterministic
+full producer plan, so the existing mode-only overloads do not change
+occurrence identity or semantic edge direction. Integration relationship
+descriptors declare whether a seed may enter as a logical edge endpoint, an
+original occurrence endpoint, or through strict typed ownership.
+`Execute_DefaultsToWorkspaceInducedSetWithoutSeeds`,
+`Execute_BindsTypeSeedToExactNode`,
+`Execute_BindsAssemblySeedToExactNode`,
+`Execute_BindsPackageSeedToDetailedLensGroup`,
+`Execute_BindsPeerSeedsWithoutChoosingPrimary`, and
+`PackageAndTypeModesShareSemanticIntegrationOccurrences` gate those claims.
+`RelationshipCatalogsDeclareCurrentSeedAdmissions`,
+`RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions`, and
+`AdmissionsMatchDeclaredEndpointDomains` gate the catalog declarations and
+their endpoint constraints.
+
+`InspectionGraphNeighborhoodRequest` now makes those declarations load-bearing
+for single-seed Integration graphs. The request keeps mode, selected
+relationships, semantic direction, and finite edge depth separate. Catalog and
+seed admission validation occur before the registry runs. The selected
+relationships request only extension, reference, Integration, or opportunity
+queries they require; the registry still expands typed prerequisites and runs
+them once in registration order. Opportunity activates both extension and
+Integration evidence because fulfillment suppression composes those results
+before projecting opportunity edges; it does not activate unrelated reference
+scans.
+
+The completed evidence is projected sequentially into a dense bounded document.
+Incoming traversal does not reverse stored semantic direction, original
+occurrence receipts and identity survive id remapping, and failures from the
+requested relationship producers and their required composition prerequisites
+remain visible beside reached topology.
+`Execute_SelectedRelationshipsControlProducerDemand`,
+`Execute_OpportunityNeighborhoodPreservesFulfillmentSuppression`,
+`Execute_OpportunityNeighborhoodRetainsPrerequisiteFailures`,
+`Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
+`Execute_PackageSeedExpandsThroughOwnedSourceSubjects`,
+`Execute_OpportunitySourceTypeUsesOccurrenceAdmission`, and
+`Execute_NeighborhoodRetainsSelectedProducerFailures` gate the planner,
+ownership, receipt, and failure contracts.
 `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic
 composition and the shared nonzero completion status used after Markdown,
 count, tabular, or JSON output.

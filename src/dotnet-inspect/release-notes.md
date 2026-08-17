@@ -1,5 +1,65 @@
 # Release Notes
 
+## v0.20.0
+
+### Inspection reliability
+
+- Diff presentation now carries titles, summaries, versions, grouped type
+  names, row values, and composed document fields through typed inert-text
+  boundaries while preserving Markdown, table, JSONL, and document JSON shapes
+  (#3463).
+- **Breaking:** `library` and `package --all-libraries` now return a non-zero
+  exit status when an explicitly selected section is empty because its
+  inspection failed. Resource Triage reports incomplete method analysis as a
+  typed inspection failure instead of returning fewer rows or success-shaped
+  empty output. Instruction decoding, method and catch resolution, metadata
+  validation, method-body acquisition, and control-flow analysis retain stable
+  failure phases across Markdown, JSON, exact-section, count, multi-assembly,
+  and `package --all-libraries` projections. Legal native method bodies are no
+  longer decoded as IL (#4273).
+- Classified-method facts now come from one bounded typed query shared by
+  `Library Info`, P/Invoke Methods, Async Methods, and Signals. Existing output
+  remains compatible while failures and raw artifact identity stay typed until
+  presentation (#4195).
+- Internal inspection-graph composition now has a typed package boundary that
+  preserves exact ownership and provenance without reconstructing identity
+  from assembly names or display labels. Presentation and CLI integration are
+  unchanged (#4269).
+
+### NuGet acquisition
+
+- **Breaking:** Package-search timeout failures now use stable tool-owned
+  diagnostics instead of runtime-specific message text. `--http-timeout` now
+  bounds service-index discovery and response-body consumption for
+  `package search` and package-prefix expansion. Each source's search
+  pagination has a separate operation ceiling four times that value (#4243).
+
+### Experimental analysis and decompilation
+
+- Adds bounded exact structural clone comparison and same-assembly discovery.
+  Exact normalized IL/control-flow witnesses remain distinct from unsupported,
+  failed, limited, ambiguous, and different outcomes; incomplete candidate
+  buckets never emit partial clusters (#4114, #4280).
+- Annotated-source and structural-review JSON now use strict decompiler-owned
+  readers and writers. Missing, duplicate, unknown, malformed, or topologically
+  invalid input is rejected without echoing artifact-provided values (#4203).
+- Structural decompiler review can consume product-issued cross-document node
+  correspondence backed by exact physical-method provenance, document
+  revisions, and IL-origin evidence. Unsupported and ambiguous nodes remain
+  explicit gaps rather than guessed additions or removals (#4254).
+- Retry-loop recognition and adjacent control-flow scans now stay inside their
+  owning local-function or lambda scope, preventing nested-function facts from
+  inventing or reshaping outer loops (#4253).
+
+### Engineering and validation
+
+- IL diff ownership now has a dedicated assembly boundary. Windows CI restores
+  `ilasm` and `ildasm` so oracle-backed Windows tests no longer skip
+  (#4201, #4186).
+- Structural clone comparison and same-assembly discovery gained
+  compiler-produced and corpus coverage while preserving bounded work and
+  deterministic evidence (#4114, #4280).
+
 ## v0.19.0
 
 ### Inspection and output
@@ -37,6 +97,9 @@
 - Package and library `Signals` now summarize non-ASCII identifiers and
   reserved-prefix homoglyphs. `Audit: Identifier Confusion` adds content-free
   locations, classifications, similarity, and code points (#4090).
+- Find-result views now carry titles, descriptions, type and member identities,
+  source provenance, and row values through typed inert-text boundaries before
+  Markout-backed Markdown, TSV, JSONL, and projected JSON rendering (#3463).
 - PDB and SourceLink acquisition now handles pathless and content-shaped
   responses while preserving visible diagnostics for rejected evidence
   (#4138).

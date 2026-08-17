@@ -90,6 +90,39 @@ public class StructuralCloneAnalysisTests
     }
 
     [Fact]
+    public void Compare_CompilerProducedOneOperationChanges_AreNear()
+    {
+        using PEReader image = OpenFixture();
+        MetadataReader reader = image.GetMetadataReader();
+
+        StructuralCloneComparison constant =
+            StructuralCloneAnalysis.Compare(
+                image,
+                Method(reader, nameof(StructuralCloneFixture.NearConstantA)),
+                Method(reader, nameof(StructuralCloneFixture.NearConstantB)));
+        StructuralCloneComparison call =
+            StructuralCloneAnalysis.Compare(
+                image,
+                Method(reader, nameof(StructuralCloneFixture.NearCallTargetA)),
+                Method(reader, nameof(StructuralCloneFixture.NearCallTargetB)));
+        StructuralCloneComparison constantReverse =
+            StructuralCloneAnalysis.Compare(
+                image,
+                Method(reader, nameof(StructuralCloneFixture.NearConstantB)),
+                Method(reader, nameof(StructuralCloneFixture.NearConstantA)));
+        StructuralCloneComparison callReverse =
+            StructuralCloneAnalysis.Compare(
+                image,
+                Method(reader, nameof(StructuralCloneFixture.NearCallTargetB)),
+                Method(reader, nameof(StructuralCloneFixture.NearCallTargetA)));
+
+        AssertNearOperationChange(constant);
+        AssertNearOperationChange(call);
+        AssertNearOperationChange(constantReverse);
+        AssertNearOperationChange(callReverse);
+    }
+
+    [Fact]
     public void Compare_ExceptionHandling_IsUnsupportedNotDifferent()
     {
         using PEReader image = OpenFixture();
@@ -110,6 +143,302 @@ public class StructuralCloneAnalysisTests
             static blocker => Assert.Equal(
                 StructuralCloneBlockerKind.ExceptionHandling,
                 blocker.Kind));
+    }
+
+    [Fact]
+    public void Discover_CompilerProducedPopulation_FindsClosedExactFamilies()
+    {
+        using PEReader image = OpenFixture();
+        MetadataReader reader = image.GetMetadataReader();
+        ImmutableArray<MethodDefinitionHandle> population =
+        [
+            Method(reader, nameof(StructuralCloneFixture.ExactPositiveA)),
+            Method(reader, nameof(StructuralCloneFixture.ExactPositiveB)),
+            Method(reader, nameof(StructuralCloneFixture.EdgeRoleNegativeA)),
+            Method(reader, nameof(StructuralCloneFixture.EdgeRoleNegativeB)),
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardByte)),
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardUInt)),
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardString)),
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardObject)),
+            Method(reader, nameof(StructuralCloneFixture.MetadataOperandsA)),
+            Method(reader, nameof(StructuralCloneFixture.MetadataOperandsB)),
+            Method(reader, nameof(StructuralCloneFixture.ExceptionHandlingA)),
+            Method(reader, nameof(StructuralCloneFixture.ExceptionHandlingB)),
+        ];
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(image, population);
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.Completed,
+            result.Disposition);
+        Assert.Empty(result.Blockers);
+        Assert.Empty(result.SuppressedBuckets);
+        Assert.Empty(result.UnresolvedComparisons);
+        Assert.Equal(4, result.Clusters.Length);
+        Assert.Equal(12, result.Receipt.ProcessedMethods);
+        Assert.Equal(10, result.Receipt.EligibleMethods);
+        Assert.Equal(2, result.Receipt.UnsupportedMethods);
+        Assert.Equal(4, result.Receipt.ExactComparisons);
+        Assert.Equal(1, result.Receipt.DifferentComparisons);
+        StructuralCloneMethodOutcome[] unsupported =
+        [
+            .. result.Methods.Where(static method =>
+                method.Disposition
+                    == StructuralCloneDisposition.Unsupported),
+        ];
+        Assert.Equal(2, unsupported.Length);
+        Assert.All(
+            unsupported,
+            static method => Assert.All(
+                method.Blockers,
+                static blocker => Assert.Equal(
+                    StructuralCloneDiscoveryBlockerKind.MethodUnsupported,
+                    blocker.Kind)));
+
+        AssertCluster(
+            result,
+            Method(reader, nameof(StructuralCloneFixture.ExactPositiveA)),
+            Method(reader, nameof(StructuralCloneFixture.ExactPositiveB)));
+        AssertCluster(
+            result,
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardByte)),
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardUInt)));
+        AssertCluster(
+            result,
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardString)),
+            Method(reader, nameof(StructuralCloneFixture.SignatureHazardObject)));
+        AssertCluster(
+            result,
+            Method(reader, nameof(StructuralCloneFixture.MetadataOperandsA)),
+            Method(reader, nameof(StructuralCloneFixture.MetadataOperandsB)));
+
+        HashSet<MethodDefinitionHandle> clustered =
+        [
+            .. result.Clusters.SelectMany(static cluster =>
+                cluster.Members.Select(static member => member.Handle)),
+        ];
+        Assert.DoesNotContain(
+            Method(reader, nameof(StructuralCloneFixture.EdgeRoleNegativeA)),
+            clustered);
+        Assert.DoesNotContain(
+            Method(reader, nameof(StructuralCloneFixture.EdgeRoleNegativeB)),
+            clustered);
+    }
+
+    [Fact]
+    public void Discover_ThreeMemberFamily_UsesRepresentativeEvidence()
+    {
+        using PEReader image = OpenImage(BuildTripletAssembly([0x2A]));
+        ImmutableArray<MethodDefinitionHandle> population =
+        [
+            MetadataTokens.MethodDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2),
+            MetadataTokens.MethodDefinitionHandle(3),
+        ];
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(image, population);
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.Completed,
+            result.Disposition);
+        StructuralCloneCluster cluster = Assert.Single(result.Clusters);
+        Assert.Equal(3, cluster.Members.Length);
+        Assert.Equal(2, cluster.Evidence.Length);
+        Assert.All(
+            cluster.Evidence,
+            static evidence => Assert.Equal(
+                StructuralCloneRelation.Exact,
+                evidence.Relation));
+        Assert.Equal(2, result.Receipt.CandidateComparisons);
+    }
+
+    [Fact]
+    public void Discover_InputOrder_DoesNotChangeClusterIdentity()
+    {
+        using PEReader image = OpenImage(BuildTripletAssembly([0x2A]));
+        MethodDefinitionHandle first =
+            MetadataTokens.MethodDefinitionHandle(1);
+        MethodDefinitionHandle second =
+            MetadataTokens.MethodDefinitionHandle(2);
+        MethodDefinitionHandle third =
+            MetadataTokens.MethodDefinitionHandle(3);
+
+        StructuralCloneDiscoveryResult forward =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [first, second, third]);
+        StructuralCloneDiscoveryResult reverse =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [third, first, second]);
+
+        Assert.Equal(
+            Assert.Single(forward.Clusters).Identity,
+            Assert.Single(reverse.Clusters).Identity);
+    }
+
+    [Fact]
+    public void Discover_DuplicateHandles_AreCallerError()
+    {
+        using PEReader image = OpenImage(BuildTwinAssembly([0x2A]));
+        MethodDefinitionHandle method =
+            MetadataTokens.MethodDefinitionHandle(1);
+
+        Assert.Throws<ArgumentException>(
+            () => StructuralCloneAnalysis.Discover(
+                image,
+                [method, method]));
+    }
+
+    [Fact]
+    public void Discover_ExactComparisonBudget_CanComplete()
+    {
+        using PEReader image = OpenImage(BuildTripletAssembly([0x2A]));
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [
+                    MetadataTokens.MethodDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2),
+                    MetadataTokens.MethodDefinitionHandle(3),
+                ],
+                new StructuralCloneDiscoveryLimits(
+                    MaximumCandidateComparisons: 2));
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.Completed,
+            result.Disposition);
+        Assert.Single(result.Clusters);
+        Assert.Equal(2, result.Receipt.CandidateComparisons);
+    }
+
+    [Fact]
+    public void Discover_ExhaustedBudget_SuppressesLaterBucketsBeforeReplay()
+    {
+        using PEReader image = OpenFixture();
+        MetadataReader reader = image.GetMetadataReader();
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [
+                    Method(
+                        reader,
+                        nameof(StructuralCloneFixture.ExactPositiveA)),
+                    Method(
+                        reader,
+                        nameof(StructuralCloneFixture.ExactPositiveB)),
+                    Method(
+                        reader,
+                        nameof(StructuralCloneFixture.MetadataOperandsA)),
+                    Method(
+                        reader,
+                        nameof(StructuralCloneFixture.MetadataOperandsB)),
+                ],
+                new StructuralCloneDiscoveryLimits(
+                    MaximumCandidateComparisons: 1));
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.LimitReached,
+            result.Disposition);
+        Assert.Single(result.Clusters);
+        Assert.Single(result.SuppressedBuckets);
+        Assert.Equal(1, result.Receipt.CandidateComparisons);
+        Assert.Equal(6, result.Receipt.BodyProductions);
+    }
+
+    [Fact]
+    public void Discover_MidBucketBudget_EmitsNoPartialCluster()
+    {
+        using PEReader image = OpenImage(BuildTripletAssembly([0x2A]));
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [
+                    MetadataTokens.MethodDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2),
+                    MetadataTokens.MethodDefinitionHandle(3),
+                ],
+                new StructuralCloneDiscoveryLimits(
+                    MaximumCandidateComparisons: 1));
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.LimitReached,
+            result.Disposition);
+        Assert.Empty(result.Clusters);
+        StructuralCloneSuppressedBucket suppressed =
+            Assert.Single(result.SuppressedBuckets);
+        Assert.Equal(3, suppressed.Methods.Length);
+        Assert.Equal(
+            StructuralCloneDiscoveryBlockerKind.CandidateComparisonLimit,
+            suppressed.Reason.Kind);
+        Assert.Equal(1, result.Receipt.CandidateComparisons);
+        Assert.Equal(6, result.Receipt.BodyProductions);
+    }
+
+    [Fact]
+    public void Discover_MethodLimitAdmission_IsAtomic()
+    {
+        using PEReader image = OpenImage(BuildTwinAssembly([0x2A]));
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [
+                    MetadataTokens.MethodDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2),
+                ],
+                new StructuralCloneDiscoveryLimits(MaximumMethods: 1));
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.LimitReached,
+            result.Disposition);
+        Assert.Empty(result.Methods);
+        Assert.Equal(0, result.Receipt.ProcessedMethods);
+        Assert.Equal(0, result.Receipt.BodyProductions);
+        Assert.Equal(2, result.Receipt.SuppressedMethods);
+    }
+
+    [Fact]
+    public void Discover_MalformedModuleIdentity_ReturnsTypedFailure()
+    {
+        using PEReader image = OpenImage(
+            BuildMalformedModuleIdentityTwinAssembly());
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [
+                    MetadataTokens.MethodDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2),
+                ]);
+
+        Assert.Equal(
+            StructuralCloneDiscoveryDisposition.Failed,
+            result.Disposition);
+        Assert.Empty(result.Methods);
+        StructuralCloneDiscoveryBlocker blocker =
+            Assert.Single(result.Blockers);
+        Assert.Equal(
+            StructuralCloneDiscoveryBlockerKind.MetadataReadFailure,
+            blocker.Kind);
+    }
+
+    [Fact]
+    public void Discover_InvalidLimits_AreCallerError()
+    {
+        using PEReader image = OpenImage(BuildTwinAssembly([0x2A]));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => StructuralCloneAnalysis.Discover(
+                image,
+                [MetadataTokens.MethodDefinitionHandle(1)],
+                new StructuralCloneDiscoveryLimits(
+                    MaximumCandidateComparisons: 0)));
     }
 
     [Fact]
@@ -1200,7 +1529,7 @@ public class StructuralCloneAnalysisTests
     }
 
     [Fact]
-    public void Compare_ChangedEdgeRoleOrSwitchOrder_IsDifferent()
+    public void Compare_OneChangedEdgeIsNearButSwitchOrderIsDifferent()
     {
         StructuralCloneBodyFacts edgeLeft = Facts(
             token: 1,
@@ -1233,11 +1562,9 @@ public class StructuralCloneAnalysisTests
                 0x18, 0x2A,
             ]);
 
-        Assert.Equal(
-            StructuralCloneRelation.Different,
-            StructuralCloneAnalysis.Compare(
-                edgeLeft,
-                edgeRight).Relation);
+        AssertNearEdge(
+            StructuralCloneAnalysis.Compare(edgeLeft, edgeRight),
+            StructuralCloneEditKind.Changed);
         Assert.Equal(
             StructuralCloneRelation.Different,
             StructuralCloneAnalysis.Compare(
@@ -1246,7 +1573,207 @@ public class StructuralCloneAnalysisTests
     }
 
     [Fact]
-    public void Compare_LoopBackEdgeRetargeting_IsDifferent()
+    public void Compare_CompilerProducedTwoOperationContrast_IsDifferent()
+    {
+        using PEReader image = OpenFixture();
+        MetadataReader reader = image.GetMetadataReader();
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                image,
+                Method(
+                    reader,
+                    nameof(StructuralCloneFixture.NearHardNegativeA)),
+                Method(
+                    reader,
+                    nameof(StructuralCloneFixture.NearHardNegativeB)));
+
+        Assert.Equal(
+            StructuralCloneDisposition.Completed,
+            comparison.Disposition);
+        Assert.Equal(
+            StructuralCloneRelation.Different,
+            comparison.Relation);
+        Assert.Null(comparison.Alignment);
+        Assert.True(comparison.AlignmentReceipt?.Exhausted);
+        Assert.True(
+            comparison.AlignmentReceipt!.VerificationSteps
+                >= comparison.AlignmentReceipt.Candidates);
+    }
+
+    [Fact]
+    public void Compare_OperationReordering_IsNotOneChange()
+    {
+        StructuralCloneBodyFacts left = Facts(
+            token: 1,
+            il: [0x02, 0x17, 0x58, 0x2A]);
+        StructuralCloneBodyFacts right = Facts(
+            token: 2,
+            il: [0x17, 0x02, 0x58, 0x2A]);
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(left, right);
+
+        Assert.Equal(
+            StructuralCloneRelation.Different,
+            comparison.Relation);
+        Assert.Null(comparison.Alignment);
+        Assert.True(comparison.AlignmentReceipt?.Exhausted);
+    }
+
+    [Fact]
+    public void Compare_ChangedOperationsRequireOneJointBlockWitness()
+    {
+        StructuralCloneBodyFacts left = RigidColoredGraph(
+            token: 1,
+            changedBlock: 1,
+            ILOpCode.Nop);
+        StructuralCloneBodyFacts right = RigidColoredGraph(
+            token: 2,
+            changedBlock: 2,
+            ILOpCode.Break);
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(left, right);
+
+        Assert.Equal(
+            StructuralCloneRelation.Different,
+            comparison.Relation);
+        Assert.Null(comparison.Alignment);
+        Assert.True(comparison.AlignmentReceipt?.Exhausted);
+    }
+
+    [Fact]
+    public void Compare_ChangedLocalUseHasJointRestoringWitness()
+    {
+        StructuralCloneMethodSignature signature =
+            new(0, 0, 0, 0, ReturnsVoid: true);
+        StructuralCloneBodyFacts left = Facts(
+            token: 1,
+            il: [0x06, 0x26, 0x06, 0x26, 0x07, 0x26, 0x2A],
+            locals: [s_int, s_int],
+            signature: signature);
+        StructuralCloneBodyFacts right = Facts(
+            token: 2,
+            il: [0x07, 0x26, 0x06, 0x26, 0x07, 0x26, 0x2A],
+            locals: [s_int, s_int],
+            signature: signature);
+
+        AssertNearOperationChange(
+            StructuralCloneAnalysis.Compare(left, right));
+    }
+
+    [Fact]
+    public void Compare_LargeSingleBlockDifferencePrunesNonRestoringPositions()
+    {
+        List<byte> leftIl = [];
+        for (int index = 0; index < 50; index++)
+        {
+            leftIl.Add(0x17);
+            leftIl.Add(0x26);
+        }
+        leftIl.Add(0x02);
+        leftIl.Add(0x2A);
+        byte[] rightIl = [.. leftIl];
+        rightIl[0] = 0x18;
+        rightIl[2] = 0x19;
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                Facts(token: 1, il: [.. leftIl]),
+                Facts(token: 2, il: rightIl));
+
+        Assert.Equal(
+            StructuralCloneRelation.Different,
+            comparison.Relation);
+        StructuralCloneAlignmentReceipt receipt =
+            Assert.IsType<StructuralCloneAlignmentReceipt>(
+                comparison.AlignmentReceipt);
+        Assert.Equal(0, receipt.Candidates);
+        Assert.Equal(0, receipt.VerificationSteps);
+        Assert.True(receipt.IndexSteps > 0);
+        Assert.True(receipt.Exhausted);
+    }
+
+    [Fact]
+    public void Compare_LargeMultiBlockNearUsesMaskedCandidateIndex()
+    {
+        StructuralCloneBodyFacts left =
+            LargeNearGraph(token: 1, changedValue: 1_000);
+        StructuralCloneBodyFacts right =
+            LargeNearGraph(token: 2, changedValue: 1_005);
+
+        StructuralCloneComparison forward =
+            StructuralCloneAnalysis.Compare(left, right);
+        StructuralCloneComparison reverse =
+            StructuralCloneAnalysis.Compare(right, left);
+
+        AssertNearOperationChange(forward);
+        AssertNearOperationChange(reverse);
+        Assert.InRange(forward.AlignmentReceipt!.Candidates, 1, 4);
+        Assert.InRange(reverse.AlignmentReceipt!.Candidates, 1, 4);
+        Assert.True(forward.AlignmentReceipt.VerificationSteps > 10_000);
+        Assert.True(reverse.AlignmentReceipt.VerificationSteps > 10_000);
+
+        StructuralCloneComparison limited =
+            StructuralCloneAnalysis.Compare(
+                left,
+                right,
+                new StructuralCloneComparisonLimits(
+                    MaximumNearAlignmentVerificationSteps: 1_000));
+        AssertLimit(
+            limited,
+            StructuralCloneBlockerKind
+                .NearAlignmentVerificationStepLimit);
+    }
+
+    [Fact]
+    public void Compare_LargeLocalNearUsesLocalUseIndex()
+    {
+        StructuralCloneBodyFacts left =
+            LargeLocalNearGraph(token: 1, changedLocal: 30);
+        StructuralCloneBodyFacts right =
+            LargeLocalNearGraph(token: 2, changedLocal: 31);
+
+        StructuralCloneComparison forward =
+            StructuralCloneAnalysis.Compare(left, right);
+        StructuralCloneComparison reverse =
+            StructuralCloneAnalysis.Compare(right, left);
+
+        AssertNearOperationChange(forward);
+        AssertNearOperationChange(reverse);
+        Assert.InRange(forward.AlignmentReceipt!.Candidates, 1, 4);
+        Assert.InRange(reverse.AlignmentReceipt!.Candidates, 1, 4);
+    }
+
+    [Fact]
+    public void Compare_OneEdgeChangeInsertionAndRemoval_AreNear()
+    {
+        StructuralCloneBodyFacts original = Facts(
+            token: 1,
+            il: [0x02, 0x2D, 0x02, 0x17, 0x2A, 0x18, 0x2A]);
+        StructuralCloneBodyFacts retargeted =
+            WithRetargetedEdge(original, token: 2, 0, 0, 1);
+        StructuralCloneBodyFacts withoutEdge =
+            WithoutEdge(original, token: 3, 0, 0);
+
+        StructuralCloneComparison changed =
+            StructuralCloneAnalysis.Compare(original, retargeted);
+        StructuralCloneComparison changedReverse =
+            StructuralCloneAnalysis.Compare(retargeted, original);
+        StructuralCloneComparison removed =
+            StructuralCloneAnalysis.Compare(original, withoutEdge);
+        StructuralCloneComparison inserted =
+            StructuralCloneAnalysis.Compare(withoutEdge, original);
+
+        AssertNearEdge(changed, StructuralCloneEditKind.Changed);
+        AssertNearEdge(changedReverse, StructuralCloneEditKind.Changed);
+        AssertNearEdge(removed, StructuralCloneEditKind.Removed);
+        AssertNearEdge(inserted, StructuralCloneEditKind.Inserted);
+    }
+
+    [Fact]
+    public void Compare_LoopBackEdgeRetargeting_IsNear()
     {
         StructuralCloneBodyFacts loop = Facts(
             token: 1,
@@ -1277,14 +1804,14 @@ public class StructuralCloneAnalysisTests
             StructuralCloneRelation.Exact,
             StructuralCloneAnalysis.Compare(loop, loop).Relation);
         Assert.Equal(
-            StructuralCloneRelation.Different,
+            StructuralCloneRelation.Near,
             StructuralCloneAnalysis.Compare(
                 loop,
                 retargeted).Relation);
     }
 
     [Fact]
-    public void Compare_DuplicateSwitchTargetsRemainOrderedEdges()
+    public void Compare_DuplicateSwitchTargetChange_IsNear()
     {
         StructuralCloneBodyFacts duplicate = Facts(
             token: 1,
@@ -1317,14 +1844,14 @@ public class StructuralCloneAnalysisTests
                 duplicate,
                 duplicate).Relation);
         Assert.Equal(
-            StructuralCloneRelation.Different,
+            StructuralCloneRelation.Near,
             StructuralCloneAnalysis.Compare(
                 duplicate,
                 distinct).Relation);
     }
 
     [Fact]
-    public void Compare_SymmetricGraph_ReportsStableAmbiguityAndRejectsNearMiss()
+    public void Compare_SymmetricGraph_ReportsStableExactAndNearAmbiguity()
     {
         StructuralCloneBodyFacts left = Facts(
             token: 1,
@@ -1355,11 +1882,27 @@ public class StructuralCloneAnalysisTests
         Assert.Contains(
             forward.Correspondence!.Blocks,
             static block => block.RightBlocks.Length == 2);
+        StructuralCloneComparison near =
+            StructuralCloneAnalysis.Compare(left, nearMiss);
+        StructuralCloneComparison repeatedNear =
+            StructuralCloneAnalysis.Compare(left, nearMiss);
+        Assert.Equal(StructuralCloneRelation.Near, near.Relation);
         Assert.Equal(
-            StructuralCloneRelation.Different,
-            StructuralCloneAnalysis.Compare(
-                left,
-                nearMiss).Relation);
+            StructuralCloneCorrespondenceKind.Ambiguous,
+            near.Alignment?.Kind);
+        Assert.True(near.Alignment?.Receipt.Exhausted);
+        Assert.All(
+            near.Alignment!.Alternatives,
+            static alternative =>
+            {
+                Assert.Single(alternative.Blocks);
+                Assert.Single(alternative.Operations);
+                Assert.Empty(alternative.Edges);
+            });
+        Assert.Equal(
+            near.Alignment.Alternatives.Select(AlignmentAlternativeKey),
+            repeatedNear.Alignment!.Alternatives.Select(
+                AlignmentAlternativeKey));
     }
 
     [Fact]
@@ -1545,7 +2088,7 @@ public class StructuralCloneAnalysisTests
     }
 
     [Fact]
-    public void Compare_NopAndThisParameterRemainExactDiscriminators()
+    public void Compare_NopIsNearButThisParameterRemainsExactDiscriminator()
     {
         StructuralCloneBodyFacts plain = Facts(
             token: 1,
@@ -1564,7 +2107,7 @@ public class StructuralCloneAnalysisTests
                 ReturnsVoid: false));
 
         Assert.Equal(
-            StructuralCloneRelation.Different,
+            StructuralCloneRelation.Near,
             StructuralCloneAnalysis.Compare(
                 plain,
                 withNop).Relation);
@@ -1573,6 +2116,155 @@ public class StructuralCloneAnalysisTests
             StructuralCloneAnalysis.Compare(
                 plain,
                 instance).Relation);
+    }
+
+    [Fact]
+    public void Compare_OperationInsertionAndRemovalReverseEvidence()
+    {
+        StructuralCloneBodyFacts plain = Facts(
+            token: 1,
+            il: [0x02, 0x2A]);
+        StructuralCloneBodyFacts withNop = Facts(
+            token: 2,
+            il: [0x00, 0x02, 0x2A]);
+
+        StructuralCloneComparison removed =
+            StructuralCloneAnalysis.Compare(withNop, plain);
+        StructuralCloneComparison inserted =
+            StructuralCloneAnalysis.Compare(plain, withNop);
+
+        Assert.Equal(StructuralCloneRelation.Near, removed.Relation);
+        Assert.Equal(StructuralCloneRelation.Near, inserted.Relation);
+        Assert.All(
+            removed.Alignment!.Alternatives,
+            static alternative => Assert.Equal(
+                StructuralCloneEditKind.Removed,
+                Assert.Single(alternative.Operations).Kind));
+        Assert.All(
+            inserted.Alignment!.Alternatives,
+            static alternative => Assert.Equal(
+                StructuralCloneEditKind.Inserted,
+                Assert.Single(alternative.Operations).Kind));
+    }
+
+    [Fact]
+    public void Compare_UnreachableBlockInsertionAndRemovalCarriesContents()
+    {
+        StructuralCloneMethodSignature signature =
+            new(0, 0, 0, 0, ReturnsVoid: true);
+        StructuralCloneBodyFacts plain = Facts(
+            token: 1,
+            il: [0x2A],
+            signature: signature);
+        StructuralCloneBodyFacts withBlock = Facts(
+            token: 2,
+            il: [0x2A, 0x17, 0x26, 0x2A],
+            signature: signature);
+
+        StructuralCloneComparison removed =
+            StructuralCloneAnalysis.Compare(withBlock, plain);
+        StructuralCloneComparison inserted =
+            StructuralCloneAnalysis.Compare(plain, withBlock);
+
+        Assert.Equal(StructuralCloneRelation.Near, removed.Relation);
+        Assert.Equal(StructuralCloneRelation.Near, inserted.Relation);
+        StructuralCloneAlignmentAlternative removedAlternative =
+            Assert.Single(removed.Alignment!.Alternatives);
+        Assert.Equal(
+            StructuralCloneEditKind.Removed,
+            Assert.Single(removedAlternative.Blocks).Kind);
+        Assert.Equal(3, removedAlternative.Operations.Length);
+        StructuralCloneAlignmentAlternative insertedAlternative =
+            Assert.Single(inserted.Alignment!.Alternatives);
+        Assert.Equal(
+            StructuralCloneEditKind.Inserted,
+            Assert.Single(insertedAlternative.Blocks).Kind);
+        Assert.Equal(3, insertedAlternative.Operations.Length);
+    }
+
+    [Fact]
+    public void Compare_NearEnumerationLimitsDoNotBecomeDifferent()
+    {
+        StructuralCloneBodyFacts left = Facts(
+            token: 1,
+            il: [0x2A, 0x17, 0x2A, 0x17, 0x2A],
+            signature: new(0, 0, 0, 0, ReturnsVoid: true));
+        StructuralCloneBodyFacts right = Facts(
+            token: 2,
+            il: [0x2A, 0x17, 0x2A, 0x18, 0x2A],
+            signature: new(0, 0, 0, 0, ReturnsVoid: true));
+
+        StructuralCloneComparison candidateLimited =
+            StructuralCloneAnalysis.Compare(
+                left,
+                right,
+                new StructuralCloneComparisonLimits(
+                    MaximumNearAlignmentCandidates: 1));
+        StructuralCloneComparison indexLimited =
+            StructuralCloneAnalysis.Compare(
+                left,
+                right,
+                new StructuralCloneComparisonLimits(
+                    MaximumNearAlignmentIndexSteps: 1));
+        StructuralCloneComparison alternativeLimited =
+            StructuralCloneAnalysis.Compare(
+                Facts(
+                    token: 3,
+                    il: [0x2A, 0x17, 0x2A, 0x17, 0x2A],
+                    signature: new(0, 0, 0, 0, ReturnsVoid: true)),
+                Facts(
+                    token: 4,
+                    il: [0x2A, 0x17, 0x2A, 0x18, 0x2A],
+                    signature: new(0, 0, 0, 0, ReturnsVoid: true)),
+                new StructuralCloneComparisonLimits(
+                    MaximumNearAlignmentAlternatives: 1));
+        StructuralCloneComparison verificationLimited =
+            StructuralCloneAnalysis.Compare(
+                Facts(
+                    token: 5,
+                    il: [0x2A, 0x17, 0x2A, 0x17, 0x2A],
+                    signature: new(0, 0, 0, 0, ReturnsVoid: true)),
+                Facts(
+                    token: 6,
+                    il: [0x2A, 0x17, 0x2A, 0x18, 0x2A],
+                    signature: new(0, 0, 0, 0, ReturnsVoid: true)),
+                new StructuralCloneComparisonLimits(
+                    MaximumNearAlignmentVerificationSteps: 1));
+        StructuralCloneComparison blockElementLimited =
+            StructuralCloneAnalysis.Compare(
+                Facts(
+                    token: 7,
+                    il: [0x2A, 0x17, 0x26, 0x2A],
+                    signature: new(0, 0, 0, 0, ReturnsVoid: true)),
+                Facts(
+                    token: 8,
+                    il: [0x2A],
+                    signature: new(0, 0, 0, 0, ReturnsVoid: true)),
+                new StructuralCloneComparisonLimits(
+                    MaximumNearBlockElements: 1));
+
+        AssertLimit(
+            indexLimited,
+            StructuralCloneBlockerKind.NearAlignmentIndexStepLimit);
+        AssertLimit(
+            candidateLimited,
+            StructuralCloneBlockerKind.NearAlignmentCandidateLimit);
+        AssertLimit(
+            alternativeLimited,
+            StructuralCloneBlockerKind.NearAlignmentAlternativeLimit);
+        AssertLimit(
+            verificationLimited,
+            StructuralCloneBlockerKind
+                .NearAlignmentVerificationStepLimit);
+        AssertLimit(
+            blockElementLimited,
+            StructuralCloneBlockerKind.NearBlockElementLimit);
+        Assert.Equal(1, indexLimited.AlignmentReceipt?.IndexSteps);
+        Assert.False(indexLimited.AlignmentReceipt?.Exhausted);
+        Assert.False(candidateLimited.AlignmentReceipt?.Exhausted);
+        Assert.False(alternativeLimited.AlignmentReceipt?.Exhausted);
+        Assert.False(verificationLimited.AlignmentReceipt?.Exhausted);
+        Assert.False(blockElementLimited.AlignmentReceipt?.Exhausted);
     }
 
     static StructuralCloneBodyFacts Facts(
@@ -1597,6 +2289,377 @@ public class StructuralCloneAnalysisTests
             production.Disposition);
         return Assert.IsType<StructuralCloneBodyFacts>(
             production.Facts);
+    }
+
+    static void AssertNearOperationChange(
+        StructuralCloneComparison comparison)
+    {
+        Assert.Equal(
+            StructuralCloneDisposition.Completed,
+            comparison.Disposition);
+        Assert.Equal(StructuralCloneRelation.Near, comparison.Relation);
+        Assert.NotNull(comparison.Alignment);
+        Assert.True(comparison.Alignment.Receipt.Exhausted);
+        Assert.Equal(
+            comparison.Alignment.Receipt,
+            comparison.AlignmentReceipt);
+        Assert.All(
+            comparison.Alignment.Alternatives,
+            static alternative =>
+            {
+                Assert.Single(alternative.Blocks);
+                Assert.Equal(
+                    StructuralCloneEditKind.Changed,
+                    Assert.Single(alternative.Operations).Kind);
+                Assert.Empty(alternative.Edges);
+            });
+    }
+
+    static void AssertNearEdge(
+        StructuralCloneComparison comparison,
+        StructuralCloneEditKind kind)
+    {
+        Assert.Equal(StructuralCloneRelation.Near, comparison.Relation);
+        Assert.All(
+            comparison.Alignment!.Alternatives,
+            alternative =>
+            {
+                Assert.Single(alternative.Blocks);
+                Assert.Empty(alternative.Operations);
+                Assert.Equal(
+                    kind,
+                    Assert.Single(alternative.Edges).Kind);
+            });
+    }
+
+    static string AlignmentAlternativeKey(
+        StructuralCloneAlignmentAlternative alternative)
+        => string.Join(
+            "|",
+            alternative.Blocks.Select(edit =>
+                $"B:{edit.Kind}:{string.Join(',', edit.LeftBlocks)}:"
+                    + string.Join(',', edit.RightBlocks))
+            .Concat(alternative.Operations.Select(edit =>
+                $"O:{edit.Kind}:{edit.Left}:{edit.Right}"))
+            .Concat(alternative.Edges.Select(edit =>
+                $"E:{edit.Kind}:{edit.Left}:{edit.Right}")));
+
+    static StructuralCloneBodyFacts RigidColoredGraph(
+        int token,
+        int changedBlock,
+        ILOpCode operation)
+    {
+        ImmutableArray<StructuralCloneBlock> blocks =
+        [
+            new(0, 0, true, [], [], []),
+            .. Enumerable.Range(1, 5).Select(block =>
+            {
+                int cycle = 1 + (block % 5);
+                int permutation = block switch
+                {
+                    1 => 2,
+                    2 => 1,
+                    _ => block,
+                };
+                return new StructuralCloneBlock(
+                    block,
+                    block,
+                    false,
+                    block == changedBlock
+                        ? [new(operation, StructuralCloneOperandKind.None, 0)]
+                        : [],
+                    [
+                        new(
+                            new(StructuralCloneEdgeKind.Branch, 0),
+                            cycle),
+                        new(
+                            new(StructuralCloneEdgeKind.Branch, 1),
+                            permutation),
+                    ],
+                    []);
+            }),
+        ];
+        return new StructuralCloneBodyFacts(
+            Address(token),
+            BodyBytes: 1,
+            InstructionCount: 1,
+            InitLocals: false,
+            Locals: [],
+            Signature: new(0, 0, 0, 0, ReturnsVoid: true),
+            RebuildTestGraph(blocks));
+    }
+
+    static StructuralCloneBodyFacts LargeNearGraph(
+        int token,
+        int changedValue)
+    {
+        const int Conditions = 55;
+        const int FirstReturn = Conditions;
+        const int DefaultReturn = Conditions * 2;
+        var blocks =
+            ImmutableArray.CreateBuilder<StructuralCloneBlock>(
+                DefaultReturn + 1);
+        for (int condition = 0; condition < Conditions; condition++)
+        {
+            blocks.Add(new StructuralCloneBlock(
+                condition,
+                condition,
+                false,
+                [
+                    new(
+                        ILOpCode.Ldarg,
+                        StructuralCloneOperandKind.Argument,
+                        0),
+                    new(
+                        ILOpCode.Ldc_i4,
+                        StructuralCloneOperandKind.Immediate,
+                        condition),
+                ],
+                [
+                    new(
+                        new(StructuralCloneEdgeKind.Branch, 0),
+                        FirstReturn + condition),
+                    new(
+                        new(StructuralCloneEdgeKind.FallThrough, 0),
+                        condition + 1 < Conditions
+                            ? condition + 1
+                            : DefaultReturn),
+                ],
+                []));
+        }
+        for (int value = 0; value < Conditions; value++)
+        {
+            blocks.Add(new StructuralCloneBlock(
+                FirstReturn + value,
+                FirstReturn + value,
+                true,
+                [
+                    new(
+                        ILOpCode.Ldc_i4,
+                        StructuralCloneOperandKind.Immediate,
+                        value == 0 ? changedValue : 1_000 + value),
+                    new(
+                        ILOpCode.Ret,
+                        StructuralCloneOperandKind.None,
+                        0),
+                ],
+                [],
+                []));
+        }
+        blocks.Add(new StructuralCloneBlock(
+            DefaultReturn,
+            DefaultReturn,
+            true,
+            [
+                new(
+                    ILOpCode.Ldc_i4,
+                    StructuralCloneOperandKind.Immediate,
+                    -1),
+                new(
+                    ILOpCode.Ret,
+                    StructuralCloneOperandKind.None,
+                    0),
+            ],
+            [],
+            []));
+        return new StructuralCloneBodyFacts(
+            Address(token),
+            BodyBytes: blocks.Count,
+            InstructionCount: blocks.Sum(
+                static block => block.Operations.Length),
+            InitLocals: false,
+            Locals: [],
+            Signature: s_staticIntToInt,
+            RebuildTestGraph(blocks.ToImmutable()));
+    }
+
+    static StructuralCloneBodyFacts LargeLocalNearGraph(
+        int token,
+        int changedLocal)
+    {
+        const int LocalCount = 60;
+        const int ErrorBlock = LocalCount + 1;
+        const int SuccessBlock = LocalCount + 2;
+        ImmutableArray<StructuralCloneOperation> initialization =
+        [
+            .. Enumerable.Range(0, LocalCount).SelectMany(local =>
+                new[]
+                {
+                    new StructuralCloneOperation(
+                        ILOpCode.Ldc_i4,
+                        StructuralCloneOperandKind.Immediate,
+                        local),
+                    new StructuralCloneOperation(
+                        ILOpCode.Stloc,
+                        StructuralCloneOperandKind.Local,
+                        local),
+                }),
+        ];
+        var blocks =
+            ImmutableArray.CreateBuilder<StructuralCloneBlock>(
+                SuccessBlock + 1);
+        blocks.Add(new StructuralCloneBlock(
+            0,
+            0,
+            false,
+            initialization,
+            [
+                new(
+                    new(StructuralCloneEdgeKind.FallThrough, 0),
+                    1),
+            ],
+            []));
+        for (int guard = 0; guard < LocalCount; guard++)
+        {
+            blocks.Add(new StructuralCloneBlock(
+                guard + 1,
+                guard + 1,
+                false,
+                [
+                    new(
+                        ILOpCode.Ldloc,
+                        StructuralCloneOperandKind.Local,
+                        guard == 30 ? changedLocal : guard),
+                ],
+                [
+                    new(
+                        new(StructuralCloneEdgeKind.Branch, 0),
+                        ErrorBlock),
+                    new(
+                        new(StructuralCloneEdgeKind.FallThrough, 0),
+                        guard + 1 < LocalCount
+                            ? guard + 2
+                            : SuccessBlock),
+                ],
+                []));
+        }
+        blocks.Add(new StructuralCloneBlock(
+            ErrorBlock,
+            ErrorBlock,
+            true,
+            [
+                new(
+                    ILOpCode.Ldc_i4,
+                    StructuralCloneOperandKind.Immediate,
+                    -1),
+                new(
+                    ILOpCode.Ret,
+                    StructuralCloneOperandKind.None,
+                    0),
+            ],
+            [],
+            []));
+        blocks.Add(new StructuralCloneBlock(
+            SuccessBlock,
+            SuccessBlock,
+            true,
+            [
+                new(
+                    ILOpCode.Ldc_i4,
+                    StructuralCloneOperandKind.Immediate,
+                    0),
+                new(
+                    ILOpCode.Ret,
+                    StructuralCloneOperandKind.None,
+                    0),
+            ],
+            [],
+            []));
+        return new StructuralCloneBodyFacts(
+            Address(token),
+            BodyBytes: blocks.Count,
+            InstructionCount: blocks.Sum(
+                static block => block.Operations.Length),
+            InitLocals: true,
+            Locals:
+            [
+                .. Enumerable.Repeat(
+                    StructuralCloneTypeIdentity.Create(s_int),
+                    LocalCount),
+            ],
+            Signature: s_staticIntToInt,
+            RebuildTestGraph(blocks.ToImmutable()));
+    }
+
+    static StructuralCloneBodyFacts WithRetargetedEdge(
+        StructuralCloneBodyFacts body,
+        int token,
+        int source,
+        int ordinal,
+        int target)
+    {
+        ImmutableArray<StructuralCloneBlock> blocks =
+        [
+            .. body.Graph.Blocks.Select(block =>
+                block.Index == source
+                    ? block with
+                    {
+                        Outgoing = block.Outgoing.SetItem(
+                            ordinal,
+                            block.Outgoing[ordinal] with
+                            {
+                                Target = target,
+                            }),
+                    }
+                    : block),
+        ];
+        return body with
+        {
+            Method = Address(token),
+            Graph = RebuildTestGraph(blocks),
+        };
+    }
+
+    static StructuralCloneBodyFacts WithoutEdge(
+        StructuralCloneBodyFacts body,
+        int token,
+        int source,
+        int ordinal)
+    {
+        ImmutableArray<StructuralCloneBlock> blocks =
+        [
+            .. body.Graph.Blocks.Select(block =>
+                block.Index == source
+                    ? block with
+                    {
+                        Outgoing = block.Outgoing.RemoveAt(ordinal),
+                    }
+                    : block),
+        ];
+        return body with
+        {
+            Method = Address(token),
+            Graph = RebuildTestGraph(blocks),
+        };
+    }
+
+    static StructuralCloneGraph RebuildTestGraph(
+        ImmutableArray<StructuralCloneBlock> blocks)
+    {
+        var incoming =
+            new ImmutableArray<StructuralCloneEdge>.Builder[blocks.Length];
+        for (int index = 0; index < incoming.Length; index++)
+        {
+            incoming[index] =
+                ImmutableArray.CreateBuilder<StructuralCloneEdge>();
+        }
+        foreach (StructuralCloneBlock source in blocks)
+        {
+            foreach (StructuralCloneEdge edge in source.Outgoing)
+            {
+                incoming[edge.Target].Add(
+                    new StructuralCloneEdge(
+                        edge.Role,
+                        source.Index));
+            }
+        }
+        return new StructuralCloneGraph(
+            [
+                .. blocks.Select(block => block with
+                {
+                    Incoming = incoming[block.Index].ToImmutable(),
+                }),
+            ]);
     }
 
     static byte[] BuildDuplicateTargetSwitch(int targetCount)
@@ -1669,6 +2732,23 @@ public class StructuralCloneAnalysisTests
     static PEReader OpenFixture()
         => new(File.OpenRead(
             typeof(StructuralCloneFixture).Assembly.Location));
+
+    static void AssertCluster(
+        StructuralCloneDiscoveryResult result,
+        params MethodDefinitionHandle[] expected)
+    {
+        int[] expectedTokens =
+        [
+            .. expected
+                .Select(static method =>
+                    MetadataTokens.GetToken(method))
+                .Order(),
+        ];
+        Assert.Single(
+            result.Clusters,
+            cluster => cluster.Identity.MethodTokens.SequenceEqual(
+                expectedTokens));
+    }
 
     static MethodDefinitionHandle Method(
         MetadataReader reader,
@@ -2052,6 +3132,27 @@ public class StructuralCloneAnalysisTests
             secondBody,
             implementation: implementation,
             attributes: attributes);
+        return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildTripletAssembly(byte[] il)
+    {
+        MetadataBuilder metadata = AssemblyMetadata();
+        AddFixtureType(metadata);
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        AddMethod(
+            metadata,
+            "First",
+            AddBody(bodyEncoder, il, localSignature: default));
+        AddMethod(
+            metadata,
+            "Second",
+            AddBody(bodyEncoder, il, localSignature: default));
+        AddMethod(
+            metadata,
+            "Third",
+            AddBody(bodyEncoder, il, localSignature: default));
         return Serialize(metadata, bodies);
     }
 

@@ -228,7 +228,7 @@ public class PackageMetadataServiceTests : IDisposable
                   "version": "3.0.0",
                   "resources": [
                     { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
-                    { "@id": "https://private.example/query", "@type": "SearchQueryService/3.5.0" },
+                    { "@id": "https://private.example/query?s%69g=%73ecret&semVerLevel=1.0.0", "@type": "SearchQueryService/3.5.0" },
                     { "@id": "https://private.example/flat/", "@type": "PackageBaseAddress/3.0.0" },
                     { "@id": "https://private.example/vulnerabilities/index.json", "@type": "VulnerabilityInfo/6.7.0" }
                   ]
@@ -282,12 +282,13 @@ public class PackageMetadataServiceTests : IDisposable
                 when request.Method == HttpMethod.Get => Package(length: 1234),
             _ => new HttpResponseMessage(System.Net.HttpStatusCode.NotFound),
         });
+        var log = new List<string>();
 
         PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
             new HttpClient(handler),
             "Private.Package",
             "1.0.0",
-            log: null,
+            log.Add,
             sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path });
 
         Assert.Equal(
@@ -302,7 +303,7 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.Equal("Legacy - Use Private.Package.Next", result.Deprecation!.Summary);
         Assert.Equal("High", Assert.Single(result.Vulnerabilities!).Severity);
         Assert.Equal(
-            "?q=private.package&skip=0&take=20&prerelease=true&semVerLevel=2.0.0",
+            "?s%69g=%73ecret&q=private.package&skip=0&take=20&prerelease=true&semVerLevel=2.0.0",
             Assert.Single(
                 handler.Requests,
                 request => request.Uri.AbsolutePath == "/query").Uri.Query);
@@ -313,11 +314,56 @@ public class PackageMetadataServiceTests : IDisposable
                 request => request.Uri.AbsolutePath.EndsWith(
                     ".nupkg",
                     StringComparison.Ordinal)).Range);
+        Assert.DoesNotContain(
+            log,
+            message => message.Contains("secret", StringComparison.Ordinal));
         Assert.All(handler.Requests, request =>
         {
             Assert.Equal("private.example", request.Uri.Host);
             Assert.NotNull(request.Authorization);
         });
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_SearchFailureRedactsDeclaredQuery()
+    {
+        const string source = "https://private.example/v3/index.json";
+        const string packageId = "Signed.Endpoint.Failure";
+        var handler = new RoutingHandler(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/v3/index.json" => Json("""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
+                    { "@id": "https://private.example/query?s%69g=SUPERSECRETSIG", "@type": "SearchQueryService/3.5.0" }
+                  ]
+                }
+                """),
+            "/registration/signed.endpoint.failure/1.0.0.json" =>
+                Json("""{ "published": "2024-01-02T03:04:05Z" }"""),
+            "/query" => Json("<html>SUPERSECRETEXCEPTION</html>"),
+            _ => new HttpResponseMessage(System.Net.HttpStatusCode.NotFound),
+        });
+        var log = new List<string>();
+
+        PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
+            new HttpClient(handler),
+            packageId,
+            "1.0.0",
+            log.Add,
+            forceLatest: true,
+            sourceOptions: new NuGetSourceOptions { Sources = [source] });
+
+        Assert.NotNull(result.Published);
+        Assert.Contains(
+            log,
+            message => message.Contains(
+                "Error fetching search metadata",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            log,
+            message => message.Contains("SUPERSECRET", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -883,6 +929,7 @@ public class PackageMetadataServiceTests : IDisposable
                       "resources": [
                         { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
                         { "@id": "https://private.example/query-a", "@type": "SearchQueryService/3.5.0" },
+                        { "@id": "https://private.example/query-a", "@type": "SearchQueryService/3.5.0" },
                         { "@id": "https://private.example/query-b", "@type": "SearchQueryService/3.5.0" }
                       ]
                     }
@@ -914,6 +961,48 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.Contains(
             handler.Requests,
             request => request.Uri.AbsolutePath == "/query-b");
+        Assert.Equal(
+            1,
+            handler.Requests.Count(
+                request => request.Uri.AbsolutePath == "/query-a"));
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_EquivalentSearchFailoverIsBounded()
+    {
+        const string source = "https://private.example/v3/index.json";
+        string resources = string.Join(
+            ",",
+            Enumerable.Range(0, 6).Select(index =>
+                $$"""{"@id":"https://private.example/query-{{index}}","@type":"SearchQueryService/3.5.0"}"""));
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json(
+                    $$"""{"resources":[{"@id":"https://private.example/registration/","@type":"RegistrationsBaseUrl/3.6.0"},{{resources}}]}"""),
+                "/registration/private.package/1.0.0.json" => Json("{}"),
+                _ when request.RequestUri.AbsolutePath.StartsWith(
+                    "/query-",
+                    StringComparison.Ordinal) => Json("{"),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+
+        _ = await PackageMetadataService.FetchAllMetadataAsync(
+            new HttpClient(handler),
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            forceLatest: true,
+            sourceOptions: new NuGetSourceOptions { Sources = [source] });
+
+        Assert.Equal(
+            ["/query-0", "/query-1", "/query-2", "/query-3"],
+            handler.Requests
+                .Where(request => request.Uri.AbsolutePath.StartsWith(
+                    "/query-",
+                    StringComparison.Ordinal))
+                .Select(request => request.Uri.AbsolutePath));
     }
 
     [Fact]

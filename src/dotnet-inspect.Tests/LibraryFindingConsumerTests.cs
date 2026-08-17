@@ -11,6 +11,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Views;
+using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -220,6 +221,217 @@ public class LibraryFindingConsumerTests
         Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Signature));
         Assert.StartsWith("<code>", row.DeclaringType, StringComparison.Ordinal);
         Assert.StartsWith("<code>", row.Signature, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnsafeEvidenceQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    {
+        const string MethodName = "Method\u202EName";
+        const string Reason = "Unsafe\nsignature";
+        const string Detail = "int*\nError: forged";
+        const string Kind = "sign\nature";
+        var method = new MethodIdentity(
+            "Hostile",
+            Guid.Empty,
+            TypeRef.Definition("Hostile", "Namespace", "Type\u202EName"),
+            MethodName,
+            [TypeRef.CoreLib("System", "Int32")],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            IsStatic: true);
+        var evidence = new UnsafeEvidence(
+            method,
+            Reason,
+            Detail,
+            Kind,
+            ILOffset: 1,
+            OperandToken: 0x01000001);
+        var result = new UnsafeEvidenceResult.Available(
+            [evidence],
+            [new AnalysisDiagnostic(0x06000001, MethodName, Detail)]);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyUnsafeEvidenceResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            result);
+
+        UnsafeEvidence queryEvidence = Assert.Single(result.Evidence);
+        UnsafeEvidence findingPayload = Assert.Single(
+            inspection.UnsafeEvidenceInspection.Findings()).Payload;
+        UnsafeMemberSummary summary = Assert.Single(inspection.UnsafeMembers!);
+        UnsafeMemberRow row = Assert.Single(
+            new LibraryInspectionView(inspection).UnsafeMembersSection!);
+
+        Assert.Same(evidence, queryEvidence);
+        Assert.Same(evidence, findingPayload);
+        Assert.Equal(MethodName, findingPayload.Member.Name);
+        Assert.Equal(Reason, summary.Reason);
+        Assert.Equal(Detail, summary.Detail);
+        Assert.Equal(Kind, summary.Kind);
+        Assert.Equal(result.Diagnostics, inspection.UnsafeEvidenceDiagnostics);
+
+        Assert.NotEqual(Reason, row.Reason);
+        Assert.NotEqual(Detail, row.Detail);
+        Assert.NotEqual(Kind, row.Kind);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Member));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Reason));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Detail));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Kind));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.IL!));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Token!));
+        Assert.StartsWith("<code>", row.Member, StringComparison.Ordinal);
+        Assert.StartsWith("<code>", row.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TopLeverageQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    {
+        const string MethodName = "Method\u202EName";
+        const string Stable = "Method\u202EName~1234567890";
+        const string Selector = "Method\u202EName";
+        var method = new MethodIdentity(
+            "Hostile",
+            Guid.Empty,
+            TypeRef.Definition("Hostile", "Namespace", "Type\u202EName"),
+            MethodName,
+            [TypeRef.CoreLib("System", "Int32")],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            IsStatic: true);
+        var leverage = new MethodLeverage(
+            method,
+            DirectCallerCount: 5,
+            Fanout: 4,
+            MaxDepth: 3,
+            LoopCallCount: 2,
+            RootReach: 6);
+        var result = new TopLeverageResult.Available(
+            [leverage],
+            ImmutableHashSet<string>.Empty,
+            [new AnalysisDiagnostic(0x06000001, MethodName, "decode\nfailed")]);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyTopLeverageResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            result,
+            () => new Dictionary<int, (string? Stable, string Visibility, string Selector)>
+            {
+                [method.MetadataToken] = (Stable, "public", Selector),
+            });
+
+        var available = Assert.IsType<TopLeverageResult.Available>(
+            inspection.TopLeverageQueryResult);
+        MethodLeverage queryMethod = Assert.Single(available.Methods);
+        MethodLeverageSummary summary = Assert.Single(inspection.TopLeverage!);
+        TopLeverageRow row = Assert.Single(
+            new LibraryInspectionView(inspection).TopLeverageSection!);
+
+        Assert.Same(leverage, queryMethod);
+        Assert.Same(method, queryMethod.Method);
+        Assert.Equal(MethodName, queryMethod.Method.Name);
+        Assert.Contains(MethodName, summary.Member, StringComparison.Ordinal);
+        Assert.Equal(Stable, summary.Stable);
+        Assert.Equal(Selector, summary.Selector);
+        Assert.Equal(result.Diagnostics, available.Diagnostics);
+
+        Assert.DoesNotContain('\u202E', row.Member);
+        Assert.DoesNotContain('\u202E', row.Stable!);
+        Assert.DoesNotContain('\u202E', row.Selector!);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Member));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Stable!));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Selector!));
+        Assert.StartsWith("<code>", row.Member, StringComparison.Ordinal);
+        Assert.StartsWith("<code>", row.Stable, StringComparison.Ordinal);
+        Assert.StartsWith("<code>", row.Selector, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnsafeEvidenceQueryProjection_UsesDistinctPerMethodFindingSubjects()
+    {
+        static MethodIdentity Method(string name, int token) => new(
+            "Hostile",
+            Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            TypeRef.Definition("Hostile", "Namespace", "Type"),
+            name,
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            token,
+            IsStatic: true);
+
+        var first = new UnsafeEvidence(
+            Method("First", 0x06000001),
+            "Unsafe signature",
+            "int*",
+            "signature",
+            ILOffset: null,
+            OperandToken: null);
+        var second = new UnsafeEvidence(
+            Method("Second", 0x06000002),
+            "Unsafe signature",
+            "int*",
+            "signature",
+            ILOffset: null,
+            OperandToken: null);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyUnsafeEvidenceResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            new UnsafeEvidenceResult.Available([first, second], []));
+
+        var findings = inspection.UnsafeEvidenceInspection.Findings();
+        Assert.Equal(2, findings.Length);
+        Assert.Equal(2, findings.Select(finding => finding.Subject.Key).Distinct().Count());
+        Assert.Contains(findings, finding => ReferenceEquals(finding.Payload, first));
+        Assert.Contains(findings, finding => ReferenceEquals(finding.Payload, second));
+    }
+
+    [Fact]
+    public void UnsafeEvidenceTypedView_PreservesLegacyFormattedIlOrdering()
+    {
+        var method = new MethodIdentity(
+            "Hostile",
+            Guid.Empty,
+            TypeRef.Definition("Hostile", "Namespace", "Type"),
+            "Method",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            IsStatic: true);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyUnsafeEvidenceResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            new UnsafeEvidenceResult.Available(
+                [
+                    new UnsafeEvidence(
+                        method,
+                        "Unsafe operation",
+                        "first",
+                        "opcode",
+                        ILOffset: 0xFFFF,
+                        OperandToken: null),
+                    new UnsafeEvidence(
+                        method,
+                        "Unsafe operation",
+                        "second",
+                        "opcode",
+                        ILOffset: 0x10000,
+                        OperandToken: null),
+                ],
+                []));
+
+        Assert.Equal(
+            ["<code>IL_10000</code>", "<code>IL_FFFF</code>"],
+            new LibraryInspectionView(inspection).UnsafeMembersSection!
+                .Select(row => row.IL));
     }
 
     [Fact]

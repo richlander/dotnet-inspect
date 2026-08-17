@@ -767,8 +767,24 @@ Research overlay bridge, and the application layer:
   `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
   `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
   representative identity, cached classification, and token-shape behavior.
+  `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped structural
+  signature and generic-scope identities, canonical `MemberRef`/`MethodSpec`
+  resolution caches, and their shared assembly work budgets. The primary
+  metadata resolver and lifted-source-owner reference index consume that same
+  resolution authority.
+  `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
+  `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
+  `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
+  sharing and scope-aware identity.
+  `LibraryBodyAnalysisAccumulator` receives the completed per-method result
+  array in metadata order, merges every topic and partial diagnostic, computes
+  the call-derived non-heap and exception-type assembly projections, and
+  constructs the immutable `LibraryBodyAnalysisResult`.
+  `ParallelBuild_IsOrderStable_AcrossRepeatedOpens` gates deterministic ordered
+  output, while `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` also
+  gates partial-result accumulation.
   The assembly builder retains the metadata-ordered work list, parallel
-  scheduling, assembly-level projections, and result aggregation.
+  scheduling, and service lifetime composition.
   Cross-assembly type-definition binding,
   referenced-image metadata lifetime, and the registration-keyed cache belong
   to `LibraryBodyReferenceMetadataResolver`, which composes
@@ -850,7 +866,7 @@ src/ILInspector.Research/       # Registered fact overlay and annotated views
 
 8. **Signature-first output** — Full method signatures with parameter names are the primary output, not just type names, because LLMs need complete information to generate correct code.
 
-9. **Deliberate local structural identity in `ILInspector.Analysis`** — The whole-assembly memory-safety analyzer (`ILInspector.Analysis`: `LibraryBodyIndex`, `CallTree`, the `Hollow`/`Opaque`/`UnsafeLeverage` classifications) retains its own `TypeRef` / `TypeRefDecoder` / `MemberResolver` rather than sharing the decompiler's `Pipeline.TypeRef` or Metadata's display/API models. This is a committed capability boundary, not dependency isolation: Analysis references `ILInspector.Metadata` for acquisition, structured binding, and definition correspondence, while its SRM-direct `TypeRef` continues to answer the distinct evidence-matching question. The type models remain separate because they carry different shapes and erasure policies, not because Analysis has zero project references. The full rationale, rejected unification path, and trip-wire are in [docs/metadata-primitives.md](metadata-primitives.md) ("Decision (2026-06): stop after step 3").
+9. **Deliberate local structural identity in `ILInspector.Analysis`** — The whole-assembly memory-safety analyzer (`ILInspector.Analysis`: `LibraryBodyIndex`, `CallTree`, the `Hollow`/`Opaque`/`UnsafeLeverage` classifications) retains its own `TypeRef` / `TypeRefDecoder` / `MemberResolver` rather than sharing the decompiler's `Pipeline.TypeRef` or Metadata's display/API models. This is a committed capability boundary, not dependency isolation: Analysis references `ILInspector.Metadata` for acquisition, structured binding, and definition correspondence, while its SRM-direct `TypeRef` continues to answer the distinct evidence-matching question. The type models remain separate because they carry different shapes and erasure policies, not because Analysis has zero project references. [Shared metadata primitives](metadata-primitives.md) preserves that semantic boundary while reopening convergence of bounded SRM mechanics below it.
 
 10. **Research seam for R1/R2 overlays** — `ILInspector.Research` is the accepted bridge above Analysis (R1 lower representation) and Decompiler (R2 projection/recovery representation). Research owns the `ResearchFactRegistry`, annotation producers, and fact-overlay presenters, so new facts flow through one offset-keyed overlay instead of direct `Analysis <-> Decompiler` edges or bypass renderers.
 

@@ -106,6 +106,25 @@ public class NuspecParserTests : IDisposable
     }
 
     [Fact]
+    public void ParseContent_Utf8BomDecodedAsText_IsAccepted()
+    {
+        NuspecData result = NuspecParser.ParseContent(
+            "\uFEFF"
+            + """
+              <?xml version="1.0" encoding="utf-8"?>
+              <package>
+                <metadata>
+                  <id>Bom.Package</id>
+                  <version>1.0.0</version>
+                </metadata>
+              </package>
+              """);
+
+        Assert.Equal("Bom.Package", result.PackageName);
+        Assert.Equal("1.0.0", result.Version);
+    }
+
+    [Fact]
     public void Parse_ExtractsRepositoryUrl()
     {
         var nuspec = WriteNuspec("""

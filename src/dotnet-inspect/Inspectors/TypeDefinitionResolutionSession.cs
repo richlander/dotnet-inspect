@@ -4,6 +4,10 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
 
+internal sealed record TypeDefinitionApiSurfaceFailure(
+    string Kind,
+    string Detail);
+
 /// <summary>
 /// CLI inspection-lifetime owner for structured type resolution from one acquired
 /// assembly. Consumers receive Metadata outcomes and acquisition descriptors rather
@@ -12,7 +16,7 @@ namespace DotnetInspector.Inspectors;
 internal sealed class TypeDefinitionResolutionSession : IDisposable
 {
     readonly ResolvedAssemblyReference _root;
-    readonly AssemblyReferenceBindingPolicy _policy;
+    readonly IAssemblyBindingPolicy _policy;
     readonly TypeResolutionCatalog _catalog = new();
 
     public TypeDefinitionResolutionSession(
@@ -51,11 +55,15 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
                 ProjectAssetsPath = projectAssetsPath,
                 TargetFramework = targetFramework,
                 IncludeDepsJsonAssets = false,
-                IncludeAspNetCoreSharedFramework = false,
+                IncludeAspNetCoreSharedFramework =
+                    string.Equals(
+                        platformFramework,
+                        "aspnetcore",
+                        StringComparison.OrdinalIgnoreCase),
                 PreferImplementationAssemblies = true,
                 AllowPlatformAssemblyVersionRollForward = true,
             });
-        _policy = new AssemblyReferenceBindingPolicy(resolver);
+        _policy = resolver;
     }
 
     public TypeResolutionOutcome Resolve(MetadataTypeDefinitionName type)
@@ -70,6 +78,67 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
             [_root],
             [request]);
         return context.Resolve(request);
+    }
+
+    public ApiSurface? ExtractApiSurface(
+        bool includeAll = false,
+        bool typesOnly = false) =>
+        ExtractApiSurface(_root, includeAll, typesOnly);
+
+    public ApiSurface? ExtractApiSurface(
+        ResolvedAssemblyReference source,
+        bool includeAll = false,
+        bool typesOnly = false) =>
+        ExtractApiSurface(
+            source,
+            includeAll,
+            typesOnly,
+            out _);
+
+    internal ApiSurface? ExtractApiSurface(
+        ResolvedAssemblyReference source,
+        bool includeAll,
+        bool typesOnly,
+        out TypeDefinitionApiSurfaceFailure? failure)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        failure = null;
+        try
+        {
+            ResolutionAwareApiSurfaceOutcome outcome =
+                _catalog.ExtractApiSurface(
+                    source,
+                    _policy,
+                    includeAll,
+                    typesOnly);
+            if (outcome
+                is ResolutionAwareApiSurfaceOutcome.Rejected rejected)
+            {
+                failure = new TypeDefinitionApiSurfaceFailure(
+                    rejected.Failure.Kind.ToString(),
+                    rejected.Failure.Detail);
+                return null;
+            }
+
+            var read =
+                (ResolutionAwareApiSurfaceOutcome.Read)outcome;
+            ApiSurface surface = read.Surface;
+            if (source.Path is { } path)
+                surface.SetInspectionSourceAssemblyPath(path);
+
+            return surface;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or ArgumentException)
+        {
+            failure = new TypeDefinitionApiSurfaceFailure(
+                ex.GetType().Name,
+                ex.Message);
+            return null;
+        }
     }
 
     public void Dispose() => _catalog.Dispose();

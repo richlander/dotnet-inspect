@@ -67,7 +67,7 @@ public sealed class LayeringTests
     }
 
     [Fact]
-    public void CoreQueries_DoNotAcquireResearchOrDecompilerProjects()
+    public void CoreQueries_AcquireDecompilerButNotResearch()
     {
         string project = Path.Combine(
             CommandErrorOwnershipTests.RepositoryRoot(),
@@ -79,7 +79,7 @@ public sealed class LayeringTests
             .ToArray();
 
         Assert.DoesNotContain("ILInspector.Research", closure);
-        Assert.DoesNotContain("ILInspector.Decompiler", closure);
+        Assert.Contains("ILInspector.Decompiler", closure);
         Assert.Equal(
             "DotnetInspector.Queries",
             typeof(ApiComparisonQuery).Assembly.GetName().Name);
