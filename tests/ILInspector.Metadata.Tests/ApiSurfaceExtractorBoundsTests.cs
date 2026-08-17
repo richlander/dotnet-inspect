@@ -496,6 +496,30 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void GiantSignatureTypeRefName_IsStoppedBeforeGetStringMaterialization()
+    {
+        // Sol R10: method/property/field signature decode built TypeNodes via
+        // TypeNodeProvider → GetString on TypeRef names before any retained-budget
+        // RenderLength check. ParameterFanOut caches one short repeated handle, so
+        // a single multi-MB return TypeRef was the hole.
+        byte[] image = BuildGiantSignatureTypeRefImage(20_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void GiantAttributeTypeName_IsStoppedBeforeGetStringMaterialization()
     {
         // Sol R7: attribute type names were GetString'd during presence checks and
@@ -1273,6 +1297,36 @@ public sealed class ApiSurfaceExtractorBoundsTests
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
         _ = surface;
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGiantSignatureTypeRefImage(int nameCharacters)
+    {
+        var metadata = CreateMetadata("GiantSigType");
+        AddModuleAndSurfaceTypes(metadata);
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle giantReturn = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(new string('T', nameCharacters)));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00); // default calling convention
+        signature.WriteCompressedInteger(0); // param count
+        signature.WriteByte(0x12); // ELEMENT_TYPE_CLASS
+        signature.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(giantReturn));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
         return Serialize(metadata);
     }
 

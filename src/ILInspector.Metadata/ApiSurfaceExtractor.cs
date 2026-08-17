@@ -1062,7 +1062,7 @@ public static class ApiSurfaceExtractor
                     var eventNode = GuardedProviderDecode.TypeSpec(
                         reader,
                         (TypeSpecificationHandle)evt.Type,
-                        TypeNodeProvider.CreateCaching(),
+                        CreateTypeNodeProvider(materialization),
                         GenericContext.ForType(reader, typeDef),
                         (TypeNode)new DegradedTypeNode());
                     // Skip a rejected/degraded decode: its bare "object"/"dynamic" render
@@ -1687,7 +1687,7 @@ public static class ApiSurfaceExtractor
         var fieldNode = GuardedProviderDecode.Field(
             reader,
             field,
-            TypeNodeProvider.CreateCaching(),
+            CreateTypeNodeProvider(materialization),
             context,
             (TypeNode)new DegradedTypeNode());
         var fieldBytes = NullabilityReader.GetNullableBytes(reader, field.GetCustomAttributes());
@@ -2451,7 +2451,7 @@ public static class ApiSurfaceExtractor
         var treeSignature = GuardedProviderDecode.Method(
             reader,
             method,
-            TypeNodeProvider.CreateCaching(),
+            CreateTypeNodeProvider(materialization),
             context,
             (TypeNode)new DegradedTypeNode());
 
@@ -3172,7 +3172,7 @@ public static class ApiSurfaceExtractor
         var node = GuardedProviderDecode.TypeSpec(
             reader,
             (TypeSpecificationHandle)typeHandle,
-            TypeNodeProvider.CreateCaching(),
+            CreateTypeNodeProvider(materialization),
             context,
             (TypeNode)new DegradedTypeNode());
         // A rejected/degraded TypeSpec renders as a bare "object"/"dynamic", which would
@@ -3200,7 +3200,7 @@ public static class ApiSurfaceExtractor
                 TypeNode node = GuardedProviderDecode.TypeSpec(
                     reader,
                     (TypeSpecificationHandle)handle,
-                    TypeNodeProvider.CreateCaching(),
+                    CreateTypeNodeProvider(materialization),
                     context,
                     (TypeNode)new DegradedTypeNode());
                 materialization.EnsureCanMaterialize(
@@ -3362,7 +3362,7 @@ public static class ApiSurfaceExtractor
         var treeSignature = GuardedProviderDecode.Property(
             reader,
             prop,
-            TypeNodeProvider.CreateCaching(),
+            CreateTypeNodeProvider(materialization),
             context,
             (TypeNode)new DegradedTypeNode());
 
@@ -4008,6 +4008,16 @@ public static class ApiSurfaceExtractor
             _retainedTextCharacters += (int)characters;
         }
     }
+
+    /// <summary>
+    /// Bounded extraction count-firsts signature TypeDef/TypeRef names before
+    /// <c>GetString</c> inside <see cref="TypeNodeProvider"/> (Sol R10).
+    /// </summary>
+    static TypeNodeProvider CreateTypeNodeProvider(
+        TextMaterializationBudget? materialization)
+        => materialization is null
+            ? TypeNodeProvider.CreateCaching()
+            : TypeNodeProvider.CreateCaching(materialization.EnsureCanMaterialize);
 
     private sealed class TextMaterializationBudget(long maxModelCharacters, long maxTotalCharacters)
     {

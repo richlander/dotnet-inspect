@@ -12,13 +12,24 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public static TypeNodeProvider Instance { get; } = new();
     public static TypeNodeProvider CreateCaching() => new(cacheNames: true);
 
+    /// <summary>
+    /// Caching provider that count-firsts TypeDef/TypeRef names before
+    /// <c>GetString</c>. Used by bounded API-surface extraction so a single
+    /// multi-MB signature type name cannot materialize before the retained
+    /// budget rejects it (Sol R10).
+    /// </summary>
+    public static TypeNodeProvider CreateCaching(Action<long> beforeMaterializeName)
+        => new(cacheNames: true, beforeMaterializeName);
+
     // Delegate to existing SignatureDecoder for name resolution to avoid duplication.
     private static readonly SignatureDecoder NameDecoder = SignatureDecoder.Instance;
     readonly Dictionary<TypeDefinitionHandle, string>? _definitionNames;
     readonly Dictionary<TypeReferenceHandle, string>? _referenceNames;
+    readonly Action<long>? _beforeMaterializeName;
 
-    TypeNodeProvider(bool cacheNames = false)
+    TypeNodeProvider(bool cacheNames = false, Action<long>? beforeMaterializeName = null)
     {
+        _beforeMaterializeName = beforeMaterializeName;
         if (cacheNames)
         {
             _definitionNames = [];
@@ -39,6 +50,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         if (_definitionNames is null
             || !_definitionNames.TryGetValue(handle, out name!))
         {
+            EnsureNameCanMaterialize(reader, handle);
             name = NameDecoder.GetTypeFromDefinition(reader, handle, rawTypeKind);
             _definitionNames?.Add(handle, name);
         }
@@ -52,11 +64,25 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         if (_referenceNames is null
             || !_referenceNames.TryGetValue(handle, out name!))
         {
+            EnsureNameCanMaterialize(reader, handle);
             name = NameDecoder.GetTypeFromReference(reader, handle, rawTypeKind);
             _referenceNames?.Add(handle, name);
         }
         bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
         return new NamedTypeNode(name, isRef);
+    }
+
+    void EnsureNameCanMaterialize(MetadataReader reader, EntityHandle handle)
+    {
+        if (_beforeMaterializeName is null)
+            return;
+        if (MetadataSafetyPolicy.TryCountTypeNameCharacters(
+                reader,
+                handle,
+                out long characters))
+        {
+            _beforeMaterializeName(characters);
+        }
     }
 
     public TypeNode GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)

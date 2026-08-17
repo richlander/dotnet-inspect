@@ -436,6 +436,7 @@ shared-string and single-signature amplification shapes.
 `GiantPropertyName_IsStoppedBeforeGetStringMaterialization`,
 `GiantEnumDefaultMemberName_IsStoppedBeforeGetStringMaterialization`,
 `GiantBaseTypeName_IsStoppedBeforeGetStringMaterialization`,
+`GiantSignatureTypeRefName_IsStoppedBeforeGetStringMaterialization`,
 `GiantAttributeTypeName_IsStoppedBeforeGetStringMaterialization`,
 `GiantNullableTransformArray_IsRejectedBeforeAllocation`,
 `GiantFinalizeMethodImplName_IsStoppedBeforeGetStringMaterialization`, and
