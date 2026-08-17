@@ -4,11 +4,14 @@ internal static class NuGetHttpRequest
 {
     private static readonly HttpRequestOptionsKey<bool> BrowserStreamingResponse =
         new("WebAssemblyEnableStreamingResponse");
+    private static readonly HttpRequestOptionsKey<
+        IDictionary<string, object>> BrowserFetchOptions =
+        new("WebAssemblyFetchOptions");
 
     public static HttpRequestMessage CreateGet(string requestUri)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Options.Set(BrowserStreamingResponse, true);
+        ConfigureBrowserRequest(request);
         return request;
     }
 
@@ -23,7 +26,7 @@ internal static class NuGetHttpRequest
         }
 
         var request = new HttpRequestMessage(HttpMethod.Get, preserved);
-        request.Options.Set(BrowserStreamingResponse, true);
+        ConfigureBrowserRequest(request);
         return request;
     }
 
@@ -35,7 +38,7 @@ internal static class NuGetHttpRequest
         if (!Uri.TryCreate(requestUri, UriKind.Absolute, out Uri? validated)
             || validated.Scheme is not ("http" or "https")
             || string.IsNullOrEmpty(validated.Host)
-            || !HasValidRawText(requestUri))
+            || !HasValidRawText(requestUri, allowNonAscii: false))
         {
             return false;
         }
@@ -48,7 +51,33 @@ internal static class NuGetHttpRequest
         return true;
     }
 
-    private static bool HasValidRawText(string value)
+    private static void ConfigureBrowserRequest(
+        HttpRequestMessage request)
+    {
+        ConfigureBrowserRequest(
+            request,
+            OperatingSystem.IsBrowser());
+    }
+
+    internal static void ConfigureBrowserRequest(
+        HttpRequestMessage request,
+        bool isBrowser)
+    {
+        request.Options.Set(BrowserStreamingResponse, true);
+        if (isBrowser)
+        {
+            request.Options.Set(
+                BrowserFetchOptions,
+                new Dictionary<string, object>
+                {
+                    ["credentials"] = "omit",
+                });
+        }
+    }
+
+    internal static bool HasValidRawText(
+        string value,
+        bool allowNonAscii)
     {
         for (int i = 0; i < value.Length; i++)
         {
@@ -66,7 +95,7 @@ internal static class NuGetHttpRequest
                 continue;
             }
 
-            if (character > 0x7F
+            if ((!allowNonAscii && character > 0x7F)
                 || char.IsControl(character)
                 || char.IsWhiteSpace(character)
                 || character is '\\' or '"' or '<' or '>' or '^' or '`' or '{' or '|' or '}')
