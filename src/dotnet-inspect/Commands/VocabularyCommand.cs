@@ -17,6 +17,8 @@ public static class VocabularyCommand
         IReadOnlyDictionary<string, string[]> categoryMap = CreateCategoryMap(document);
         DocumentSchema schema = CreateSchema(document);
         string[]? projectedColumns = ResolveProjectedColumns(options);
+        string[]? discover = NormalizeSectionIds(options.Discover, document);
+        string[]? select = NormalizeSectionIds(options.Select, document);
 
         if (options.Schema && options.Discover is null)
         {
@@ -27,7 +29,7 @@ public static class VocabularyCommand
         if (options.Discover is not null)
         {
             return DiscoverOutput.Execute(
-                options.Discover,
+                discover,
                 schema,
                 projection: options,
                 tree: options.Tree,
@@ -39,7 +41,7 @@ public static class VocabularyCommand
         }
 
         SelectResult selection = SelectResolver.ResolveSelectAsSections(
-            options.Select,
+            select,
             sectionNames,
             infoSections: [VocabularyCatalog.SectionsSection],
             categoryMap,
@@ -216,10 +218,28 @@ public static class VocabularyCommand
                 members.Add(section.Name);
             }
         }
+        categories[SelectResolver.AllSelector] =
+            [.. document.Sections.Select(section => section.Name)];
         return categories.ToDictionary(
             pair => pair.Key,
             pair => pair.Value.ToArray(),
             StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string[]? NormalizeSectionIds(
+        string[]? values,
+        VocabularyDocument document)
+    {
+        if (values is null)
+            return null;
+
+        return
+        [
+            .. values.Select(value =>
+                document.Sections.FirstOrDefault(section =>
+                    section.Id.Equals(value, StringComparison.OrdinalIgnoreCase))?.Name
+                ?? value),
+        ];
     }
 
     private static string[]? ResolveProjectedColumns(VocabularyOptions options)

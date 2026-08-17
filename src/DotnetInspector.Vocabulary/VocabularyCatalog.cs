@@ -206,24 +206,29 @@ public static class VocabularyCatalog
             TextListField("accepted_by", "Accepted By", "Typed query inputs that consume these values.", VocabularyOperator.Contains),
             IntegerField("values", "Values", "Number of legal values.", VocabularyOperator.Equals, VocabularyOperator.LessThan, VocabularyOperator.GreaterThan),
         ];
-        ImmutableArray<VocabularyRow> rows =
-        [
-            .. sections.Select(section => new VocabularyRow(
-                ("id", VocabularyValue.FromText(section.Id)),
-                ("section", VocabularyValue.FromText(section.Name)),
-                ("summary", VocabularyValue.FromText(section.Summary)),
-                ("categories", VocabularyValue.FromTextList(section.Categories)),
-                ("accepted_by", VocabularyValue.FromTextList(section.AcceptedBy)),
-                ("values", VocabularyValue.FromInteger(section.Values.Length)))),
-        ];
-        return new(
+        var definition = new VocabularySection(
             "vocabulary.sections",
             SectionsSection,
             "Product-owned vocabularies available as rich-query inputs.",
             ["@Vocabulary"],
             ["vocabulary"],
             fields,
-            rows);
+            []);
+        ImmutableArray<VocabularySection> indexedSections = [definition, .. sections];
+        ImmutableArray<VocabularyRow> rows =
+        [
+            .. indexedSections.Select(section => new VocabularyRow(
+                ("id", VocabularyValue.FromText(section.Id)),
+                ("section", VocabularyValue.FromText(section.Name)),
+                ("summary", VocabularyValue.FromText(section.Summary)),
+                ("categories", VocabularyValue.FromTextList(section.Categories)),
+                ("accepted_by", VocabularyValue.FromTextList(section.AcceptedBy)),
+                ("values", VocabularyValue.FromInteger(
+                    ReferenceEquals(section, definition)
+                        ? indexedSections.Length
+                        : section.Values.Length)))),
+        ];
+        return definition with { Values = rows };
     }
 
     private static VocabularySection CreateAccessibility()

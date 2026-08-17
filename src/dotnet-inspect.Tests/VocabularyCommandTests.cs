@@ -14,6 +14,15 @@ public sealed class VocabularyCommandTests
     [Fact]
     public void Catalog_ProjectsOwnerValuesWithoutChangingIdentityOrOrder()
     {
+        VocabularySection index =
+            VocabularyCatalog.GetById("vocabulary.sections");
+        Assert.Equal(
+            VocabularyCatalog.Document.Sections.Select(section => section.Id),
+            index.Values.Select(ValueId));
+        Assert.Equal(
+            VocabularyCatalog.Document.Sections.Length,
+            index.Values[0].GetRequired("values").Integer);
+
         VocabularySection accessibility =
             VocabularyCatalog.GetById("api.accessibility");
         Assert.Equal(
@@ -171,6 +180,52 @@ public sealed class VocabularyCommandTests
             | C# Style Choices | {choices.Values.Length} |
             """,
             result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Command_StableSectionIdsRoundTripThroughSelectionAndDiscovery()
+    {
+        var selected = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select = ["api.accessibility"],
+                JsonOutput = true,
+            })));
+        var discovered = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Discover = ["csharp.style-choices"],
+            })));
+
+        Assert.Equal(0, selected.ExitCode);
+        Assert.Empty(selected.Error);
+        using JsonDocument document = JsonDocument.Parse(selected.Output);
+        Assert.Equal(
+            "api.accessibility",
+            Assert.Single(document.RootElement.GetProperty("sections").EnumerateArray())
+                .GetProperty("id")
+                .GetString());
+
+        Assert.Equal(0, discovered.ExitCode);
+        Assert.Empty(discovered.Error);
+        Assert.Contains("| ID | column |", discovered.Output);
+        Assert.Contains("| Conflict Group | column |", discovered.Output);
+    }
+
+    [Fact]
+    public async Task Command_AllCountIncludesEveryVocabularySection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select = [SelectResolver.AllSelector],
+                Count = true,
+            })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        foreach (VocabularySection section in VocabularyCatalog.Document.Sections)
+            Assert.Contains($"| {section.Name} | {section.Values.Length} |", result.Output);
     }
 
     private static string ValueId(VocabularyRow row) =>
