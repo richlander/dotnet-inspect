@@ -20,10 +20,9 @@ public class AsyncKindDisplayTests
         inspection.UnsafeMethods = [];
         inspection.PInvokeMethods = [];
         inspection.AsyncMethods = [];
-        AuditSignalBuilder.PopulateLibraryAudit(
-            typeof(AsyncKindDisplayTests).Assembly.Location,
-            inspection,
-            new VerboseLogger(false));
+        using var session =
+            AssemblyInspectionSession.Open(typeof(AsyncKindDisplayTests).Assembly.Location);
+        AuditSignalBuilder.ApplyLibraryAudit(inspection, session.AuditMetadata());
 
         var view = new LibraryInspectionView(inspection);
         return MarkoutSerializer.Serialize(view, InspectionContext.Default).TrimEnd();

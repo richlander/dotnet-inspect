@@ -450,8 +450,8 @@ static class Program
         }
         if (structuralReview is not null
             && (!string.Equals(args[0], "--structural-review", StringComparison.Ordinal)
-                || !((args.Length == 2 && inputs.Count == 0)
-                    || (args.Length == 3 && inputs.Count == 1))))
+                || inputs.Count > 1
+                || args.Length != 2 + inputs.Count + (json ? 1 : 0)))
         {
             return Fail("--structural-review is an exclusive mode and cannot be combined with other flags or inputs.");
         }
@@ -476,10 +476,11 @@ static class Program
         if (structuralReview is not null)
         {
             if (inputs.Count > 1 || packages.Count > 0)
-                return Fail("--structural-review reads product documents or a legacy comparison artifact; do not pass assembly or package inputs.");
+                return Fail("--structural-review reads product documents or a structural diff document; do not pass assembly or package inputs.");
             return StructuralReview.Run(
                 structuralReview,
-                inputs.Count == 1 ? inputs[0] : null);
+                inputs.Count == 1 ? inputs[0] : null,
+                json);
         }
 
         if (fixtureSourceInventory)
@@ -2152,9 +2153,9 @@ static class Program
                                 AnnotatedSourceDocument values, then render
                                 full-body carets and a rich diff. The documents
                                 must carry equal physical method provenance.
-                                The legacy one-file
-                                CSharpStructuralComparisonInput form remains
-                                accepted for existing artifacts.
+                                Add --json to emit the product-issued
+                                CSharpStructuralDiffDocument. Pass one such diff
+                                document to validate and render it later.
           --return-to-sender      prototype fact-planned compile-back harness:
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL
