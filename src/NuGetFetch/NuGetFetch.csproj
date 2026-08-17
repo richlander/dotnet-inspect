@@ -15,6 +15,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="DotnetInspector.Packages" />
+    <InternalsVisibleTo Include="DotnetInspector.Services" />
     <InternalsVisibleTo Include="NuGetFetch.Tests" />
   </ItemGroup>
 

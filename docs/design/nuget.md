@@ -29,8 +29,37 @@ address check. Cross-origin URLs discovered from service-index, catalog, or vuln
 never receive feed credentials.
 
 Equivalent endpoints at the selected capability version are tried in service-index order,
-including after malformed successful responses. Failed vulnerability endpoints do not create a
-clean cache entry; the next request retries them.
+including after malformed successful responses. Search failover tries at most four equivalent
+endpoints within one logical operation ceiling. Each service-index or search request receives the
+configured request deadline, tightened by a shorter finite `HttpClient.Timeout`, while the
+operation ceiling spans discovery, equivalent-endpoint failover, and all selected sources.
+Search discovery supports the unversioned,
+`3.0.0-beta`, `3.0.0-rc`, `3.0.0`, and `3.5.0` service types. Unknown future types do not eclipse
+the highest supported capability.
+Feed-declared search endpoints may contain signed query parameters. Unrelated path and query text
+is sent byte-for-byte as declared, including percent escapes, while product-owned `q`, `skip`,
+`take`, `prerelease`, and `semVerLevel` parameters are replaced case-insensitively and appended
+exactly once. An authority-only endpoint receives the HTTP root path rather than an invalid empty
+request target. Feed-declared non-ASCII path or query text must already be UTF-8 percent-encoded;
+raw non-ASCII is refused because disabling URI canonicalization would otherwise truncate or corrupt
+the HTTP/1.1 request target. Diagnostics redact the declared query on success and failure paths.
+`SearchRequestUriTests`,
+`SearchServiceTests.SearchAsync_PreservesEncodedSignedQueryBytes`,
+`NuGetSearchSourcesTests.GetSearchQueryServiceAsync_PreservesDeclaredQueryBytes`, and
+`PackageMetadataServiceTests.FetchAllMetadataAsync_UsesConfiguredServiceIndexResources` plus
+`FetchAllMetadataAsync_SearchFailureRedactsDeclaredQuery` gate this contract.
+`NuGetSearchSourcesTests.SearchAsync_EquivalentEndpointFailover_IsBounded` and
+`NuGetSearchSourcesTests.SearchAsync_EquivalentEndpointFailover_SharesOperationCeiling` gate those
+bounds for package search; metadata enrichment is gated by
+`PackageMetadataServiceTests.FetchAllMetadataAsync_EquivalentSearchFailoverIsBounded`.
+Every source left unsearched when the shared ceiling expires remains visible in the outcome,
+gated by `SearchAsync_OperationTimeoutDescribesEveryRemainingSource`. Synchronous validation,
+pagination, and aggregation recheck the monotonic operation deadline after network completion.
+`NuGetDeadlineTests.OperationCeiling_RejectsWorkAfterACompletedRequest`,
+`SearchTimeoutOptions_DeriveFourRequestDeadlines`, and
+`SearchAsync_UnsupportedFutureCapability_UsesHighestSupportedVersion` gate the configured
+deadline and compatibility rules. Failed vulnerability endpoints do not create a clean cache
+entry; the next request retries them.
 
 ## APIs Used
 
@@ -88,6 +117,9 @@ clean cache entry; the next request retries them.
 **Notes:**
 
 - Feed implementations vary; aggregate fields that are absent remain unavailable
+- Package IDs are validated against NuGet's Unicode word-character grammar rather than a narrower
+  ASCII subset; `SearchServiceTests.SearchAsync_UnicodePackageIds_ReturnResults` gates the live-feed
+  case
 - Results are paged until the exact package ID is found or 1,000 candidates have been examined
 - Best source for: deprecation, downloads, verified status, owners
 - Returns data for latest version only (not version-specific deprecation)
