@@ -45,6 +45,13 @@ renders complete Before and After C# documents with generated structural caret
 comments plus a compact rich-diff table from the resulting
 `CSharpStructuralComparison`.
 
+The Markdown projection keeps `Change`, `Structure`, and `Region`, adding
+`Fidelity` only when a fidelity label is present. Absolute UTF-16 spans and
+complete IL provenance remain in JSON. Unsupported or ambiguous correspondence
+makes the review explicitly partial before either body is shown; gaps are
+grouped by side and reason with counts and at most five example node IDs. The
+portable JSON document retains every unmatched node and its complete evidence.
+
 The documents must carry equal physical method provenance. The issuer binds its
 result to SHA-256 identities of the exact document values and matches only
 unique product-owned IL-origin sets. Repeated sets remain ambiguous even when
@@ -53,9 +60,9 @@ substitution can shift those depths without preserving identity. A unique
 one-sided set becomes `NoCounterpart` only when the opposite node population
 has complete provenance. Document-local ids, rendered coordinates, text, kind
 labels, and display order never establish identity. Other nodes remain explicit
-`Unsupported`, `Ambiguous`, or `NoCounterpart` rows;
-unsupported and ambiguous rows appear under **Correspondence gaps** rather than
-being guessed as additions or removals.
+`Unsupported`, `Ambiguous`, or `NoCounterpart` rows; unsupported and ambiguous
+nodes appear in a bounded **Correspondence gaps** summary rather than being
+guessed as additions or removals.
 
 Add `--json` to emit a `CSharpStructuralDiffDocument`. That product-issued
 artifact carries schema and methodology versions, both exact documents and

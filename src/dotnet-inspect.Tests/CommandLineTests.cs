@@ -121,6 +121,15 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void VocabularyCommand_AcceptsPlainText()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["vocabulary", "-S", "Accessibility", "--plaintext"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void BodyShapeCommand_RejectsUnknownOrCaseVariantKind()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(

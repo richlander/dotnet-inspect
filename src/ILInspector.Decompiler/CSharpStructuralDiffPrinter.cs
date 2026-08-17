@@ -92,12 +92,27 @@ public static class CSharpStructuralDiffPrinter
                     if (end <= start)
                         continue;
 
+                    int column = start - line.Start;
+                    int length = end - start;
+                    ReadOnlySpan<char> coveredText = line.Text.AsSpan(column, length);
+                    int visibleOffset = 0;
+                    while (visibleOffset < coveredText.Length
+                           && char.IsWhiteSpace(coveredText[visibleOffset]))
+                    {
+                        visibleOffset++;
+                    }
+                    if (visibleOffset < coveredText.Length)
+                    {
+                        column += visibleOffset;
+                        length -= visibleOffset;
+                    }
+
                     var fact = new StructuralAnnotation(annotationText);
                     if (!annotationsByLine.TryGetValue(lineIndex, out var lineAnnotations))
                         annotationsByLine[lineIndex] = lineAnnotations = [];
                     lineAnnotations.Add((
                         fact,
-                        new AnnotationAnchor.CaretExtent(start - line.Start, end - start)));
+                        new AnnotationAnchor.CaretExtent(column, length)));
                 }
             }
         }
@@ -116,16 +131,18 @@ public static class CSharpStructuralDiffPrinter
                 int result = left.Extent.Column.CompareTo(right.Extent.Column);
                 return result != 0 ? result : right.Extent.Length.CompareTo(left.Extent.Length);
             });
-            if (!CanRenderInCommentGutter(entries, memberIndent.Length))
+            if (memberIndent.Contains('\t')
+                || HasTabBeforeExtent(line.Text, entries)
+                || !CanRenderInCommentGutter(entries, memberIndent.Length))
             {
-                output.AddRange(RenderExactFallback(entries));
+                output.AddRange(RenderExactFallback(line.Text, entries));
                 continue;
             }
 
             var facts = entries.Select(static entry => entry.Fact).ToArray();
             var extents = entries.ToDictionary(static entry => entry.Fact, static entry => entry.Extent);
             var rendered = AnnotationCaret.Render(line.Text, memberIndent, facts, extents: extents);
-            output.AddRange(rendered.Count > 0 ? rendered : RenderExactFallback(entries));
+            output.AddRange(rendered.Count > 0 ? rendered : RenderExactFallback(line.Text, entries));
         }
 
         return string.Join('\n', output);
@@ -267,7 +284,13 @@ public static class CSharpStructuralDiffPrinter
         return true;
     }
 
+    static bool HasTabBeforeExtent(
+        string sourceLine,
+        IReadOnlyList<(IAnnotation Fact, AnnotationAnchor.CaretExtent Extent)> entries)
+        => entries.Any(entry => sourceLine.AsSpan(0, entry.Extent.Column).Contains('\t'));
+
     static IReadOnlyList<string> RenderExactFallback(
+        string sourceLine,
         IReadOnlyList<(IAnnotation Fact, AnnotationAnchor.CaretExtent Extent)> entries)
     {
         var lines = new List<string>();
@@ -277,7 +300,7 @@ public static class CSharpStructuralDiffPrinter
             foreach (var entry in group)
             {
                 lines.Add(
-                    new string(' ', entry.Extent.Column)
+                    RenderFallbackPadding(sourceLine, entry.Extent.Column)
                     + (first ? new string('^', entry.Extent.Length) : new string(' ', entry.Extent.Length))
                     + " "
                     + AnnotationText.Format(entry.Fact));
@@ -285,6 +308,14 @@ public static class CSharpStructuralDiffPrinter
             }
         }
         return lines;
+    }
+
+    static string RenderFallbackPadding(string sourceLine, int length)
+    {
+        var padding = new char[length];
+        for (int index = 0; index < padding.Length; index++)
+            padding[index] = sourceLine[index] == '\t' ? '\t' : ' ';
+        return new string(padding);
     }
 
     static void EnsureDisplaySafe(
