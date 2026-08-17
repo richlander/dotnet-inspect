@@ -8,6 +8,7 @@ namespace ILInspector.Decompiler.Tests;
 /// are the body's own break/return statements. Verified for both the
 /// return-only form and the conditional-break form, with and without symbols.
 /// </summary>
+[Trait("Area", "Pass")]
 public class InfiniteLoopStructuringTests
 {
     static IrFunction Raised(string methodName)
@@ -404,6 +405,117 @@ public class InfiniteLoopStructuringTests
         Assert.Empty(function.Descendants.OfType<Continue>());
     }
 
+    [Theory]
+    [InlineData(NestedFunctionKind.LocalFunction)]
+    [InlineData(NestedFunctionKind.Lambda)]
+    public void NestedFunctionRetryLeaveAtOuterHeadOffset_DoesNotCreateOuterLoop(
+        NestedFunctionKind nestedFunction)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+
+        var body = new BlockContainer();
+        var head = new Block(0x00);
+        head.Add(new StoreLocal(0, intType, new Constant(0, intType)));
+        body.Add(head);
+
+        var localHolder = new Block(0x0A);
+        IrNode nested = NestedFunctionWithLeave(nestedFunction, 0x00);
+        nested.SetSourceOffset(0x0A);
+        localHolder.Add(nested);
+        body.Add(localHolder);
+
+        var survivingBranch = new Block(0x14);
+        var branchArm = new Block();
+        branchArm.Add(new Branch(0x0A));
+        survivingBranch.Add(new IfStatement(
+            new Constant(true, boolType),
+            branchArm,
+            elseArm: null));
+        body.Add(survivingBranch);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                voidType,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [intType],
+            body);
+
+        function.CheckInvariant();
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.DescendantsOutsideNestedFunctions.OfType<WhileLoop>());
+        Assert.Contains(
+            function.DescendantsOutsideNestedFunctions.OfType<Branch>(),
+            branch => branch.TargetOffset == 0x0A);
+
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        Assert.Contains("IL_000A:", output);
+        Assert.Contains("goto IL_000A;", output);
+        Assert.DoesNotContain("while (true)", output);
+    }
+
+    [Theory]
+    [InlineData(NestedFunctionKind.LocalFunction, NestedLoopExit.Return)]
+    [InlineData(NestedFunctionKind.LocalFunction, NestedLoopExit.Branch)]
+    [InlineData(NestedFunctionKind.LocalFunction, NestedLoopExit.Break)]
+    [InlineData(NestedFunctionKind.LocalFunction, NestedLoopExit.Leave)]
+    [InlineData(NestedFunctionKind.Lambda, NestedLoopExit.Return)]
+    [InlineData(NestedFunctionKind.Lambda, NestedLoopExit.Branch)]
+    [InlineData(NestedFunctionKind.Lambda, NestedLoopExit.Break)]
+    [InlineData(NestedFunctionKind.Lambda, NestedLoopExit.Leave)]
+    public void NestedFunctionControlFlow_DoesNotQualifyOuterRetryLoop(
+        NestedFunctionKind nestedFunction,
+        NestedLoopExit nestedExit)
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+
+        var retryTryBody = new BlockContainer();
+        var retry = new Block(0x00);
+        retry.Add(new Leave(0x00));
+        retryTryBody.Add(retry);
+
+        var retryFinallyBody = new BlockContainer();
+        retryFinallyBody.Add(new Block(0x08));
+
+        var body = new BlockContainer();
+        var head = new Block(0x00);
+        head.Add(NestedFunctionWithExit(nestedFunction, nestedExit));
+        head.Add(new TryFinally(retryTryBody, retryFinallyBody));
+        body.Add(head);
+
+        var tail = new Block(0x10);
+        tail.Add(new Return(null));
+        body.Add(tail);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                voidType,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        function.CheckInvariant();
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.DescendantsOutsideNestedFunctions.OfType<WhileLoop>());
+        Assert.Contains(
+            function.DescendantsOutsideNestedFunctions.OfType<Leave>(),
+            leave => leave.TargetOffset == 0x00);
+    }
+
     [Fact]
     public void InfiniteLoopContainingSwitchOwnedBreak_StaysFlat()
     {
@@ -556,6 +668,99 @@ public class InfiniteLoopStructuringTests
         Assert.Same(@switch, StructuredTransferOwner(after));
     }
 
+    static IrNode NestedFunctionWithLeave(
+        NestedFunctionKind nestedFunction,
+        int targetOffset)
+    {
+        var tryBody = new BlockContainer();
+        var leave = new Block(0x00);
+        leave.Add(new Leave(targetOffset));
+        tryBody.Add(leave);
+
+        var finallyBody = new BlockContainer();
+        finallyBody.Add(new Block(0x04));
+
+        var body = new BlockContainer();
+        var holder = new Block(0x00);
+        holder.Add(new TryFinally(tryBody, finallyBody));
+        body.Add(holder);
+
+        return NestedFunction(nestedFunction, body);
+    }
+
+    static IrNode NestedFunctionWithExit(
+        NestedFunctionKind nestedFunction,
+        NestedLoopExit nestedExit)
+    {
+        var body = new BlockContainer();
+        var entry = new Block(0x00);
+        body.Add(entry);
+
+        switch (nestedExit)
+        {
+            case NestedLoopExit.Return:
+                entry.Add(new Return(null));
+                break;
+            case NestedLoopExit.Branch:
+                entry.Add(new Branch(0x10));
+                body.Add(new Block(0x10));
+                break;
+            case NestedLoopExit.Break:
+                var loopBody = new BlockContainer();
+                var loopEntry = new Block(0x00);
+                loopEntry.Add(new Break());
+                loopBody.Add(loopEntry);
+                entry.Add(new DoWhileLoop(
+                    loopBody,
+                    new Constant(false, TypeRef.CoreLib("System", "Boolean"))));
+                break;
+            case NestedLoopExit.Leave:
+                var tryBody = new BlockContainer();
+                var leave = new Block(0x00);
+                leave.Add(new Leave(0x10));
+                tryBody.Add(leave);
+
+                var finallyBody = new BlockContainer();
+                finallyBody.Add(new Block(0x08));
+
+                entry.Add(new TryFinally(tryBody, finallyBody));
+                body.Add(new Block(0x10));
+                break;
+        }
+
+        return NestedFunction(nestedFunction, body);
+    }
+
+    static IrNode NestedFunction(
+        NestedFunctionKind nestedFunction,
+        BlockContainer body)
+        => nestedFunction switch
+        {
+            NestedFunctionKind.LocalFunction => new LocalFunctionStatement(
+                "Local",
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                isStatic: true,
+                [],
+                [],
+                usesUpdatedMemorySafetyRules: false,
+                skipLocalsInit: false,
+                body),
+            NestedFunctionKind.Lambda => new ExpressionStatement(
+                new Lambda(
+                    TypeRef.CoreLib("System", "Action"),
+                    [],
+                    [],
+                    [],
+                    usesUpdatedMemorySafetyRules: false,
+                    skipLocalsInit: false,
+                    body)
+                {
+                    ReturnsVoid = true,
+                }),
+            _ => throw new ArgumentOutOfRangeException(nameof(nestedFunction)),
+        };
+
     static IrFunction InOuterLoop(BlockContainer loopBody)
     {
         var body = new BlockContainer();
@@ -584,5 +789,19 @@ public class InfiniteLoopStructuringTests
             if (ancestor is Switch or WhileLoop or DoWhileLoop or ForLoop or ForeachStatement)
                 return ancestor;
         return null;
+    }
+
+    public enum NestedLoopExit
+    {
+        Return,
+        Branch,
+        Break,
+        Leave,
+    }
+
+    public enum NestedFunctionKind
+    {
+        LocalFunction,
+        Lambda,
     }
 }
