@@ -215,6 +215,53 @@ public class SymbolPackageDownloaderTests : IDisposable
         Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AcquirePdbAsync_LimitedHostRejectsOversizedMsdlBeforeStore(
+        bool declaresLength)
+    {
+        var handler = new CountingHandler(request =>
+        {
+            if (request.RequestUri?.Host == "msdl.microsoft.com")
+            {
+                HttpContent content = declaresLength
+                    ? new ByteArrayContent(new byte[65])
+                    : new UnknownLengthContent(new byte[65]);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = content,
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using var client = new HttpClient(handler);
+        var downloader = new SymbolPackageDownloader(
+            client,
+            new ThrowingPutPdbStore(),
+            new UniformPackageSourceAuthorization(
+                [NuGetFetch.PackageSource.NuGetOrg]),
+            new SymbolAcquisitionLimits(
+                maxSymbolPackageBytes: 64,
+                maxPortablePdbBytes: 64,
+                maxSymbolPackageEntries: 8));
+
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                Guid.NewGuid(),
+                pdbAge: 1,
+                pdbFileName: "System.Example.pdb",
+                isPortable: true,
+                assemblyName: "System.Example",
+                packageName: "System.Example",
+                packageVersion: "1.0.0",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+    }
+
     [Fact]
     public async Task InMemoryPdbStore_RetainedByteLimitRejectsAdditionalContent()
     {
@@ -804,5 +851,19 @@ public class SymbolPackageDownloaderTests : IDisposable
 
         public string? TryGetLocalPath(string key)
             => null;
+    }
+
+    private sealed class UnknownLengthContent(byte[] content) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context) =>
+            stream.WriteAsync(content).AsTask();
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 }

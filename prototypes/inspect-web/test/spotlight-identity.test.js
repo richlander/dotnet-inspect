@@ -4,8 +4,10 @@ import test from "node:test";
 
 import {
   assemblyDescriptorForType,
+  authoredSourceLimitationHtml,
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
+  callGraphTargetMatchesType,
   callGraphTargetTypeId,
   createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
@@ -408,14 +410,48 @@ test("call graph source identity prefers the structured type definition", () => 
   assert.equal(
     callGraphTargetTypeId({ typeMetadataId: "Example.Legacy" }),
     "Example.Legacy");
+
+  const nested = {
+    id: "Example.Outer+Inner",
+    definitionId: "Example.Outer+Inner",
+    metadataId: "Example.Outer+Inner",
+    assembly: "Example"
+  };
+  const literal = {
+    id: "Example.Outer\\+Inner",
+    definitionId: "Example.Outer\\+Inner",
+    metadataId: "Example.Outer+Inner",
+    assembly: "Example"
+  };
+  const target = {
+    assembly: "Example",
+    typeDefinitionId: literal.definitionId
+  };
+  const candidate = resolveLoadedGraphTargetCandidate(
+    [{ id: "Example", types: [nested, literal] }],
+    target);
+  assert.equal(candidate.status, "unique");
+  assert.equal(candidate.type, literal);
+  assert.equal(callGraphTargetMatchesType(target, nested), false);
+  assert.equal(callGraphTargetMatchesType(target, literal), true);
 });
 
 test("decompiled source discloses the authored-source limitation", () => {
-  const sourceDialog =
-    appSource.match(/function renderGraphSource\(\)[\s\S]*?\n}/)?.[0]
-    ?? "";
-  assert.match(sourceDialog, /state\.graphSource\.authoredLimitation/);
-  assert.match(sourceDialog, /Original source unavailable:/);
+  const html = authoredSourceLimitationHtml({
+    authoredLimitation: "<img src=x onerror=alert(1)>"
+  });
+  assert.match(html, /Original source unavailable:/);
+  assert.doesNotMatch(html, /<img/);
+  assert.match(html, /&lt;img/);
+  assert.match(
+    appSource,
+    /authoredSourceLimitationHtml\(state\.memberSource\)/);
+  assert.match(
+    appSource,
+    /authoredSourceLimitationHtml\(state\.typeSource\)/);
+  assert.match(
+    appSource,
+    /authoredSourceLimitationHtml\(state\.graphSource\)/);
 });
 
 test("history never applies a selection to another coordinate", () => {

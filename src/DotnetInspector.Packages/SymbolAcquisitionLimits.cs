@@ -9,7 +9,8 @@ public sealed class SymbolAcquisitionLimits
     public SymbolAcquisitionLimits(
         long maxSymbolPackageBytes,
         long maxPortablePdbBytes,
-        int maxSymbolPackageEntries)
+        int maxSymbolPackageEntries,
+        long? maxExpandedPdbBytes = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maxSymbolPackageBytes);
@@ -23,13 +24,21 @@ public sealed class SymbolAcquisitionLimits
             Array.MaxLength);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maxSymbolPackageEntries);
+        if (maxExpandedPdbBytes is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maxExpandedPdbBytes));
+        }
 
         MaxSymbolPackageBytes = maxSymbolPackageBytes;
         MaxPortablePdbBytes = maxPortablePdbBytes;
         MaxSymbolPackageEntries = maxSymbolPackageEntries;
+        MaxExpandedPdbBytes =
+            maxExpandedPdbBytes ?? maxSymbolPackageBytes;
     }
 
     public long MaxSymbolPackageBytes { get; }
     public long MaxPortablePdbBytes { get; }
     public int MaxSymbolPackageEntries { get; }
+    public long MaxExpandedPdbBytes { get; }
 }

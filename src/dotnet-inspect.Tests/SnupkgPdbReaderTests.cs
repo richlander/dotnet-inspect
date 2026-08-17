@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -149,6 +150,137 @@ public class SnupkgPdbReaderTests
                 limits: limits));
 
         Assert.Contains("PDB exceeds", error.Message);
+    }
+
+    [Fact]
+    public void ExtractPortablePdb_DirectCallRejectsOversizedArchive()
+    {
+        var guid = Guid.NewGuid();
+        var (pdbBytes, _) = BuildPortablePdb(guid);
+        byte[] snupkg =
+            MakeSnupkg(("lib/net8.0/Foo.pdb", pdbBytes));
+        var limits = new SymbolAcquisitionLimits(
+            maxSymbolPackageBytes: snupkg.Length - 1,
+            maxPortablePdbBytes: pdbBytes.Length,
+            maxSymbolPackageEntries: 8);
+
+        using var stream = new MemoryStream(snupkg);
+        InvalidDataException error = Assert.Throws<InvalidDataException>(
+            () => SnupkgPdbReader.ExtractPortablePdb(
+                stream,
+                "Foo",
+                guid,
+                limits: limits));
+
+        Assert.Contains("symbol package exceeds", error.Message);
+    }
+
+    [Theory]
+    [InlineData(4, 2)]
+    [InlineData(6, 2)]
+    [InlineData(8, 2)]
+    [InlineData(10, 2)]
+    [InlineData(12, 4)]
+    [InlineData(16, 4)]
+    public void ExtractPortablePdb_EveryZip64SentinelIsRejected(
+        int fieldOffset,
+        int fieldSize)
+    {
+        var guid = Guid.NewGuid();
+        var (pdbBytes, _) = BuildPortablePdb(guid);
+        byte[] snupkg =
+            MakeSnupkg(("lib/net8.0/Foo.pdb", pdbBytes));
+        int endRecord = FindEndOfCentralDirectory(snupkg);
+        if (fieldSize == 2)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                snupkg.AsSpan(endRecord + fieldOffset),
+                ushort.MaxValue);
+        }
+        else
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                snupkg.AsSpan(endRecord + fieldOffset),
+                uint.MaxValue);
+        }
+        var limits = new SymbolAcquisitionLimits(
+            maxSymbolPackageBytes: snupkg.Length,
+            maxPortablePdbBytes: pdbBytes.Length,
+            maxSymbolPackageEntries: 8);
+
+        using var stream = new MemoryStream(snupkg);
+        InvalidDataException error = Assert.Throws<InvalidDataException>(
+            () => SnupkgPdbReader.ExtractPortablePdb(
+                stream,
+                "Foo",
+                guid,
+                limits: limits));
+
+        Assert.Contains("ZIP64", error.Message);
+    }
+
+    [Fact]
+    public void ExtractPortablePdb_AggregateExpansionRejectsRepeatedCandidates()
+    {
+        var guid = Guid.NewGuid();
+        var (pdbBytes, _) = BuildPortablePdb(Guid.NewGuid());
+        byte[] snupkg =
+            MakeSnupkg(
+                ("a/Foo.pdb", pdbBytes),
+                ("b/Foo.pdb", pdbBytes));
+        var limits = new SymbolAcquisitionLimits(
+            maxSymbolPackageBytes: snupkg.Length,
+            maxPortablePdbBytes: pdbBytes.Length,
+            maxSymbolPackageEntries: 8,
+            maxExpandedPdbBytes: (2L * pdbBytes.Length) - 1);
+
+        using var stream = new MemoryStream(snupkg);
+        InvalidDataException error = Assert.Throws<InvalidDataException>(
+            () => SnupkgPdbReader.ExtractPortablePdb(
+                stream,
+                "Foo",
+                guid,
+                limits: limits));
+
+        Assert.Contains("aggregate byte limit", error.Message);
+    }
+
+    [Fact]
+    public void ExtractPortablePdb_ObservesCancellation()
+    {
+        var guid = Guid.NewGuid();
+        var (pdbBytes, _) = BuildPortablePdb(guid);
+        byte[] snupkg =
+            MakeSnupkg(("lib/net8.0/Foo.pdb", pdbBytes));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        using var stream = new MemoryStream(snupkg);
+        Assert.Throws<OperationCanceledException>(
+            () => SnupkgPdbReader.ExtractPortablePdbCancelable(
+                stream,
+                "Foo",
+                guid,
+                log: null,
+                expectedStamp: null,
+                limits: null,
+                cancellationToken: cancellation.Token));
+    }
+
+    static int FindEndOfCentralDirectory(byte[] archive)
+    {
+        for (int offset = archive.Length - 22; offset >= 0; offset--)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(
+                    archive.AsSpan(offset))
+                == 0x06054b50)
+            {
+                return offset;
+            }
+        }
+
+        throw new InvalidDataException(
+            "Test archive has no end-of-central-directory record.");
     }
 
     internal static (byte[] Bytes, Guid Guid) BuildPortablePdb(

@@ -393,10 +393,12 @@ Those controls are specific to the Browser-Wasm acquisition host. Archive
 containment in the broader product does not itself bound expanded bytes, entry
 count, or disk consumption. Symbol acquisition now accepts optional
 host-supplied limits for response bytes, expanded PDB bytes, archive entry
-count, and in-memory retention; the Browser supplies those limits, while
-callers that do not supply them retain only the shared transport ceiling.
-Product-wide default expansion and retention budgets remain an open requirement
-below.
+count, aggregate candidate-PDB expansion, and in-memory retention; the Browser
+supplies those limits on every symbol-server and symbol-package path. Bounded
+symbol-package inspection rejects ZIP64 before archive enumeration and observes
+cancellation while expanding candidates. Callers that do not supply limits
+retain only the shared transport ceiling. Product-wide default expansion and
+retention budgets remain an open requirement below.
 
 ### Untrusted JSON rejects duplicate properties
 

@@ -252,11 +252,13 @@ through Browser HTTP and explicit nuget.org authorization, then falls back to
 pathless decompilation under the workspace binding policy. Symbol-package
 responses are capped at 24 MiB, expanded PDBs at 8 MiB, and archives at 2,048
 entries before either response or expanded content is copied into the
-request-scoped store; that store independently caps all retained PDB bytes at
-24 MiB. SourceLink requests are authorized before dispatch for
-HTTPS URLs on GitHub, Azure DevOps, GitLab, and Bitbucket source hosts, and the
-Browser transport refuses redirects; unsupported hosts visibly fall back to
-decompilation.
+request-scoped store. Candidate PDB expansion across one symbol package is
+capped at 24 MiB, checks cancellation between decompression chunks, and rejects
+all ZIP64 sentinels before `ZipArchive` enumeration. The store independently
+caps all retained PDB bytes at 24 MiB. SourceLink requests are authorized before
+dispatch for HTTPS URLs on GitHub, Azure DevOps, GitLab, and Bitbucket source
+hosts, and the Browser transport refuses redirects; unsupported hosts visibly
+fall back to decompilation.
 
 Each operation uses fresh in-memory PDB and source stores, so source lookup adds
 no ambient filesystem dependency or unbounded retained cache. Typed rejection
@@ -271,7 +273,10 @@ property or the whole type as a success-shaped substitute.
 `BrowserEngineBoundaryTests.SourceFetchPolicy_AuthorizesBeforeDispatch`,
 `BrowserEngineBoundaryTests.TypeSourceParticipant_RefusesReferenceOnlyAssembly`,
 `SnupkgPdbReaderTests.ExtractPortablePdb_EntryLimitRejectsArchiveBeforeExpansion`,
+`SnupkgPdbReaderTests.ExtractPortablePdb_EveryZip64SentinelIsRejected`,
+`SnupkgPdbReaderTests.ExtractPortablePdb_AggregateExpansionRejectsRepeatedCandidates`,
 `SymbolPackageDownloaderTests.AcquirePdbAsync_LimitedHostRejectsOversizedSymbolPackage`,
+`SymbolPackageDownloaderTests.AcquirePdbAsync_LimitedHostRejectsOversizedMsdlBeforeStore`,
 `AssemblyContextSourceQueryTests.DecompilerFallback_AppliesRequestPrinterOptions`,
 and the JavaScript `source requests carry exact type and member identities` and
 `call graph source identity prefers the structured type definition` cases gate

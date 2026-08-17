@@ -289,6 +289,15 @@ export function callGraphTargetTypeId(target) {
   return target?.typeDefinitionId || target?.typeMetadataId || "";
 }
 
+export function callGraphTargetMatchesType(target, type) {
+  if (target?.typeDefinitionId)
+    return (type?.definitionId ?? type?.id) === target.typeDefinitionId;
+  if (target?.typeMetadataId)
+    return (type?.metadataId ?? type?.queryId ?? type?.id)
+      === target.typeMetadataId;
+  return false;
+}
+
 export function uniqueTypeByQueryId(types, queryId) {
   const matches = (types ?? []).filter(type =>
     (type.queryId ?? type.id) === queryId);
@@ -332,7 +341,7 @@ export function resolveLoadedGraphTargetCandidate(packages, target) {
               === assembly.toLowerCase());
       if (assembly.toLowerCase() === target.assembly.toLowerCase()
           && callGraphAssemblyIdentityMatches(target, descriptor)
-          && (type.metadataId ?? type.queryId ?? type.id) === typeId) {
+          && callGraphTargetMatchesType(target, type)) {
         matches.push({ pkg, type });
         if (matches.length > 1) return { status: "ambiguous" };
       }
@@ -357,6 +366,17 @@ export function graphTargetNavigationDisposition(candidate, target) {
       && callGraphTargetTypeId(target)
     ? "platform"
     : "none";
+}
+
+export function authoredSourceLimitationHtml(source) {
+  if (!source?.authoredLimitation) return "";
+  const escaped = String(source.authoredLimitation)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+  return `<span class="graph-source-status">Original source unavailable: ${escaped}</span>`;
 }
 
 export function callGraphDiagnosticsMessage(diagnostics) {

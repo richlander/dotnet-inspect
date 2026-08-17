@@ -40,6 +40,10 @@ public sealed class BrowserEngineBoundaryTests
             first.SymbolAcquisitionLimits.MaxPortablePdbBytes,
             1,
             8L * MiB);
+        Assert.InRange(
+            first.SymbolAcquisitionLimits.MaxExpandedPdbBytes,
+            1,
+            24L * MiB);
     }
 
     [Theory]
@@ -119,6 +123,20 @@ public sealed class BrowserEngineBoundaryTests
             adapted.Message,
             StringComparison.Ordinal);
         Assert.Same(cause, adapted.InnerException);
+
+        InvalidOperationException withAuthoredFailure =
+            BrowserInspectionEngine.SourceUnavailable(
+                failure,
+                "The host does not authorize this SourceLink destination.");
+        Assert.Contains(
+            "Original source unavailable",
+            withAuthoredFailure.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "does not authorize",
+            withAuthoredFailure.Message,
+            StringComparison.Ordinal);
+        Assert.Same(cause, withAuthoredFailure.InnerException);
     }
 
     [Fact]

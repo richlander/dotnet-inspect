@@ -19,7 +19,8 @@ public static partial class BrowserInspectionEngine
         new(
             maxSymbolPackageBytes: 24 * MiB,
             maxPortablePdbBytes: 8 * MiB,
-            maxSymbolPackageEntries: 2048);
+            maxSymbolPackageEntries: 2048,
+            maxExpandedPdbBytes: 24 * MiB);
 
     [JSExport]
     public static Task<string> QueryMemberSource(
@@ -233,7 +234,11 @@ public static partial class BrowserInspectionEngine
                 throw new InvalidOperationException(
                     $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"),
             AssemblyMemberSourceEntry.Unavailable unavailable =>
-                throw SourceUnavailable(unavailable.Failure),
+                throw SourceUnavailable(
+                    unavailable.Failure,
+                    unavailable.AuthoredAttempt is { } authored
+                        ? AuthoredLimitation(authored.Lines)
+                        : null),
             _ => throw new InvalidOperationException(
                 "Unknown assembly member source result."),
         };
@@ -249,7 +254,11 @@ public static partial class BrowserInspectionEngine
                 throw new InvalidOperationException(
                     $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"),
             AssemblyTypeSourceEntry.Unavailable unavailable =>
-                throw SourceUnavailable(unavailable.Failure),
+                throw SourceUnavailable(
+                    unavailable.Failure,
+                    unavailable.AuthoredAttempt is { } authored
+                        ? AuthoredLimitation(authored.Lines)
+                        : null),
             _ => throw new InvalidOperationException(
                 "Unknown assembly type source result."),
         };
@@ -328,8 +337,12 @@ public static partial class BrowserInspectionEngine
         };
 
     internal static InvalidOperationException SourceUnavailable(
-        AssemblySourceFailure failure) =>
+        AssemblySourceFailure failure,
+        string? authoredLimitation = null) =>
         new(
-            $"{failure.Kind}: {failure.Detail}",
+            $"{failure.Kind}: {failure.Detail}"
+            + (authoredLimitation is { Length: > 0 }
+                ? $" Original source unavailable: {authoredLimitation}"
+                : ""),
             failure.Error);
 }
