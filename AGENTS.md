@@ -801,7 +801,7 @@ behind a tool-call summary, or replace it with a shorter completion summary:
 ```text
 Round <n> is complete for PR <number>.
 - Review models <model-a> and <model-b> were used for adversarial review.
-- Review feedback is: [converging, diverging, neutral].
+- Review feedback is: [converging, diverging, neutral, clean].
 - Round start: <datetime>.
 - Round end: <datetime>.
 - Round duration: <hours:minutes>
