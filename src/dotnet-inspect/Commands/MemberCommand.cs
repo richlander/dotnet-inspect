@@ -206,7 +206,7 @@ public static class MemberCommand
                     ProjectAssetsPath = projectAssetsPath,
                 };
             }
-            memberPipeline = ApiMemberSectionPipelines.Create(options);
+            var memberPipeline = ApiMemberSectionPipelines.Create(options);
 
             // Structural discovery ignores -S. Once lookup has identified the actual member
             // pipeline, report that schema directly just as the non-dotted path does.
