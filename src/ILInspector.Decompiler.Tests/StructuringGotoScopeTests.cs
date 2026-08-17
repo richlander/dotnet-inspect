@@ -194,6 +194,7 @@ public class StructuringGotoScopeTests
     [InlineData(0x005E, 0x0062, false)]
     [InlineData(0x005E, 0x0015, false)]
     [InlineData(0x005E, 0x0015, true)]
+    [InlineData(0x005E, 0x0013, false)]
     public void RegionExitLeaveWithDescendantBodyEntry_DoesNotBecomeBreak(
         int targetOffset,
         int sourceOffset,
@@ -247,6 +248,46 @@ public class StructuringGotoScopeTests
         Assert.Empty(tail.Children);
         tail.Add(new StoreLocal(2, Int32, new Constant(0, Int32)));
         tail.Add(new Leave(0x0087));
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        string output = CSharpPrinter.Print(function).Output ?? "";
+        Assert.True(function.Descendants.OfType<Leave>().Any(leave => leave.TargetOffset == 0x0087), output);
+        Assert.Empty(function.Descendants.OfType<Break>());
+    }
+
+    [Fact]
+    public void RegionExitLeaveWithPreheaderEntryToDirectTarget_DoesNotBecomeBreak()
+    {
+        var function = CollectValidDoublesBeforeStructuring();
+        var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
+        var lastGuard = Assert.Single(
+            tryFinally.TryBody.Blocks,
+            block => block.StartOffset == 0x003C);
+        var conditional = Assert.IsType<ConditionalBranch>(lastGuard.Children[^1]);
+        var replacement = new ConditionalBranch(
+            (IrExpression)conditional.Condition.Clone(),
+            0x006E);
+        replacement.InheritSourceOffset(conditional);
+        conditional.ReplaceWith(replacement);
+
+        var preheader = Assert.Single(
+            tryFinally.TryBody.Blocks,
+            block => block.StartOffset == 0x0013);
+        var enterLoop = Assert.IsType<Branch>(preheader.Children[^1]);
+        enterLoop.Detach();
+        var alternateEntryArm = new Block();
+        alternateEntryArm.Add(new Branch(0x005E));
+        preheader.Add(new IfStatement(
+            new Comparison(
+                ComparisonKind.Equal,
+                isUnsigned: false,
+                new LoadLocal(2, Int32),
+                new Constant(0, Int32)),
+            alternateEntryArm,
+            elseArm: null));
+        preheader.Add(enterLoop);
 
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();

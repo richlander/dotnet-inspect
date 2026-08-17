@@ -289,6 +289,9 @@ public class StructuringDiagnosticsTests
             output);
         Assert.DoesNotContain("goto IL_", output);
         Assert.DoesNotContain("// leave", output);
+        var breaks = function!.Descendants.OfType<Break>().ToList();
+        Assert.Equal(3, breaks.Count);
+        Assert.All(breaks, @break => Assert.False(@break.OwnsSourceLabel));
     }
 
     [Fact]

@@ -934,6 +934,11 @@ public sealed class StructuringPass : IIrPass
                         && target < stop
                         && IsRegionExitTerminator(ctx, target))
                     {
+                        if (ctx.FlowFacts.PreservedTargets.Contains(blocks[target].StartOffset))
+                        {
+                            ctx.Recorder?.Record("region-exit-block-externally-entered");
+                            return false;
+                        }
                         i++;
                         break;
                     }
@@ -2339,6 +2344,8 @@ public sealed class StructuringPass : IIrPass
                         && target < stop
                         && IsRegionExitTerminator(ctx, target))
                     {
+                        if (ctx.FlowFacts.PreservedTargets.Contains(blocks[target].StartOffset))
+                            throw new InvalidOperationException("Validated region-exit block ownership was not buildable.");
                         var breakArm = BuildRegionExitBreakArm(ctx, target, block.StartOffset);
                         result.Add(new IfStatement(condition, breakArm, null));
                         i++;
@@ -2489,13 +2496,13 @@ public sealed class StructuringPass : IIrPass
         // region. Clone that prefix into every guard that now exits via break.
         for (int i = 0; i < source.Children.Count - 1; i++)
             arm.Add(source.Children[i].Clone());
-        SuppressClonedSourceLabels(arm);
 
         var leave = (Leave)source.Children[^1];
         var next = new Break();
         next.InheritSourceOffset(leave);
         ctx.GeneratedLoopTransfers.Add(next);
         arm.Add(next);
+        SuppressClonedSourceLabels(arm);
         return arm;
     }
 
