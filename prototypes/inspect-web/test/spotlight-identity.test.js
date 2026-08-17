@@ -24,6 +24,7 @@ import {
   MAX_SHARE_STATE_CHARACTERS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
+  memberSectionIdsFor,
   mermaidLabel,
   normalizeShareTabs,
   packageCoordinateMatchesLocation,
@@ -380,6 +381,25 @@ test("member source request identity includes decompiler taste", () => {
   assert.notEqual(
     memberRequestKey(request, ["prefer-var"]),
     memberRequestKey(request, ["prefer-explicit-types"]));
+});
+
+test("type source identity includes decompiler taste", () => {
+  const typeSignature =
+    appSource.match(/function typeSourceSignature\(item\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(typeSignature, /memberRequestKey\(/);
+  assert.match(typeSignature, /state\.taste/);
+});
+
+test("MethodDef-only member sections are hidden for bodiless APIs", () => {
+  for (const kind of ["property", "field", "event", "constant"]) {
+    assert.deepEqual(
+      memberSectionIdsFor({ kind }),
+      ["overview"]);
+  }
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method" }),
+    ["overview", "call-graph", "facts", "source", "annotated"]);
 });
 
 test("source requests carry exact type and member identities", () => {

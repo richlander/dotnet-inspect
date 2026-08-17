@@ -19,6 +19,7 @@ import {
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
+  memberSectionIdsFor,
   mermaidLabel,
   normalizeShareTabs,
   packageCoordinateMatchesLocation,
@@ -395,7 +396,12 @@ function applyView(view) {
   state.memberAnnotatedError = "";
   state.selectedBodyTarget = view.bodyTarget ?? null;
   const type = selectedType();
-  if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && selectedMember(type)) {
+  const member = selectedMember(type);
+  if (member
+    && !memberSectionIdsFor(member).includes(state.memberSection)) {
+    state.memberSection = "overview";
+  }
+  if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && member) {
     if (state.memberSection === "source") loadSelectedMemberSource();
     else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
     else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
@@ -441,21 +447,9 @@ const memberSectionDefs = [
   ["annotated", "Annotated source"]
 ];
 
-// Members that are not directly callable have no method-body identity, so the body-dependent
-// sections (Call graph, Facts, Annotated source) don't apply and the engine rejects them.
-// Everything else — methods, constructors, operators, explicit interface method impls — keeps
-// the full strip. Properties/fields/events still get Overview and Source (which read the
-// declaration, not a body).
-const bodilessMemberKinds = new Set(["property", "field", "event", "constant"]);
-
-function memberHasBody(member) {
-  return !!member && !bodilessMemberKinds.has(member.kind);
-}
-
 function memberSectionsFor(member) {
-  return memberHasBody(member)
-    ? memberSectionDefs
-    : memberSectionDefs.filter(([id]) => id === "overview" || id === "source");
+  const allowed = new Set(memberSectionIdsFor(member));
+  return memberSectionDefs.filter(([id]) => allowed.has(id));
 }
 
 // URL-safe base64 over UTF-8 bytes. Used for the opaque share packet so a shared or
@@ -3763,7 +3757,13 @@ function splitSignalName(fullName) {
 }
 
 function typeSourceSignature(item) {
-  return `${state.package.id}@${state.package.version}/${state.package.activeFramework}/${item.assembly}/${item.definitionId ?? item.id}`;
+  return memberRequestKey([
+    state.package.id,
+    state.package.version,
+    state.package.activeFramework,
+    item.assembly,
+    item.definitionId ?? item.id
+  ], state.taste);
 }
 
 function renderTypeSource(item) {
@@ -5603,7 +5603,10 @@ function applyDeepLink(deep) {
         && overloadIndex < group.overloads.length) {
         state.selectedOverloadIndex = overloadIndex;
       }
-      if (deep.section && memberSections.includes(deep.section)) state.memberSection = deep.section;
+      if (deep.section
+        && memberSectionIdsFor(group).includes(deep.section)) {
+        state.memberSection = deep.section;
+      }
     }
   }
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === state.selectedTypeId));

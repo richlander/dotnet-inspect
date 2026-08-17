@@ -268,7 +268,8 @@ unavailable. Reference-only type source is refused rather than presented as a
 body-free decompilation. Printer options apply to decompiled fallback and never
 rewrite authored source. Whole-member source remains MethodDef-scoped: a
 call-graph accessor body reports that limitation rather than returning its owner
-property or the whole type as a success-shaped substitute.
+property or the whole type as a success-shaped substitute, and bodiless API
+groups do not offer a Source section.
 `BrowserEngineBoundaryTests.SourceContexts_UseFreshMemoryOnlyPdbStores`,
 `BrowserEngineBoundaryTests.SourceFetchPolicy_AuthorizesBeforeDispatch`,
 `BrowserEngineBoundaryTests.TypeSourceParticipant_RefusesReferenceOnlyAssembly`,

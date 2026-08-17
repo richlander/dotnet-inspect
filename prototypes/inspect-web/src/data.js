@@ -449,6 +449,12 @@ export function memberRequestKey(parts, taste = []) {
   return [...parts, ...taste].join("\u0000");
 }
 
+export function memberSectionIdsFor(member) {
+  return ["property", "field", "event", "constant"].includes(member?.kind)
+    ? ["overview"]
+    : ["overview", "call-graph", "facts", "source", "annotated"];
+}
+
 export function mermaidLabel(value) {
   let encoded = "";
   for (const character of String(value ?? "")) {
