@@ -111,11 +111,12 @@ contract around these atoms: `SameStackSlot` proves only one compiler spill
 within a pass-owned lowering shape; it is not a whole-method identity claim for a
 slot number. Reused evaluation-stack positions are allowed to carry unrelated C#
 types across disjoint straight-line live ranges. Earlier passes should consume
-their owned ranges before `StackSlotLiveRangePass`; that pass may split only the
-loads proven to be reached by one definition. Its linear path handles
-block-local loads, but declines when a load before the candidate store can
-observe that store through either a modeled function-body CFG cycle or an
-enclosing structured loop;
+their owned ranges before `StackSlotLiveRangePass`; its cross-block path may
+split only the loads proven to be reached by one definition. The older linear
+path handles block-local loads and, for loads in statements preceding the
+candidate store, declines when a modeled function-body CFG cycle or enclosing
+structured loop can carry the candidate definition back to that load. Loads
+within a later same-slot store statement remain a known limitation (#4300);
 `StackSlotLiveRangeCrossBlockTests.CrossBlockSplit_DoesNotEnableLoopCarriedBlockLocalSplit`
 plus `StructuredLoopCarriedBlockLocalRange_StaysUnsplit` and
 `NestedBlockInRawLoopCarriedRange_StaysUnsplit` gate those boundaries. For a
