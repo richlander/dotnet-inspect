@@ -1617,7 +1617,10 @@ public class ApiCommand
 
         if (projectedJson)
         {
-            var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(
+                type,
+                options,
+                out var promotedTypeInfo);
             ConfigureTypeSectionOrder(type, options, writerOptions);
             var schema = ToQueryableSchema(GetTypeDocumentSchema(options), options);
             var projectionSections = GetProjectionValidationSections(
@@ -1649,7 +1652,9 @@ public class ApiCommand
                 serialize,
                 indented: !options.CompactJson,
                 maxRows: options.Rows,
-                writerOptions);
+                writerOptions: writerOptions,
+                unwindowedSections:
+                    promotedTypeInfo ? [SectionNames.TypeInfo] : null);
             IReadOnlyList<string> fieldEvidence = [];
             if (options.Fields is { Length: > 0 })
             {

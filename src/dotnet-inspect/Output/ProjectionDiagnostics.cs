@@ -174,6 +174,42 @@ public static class ProjectionDiagnostics
             "column");
     }
 
+    internal static void DiagnoseJson(
+        string[]? fields,
+        string[]? columns,
+        string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var emittedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectJsonPropertyNames(document.RootElement, emittedNames);
+        ReportMissing(UnmatchedRequests(fields, emittedNames), "field");
+        ReportMissing(UnmatchedRequests(columns, emittedNames), "column");
+    }
+
+    private static void CollectJsonPropertyNames(
+        JsonElement element,
+        HashSet<string> names)
+    {
+        const string NameSuffix = "_name";
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                names.Add(property.Name);
+                if (property.Name.Contains('_'))
+                    names.Add(property.Name.Replace('_', ' '));
+                if (property.Name.EndsWith(NameSuffix, StringComparison.Ordinal))
+                    names.Add(property.Name[..^NameSuffix.Length]);
+                CollectJsonPropertyNames(property.Value, names);
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+                CollectJsonPropertyNames(item, names);
+        }
+    }
+
     private static HashSet<string> ResolveNamesAcrossSections(
         DocumentSchema schema,
         IReadOnlyCollection<string> sectionNames,
@@ -229,7 +265,7 @@ public static class ProjectionDiagnostics
             "field");
         ReportMissing(
             UnmatchedRequests(columns, displayColumns),
-            "field");
+            "column");
     }
 
     private static IReadOnlySet<string> ExpandDisplayColumns(

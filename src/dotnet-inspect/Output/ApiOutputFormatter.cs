@@ -217,7 +217,15 @@ public static class ApiOutputFormatter
         };
     }
 
-    internal static MarkoutWriterOptions BuildTypeWriterOptions(ApiType type, ApiOptions options)
+    internal static MarkoutWriterOptions BuildTypeWriterOptions(
+        ApiType type,
+        ApiOptions options) =>
+        BuildTypeWriterOptions(type, options, out _);
+
+    internal static MarkoutWriterOptions BuildTypeWriterOptions(
+        ApiType type,
+        ApiOptions options,
+        out bool promotedTypeInfo)
     {
         var effectiveVerbosity = options.Verbosity;
 
@@ -228,6 +236,7 @@ public static class ApiOutputFormatter
         if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
             && !includeSections.Contains(SectionNames.Summary))
             includeSections = [SectionNames.Summary, .. includeSections];
+        promotedTypeInfo = false;
         if (options.JsonOutput
             && !options.Count
             && options.Fields is { Length: > 0 }
@@ -236,6 +245,7 @@ public static class ApiOutputFormatter
             && !selected.Contains(SectionNames.TypeInfo))
         {
             includeSections = [SectionNames.TypeInfo, .. selected];
+            promotedTypeInfo = true;
         }
 
         return new MarkoutWriterOptions

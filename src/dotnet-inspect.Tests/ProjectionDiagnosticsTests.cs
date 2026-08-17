@@ -175,4 +175,19 @@ public class ProjectionDiagnosticsTests
         Assert.DoesNotContain("Field", error, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task DiagnoseJson_UsesTypedPropertyVocabulary()
+    {
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseJson(
+                fields: ["Package"],
+                columns: ["Built*"],
+                """{"package_name":"Example","built_date":"2026-01-01"}""");
+            return Task.FromResult(0);
+        });
+
+        Assert.Empty(error);
+    }
+
 }

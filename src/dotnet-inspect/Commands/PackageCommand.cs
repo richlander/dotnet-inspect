@@ -882,7 +882,14 @@ public class PackageCommand
             else
             {
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
-                if (hasProjection && !options.JsonOutput)
+                if (hasProjection && options.JsonOutput)
+                {
+                    ProjectionDiagnostics.DiagnoseJson(
+                        options.Fields,
+                        options.Columns,
+                        output);
+                }
+                else if (hasProjection)
                 {
                     var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
                     bool selectAll = SelectResolver.IsActiveAllSelector(
@@ -1224,7 +1231,9 @@ public class PackageCommand
             return true;
         }
 
-        if (options.JsonOutput && !options.Count)
+        if (options.JsonOutput
+            && !options.Count
+            && options.IncludeSections is not { Count: > 0 })
             return true;
 
         DocumentSchema schema = PackageDiscoverySchema();

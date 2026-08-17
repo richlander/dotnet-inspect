@@ -2554,7 +2554,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("System.Text.StringBuilder", output);
-        Assert.Contains("Note: 1 field has no data: Library", error);
+        Assert.Contains("Note: 1 column has no data: Library", error);
     }
 
     [Fact]
@@ -6460,6 +6460,23 @@ public partial class CommandExecutionTests
         Assert.Equal("{}", output.Trim());
         Assert.Contains("1 column has no data: Name", error, StringComparison.Ordinal);
         Assert.DoesNotContain("formatter seam", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SingleType_PromotedTypeInfoIgnoresRowWindow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-v:q", "--json", "--fields", "Kind,Modifiers",
+            "--rows", "1", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.GetProperty("type_info").EnumerateArray().ToArray();
+        Assert.Equal(["Kind", "Modifiers"], rows
+            .Select(row => row.GetProperty("field").GetString()!)
+            .ToArray());
     }
 
     [Fact]
@@ -16321,6 +16338,52 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             using var _ = JsonDocument.Parse(output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_JsonReportsIgnoredUnknownProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonUnknownProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--json", "--columns", "Bogus", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            using var _ = JsonDocument.Parse(output);
+            Assert.Contains("1 column has no data: Bogus", error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_JsonRejectsUnknownProjectionInExplicitSection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonExplicitUnknownProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package Info",
+                "--json", "--fields", "Bogus", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("field 'Bogus' not found", error, StringComparison.Ordinal);
+            Assert.Contains("No fields matched projection: Bogus", error, StringComparison.Ordinal);
         }
         finally
         {
