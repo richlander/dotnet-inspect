@@ -151,7 +151,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         {
             Reject(
                 new SignatureDecodeRejection(
-                    SignatureDecodeRejectionKind.MalformedMetadata,
+                    SignatureDecodeRejectionKind.NameBudget,
                     rejection.Detail));
             return Unresolved;
         }

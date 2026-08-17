@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Text;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -260,25 +261,168 @@ public class MetadataTypeNameBudgetTests
     [Fact]
     public void ProjectedVirtualStringLength_IsRecheckedAfterBlobReader()
     {
-        // SRM may materialize a projected virtual string while answering
-        // GetBlobReader.Length. The same Length-then-decode admission must
-        // still refuse the part and must not treat the materialized value as
-        // success-shaped output.
-        string oversize = new string('V', 64 * 1024);
+        // A heap #Strings handle is not a WinRT projection. The gate below
+        // uses a real Managed Windows Metadata projection so GetBlobReader
+        // can answer a virtual handle whose Length is larger than the raw
+        // heap entry.
+        const int rawLength = 64 * 1024;
+        TypeDefinitionHandle projectedType = default;
+        StringHandle rawName = default;
+        using var image = BuildMetadata(
+            metadata =>
+            {
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("mscorlib"),
+                    new Version(4, 0, 0, 0),
+                    culture: default,
+                    publicKeyOrToken: default,
+                    flags: default,
+                    hashValue: default);
+                AssemblyReferenceHandle assembly = AddAssemblyReference(metadata);
+                TypeReferenceHandle baseType = metadata.AddTypeReference(
+                    assembly,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString("Base"));
+                rawName = metadata.GetOrAddString(new string('V', rawLength));
+                projectedType = metadata.AddTypeDefinition(
+                    TypeAttributes.Public | TypeAttributes.WindowsRuntime,
+                    metadata.GetOrAddString("Samples"),
+                    rawName,
+                    baseType,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            },
+            countingDecoder: true,
+            metadataVersion: "WindowsRuntime 1.4;CLR v4.0.30319");
+
+        Assert.Equal(MetadataKind.ManagedWindowsMetadata, image.Reader.MetadataKind);
+        StringHandle projectedName = image.Reader.GetTypeDefinition(projectedType).Name;
+        Assert.NotEqual(rawName, projectedName);
+        int projectedLength = image.Reader.GetBlobReader(projectedName).Length;
+        Assert.True(projectedLength > rawLength);
+
+        AssertNameBudget(
+            TypeResolver.ResolveTypeNameFromDefinition(image.Reader, projectedType));
+        Assert.DoesNotContain(projectedLength, image.Decoder!.DecodedByteCounts);
+        Assert.Throws<BadImageFormatException>(
+            () => TypeResolver.GetTypeNameFromDefinition(image.Reader, projectedType));
+    }
+
+    [Fact]
+    public void DisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap()
+    {
+        // Queries classifiers need the display spelling of a 5,030-character
+        // logging/AI fixture name; structured Read/Resolve still refuse it.
+        string name = new string('A', 5_030);
         TypeDefinitionHandle handle = default;
         using var image = BuildMetadata(metadata =>
         {
-            handle = AddTypeDefinition(metadata, TypeAttributes.Public, "", oversize);
+            handle = AddTypeDefinition(metadata, TypeAttributes.Public, "", name);
         });
 
-        TypeDefinition definition = image.Reader.GetTypeDefinition(handle);
-        int blobLength = image.Reader.GetBlobReader(definition.Name).Length;
-        Assert.True(blobLength > MetadataSafetyPolicy.MaxTypeNameCharacters);
+        AssertNameBudget(
+            TypeResolver.ResolveTypeNameFromDefinition(image.Reader, handle));
+        Assert.IsType<MetadataTypeDefinitionNameReadResult.Rejected>(
+            MetadataTypeDefinitionNameReader.Read(image.Reader, handle));
+        Assert.Equal(name, TypeResolver.GetTypeNameFromDefinition(image.Reader, handle));
+        Assert.Equal(
+            name,
+            TypeResolver.GetFullName(image.Reader, image.Reader.GetTypeDefinition(handle)));
+    }
 
-        var result = TypeResolver.ResolveTypeNameFromDefinition(image.Reader, handle);
-        AssertNameBudget(result);
-        Assert.Throws<BadImageFormatException>(
-            () => TypeResolver.GetTypeNameFromDefinition(image.Reader, handle));
+    [Fact]
+    public void TypeSpecNameBudget_IsPreservedAsTypedEvidence()
+    {
+        TypeSpecificationHandle specification = default;
+        using var image = BuildMetadata(metadata =>
+        {
+            AssemblyReferenceHandle assembly = AddAssemblyReference(metadata);
+            TypeReferenceHandle argument = metadata.AddTypeReference(
+                assembly,
+                default,
+                metadata.GetOrAddString(new string('A', 64 * 1024)));
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(
+                MetadataTokens.GetRowNumber(argument) << 2 | 1);
+            specification = metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature));
+        });
+
+        var rejected = Assert.IsType<MetadataTypeNameResult.Rejected>(
+            TypeResolver.ResolveTypeName(image.Reader, specification));
+        Assert.Equal(
+            nameof(SignatureDecodeRejectionKind.NameBudget),
+            rejected.Failure.Kind);
+        Assert.Equal(
+            SignatureDecodeRejectionKind.NameBudget,
+            rejected.Failure.SignatureKind);
+        Assert.Equal(
+            SignatureDecodeRejectionKind.NameBudget,
+            Assert.IsType<SignatureDecodeResult<string>.Rejected>(
+                    TypeResolver.DecodeTypeNameFromSpecification(
+                        image.Reader,
+                        specification))
+                .Rejection.Kind);
+    }
+
+    [Fact]
+    public void AppendLeaf_PreflightsActualUtf8OfMaterializedDeclaringName()
+    {
+        TypeDefinitionHandle leaf = default;
+        using var image = BuildMetadata(
+            metadata =>
+            {
+                TypeDefinitionHandle declaring = AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "",
+                    new string('\u4E00', 4_000));
+                leaf = AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.NestedPublic,
+                    "",
+                    new string('L', 8_000));
+                metadata.AddNestedType(leaf, declaring);
+            },
+            countingDecoder: true);
+
+        AssertNameBudget(
+            TypeResolver.ResolveFullName(
+                image.Reader,
+                image.Reader.GetTypeDefinition(leaf)));
+        Assert.DoesNotContain(8_000, image.Decoder!.DecodedByteCounts);
+    }
+
+    [Fact]
+    public void EmptyNestedNameSegment_KeepsTheDelimiter()
+    {
+        TypeDefinitionHandle leaf = default;
+        using var image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle outer = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "",
+                "Outer");
+            TypeDefinitionHandle empty = AddTypeDefinition(
+                metadata,
+                TypeAttributes.NestedPublic,
+                "",
+                "");
+            leaf = AddTypeDefinition(
+                metadata,
+                TypeAttributes.NestedPublic,
+                "",
+                "Inner");
+            metadata.AddNestedType(empty, outer);
+            metadata.AddNestedType(leaf, empty);
+        });
+
+        Assert.Equal(
+            "Outer..Inner",
+            TypeResolver.ResolveTypeNameFromDefinition(image.Reader, leaf)
+                .GetValueOrThrow());
     }
 
     [Fact]
@@ -363,7 +507,10 @@ public class MetadataTypeNameBudgetTests
             flags: default,
             hashValue: default);
 
-    static MetadataImage BuildMetadata(Action<MetadataBuilder> addRows)
+    static MetadataImage BuildMetadata(
+        Action<MetadataBuilder> addRows,
+        bool countingDecoder = false,
+        string? metadataVersion = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -382,19 +529,51 @@ public class MetadataTypeNameBudgetTests
         AddTypeDefinition(metadata, default, "", "<Module>");
         addRows(metadata);
 
-        var rootBuilder = new MetadataRootBuilder(metadata, suppressValidation: true);
+        var rootBuilder = new MetadataRootBuilder(
+            metadata,
+            metadataVersion,
+            suppressValidation: true);
         var image = new BlobBuilder();
         rootBuilder.Serialize(image, methodBodyStreamRva: 0, mappedFieldDataStreamRva: 0);
-        return new MetadataImage(image.ToImmutableArray());
+        return new MetadataImage(
+            image.ToImmutableArray(),
+            countingDecoder ? new CountingDecoder() : null);
     }
 
-    sealed class MetadataImage(ImmutableArray<byte> image) : IDisposable
+    sealed class MetadataImage : IDisposable
     {
-        readonly MetadataReaderProvider provider =
-            MetadataReaderProvider.FromMetadataImage(image);
+        readonly MetadataReaderProvider provider;
 
-        public MetadataReader Reader => provider.GetMetadataReader();
+        public MetadataImage(ImmutableArray<byte> image, CountingDecoder? decoder)
+        {
+            provider = MetadataReaderProvider.FromMetadataImage(image);
+            Decoder = decoder;
+            Reader = provider.GetMetadataReader(
+                MetadataReaderOptions.Default,
+                decoder);
+        }
+
+        public MetadataReader Reader { get; }
+        public CountingDecoder? Decoder { get; }
 
         public void Dispose() => provider.Dispose();
+    }
+
+    unsafe sealed class CountingDecoder : MetadataStringDecoder
+    {
+        public CountingDecoder()
+            : base(new UTF8Encoding(
+                encoderShouldEmitUTF8Identifier: false,
+                throwOnInvalidBytes: true))
+        {
+        }
+
+        public List<int> DecodedByteCounts { get; } = [];
+
+        public override string GetString(byte* bytes, int byteCount)
+        {
+            DecodedByteCounts.Add(byteCount);
+            return base.GetString(bytes, byteCount);
+        }
     }
 }

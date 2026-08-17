@@ -14,6 +14,12 @@ public enum SignatureDecodeRejectionKind
 
     /// <summary>SRM rejected malformed metadata during the bounded decode.</summary>
     MalformedMetadata,
+
+    /// <summary>
+    /// A TypeDef/TypeRef/ExportedType name in the signature exceeds
+    /// <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>.
+    /// </summary>
+    NameBudget,
 }
 
 /// <summary>Inspectable detail for a rejected guarded signature decode.</summary>

@@ -90,7 +90,8 @@ public static class TypeResolver
             handle,
             beforeMaterialize,
             out string? name,
-            out var rejection)
+            out var rejection,
+            enforceCharacterBudget: false)
             ? name
             : throw RejectedName(rejection!);
 
@@ -99,7 +100,8 @@ public static class TypeResolver
         TypeReferenceHandle handle,
         Action<int>? beforeMaterialize,
         [NotNullWhen(true)] out string? name,
-        out RelationshipTraversalRejection? rejection)
+        out RelationshipTraversalRejection? rejection,
+        bool enforceCharacterBudget = true)
     {
         ObserveTypeReferenceName(reader, handle, beforeMaterialize);
         try
@@ -112,7 +114,8 @@ public static class TypeResolver
                     typeRef.Namespace,
                     typeRef.Name,
                     handle,
-                    consumedNodes: 1).TryComplete(out name, out rejection);
+                    consumedNodes: 1,
+                    enforceCharacterBudget).TryComplete(out name, out rejection);
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -182,7 +185,8 @@ public static class TypeResolver
             handle,
             beforeMaterialize,
             out string? name,
-            out var rejection)
+            out var rejection,
+            enforceCharacterBudget: false)
             ? name
             : throw RejectedName(rejection!);
 
@@ -191,7 +195,8 @@ public static class TypeResolver
         TypeDefinitionHandle handle,
         Action<int>? beforeMaterialize,
         [NotNullWhen(true)] out string? name,
-        out RelationshipTraversalRejection? rejection)
+        out RelationshipTraversalRejection? rejection,
+        bool enforceCharacterBudget = true)
     {
         ObserveTypeDefinitionName(reader, handle, beforeMaterialize);
         try
@@ -204,7 +209,8 @@ public static class TypeResolver
                     typeDef.Namespace,
                     typeDef.Name,
                     handle,
-                    consumedNodes: 1).TryComplete(out name, out rejection);
+                    consumedNodes: 1,
+                    enforceCharacterBudget).TryComplete(out name, out rejection);
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -371,7 +377,8 @@ public static class TypeResolver
                     exportedType.Namespace,
                     exportedType.Name,
                     handle,
-                    consumedNodes: 1).GetValueOrThrow();
+                    consumedNodes: 1,
+                    enforceCharacterBudget: false).GetValueOrThrow();
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -422,7 +429,8 @@ public static class TypeResolver
                     typeDef.Namespace,
                     typeDef.Name,
                     default,
-                    consumedNodes: 1).GetValueOrThrow();
+                    consumedNodes: 1,
+                    enforceCharacterBudget: false).GetValueOrThrow();
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -499,7 +507,8 @@ public static class TypeResolver
                     typeRef.Namespace,
                     typeRef.Name,
                     default,
-                    consumedNodes: 1).GetValueOrThrow();
+                    consumedNodes: 1,
+                    enforceCharacterBudget: false).GetValueOrThrow();
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -605,7 +614,8 @@ public static class TypeResolver
                     exportedType.Namespace,
                     exportedType.Name,
                     default,
-                    consumedNodes: 1).GetValueOrThrow();
+                    consumedNodes: 1,
+                    enforceCharacterBudget: false).GetValueOrThrow();
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -749,6 +759,7 @@ public static class TypeResolver
                         builder,
                         getSubject(handle),
                         i + 1,
+                        enforceCharacterBudget: true,
                         out var namespaceRejection))
                 {
                     return namespaceRejection;
@@ -762,6 +773,7 @@ public static class TypeResolver
                         builder,
                         getSubject(handle),
                         i + 1,
+                        enforceCharacterBudget: true,
                         out var nameRejection))
                 {
                     return nameRejection;
@@ -816,6 +828,7 @@ public static class TypeResolver
                     builder,
                     subject,
                     completed.ConsumedNodes + 1,
+                    enforceCharacterBudget: true,
                     out var rejection))
             {
                 return rejection;
@@ -840,7 +853,8 @@ public static class TypeResolver
         StringHandle namespaceHandle,
         StringHandle nameHandle,
         EntityHandle subject,
-        int consumedNodes)
+        int consumedNodes,
+        bool enforceCharacterBudget = true)
     {
         try
         {
@@ -854,6 +868,7 @@ public static class TypeResolver
                     builder,
                     subject,
                     consumedNodes,
+                    enforceCharacterBudget,
                     out var namespaceRejection))
             {
                 return namespaceRejection;
@@ -867,6 +882,7 @@ public static class TypeResolver
                     builder,
                     subject,
                     consumedNodes,
+                    enforceCharacterBudget,
                     out var nameRejection))
             {
                 return nameRejection;
@@ -894,6 +910,7 @@ public static class TypeResolver
         StringBuilder builder,
         EntityHandle subject,
         int consumedNodes,
+        bool enforceCharacterBudget,
         out RelationshipTraversalResult<string> rejection)
     {
         if (!budget.TryRead(
@@ -901,16 +918,11 @@ public static class TypeResolver
                 handle,
                 delimiterChars,
                 beforeMaterialize: null,
-                out string value))
+                out string value,
+                enforceCharacterBudget))
         {
             rejection = NameBudget<string>(subject, consumedNodes);
             return false;
-        }
-
-        if (value.Length == 0)
-        {
-            rejection = null!;
-            return true;
         }
 
         if (builder.Length > 0)

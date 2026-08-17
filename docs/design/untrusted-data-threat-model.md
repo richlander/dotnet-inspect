@@ -400,14 +400,22 @@ Structured nested type names are read once and enforce their cumulative limit
 before the remaining chain is materialized. Legacy `FormatChain`, `ReadChain`,
 and leaf-append readers preflight UTF-8 storage against three times that
 4,096-character budget (the UTF-8 worst case), then recheck decoded length,
-and report `NameBudget` rather than malformed or success-shaped output. Shared #Strings entries, many individually
-small segments, and projected virtual strings whose blob length is obtained
-only after SRM materializes them are gated by
+and report `NameBudget` rather than malformed or success-shaped output.
+Display string APIs (`GetFullName`, `GetTypeNameFrom*`) keep only the encoded
+cap so a 5,030-character classifier fixture can still be spelled;
+`Resolve*`/`Read` remain on the 4,096-character policy.
+`SeedMaterialized` charges the declaring name's actual UTF-8 byte count, not
+its UTF-16 length. Shared #Strings entries, many individually
+small segments, projected WinRT virtual strings, TypeSpec `NameBudget` kind
+preservation, and the display/structured split are gated by
 `SharedOversizeHeapString_IsRejectedBeforeAggregateMaterialization`,
 `ManySmallSegments_AreRejectedOnAggregateEncodedLength`,
 `LeafAppendOverBudget_IsRejectedBeforeLeafMaterialization`,
-`StructuredRead_ReportsNameBudgetNotMalformed`, and
-`ProjectedVirtualStringLength_IsRecheckedAfterBlobReader`. Tuple-name, nullability, and dynamic
+`StructuredRead_ReportsNameBudgetNotMalformed`,
+`ProjectedVirtualStringLength_IsRecheckedAfterBlobReader`,
+`TypeSpecNameBudget_IsPreservedAsTypedEvidence`,
+`AppendLeaf_PreflightsActualUtf8OfMaterializedDeclaringName`, and
+`DisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap`. Tuple-name, nullability, and dynamic
 transform arrays charge their encoded blob before allocating arrays, and one
 type generic context is reused across all of that type's members.
 Visibility probes use bounded blob readers rather than copying skipped
