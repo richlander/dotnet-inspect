@@ -449,25 +449,43 @@ static void AddTriageDocumentCandidates(
     List<AllocationCandidate> candidates,
     ref int rows)
 {
-    if (root.ValueKind == JsonValueKind.Object
-        && (root.TryGetProperty("performance", out var performance)
-            || root.TryGetProperty("Performance", out performance)))
+    if (root.ValueKind == JsonValueKind.Object)
+    {
+        if (LooksLikeTriageRow(root))
+        {
+            AddTriageCandidates(
+                root,
+                path,
+                defaultAssembly,
+                candidates,
+                ref rows);
+        }
+        else if (root.TryGetProperty(
+                     "performance",
+                     out var performance)
+                 || root.TryGetProperty(
+                     "Performance",
+                     out performance))
+        {
+            AddTriageCandidates(
+                performance,
+                path,
+                defaultAssembly,
+                candidates,
+                ref rows);
+        }
+        return;
+    }
+
+    if (root.ValueKind == JsonValueKind.Array)
     {
         AddTriageCandidates(
-            performance,
+            root,
             path,
             defaultAssembly,
             candidates,
             ref rows);
-        return;
     }
-
-    AddTriageCandidates(
-        root,
-        path,
-        defaultAssembly,
-        candidates,
-        ref rows);
 }
 
 static void AddTriageCandidates(
@@ -517,13 +535,17 @@ static void AddTriageCandidates(
 }
 
 static bool LooksLikeTriageRow(JsonElement element)
-    => GetJsonString(
+{
+    if (element.ValueKind != JsonValueKind.Object)
+        return false;
+
+    bool hasMember = GetJsonString(
             element,
             "Method",
             "method",
             "Member",
-            "member") is not null
-        && GetJsonString(
+            "member") is not null;
+    bool hasKind = GetJsonString(
             element,
             "Shape",
             "shape",
@@ -531,15 +553,25 @@ static bool LooksLikeTriageRow(JsonElement element)
             "kind",
             "AllocationKind",
             "allocationKind") is not null;
+    bool hasCompactPerformanceSchema =
+        GetJsonString(element, "Evidence", "evidence") is not null
+        && GetJsonString(element, "Priority", "priority") is not null
+        && GetJsonString(element, "Confidence", "confidence") is not null
+        && GetJsonString(element, "Reach", "reach") is not null;
+    return hasMember && (hasKind || hasCompactPerformanceSchema);
+}
 
 static string? FindDocumentAssembly(JsonElement root)
 {
+    if (root.ValueKind != JsonValueKind.Object)
+        return null;
+
     if (GetJsonString(root, "Assembly", "assembly") is { Length: > 0 } assembly)
         return assembly;
 
-    if (root.ValueKind == JsonValueKind.Object
-        && (root.TryGetProperty("assembly_info", out var info)
+    if ((root.TryGetProperty("assembly_info", out var info)
             || root.TryGetProperty("assemblyInfo", out info))
+        && info.ValueKind == JsonValueKind.Object
         && GetJsonString(
             info,
             "assembly_name",
@@ -631,6 +663,9 @@ static bool TryCreateCandidateFromJson(
 
 static string? GetJsonString(JsonElement element, params string[] names)
 {
+    if (element.ValueKind != JsonValueKind.Object)
+        return null;
+
     foreach (var name in names)
     {
         if (!element.TryGetProperty(name, out var value))
@@ -2169,7 +2204,8 @@ sealed class AllocationCandidate(
     public bool IsObserved => RuntimeHits > 0 || AllocationHits > 0;
     public bool HasRuntimeCoordinate =>
         AssemblyName.Length > 0
-        && MethodToken != 0
+        && (MethodToken & unchecked((int)0xFF000000)) == 0x06000000
+        && (MethodToken & 0x00FFFFFF) != 0
         && IlOffset >= 0;
     public string TokenAndOffset => $"{DisplayHelpers.FormatToken(MethodToken)}+{DisplayHelpers.FormatOffset(IlOffset)}";
     public string Status => ShapeMatched
@@ -2178,7 +2214,13 @@ sealed class AllocationCandidate(
         : AllocationHits > 0
             ? "allocation-hot"
             : RuntimeHits == 0
-        ? TypeConfirmedBytes > 0 ? (TypeConfirmedAmbiguous ? "type-hot-ambiguous" : "type-hot") : "cold-for-this-workload"
+        ? TypeConfirmedBytes > 0
+            ? TypeConfirmedAmbiguous
+                ? "type-hot-ambiguous"
+                : "type-hot"
+            : !HasRuntimeCoordinate
+                ? "not-runtime-correlatable"
+                : "cold-for-this-workload"
         : ExactOffsetObserved ? "confirmed-hot" : "method-hot";
 
     public bool MatchesAllocatedType(string allocatedType)

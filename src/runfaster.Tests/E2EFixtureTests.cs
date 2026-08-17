@@ -85,9 +85,7 @@ public class E2EFixtureTests
                 triagePath,
                 $$"""
                 {
-                  "assembly_info": {
-                    "assembly_name": "{{occurrence.Method.AssemblyName}}"
-                  },
+                  "assembly_info": null,
                   "performance": {
                     "arrays": [
                       {
@@ -165,7 +163,7 @@ public class E2EFixtureTests
             File.WriteAllText(
                 triagePath,
                 """
-                {"kind":"Arrays","member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","shape":"fixture-object","token":"0x06000002","il":"IL_0000","allocation":"System.Object"}
+                {"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","method_token":"0x0A000001","token":"0x06000002","il":"IL_0000","evidence":"new object","allocation":"Fixture.Unseen","reach":"1","priority":"high","confidence":"high"}
                 """);
 
             var result = RunCorrelate(
@@ -182,9 +180,106 @@ public class E2EFixtureTests
             Assert.Contains(
                 "lack a complete declaring assembly + method token + IL offset",
                 result.Output);
+            Assert.Contains(
+                "not-runtime-correlatable",
+                result.Output);
             Assert.DoesNotContain(
                 "joined to a single nearest-preceding static allocation site",
                 result.Output);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_AcceptsRealSingleKindPerformanceJsonl()
+    {
+        string inspectDll =
+            Path.Combine(AppContext.BaseDirectory, "dotnet-inspect.dll");
+        var produced = RunTool(
+            inspectDll,
+            "library",
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "ILInspector.Analysis.dll"),
+            "-S",
+            "Performance:*",
+            "--top",
+            "1",
+            "--jsonl",
+            "--tips",
+            "q");
+        Assert.Equal(0, produced.ExitCode);
+        Assert.Empty(produced.Error);
+        using (var row = JsonDocument.Parse(produced.Output))
+        {
+            Assert.False(row.RootElement.TryGetProperty("kind", out _));
+            Assert.False(row.RootElement.TryGetProperty("shape", out _));
+            Assert.True(row.RootElement.TryGetProperty("priority", out _));
+        }
+
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.jsonl");
+        try
+        {
+            File.WriteAllText(triagePath, produced.Output);
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                1,
+                output.RootElement.GetProperty(
+                    "staticCandidates").GetInt32());
+            var candidate = Assert.Single(
+                output.RootElement.GetProperty(
+                    "candidates").EnumerateArray());
+            Assert.Equal(
+                "not-runtime-correlatable",
+                candidate.GetProperty("status").GetString());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_RejectsNonPerformanceJsonDocument()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"unrelated":{"rows":[{"method":"Other.Component.Work()","kind":"Telemetry","assembly":"Other","method_token":"0x06000001","il":"IL_0000"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"));
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                "contains no Performance Triage rows",
+                result.Error);
+            Assert.Empty(result.Output);
         }
         finally
         {
@@ -197,6 +292,15 @@ public class E2EFixtureTests
     {
         string runfasterDll =
             Path.Combine(AppContext.BaseDirectory, "runfaster.dll");
+        return RunTool(
+            runfasterDll,
+            ["correlate", .. arguments]);
+    }
+
+    static (int ExitCode, string Output, string Error) RunTool(
+        string toolDll,
+        params string[] arguments)
+    {
         var startInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
@@ -205,8 +309,7 @@ public class E2EFixtureTests
             RedirectStandardError = true,
         };
         startInfo.ArgumentList.Add("exec");
-        startInfo.ArgumentList.Add(runfasterDll);
-        startInfo.ArgumentList.Add("correlate");
+        startInfo.ArgumentList.Add(toolDll);
         foreach (string argument in arguments)
             startInfo.ArgumentList.Add(argument);
 
