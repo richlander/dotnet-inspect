@@ -1664,7 +1664,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine("- Runtime weight comes from the supplied diagnostics artifact. `.nettrace` allocation ticks stop at the first frame in a represented assembly and join only that method token and nearest-preceding IL offset; an unexported in-assembly callee is not attributed to its caller.");
     Console.WriteLine("- The kind-first table ranks realized allocation volume by static `AllocationKind`; `EscapeKind` is the static promotion prior for that hot site.");
     Console.WriteLine("- `method-hot` means the runtime artifact observed the method. `il-offset-hot` means a `.nettrace` allocation tick joined to a single nearest-preceding static IL allocation site. `allocation-hot` means raw allocation events occurred with the method on-stack. `shape-hot` means the allocated type matched the static allocation shape. `shape-hot-ambiguous` means multiple same-shape static rows share that evidence. `confirmed-hot` means an exact token+IL coordinate was observed.");
-    Console.WriteLine("- `superseded-by-triage` means the same physical site was observed through a richer shape-compatible triage row; it is not workload-cold.");
+    Console.WriteLine("- `superseded-by-triage` means runtime evidence for the same physical candidate is carried by a richer shape-compatible triage row; it is not workload-cold.");
 }
 
 static void RenderPlainText(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates)
@@ -2811,62 +2811,107 @@ internal static class ProgramSupport
             if (!runtimeByCanon.TryGetValue(canon, out var volume) || volume < TypeConfirmMinBytes)
                 continue;
 
-            var physicalCandidates = PreferTriagePhysicalSites(candidates);
-            if (physicalCandidates.Count > TypeConfirmMaxSites)
+            var plan = PlanTypeConfirmationSites(candidates);
+            if (plan.SiteCount > TypeConfirmMaxSites)
                 continue;
-            foreach (var candidate in physicalCandidates)
+
+            foreach (var candidate in plan.SupersededLibraries)
+                candidate.SupersededByTriage = true;
+            foreach (var candidate in plan.Candidates)
             {
                 candidate.TypeConfirmedBytes = volume;
-                candidate.TypeConfirmedSiteCount = physicalCandidates.Count;
+                candidate.TypeConfirmedSiteCount = plan.SiteCount;
             }
         }
     }
 
-    static IReadOnlyList<AllocationCandidate> PreferTriagePhysicalSites(
+    static TypeConfirmationSitePlan PlanTypeConfirmationSites(
         IReadOnlyList<AllocationCandidate> candidates)
     {
-        var triageCandidates = candidates
-            .Where(static candidate =>
-                string.Equals(
+        var selected = new List<AllocationCandidate>();
+        var supersededLibraries = new List<AllocationCandidate>();
+        int siteCount = 0;
+
+        foreach (var candidate in candidates.Where(static candidate =>
+                     !candidate.HasRuntimeCoordinate))
+        {
+            selected.Add(candidate);
+            siteCount++;
+        }
+
+        foreach (var coordinateGroup in candidates
+                     .Where(static candidate =>
+                         candidate.HasRuntimeCoordinate)
+                     .GroupBy(static candidate => (
+                         Assembly: candidate.AssemblyName.ToUpperInvariant(),
+                         candidate.MethodToken,
+                         candidate.IlOffset)))
+        {
+            var triageCandidates = coordinateGroup
+                .Where(static candidate => string.Equals(
                     candidate.Source,
                     "triage",
-                    StringComparison.Ordinal)
-                && candidate.HasRuntimeCoordinate)
-            .ToArray();
-        if (triageCandidates.Length == 0)
-            return candidates;
+                    StringComparison.Ordinal))
+                .ToArray();
+            var libraryGroups = coordinateGroup
+                .Where(static candidate => string.Equals(
+                    candidate.Source,
+                    "library",
+                    StringComparison.Ordinal))
+                .GroupBy(static candidate =>
+                    candidate.ModuleVersionId)
+                .ToArray();
+            var otherCandidates = coordinateGroup
+                .Where(static candidate =>
+                    !string.Equals(
+                        candidate.Source,
+                        "triage",
+                        StringComparison.Ordinal)
+                    && !string.Equals(
+                        candidate.Source,
+                        "library",
+                        StringComparison.Ordinal))
+                .ToArray();
 
-        foreach (var libraryCandidate in candidates.Where(static candidate =>
-                     string.Equals(
-                         candidate.Source,
-                         "library",
-                         StringComparison.Ordinal)
-                     && candidate.HasRuntimeCoordinate))
-        {
-            if (triageCandidates.Any(triageCandidate =>
-                    SamePhysicalSite(
-                        libraryCandidate,
-                        triageCandidate)))
+            bool oneResolvableSite = triageCandidates.Length > 0
+                && libraryGroups.Length == 1
+                && otherCandidates.Length == 0;
+            if (oneResolvableSite)
             {
-                libraryCandidate.SupersededByTriage = true;
+                siteCount++;
+                selected.AddRange(triageCandidates);
+                supersededLibraries.AddRange(
+                    libraryGroups[0]);
+                continue;
+            }
+
+            if (triageCandidates.Length > 0)
+            {
+                siteCount++;
+                selected.AddRange(triageCandidates);
+            }
+            foreach (var libraryGroup in libraryGroups)
+            {
+                siteCount++;
+                selected.AddRange(libraryGroup);
+            }
+            foreach (var candidate in otherCandidates)
+            {
+                siteCount++;
+                selected.Add(candidate);
             }
         }
 
-        return candidates
-            .Where(static candidate =>
-                !candidate.SupersededByTriage)
-            .ToArray();
+        return new TypeConfirmationSitePlan(
+            selected,
+            supersededLibraries,
+            siteCount);
     }
 
-    static bool SamePhysicalSite(
-        AllocationCandidate left,
-        AllocationCandidate right)
-        => left.MethodToken == right.MethodToken
-            && left.IlOffset == right.IlOffset
-            && string.Equals(
-                left.AssemblyName,
-                right.AssemblyName,
-                StringComparison.OrdinalIgnoreCase);
+    readonly record struct TypeConfirmationSitePlan(
+        IReadOnlyList<AllocationCandidate> Candidates,
+        IReadOnlyList<AllocationCandidate> SupersededLibraries,
+        int SiteCount);
 
     // Canonical type signature: the ordered leaf identifier tokens of a type name, with generic-arity
     // digits and namespaces dropped and C# keyword aliases mapped to CLR simple names. This reconciles
