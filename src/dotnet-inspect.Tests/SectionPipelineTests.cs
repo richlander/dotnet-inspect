@@ -14,6 +14,7 @@ using DotnetInspector.Views;
 using Markout;
 using System.Text.Json;
 using InertText;
+using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Tests;
 
@@ -1212,16 +1213,19 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_UnsafeMembers_UsesOwnScanner()
+    public void LibraryPipeline_UnsafeMembers_UsesTypedQuery()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string> { "Unsafe Members", "P/Invoke Methods" };
 
         var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, include);
 
-        Assert.Equal([LibrarySections.ScannerUnsafeMembers], scanners);
+        Assert.Empty(scanners);
         Assert.Equal(
-            [ClassifiedMethodsQuery.Definition],
+            [
+                ClassifiedMethodsQuery.Definition,
+                UnsafeEvidenceQuery.Definition,
+            ],
             pipeline.GetRequiredQueries(Verbosity.Minimal, include));
     }
 
@@ -1699,6 +1703,7 @@ public class SectionPipelineTests
                 SwitchesQuery.Definition,
                 TypeForwardersQuery.Definition,
                 UnionTypesQuery.Definition,
+                UnsafeEvidenceQuery.Definition,
             ],
             pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
     }
@@ -4277,8 +4282,9 @@ public class SectionPipelineTests
     {
         var registry = new ScannerRegistry()
             .Add("cheap", SectionCost.NetworkFree, ctx =>
-                LibraryMetadataService.ScanUnsafeMembers(
+                LibraryMetadataService.ScanTopLeverage(
                     ctx.BodyIndex,
+                    ctx.DrillMap,
                     ctx.AssemblyPath,
                     ctx.Logger));
 
@@ -4289,13 +4295,14 @@ public class SectionPipelineTests
     [Fact]
     public async Task ProductionQueryCatchBoundary_DoesNotSwallowDeclarationViolation()
     {
-        var query = new InspectionQuery<int>("cheap", InspectionCost.NetworkFree);
+        var query = new InspectionQuery<UnsafeEvidenceResult>(
+            "cheap",
+            InspectionCost.NetworkFree);
         var registry = LibrarySections.CreateQueryRegistry()
             .Add(query, ctx =>
-            {
-                ctx.BodyIndex();
-                return 0;
-            });
+                LibrarySections.ExecuteUnsafeEvidenceQuery(
+                    hasMetadata: true,
+                    ctx.BodyIndex));
         using var httpClient = new HttpClient();
 
         await Assert.ThrowsAsync<QueryCostDeclarationException>(() =>
@@ -4548,7 +4555,6 @@ public class SectionPipelineTests
             SectionNames.PerformanceLoops,
             SectionNames.PerformanceOther,
             SectionNames.TopLeverage,
-            SectionNames.UnsafeMembers,
         ];
 
         var scannerAboveCheap = pipeline.ScannerBoundSections
@@ -4568,6 +4574,7 @@ public class SectionPipelineTests
         string[] expectedAboveCheap =
         [
             .. expectedBodyIndexFamily,
+            SectionNames.UnsafeMembers,
             .. LibraryIntegrationCatalog.CategorySections,
             IntegrationSectionNames.Opportunities,
             "Metadata: #Blob",
@@ -5025,14 +5032,14 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void Trace_RecordsTheBodyIndexWhenAScannerActuallyBuildsIt()
+    public void UnsafeEvidenceQuery_RecordsAndReturnsTheBodyIndexItBuilds()
     {
         // Paired positive. Without it the negative above is satisfied by a trace that never
         // records a body index under any circumstances, which would pass while observing nothing.
         // The index needs the prefetched image the command opens for exactly this reason; a plain
         // PdbContext.Open cannot back it, and the scanner would swallow the failure and render an
         // empty section. Opening it the way InspectAsync does is what makes this a real positive.
-        var registry = LibrarySections.CreateScannerRegistry();
+        var registry = LibrarySections.CreateQueryRegistry();
         var trace = new InspectionTrace();
         using var service = SourceLinkService.OpenPrefetched(
             typeof(SectionPipelineTests).Assembly.Location,
@@ -5043,13 +5050,89 @@ public class SectionPipelineTests
             Model = new LibraryInspection(),
             Logger = new Output.VerboseLogger(false),
             MetadataContext = service.Context,
+            BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
             Trace = trace,
         };
 
-        registry.RunScanners(registry.ExpandRequired([LibrarySections.ScannerUnsafeMembers]), context);
+        InspectionQueryResults results = registry.Run(
+            [UnsafeEvidenceQuery.Definition],
+            context,
+            trace.RecordQueryExecution);
 
+        var available = Assert.IsType<UnsafeEvidenceResult.Available>(
+            results.Get(UnsafeEvidenceQuery.Definition));
+        Assert.NotEmpty(available.Evidence);
         var bodyIndex = Assert.Single(trace.Resources, r => r.Resource == "body index");
         Assert.StartsWith("built in", bodyIndex.Detail.ToString());
+        Assert.Contains("MethodEvidence", bodyIndex.Detail.ToString());
+    }
+
+    [Fact]
+    public void UnsafeEvidenceQuery_BodyIndexFailureRemainsTyped()
+    {
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [UnsafeEvidenceQuery.Definition],
+            NullScannerContext());
+
+        var failed = Assert.IsType<UnsafeEvidenceResult.Failed>(
+            results.Get(UnsafeEvidenceQuery.Definition));
+        Assert.IsType<InvalidOperationException>(failed.Error);
+    }
+
+    [Fact]
+    public void UnsafeEvidenceQuery_NoMetadata_DoesNotAcquireBodyIndex()
+    {
+        bool acquired = false;
+
+        UnsafeEvidenceResult result = LibrarySections.ExecuteUnsafeEvidenceQuery(
+            hasMetadata: false,
+            () =>
+            {
+                acquired = true;
+                throw new InvalidOperationException("must not acquire");
+            });
+
+        Assert.IsType<UnsafeEvidenceResult.NoMetadata>(result);
+        Assert.False(acquired);
+    }
+
+    [Fact]
+    public void UnsafeEvidenceQuery_FailureProjectsToInspectionFailure()
+    {
+        var inspection = new LibraryInspection();
+        var error = new IOException("body index failed");
+
+        LibraryMetadataService.ApplyUnsafeEvidenceResult(
+            "broken.dll",
+            inspection,
+            new Output.VerboseLogger(false),
+            new UnsafeEvidenceResult.Failed(error));
+
+        var failed = Assert.IsType<FindingInspection<Analysis.UnsafeEvidence>.Failed>(
+            inspection.UnsafeEvidenceInspection?.Value);
+        Assert.Contains("body index failed", failed.Error.Reason, StringComparison.Ordinal);
+        var projected = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal(SectionNames.UnsafeMembers, projected.Section);
+        Assert.True(LibraryCommand.FailureAffectsSection(
+            projected.Section,
+            SectionNames.UnsafeMembers));
+        Assert.Null(inspection.UnsafeMembers);
+    }
+
+    [Fact]
+    public void UnsafeEvidenceQuery_NoMetadata_DoesNotProjectFailure()
+    {
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyUnsafeEvidenceResult(
+            "native.dll",
+            inspection,
+            new Output.VerboseLogger(false),
+            new UnsafeEvidenceResult.NoMetadata());
+
+        Assert.Null(inspection.UnsafeEvidenceInspection);
+        Assert.Null(inspection.UnsafeMembers);
+        Assert.Null(inspection.InspectionFailures);
     }
 
     [Fact]
