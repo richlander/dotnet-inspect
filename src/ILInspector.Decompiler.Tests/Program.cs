@@ -61,10 +61,18 @@ internal static class Program
 
     public static int Main(string[] args)
     {
-        bool isFilterPreflight =
-            args.Length > 0
-            && args[0] == ExplicitFilterGuard.PreflightArgument;
-        ReadOnlySpan<string> inputArgs = isFilterPreflight ? args.AsSpan(1) : args;
+        int preflightArgumentIndex = args.Length > 0
+            && args[0] == ExplicitFilterGuard.PreflightArgument
+                ? 0
+                : args.Length > 1
+                    && args[0] == typeof(Program).Assembly.Location
+                    && args[1] == ExplicitFilterGuard.PreflightArgument
+                        ? 1
+                        : -1;
+        bool isFilterPreflight = preflightArgumentIndex >= 0;
+        ReadOnlySpan<string> inputArgs = isFilterPreflight
+            ? args.AsSpan(preflightArgumentIndex + 1)
+            : args;
 
         GateExpansion expansion = GateArgumentExpander.Expand(inputArgs.ToArray(), Presets);
         switch (expansion.Outcome)

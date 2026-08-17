@@ -236,21 +236,27 @@ public class ExplicitFilterGuardTests
                 + (OperatingSystem.IsWindows() ? ".exe" : string.Empty));
         Assert.True(File.Exists(appHostPath), $"Test apphost not found: {appHostPath}");
 
-        string aliasDirectory = Path.Combine(
+        string emptyPath = Path.Combine(
             Path.GetTempPath(),
             $"filter-guard-host-alias-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(aliasDirectory);
+        Directory.CreateDirectory(emptyPath);
         string aliasPath = Path.Combine(
-            aliasDirectory,
-            Path.GetFileName(appHostPath));
+            Path.GetDirectoryName(appHostPath)!,
+            OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        Assert.False(
+            File.Exists(aliasPath),
+            $"Apphost alias already exists: {aliasPath}");
+        File.Copy(appHostPath, aliasPath);
         if (!OperatingSystem.IsWindows())
         {
-            File.CreateSymbolicLink(aliasPath, appHostPath);
+            File.SetUnixFileMode(
+                aliasPath,
+                File.GetUnixFileMode(appHostPath));
         }
 
         var environment = new Dictionary<string, string?>
         {
-            ["PATH"] = aliasDirectory,
+            ["PATH"] = emptyPath,
             ["DOTNET_HOST_PATH"] = aliasPath,
         };
         string? dotnetHostPath =
@@ -271,7 +277,7 @@ public class ExplicitFilterGuardTests
                 File.Delete(aliasPath);
             }
 
-            Directory.Delete(aliasDirectory);
+            Directory.Delete(emptyPath);
         }
     }
 

@@ -104,19 +104,10 @@ internal static class ExplicitFilterGuard
         }
 
         var fallback = new ProcessStartInfo(processPath);
-        if (IsDotnetMuxer(processPath))
-        {
-            fallback.ArgumentList.Add(assemblyPath);
-        }
+        fallback.ArgumentList.Add(assemblyPath);
 
         return fallback;
     }
-
-    private static bool IsDotnetMuxer(string path) =>
-        string.Equals(
-            Path.GetFileNameWithoutExtension(path),
-            "dotnet",
-            StringComparison.OrdinalIgnoreCase);
 
     internal static async ValueTask<int> RunPreflightAsync(
         string[] args,
