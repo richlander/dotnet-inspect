@@ -1134,7 +1134,10 @@ public sealed class StructuringPass : IIrPass
         int stop)
     {
         var survivingLabels = root.DescendantsAndSelfOutsideNestedFunctions
-            .Where(static node => node.OwnsSourceLabel && node.SourceOffset >= 0)
+            .Where(static node =>
+                node.Parent is Block
+                && node.OwnsSourceLabel
+                && node.SourceOffset >= 0)
             .Select(static node => node.SourceOffset)
             .ToHashSet();
         return root.DescendantsOutsideNestedFunctions
@@ -1639,6 +1642,8 @@ public sealed class StructuringPass : IIrPass
         int rangeStart)
     {
         int targetOffset = ctx.Blocks[blockIndex].StartOffset;
+        if (ctx.FlowFacts.PreservedTargets.Contains(targetOffset))
+            return false;
         if (!ctx.FlowFacts.ClonePredecessorIndices.TryGetValue(
                 targetOffset,
                 out var predecessors))

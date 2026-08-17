@@ -190,26 +190,43 @@ public class StructuringGotoScopeTests
     }
 
     [Theory]
-    [InlineData(0x0077)]
-    [InlineData(0x005E)]
-    public void RegionExitLeaveWithDescendantBodyEntry_DoesNotBecomeBreak(int targetOffset)
+    [InlineData(0x0077, 0x0062, false)]
+    [InlineData(0x005E, 0x0062, false)]
+    [InlineData(0x005E, 0x0015, false)]
+    [InlineData(0x005E, 0x0015, true)]
+    public void RegionExitLeaveWithDescendantBodyEntry_DoesNotBecomeBreak(
+        int targetOffset,
+        int sourceOffset,
+        bool useLeave)
     {
         var function = CollectValidDoublesBeforeStructuring();
 
         var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
-        var normalBody = Assert.Single(
+        var sourceBlock = Assert.Single(
             tryFinally.TryBody.Blocks,
-            block => block.StartOffset == 0x0062);
+            block => block.StartOffset == sourceOffset);
         var alternateExitArm = new Block();
-        alternateExitArm.Add(new Branch(targetOffset));
-        normalBody.Add(new IfStatement(
+        alternateExitArm.Add(useLeave
+            ? new Leave(targetOffset)
+            : new Branch(targetOffset));
+        var alternateExit = new IfStatement(
             new Comparison(
                 ComparisonKind.Equal,
                 isUnsigned: false,
                 new LoadLocal(2, Int32),
                 new Constant(0, Int32)),
             alternateExitArm,
-            elseArm: null));
+            elseArm: null);
+        if (sourceBlock.Children[^1] is ConditionalBranch terminator)
+        {
+            terminator.Detach();
+            sourceBlock.Add(alternateExit);
+            sourceBlock.Add(terminator);
+        }
+        else
+        {
+            sourceBlock.Add(alternateExit);
+        }
 
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();
@@ -227,6 +244,7 @@ public class StructuringGotoScopeTests
         var tail = Assert.Single(
             tryFinally.TryBody.Blocks,
             block => block.StartOffset == 0x0077);
+        Assert.Empty(tail.Children);
         tail.Add(new StoreLocal(2, Int32, new Constant(0, Int32)));
         tail.Add(new Leave(0x0087));
 
