@@ -195,22 +195,25 @@ public sealed record PackageSourceDescriptor
         bool enabled = true)
     {
         ArgumentNullException.ThrowIfNull(serviceIndex);
-        if (!serviceIndex.IsAbsoluteUri)
+        if (!Uri.TryCreate(
+                serviceIndex.OriginalString,
+                UriKind.Absolute,
+                out Uri? portableEndpoint))
         {
             throw new ArgumentException(
                 "A portable package source endpoint must be an absolute HTTP or HTTPS URI.",
                 nameof(serviceIndex));
         }
 
-        if (serviceIndex.UserInfo.Length > 0)
+        if (portableEndpoint.UserInfo.Length > 0)
         {
             throw new ArgumentException(
                 "A portable package source endpoint cannot contain user information.",
                 nameof(serviceIndex));
         }
 
-        if (serviceIndex.Query.Length > 0
-            || serviceIndex.Fragment.Length > 0)
+        if (portableEndpoint.Query.Length > 0
+            || portableEndpoint.Fragment.Length > 0)
         {
             throw new ArgumentException(
                 "A portable package source endpoint cannot contain a query or fragment.",
@@ -218,13 +221,13 @@ public sealed record PackageSourceDescriptor
         }
 
         PackageSourceIdentity identity =
-            PackageSourceIdentity.ForHttpEndpoint(serviceIndex);
+            PackageSourceIdentity.ForHttpEndpoint(portableEndpoint);
         return new PackageSourceDescriptor(
             id,
             displayName,
             PackageSourceKind.NuGetV3,
             identity,
-            serviceIndex,
+            portableEndpoint,
             enabled);
     }
 }

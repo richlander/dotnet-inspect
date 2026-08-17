@@ -99,6 +99,29 @@ public sealed class PackageSourceClientTests
             error.Message);
     }
 
+    [Theory]
+    [InlineData("https://feed.example/v3/index.json?sig=secret")]
+    [InlineData("https://feed.example/v3/index.json#sig=secret")]
+    public void PortableDescriptorRejectsRawQueryAndFragment(string endpoint)
+    {
+        var rawEndpoint = new Uri(
+            endpoint,
+            new UriCreationOptions
+            {
+                DangerousDisablePathAndQueryCanonicalization = true,
+            });
+
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => PackageSourceDescriptor.NuGetV3(
+                "raw",
+                "Raw",
+                rawEndpoint));
+
+        Assert.Contains(
+            "cannot contain a query or fragment",
+            error.Message);
+    }
+
     [Fact]
     public void PortableDescriptorRejectsRelativeEndpoint()
     {
