@@ -92,12 +92,27 @@ public static class CSharpStructuralDiffPrinter
                     if (end <= start)
                         continue;
 
+                    int column = start - line.Start;
+                    int length = end - start;
+                    ReadOnlySpan<char> coveredText = line.Text.AsSpan(column, length);
+                    int visibleOffset = 0;
+                    while (visibleOffset < coveredText.Length
+                           && char.IsWhiteSpace(coveredText[visibleOffset]))
+                    {
+                        visibleOffset++;
+                    }
+                    if (visibleOffset < coveredText.Length)
+                    {
+                        column += visibleOffset;
+                        length -= visibleOffset;
+                    }
+
                     var fact = new StructuralAnnotation(annotationText);
                     if (!annotationsByLine.TryGetValue(lineIndex, out var lineAnnotations))
                         annotationsByLine[lineIndex] = lineAnnotations = [];
                     lineAnnotations.Add((
                         fact,
-                        new AnnotationAnchor.CaretExtent(start - line.Start, end - start)));
+                        new AnnotationAnchor.CaretExtent(column, length)));
                 }
             }
         }
