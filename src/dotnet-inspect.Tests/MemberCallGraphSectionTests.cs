@@ -631,6 +631,23 @@ public class MemberCallGraphSectionTests
         Assert.Contains(expectedDeclaration, result.Output);
     }
 
+    [Fact]
+    public async Task DecompiledSource_SelectedGetterKeepsReturnAttributes()
+    {
+        var result = await RunDecompiledAsync(
+            typeof(SampleClassForTesting).FullName!,
+            nameof(SampleClassForTesting.PropertyWithReturnNotNull),
+            overloadIndex: 1);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.Contains(
+            "[return: System.Diagnostics.CodeAnalysis.NotNull]",
+            result.Output);
+        Assert.Contains(
+            "public string get_PropertyWithReturnNotNull()",
+            result.Output);
+    }
     static Task<(int ExitCode, string Output, string Error)> RunDecompiledAsync(
         string typeName,
         string memberName,

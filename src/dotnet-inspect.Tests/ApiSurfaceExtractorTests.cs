@@ -15,6 +15,50 @@ public class ApiSurfaceExtractorTests
         new CSharpFormatOptions { IncludeCustomAttributes = true });
 
     [Fact]
+    public void Extract_EventAccessorFactsPreserveDistinctAccessibility()
+    {
+        string path = EmitEventWithDistinctAccessorAccessibility();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+            var type = Assert.Single(surface.Types, type => type.Name == "EventAccess");
+            var evt = Assert.Single(type.Members, member => member.Kind == "event");
+
+            Assert.Null(Assert.Single(evt.AccessorFacts, accessor => accessor.Kind == "add")
+                .Accessibility);
+            Assert.Equal(
+                "private",
+                Assert.Single(evt.AccessorFacts, accessor => accessor.Kind == "remove")
+                    .Accessibility);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Extract_PrivateScopeAccessibilityIsPrivate()
+    {
+        var methodAccessibility = typeof(ApiSurfaceExtractor).GetMethod(
+            "GetAccessibility",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic,
+            [typeof(System.Reflection.MethodAttributes)]);
+        var fieldAccessibility = typeof(ApiSurfaceExtractor).GetMethod(
+            "GetFieldAccessibility",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic,
+            [typeof(System.Reflection.FieldAttributes)]);
+
+        Assert.Equal(
+            "private",
+            methodAccessibility!.Invoke(null, [System.Reflection.MethodAttributes.PrivateScope]));
+        Assert.Equal(
+            "private",
+            fieldAccessibility!.Invoke(null, [System.Reflection.FieldAttributes.PrivateScope]));
+    }
+
+    [Fact]
     public void ExtractSummary_MatchesFullPublicSurfaceCounts()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -1540,6 +1584,46 @@ public class ApiSurfaceExtractorTests
 
         string path = Path.Combine(Path.GetTempPath(), $"clash-event-{Guid.NewGuid():N}.dll");
         ab.Save(path);
+        return path;
+    }
+
+    static string EmitEventWithDistinctAccessorAccessibility()
+    {
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("EventAccessEmit"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("EventAccessEmit");
+        var type = module.DefineType(
+            "EventAccess",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+        var adder = type.DefineMethod(
+            "add_Changed",
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.SpecialName
+                | System.Reflection.MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(Action)]);
+        adder.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        var remover = type.DefineMethod(
+            "remove_Changed",
+            System.Reflection.MethodAttributes.Private
+                | System.Reflection.MethodAttributes.SpecialName
+                | System.Reflection.MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(Action)]);
+        remover.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        var eventBuilder = type.DefineEvent(
+            "Changed",
+            System.Reflection.EventAttributes.None,
+            typeof(Action));
+        eventBuilder.SetAddOnMethod(adder);
+        eventBuilder.SetRemoveOnMethod(remover);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"event-access-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
         return path;
     }
 

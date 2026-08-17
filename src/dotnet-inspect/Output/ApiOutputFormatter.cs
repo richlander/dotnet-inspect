@@ -1568,6 +1568,9 @@ public static class ApiOutputFormatter
             : !string.IsNullOrEmpty(presentationAccessor?.Accessibility)
                 ? presentationAccessor.Accessibility
                 : owner.Accessibility;
+        var returnAttributes = accessorFact?.ReturnAttributes is { Count: > 0 } factAttributes
+            ? factAttributes
+            : presentationAccessor?.ReturnAttributes;
 
         var renderedParameters = string.Join(", ", parameters.Select(p => $"{p.TypeWithModifier} {p.Name}"));
         return new ApiMember
@@ -1583,6 +1586,9 @@ public static class ApiOutputFormatter
                 MemberName = name,
                 ReturnType = returnType,
                 Parameters = parameters,
+                ReturnAttributes = returnAttributes is null
+                    ? []
+                    : [.. returnAttributes],
             },
             IsStatic = owner.IsStatic,
             IsVirtual = owner.IsVirtual,

@@ -995,6 +995,10 @@ public static class ApiSurfaceExtractor
                         IsAbstract = (remover.Attributes & MethodAttributes.Abstract) != 0
                     });
                 }
+                var accessorFacts = AccessorFacts(
+                    reader,
+                    (accessors.Adder, "add"),
+                    (accessors.Remover, "remove"));
 
                 var member = new ApiMember
                 {
@@ -1008,7 +1012,7 @@ public static class ApiSurfaceExtractor
                         MemberName = reader.GetString(evt.Name),
                         Accessors = accessorModels
                     },
-                    AccessorFacts = [.. accessorModels],
+                    AccessorFacts = accessorFacts,
                     IsStatic = (adderAttributes & MethodAttributes.Static) != 0,
                     IsVirtual = isVirtualEvent,
                     IsAbstract = (adderAttributes & MethodAttributes.Abstract) != 0,
@@ -3379,6 +3383,7 @@ public static class ApiSurfaceExtractor
     /// </summary>
     private static string? GetAccessibility(MethodAttributes access) => access switch
     {
+        MethodAttributes.PrivateScope => "private",
         MethodAttributes.Private => "private",
         MethodAttributes.FamANDAssem => "private protected",
         MethodAttributes.Assembly => "internal",
@@ -3392,6 +3397,7 @@ public static class ApiSurfaceExtractor
     /// </summary>
     private static string? GetFieldAccessibility(FieldAttributes access) => access switch
     {
+        FieldAttributes.PrivateScope => "private",
         FieldAttributes.Private => "private",
         FieldAttributes.FamANDAssem => "private protected",
         FieldAttributes.Assembly => "internal",
