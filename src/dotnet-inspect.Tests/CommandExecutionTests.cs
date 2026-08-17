@@ -1569,7 +1569,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        AssertOnlyPerformanceAnalysisWarnings(error);
+        Assert.Empty(error);
         Assert.Contains("BoxInt(int)", output);
         Assert.Contains("\tbox-value-type\t", output);
     }
