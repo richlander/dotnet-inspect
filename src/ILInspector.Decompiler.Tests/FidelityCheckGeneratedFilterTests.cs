@@ -588,6 +588,162 @@ public class FidelityCheckGeneratedFilterTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesAmbiguousAndIncompatibleMethodImplRows()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "fixture.dll");
+        try
+        {
+            var assemblyName = new AssemblyName("IncompatibleExplicitMethods");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+
+            var firstInterface = DefineInterface(module, "A", "B.C", typeof(void), Type.EmptyTypes);
+            var secondInterface = DefineInterface(module, "A.B", "C", typeof(void), Type.EmptyTypes);
+            var ambiguousType = module.DefineType(
+                "Ambiguous",
+                TypeAttributes.Public | TypeAttributes.Sealed,
+                typeof(object),
+                [firstInterface.Type, secondInterface.Type]);
+            ambiguousType.DefineDefaultConstructor(MethodAttributes.Public);
+            var ambiguousBody = DefineBody(
+                ambiguousType,
+                "A.B.C",
+                typeof(void),
+                Type.EmptyTypes);
+            ambiguousType.DefineMethodOverride(ambiguousBody, firstInterface.Method);
+            ambiguousType.DefineMethodOverride(ambiguousBody, secondInterface.Method);
+
+            var mismatchInterface = DefineInterface(
+                module,
+                "IMismatch",
+                "M",
+                typeof(int),
+                Type.EmptyTypes);
+            var mismatchType = module.DefineType(
+                "Mismatch",
+                TypeAttributes.Public | TypeAttributes.Sealed,
+                typeof(object),
+                [mismatchInterface.Type]);
+            mismatchType.DefineDefaultConstructor(MethodAttributes.Public);
+            var mismatchBody = DefineBody(
+                mismatchType,
+                "IMismatch.M",
+                typeof(void),
+                Type.EmptyTypes);
+            mismatchType.DefineMethodOverride(mismatchBody, mismatchInterface.Method);
+
+            var paramsInterface = DefineInterface(
+                module,
+                "IBodyParams",
+                "M",
+                typeof(void),
+                [typeof(int[])]);
+            var paramsType = module.DefineType(
+                "BodyParams",
+                TypeAttributes.Public | TypeAttributes.Sealed,
+                typeof(object),
+                [paramsInterface.Type]);
+            paramsType.DefineDefaultConstructor(MethodAttributes.Public);
+            var paramsBody = DefineBody(
+                paramsType,
+                "IBodyParams.M",
+                typeof(void),
+                [typeof(int[])]);
+            paramsBody.DefineParameter(1, ParameterAttributes.None, "values")
+                .SetCustomAttribute(new CustomAttributeBuilder(
+                    typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)!,
+                    []));
+            paramsType.DefineMethodOverride(paramsBody, paramsInterface.Method);
+
+            firstInterface.Type.CreateType();
+            secondInterface.Type.CreateType();
+            mismatchInterface.Type.CreateType();
+            paramsInterface.Type.CreateType();
+            ambiguousType.CreateType();
+            mismatchType.CreateType();
+            paramsType.CreateType();
+            assemblyBuilder.Save(assemblyPath);
+
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            using var source = MetadataSource.Open(assemblyPath);
+            foreach ((string Type, string Method) expected in new[]
+                {
+                    ("Ambiguous", "A.B.C"),
+                    ("Mismatch", "IMismatch.M"),
+                    ("BodyParams", "IBodyParams.M"),
+                })
+            {
+                var type = reader.GetTypeDefinition(Assert.Single(
+                    reader.TypeDefinitions,
+                    handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                        == expected.Type));
+                var method = Assert.Single(
+                    type.GetMethods(),
+                    handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                        == expected.Method);
+
+                Assert.Null(FidelityCheck.TryRenderTargetMember(
+                    pe,
+                    source,
+                    method,
+                    targeted: true,
+                    isPrimaryConstructor: false));
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+
+        static (TypeBuilder Type, MethodBuilder Method) DefineInterface(
+            ModuleBuilder module,
+            string typeName,
+            string methodName,
+            Type returnType,
+            Type[] parameterTypes)
+        {
+            var type = module.DefineType(
+                typeName,
+                TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+            var method = type.DefineMethod(
+                methodName,
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                returnType,
+                parameterTypes);
+            return (type, method);
+        }
+
+        static MethodBuilder DefineBody(
+            TypeBuilder type,
+            string name,
+            Type returnType,
+            Type[] parameterTypes)
+        {
+            var method = type.DefineMethod(
+                name,
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                returnType,
+                parameterTypes);
+            method.GetILGenerator().Emit(OpCodes.Ret);
+            return method;
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void TryRenderTargetMember_DeclinesNestedAndImportedInterfaceRootCollisions()
     {
         var assemblyPath = CompileFixture("""
@@ -636,6 +792,97 @@ public class FidelityCheckGeneratedFilterTests
                 var method = Assert.Single(
                     type.GetMethods(),
                     handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "N.I.M");
+
+                Assert.Null(FidelityCheck.TryRenderTargetMember(
+                    pe,
+                    source,
+                    method,
+                    targeted: true,
+                    isPrimaryConstructor: false));
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesAdditionalExplicitInterfaceBindingHazards()
+    {
+        var assemblyPath = CompileFixture("""
+            using NI = N.I;
+
+            public interface IGlobal
+            {
+                void M();
+            }
+
+            public sealed class GenericShadow<IGlobal> : global::IGlobal
+            {
+                void global::IGlobal.M() { }
+            }
+
+            public sealed class NestedShadow : global::IGlobal
+            {
+                public sealed class IGlobal { }
+                void global::IGlobal.M() { }
+            }
+
+            public interface ITuple
+            {
+                (int A, string B) Get();
+            }
+
+            public sealed class TupleFixture : ITuple
+            {
+                (int A, string B) ITuple.Get() => (1, "x");
+            }
+
+            namespace N
+            {
+                public interface I
+                {
+                    void M(A.I value);
+                }
+            }
+
+            namespace A
+            {
+                public sealed class I { }
+                public sealed class N { }
+            }
+
+            namespace A.B
+            {
+                public sealed class ParentNamespaceShadow : NI
+                {
+                    void NI.M(A.I value) { }
+                }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            using var source = MetadataSource.Open(assemblyPath);
+
+            foreach (string typeName in new[]
+                {
+                    "GenericShadow`1",
+                    "NestedShadow",
+                    "TupleFixture",
+                    "ParentNamespaceShadow",
+                })
+            {
+                var type = reader.GetTypeDefinition(Assert.Single(
+                    reader.TypeDefinitions,
+                    handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == typeName));
+                var method = Assert.Single(
+                    type.GetMethods(),
+                    handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                        != ".ctor");
 
                 Assert.Null(FidelityCheck.TryRenderTargetMember(
                     pe,
@@ -732,6 +979,61 @@ public class FidelityCheckGeneratedFilterTests
                     targeted: true,
                     isPrimaryConstructor: false));
             }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Evaluate_DeclinesUnspellableExplicitInterfaceSignature()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string libraryPath = Path.Combine(directory, "HiddenContract.dll");
+        string assemblyPath = Path.Combine(directory, "fixture.dll");
+        try
+        {
+            CompileAssembly(
+                libraryPath,
+                """
+                using System.Runtime.CompilerServices;
+
+                [assembly: InternalsVisibleTo("fixture")]
+
+                namespace HiddenContract;
+
+                internal sealed class Secret
+                {
+                    internal int Value;
+                }
+                """);
+            CompileAssembly(
+                assemblyPath,
+                """
+                internal interface IHidden
+                {
+                    int Use(HiddenContract.Secret value);
+                }
+
+                public sealed class HiddenImplementation : IHidden
+                {
+                    int IHidden.Use(HiddenContract.Secret value)
+                        => value.Value;
+                }
+                """,
+                [MetadataReference.CreateFromFile(libraryPath)]);
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "HiddenImplementation",
+                    candidate => candidate.Method == "IHidden.Use"));
+            Assert.False(result.UsedProductWholeMember);
         }
         finally
         {
@@ -2413,7 +2715,19 @@ public class FidelityCheckGeneratedFilterTests
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "fixture.dll");
+        CompileAssembly(path, source, additionalReferences: null, allowUnsafe);
+        return path;
+    }
+
+    static void CompileAssembly(
+        string path,
+        string source,
+        IEnumerable<MetadataReference>? additionalReferences = null,
+        bool allowUnsafe = false)
+    {
         var references = RoslynTestReferences.TrustedPlatform.AsEnumerable();
+        if (additionalReferences is not null)
+            references = references.Concat(additionalReferences);
         var compilation = CSharpCompilation.Create(
             Path.GetFileNameWithoutExtension(path),
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],
@@ -2423,10 +2737,8 @@ public class FidelityCheckGeneratedFilterTests
                 allowUnsafe: allowUnsafe,
                 optimizationLevel: OptimizationLevel.Release,
                 nullableContextOptions: NullableContextOptions.Disable));
-
         var emit = compilation.Emit(path);
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
-        return path;
     }
 
     static void DeleteFixture(string assemblyPath)

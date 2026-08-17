@@ -457,7 +457,9 @@ public static class MetadataDeclarationQuery
                 TypeNodeProvider.Instance,
                 GenericContext.ForMethod(reader, typeDef, method),
                 (TypeNode)new NamedTypeNode("object", isReferenceType: true));
-            if (decoded.IsDegraded)
+            if (decoded.IsDegraded
+                || decoded.Value.ReturnType.IsDegraded
+                || decoded.Value.ParameterTypes.Any(static type => type.IsDegraded))
             {
                 hasReadonlyByRef = false;
                 return false;
