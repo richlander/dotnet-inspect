@@ -757,8 +757,8 @@ conflict-superseded attempt is incomplete: it does not consume a round number,
 does not receive a completion report, and restarts with the same number after
 conflict recovery.
 
-After every completed round and before starting the next one, post this report
-on the PR, filling every field and choosing exactly one feedback
+After every completed round and before starting the next one, print this report
+in the terminal, filling every field and choosing exactly one feedback
 classification:
 
 ```text
@@ -775,7 +775,9 @@ Fix description: <prose description of changes made in response to the round>.
 Use `Fix description` to state the concrete review-driven changes. For a clean
 round, say that no fixes were required and that the locked head remained
 unchanged. Do not integrate the base after that clean result except through the
-approved carry-forward path.
+approved carry-forward path. The same report may also be posted on the PR; the
+public reconciliation may include more detail when the findings or fixes
+warrant it.
 
 ### Keep review proportional to the contract
 
