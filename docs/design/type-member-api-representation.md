@@ -107,6 +107,17 @@ C# has no legal spelling that preserves both facts. Property accessor
 accessibility is likewise a metadata fact and does not change with the
 disclosure mode used to select the property.
 
+Aggregate MethodImpl classification compares reader-local structural interface
+identity and substituted method signatures. Resolution scope, generic
+arguments, primitive metadata names, and array shape participate in the match;
+C# display spelling does not.
+`MetadataDeclarationQueryTests.TypeSurface_ClassifiesGenericExplicitInterfaceAggregates`,
+`MetadataDeclarationQueryTests.ExplicitAggregateIdentity_RejectsSignatureIncompatibleMethodImplTargets`,
+and
+`CSharpTypePrinterTests.GenericExplicitInterfaceAggregatesCompileBack` gate the
+generic, alias, array, close-negative, producer-parity, and C# projection
+contract.
+
 #### `ILInspector.Analysis`
 
 | Currency | Scope | Answers | Does not answer |

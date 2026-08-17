@@ -154,7 +154,7 @@ public abstract record ApiSurfaceExtractionResult
 
 internal readonly record struct ExplicitInterfaceMethodTarget(
     EntityHandle Declaration,
-    string InterfaceTypeName,
+    ExplicitInterfaceTypeIdentity InterfaceType,
     string MethodName);
 
 /// <summary>
@@ -727,10 +727,7 @@ public static class ApiSurfaceExtractor
 
             var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
             var explicitInterfaceImplementationTargets =
-                GetExplicitInterfaceImplementationTargets(
-                    reader,
-                    typeDef,
-                    observeDecodeWork);
+                GetExplicitInterfaceImplementationTargets(reader, typeDef);
             var explicitInterfaceImplementationBodies =
                 explicitInterfaceImplementationTargets.Keys.ToHashSet();
             var accessorMethods = GetAccessorMethods(reader, typeDef);
@@ -2104,24 +2101,21 @@ public static class ApiSurfaceExtractor
     internal static Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
         GetExplicitInterfaceImplementationTargets(
             MetadataReader reader,
-            TypeDefinition typeDef,
-            Action<int>? beforeDecodeWork = null)
+            TypeDefinition typeDef)
     {
         var context = GenericContext.ForType(reader, typeDef);
-        HashSet<MetadataNamedTypeReference> implementedInterfaces = [];
+        HashSet<string> implementedInterfaces = [];
         foreach (var interfaceHandle in typeDef.GetInterfaceImplementations())
         {
             var interfaceType = reader.GetInterfaceImplementation(interfaceHandle).Interface;
-            var interfaceIdentity = MetadataNamedTypeSignatureDecoder.DecodeType(
+            var interfaceIdentity = ExplicitInterfaceTypeIdentityProvider.FromHandle(
                 reader,
                 interfaceType,
-                context,
-                beforeDecodeWork);
-            if (interfaceIdentity is not null)
-                implementedInterfaces.Add(interfaceIdentity);
+                context);
+            if (!interfaceIdentity.IsDegraded)
+                implementedInterfaces.Add(interfaceIdentity.Key);
         }
 
-        Dictionary<EntityHandle, MetadataNamedTypeReference?> declarationTypes = [];
         Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>> targets = [];
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
@@ -2129,11 +2123,11 @@ public static class ApiSurfaceExtractor
             if (implementation.MethodBody.Kind == HandleKind.MethodDefinition
                 && TryGetInterfaceMethodDeclaration(
                     reader,
+                    typeDef,
+                    (MethodDefinitionHandle)implementation.MethodBody,
                     implementation.MethodDeclaration,
                     implementedInterfaces,
                     context,
-                    declarationTypes,
-                    beforeDecodeWork,
                     out var target))
             {
                 var body = (MethodDefinitionHandle)implementation.MethodBody;
@@ -2171,7 +2165,7 @@ public static class ApiSurfaceExtractor
                     accessor.Handle,
                     out var targets)
                 || !targets.Any(target =>
-                    target.InterfaceTypeName == interfaceName
+                    target.InterfaceType.MetadataName == interfaceName
                     && target.MethodName == accessor.DeclarationPrefix + memberName))
             {
                 return false;
@@ -2183,11 +2177,11 @@ public static class ApiSurfaceExtractor
 
     private static bool TryGetInterfaceMethodDeclaration(
         MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinitionHandle bodyHandle,
         EntityHandle declaration,
-        IReadOnlySet<MetadataNamedTypeReference> implementedInterfaces,
+        IReadOnlySet<string> implementedInterfaces,
         GenericContext context,
-        Dictionary<EntityHandle, MetadataNamedTypeReference?> declarationTypes,
-        Action<int>? beforeDecodeWork,
         out ExplicitInterfaceMethodTarget target)
     {
         target = default;
@@ -2211,25 +2205,18 @@ public static class ApiSurfaceExtractor
         if (methodName is null)
             return false;
 
-        if (!declarationTypes.TryGetValue(
-                declaringType,
-                out MetadataNamedTypeReference? declaringTypeIdentity))
-        {
-            declaringTypeIdentity = MetadataNamedTypeSignatureDecoder.DecodeType(
+        var declaringTypeIdentity = ExplicitInterfaceTypeIdentityProvider.FromHandle(
+            reader,
+            declaringType,
+            context);
+        if (declaringTypeIdentity.IsDegraded
+            || !implementedInterfaces.Contains(declaringTypeIdentity.Key)
+            || !MethodImplSignaturesMatch(
                 reader,
-                declaringType,
-                context,
-                beforeDecodeWork);
-            declarationTypes.Add(declaringType, declaringTypeIdentity);
-        }
-        if (declaringTypeIdentity is null
-            || !implementedInterfaces.Contains(declaringTypeIdentity))
-        {
-            return false;
-        }
-
-        var declaringTypeName = TypeResolver.GetTypeName(reader, declaringType, context);
-        if (declaringTypeName is null)
+                typeDef,
+                bodyHandle,
+                declaration,
+                context))
             return false;
 
         if (declaringType.Kind == HandleKind.TypeDefinition
@@ -2241,10 +2228,87 @@ public static class ApiSurfaceExtractor
 
         target = new ExplicitInterfaceMethodTarget(
             declaration,
-            declaringTypeName,
+            declaringTypeIdentity,
             methodName);
         return true;
     }
+
+    private static bool MethodImplSignaturesMatch(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinitionHandle bodyHandle,
+        EntityHandle declaration,
+        GenericContext typeContext)
+    {
+        var body = reader.GetMethodDefinition(bodyHandle);
+        var bodyResult = GuardedProviderDecode.MethodResult(
+            reader,
+            body,
+            ExplicitInterfaceTypeIdentityProvider.Instance,
+            ExplicitInterfaceSignatureContext.Open(
+                GenericContext.ForMethod(reader, typeDef, body)),
+            new ExplicitInterfaceTypeIdentity("<invalid>", "<invalid>"));
+        if (bodyResult.IsDegraded)
+            return false;
+
+        MethodSignature<ExplicitInterfaceTypeIdentity> declarationSignature;
+        switch (declaration.Kind)
+        {
+            case HandleKind.MethodDefinition:
+                var method = reader.GetMethodDefinition((MethodDefinitionHandle)declaration);
+                var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
+                var declarationResult = GuardedProviderDecode.MethodResult(
+                    reader,
+                    method,
+                    ExplicitInterfaceTypeIdentityProvider.Instance,
+                    ExplicitInterfaceSignatureContext.Open(
+                        GenericContext.ForMethod(reader, declaringType, method)),
+                    new ExplicitInterfaceTypeIdentity("<invalid>", "<invalid>"));
+                if (declarationResult.IsDegraded)
+                    return false;
+                declarationSignature = declarationResult.Value;
+                break;
+            case HandleKind.MemberReference:
+                var member = reader.GetMemberReference((MemberReferenceHandle)declaration);
+                declarationSignature = GuardedProviderDecode.MemberRefMethod(
+                    reader,
+                    member,
+                    ExplicitInterfaceTypeIdentityProvider.Instance,
+                    ExplicitInterfaceSignatureContext
+                        .Open(typeContext)
+                        .WithTypeArguments(
+                            ExplicitInterfaceTypeIdentityProvider.FromHandle(
+                                reader,
+                                member.Parent,
+                                typeContext)
+                            .GenericArguments),
+                    new ExplicitInterfaceTypeIdentity(
+                        "<invalid>",
+                        "<invalid>",
+                        IsDegraded: true));
+                break;
+            default:
+                return false;
+        }
+
+        return MethodSignaturesMatch(bodyResult.Value, declarationSignature);
+    }
+
+    private static bool MethodSignaturesMatch(
+        MethodSignature<ExplicitInterfaceTypeIdentity> left,
+        MethodSignature<ExplicitInterfaceTypeIdentity> right)
+        => left.Header.Equals(right.Header)
+            && left.GenericParameterCount == right.GenericParameterCount
+            && left.RequiredParameterCount == right.RequiredParameterCount
+            && !left.ReturnType.IsDegraded
+            && !right.ReturnType.IsDegraded
+            && left.ReturnType.Key == right.ReturnType.Key
+            && left.ParameterTypes.Length == right.ParameterTypes.Length
+            && !left.ParameterTypes.Any(parameter => parameter.IsDegraded)
+            && !right.ParameterTypes.Any(parameter => parameter.IsDegraded)
+            && left.ParameterTypes
+                .Select(parameter => parameter.Key)
+                .SequenceEqual(right.ParameterTypes.Select(parameter => parameter.Key));
 
     /// <summary>
     /// The set of methods on <paramref name="typeDef"/> whose explicit

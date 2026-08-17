@@ -507,7 +507,9 @@ public sealed class MetadataDeclarationQueryTests
                 [
                     removerTarget with
                     {
-                        InterfaceTypeName = "Other.IExplicitSurface"
+                        InterfaceType = new ExplicitInterfaceTypeIdentity(
+                            "Other.IExplicitSurface",
+                            "Other.IExplicitSurface")
                     }
                 ]
             },
@@ -534,6 +536,73 @@ public sealed class MetadataDeclarationQueryTests
                 ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(reader, typeDef),
                 (accessors.Adder, "add_"),
                 (accessors.Remover, "remove_")));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void TypeSurface_ClassifiesGenericExplicitInterfaceAggregates()
+    {
+        Type[] fixtureTypes =
+        [
+            typeof(MetadataDeclarationQueryFixtures.GenericSurface<,>),
+            typeof(MetadataDeclarationQueryFixtures.StringSurface),
+            typeof(MetadataDeclarationQueryFixtures.StringArraySurface)
+        ];
+
+        foreach (Type fixtureType in fixtureTypes)
+        {
+            var queried = MetadataDeclarationQuery.GetTypeSurface(
+                Reader,
+                GetTypeDefinitionHandle(fixtureType),
+                includeNonPublicMembers: true);
+            var extracted = Assert.Single(
+                ApiSurfaceExtractor.Extract(PeReader, includeAll: true).Types,
+                type => StripGenericArity(type.FullName).EndsWith(
+                    "." + StripGenericArity(fixtureType.Name),
+                    StringComparison.Ordinal));
+
+            foreach (var surface in new[] { queried, extracted })
+            {
+                Assert.Contains(
+                    surface.Members,
+                    member => member is
+                    {
+                        Kind: "property",
+                        IsExplicitInterfaceImplementation: true
+                    } && member.Name.EndsWith(".Value", StringComparison.Ordinal));
+                Assert.Contains(
+                    surface.Members,
+                    member => member is
+                    {
+                        Kind: "event",
+                        IsExplicitInterfaceImplementation: true
+                    } && member.Name.EndsWith(".Changed", StringComparison.Ordinal));
+            }
+        }
+    }
+
+    [Fact]
+    public void ExplicitAggregateIdentity_RejectsSignatureIncompatibleMethodImplTargets()
+    {
+        string path = EmitSignatureIncompatibleMethodImplProperty();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            var reader = peReader.GetMetadataReader();
+            var typeHandle = GetTypeDefinitionHandle(reader, "BadProperty");
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            var property = reader.GetPropertyDefinition(Assert.Single(typeDef.GetProperties()));
+            var accessors = property.GetAccessors();
+
+            Assert.False(ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
+                reader.GetString(property.Name),
+                ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(reader, typeDef),
+                (accessors.Getter, "get_"),
+                (accessors.Setter, "set_")));
         }
         finally
         {
@@ -1163,6 +1232,57 @@ public sealed class MetadataDeclarationQueryTests
         return path;
     }
 
+    static string EmitSignatureIncompatibleMethodImplProperty()
+    {
+        var assemblyName = new AssemblyName("SignatureIncompatibleMethodImplProperty");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+
+        var interfaceBuilder = module.DefineType(
+            "IBadProperty",
+            TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+        var interfaceGetter = interfaceBuilder.DefineMethod(
+            "get_Value",
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(int),
+            Type.EmptyTypes);
+        interfaceBuilder
+            .DefineProperty("Value", PropertyAttributes.None, typeof(int), null)
+            .SetGetMethod(interfaceGetter);
+        var interfaceType = interfaceBuilder.CreateType();
+
+        var type = module.DefineType("BadProperty", TypeAttributes.Public);
+        type.AddInterfaceImplementation(interfaceType);
+        var getter = type.DefineMethod(
+            "IBadProperty.get_Value",
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(string),
+            Type.EmptyTypes);
+        var il = getter.GetILGenerator();
+        il.Emit(OpCodes.Ldstr, "bad");
+        il.Emit(OpCodes.Ret);
+        type
+            .DefineProperty("IBadProperty.Value", PropertyAttributes.None, typeof(string), null)
+            .SetGetMethod(getter);
+        type.DefineMethodOverride(getter, interfaceType.GetMethod("get_Value")!);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"SignatureIncompatibleMethodImplProperty-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
     static TypeDefinition GetTypeDefinition(Type type)
         => Reader.GetTypeDefinition(GetTypeDefinitionHandle(type));
 
@@ -1292,6 +1412,51 @@ public class MetadataDeclarationQueryFixtures
             add { }
 
             [return: System.Diagnostics.CodeAnalysis.MaybeNull]
+            remove { }
+        }
+    }
+
+    public interface IGenericSurface<TLeft, TRight>
+    {
+        TRight Value { get; }
+        event Action<TLeft> Changed;
+    }
+
+    public sealed class GenericSurface<TLeft, TRight> : IGenericSurface<TLeft, TRight>
+    {
+        TRight IGenericSurface<TLeft, TRight>.Value => default!;
+
+        event Action<TLeft> IGenericSurface<TLeft, TRight>.Changed
+        {
+            add { }
+            remove { }
+        }
+    }
+
+    public interface IAliasSurface<T>
+    {
+        T Value { get; }
+        event Action<T> Changed;
+    }
+
+    public sealed class StringSurface : IAliasSurface<string>
+    {
+        string IAliasSurface<string>.Value => "";
+
+        event Action<string> IAliasSurface<string>.Changed
+        {
+            add { }
+            remove { }
+        }
+    }
+
+    public sealed class StringArraySurface : IAliasSurface<string[]>
+    {
+        string[] IAliasSurface<string[]>.Value => [];
+
+        event Action<string[]> IAliasSurface<string[]>.Changed
+        {
+            add { }
             remove { }
         }
     }

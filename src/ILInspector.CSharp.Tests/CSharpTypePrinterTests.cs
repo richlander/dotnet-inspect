@@ -384,6 +384,58 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void GenericExplicitInterfaceAggregatesCompileBack()
+    {
+        using var peReader = new PEReader(
+            File.OpenRead(typeof(GenericExplicitAggregateSurface<>).Assembly.Location));
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            return reader.GetString(definition.Namespace) == "ILInspector.CSharp.Tests"
+                && reader.GetString(definition.Name) == "GenericExplicitAggregateSurface`1";
+        });
+        var type = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        type.Interfaces =
+        [
+            Assert.Single(
+                type.Interfaces,
+                interfaceName => interfaceName.EndsWith(
+                    ".IGenericAggregateSurface<T>",
+                    StringComparison.Ordinal))
+        ];
+        type.Members =
+        [
+            .. type.Members.Where(member =>
+                member.IsExplicitInterfaceImplementation
+                && member.Kind is "property" or "event")
+        ];
+
+        Assert.Equal(2, type.Members.Count);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("private ", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("virtual ", result.Source, StringComparison.Ordinal);
+        Assert.Contains("IGenericAggregateSurface<T>.Value", result.Source, StringComparison.Ordinal);
+        Assert.Contains("IGenericAggregateSurface<T>.Changed", result.Source, StringComparison.Ordinal);
+        AssertCompiles(
+            result.Source,
+            """
+            namespace ILInspector.CSharp.Tests;
+
+            public interface IGenericAggregateSurface<T>
+            {
+                T Value { get; }
+                event System.Action<T> Changed;
+            }
+            """);
+    }
+
+    [Fact]
     public void ExplicitInterfaceEventSkeletonDoesNotDiscardCallerBody()
     {
         var type = CreateEmptyType("Samples", "Widget");
@@ -4745,7 +4797,7 @@ public sealed class CSharpTypePrinterTests
             Kind = "class"
         };
 
-    static void AssertCompiles(string source)
+    static void AssertCompiles(string source, string? additionalSource = null)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -4765,6 +4817,8 @@ public sealed class CSharpTypePrinterTests
                 </Project>
                 """);
             File.WriteAllText(Path.Combine(directory, "Generated.cs"), source);
+            if (additionalSource is not null)
+                File.WriteAllText(Path.Combine(directory, "Contract.cs"), additionalSource);
 
             var startInfo = new ProcessStartInfo("dotnet")
             {
@@ -4823,5 +4877,22 @@ public sealed class CSharpTypePrinterTests
 
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
             => GetEnumerator();
+    }
+}
+
+public interface IGenericAggregateSurface<T>
+{
+    T Value { get; }
+    event Action<T> Changed;
+}
+
+public sealed class GenericExplicitAggregateSurface<T> : IGenericAggregateSurface<T>
+{
+    T IGenericAggregateSurface<T>.Value => default!;
+
+    event Action<T> IGenericAggregateSurface<T>.Changed
+    {
+        add { }
+        remove { }
     }
 }
