@@ -44,6 +44,23 @@ public class MetadataTypeNameBudgetTests
     }
 
     [Fact]
+    public void GlobalNamespaceNestedNameAtTheCharacterBudget_IsAccepted()
+    {
+        ImmutableArray<string> segments =
+        [
+            new string('a', 2048),
+            new string('b', 2047),
+        ];
+
+        var valid = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("", segments));
+
+        Assert.Equal(
+            MetadataSafetyPolicy.MaxTypeNameCharacters,
+            valid.Name.ToNestedMetadataName().Length);
+    }
+
+    [Fact]
     public void ManySegmentsWithinTheNodeBudget_AreRejectedOnAggregateSize()
     {
         // Every individual segment is ordinary and the segment count is inside the relationship

@@ -30,9 +30,9 @@ public class ApiMemberIdentityTests
         var anchor = ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method);
 
         Assert.Equal(
-            "M:ILInspector.Metadata.Tests.ApiMemberIdentityTests.ApiMemberIdentityFixture<T>.M<U>(System.Int32,U)",
+            "M:ILInspector.Metadata.Tests.ApiMemberIdentityTests+ApiMemberIdentityFixture<T>.M<U>(System.Int32,U)",
             anchor.CanonicalSignature);
-        Assert.Equal("ILInspector.Metadata.Tests.ApiMemberIdentityTests.ApiMemberIdentityFixture<T>", anchor.TypeFullName);
+        Assert.Equal("ILInspector.Metadata.Tests.ApiMemberIdentityTests+ApiMemberIdentityFixture<T>", anchor.TypeFullName);
         Assert.Equal("M<U>", anchor.MemberName);
         Assert.StartsWith("M~", anchor.StableSelector, StringComparison.Ordinal);
         Assert.Equal(MemberAnchor.ComputeFingerprint(anchor.CanonicalSignature), anchor.Fingerprint);

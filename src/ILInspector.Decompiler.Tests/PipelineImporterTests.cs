@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -220,6 +221,32 @@ public class TypeRefTests
         Assert.True(mismatched.HasUnrenderableGenericArity);
         Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(
             new LoadArgument(0, "value", mismatched)));
+    }
+
+    [Theory]
+    [InlineData("Plain", "Plain<int>")]
+    [InlineData("Odd`Literal", "Odd`Literal<int>")]
+    public void ZeroArityGenericInstantiation_RetainsSuppliedArguments(
+        string name,
+        string expected)
+    {
+        var exact = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("NS", [name])).Name;
+        var definition = TypeRef.DefinitionWithResolution(
+            "asm",
+            "NS",
+            name,
+            ValueTypeHint.Unknown,
+            MetadataFactState.Unknown,
+            enclosingType: null,
+            definitionName: exact,
+            resolutionAssembly: null);
+        var instance = TypeRef.GenericInstance(
+            definition,
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        Assert.Equal(expected, instance.ToDisplayString());
+        Assert.False(instance.HasUnrenderableGenericArity);
     }
 
     [Fact]

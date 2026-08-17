@@ -12,6 +12,9 @@ public enum SignatureDecodeRejectionKind
     /// <summary>The active TypeSpec closure exceeded its depth or cumulative-byte budget.</summary>
     TypeSpecificationBudget,
 
+    /// <summary>An exact metadata type name exceeded its aggregate character budget.</summary>
+    TypeNameBudget,
+
     /// <summary>SRM rejected malformed metadata during the bounded decode.</summary>
     MalformedMetadata,
 }

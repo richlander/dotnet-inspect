@@ -168,10 +168,11 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
                         i));
             }
 
-            // One delimiter per boundary: '.' after the namespace, '+' between segments. The
-            // running total is checked per segment so an over-budget name is refused before its
-            // remaining segments are measured, and never after a flattened spelling was built.
-            characters += segments[i].Length + 1;
+            // One delimiter per actual boundary: '.' after a non-empty
+            // namespace and '+' between segments.
+            if (i > 0 || @namespace.Length > 0)
+                characters++;
+            characters += segments[i].Length;
             if (characters > MetadataSafetyPolicy.MaxTypeNameCharacters)
             {
                 return new MetadataTypeDefinitionNameResult.Rejected(

@@ -80,15 +80,20 @@ public class TypeRefAritySpellingTests
                 ResolvedDefinition("Outer+Inner`1", "Outer", "Inner`1"),
                 arguments).ToDisplayString());
 
-        // A literal backtick declares none, so no argument list is attached and
-        // the name keeps its identity.
+        // A literal backtick declares no canonical arity, so the GenericInst's
+        // supplied arguments remain visible.
         Assert.Equal(
-            "Outer.Inner`Literal",
+            "Outer.Inner`Literal<int>",
             TypeRef.GenericInstance(
                 ResolvedDefinition(
                     "Outer+Inner`Literal",
                     "Outer",
                     "Inner`Literal"),
+                arguments).ToDisplayString());
+        Assert.Equal(
+            "Plain<int>",
+            TypeRef.GenericInstance(
+                ResolvedDefinition("Plain", "Plain"),
                 arguments).ToDisplayString());
     }
 

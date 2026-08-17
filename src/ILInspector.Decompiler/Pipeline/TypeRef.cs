@@ -703,7 +703,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
             && declaredArity <= TypeResolver.MaxDisplayedPlaceholders
             && LooksCompilerGenerated(
                 ElementType.MetadataNameSegments()[^1]);
-        if (declaredArity != TypeArguments.Length
+        bool appendArgumentsToZeroArityHead =
+            declaredArity == 0
+            && TypeArguments.Length > 0;
+        if (!appendArgumentsToZeroArityHead
+            && declaredArity != TypeArguments.Length
             && !completeCompilerGenerated)
         {
             return string.Join(".", ElementType.MetadataNameSegments());
@@ -723,7 +727,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
         int ownArity = ArityOf(innermost);
         string simpleName = ElementType.DisplayName();
         if (ownArity == 0)
-            return simpleName;
+        {
+            var arguments = TypeArguments
+                .Select(argument => argument.ToDisplayString(scope));
+            return $"{simpleName}<{string.Join(", ", arguments)}>";
+        }
         int firstOwnArgument = checked((int)declaredArity) - ownArity;
         var ownArguments = Enumerable.Range(firstOwnArgument, ownArity)
             .Select(index => GenericArgumentDisplay(index, scope));
@@ -829,7 +837,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
             }
 
             long declaredArity = ElementType.DeclaredGenericArity();
-            return declaredArity != TypeArguments.Length
+            return declaredArity != 0
+                && declaredArity != TypeArguments.Length
                 && !(TypeArguments.Length > 0
                     && TypeArguments.Length < declaredArity
                     && declaredArity

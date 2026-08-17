@@ -23,6 +23,13 @@ public sealed class CompilerGeneratedNamesTests
                     "Outer`1",
                     "GeneratedOuter`1",
                     "<>c__DisplayClass0_0")));
+        Assert.Equal(
+            @"Ns.A\+B",
+            CompilerGeneratedNames.ContainingTypeDisplayName(
+                ResolvedDefinition(
+                    "A+B+<>c__DisplayClass0_0",
+                    "A+B",
+                    "<>c__DisplayClass0_0")));
     }
 
     [Theory]

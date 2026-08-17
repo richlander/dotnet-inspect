@@ -274,16 +274,88 @@ public class MetadataNameArityTests
             anchor => anchor.TypeFullName == @"Ns.A\.B");
         Assert.Contains(
             anchors,
-            anchor => anchor.TypeFullName == "Ns.A.B");
+            anchor => anchor.TypeFullName == "Ns.A+B");
         Assert.Contains(
             anchors,
             anchor => anchor.TypeFullName
-                == "Ns.Outer<T>.Inner<U>");
+                == "Ns.Outer<T>+Inner<U>");
         Assert.Equal(
             anchors.Length,
             anchors.Select(anchor => anchor.CanonicalSignature)
                 .Distinct(StringComparer.Ordinal)
                 .Count());
+
+        MemberAnchor[] modelAnchors = reader.TypeDefinitions
+            .SelectMany(typeHandle =>
+            {
+                ApiType type = MetadataDeclarationQuery.GetTypeSurface(
+                    reader,
+                    typeHandle,
+                    includeNonPublicMembers: true);
+                return type.Members.Select(
+                    member => ApiMemberIdentity.GetMemberAnchor(type, member));
+            })
+            .ToArray();
+        Assert.Equal(
+            anchors.Select(anchor => anchor.CanonicalSignature)
+                .Order(StringComparer.Ordinal),
+            modelAnchors.Select(anchor => anchor.CanonicalSignature)
+                .Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void MemberAnchor_SeparatesStructuralAndMissingArityBoundaries()
+    {
+        byte[] image = BuildImageWithAnchorBoundaryCollisions();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+
+        MemberAnchor[] anchors = reader.TypeDefinitions
+            .SelectMany(typeHandle =>
+                reader.GetTypeDefinition(typeHandle)
+                    .GetMethods()
+                    .Select(methodHandle =>
+                        ApiMemberIdentity.CreateMethodAnchor(
+                            reader,
+                            typeHandle,
+                            reader.GetMethodDefinition(methodHandle))))
+            .ToArray();
+
+        Assert.Contains(
+            anchors,
+            anchor => anchor.TypeFullName == "N.A.B");
+        Assert.Contains(
+            anchors,
+            anchor => anchor.TypeFullName == "N.A+B");
+        Assert.Contains(
+            anchors,
+            anchor => anchor.TypeFullName == "N.Widget:0<T>");
+        Assert.Contains(
+            anchors,
+            anchor => anchor.TypeFullName == "N.Widget<T>");
+        Assert.Equal(
+            anchors.Length,
+            anchors.Select(anchor => anchor.CanonicalSignature)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+
+        var modelSignatures = reader.TypeDefinitions
+            .SelectMany(typeHandle =>
+            {
+                ApiType type = MetadataDeclarationQuery.GetTypeSurface(
+                    reader,
+                    typeHandle,
+                    includeNonPublicMembers: true);
+                return type.Members.Select(
+                    member => ApiMemberIdentity
+                        .GetMemberAnchor(type, member)
+                        .CanonicalSignature);
+            })
+            .Order(StringComparer.Ordinal);
+        Assert.Equal(
+            anchors.Select(anchor => anchor.CanonicalSignature)
+                .Order(StringComparer.Ordinal),
+            modelSignatures);
     }
 
     [Fact]
@@ -309,12 +381,12 @@ public class MetadataNameArityTests
             reference,
             0);
         Assert.Equal(
-            "Ns.Inner`2[]",
+            "Ns.Inner`2[]<int, string>",
             stringDecoder.GetGenericInstantiation(
                 definitionName,
                 arguments));
         Assert.Equal(
-            "Ns.Inner`2[]",
+            "Ns.Inner`2[]<int, string>",
             stringDecoder.GetGenericInstantiation(
                 referenceName,
                 arguments));
@@ -326,13 +398,13 @@ public class MetadataNameArityTests
             nodeProvider.GetPrimitiveType(PrimitiveTypeCode.String),
         ];
         Assert.Equal(
-            "Ns.Inner`2[]",
+            "Ns.Inner`2[]<int, string>",
             nodeProvider.GetGenericInstantiation(
                 nodeProvider.GetTypeFromDefinition(reader, definition, 0),
                 nodeArguments)
                 .Render());
         Assert.Equal(
-            "Ns.Inner`2[]",
+            "Ns.Inner`2[]<int, string>",
             nodeProvider.GetGenericInstantiation(
                 nodeProvider.GetTypeFromReference(reader, reference, 0),
                 nodeArguments)
@@ -524,6 +596,65 @@ public class MetadataNameArityTests
             GenericParameterAttributes.None,
             metadata.GetOrAddString("U"),
             index: 1);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildImageWithAnchorBoundaryCollisions()
+    {
+        var metadata = CreateMetadata("AnchorBoundaryCollisions");
+        BlobHandle signature = AddVoidMethodSignature(metadata);
+        MethodDefinitionHandle namespaceMethod = AddMethod(metadata, signature);
+        MethodDefinitionHandle nestedMethod = AddMethod(metadata, signature);
+        MethodDefinitionHandle missingArityMethod = AddMethod(metadata, signature);
+        MethodDefinitionHandle canonicalArityMethod = AddMethod(metadata, signature);
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N.A"),
+            metadata.GetOrAddString("B"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: namespaceMethod);
+        TypeDefinitionHandle outer = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("A"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: nestedMethod);
+        TypeDefinitionHandle nested = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic,
+            default,
+            metadata.GetOrAddString("B"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: nestedMethod);
+        metadata.AddNestedType(nested, outer);
+
+        TypeDefinitionHandle missingArity = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Widget"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: missingArityMethod);
+        TypeDefinitionHandle canonicalArity = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Widget`1"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: canonicalArityMethod);
+        foreach (TypeDefinitionHandle type in
+            (TypeDefinitionHandle[])[missingArity, canonicalArity])
+        {
+            metadata.AddGenericParameter(
+                type,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        }
+
         return Serialize(metadata);
     }
 

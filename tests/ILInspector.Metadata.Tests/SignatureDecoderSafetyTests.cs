@@ -320,6 +320,44 @@ public class SignatureDecoderSafetyTests
     }
 
     [Fact]
+    public void SignatureDecoder_RejectsExactNameBeforeOversizedSegmentDecode()
+    {
+        TypeReferenceHandle leaf = default;
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            StringHandle sharedName =
+                metadata.GetOrAddString(new string('A', 1024 * 1024));
+            EntityHandle scope = default;
+            for (int i = 0;
+                i < MetadataSafetyPolicy.MaxRelationshipNodes;
+                i++)
+            {
+                leaf = metadata.AddTypeReference(
+                    scope,
+                    default,
+                    sharedName);
+                scope = leaf;
+            }
+        });
+        var decoder = new SignatureDecoder();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        AssertRejected(
+            SignatureDecoder.Decode(
+                () => decoder.GetTypeFromReference(reader, leaf, 0)),
+            SignatureDecodeRejectionKind.TypeNameBudget);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < 1024 * 1024,
+            $"Oversized exact-name rejection allocated {allocated:N0} bytes.");
+        AssertRejected(
+            SignatureDecoder.Decode(
+                () => decoder.GetTypeFromReference(reader, leaf, 0)),
+            SignatureDecodeRejectionKind.TypeNameBudget);
+    }
+
+    [Fact]
     public void TypeSpec_AboveCumulativeBudget_IsRejected()
     {
         var reader = BuildTypeSpec(signature =>

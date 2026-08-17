@@ -127,6 +127,12 @@ public static class TypeResolver
     internal static MetadataTypeNameParts GetTypeNamePartsFromReference(
         MetadataReader reader,
         TypeReferenceHandle handle)
+        => ResolveTypeNamePartsFromReference(reader, handle).GetValueOrThrow();
+
+    internal static RelationshipTraversalResult<MetadataTypeNameParts>
+        ResolveTypeNamePartsFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle)
         => FormatNameParts(
             reader,
             MetadataRelationshipTraversal.WalkTypeReferenceResolutionScope(reader, handle),
@@ -135,7 +141,7 @@ public static class TypeResolver
                 var typeRef = reader.GetTypeReference(current);
                 return (typeRef.Namespace, typeRef.Name);
             },
-            static current => current).GetValueOrThrow();
+            static current => current);
 
     /// <summary>
     /// Gets the type name from a TypeDefinition handle.
@@ -200,6 +206,12 @@ public static class TypeResolver
     internal static MetadataTypeNameParts GetTypeNamePartsFromDefinition(
         MetadataReader reader,
         TypeDefinitionHandle handle)
+        => ResolveTypeNamePartsFromDefinition(reader, handle).GetValueOrThrow();
+
+    internal static RelationshipTraversalResult<MetadataTypeNameParts>
+        ResolveTypeNamePartsFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle)
         => FormatNameParts(
             reader,
             MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(reader, handle),
@@ -208,7 +220,7 @@ public static class TypeResolver
                 var typeDef = reader.GetTypeDefinition(current);
                 return (typeDef.Namespace, typeDef.Name);
             },
-            static current => current).GetValueOrThrow();
+            static current => current);
 
     internal static MetadataTypeNameParts GetTypeNameParts(
         MetadataReader reader,
@@ -652,8 +664,7 @@ public static class TypeResolver
 
         string rawName = string.Join('.', metadataNameSegments);
         if (declaredArity == 0
-            && typeArguments.Count > 0
-            && !metadataNameSegments[^1].Contains('`'))
+            && typeArguments.Count > 0)
         {
             return $"{rawName}<{string.Join(", ", typeArguments)}>";
         }
@@ -944,6 +955,7 @@ public static class TypeResolver
         var chain = ((RelationshipTraversalResult<RelationshipChain<THandle>>.Completed)traversal).Value;
         string rootNamespace = "";
         var segments = new string[chain.Handles.Length];
+        int remainingCharacters = MetadataSafetyPolicy.MaxTypeNameCharacters;
         for (int i = 0; i < chain.Handles.Length; i++)
         {
             var handle = chain.Handles[i];
@@ -951,8 +963,38 @@ public static class TypeResolver
             {
                 var (namespaceHandle, nameHandle) = getName(handle);
                 if (i == 0)
-                    rootNamespace = reader.GetString(namespaceHandle);
-                segments[i] = reader.GetString(nameHandle);
+                {
+                    if (!MetadataSafetyPolicy.TryReadTypeNameComponent(
+                            reader,
+                            namespaceHandle,
+                            ref remainingCharacters,
+                            out rootNamespace))
+                    {
+                        return NameBudget<MetadataTypeNameParts>(
+                            getSubject(handle),
+                            consumedNodes: i + 1);
+                    }
+                }
+
+                if ((i > 0 || rootNamespace.Length > 0)
+                    && remainingCharacters == 0)
+                {
+                    return NameBudget<MetadataTypeNameParts>(
+                        getSubject(handle),
+                        consumedNodes: i + 1);
+                }
+                if (i > 0 || rootNamespace.Length > 0)
+                    remainingCharacters--;
+                if (!MetadataSafetyPolicy.TryReadTypeNameComponent(
+                        reader,
+                        nameHandle,
+                        ref remainingCharacters,
+                        out segments[i]))
+                {
+                    return NameBudget<MetadataTypeNameParts>(
+                        getSubject(handle),
+                        consumedNodes: i + 1);
+                }
             }
             catch (BadImageFormatException ex)
             {
@@ -1044,6 +1086,18 @@ public static class TypeResolver
             new RelationshipTraversalRejection(
                 RelationshipTraversalRejectionKind.MalformedMetadata,
                 exception.Message,
+                subject,
+                consumedNodes));
+
+    static RelationshipTraversalResult<T> NameBudget<T>(
+        EntityHandle subject,
+        int consumedNodes)
+        where T : notnull
+        => new RelationshipTraversalResult<T>.Rejected(
+            new RelationshipTraversalRejection(
+                RelationshipTraversalRejectionKind.NameBudget,
+                $"The metadata type name exceeds "
+                    + $"{MetadataSafetyPolicy.MaxTypeNameCharacters} characters.",
                 subject,
                 consumedNodes));
 

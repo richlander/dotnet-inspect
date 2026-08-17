@@ -73,10 +73,20 @@ public static class MetadataDeclarationQuery
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var attributes = typeDef.Attributes;
         var (ns, name) = GetApiTypeNameParts(reader, typeHandle);
+        MetadataTypeDefinitionName definitionName =
+            MetadataTypeDefinitionNameReader.Read(reader, typeHandle) switch
+            {
+                MetadataTypeDefinitionNameReadResult.Read read => read.Name,
+                MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                    throw new BadImageFormatException(rejected.Failure.Detail),
+                _ => throw new InvalidOperationException(
+                    "Unexpected metadata type-name result."),
+            };
         var type = new ApiType
         {
             Namespace = ns,
             Name = name,
+            DefinitionName = definitionName,
             Accessibility = TypeAccessibility(typeDef),
             IsSealed = (attributes & TypeAttributes.Sealed) != 0,
             IsAbstract = (attributes & TypeAttributes.Abstract) != 0,

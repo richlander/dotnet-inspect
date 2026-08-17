@@ -74,10 +74,9 @@ public static class CompilerGeneratedNames
                 return null;
             }
 
-            containingName = string.Join(
-                '.',
-                exactName.Segments[..^1]
-                    .Select(MetadataNameArity.StripFromSegment));
+            containingName = TypeRef.RenderExactSegments(
+                exactName.Segments[..^1],
+                stripArity: true);
             @namespace = exactName.Namespace;
         }
         else

@@ -191,6 +191,16 @@ public sealed class MetadataTypeNameFormatterTests
                 ["TStateMachine"]));
     }
 
+    [Theory]
+    [InlineData("Plain", "Plain<int>")]
+    [InlineData("Odd`Literal", "Odd`Literal<int>")]
+    public void ApplyGenericArguments_RetainsArgumentsForZeroArityHead(
+        string name,
+        string expected)
+        => Assert.Equal(
+            expected,
+            TypeResolver.ApplyGenericArguments([name], ["int"]));
+
     /// <summary>
     /// A namespace is passed beside the type-name chain, never inside it, so
     /// namespace text is not rewritten by name formatting.

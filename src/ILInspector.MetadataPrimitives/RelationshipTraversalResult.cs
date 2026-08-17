@@ -13,6 +13,9 @@ public enum RelationshipTraversalRejectionKind
     /// <summary>The relationship chain exceeded the fixed node ceiling.</summary>
     NodeBudget,
 
+    /// <summary>The aggregate metadata type name exceeded its character budget.</summary>
+    NameBudget,
+
     /// <summary>SRM rejected a row or relationship handle.</summary>
     MalformedMetadata,
 }

@@ -412,6 +412,13 @@ public sealed class TypeRef : IEquatable<TypeRef>
         foreach (string segment in segments)
             totalArity += ArityOf(segment);
         int ownArity = ArityOf(segments[^1]);
+        if (totalArity == 0 && arguments.Count > 0)
+        {
+            display =
+                $"{RenderExactSegments(segments, stripArity: false)}"
+                + $"<{string.Join(", ", arguments)}>";
+            return true;
+        }
         bool completeCompilerGeneratedName =
             arguments.Count > 0
             && arguments.Count < totalArity
@@ -450,7 +457,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
             ? exactName.Segments
             : Name.Split('+');
 
-    static string RenderExactSegments(
+    internal static string RenderExactSegments(
         IReadOnlyList<string> segments,
         bool stripArity)
         => string.Join(

@@ -53,7 +53,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         => Retain(
             reader,
             handle,
-            () => TypeResolver.GetTypeNamePartsFromDefinition(
+            () => TypeResolver.ResolveTypeNamePartsFromDefinition(
                 reader,
                 handle));
 
@@ -61,7 +61,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         => Retain(
             reader,
             handle,
-            () => TypeResolver.GetTypeNamePartsFromReference(
+            () => TypeResolver.ResolveTypeNamePartsFromReference(
                 reader,
                 handle));
 
@@ -157,7 +157,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     string Retain(
         MetadataReader reader,
         EntityHandle handle,
-        Func<MetadataTypeNameParts> create)
+        Func<RelationshipTraversalResult<MetadataTypeNameParts>> create)
     {
         ReaderNameCache cache = readerNames.GetValue(
             reader,
@@ -167,7 +167,19 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
             if (cache.Names.TryGetValue(handle, out string? retained))
                 return retained;
 
-            MetadataTypeNameParts structured = create();
+            RelationshipTraversalResult<MetadataTypeNameParts> result = create();
+            if (result is RelationshipTraversalResult<MetadataTypeNameParts>.Rejected rejected
+                && rejected.Rejection.Kind
+                    == RelationshipTraversalRejectionKind.NameBudget)
+            {
+                Reject(
+                    new SignatureDecodeRejection(
+                        SignatureDecodeRejectionKind.TypeNameBudget,
+                        rejected.Rejection.Detail));
+                return Unresolved;
+            }
+
+            MetadataTypeNameParts structured = result.GetValueOrThrow();
             string value = structured.ToDottedName();
             if (value.Length == 0)
             {
