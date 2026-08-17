@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using ILInspector.Decompiler.Tests.Gating;
 using Xunit.Sdk;
@@ -16,6 +18,10 @@ public sealed class ExplicitFilterGuardProcessCollection;
 [Collection("ExplicitFilterGuardProcess")]
 public class ExplicitFilterGuardTests
 {
+    private const string AppHostAliasMethod =
+        "ILInspector.Decompiler.Tests.ExplicitFilterGuardTests."
+        + "AppHostAlias_IsTheExecutingTestProcess";
+
     [Fact]
     public void FindIncludedFilters_ExtractsClassAndMethodSelectors()
     {
@@ -50,16 +56,13 @@ public class ExplicitFilterGuardTests
         const string missingClass = "ILInspector.Decompiler.Tests.ThisClassDoesNotExist";
         const string validMethod =
             "ILInspector.Decompiler.Tests.GateArgumentExpanderTests.NoGateFlag_PassesArgumentsThroughUnchanged";
-        const string appHostAliasMethod =
-            "ILInspector.Decompiler.Tests.ExplicitFilterGuardTests."
-            + "AppHostAlias_IsTheExecutingTestProcess";
         const string missingMethod =
             "ILInspector.Decompiler.Tests.GateArgumentExpanderTests.ThisMethodDoesNotExist";
 
         ProcessResult valid = await RunHostAsync("-method", validMethod);
         ProcessResult appHostWithoutDotnetPath = await RunAppHostAsync(
             "-method",
-            appHostAliasMethod);
+            AppHostAliasMethod);
         ProcessResult mixed = await RunHostWithResponseFileAsync(
             "-class", validClass,
             "-class", missingClass,
@@ -89,6 +92,7 @@ public class ExplicitFilterGuardTests
             "-preEnumerateTheories",
             "-method",
             customSerializationMethod,
+            "-noColor",
             "-list",
             "discovery/json");
         string customSerialization = JsonDocument
@@ -129,12 +133,7 @@ public class ExplicitFilterGuardTests
             $"Expected a valid filter to pass, got {valid.ExitCode}.\n{valid.Output}\n{valid.Error}");
         Assert.Contains("Total: 1,", valid.Output);
 
-        Assert.True(
-            appHostWithoutDotnetPath.ExitCode == 0,
-            "Expected the apphost to run a valid filter without dotnet on PATH, "
-            + $"got {appHostWithoutDotnetPath.ExitCode}.\n"
-            + $"{appHostWithoutDotnetPath.Output}\n{appHostWithoutDotnetPath.Error}");
-        Assert.Contains("Total: 1,", appHostWithoutDotnetPath.Output);
+        AssertSuccessfulAppHostRun(appHostWithoutDotnetPath);
 
         Assert.Equal(2, mixed.ExitCode);
         Assert.Contains("explicit xUnit filter matched no discovered tests", mixed.Error);
@@ -144,7 +143,11 @@ public class ExplicitFilterGuardTests
         Assert.DoesNotContain($"  -method \"{validMethod}\"", mixed.Error);
         Assert.DoesNotContain("TEST EXECUTION SUMMARY", mixed.Output);
 
-        Assert.Equal(2, missingQuery.ExitCode);
+        Assert.True(
+            missingQuery.ExitCode == 2,
+            "Expected a missing query to be rejected, "
+            + $"got {missingQuery.ExitCode}.\n"
+            + $"{missingQuery.Output}\n{missingQuery.Error}");
         Assert.Contains("-filter \"/*/*/ThisClassDoesNotExist/*\"", missingQuery.Error);
         Assert.DoesNotContain("TEST EXECUTION SUMMARY", missingQuery.Output);
 
@@ -219,6 +222,19 @@ public class ExplicitFilterGuardTests
         }
     }
 
+    [Fact]
+    public async Task AppHostAlias_ConcurrentInvocationsAreSerialized()
+    {
+        ProcessResult[] results = await Task.WhenAll(
+            RunAppHostAsync("-method", AppHostAliasMethod),
+            RunAppHostAsync("-method", AppHostAliasMethod));
+
+        foreach (ProcessResult result in results)
+        {
+            AssertSuccessfulAppHostRun(result);
+        }
+    }
+
     [Theory]
     [MemberData(nameof(DisposableArguments), DisableDiscoveryEnumeration = false)]
     public void PreflightDisposesDiscoveredTheoryArguments(
@@ -246,6 +262,17 @@ public class ExplicitFilterGuardTests
     private static Task<ProcessResult> RunHostAsync(params string[] arguments) =>
         RunHostAsync(null, arguments);
 
+    private static void AssertSuccessfulAppHostRun(
+        ProcessResult result)
+    {
+        Assert.True(
+            result.ExitCode == 0,
+            "Expected the apphost to run a valid filter without dotnet on PATH, "
+            + $"got {result.ExitCode}.\n"
+            + $"{result.Output}\n{result.Error}");
+        Assert.Contains("Total: 1,", result.Output);
+    }
+
     private static async Task<ProcessResult> RunAppHostAsync(
         params string[] arguments)
     {
@@ -263,22 +290,45 @@ public class ExplicitFilterGuardTests
         string aliasPath = Path.Combine(
             Path.GetDirectoryName(appHostPath)!,
             OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        string stagedAliasPath =
+            $"{aliasPath}.{Guid.NewGuid():N}.tmp";
+        string lockPath = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-filter-guard-"
+                + Convert.ToHexString(
+                    SHA256.HashData(
+                        Encoding.UTF8.GetBytes(
+                            Path.GetFullPath(appHostPath))))
+                + ".lock");
+        // Removing this rendezvous file could split existing waiters from new openers.
+        await using FileStream aliasLock =
+            await AcquireExclusiveLockAsync(lockPath);
         bool aliasCreated = false;
+        bool stagedAliasCreated = false;
 
         try
         {
             Directory.CreateDirectory(emptyPath);
-            Assert.False(
-                File.Exists(aliasPath),
-                $"Apphost alias already exists: {aliasPath}");
-            File.Copy(appHostPath, aliasPath);
-            aliasCreated = true;
+            if (File.Exists(aliasPath))
+            {
+                Assert.True(
+                    FilesHaveSameContent(appHostPath, aliasPath),
+                    $"A non-test apphost alias already exists: {aliasPath}");
+                File.Delete(aliasPath);
+            }
+
+            File.Copy(appHostPath, stagedAliasPath);
+            stagedAliasCreated = true;
             if (!OperatingSystem.IsWindows())
             {
                 File.SetUnixFileMode(
-                    aliasPath,
+                    stagedAliasPath,
                     File.GetUnixFileMode(appHostPath));
             }
+
+            File.Move(stagedAliasPath, aliasPath);
+            stagedAliasCreated = false;
+            aliasCreated = true;
 
             var environment = new Dictionary<string, string?>
             {
@@ -302,11 +352,51 @@ public class ExplicitFilterGuardTests
                 File.Delete(aliasPath);
             }
 
+            if (stagedAliasCreated && File.Exists(stagedAliasPath))
+            {
+                File.Delete(stagedAliasPath);
+            }
+
             if (Directory.Exists(emptyPath))
             {
                 Directory.Delete(emptyPath);
             }
         }
+    }
+
+    private static async Task<FileStream> AcquireExclusiveLockAsync(
+        string path)
+    {
+        while (true)
+        {
+            try
+            {
+                return new FileStream(
+                    path,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None,
+                    bufferSize: 1,
+                    FileOptions.Asynchronous);
+            }
+            catch (IOException)
+            {
+                await Task.Delay(
+                    50,
+                    TestContext.Current.CancellationToken);
+            }
+        }
+    }
+
+    private static bool FilesHaveSameContent(
+        string left,
+        string right)
+    {
+        var leftInfo = new FileInfo(left);
+        var rightInfo = new FileInfo(right);
+        return leftInfo.Length == rightInfo.Length
+            && File.ReadAllBytes(left).AsSpan()
+                .SequenceEqual(File.ReadAllBytes(right));
     }
 
     private static async Task<ProcessResult> RunHostAsync(
@@ -359,7 +449,20 @@ public class ExplicitFilterGuardTests
             ?? throw new InvalidOperationException("Failed to start the decompiler test host.");
         Task<string> output = process.StandardOutput.ReadToEndAsync();
         Task<string> error = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+
+            throw;
+        }
 
         return new ProcessResult(process.ExitCode, await output, await error);
     }
