@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 
 using ILInspector.Metadata;
@@ -151,6 +152,80 @@ public class MemberIdentityValueEqualityTests
         Assert.Contains(
             "output limit",
             exception.Message);
+    }
+
+    [Fact]
+    public void AsyncSiblingFindingDisplay_AcceptsWideFlatSignature()
+    {
+        TypeRef int32 = TypeRef.CoreLib("System", "Int32");
+        var member = new MemberRef(
+            TypeRef.Definition("Sample", "Sample", "Api"),
+            "Read",
+            [.. Enumerable.Repeat(int32, 256)],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method);
+
+        LibraryBodyAnalysisBuilder
+            .EnsureAsyncSiblingDisplayIsBounded(member);
+    }
+
+    [Fact]
+    public void AsyncSiblingFindingDisplay_BoundsAggregateMemberText()
+    {
+        TypeRef int32 = TypeRef.CoreLib("System", "Int32");
+        var member = new MemberRef(
+            TypeRef.Definition("Sample", "Sample", "Api"),
+            "Read",
+            [.. Enumerable.Repeat(int32, 5_000)],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method);
+
+        Assert.Throws<BadImageFormatException>(
+            () => LibraryBodyAnalysisBuilder
+                .EnsureAsyncSiblingDisplayIsBounded(member));
+    }
+
+    [Fact]
+    public void AsyncSiblingIdentityAndMatching_DistinguishArrayShape()
+    {
+        TypeRef int32 = TypeRef.CoreLib("System", "Int32");
+        TypeRef baseline = TypeRef.MdArray(
+            int32,
+            new ArrayShape(
+                1,
+                [6],
+                [0]));
+        TypeRef differentSize = TypeRef.MdArray(
+            int32,
+            new ArrayShape(
+                1,
+                [7],
+                [0]));
+        TypeRef differentLowerBound = TypeRef.MdArray(
+            int32,
+            new ArrayShape(
+                1,
+                [6],
+                [1]));
+
+        Assert.False(
+            LibraryBodyAnalysisBuilder.AsyncSiblingTypesMatch(
+                baseline,
+                differentSize));
+        Assert.False(
+            LibraryBodyAnalysisBuilder.AsyncSiblingTypesMatch(
+                baseline,
+                differentLowerBound));
+        Assert.NotEqual(
+            LibraryBodyAnalysisBuilder.AsyncSiblingTypeIdentity(
+                baseline),
+            LibraryBodyAnalysisBuilder.AsyncSiblingTypeIdentity(
+                differentSize));
+        Assert.NotEqual(
+            LibraryBodyAnalysisBuilder.AsyncSiblingTypeIdentity(
+                baseline),
+            LibraryBodyAnalysisBuilder.AsyncSiblingTypeIdentity(
+                differentLowerBound));
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

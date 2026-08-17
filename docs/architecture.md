@@ -803,8 +803,11 @@ Research overlay bridge, and the application layer:
   bound structural identity, comparison, and finding-display work;
   `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
   `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`, and
-  `AsyncSiblingFindingDisplay_RejectsExponentialDagExpansion` gate those
-  untrusted-metadata boundaries. Trusted framework-contract identities, exact
+  `AsyncSiblingIdentityAndMatching_DistinguishArrayShape` gate exact identity,
+  while `AsyncSiblingFindingDisplay_RejectsExponentialDagExpansion`,
+  `AsyncSiblingFindingDisplay_AcceptsWideFlatSignature`, and
+  `AsyncSiblingFindingDisplay_BoundsAggregateMemberText` gate per-type
+  relationship and aggregate-output limits. Trusted framework-contract identities, exact
   interface-slot correspondence, friend-aware protected access, and nested
   private-access domains are gated by
   `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,

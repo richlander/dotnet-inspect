@@ -2559,7 +2559,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         AppendIdentityField(identity, type.Name);
         identity.Append(type.Rank).Append(';')
             .Append(type.GenericParameterIndex)
+            .Append(';')
+            .Append(type.RawTypeKind)
             .Append(';');
+        AppendIdentityValues(identity, type.ArraySizes);
+        AppendIdentityValues(
+            identity,
+            type.ArrayLowerBounds);
         AppendIdentityField(
             identity,
             type.UnsupportedReason);
@@ -2640,6 +2646,16 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         identity.Append('}');
     }
 
+    static void AppendIdentityValues(
+        System.Text.StringBuilder identity,
+        ImmutableArray<int> values)
+    {
+        identity.Append(values.Length).Append(':');
+        foreach (int value in values)
+            identity.Append(value).Append(',');
+        identity.Append(';');
+    }
+
     static void AppendIdentityField(
         System.Text.StringBuilder identity,
         string? value)
@@ -2695,6 +2711,14 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 || currentLeft.Namespace != currentRight.Namespace
                 || currentLeft.Name != currentRight.Name
                 || currentLeft.Rank != currentRight.Rank
+                || currentLeft.RawTypeKind
+                    != currentRight.RawTypeKind
+                || !currentLeft.ArraySizes.AsSpan()
+                    .SequenceEqual(
+                        currentRight.ArraySizes.AsSpan())
+                || !currentLeft.ArrayLowerBounds.AsSpan()
+                    .SequenceEqual(
+                        currentRight.ArrayLowerBounds.AsSpan())
                 || currentLeft.GenericParameterIndex
                     != currentRight.GenericParameterIndex
                 || currentLeft.UnsupportedReason
@@ -2954,38 +2978,38 @@ internal sealed partial class LibraryBodyAnalysisBuilder
 
     internal static void EnsureAsyncSiblingDisplayIsBounded(TypeRef type)
     {
-        var pending = new Stack<TypeRef>();
-        pending.Push(type);
-        EnsureAsyncSiblingDisplayIsBounded(
-            pending,
-            initialCharacters: 0);
+        long characters = 0;
+        EnsureAsyncSiblingTypeDisplayIsBounded(
+            type,
+            ref characters);
     }
 
-    static void EnsureAsyncSiblingDisplayIsBounded(MemberRef member)
+    internal static void EnsureAsyncSiblingDisplayIsBounded(
+        MemberRef member)
     {
-        var pending = new Stack<TypeRef>(
-            member.ParameterTypes.Length + 1);
-        for (int index = member.ParameterTypes.Length - 1;
-            index >= 0;
-            index--)
-        {
-            pending.Push(member.ParameterTypes[index]);
-        }
-        pending.Push(member.DeclaringType);
-        EnsureAsyncSiblingDisplayIsBounded(
-            pending,
+        long characters =
             member.Name.Length
-                + (long)member.ParameterTypes.Length * 2
-                + 4);
+            + (long)member.ParameterTypes.Length * 2
+            + 4;
+        EnsureAsyncSiblingTypeDisplayIsBounded(
+            member.DeclaringType,
+            ref characters);
+        foreach (TypeRef parameter in member.ParameterTypes)
+        {
+            EnsureAsyncSiblingTypeDisplayIsBounded(
+                parameter,
+                ref characters);
+        }
     }
 
-    static void EnsureAsyncSiblingDisplayIsBounded(
-        Stack<TypeRef> pending,
-        long initialCharacters)
+    static void EnsureAsyncSiblingTypeDisplayIsBounded(
+        TypeRef type,
+        ref long characters)
     {
         const int MaxDisplayCharacters = 64 * 1024;
+        var pending = new Stack<TypeRef>();
+        pending.Push(type);
         int nodes = 0;
-        long characters = initialCharacters;
         while (pending.Count > 0)
         {
             TypeRef current = pending.Pop();
