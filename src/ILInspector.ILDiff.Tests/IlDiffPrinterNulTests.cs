@@ -1,4 +1,4 @@
-namespace ILInspector.Instructions.Tests;
+namespace ILInspector.ILDiff.Tests;
 
 /// <summary>
 /// Controls for the display projection's handling of NUL.

@@ -1,4 +1,6 @@
 using ILInspector.Decompiler.Pipeline;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -19,6 +21,27 @@ public class LambdaRaisingPassTests
         Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
         Assert.NotNull(result.Output);
         return result.Output!.ReplaceLineEndings("\n").Trim();
+    }
+
+    [Theory]
+    [InlineData("Microsoft.CodeAnalysis.CSharp.ConversionsBase", "GetExplicitTupleLiteralConversion")]
+    [InlineData("Microsoft.CodeAnalysis.CSharp.ConversionsBase", "GetImplicitTupleLiteralConversion")]
+    [InlineData("Microsoft.CodeAnalysis.CSharp.MethodTypeInferrer", "FixDependentParameters")]
+    [InlineData("Microsoft.CodeAnalysis.CSharp.MethodTypeInferrer", "FixNondependentParameters")]
+    public void RoslynCachedLambdaDiamonds_RemainFullyRaised(string typeName, string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CSharpCompilation).Assembly.Location);
+        var function = IrImporter.Import(source, typeName, methodName);
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method => IrImporter.Import(source, method));
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
+        Assert.Contains("=>", result.Output);
+        Assert.DoesNotContain("___c", result.Output);
     }
 
     [Fact]
@@ -261,14 +284,114 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
-    public void ByRefVoidLambda_StaysLoweredUntilRefKindsCanPrint()
+    public void ByRefVoidLambda_RaisesWithExplicitRefParameter()
     {
         string output = PrintRaised(
             nameof(VoidLambdaRaisingSamples.ByRefVoidLambda),
             typeof(VoidLambdaRaisingSamples));
 
-        Assert.DoesNotContain("=>", output);
-        Assert.Contains("new RefCallback", output);
+        Assert.Equal("return (ref int value) => Console.WriteLine(value);", output);
+        AssertRefLambdaCompiles(output);
+    }
+
+    [Fact]
+    public void RefReadonlyLambda_StaysLoweredUntilDeclarationKindIsRepresentable()
+    {
+        using var source = MetadataSource.Open(typeof(VoidLambdaRaisingSamples).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(VoidLambdaRaisingSamples).FullName!,
+            nameof(VoidLambdaRaisingSamples.RefReadonlyVoidLambda));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+
+        var creation = Assert.Single(function!.Descendants.OfType<DelegateCreation>());
+        Assert.Equal(ParameterRefKindFacts.Known, creation.Method.ParameterRefKindsFacts);
+        Assert.True(creation.Method.HasRefReadOnlyParameters);
+        Assert.DoesNotContain("=>", result.Output);
+        Assert.Contains("new RefReadonlyCallback", result.Output);
+    }
+
+    [Fact]
+    public void ByRefLambdaWithUnknownRefKind_StaysLowered()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Outer+<>c");
+        var delegateType = TypeRef.Definition("Synthetic", "Samples", "RefCallback");
+        var byRefInt = TypeRef.ByRef(s_int);
+        var lambdaMethod = new MethodRef(
+            holder,
+            "<M>b__0",
+            TypeRef.CoreLib("System", "Void"),
+            [byRefInt],
+            HasThis: true)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        var singleton = new LoadField(new FieldRef(holder, "<>9", holder), instance: null);
+        var hostBlock = new Block();
+        hostBlock.Add(new Return(new DelegateCreation(delegateType, lambdaMethod, isVirtual: false, singleton)));
+        var hostBody = new BlockContainer();
+        hostBody.Add(hostBlock);
+        var host = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            new MethodSignature(delegateType, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            hostBody);
+
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new Return(null));
+        var lambdaContainer = new BlockContainer();
+        lambdaContainer.Add(lambdaBlock);
+        var lambdaBody = new IrFunction(
+            lambdaMethod.Name,
+            holder,
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("value", byRefInt)],
+                HasThis: true,
+                GenericParameterCount: 0),
+            [],
+            lambdaContainer);
+
+        new LambdaRaisingPass().Run(
+            host,
+            new PassContext(
+                new Stepper(enabled: false),
+                importMethodBody: _ => lambdaBody));
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+        Assert.Single(host.Descendants.OfType<DelegateCreation>());
+    }
+
+    static void AssertRefLambdaCompiles(string body)
+    {
+        string source = $$"""
+            using System;
+            static class Gate
+            {
+                public delegate void RefCallback(ref int value);
+                public static RefCallback M()
+                {
+                    {{body}}
+                }
+            }
+            """;
+        var compilation = CSharpCompilation.Create(
+            "lambda-ref-kind-gate",
+            [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var errors = compilation.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Select(diagnostic => $"{diagnostic.Id}: {diagnostic.GetMessage()}")
+            .ToArray();
+        Assert.Empty(errors);
     }
 
     [Fact]
@@ -617,6 +740,7 @@ public static class VoidLambdaRaisingSamples
 {
     public delegate void VoidCallback();
     public delegate void RefCallback(ref int value);
+    public delegate void RefReadonlyCallback(ref readonly int value);
 
     // The captured parameter is also consumed by the outer body, keeping the
     // display class in a local like NLOptNet.AddLessOrEqualZeroConstraints.
@@ -662,6 +786,9 @@ public static class VoidLambdaRaisingSamples
         => async task => await task;
 
     public static RefCallback ByRefVoidLambda() => (ref int value) => System.Console.WriteLine(value);
+
+    public static RefReadonlyCallback RefReadonlyVoidLambda()
+        => (ref readonly int value) => System.Console.WriteLine(value);
 
     static int Value() => 1;
 

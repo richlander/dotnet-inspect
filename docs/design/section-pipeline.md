@@ -7,16 +7,18 @@ execution:
 ```text
 user gesture
   -> candidate sections
-  -> direct scanner demand
-  -> prerequisite closure
+  -> direct producer demand
+  -> scanner and query prerequisite closure
+  -> typed query execution and projection
   -> scanner execution
   -> effectiveness
   -> rendering
 ```
 
 The command owns the gesture and budget. `SectionPipeline<TModel>` owns section
-and category planning. `ScannerRegistry` owns producer cost, prerequisites,
-execution, and shared resource declarations.
+and category planning. `InspectionQueryRegistry` owns typed query cost,
+prerequisites, and execution. `ScannerRegistry` owns the residual mutable
+producer cost, prerequisites, execution, and shared resource declarations.
 
 ## Section descriptors
 
@@ -63,28 +65,37 @@ fixed, network-free subset of the base union.
 The library catalog calls `WithoutComputedPoles`; it does not expose computed
 `@All` or `@Hidden` selectors.
 
-## Scanner registry
+## Producer registries
 
 `ScannerRegistry` maps each scanner key to a scan function, declared
 `SectionCost`, and immutable prerequisite list:
 
 ```csharp
 registry.Add(
-    "ClassifiedMethods",
-    SectionCost.NetworkFree,
-    ctx => ctx.Model.Apply(
-        ctx.Scan(
-            session => LibraryMetadataService.ScanClassifiedMethods(
-                session,
-                ctx.AssemblyPath,
-                ctx.Logger),
-            () => LibraryMetadataService.ScanClassifiedMethods(
-                ctx.AssemblyPath,
-                ctx.Logger))));
+    ScannerUnsafeMembers,
+    SectionCost.Unbounded,
+    ctx => ctx.Model.UnsafeMembers =
+        LibraryMetadataService.ScanUnsafeMembers(
+            ctx.BodyIndex,
+            ctx.AssemblyPath,
+            ctx.Logger));
 ```
 
 `AddBundle` registers prerequisite closure without adding work or declaring a
 synthetic cost. A bundle costs the maximum of the scanners it requires.
+
+Content-shaped producers instead register an `InspectionQuery<T>` definition.
+Sections bind to that definition by object identity, and the host projects its
+typed result into the compatibility model before residual scanners run.
+`ClassifiedMethodsQuery` is shared by `Library Info`, P/Invoke Methods, Async
+Methods, and Signals; one demand set executes it once against the command-owned
+`AssemblyInspectionSession`. `Signals` also binds `AuditMetadataQuery` and
+`AssemblyReferencesQuery`; the host applies all three typed results before
+CLI-owned signal composition, then recomposes only model-derived rows after
+later source evidence lands.
+
+The residual `ScannerRegistry` now contains only the unbounded Analysis-backed
+Unsafe Members, Top Leverage, Performance, and Resource Triage producers.
 
 The registry rejects:
 

@@ -602,6 +602,7 @@ Research overlay bridge, and the application layer:
 │                                                             │
 │  Workspace and binding-consistent assembly context groups   │
 │  Typed per-assembly and group-query coordination             │
+│  ApiInventoryQuery          type/member inventory facets    │
 ├─────────────────────────────────────────────────────────────┤
 │  ILInspector.Research (Fact overlay bridge)                 │
 │                                                             │
@@ -829,6 +830,7 @@ src/dotnet-inspect/
 
 src/DotnetInspector.Services/   # Shared, app-agnostic services
 src/DotnetInspector.Packages/   # NuGet domain provider
+src/DotnetInspector.Queries/    # Typed inspection requests and results
 src/ILInspector.Metadata/       # PE/assembly domain provider
 src/ILInspector.CSharp/         # C# spelling and namespace/type views
 src/ILInspector.ControlFlow/    # Shared control-flow/dataflow kernels
@@ -860,3 +862,5 @@ src/ILInspector.Research/       # Registered fact overlay and annotated views
 10. **Research seam for R1/R2 overlays** — `ILInspector.Research` is the accepted bridge above Analysis (R1 lower representation) and Decompiler (R2 projection/recovery representation). Research owns the `ResearchFactRegistry`, annotation producers, and fact-overlay presenters, so new facts flow through one offset-keyed overlay instead of direct `Analysis <-> Decompiler` edges or bypass renderers.
 
 11. **Finding arity is semantic** — `Finding<T>` is a one-version observation and `PairFinding<T>` is a two-version transition. `IFinding` and `IPairFinding` provide separate heterogeneous collection contracts; repeated subject/descriptor/detail projections do not justify a misleading shared hierarchy. Research composes producer-owned observations, transitions, native structural diffs, failures, and provenance as evidence without wrapping them in a second universal row model. See [Finding Nomenclature](design/finding-nomenclature.md).
+
+12. **Analysis owns structural clone truth** — Exact method-body relationship and block/local correspondence are Analysis concerns over the shared instruction substrate. Candidate discovery and corpus orchestration remain outside the producer; Research may later project owner-issued provenance into implementation-diff presentation without making C# rendering a second verifier. The first A-vs-A contract and its explicit unsupported boundaries are in [Structural Clone Analysis](design/structural-clone-analysis.md).

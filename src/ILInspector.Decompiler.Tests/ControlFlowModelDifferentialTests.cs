@@ -338,6 +338,26 @@ public class ControlFlowModelDifferentialTests
                 }
                 if (switchModelsBlock && terminator is Continue)
                     comparison.AcceptedTerminalContinueBlocks++;
+
+                if (terminator is Break or Continue
+                    && (cfg[from].Successors.Count > 0
+                        || cfg[from].ExternalTargets.Count > 0
+                        || cfg[from].ExitsMethod
+                        || cfg[from].LeavesRegion))
+                {
+                    AddDifference(comparison,
+                        $"{identity}: Cfg.Build models direct structured transfer block {from} "
+                            + "as executable fall-through or an unrelated exit kind");
+                }
+                if (terminator is Continue
+                    && switchModelsBlock
+                    && !switchSuccessors.Order().SequenceEqual(cfg[from].Successors.Order()))
+                {
+                    AddDifference(comparison,
+                        $"{identity}: switch successor view for direct Continue block {from} "
+                            + $"[{string.Join(",", switchSuccessors)}] disagrees with Cfg.Build "
+                            + $"[{string.Join(",", cfg[from].Successors)}]");
+                }
                 continue;
             }
             if (hasStructuredTransfer)

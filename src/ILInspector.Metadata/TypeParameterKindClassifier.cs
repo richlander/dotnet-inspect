@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Metadata;
 
@@ -13,12 +14,12 @@ namespace ILInspector.Metadata;
 /// value type, so it proves nothing.
 /// </summary>
 /// <remarks>
-/// Classification is fail-closed. Anything this assembly cannot read for itself — an
-/// external <see cref="TypeReference"/> whose interface flag lives in another module, a
-/// constraint naming another type parameter, or a signature the blob guards refused —
-/// yields <see cref="TypeParameterTypeKind.Undetermined"/> rather than a guess, because
-/// both wrong answers are compile errors in the consumer (CS8822 one way, CS8665 the
-/// other).
+/// Classification is fail-closed. Resolution-aware API extraction can classify an
+/// external <see cref="TypeReference"/> through a frozen
+/// <see cref="TypeResolutionContext"/>. An unavailable or ambiguous definition, an
+/// invalid type-parameter reference, or a signature the blob guards refused still yields
+/// <see cref="TypeParameterTypeKind.Undetermined"/> rather than a guess, because both
+/// wrong answers are compile errors in the consumer (CS8822 one way, CS8665 the other).
 /// </remarks>
 internal static class TypeParameterKindClassifier
 {
@@ -30,6 +31,687 @@ internal static class TypeParameterKindClassifier
     /// </summary>
     static readonly string[] s_classesThatProveNothing =
         ["System.Object", "System.ValueType", "System.Enum"];
+
+    internal sealed class ResolutionPlan
+    {
+        readonly MetadataReader reader;
+        readonly ResolvedAssemblyReference source;
+        readonly int _maxTypeResolutionRequests;
+        readonly HashSet<TypeResolutionRequest> _requests =
+            new(TypeResolutionRequestComparer.Instance);
+        readonly Dictionary<
+            TypeReferenceHandle,
+            TypeResolutionRequest?> _projectedRequests = [];
+        readonly List<TypeReferenceHandle> _projectedRequestOrder = [];
+        readonly Dictionary<
+            AssemblyReferenceHandle,
+            AssemblyReferenceIdentity> _assemblyReferences = [];
+        readonly AssemblyReferenceProjectionCache
+            _assemblyReferenceProjection;
+        readonly Dictionary<
+            (TypeReferenceHandle Handle,
+                int? GenericArgumentCount,
+                int SubjectToken),
+            ConstraintClass> _resolvedClasses = [];
+        readonly List<MetadataTypeNameFailure> _resolutionFailures = [];
+        readonly List<ResolutionFailureEntry>
+            _resolutionFailureEvidence = [];
+        readonly HashSet<(
+            int SubjectToken,
+            TypeResolutionManifestKey? Request,
+            string Detail)>
+            _resolutionFailureKeys = [];
+        readonly List<MetadataTypeNameFailure> _requestBudgetFailures = [];
+        readonly HashSet<int> _requestBudgetFailureSubjects = [];
+        readonly List<TypeResolutionRequest> _requestOrder = [];
+        TypeResolutionContext? _context;
+        bool _requestBudgetExhausted;
+
+        internal ResolutionPlan(
+            MetadataReader reader,
+            ResolvedAssemblyReference source,
+            int maxTypeResolutionRequests =
+                TypeResolutionContextOptions
+                    .DefaultMaxTypeResolutionRequests)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+                maxTypeResolutionRequests);
+            this.reader = reader;
+            this.source = source;
+            _assemblyReferenceProjection =
+                new AssemblyReferenceProjectionCache(reader);
+            _maxTypeResolutionRequests =
+                maxTypeResolutionRequests;
+        }
+
+        internal IReadOnlyCollection<TypeResolutionRequest> Requests =>
+            _requests;
+        internal int ProjectedReferenceCount =>
+            _projectedRequests.Count;
+        internal MetadataTypeNameFailure? RequestBudgetFailure =>
+            _requestBudgetFailures.FirstOrDefault();
+        internal IReadOnlyList<MetadataTypeNameFailure>
+            RequestBudgetFailures => _requestBudgetFailures;
+        internal IReadOnlyList<MetadataTypeNameFailure>
+            ResolutionFailures => _resolutionFailures;
+        internal IReadOnlyList<ResolutionFailureEntry>
+            ResolutionFailureEntries => _resolutionFailureEvidence;
+
+        internal sealed record ResolutionFailureEntry(
+            MetadataTypeNameFailure Failure,
+            AssemblyReferenceIdentity? DependencyAssembly);
+
+        internal RequestCheckpoint Checkpoint() =>
+            new(
+                _requestOrder.Count,
+                _projectedRequestOrder.Count,
+                _requestBudgetFailures.Count,
+                _requestBudgetExhausted);
+
+        internal void Rollback(RequestCheckpoint checkpoint)
+        {
+            if (checkpoint.RequestCount < 0
+                || checkpoint.RequestCount > _requestOrder.Count
+                || checkpoint.ProjectedRequestCount < 0
+                || checkpoint.ProjectedRequestCount
+                    > _projectedRequestOrder.Count
+                || checkpoint.BudgetFailureCount < 0
+                || checkpoint.BudgetFailureCount
+                    > _requestBudgetFailures.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(checkpoint));
+            }
+
+            for (int i = _requestOrder.Count - 1;
+                i >= checkpoint.RequestCount;
+                i--)
+            {
+                _requests.Remove(_requestOrder[i]);
+            }
+
+            _requestOrder.RemoveRange(
+                checkpoint.RequestCount,
+                _requestOrder.Count - checkpoint.RequestCount);
+            for (int i = _projectedRequestOrder.Count - 1;
+                i >= checkpoint.ProjectedRequestCount;
+                i--)
+            {
+                _projectedRequests.Remove(_projectedRequestOrder[i]);
+            }
+
+            _projectedRequestOrder.RemoveRange(
+                checkpoint.ProjectedRequestCount,
+                _projectedRequestOrder.Count
+                    - checkpoint.ProjectedRequestCount);
+            for (int i = _requestBudgetFailures.Count - 1;
+                i >= checkpoint.BudgetFailureCount;
+                i--)
+            {
+                _requestBudgetFailureSubjects.Remove(
+                    _requestBudgetFailures[i].SubjectToken ?? 0);
+            }
+            _requestBudgetFailures.RemoveRange(
+                checkpoint.BudgetFailureCount,
+                _requestBudgetFailures.Count
+                    - checkpoint.BudgetFailureCount);
+            _requestBudgetExhausted = checkpoint.BudgetExhausted;
+        }
+
+        internal readonly record struct RequestCheckpoint(
+            int RequestCount,
+            int ProjectedRequestCount,
+            int BudgetFailureCount,
+            bool BudgetExhausted);
+
+        internal void Bind(TypeResolutionContext context)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+            _context = context;
+        }
+
+        internal ConstraintClass Classify(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            int? genericArgumentCount = null,
+            EntityHandle subject = default)
+        {
+            if (!_projectedRequests.TryGetValue(
+                    handle,
+                    out TypeResolutionRequest? request))
+            {
+                if (_requestBudgetExhausted)
+                {
+                    RecordRequestBudgetFailure(subject);
+                    return ConstraintClass.Unreadable;
+                }
+
+                request = CreateRequest(reader, source, handle);
+                _projectedRequests.Add(handle, request);
+                _projectedRequestOrder.Add(handle);
+            }
+
+            if (request is null)
+            {
+                return ConstraintClass.Unreadable;
+            }
+
+            if (_context is null)
+            {
+                if (_requests.Contains(request))
+                    return ConstraintClass.Unreadable;
+                if (_requests.Count < _maxTypeResolutionRequests
+                    && _requests.Add(request))
+                {
+                    _requestOrder.Add(request);
+                }
+                else
+                {
+                    _requestBudgetExhausted = true;
+                    RecordRequestBudgetFailure(subject);
+                }
+                return ConstraintClass.Unreadable;
+            }
+
+            var cacheKey = (
+                handle,
+                genericArgumentCount,
+                subject.IsNil
+                    ? 0
+                    : MetadataTokens.GetToken(subject));
+            if (_resolvedClasses.TryGetValue(
+                    cacheKey,
+                    out ConstraintClass cached))
+            {
+                return cached;
+            }
+
+            TypeResolutionOutcome outcome =
+                _context.Resolve(request);
+            ConstraintClass result = ClassifyOutcome(
+                request,
+                outcome,
+                subject,
+                genericArgumentCount);
+            _resolvedClasses.Add(cacheKey, result);
+            return result;
+        }
+
+        internal MetadataTypeDefinitionKind ClassifyDefinitionKind(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            bool declaringAssemblyDefinesCoreLibraryRoot,
+            out DefinitionKindDependency? dependency) =>
+            MetadataTypeDeclarationProbe.ClassifyDefinitionKind(
+                reader,
+                handle,
+                declaringAssemblyDefinesCoreLibraryRoot,
+                _assemblyReferenceProjection,
+                out dependency);
+
+        internal ConstraintClass Classify(
+            DefinitionKindDependency dependency,
+            EntityHandle subject)
+        {
+            TypeResolutionRequest request =
+                TypeResolutionRequest.FromReference(
+                    dependency.Reference,
+                    AssemblyBindingOrigin.FromAssembly(source),
+                    dependency.Scope,
+                    dependency.Type);
+            if (_context is null)
+            {
+                if (_requests.Contains(request))
+                    return ConstraintClass.Unreadable;
+                if (_requests.Count < _maxTypeResolutionRequests
+                    && _requests.Add(request))
+                {
+                    _requestOrder.Add(request);
+                }
+                else
+                {
+                    _requestBudgetExhausted = true;
+                    RecordRequestBudgetFailure(subject);
+                }
+                return ConstraintClass.Unreadable;
+            }
+
+            TypeResolutionOutcome outcome =
+                _context.Resolve(request);
+            if (outcome
+                is not TypeResolutionOutcome.Resolved resolved)
+            {
+                RecordResolutionOutcomeFailure(
+                    request,
+                    outcome,
+                    subject);
+                return ConstraintClass.Unreadable;
+            }
+
+            if (resolved.Definition.KindResolutionFailure is { } kindFailure)
+            {
+                if (kindFailure
+                    is TypeResolutionFailure.RequestBudgetExceeded budget)
+                {
+                    RecordAuthenticationBudgetFailure(
+                        subject,
+                        budget.Budget);
+                }
+                else
+                {
+                    RecordResolutionFailure(
+                        subject,
+                        kindFailure,
+                        request,
+                        dependencyAssembly:
+                            resolved.Definition
+                                .KindResolutionDependencyAssembly);
+                }
+            }
+
+            if (resolved.Definition.GenericParameterCount
+                != dependency.GenericArgumentCount)
+            {
+                RecordResolutionFailure(
+                    subject,
+                    "A generic-constraint dependency resolved with generic "
+                        + $"arity {resolved.Definition.GenericParameterCount}, "
+                        + "but the constraint uses arity "
+                        + $"{dependency.GenericArgumentCount}.",
+                    request);
+                return ConstraintClass.Unreadable;
+            }
+
+            if (resolved.Definition.Kind
+                != MetadataTypeDefinitionKind.Class)
+            {
+                return ConstraintClass.Unreadable;
+            }
+            if (resolved.Definition
+                    .DeclaringAssemblyDefinesCoreLibraryRoot
+                && resolved.Definition.Type.ToMetadataFullName()
+                    is "System.ValueType" or "System.Enum")
+            {
+                return ConstraintClass.Unreadable;
+            }
+            return ConstraintClass.ProvesReferenceType;
+        }
+
+        ConstraintClass ClassifyOutcome(
+            TypeResolutionRequest request,
+            TypeResolutionOutcome outcome,
+            EntityHandle handle,
+            int? genericArgumentCount)
+        {
+            if (outcome
+                is not TypeResolutionOutcome.Resolved resolved)
+            {
+                RecordResolutionOutcomeFailure(
+                    request,
+                    outcome,
+                    handle);
+                return ConstraintClass.Unreadable;
+            }
+
+            ResolvedTypeDefinition definition = resolved.Definition;
+            if (definition.KindResolutionFailure is { } kindFailure)
+            {
+                if (kindFailure
+                    is TypeResolutionFailure.RequestBudgetExceeded budget)
+                {
+                    RecordAuthenticationBudgetFailure(
+                        handle,
+                        budget.Budget);
+                }
+                else
+                {
+                    RecordResolutionFailure(
+                        handle,
+                        kindFailure,
+                        request,
+                        dependencyAssembly:
+                            definition
+                                .KindResolutionDependencyAssembly);
+                }
+            }
+
+            if (genericArgumentCount is int expected
+                && definition.GenericParameterCount != expected)
+            {
+                RecordResolutionFailure(
+                    handle,
+                    "A generic-constraint dependency resolved with generic "
+                        + $"arity {definition.GenericParameterCount}, but "
+                        + $"the constraint uses arity {expected}.",
+                    request);
+                return ConstraintClass.Unreadable;
+            }
+
+            return definition.Kind switch
+            {
+                MetadataTypeDefinitionKind.Interface =>
+                    ConstraintClass.ProvesNothing,
+                MetadataTypeDefinitionKind.Class
+                    when IsClassThatProvesNothing(
+                        request.Type.ToMetadataFullName())
+                        && definition
+                            .DeclaringAssemblyDefinesCoreLibraryRoot =>
+                    ConstraintClass.ProvesNothing,
+                MetadataTypeDefinitionKind.Class =>
+                    ConstraintClass.ProvesReferenceType,
+                _ => ConstraintClass.Unreadable,
+            };
+        }
+
+        void RecordResolutionOutcomeFailure(
+            TypeResolutionRequest request,
+            TypeResolutionOutcome outcome,
+            EntityHandle handle)
+        {
+            switch (outcome)
+            {
+                case TypeResolutionOutcome.Rejected rejected
+                    when rejected.Failure
+                        is TypeResolutionFailure.RequestBudgetExceeded
+                            budget:
+                    RecordAuthenticationBudgetFailure(
+                        handle,
+                        budget.Budget);
+                    break;
+                case TypeResolutionOutcome.Rejected
+                {
+                    Failure:
+                        TypeResolutionFailure.PlanExpansionRequired,
+                } when _requestBudgetExhausted:
+                    break;
+                case TypeResolutionOutcome.Rejected rejected:
+                    RecordResolutionFailure(
+                        handle,
+                        rejected.Failure,
+                        request,
+                        dependencyAssembly:
+                            rejected.TerminalAssemblyIdentity);
+                    break;
+                case TypeResolutionOutcome.Unavailable unavailable:
+                    RecordResolutionFailure(
+                        handle,
+                        "A generic-constraint dependency assembly was "
+                            + $"unavailable: '{unavailable.Failure.Kind}'.",
+                        request,
+                        dependencyAssembly:
+                            GetDependencyAssembly(unavailable));
+                    break;
+                case TypeResolutionOutcome.NotFound notFound:
+                    RecordResolutionFailure(
+                        handle,
+                        $"Generic-constraint dependency "
+                            + $"'{request.Type.ToMetadataFullName()}' "
+                            + "was not found.",
+                        request,
+                        dependencyAssembly:
+                            GetDependencyAssembly(notFound));
+                    break;
+                case TypeResolutionOutcome.UnboundBinding unbound:
+                    RecordResolutionFailure(
+                        handle,
+                        $"Generic-constraint dependency "
+                            + $"'{request.Type.ToMetadataFullName()}' "
+                            + "could not be bound to an acquired assembly.",
+                        request,
+                        dependencyAssembly:
+                            GetDependencyAssembly(unbound));
+                    break;
+                case TypeResolutionOutcome.Ambiguous ambiguous:
+                    RecordResolutionFailure(
+                        handle,
+                        $"Generic-constraint dependency "
+                            + $"'{request.Type.ToMetadataFullName()}' "
+                            + "resolved ambiguously.",
+                        request,
+                        dependencyAssembly:
+                            GetDependencyAssembly(ambiguous));
+                    break;
+            }
+        }
+
+        void RecordRequestBudgetFailure(EntityHandle handle) =>
+            RecordRequestBudgetFailure(
+                handle,
+                "Type-resolution request discovery exceeded "
+                    + $"the configured budget of "
+                    + $"{_maxTypeResolutionRequests}.");
+
+        void RecordAuthenticationBudgetFailure(
+            EntityHandle handle,
+            int budget) =>
+            RecordRequestBudgetFailure(
+                handle,
+                "Type-resolution dependency authentication exceeded "
+                    + $"the configured budget of {budget}.");
+
+        void RecordRequestBudgetFailure(
+            EntityHandle handle,
+            string detail)
+        {
+            int subjectToken = handle.IsNil
+                ? 0
+                : MetadataTokens.GetToken(handle);
+            if (!_requestBudgetFailureSubjects.Add(subjectToken))
+                return;
+
+            _requestBudgetFailures.Add(
+                MetadataTypeNameFailure.ForMechanism(
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    handle,
+                    detail));
+        }
+
+        void RecordResolutionFailure(
+            EntityHandle handle,
+            TypeResolutionFailure failure,
+            TypeResolutionRequest? request = null,
+            AssemblyReferenceIdentity? dependencyAssembly = null)
+        {
+            string detail = failure switch
+            {
+                TypeResolutionFailure.CandidateOpenFailed open =>
+                    "A generic-constraint dependency could not be opened: "
+                        + open.Failure.Detail,
+                TypeResolutionFailure.DeclarationRejected rejected =>
+                    "A generic-constraint dependency declaration could not "
+                        + $"be decoded: {rejected.Rejection.Detail}",
+                TypeResolutionFailure.DiscoveryBudgetExceeded budget =>
+                    "Type-resolution dependency discovery exceeded "
+                        + $"the configured candidate budget of {budget.Budget}.",
+                TypeResolutionFailure.HopBudgetExceeded budget =>
+                    "Type-resolution dependency forwarding exceeded "
+                        + $"the configured hop budget of {budget.Budget}.",
+                TypeResolutionFailure.ForwarderCycle =>
+                    "Type-resolution dependency forwarding contains a cycle.",
+                TypeResolutionFailure.UnsupportedModuleExport =>
+                    "A generic-constraint dependency is exported from an "
+                        + "unsupported module.",
+                TypeResolutionFailure.UnsupportedModuleReference =>
+                    "A generic-constraint dependency begins from unsupported "
+                        + "module.",
+                TypeResolutionFailure.UnregisteredAssembly =>
+                    "A generic-constraint dependency assembly was not "
+                        + "registered in the frozen resolution generation.",
+                TypeResolutionFailure.InvalidBindingPolicy invalid =>
+                    "The generic-constraint binding policy returned "
+                        + $"'{invalid.Failure.Kind}'.",
+                TypeResolutionFailure.KindDependencyUnbound =>
+                    "A transitive generic-constraint dependency could not "
+                        + "be bound to an acquired assembly.",
+                TypeResolutionFailure.KindDependencyUnavailable unavailable =>
+                    "A transitive generic-constraint dependency assembly "
+                        + $"was unavailable: '{unavailable.Failure.Kind}'.",
+                TypeResolutionFailure.KindDependencyCycle =>
+                    "Transitive generic-constraint kind authentication "
+                        + "contains a cycle.",
+                TypeResolutionFailure.KindDependencyTypeNotFound notFound =>
+                    "Transitive generic-constraint dependency "
+                        + $"'{notFound.Type.ToMetadataFullName()}' was not "
+                        + "found.",
+                TypeResolutionFailure.KindDependencyAmbiguous ambiguous =>
+                    "Transitive generic-constraint dependency "
+                        + $"'{ambiguous.Type.ToMetadataFullName()}' resolved "
+                        + "ambiguously.",
+                TypeResolutionFailure.PlanExpansionRequired =>
+                    "A generic-constraint dependency was absent from the "
+                        + "frozen type-resolution plan.",
+                _ => "Generic-constraint resolution was rejected.",
+            };
+            RecordResolutionFailure(
+                handle,
+                detail,
+                request,
+                failure,
+                dependencyAssembly);
+        }
+
+        void RecordResolutionFailure(
+            EntityHandle handle,
+            string detail,
+            TypeResolutionRequest? request = null,
+            TypeResolutionFailure? failure = null,
+            AssemblyReferenceIdentity? dependencyAssembly = null)
+        {
+            int subjectToken = handle.IsNil
+                ? 0
+                : MetadataTokens.GetToken(handle);
+            TypeResolutionManifestKey? requestKey = request is null
+                ? null
+                : TypeResolutionManifestKey.From(request);
+            dependencyAssembly ??=
+                GetDependencyAssembly(request, failure);
+            if (dependencyAssembly is not null)
+            {
+                detail += " Dependency assembly: "
+                    + $"'{dependencyAssembly.Name}'.";
+            }
+            if (!_resolutionFailureKeys.Add(
+                    (subjectToken, requestKey, detail)))
+                return;
+
+            MetadataTypeNameFailure projected =
+                MetadataTypeNameFailure.ForMechanism(
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    handle,
+                    detail);
+            _resolutionFailures.Add(projected);
+            _resolutionFailureEvidence.Add(
+                new ResolutionFailureEntry(
+                    projected,
+                    dependencyAssembly));
+        }
+
+        static AssemblyReferenceIdentity? GetDependencyAssembly(
+            TypeResolutionRequest? request,
+            TypeResolutionFailure? failure)
+        {
+            return failure?.AssemblyIdentity
+                ?? (request?.Start
+                    is TypeResolutionStart.Reference reference
+                        ? reference.Value
+                        : null);
+        }
+
+        static AssemblyReferenceIdentity? GetDependencyAssembly(
+            TypeResolutionOutcome outcome) =>
+            outcome.TerminalAssemblyIdentity;
+
+        TypeResolutionRequest? CreateRequest(
+            MetadataReader reader,
+            ResolvedAssemblyReference source,
+            TypeReferenceHandle handle)
+        {
+            if (MetadataTypeDefinitionNameReader.Read(reader, handle)
+                is not MetadataTypeDefinitionNameReadResult.Read read)
+            {
+                return null;
+            }
+
+            Span<TypeReferenceHandle> rootToLeaf =
+                stackalloc TypeReferenceHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal
+                    .TryWalkTypeReferenceResolutionScope(
+                        reader,
+                        handle,
+                        rootToLeaf,
+                        out _,
+                        out EntityHandle terminal,
+                        out _))
+            {
+                return null;
+            }
+
+            try
+            {
+                return terminal.Kind switch
+                {
+                    HandleKind.AssemblyReference =>
+                        FromAssemblyReference(
+                            reader,
+                            source,
+                            (AssemblyReferenceHandle)terminal,
+                            read.Name),
+                    HandleKind.ModuleDefinition =>
+                        TypeResolutionRequest.FromAssembly(
+                            source,
+                            AssemblyResolutionScope.Any,
+                            read.Name),
+                    HandleKind.ModuleReference =>
+                        TypeResolutionRequest.FromModule(
+                            source,
+                            reader.GetString(
+                                reader.GetModuleReference(
+                                    (ModuleReferenceHandle)terminal).Name),
+                            read.Name),
+                    _ when terminal.IsNil =>
+                        TypeResolutionRequest.FromAssembly(
+                            source,
+                            AssemblyResolutionScope.Any,
+                            read.Name),
+                    _ => null,
+                };
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException
+                    or ArgumentException)
+            {
+                return null;
+            }
+        }
+
+        TypeResolutionRequest FromAssemblyReference(
+            MetadataReader reader,
+            ResolvedAssemblyReference source,
+            AssemblyReferenceHandle handle,
+            MetadataTypeDefinitionName type)
+        {
+            if (!_assemblyReferences.TryGetValue(
+                    handle,
+                    out AssemblyReferenceIdentity? reference))
+            {
+                reference = AssemblyReferenceIdentity.From(
+                    handle,
+                    _assemblyReferenceProjection);
+                _assemblyReferences.Add(handle, reference);
+            }
+
+            AssemblyResolutionScope scope =
+                PlatformKeys.IsPlatform(reference.PublicKeyToken)
+                    ? AssemblyResolutionScope.Platform
+                    : AssemblyResolutionScope.Any;
+            return TypeResolutionRequest.FromReference(
+                reference,
+                AssemblyBindingOrigin.FromAssembly(source),
+                scope,
+                type);
+        }
+    }
 
     /// <param name="chain">
     /// The answers for the parameter list <paramref name="handle"/> belongs to. One
@@ -65,7 +747,14 @@ internal static class TypeParameterKindClassifier
     /// is a proof wherever it sits in the list, and nothing unreadable can unprove it;
     /// answering otherwise would make the verdict depend on constraint order.
     /// </remarks>
-    static Node Describe(MetadataReader reader, GenericParameterHandle handle)
+    static Node Describe(
+        MetadataReader reader,
+        GenericParameterHandle handle,
+        ResolutionPlan? resolution,
+        EntityHandle subject,
+        SiblingParameterIndex siblingParameters,
+        Dictionary<TypeDefinitionHandle, ConstraintClass>
+            definitionClasses)
     {
         var node = new Node(handle);
         GenericParameter parameter;
@@ -107,7 +796,12 @@ internal static class TypeParameterKindClassifier
                     continue;
                 }
 
-                switch (ClassifyConstraintType(reader, constraint.Type))
+                switch (ClassifyConstraintType(
+                    reader,
+                    constraint.Type,
+                    resolution,
+                    subject,
+                    definitionClasses))
                 {
                     case ConstraintClass.ProvesReferenceType:
                         node.ProvesReference = true;
@@ -120,7 +814,11 @@ internal static class TypeParameterKindClassifier
 
                     // `where T : U` -- T is exactly as known as U, so record the edge.
                     case ConstraintClass.DeferToTypeParameter:
-                        if (SiblingHandle(reader, parameter, constraint.Type) is { } target)
+                        if (SiblingHandle(
+                                reader,
+                                parameter,
+                                constraint.Type,
+                                siblingParameters) is { } target)
                             node.Defers.Add(target);
                         else
                             node.Unreadable = true;
@@ -151,32 +849,150 @@ internal static class TypeParameterKindClassifier
     static GenericParameterHandle? SiblingHandle(
         MetadataReader reader,
         GenericParameter parameter,
-        EntityHandle constraintType)
+        EntityHandle constraintType,
+        SiblingParameterIndex siblingParameters)
     {
         if (constraintType.Kind != HandleKind.TypeSpecification)
             return null;
 
-        var reference = GuardedProviderDecode.TypeSpec(
-            reader,
-            (TypeSpecificationHandle)constraintType,
-            TypeParameterReferenceProvider.Instance,
-            (GenericContext?)null,
-            fallback: null);
-        if (reference is not { } target)
+        if (!TypeSpecificationRoot.TryRead(
+                reader,
+                (TypeSpecificationHandle)constraintType,
+                out TypeSpecificationRoot root)
+            || root.Kind
+                is not (
+                    TypeSpecificationRootKind.GenericTypeParameter
+                    or TypeSpecificationRootKind.GenericMethodParameter))
+        {
             return null;
+        }
 
         try
         {
-            var siblings = SiblingParameters(reader, parameter, target.IsMethodParameter);
-            if (siblings is not { } handles || target.Index < 0 || target.Index >= handles.Count)
-                return null;
-
-            return handles[target.Index];
+            return siblingParameters.Resolve(
+                reader,
+                parameter,
+                root.Kind
+                    == TypeSpecificationRootKind.GenericMethodParameter,
+                root.GenericParameterIndex);
         }
-        catch (BadImageFormatException)
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
         {
             return null;
         }
+    }
+
+    sealed class SiblingParameterIndex
+    {
+        readonly Dictionary<EntityHandle, SiblingParameterMap> _maps = [];
+
+        internal GenericParameterHandle? Resolve(
+            MetadataReader reader,
+            GenericParameter parameter,
+            bool isMethodParameter,
+            int index)
+        {
+            if (!TryGetOwnerAndParameters(
+                    reader,
+                    parameter,
+                    isMethodParameter,
+                    out EntityHandle owner,
+                    out GenericParameterHandleCollection parameters))
+            {
+                return null;
+            }
+
+            if (!_maps.TryGetValue(owner, out SiblingParameterMap map))
+            {
+                map = Build(reader, parameters);
+                _maps.Add(owner, map);
+            }
+
+            return map.IsValid
+                    && index >= 0
+                    && index < map.Parameters.Length
+                ? map.Parameters[index]
+                : null;
+        }
+
+        static SiblingParameterMap Build(
+            MetadataReader reader,
+            GenericParameterHandleCollection parameters)
+        {
+            var byIndex =
+                new GenericParameterHandle[parameters.Count];
+            foreach (GenericParameterHandle handle in parameters)
+            {
+                int index =
+                    reader.GetGenericParameter(handle).Index;
+                if (index < 0
+                    || index >= byIndex.Length
+                    || !byIndex[index].IsNil)
+                {
+                    return default;
+                }
+
+                byIndex[index] = handle;
+            }
+
+            return byIndex.Any(static handle => handle.IsNil)
+                ? default
+                : new SiblingParameterMap(
+                    IsValid: true,
+                    [.. byIndex]);
+        }
+
+        static bool TryGetOwnerAndParameters(
+            MetadataReader reader,
+            GenericParameter parameter,
+            bool isMethodParameter,
+            out EntityHandle owner,
+            out GenericParameterHandleCollection parameters)
+        {
+            switch (parameter.Parent.Kind)
+            {
+                case HandleKind.MethodDefinition:
+                    var method =
+                        reader.GetMethodDefinition(
+                            (MethodDefinitionHandle)parameter.Parent);
+                    if (isMethodParameter)
+                    {
+                        owner = parameter.Parent;
+                        parameters = method.GetGenericParameters();
+                    }
+                    else
+                    {
+                        TypeDefinitionHandle declaringType =
+                            method.GetDeclaringType();
+                        owner = declaringType;
+                        parameters =
+                            reader.GetTypeDefinition(declaringType)
+                                .GetGenericParameters();
+                    }
+
+                    return true;
+
+                case HandleKind.TypeDefinition
+                    when !isMethodParameter:
+                    owner = parameter.Parent;
+                    parameters =
+                        reader.GetTypeDefinition(
+                                (TypeDefinitionHandle)parameter.Parent)
+                            .GetGenericParameters();
+                    return true;
+
+                default:
+                    owner = default;
+                    parameters = default;
+                    return false;
+            }
+        }
+
+        readonly record struct SiblingParameterMap(
+            bool IsValid,
+            ImmutableArray<GenericParameterHandle> Parameters);
     }
 
     /// <summary>
@@ -204,34 +1020,6 @@ internal static class TypeParameterKindClassifier
     }
 
     /// <summary>
-    /// The generic parameters a sibling reference indexes into: the owning method's when
-    /// the reference is to a method type parameter, otherwise the declaring type's.
-    /// </summary>
-    static GenericParameterHandleCollection? SiblingParameters(
-        MetadataReader reader,
-        GenericParameter parameter,
-        bool isMethodParameter)
-    {
-        switch (parameter.Parent.Kind)
-        {
-            case HandleKind.MethodDefinition:
-                var method = reader.GetMethodDefinition((MethodDefinitionHandle)parameter.Parent);
-                return isMethodParameter
-                    ? method.GetGenericParameters()
-                    : reader.GetTypeDefinition(method.GetDeclaringType()).GetGenericParameters();
-
-            case HandleKind.TypeDefinition:
-                // A type's own parameter cannot name a method parameter.
-                return isMethodParameter
-                    ? null
-                    : reader.GetTypeDefinition((TypeDefinitionHandle)parameter.Parent).GetGenericParameters();
-
-            default:
-                return null;
-        }
-    }
-
-    /// <summary>
     /// The answers for one declaration's type parameters, and the resolution that computes
     /// them. A caller classifying a parameter list reuses one instance across it; answers
     /// outlive a single resolution, since a handle identifies the same parameter for the
@@ -256,6 +1044,19 @@ internal static class TypeParameterKindClassifier
     internal sealed class ChainState
     {
         readonly Dictionary<GenericParameterHandle, TypeParameterTypeKind> _answers = [];
+        readonly Dictionary<TypeDefinitionHandle, ConstraintClass>
+            _definitionClasses = [];
+        readonly ResolutionPlan? _resolution;
+        readonly EntityHandle _subject;
+        readonly SiblingParameterIndex _siblingParameters = new();
+
+        internal ChainState(
+            ResolutionPlan? resolution = null,
+            EntityHandle subject = default)
+        {
+            _resolution = resolution;
+            _subject = subject;
+        }
 
         internal TypeParameterTypeKind Answer(MetadataReader reader, GenericParameterHandle handle)
         {
@@ -311,7 +1112,13 @@ internal static class TypeParameterKindClassifier
                 if (_answers.ContainsKey(handle) || nodes.ContainsKey(handle))
                     continue;
 
-                var node = Describe(reader, handle);
+                var node = Describe(
+                    reader,
+                    handle,
+                    _resolution,
+                    _subject,
+                    _siblingParameters,
+                    _definitionClasses);
                 nodes[handle] = node;
                 foreach (var target in node.Defers)
                 {
@@ -479,39 +1286,7 @@ internal static class TypeParameterKindClassifier
         }
     }
 
-    readonly record struct TypeParameterReference(int Index, bool IsMethodParameter);
-
-    /// <summary>
-    /// Decodes a constraint signature that is expected to be exactly one generic
-    /// parameter reference, yielding null for every other shape so the caller fails
-    /// closed rather than mistaking a composed type for a bare parameter.
-    /// </summary>
-    sealed class TypeParameterReferenceProvider
-        : ISignatureTypeProvider<TypeParameterReference?, GenericContext?>
-    {
-        internal static readonly TypeParameterReferenceProvider Instance = new();
-
-        public TypeParameterReference? GetGenericMethodParameter(GenericContext? context, int index)
-            => new TypeParameterReference(index, IsMethodParameter: true);
-
-        public TypeParameterReference? GetGenericTypeParameter(GenericContext? context, int index)
-            => new TypeParameterReference(index, IsMethodParameter: false);
-
-        public TypeParameterReference? GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => null;
-        public TypeParameterReference? GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => null;
-        public TypeParameterReference? GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind) => null;
-        public TypeParameterReference? GetGenericInstantiation(TypeParameterReference? genericType, ImmutableArray<TypeParameterReference?> typeArguments) => null;
-        public TypeParameterReference? GetModifiedType(TypeParameterReference? modifier, TypeParameterReference? unmodifiedType, bool isRequired) => null;
-        public TypeParameterReference? GetPinnedType(TypeParameterReference? elementType) => null;
-        public TypeParameterReference? GetPrimitiveType(PrimitiveTypeCode typeCode) => null;
-        public TypeParameterReference? GetSZArrayType(TypeParameterReference? elementType) => null;
-        public TypeParameterReference? GetArrayType(TypeParameterReference? elementType, ArrayShape shape) => null;
-        public TypeParameterReference? GetByReferenceType(TypeParameterReference? elementType) => null;
-        public TypeParameterReference? GetPointerType(TypeParameterReference? elementType) => null;
-        public TypeParameterReference? GetFunctionPointerType(MethodSignature<TypeParameterReference?> signature) => null;
-    }
-
-    enum ConstraintClass
+    internal enum ConstraintClass
     {
         ProvesNothing,
         ProvesReferenceType,
@@ -525,7 +1300,14 @@ internal static class TypeParameterKindClassifier
         DeferToTypeParameter,
     }
 
-    static ConstraintClass ClassifyConstraintType(MetadataReader reader, EntityHandle handle)
+    static ConstraintClass ClassifyConstraintType(
+        MetadataReader reader,
+        EntityHandle handle,
+        ResolutionPlan? resolution,
+        EntityHandle subject,
+        Dictionary<TypeDefinitionHandle, ConstraintClass>
+            definitionClasses,
+        int? genericArgumentCount = null)
     {
         if (handle.IsNil)
             return ConstraintClass.Unreadable;
@@ -533,7 +1315,35 @@ internal static class TypeParameterKindClassifier
         switch (handle.Kind)
         {
             case HandleKind.TypeDefinition:
-                return ClassifyDefinition(reader, (TypeDefinitionHandle)handle);
+                TypeDefinitionHandle definitionHandle =
+                    (TypeDefinitionHandle)handle;
+                if (genericArgumentCount is int expected
+                    && (!MetadataTypeDeclarationProbe
+                            .TryGetGenericParameterCount(
+                                reader,
+                                definitionHandle,
+                                out int actual)
+                        || actual != expected))
+                {
+                    return ConstraintClass.Unreadable;
+                }
+
+                if (!definitionClasses.TryGetValue(
+                        definitionHandle,
+                        out ConstraintClass definitionClass))
+                {
+                    definitionClass =
+                        ClassifyDefinition(
+                            reader,
+                            definitionHandle,
+                            resolution,
+                            subject);
+                    definitionClasses.Add(
+                        definitionHandle,
+                        definitionClass);
+                }
+
+                return definitionClass;
 
             // Another module owns the interface flag, and a name is not a substitute for
             // it: an unknown external type could be either. The three core types that
@@ -542,28 +1352,52 @@ internal static class TypeParameterKindClassifier
             // treating that as the real one would emit `default` for a type parameter
             // that is genuinely known to be a reference type (CS8822).
             case HandleKind.TypeReference:
-                var typeReference = reader.GetTypeReference((TypeReferenceHandle)handle);
-                return IsClassThatProvesNothing(TypeReferenceFullName(reader, (TypeReferenceHandle)handle))
-                    && ApiSurfaceExtractor.ResolvesThroughCoreLibrary(reader, typeReference.ResolutionScope)
-                        ? ConstraintClass.ProvesNothing
-                        : ConstraintClass.Unreadable;
+                return ClassifyReference(
+                    reader,
+                    (TypeReferenceHandle)handle,
+                    resolution,
+                    genericArgumentCount,
+                    subject);
 
             // A generic instantiation constrains to the instantiated type, so the
             // question is about its generic type definition.
             case HandleKind.TypeSpecification:
-                return GuardedProviderDecode.TypeSpec(
-                    reader,
-                    (TypeSpecificationHandle)handle,
-                    ConstraintRootProvider.Instance,
-                    (GenericContext?)null,
-                    fallback: ConstraintClass.Unreadable);
+                if (!TypeSpecificationRoot.TryRead(
+                        reader,
+                        (TypeSpecificationHandle)handle,
+                        out TypeSpecificationRoot root))
+                {
+                    return ConstraintClass.Unreadable;
+                }
+
+                return root.Kind switch
+                {
+                    TypeSpecificationRootKind.NamedType
+                        when root.RawTypeKind
+                            == (byte)SignatureTypeKind.Class =>
+                        ClassifyConstraintType(
+                            reader,
+                            root.Type,
+                            resolution,
+                            subject,
+                            definitionClasses,
+                            root.GenericArgumentCount),
+                    TypeSpecificationRootKind.GenericTypeParameter
+                        or TypeSpecificationRootKind.GenericMethodParameter =>
+                        ConstraintClass.DeferToTypeParameter,
+                    _ => ConstraintClass.Unreadable,
+                };
 
             default:
                 return ConstraintClass.Unreadable;
         }
     }
 
-    static ConstraintClass ClassifyDefinition(MetadataReader reader, TypeDefinitionHandle handle)
+    static ConstraintClass ClassifyDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        ResolutionPlan? resolution,
+        EntityHandle subject)
     {
         TypeDefinition definition;
         string fullName;
@@ -577,14 +1411,38 @@ internal static class TypeParameterKindClassifier
             return ConstraintClass.Unreadable;
         }
 
-        if ((definition.Attributes & TypeAttributes.Interface) != 0)
+        bool declaresCoreLibraryRoot =
+            DeclaresCoreLibraryRoot(reader);
+        DefinitionKindDependency? dependency = null;
+        MetadataTypeDefinitionKind kind =
+            resolution is null
+                ? MetadataTypeDeclarationProbe.ClassifyDefinitionKind(
+                    reader,
+                    handle,
+                    declaresCoreLibraryRoot)
+                : resolution.ClassifyDefinitionKind(
+                    reader,
+                    handle,
+                    declaresCoreLibraryRoot,
+                    out dependency);
+        if (kind == MetadataTypeDefinitionKind.Unknown
+            && dependency is not null)
+        {
+            return resolution!.Classify(dependency, subject);
+        }
+
+        if (kind == MetadataTypeDefinitionKind.Interface)
             return ConstraintClass.ProvesNothing;
+
+        if (kind != MetadataTypeDefinitionKind.Class)
+            return ConstraintClass.Unreadable;
 
         // Same-module, so the name is checked against the module's own identity rather
         // than against a resolution scope: an ordinary assembly may declare a type
         // called `System.Enum`, and that type is a plain class, so a parameter
         // constrained to it IS known to be a reference type.
-        return IsClassThatProvesNothing(fullName) && DeclaresCoreLibraryRoot(reader)
+        return IsClassThatProvesNothing(fullName)
+            && declaresCoreLibraryRoot
             ? ConstraintClass.ProvesNothing
             : ConstraintClass.ProvesReferenceType;
     }
@@ -595,60 +1453,59 @@ internal static class TypeParameterKindClassifier
     /// special types C# treats as proving nothing about a type parameter.
     /// </summary>
     /// <remarks>
-    /// A core library is recognized the way <c>ApiSurfaceExtractor</c> already
-    /// recognizes the genuine root object: it declares a <c>System.Object</c> with no
-    /// base type, which only the root can have. An assembly that merely declares
-    /// <c>System.Enum</c> inherits its object from elsewhere and is rejected. An
-    /// assembly that declares a nil-base <c>System.Object</c> is structurally a core
-    /// library, and a compilation against it really does treat its <c>System.Enum</c> as
-    /// the special type, so accepting that case tracks the compiler rather than
-    /// trusting the assembly.
+    /// A core library is recognized structurally, not by name alone: it must expose one
+    /// unique top-level <c>System.Object</c> with no base type. Nested or ambiguous
+    /// lookalikes are rejected. An assembly that merely declares <c>System.Enum</c>
+    /// inherits its object from elsewhere and is rejected. An assembly that declares the
+    /// unique nil-base top-level <c>System.Object</c> is structurally a core library, and
+    /// a compilation against it really does treat its <c>System.Enum</c> as the special
+    /// type, so accepting that case tracks the compiler rather than trusting the assembly.
     /// </remarks>
     static bool DeclaresCoreLibraryRoot(MetadataReader reader)
-        => s_coreLibraryRoots.GetValue(reader, static key => ScanForCoreLibraryRoot(key) ? s_true : s_false) == s_true;
+        => CoreLibraryRootAuthentication
+            .DeclaresUniqueTopLevelCoreLibraryRoot(reader);
 
-    /// <summary>
-    /// Memoized because the answer is a pure function of the module and the scan walks the
-    /// whole type table: without this, a module pairing many constrained parameters with a
-    /// large type table costs the product of the two. Measured on a synthesized module of
-    /// 2,000 constrained parameters and 20,001 types, extraction fell from 0.74s to 0.21s.
-    /// That cost reduction is measured, not gated -- no test pins it, because a module
-    /// large enough to separate the two reliably would dominate the suite's run time. The
-    /// classification itself is gated by
-    /// <c>ConstraintRestatement_RejectsASameModuleCoreLibraryLookalike</c>.
-    /// </summary>
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<MetadataReader, object> s_coreLibraryRoots = new();
+    static bool IsClassThatProvesNothing(string? fullName)
+        => fullName is not null && Array.IndexOf(s_classesThatProveNothing, fullName) >= 0;
 
-    static readonly object s_true = new();
-
-    static readonly object s_false = new();
-
-    static bool ScanForCoreLibraryRoot(MetadataReader reader)
+    static ConstraintClass ClassifyReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        ResolutionPlan? resolution,
+        int? genericArgumentCount,
+        EntityHandle subject)
     {
+        if (resolution is not null)
+        {
+            return resolution.Classify(
+                reader,
+                handle,
+                genericArgumentCount,
+                subject);
+        }
+
+        if (genericArgumentCount is not null)
+            return ConstraintClass.Unreadable;
+
         try
         {
-            foreach (var handle in reader.TypeDefinitions)
+            TypeReference reference = reader.GetTypeReference(handle);
+            if (IsClassThatProvesNothing(
+                    TypeReferenceFullName(reader, handle))
+                && ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
+                    reader,
+                    reference.ResolutionScope))
             {
-                var candidate = reader.GetTypeDefinition(handle);
-                if (candidate.BaseType.IsNil
-                    && (candidate.Attributes & TypeAttributes.Interface) == 0
-                    && string.Equals(reader.GetString(candidate.Namespace), "System", StringComparison.Ordinal)
-                    && string.Equals(reader.GetString(candidate.Name), "Object", StringComparison.Ordinal))
-                {
-                    return true;
-                }
+                return ConstraintClass.ProvesNothing;
             }
         }
         catch (BadImageFormatException)
         {
-            return false;
+            return ConstraintClass.Unreadable;
         }
 
-        return false;
+        return ConstraintClass.Unreadable;
     }
-
-    static bool IsClassThatProvesNothing(string? fullName)
-        => fullName is not null && Array.IndexOf(s_classesThatProveNothing, fullName) >= 0;
 
     static string? TypeReferenceFullName(MetadataReader reader, TypeReferenceHandle handle)
     {
@@ -662,47 +1519,4 @@ internal static class TypeParameterKindClassifier
         }
     }
 
-    /// <summary>
-    /// Classifies the type at the root of a constraint signature. Only the named-type
-    /// and instantiation callbacks can be reached by a well-formed constraint; every
-    /// other shape is not a legal constraint and is reported unreadable rather than
-    /// guessed at.
-    /// </summary>
-    sealed class ConstraintRootProvider : ISignatureTypeProvider<ConstraintClass, GenericContext?>
-    {
-        public static ConstraintRootProvider Instance { get; } = new();
-
-        public ConstraintClass GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-            => ClassifyDefinition(reader, handle);
-
-        public ConstraintClass GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-            => IsClassThatProvesNothing(TypeReferenceFullName(reader, handle))
-                ? ConstraintClass.ProvesNothing
-                : ConstraintClass.Unreadable;
-
-        public ConstraintClass GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
-            => GuardedProviderDecode.TypeSpec(reader, handle, this, context, fallback: ConstraintClass.Unreadable);
-
-        // A generic instantiation is classified by the type being instantiated.
-        public ConstraintClass GetGenericInstantiation(ConstraintClass genericType, ImmutableArray<ConstraintClass> typeArguments)
-            => genericType;
-
-        public ConstraintClass GetModifiedType(ConstraintClass modifier, ConstraintClass unmodifiedType, bool isRequired)
-            => unmodifiedType;
-
-        public ConstraintClass GetPinnedType(ConstraintClass elementType) => elementType;
-
-        // A constraint naming another type parameter is only as known as that parameter.
-        // The index alone cannot be resolved here, so the answer is deferred to
-        // ClassifySibling, which has the owning parameter and can find its siblings.
-        public ConstraintClass GetGenericMethodParameter(GenericContext? context, int index) => ConstraintClass.DeferToTypeParameter;
-        public ConstraintClass GetGenericTypeParameter(GenericContext? context, int index) => ConstraintClass.DeferToTypeParameter;
-
-        public ConstraintClass GetPrimitiveType(PrimitiveTypeCode typeCode) => ConstraintClass.Unreadable;
-        public ConstraintClass GetSZArrayType(ConstraintClass elementType) => ConstraintClass.Unreadable;
-        public ConstraintClass GetArrayType(ConstraintClass elementType, ArrayShape shape) => ConstraintClass.Unreadable;
-        public ConstraintClass GetByReferenceType(ConstraintClass elementType) => ConstraintClass.Unreadable;
-        public ConstraintClass GetPointerType(ConstraintClass elementType) => ConstraintClass.Unreadable;
-        public ConstraintClass GetFunctionPointerType(MethodSignature<ConstraintClass> signature) => ConstraintClass.Unreadable;
-    }
 }

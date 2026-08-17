@@ -90,8 +90,7 @@ public static class ApiOutputFormatter
             }
         };
 
-        if (api.InspectionFailures.Count > 0
-            && options.Verbosity >= Verbosity.Normal)
+        if (RendersInspectionFailures(api, options))
         {
             view.InspectionFailures = api.InspectionFailures
                 .Select(failure => new ApiInspectionFailureRow(
@@ -99,7 +98,18 @@ public static class ApiOutputFormatter
                     $"0x{failure.SubjectToken:X8}",
                     failure.Mechanism.ToString(),
                     failure.Kind,
-                    failure.Detail))
+                    CSharpIdentifier.ContainRenderedText(
+                        failure.Detail),
+                    failure.SubjectAssembly is null
+                        ? null
+                        : CSharpIdentifier.ContainRenderedText(
+                            AssemblyIdentityFormatter.Format(
+                                failure.SubjectAssembly)),
+                    failure.DependencyAssembly is null
+                        ? null
+                        : CSharpIdentifier.ContainRenderedText(
+                            AssemblyIdentityFormatter.Format(
+                                failure.DependencyAssembly))))
                 .ToList();
         }
 
@@ -131,6 +141,21 @@ public static class ApiOutputFormatter
         }
 
         return (view, truncatedCount);
+    }
+
+    internal static bool RendersInspectionFailures(
+        ApiSurface api,
+        ApiOptions options)
+    {
+        if (api.InspectionFailures.Count == 0)
+            return false;
+
+        HashSet<string>? includeSections =
+            BuildWriterOptions(api, options)
+                .IncludeSections;
+        return includeSections is null
+            || includeSections.Contains(
+                SectionNames.InspectionFailures);
     }
 
     private static void PopulateTypeSections(CliApiSurface view, List<ApiType> types, bool showDocs)
@@ -277,6 +302,13 @@ public static class ApiOutputFormatter
     internal static bool ShouldRenderSurfaceFactTableView(ApiOptions options)
         => options.IncludeSections is { Count: 1 } sections
            && sections.Contains(SectionNames.ApiInfo);
+
+    internal static bool
+        ShouldRenderSurfaceInspectionFailureTableView(
+            ApiOptions options) =>
+        options.IncludeSections is { Count: 1 } sections
+        && sections.Contains(
+            SectionNames.InspectionFailures);
 
     internal static bool ShouldRenderSectionedTabularView(ApiType type, ApiOptions options)
     {
@@ -2309,9 +2341,17 @@ public static class ApiOutputFormatter
             : null;
         var rows = LibraryMetadataService.FilterAndOrderTriageOpportunities(
                 LibraryMetadataService.TriageOpportunities(index, options)
-                    .Where(opportunity => ApiAnalysisInspection.SameType(opportunity.Method.DeclaringType, type))
-                    .Where(opportunity => !LibraryMetadataService.IsGeneratedMethod(opportunity.Method, index.GeneratedFrameworkTypeNames))
-                    .Where(opportunity => memberTokens is null || memberTokens.Contains(opportunity.Method.MetadataToken)),
+                    .Where(opportunity => ApiAnalysisInspection.SameType(
+                        (opportunity.SourceOwner ?? opportunity.Method)
+                            .DeclaringType,
+                        type))
+                    .Where(opportunity => LibraryMetadataService.IncludePerformanceOpportunity(
+                        opportunity,
+                        index.GeneratedFrameworkTypeNames))
+                    .Where(opportunity => memberTokens is null
+                        || memberTokens.Contains(
+                            (opportunity.SourceOwner ?? opportunity.Method)
+                                .MetadataToken)),
                 options)
             .Select(opportunity => new OptimizationOpportunityRow(
                 MarkoutInline.Code(FormatMember(null, opportunity.Method.Name, opportunity.Method.ParameterTypes, [])),
@@ -2324,6 +2364,7 @@ public static class ApiOutputFormatter
                 opportunity.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null,
                 MarkoutInline.Code(opportunity.Evidence),
                 opportunity.SafeFixDirection,
+                LibraryMetadataService.TriagePriority(opportunity),
                 opportunity.Confidence,
                 LibraryMetadataService.IteratesInLoop(opportunity) ? "loop" : "",
                 LibraryMetadataService.FormatCallerLoop(opportunity.CallerLoop),

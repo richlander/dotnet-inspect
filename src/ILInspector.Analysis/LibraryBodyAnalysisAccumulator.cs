@@ -50,6 +50,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var leakCandidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
         var exceptionPathCandidates =
             ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
+        var leakFailures =
+            ImmutableArray.CreateBuilder<LeakTriageFailure>();
         var ownershipFlow =
             ImmutableArray.CreateBuilder<ArrayPoolOwnershipMethodEvidence>();
         int none = 0, impl = 0, expl = 0;
@@ -66,6 +68,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 leakCandidates.AddRange(leakTriage.Candidates);
                 exceptionPathCandidates.AddRange(
                     leakTriage.ExceptionPathCandidates);
+                leakFailures.AddRange(leakTriage.Failures);
             }
             if (r.OwnershipFlow is { } methodOwnership
                 && (!methodOwnership.Rents.IsEmpty
@@ -121,6 +124,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
             {
                 ExceptionPathCandidates =
                     exceptionPathCandidates.ToImmutable(),
+                Failures = leakFailures.ToImmutable(),
             }
             : null;
         return new(
